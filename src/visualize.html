@@ -1397,6 +1397,13 @@
       const pill = (a) =>
         `<span class="pill ${meta(a).cls}"><span class="dot"></span>${meta(a).label}</span>`
 
+      // `CURRENT.state` may be QUALIFIED (an each: loop item, e.g.
+      // "packages[2].building") — the static MODEL/`byName`/`idFor` only ever
+      // name BASE states (mirrors `program.ts`'s `stripQualifiers` use ahead
+      // of its own `byName`-shaped lookup), so any lookup keyed on
+      // `CURRENT.state` strips first. Display text keeps the qualifier.
+      const stripQualifiers = (name) => (name || "").replace(/\[\d+\]/g, "")
+
       // ── mermaid source generation ──────────────────────────────────────
       // Safe, stable node ids (state names can contain hyphens etc.), with a
       // reverse lookup — needed to map a rendered SVG node's id back to its
@@ -1758,6 +1765,7 @@
         el.scrollIntoView({ behavior: "smooth", block: "start" })
       }
       function navigateTo(name) {
+        name = stripQualifiers(name)
         const s = byName[name]
         if (s && s.group) {
           const gi = groupIndexOf(s.group)
@@ -1772,9 +1780,9 @@
           mode === "main"
             ? CURRENT.group
               ? groupBoxId(groupIndexOf(CURRENT.group))
-              : idFor(CURRENT.state)
+              : idFor(stripQualifiers(CURRENT.state))
             : CURRENT.group === MODEL.groups[gi].name
-              ? idFor(CURRENT.state)
+              ? idFor(stripQualifiers(CURRENT.state))
               : null
         if (wantId === null) return
         nodeGroupsOf(host).forEach((el) => {

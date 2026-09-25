@@ -86,11 +86,12 @@ GTD_QUALITYREVIEWS="owasp-security, code-simplification, acme-security-checklist
 
 Unlike the `*Skills` vars, gtd DOES split this one — on every comma, one lens
 per entry — because each entry is its own turn rather than prose handed verbatim
-to one state. Keep entries free of commas and of characters that don't belong in
-a filename: each trimmed entry becomes part of a queued review file's name. It
-does NOT share the `*Skills` vars' "costs nothing" rule for a name your harness
-lacks: `reviewing` still burns its own full turn with no lens loaded, since the
-queue file exists whether or not anything can load it — a typo costs a whole
+to one state: it is the `var:` source of an `each:` loop (see
+[Configuration](configuration.md)), one pass through `reviewing` per trimmed
+entry, entry order preserved. It does NOT share the `*Skills` vars' "costs
+nothing" rule for a name your harness lacks: `reviewing` still burns its own
+full turn with no lens loaded, since nothing checks a lens name against what
+your harness can actually load before that turn starts — a typo costs a whole
 turn, silently. Blanking the whole var, in contrast, does switch the lap off
 outright. See [Configuration](configuration.md) for the cost of extending it.
 

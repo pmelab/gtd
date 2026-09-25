@@ -1,6 +1,6 @@
 Feature: A section dropped by the judge payload bound fails open (package 02)
 
-  Both section-splitting judged gates — `packages.item.spec.pre` and
+  Both section-splitting judged gates — `packages.spec.pre` and
   `build.review.triage` — count `## ` sections/chunks from the WHOLE
   document (`it.sections(path)`, no share). DECISION, diverging from this
   package's own task text ("learn which survived via `it.sections(path,
@@ -23,7 +23,7 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
   pass on evidence the judge never saw.
 
   @inmem
-  Scenario: packages.item.spec.pre — the section a small judgeBudgetBytes drops gets a structural question, and answering it conservatively still scopes the reviewer to it
+  Scenario: packages[0].spec.pre — the section a small judgeBudgetBytes drops gets a structural question, and answering it conservatively still scopes the reviewer to it
     Given a test project
     And the workflow
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "40"
@@ -40,10 +40,7 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
       ## Section C
       - [ ] add src/c.ts
       """
-    And a commit "gtd(check): packages.item.spec.pre" that adds ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
+    And an empty commit "gtd(check): packages[0].spec.pre\n\nGtd-Each: packages [\".gtd/packages/01-widget.md\"]"
     When I run gtd with args "judge"
     Then it succeeds
     # Section A/B's bodies were cut by the 40-byte tail bound — only Section
@@ -68,7 +65,7 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages[0].spec.pre → packages[0].spec.scoping"
     # `gtd judge answer` stamps the flag from THIS render — the one the
     # verdict above answered — not a fresh one; `scoping`'s own real script
     # reads exactly this trailer below.
@@ -92,7 +89,7 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And the last commit subject is "gtd(check): packages[0].spec.scoping → packages[0].spec.review"
 
   @inmem
   Scenario: build.review.triage — the chunk a small judgeBudgetBytes drops gets a structural question, and answering it conservatively still captures for review

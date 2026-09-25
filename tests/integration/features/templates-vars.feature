@@ -304,13 +304,18 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: the bundled template resolves a coder-tier state's model from "vars.coderModel"
     Given a test project
     And the workflow
-    And a commit "gtd(check): packages.item.building" that adds ".gtd/NEXT.md" with:
+    And a file ".gtd/packages/01-widget.md" with:
       """
       the plan
       """
+    And the working tree is committed as "chore: seed one package"
+    And a commit "gtd(check): packages[0].building\n\nGtd-Each: packages [\".gtd/packages/01-widget.md\"]" that adds "src/marker.txt" with:
+      """
+      starting the package
+      """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.building\""
+    And stdout contains "\"state\":\"packages[0].building\""
     And stdout contains "\"model\":\"base\""
 
   Scenario: a "GTD_PLANNERMODEL" override repoints every planner-tier state at once

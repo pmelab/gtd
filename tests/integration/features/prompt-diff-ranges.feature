@@ -7,7 +7,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
   (`default-workflow.feature`'s incremental-review scenario, `entry.feature`'s
   first-review scenario); `gtd summary`'s own prompt follows the same rule and
   is covered by `summary.feature`. This file covers the two sites nothing else
-  exercises: `packages.item.spec.review` (the per-package build's own review
+  exercises: `packages.spec.review` (the per-package build's own review
   prompt) and `build.review.deciding`'s captured manifest — see
   `src/workflows/unified.yaml` and `src/PatternTemplates.ts`.
 
@@ -16,19 +16,19 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
     And the workflow
 
   @inmem
-  Scenario: packages.item.spec.review prints the process base hash, never a rendered diff
+  Scenario: packages.spec.review prints the process base hash, never a rendered diff
     Given a commit "feat: add architecture" that adds "src/db.ts" with:
       """
       export const db = {}
       """
-    And I mark the current commit as "process-start"
-    And a file ".gtd/NEXT.md" with:
+    And a commit "chore: seed one package" that adds ".gtd/packages/01-db.md" with:
       """
       Package: add a db module.
       """
-    And an empty commit "gtd(check): packages.picking → packages.item.building"
-    And an empty commit "gtd(agent): packages.item.building → packages.item.health.check"
-    And an empty commit "gtd(check): packages.item.health.check → packages.item.spec.review"
+    And I mark the current commit as "process-start"
+    And an empty commit "gtd(check): packages-sweep → packages[0].building\n\nGtd-Each: packages [\".gtd/packages/01-db.md\"]"
+    And an empty commit "gtd(agent): packages[0].building → packages[0].health.check"
+    And an empty commit "gtd(check): packages[0].health.check → packages[0].spec.review"
     When I run gtd next
     Then it succeeds
     And stdout contains the hash of "process-start"

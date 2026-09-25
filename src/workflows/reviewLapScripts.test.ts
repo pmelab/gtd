@@ -63,6 +63,8 @@ const runScript = (dir: string, stateName: string, varsOverride: Record<string, 
     diffTail: () => "",
     vars: { ...vars, ...varsOverride },
     edges: [],
+    item: "",
+    itemIndex: -1,
   })
   execFileSync("sh", ["-c", script.replace(/\.gtd\//g, "")], { cwd: dir, stdio: "pipe" })
 }

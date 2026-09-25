@@ -80,6 +80,23 @@ export interface WorkflowDefinition {
   readonly modes?: Readonly<Record<StateMode, ModeDef>>
   /** `gtd summary`'s prompt template (an Eta template) — absent makes the command refuse rather than fail at load. */
   readonly summary?: string
+  /**
+   * Every `each:` reference this workflow declares, keyed by the CHILD
+   * instance's own dotted path (`src/Machines.ts`'s `InstancePath`) — a base
+   * name, never a qualified one, since `entry:`/`machines:` config can never
+   * produce a qualified name (qualification is a pure runtime notion, see
+   * `stripQualifiers`/`qualifyAt`). `entry` is the reference's own machine's
+   * `entry:` local, resolved against the CHILD instance; `drained` is the
+   * reference's `drained:` target, resolved against the PARENT. Absent for a
+   * workflow that declares no `each:` at all.
+   */
+  readonly eachRefs?: Readonly<Record<string, EachRef>>
+}
+
+/** See `WorkflowDefinition.eachRefs`. */
+export interface EachRef {
+  readonly entry: StateName
+  readonly drained: StateName
 }
 
 export const contentKindOf = (state: StateDef): ContentKind | undefined => {
@@ -93,21 +110,33 @@ export const contentKindOf = (state: StateDef): ContentKind | undefined => {
 export const contentOf = (state: StateDef): string | undefined =>
   state.script ?? state.prompt ?? state.message
 
-/** True when `state` anchors the review's diff base. Safe for an unknown state name (returns `false`). The string/template form of `reviewBase` is NOT this anchor form — this stays narrowed to `=== true` on purpose, never truthy. */
+/**
+ * True when `state` anchors the review's diff base. Safe for an unknown state
+ * name (returns `false`). The string/template form of `reviewBase` is NOT
+ * this anchor form — this stays narrowed to `=== true` on purpose, never
+ * truthy. `state` is stripped first: `reviewBaseFor` (`Edge.ts`) walks
+ * QUALIFIED trace rows inside an `each:` loop, and this lookup is against the
+ * BASE `def.states` map.
+ */
 export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): boolean =>
-  def.states[state]?.reviewBase === true
+  def.states[stripQualifiers(state)]?.reviewBase === true
 
 /** The named state's `reviewBase` when it is a STRING (an Eta template rendering a commitish that fixes the whole process's diff base) — `undefined` when `reviewBase` is `true`, absent, or `state` doesn't exist. Pure accessor only: rendering the template is an edge concern. */
 export const entryBaseTemplateOf = (
   def: WorkflowDefinition,
   state: StateName,
 ): string | undefined => {
-  const reviewBase = def.states[state]?.reviewBase
+  const reviewBase = def.states[stripQualifiers(state)]?.reviewBase
   return typeof reviewBase === "string" ? reviewBase : undefined
 }
 
+/**
+ * `state` stripped first — `snapshotFromRest` (`Edge.ts`) calls this against
+ * the resolved rest, which may be QUALIFIED inside an `each:` loop, but
+ * `def.states` is keyed by base names only.
+ */
 export const isRequireRevertState = (def: WorkflowDefinition, state: StateName): boolean =>
-  def.states[state]?.requireRevert === true
+  def.states[stripQualifiers(state)]?.requireRevert === true
 
 /**
  * Every declared state, sorted. This drives the CLI's `--entry <state>` guard
@@ -115,6 +144,16 @@ export const isRequireRevertState = (def: WorkflowDefinition, state: StateName):
  */
 export const enterableStates = (def: WorkflowDefinition): readonly StateName[] =>
   Object.keys(def.states).sort()
+
+/**
+ * `enterableStates`, minus every state inside an `each:` reference's subtree
+ * — `gtd --entry <state>` (`src/step/planEntry.ts`) uses this instead: a loop
+ * item's states have no well-defined qualified name to enter at (there is no
+ * item list before a process runs), so a manual entry there is refused, and
+ * its base names are withheld from the refusal's own offered list too.
+ */
+export const manualEntryStates = (def: WorkflowDefinition): readonly StateName[] =>
+  enterableStates(def).filter((state) => !isInEachSubtree(def, state))
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
@@ -205,7 +244,7 @@ const declaredActors = (def: WorkflowDefinition): ReadonlySet<Actor> => {
 export const resolveState = (def: WorkflowDefinition, headSubject: string): StateName => {
   const parsed = parseStateSubject(headSubject)
   if (parsed === undefined) return initialStateOf(def)
-  const state = def.states[parsed.state]
+  const state = def.states[stripQualifiers(parsed.state)]
   if (state === undefined) return initialStateOf(def)
   if (!declaredActors(def).has(parsed.actor)) return initialStateOf(def)
   return parsed.state
@@ -316,6 +355,15 @@ export interface StepPayload {
    * `shadow:` — see `step`'s routing precedence.
    */
   readonly routeAnswers?: readonly RouteAnswer[]
+  /**
+   * The snapshotted item list for every currently-active `each:` reference,
+   * keyed by the reference's own path (`WorkflowDefinition.eachRefs`'s keys)
+   * — resolved and snapshotted by `Edge.ts` (glob/var resolution needs the
+   * `Workspace`, which this pure module never touches), read here only to
+   * decide whether a loop has a next item. Absent/missing-key means "no
+   * items" for that reference, same as an explicit empty array.
+   */
+  readonly eachItems?: Readonly<Record<string, readonly string[]>>
 }
 
 export type StepRefusal =
@@ -358,6 +406,16 @@ export interface StepCommit {
    * Present only when it applies; never `false`.
    */
   readonly attempt?: true
+  /**
+   * The `each:` reference path this decision freshly ENTERS — `from` was not
+   * yet qualified there — present whether the fresh entry lands on the first
+   * item (index `0`) or, for an empty snapshotted list, is redirected
+   * straight to `drained:` (see `qualifyLoopTarget`). `Edge.ts`'s `planStep`
+   * uses this to know when to write the entering commit's `Gtd-Each:`
+   * snapshot trailer. Absent for every other decision, including one
+   * continuing WITHIN an already-entered item.
+   */
+  readonly enteredEachRef?: string
 }
 
 export type StepDecision = StepRefusal | StepNoOp | StepCommit
@@ -453,15 +511,24 @@ const edgeTargets = (state: StateDef): readonly StateName[] => [
   ...(state.retry !== undefined ? [state.retry.otherwise] : []),
 ]
 
-/** Every state whose edges can enter `target` — structural, derived from `def` alone. */
+/** Every state whose edges can enter `target` — structural, derived from `def` alone. `target` is stripped first: this is a purely structural (base-name) computation, so a per-item qualified target still resolves the same source set every item shares. */
 const sourcesOf = (def: WorkflowDefinition, target: StateName): ReadonlySet<StateName> =>
   new Set(
     Object.entries(def.states)
-      .filter(([, state]) => edgeTargets(state).includes(target))
+      .filter(([, state]) => edgeTargets(state).includes(stripQualifiers(target)))
       .map(([name]) => name),
   )
 
-/** `target`'s entries since the process last left `target`'s loop. */
+/**
+ * `target`'s entries since the process last left `target`'s loop. `target`
+ * and `trace` rows may be QUALIFIED (an each: loop's per-item state) — the
+ * increment test (`name === target`) is an EXACT (qualified) match, so a
+ * budget scopes per item by construction: a prior item's same-shaped visit
+ * never counts toward the current item's cap. The reset test, by contrast,
+ * checks `sources` (base names, see `sourcesOf`) against `name`'s OWN base —
+ * a sibling visit from any OTHER item still keeps the episode open exactly
+ * like today, it just never increments a different item's count.
+ */
 const episodeVisits = (
   def: WorkflowDefinition,
   target: StateName,
@@ -471,7 +538,7 @@ const episodeVisits = (
   let count = 0
   for (const name of trace) {
     if (name === target) count += 1
-    else if (!sources.has(name)) count = 0
+    else if (!sources.has(stripQualifiers(name))) count = 0
   }
   return count
 }
@@ -484,19 +551,47 @@ const episodeVisits = (
  * cycle (A's otherwise is B, B's otherwise is A, both over cap): once a target
  * is seen twice, the chain stops and that target is accepted as final rather
  * than looping forever.
+ *
+ * `target` may already be QUALIFIED (an each: loop target — see
+ * `qualifyLoopTarget`); the retry-cap LOOKUP always strips it first (the
+ * static `retry:` declaration is base-only), but the episode-visit COUNT
+ * compares the qualified form, which is what scopes the cap per item (see
+ * `episodeVisits`). A redirect's own `otherwise` (always base, authored in
+ * YAML) is re-qualified against `currentState`/`payload` exactly like the
+ * original target was, so a capped state inside a loop redirects to another
+ * state in the SAME item, not a stray base name.
+ *
+ * `enteredEachRef` threads through unchanged when this call doesn't redirect,
+ * and is REPLACED by the redirect's own `qualifyLoopTarget` result when it
+ * does — a retry's `otherwise` can itself freshly enter an `each:` subtree the
+ * raw pre-retry target never touched (or vice versa), so only the TERMINAL
+ * hop's own determination is the right answer for the target `step` actually
+ * lands on.
  */
 const applyRetry = (
   def: WorkflowDefinition,
   target: StateName,
   trace: readonly StateName[],
+  currentState: StateName,
+  payload: StepPayload,
+  enteredEachRef: string | undefined,
   visited: ReadonlySet<StateName> = new Set(),
-): StateName => {
-  if (visited.has(target)) return target
-  const targetDef = def.states[target]
-  if (targetDef?.retry === undefined) return target
+): { readonly target: StateName; readonly enteredEachRef: string | undefined } => {
+  if (visited.has(target)) return { target, enteredEachRef }
+  const targetDef = def.states[stripQualifiers(target)]
+  if (targetDef?.retry === undefined) return { target, enteredEachRef }
   const priorVisits = episodeVisits(def, target, trace)
-  if (priorVisits < targetDef.retry.max) return target
-  return applyRetry(def, targetDef.retry.otherwise, trace, new Set([...visited, target]))
+  if (priorVisits < targetDef.retry.max) return { target, enteredEachRef }
+  const otherwise = qualifyLoopTarget(def, targetDef.retry.otherwise, currentState, payload)
+  return applyRetry(
+    def,
+    otherwise.target,
+    trace,
+    currentState,
+    payload,
+    otherwise.enteredEachRef,
+    new Set([...visited, target]),
+  )
 }
 
 /**
@@ -508,6 +603,193 @@ const applyRetry = (
  */
 export const inScope = (state: string, scope: string): boolean =>
   scope === "" || state === scope || state.startsWith(`${scope}.`)
+
+// ── Loop qualifiers (`each:`) ────────────────────────────────────────────────
+//
+// The runtime index qualifier an `each:` loop stamps onto a state name at ITS
+// OWN reference path's segment — `packages[2].building` for the reference
+// instantiated at `packages` — is a PURE RUNTIME notion (see
+// `WorkflowDefinition.eachRefs`'s doc comment): nothing the compiler emits
+// ever carries one, so every lookup against the compiled `states`/`scopes`
+// maps below strips it first, and only a trace row / commit subject / current
+// rest ever carries one at all.
+
+const QUALIFIER_RE = /\[\d+\]/g
+
+/** Strip every `[<n>]` runtime qualifier off `name`, recovering the compiled (base) state name. Round-trips with `qualifyAt` at the same `refPath`. A no-op on an already-base name. */
+export const stripQualifiers = (name: StateName): StateName => name.replace(QUALIFIER_RE, "")
+
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+/**
+ * The runtime index qualifying `name` at `refPath`'s own segment — the
+ * position immediately after `refPath` in the dotted string, e.g.
+ * `qualifierIndexAt("packages.item[2].building", "packages.item") === 2`.
+ * `undefined` when `name` carries no qualifier there (outside `refPath`'s
+ * subtree, or not yet entered).
+ */
+export const qualifierIndexAt = (name: StateName, refPath: string): number | undefined => {
+  const match = new RegExp(`^${escapeRegExp(refPath)}\\[(\\d+)\\]`).exec(name)
+  return match === null ? undefined : Number(match[1])
+}
+
+/**
+ * Qualify `base` (an UNQUALIFIED, compiled state name under `refPath`'s
+ * subtree) with `index` at `refPath`'s own segment — the inverse of
+ * `stripQualifiers` at that position. A no-op (returns `base` verbatim) when
+ * `base` doesn't actually sit under `refPath` — every caller here already
+ * established that via `inScope`/`eachOwnerOf` before calling this.
+ */
+export const qualifyAt = (base: StateName, refPath: string, index: number): StateName =>
+  base === refPath || base.startsWith(`${refPath}.`)
+    ? `${base.slice(0, refPath.length)}[${index}]${base.slice(refPath.length)}`
+    : base
+
+/** The (longest-matching) `each:` reference that owns `baseTarget` — `undefined` when no declared `eachRefs` subtree contains it. `baseTarget` must already be stripped. */
+const eachOwnerOf = (
+  def: WorkflowDefinition,
+  baseTarget: StateName,
+): readonly [string, EachRef] | undefined => {
+  const refs = def.eachRefs
+  if (refs === undefined) return undefined
+  let best: readonly [string, EachRef] | undefined
+  for (const entry of Object.entries(refs)) {
+    const [refPath] = entry
+    if (inScope(baseTarget, refPath) && (best === undefined || refPath.length > best[0].length)) {
+      best = entry
+    }
+  }
+  return best
+}
+
+/** True when `state` sits inside some `each:` reference's subtree — `gtd --entry`'s manual-entry guard refuses these. Strips `state` first, so a qualified rest resolves the same as its base. */
+export const isInEachSubtree = (def: WorkflowDefinition, state: StateName): boolean =>
+  eachOwnerOf(def, stripQualifiers(state)) !== undefined
+
+/**
+ * Reapply, onto `scope` (a BASE instance path resolved from the static
+ * `scopes` map), the runtime qualifier `state` carries at the `each:`
+ * reference `scope` sits under — so `packages.item`'s scope for
+ * `packages.item[2].building` comes back `packages.item[2]`, not
+ * `packages.item` (which would pool every item's memory into one
+ * conversation). Single-level only: `Machines.ts`'s `validateNoNestedEach`
+ * rejects a NESTED `each:` at load time, so at most one declared `eachRefs`
+ * entry can ever be an ancestor of any given `scope`.
+ */
+const requalifyScope = (def: WorkflowDefinition, scope: string, state: StateName): string => {
+  const refs = def.eachRefs
+  if (refs === undefined) return scope
+  for (const [refPath] of Object.entries(refs)) {
+    if (scope !== refPath && !scope.startsWith(`${refPath}.`)) continue
+    const idx = qualifierIndexAt(state, refPath)
+    if (idx === undefined) continue
+    return scope.slice(0, refPath.length) + `[${idx}]` + scope.slice(refPath.length)
+  }
+  return scope
+}
+
+/**
+ * Qualify `target` (a raw, possibly-base transition target) for continuing
+ * inside an `each:` loop — the general "carry the qualifier forward" rule
+ * `step` applies to every target BEFORE retry redirection runs, so a retry
+ * cap's episode count (see `episodeVisits`) already sees the right (per-item)
+ * qualified form:
+ *
+ * - `target` outside every declared `eachRefs` subtree: returned unchanged,
+ *   `enteredEachRef: undefined`.
+ * - `target` inside one, and `currentState` is ALREADY qualified at that
+ *   reference's path: reapply the SAME index (a self-loop/retry/feedback turn
+ *   stays in the current item — it is not a fresh entry, `enteredEachRef:
+ *   undefined`).
+ * - `target` inside one, and `currentState` is NOT yet qualified there (a
+ *   fresh entry from outside the subtree), with a NON-EMPTY snapshotted item
+ *   list (`payload.eachItems`): qualified with index `0`, `enteredEachRef:
+ *   refPath`.
+ * - Same, but the snapshotted item list is EMPTY: this reference is skipped
+ *   entirely — CHAINED THROUGH to whatever its own `drained:` resolves to, by
+ *   recursing on `ref.drained` (Task 2's "a process running two loops in
+ *   sequence" scenario, authored by pointing loop A's `drained:` straight at
+ *   loop B's own reference — spec-review round 4). `visited` guards a
+ *   `drained:` cycle between two empty references the same way `applyRetry`'s
+ *   own `visited` set does. Two outcomes:
+ *   - the chained-through target lands inside ANOTHER `eachRefs` entry: that
+ *     ref's own verdict (qualified target AND `enteredEachRef`) wins outright
+ *     — `refPath` (A) never gets its own snapshot trailer, which is fine: an
+ *     empty-and-chained-through reference never rests anywhere, so nothing
+ *     ever needs to re-derive a position for it.
+ *   - the chained-through target is an ORDINARY exit (owned by no ref):
+ *     `enteredEachRef: refPath` still fires, exactly as it would with no
+ *     chaining — an empty snapshotted list still fresh-enters the reference
+ *     for exactly one commit (see `StepCommit.enteredEachRef`'s own doc
+ *     comment: the snapshot trailer must land even when no item state is
+ *     ever a rest).
+ */
+const qualifyLoopTarget = (
+  def: WorkflowDefinition,
+  target: StateName,
+  currentState: StateName,
+  payload: StepPayload,
+  visited: ReadonlySet<string> = new Set(),
+): { readonly target: StateName; readonly enteredEachRef: string | undefined } => {
+  const baseTarget = stripQualifiers(target)
+  const owner = eachOwnerOf(def, baseTarget)
+  if (owner === undefined) return { target, enteredEachRef: undefined }
+  const [refPath, ref] = owner
+  if (visited.has(refPath)) return { target, enteredEachRef: undefined }
+  const idx = qualifierIndexAt(currentState, refPath)
+  if (idx !== undefined) {
+    return { target: qualifyAt(baseTarget, refPath, idx), enteredEachRef: undefined }
+  }
+  const items = payload.eachItems?.[refPath] ?? []
+  if (items.length === 0) {
+    const chained = qualifyLoopTarget(
+      def,
+      ref.drained,
+      currentState,
+      payload,
+      new Set([...visited, refPath]),
+    )
+    return chained.enteredEachRef !== undefined
+      ? chained
+      : { target: chained.target, enteredEachRef: refPath }
+  }
+  return { target: qualifyAt(baseTarget, refPath, 0), enteredEachRef: refPath }
+}
+
+/**
+ * The one rewrite `step` applies LAST, after retry redirection has resolved
+ * its own final target: when that target equals some `each:` reference's
+ * `drained:` target AND the CURRENT item (read off `currentState`'s own
+ * qualifier at that reference's path) isn't the last of the snapshotted list,
+ * rewrite straight to the next item's entry state, qualified with the next
+ * index — advancing the loop inside this one decision, no intervening rest.
+ * Any other resolved target (including an exhausted or never-entered
+ * `drained:`) stands verbatim.
+ */
+const applyEachDrainAdvance = (
+  def: WorkflowDefinition,
+  target: StateName,
+  currentState: StateName,
+  payload: StepPayload,
+): StateName => {
+  const refs = def.eachRefs
+  if (refs === undefined) return target
+  const baseTarget = stripQualifiers(target)
+  for (const [refPath, ref] of Object.entries(refs)) {
+    if (baseTarget !== ref.drained) continue
+    const idx = qualifierIndexAt(currentState, refPath)
+    // `currentState` isn't inside THIS ref's own subtree — two `eachRefs`
+    // may declare the same `drained:` target, and only the one whose
+    // subtree `currentState` sits inside (or IS) actually advanced this
+    // decision. Fall through to the NEXT candidate ref rather than
+    // returning early, so an unrelated ref sharing the string never shadows
+    // the real one.
+    if (idx === undefined) continue
+    const items = payload.eachItems?.[refPath] ?? []
+    return idx + 1 < items.length ? qualifyAt(ref.entry, refPath, idx + 1) : target
+  }
+  return target
+}
 
 /**
  * Resolve the memory scope for `state`, given the process `trace` so far.
@@ -521,18 +803,32 @@ export const inScope = (state: string, scope: string): boolean =>
  * inside `M`'s subtree.
  */
 export const memoryScopeAt = (
+  def: WorkflowDefinition,
   scopes: Readonly<Record<StateName, string>>,
   state: StateName,
   trace: readonly StateName[],
 ): { readonly scope: string; readonly entryIndex: number } | undefined => {
-  const scope = scopes[state]
-  if (scope === undefined) return undefined
+  const baseScope = scopes[stripQualifiers(state)]
+  if (baseScope === undefined) return undefined
+  const scope = requalifyScope(def, baseScope, state)
+
+  // Each trace row's scope is re-qualified with THAT ROW's OWN runtime
+  // index(es) (not `state`'s) before it's compared against `scope` — a row
+  // sharing the same BASE scope but a DIFFERENT item index (e.g. a prior
+  // item's turn inside an `each:` loop) must break the run exactly like a
+  // sibling/ancestor scope does, or the entry index leaks across an item
+  // boundary (see `Edge.ts`'s `memoryResumedFor`, which anchors a fresh
+  // item's very first turn off this same `entryIndex`).
+  const qualifiedScopeAt = (row: StateName): string | undefined => {
+    const rowBase = scopes[stripQualifiers(row)]
+    return rowBase === undefined ? undefined : requalifyScope(def, rowBase, row)
+  }
 
   let entryIndex = -1
   for (let k = 0; k < trace.length; k++) {
-    const rowScope = scopes[trace[k]!]
+    const rowScope = qualifiedScopeAt(trace[k]!)
     if (rowScope === undefined || !inScope(rowScope, scope)) continue
-    const prevScope = k === 0 ? undefined : scopes[trace[k - 1]!]
+    const prevScope = k === 0 ? undefined : qualifiedScopeAt(trace[k - 1]!)
     const prevInScope = prevScope !== undefined && inScope(prevScope, scope)
     if (k === 0 || !prevInScope) entryIndex = k
   }
@@ -598,7 +894,8 @@ export const step = (
   invoker: Actor,
   payload: StepPayload,
 ): StepDecision => {
-  const stateDef = def.states[state]
+  const baseState = stripQualifiers(state)
+  const stateDef = def.states[baseState]
   if (stateDef === undefined) throw new Error(`step: unknown state "${state}"`)
   if (stateDef.actor === undefined) {
     throw new Error(`step: "${state}" declares no actor — a process never rests there`)
@@ -621,8 +918,45 @@ export const step = (
     attempt = resolved.attempt
   }
 
-  const finalTarget = applyRetry(def, target, payload.processTrace)
-  const targetDef = def.states[finalTarget]
+  // Carry the qualifier forward (or freshly enter at item 0) BEFORE retry
+  // redirection runs, so a capped state's episode count already sees the
+  // per-item qualified form (see `episodeVisits`) — then the retry cap itself
+  // (`applyRetry`), then the one rewrite that actually ADVANCES the loop
+  // (`applyEachDrainAdvance`), which must run LAST so a `retry: otherwise:`
+  // target that happens to BE a `drained:` target obeys the same
+  // advance-or-end rule an ordinary edge would.
+  //
+  // `enteredEachRef` is NOT decided off the raw pre-retry target alone: a
+  // retry's own `otherwise` can redirect INTO an `each:` subtree the raw
+  // target never touched (or the raw target's own fresh entry can get
+  // redirected further by a retry on the item's own entry state) — `applyRetry`
+  // threads the TERMINAL `qualifyLoopTarget` call's verdict through its
+  // recursion, so `retriedTarget.enteredEachRef` is whichever hop actually
+  // determines the target `step` lands on.
+  const { target: qualifiedTarget, enteredEachRef: rawEnteredEachRef } = qualifyLoopTarget(
+    def,
+    target,
+    state,
+    payload,
+  )
+  const retried = applyRetry(
+    def,
+    qualifiedTarget,
+    payload.processTrace,
+    state,
+    payload,
+    rawEnteredEachRef,
+  )
+  const finalTarget = applyEachDrainAdvance(def, retried.target, state, payload)
+  // `retried.enteredEachRef` describes `retried.target` — the moment
+  // `applyEachDrainAdvance` rewrites AWAY from it (advancing loop A's own
+  // item from within A, even though the pre-advance target happened to also
+  // be a fresh entry into some unrelated loop B — spec-review round 4's
+  // second finding), that verdict is stale: an advance is by definition never
+  // a fresh entry, so it is discarded rather than carried onto a commit that
+  // never touches B at all.
+  const enteredEachRef = finalTarget === retried.target ? retried.enteredEachRef : undefined
+  const targetDef = def.states[stripQualifiers(finalTarget)]
   if (targetDef === undefined) {
     throw new Error(`step: "${state}" transitions to undefined state "${finalTarget}"`)
   }
@@ -641,6 +975,7 @@ export const step = (
     from: state,
     to: finalTarget,
     ...(attempt ? { attempt: true as const } : {}),
+    ...(enteredEachRef !== undefined ? { enteredEachRef } : {}),
   }
 }
 
@@ -656,7 +991,7 @@ export const wouldAttempt = (
   state: StateName,
   processTrace: readonly StateName[],
 ): boolean => {
-  const stateDef = def.states[state]
+  const stateDef = def.states[stripQualifiers(state)]
   if (stateDef?.actor === undefined) return false
   const decision = step(def, state, stateDef.actor, { changes: [], processTrace })
   return decision.kind === "commit" && decision.attempt === true && decision.to === state
@@ -834,6 +1169,8 @@ const renderJudgeQuestionIds = (
       diffTail: () => readStub,
       vars,
       edges: [],
+      item: "",
+      itemIndex: -1,
     }
     const rendered = renderStateTemplate(judgeTemplate, ctx)
     const doc: unknown = JSON.parse(rendered)

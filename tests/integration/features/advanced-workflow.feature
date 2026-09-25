@@ -1,9 +1,11 @@
 @inmem
 Feature: A picking-arbiter example — a per-task queue loop via a custom workflow
 
-  Coverage for the deterministic queue-arbiter shape carried by the bundled
-  unified template's per-package build queue (its `packages.picking` state —
-  see STATES.md §10):
+  Coverage for the deterministic queue-arbiter shape — the hand-written
+  idiom `packages`'s own `each:` loop replaced in the bundled template (see
+  .gtd/packages/04-migrate-bundled-loops.md and STATES.md §10), pinned here
+  as a standalone custom-workflow example since a workflow author may still
+  reach for it:
   a `script` state (`picking`) that
   takes the first task file under `.gtd/tasks/` into `.gtd/NEXT.md`, or
   removes `.gtd/NEXT.md` once the queue is empty, with an order-sensitive `on`

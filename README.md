@@ -375,7 +375,9 @@ starts a pure review of everything from `<commitish>` to HEAD — straight to st
 4, no planning and no building.
 
 The workflow itself is data, not code: a `.gtdrc` `workflow:` key replaces it
-wholesale. See
+wholesale, and a machine reference can loop over a list of items — files matched
+by a glob, or a comma-separated var — building each one in turn before moving
+on. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md).
 
 ## License

@@ -25,6 +25,8 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   },
   vars: {},
   edges: [],
+  item: "",
+  itemIndex: -1,
   ...overrides,
 })
 
@@ -42,6 +44,7 @@ const trace = (entries: readonly TraceEntry[]): ProcessRun => ({
   costEntries: [],
   judgeVerdicts: [],
   entryVars: {},
+  eachSnapshots: {},
   headTurn: undefined,
   closingHash: undefined,
 })

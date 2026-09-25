@@ -54,13 +54,13 @@ describe("the bundled unified workflow template", () => {
     expect(validateDefinition(definition).warnings).toEqual([])
   })
 
-  it("declares `retry` on exactly build.fix, build.fix-quality, and packages.item.fix-suite, and nothing else (package 01)", () => {
+  it("declares `retry` on exactly build.fix, build.fix-quality, and packages.fix-suite, and nothing else (package 01)", () => {
     const { definition } = compileTemplate()
     const withRetry = Object.entries(definition.states)
       .filter(([, state]) => state.retry !== undefined)
       .map(([name]) => name)
       .sort()
-    expect(withRetry).toEqual(["build.fix", "build.fix-quality", "packages.item.fix-suite"])
+    expect(withRetry).toEqual(["build.fix", "build.fix-quality", "packages.fix-suite"])
   })
 
   it("pins the `file:` prepend round trip: every compiled value starts with `.gtd/`, no raw declaration does", () => {
@@ -277,21 +277,21 @@ describe("the bundled unified workflow template", () => {
     })
   })
 
-  it("packages.item.building declares an escape hatch for a package whose work already landed (issue #152)", () => {
+  it("packages.building declares an escape hatch for a package whose work already landed (issue #152)", () => {
     // An earlier package's fix turn may already satisfy this one's acceptance
     // criteria; without this edge that dead-ends in an empty attempt + stall.
     const { definition } = compileTemplate()
-    const building = definition.states["packages.item.building"]!
+    const building = definition.states["packages.building"]!
     const edges = building.on ?? []
     const satisfiedAdd = edges.find(([pattern]) => pattern.includes("A "))
     const satisfiedMod = edges.find(([pattern]) => pattern.includes("M "))
-    expect(satisfiedAdd?.[1]).toBe("packages.item.health.check")
+    expect(satisfiedAdd?.[1]).toBe("packages.health.check")
     expect(satisfiedAdd?.[3]).toBeTruthy() // action
     expect(satisfiedMod?.[1]).toBe(satisfiedAdd?.[1])
   })
 
   // Voice only, no structural override, since nothing parses their output.
-  const PROSE_PROMPTS = ["architecture.decompose", "packages.item.spec.review"]
+  const PROSE_PROMPTS = ["architecture.decompose", "packages.spec.review"]
 
   // The only states that interpolate both a `file:` and a `mode:` of
   // `qa`/`review` — get both the voice and the structural override that
@@ -324,7 +324,7 @@ describe("the bundled unified workflow template", () => {
     expect([...PROSE_PROMPTS, ...PARSED_PROMPTS].sort()).toEqual(
       [
         "architecture.decompose",
-        "packages.item.spec.review",
+        "packages.spec.review",
         "design.triage",
         "architecture.author",
         "build.review.collecting",
@@ -368,22 +368,22 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("packages.item.closing's script sweeps the satisfied-evidence file, and healthGate.check's shared sweep does not", () => {
+  it("packages.closing's script sweeps the satisfied-evidence file, and healthGate.check's shared sweep does not", () => {
     // closing is the single owner of that cleanup: sweeping it earlier (in the
     // shared healthGate.check) would delete the evidence before spec.review
     // reads it.
     const { definition } = compileTemplate()
-    const closing = definition.states["packages.item.closing"]!
+    const closing = definition.states["packages.closing"]!
     expect(closing.script).toContain(".gtd/SATISFIED.md")
     const buildHealthCheck = definition.states["build.health.check"]!
-    const packagesHealthCheck = definition.states["packages.item.health.check"]!
+    const packagesHealthCheck = definition.states["packages.health.check"]!
     expect(buildHealthCheck.script).not.toContain(".gtd/SATISFIED.md")
     expect(packagesHealthCheck.script).not.toContain(".gtd/SATISFIED.md")
   })
 
   it("healthGate.check writes .gtd/PRIOR_FEEDBACK.md from history and routes to judge only when it appears, straight to $onRed otherwise (package 01, task 7)", () => {
     const { definition } = compileTemplate()
-    for (const check of ["build.health.check", "packages.item.health.check"]) {
+    for (const check of ["build.health.check", "packages.health.check"]) {
       const script = definition.states[check]!.script!
       expect(script).toContain(".gtd/PRIOR_FEEDBACK.md")
       expect(script).toContain(".gtd/FEEDBACK.md")
@@ -419,19 +419,41 @@ describe("the bundled unified workflow template", () => {
     // (PRIOR_FEEDBACK.md's history walk would never find its anchor), with
     // every OTHER test in this suite still green.
     const { definition } = compileTemplate()
-    for (const check of ["build.health.check", "packages.item.health.check"]) {
+    for (const check of ["build.health.check", "packages.health.check"]) {
       const script = definition.states[check]!.script!
       expect(script, check).toContain(`grep -F -- '${TRANSITION_SEP}<%= it.state %>'`)
     }
   })
 
-  it("build.health.judge/packages.item.health.judge declare judge:/routes: — identical escalates, the catch-all matches the coder's own $onRed fix state (package 01, task 7)", () => {
+  it("build.health.judge/packages.health.judge declare judge:/routes: — identical escalates, the catch-all matches the coder's own $onRed fix state (package 01, task 7)", () => {
     const { definition } = compileTemplate()
-    const cases: Array<[judgeState: string, escalate: string, fix: string]> = [
-      ["build.health.judge", "build.health.escalate", "build.fix"],
-      ["packages.item.health.judge", "packages.item.health.escalate", "packages.item.fix-suite"],
+    // `packages.*` now lives inside `packages`'s own `each:` subtree — a
+    // `step()` call has to invoke it QUALIFIED (an item already mid-loop),
+    // or the engine reads the bare name as a fresh entry with no snapshot
+    // and chains straight through to the drained: target instead.
+    const cases: Array<{
+      judgeState: string
+      stepState: string
+      escalate: string
+      fix: string
+      stepFix: string
+    }> = [
+      {
+        judgeState: "build.health.judge",
+        stepState: "build.health.judge",
+        escalate: "build.health.escalate",
+        fix: "build.fix",
+        stepFix: "build.fix",
+      },
+      {
+        judgeState: "packages.health.judge",
+        stepState: "packages[0].health.judge",
+        escalate: "packages.health.escalate",
+        fix: "packages.fix-suite",
+        stepFix: "packages[0].fix-suite",
+      },
     ]
-    for (const [judgeState, escalate, fix] of cases) {
+    for (const { judgeState, stepState, escalate, fix, stepFix } of cases) {
       const state = definition.states[judgeState]!
       expect(state.judge, judgeState).toBeDefined()
       expect(state.message, judgeState).toBeDefined()
@@ -449,17 +471,17 @@ describe("the bundled unified workflow template", () => {
       // (not necessarily running `gtd judge answer`) still lands, at the
       // same conservative target, rather than refusing with "no-match".
       expect((state.on ?? []).find(([p]) => p === "* **")?.[1], judgeState).toBe(fix)
-      const dirtyStep = step(definition, judgeState, "judge", {
+      const dirtyStep = step(definition, stepState, "judge", {
         changes: [{ status: "M", path: "src/a.ts" }],
-        processTrace: [],
+        processTrace: [stepState],
       })
-      expect(dirtyStep, judgeState).toMatchObject({ kind: "commit", to: fix })
+      expect(dirtyStep, judgeState).toMatchObject({ kind: "commit", to: stepFix })
     }
   })
 
-  it("build.health.judge/packages.item.health.judge strip each round's own trailing stamp before compare — two rounds differing ONLY in the stamp render byte-identical current/previous (package 02)", () => {
+  it("build.health.judge/packages.health.judge strip each round's own trailing stamp before compare — two rounds differing ONLY in the stamp render byte-identical current/previous (package 02)", () => {
     const { definition, vars } = compileTemplate()
-    for (const judgeState of ["build.health.judge", "packages.item.health.judge"]) {
+    for (const judgeState of ["build.health.judge", "packages.health.judge"]) {
       const state = definition.states[judgeState]!
       const body = "1 test failed\nAssertionError: expected 1 to be 2\n"
       const current = `${body}\n<!-- gtd check abc1234 -->\n`
@@ -479,9 +501,9 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("build.health.judge/packages.item.health.judge refuse to read `identical` off an unusable tail — an empty bounded read, on EITHER side, replaces current/previous with a sentinel and forbids identical (package 03)", () => {
+  it("build.health.judge/packages.health.judge refuse to read `identical` off an unusable tail — an empty bounded read, on EITHER side, replaces current/previous with a sentinel and forbids identical (package 03)", () => {
     const { definition, vars } = compileTemplate()
-    for (const judgeState of ["build.health.judge", "packages.item.health.judge"]) {
+    for (const judgeState of ["build.health.judge", "packages.health.judge"]) {
       const state = definition.states[judgeState]!
       // A single unbroken trailing line — no newline in the last cut bytes
       // — is exactly the shape `it.tail` renders as "" (its own doc
@@ -511,9 +533,9 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("build.health.judge/packages.item.health.judge also guard the shape where both tails happen to match but the two whole files differ in byte length (package 03)", () => {
+  it("build.health.judge/packages.health.judge also guard the shape where both tails happen to match but the two whole files differ in byte length (package 03)", () => {
     const { definition, vars } = compileTemplate()
-    for (const judgeState of ["build.health.judge", "packages.item.health.judge"]) {
+    for (const judgeState of ["build.health.judge", "packages.health.judge"]) {
       const state = definition.states[judgeState]!
       const sharedTail = "AssertionError: expected 1 to be 2\n"
       const files: Record<string, string> = {
@@ -530,9 +552,9 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("build.health.escalate/packages.item.health.escalate are round-counting check gates — a fresh escalation routes to describe, a second round to the terminal exhausted stop (package 01, task 1/4)", () => {
+  it("build.health.escalate/packages.health.escalate are round-counting check gates — a fresh escalation routes to describe, a second round to the terminal exhausted stop (package 01, task 1/4)", () => {
     const { definition } = compileTemplate()
-    for (const escalate of ["build.health.escalate", "packages.item.health.escalate"]) {
+    for (const escalate of ["build.health.escalate", "packages.health.escalate"]) {
       const state = definition.states[escalate]!
       expect(state.actor, escalate).toBe("check")
       expect(state.script, escalate).toBeDefined()
@@ -554,9 +576,9 @@ describe("the bundled unified workflow template", () => {
     expect(unifiedYaml).toMatch(/episodeVisits/)
   })
 
-  it("build.health.describe/packages.item.health.describe write .gtd/ESCALATION.md from FEEDBACK.md/PRIOR_FEEDBACK.md/the touched code, and every clean/dirty outcome rests at stop (package 01, task 2/4)", () => {
+  it("build.health.describe/packages.health.describe write .gtd/ESCALATION.md from FEEDBACK.md/PRIOR_FEEDBACK.md/the touched code, and every clean/dirty outcome rests at stop (package 01, task 2/4)", () => {
     const { definition } = compileTemplate()
-    for (const describe of ["build.health.describe", "packages.item.health.describe"]) {
+    for (const describe of ["build.health.describe", "packages.health.describe"]) {
       const state = definition.states[describe]!
       expect(state.actor, describe).toBe("agent")
       expect(state.prompt, describe).toBeDefined()
@@ -577,11 +599,11 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("build.health.stop/build.health.exhausted (and the packages.item.health equivalents) are human gates on ESCALATION.md that release straight into the caller's own $onRed fix state, never back through check, and land untouched (a 'C' row) advances too (package 01, task 2/4)", () => {
+  it("build.health.stop/build.health.exhausted (and the packages.health equivalents) are human gates on ESCALATION.md that release straight into the caller's own $onRed fix state, never back through check, and land untouched (a 'C' row) advances too (package 01, task 2/4)", () => {
     const { definition } = compileTemplate()
     const cases: Array<[stop: string, exhausted: string, fix: string]> = [
       ["build.health.stop", "build.health.exhausted", "build.fix"],
-      ["packages.item.health.stop", "packages.item.health.exhausted", "packages.item.fix-suite"],
+      ["packages.health.stop", "packages.health.exhausted", "packages.fix-suite"],
     ]
     for (const [stop, exhausted, fix] of cases) {
       for (const name of [stop, exhausted]) {
@@ -602,9 +624,9 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("build.health.escalate/packages.item.health.escalate count rounds by describe's own transition subject, not every commit touching ESCALATION.md — so the human's own edit at stop (which lands as an M .gtd/ESCALATION.md commit too) never spends the round budget (package 01, spec-feedback)", () => {
+  it("build.health.escalate/packages.health.escalate count rounds by describe's own transition subject, not every commit touching ESCALATION.md — so the human's own edit at stop (which lands as an M .gtd/ESCALATION.md commit too) never spends the round budget (package 01, spec-feedback)", () => {
     const { definition } = compileTemplate()
-    for (const escalate of ["build.health.escalate", "packages.item.health.escalate"]) {
+    for (const escalate of ["build.health.escalate", "packages.health.escalate"]) {
       const state = definition.states[escalate]!
       // The script must key its round count off `describe` as the commit
       // subject's FROM state (derived from `it.state`, the currently-
@@ -629,9 +651,9 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
-  it("build.health.escalate/packages.item.health.escalate never overwrite a file already on disk at round >= 2 — restoring from history only when ESCALATION.md is missing, so a human's edit at the terminal exhausted stop survives the next arrival (package 01, spec-feedback)", () => {
+  it("build.health.escalate/packages.health.escalate never overwrite a file already on disk at round >= 2 — restoring from history only when ESCALATION.md is missing, so a human's edit at the terminal exhausted stop survives the next arrival (package 01, spec-feedback)", () => {
     const { definition } = compileTemplate()
-    for (const escalate of ["build.health.escalate", "packages.item.health.escalate"]) {
+    for (const escalate of ["build.health.escalate", "packages.health.escalate"]) {
       const state = definition.states[escalate]!
       expect(state.script, escalate).toContain("if [ ! -f .gtd/ESCALATION.md ]; then")
     }
@@ -674,7 +696,18 @@ describe("the bundled unified workflow template", () => {
     const state = definition.states["architecture-promote"]!
     expect(state.script).toContain(".gtd/packages/")
     expect(state.script).toContain(".gtd/REQUIREMENTS.md")
-    expect((state.on ?? []).find(([p]) => p === "* **")?.[1]).toBe("packages.picking")
+    expect((state.on ?? []).find(([p]) => p === "* **")?.[1]).toBe("packages-sweep")
+  })
+
+  it("carries none of the hand-written queue idioms each: replaced — no ls ... | head -n 1, no IFS=,, no .gtd/NEXT.md, no .gtd/NEXT_REVIEW.md (04, task 7)", () => {
+    // A regression guard, not a behavior assertion: each: derives loop
+    // position from history now (see each-loop.feature), so these four
+    // patterns reappearing in the raw source means a hand-written queue
+    // idiom crept back in.
+    expect(unifiedYaml).not.toMatch(/ls .*\| head -n 1/)
+    expect(unifiedYaml).not.toMatch(/IFS=,/)
+    expect(unifiedYaml).not.toMatch(/\.gtd\/NEXT\.md/)
+    expect(unifiedYaml).not.toMatch(/\.gtd\/NEXT_REVIEW\.md/)
   })
 
   describe("architecture-promote refuses the skip on a truncated payload (package 02)", () => {
@@ -720,44 +753,63 @@ describe("the bundled unified workflow template", () => {
 
   it("three attempts still force escalation regardless of verdict — the retry cap on $onRed (fix/fix-suite) overrides a non-identical routes: verdict (package 01, task 7)", () => {
     const { definition } = compileTemplate()
-    // packages.item: round 1 bypasses judge straight to fix-suite (1st visit);
+    // packages: round 1 bypasses judge straight to fix-suite (1st visit);
     // round 2 goes through judge with a "progress" verdict, routing to
     // fix-suite again (2nd visit, meeting its own max: 3 only after a 3rd).
     // Simulate a trace where fix-suite has already been entered 3 times, so a
     // 4th "progress" verdict must still redirect to escalate.
+    // `packages.*` lives inside `packages`'s own `each:` subtree now — every
+    // trace entry (and the invoked state itself) carries item 0's own
+    // qualifier, or the engine reads the bare name as a fresh entry with no
+    // snapshot and chains straight through to the drained: target instead.
     const trace = [
-      "packages.item.health.check",
-      "packages.item.fix-suite",
-      "packages.item.health.check",
-      "packages.item.health.judge",
-      "packages.item.fix-suite",
-      "packages.item.health.check",
-      "packages.item.health.judge",
-      "packages.item.fix-suite",
-      "packages.item.health.check",
-      "packages.item.health.judge",
+      "packages[0].health.check",
+      "packages[0].fix-suite",
+      "packages[0].health.check",
+      "packages[0].health.judge",
+      "packages[0].fix-suite",
+      "packages[0].health.check",
+      "packages[0].health.judge",
+      "packages[0].fix-suite",
+      "packages[0].health.check",
+      "packages[0].health.judge",
     ]
-    const decision = step(definition, "packages.item.health.judge", "judge", {
+    const decision = step(definition, "packages[0].health.judge", "judge", {
       changes: [],
       processTrace: trace,
       routeAnswers: [{ id: "verdict", answer: "progress", p: 0.9 }],
     })
     expect(decision).toMatchObject({
       kind: "commit",
-      to: "packages.item.health.escalate",
+      to: "packages[0].health.escalate",
     })
   })
 
-  it("packages.item.closing's C row advances to packages.picking on an already-clean tree (package 03) — nothing left to sweep still drains the queue instead of stalling", () => {
+  it("packages.closing's C row still advances on an already-clean tree (package 03, 04) — nothing left to sweep never stalls, whether the queue drains for real or another package remains", () => {
     const { definition } = compileTemplate()
-    const decision = step(definition, "packages.item.closing", "check", {
+    // No items provided: `each:`'s own drain-advance treats the queue as
+    // exhausted, so the decision stands on the reference's own `drained:`
+    // target (build.quality-gate) rather than being rewritten to a next item.
+    const drained = step(definition, "packages[0].closing", "check", {
       changes: [],
-      processTrace: [],
+      processTrace: ["packages[0].building", "packages[0].closing"],
     })
-    expect(decision).toMatchObject({
+    expect(drained).toMatchObject({
       kind: "commit",
-      from: "packages.item.closing",
-      to: "packages.picking",
+      from: "packages[0].closing",
+      to: "build.quality-gate",
+    })
+    // A second package still queued: the same target gets rewritten to the
+    // next item's own entry instead of standing.
+    const advanced = step(definition, "packages[0].closing", "check", {
+      changes: [],
+      processTrace: ["packages[0].building", "packages[0].closing"],
+      eachItems: { packages: [".gtd/packages/01-a.md", ".gtd/packages/02-b.md"] },
+    })
+    expect(advanced).toMatchObject({
+      kind: "commit",
+      from: "packages[0].closing",
+      to: "packages[1].building",
     })
   })
 
@@ -822,12 +874,12 @@ describe("the bundled unified workflow template", () => {
     },
     {
       machine: "specReview",
-      states: ["packages.item.spec.review"],
+      states: ["packages.spec.review"],
       personaVar: "specReviewerPersona",
     },
     {
       machine: "packageItem",
-      states: ["packages.item.building", "packages.item.fix-suite", "packages.item.fix-spec"],
+      states: ["packages.building", "packages.fix-suite", "packages.fix-spec"],
       personaVar: "builderPersona",
     },
     {
@@ -837,7 +889,7 @@ describe("the bundled unified workflow template", () => {
     },
     {
       machine: "healthGate",
-      states: ["build.health.describe", "packages.item.health.describe"],
+      states: ["build.health.describe", "packages.health.describe"],
       personaVar: "escalationPersona",
     },
     {
@@ -908,26 +960,26 @@ describe("the bundled unified workflow template", () => {
     { state: "design.triage", skillsVar: "triageSkills" },
     { state: "architecture.author", skillsVar: "architectureSkills" },
     { state: "architecture.decompose", skillsVar: "decomposeSkills" },
-    { state: "packages.item.building", skillsVar: "buildSkills" },
-    { state: "packages.item.fix-suite", skillsVar: "fixSkills" },
+    { state: "packages.building", skillsVar: "buildSkills" },
+    { state: "packages.fix-suite", skillsVar: "fixSkills" },
     { state: "build.fix", skillsVar: "fixSkills" },
-    { state: "packages.item.fix-spec", skillsVar: "reviewFixSkills" },
+    { state: "packages.fix-spec", skillsVar: "reviewFixSkills" },
     { state: "build.review.reviewing", skillsVar: "reviewSkills" },
-    { state: "packages.item.spec.review", skillsVar: "specReviewSkills" },
+    { state: "packages.spec.review", skillsVar: "specReviewSkills" },
     { state: "build.health.describe", skillsVar: "escalateSkills" },
-    { state: "packages.item.health.describe", skillsVar: "escalateSkills" },
+    { state: "packages.health.describe", skillsVar: "escalateSkills" },
     // `skillsVar` is a placeholder here, not a real mapping-table var — its
-    // `skills:` renders from the quality-review queue file, not a var. See
-    // the explicit opt-out below.
+    // `skills:` renders from the each: loop's own item accessor, not a var.
+    // See the explicit opt-out below.
     { state: "build.quality.reviewing", skillsVar: "reviewSkills" },
     { state: "build.fix-quality", skillsVar: "reviewFixSkills" },
   ]
 
-  // `build.quality.reviewing`'s own `skills:` renders from
-  // `it.read(".gtd/NEXT_REVIEW.md")`, a queue file, not a var — the one
-  // state exempt from the "references its own mapping-table var" assertion
-  // below. The assertion itself stays tight for the other twelve, which
-  // still catches a real var typo.
+  // `build.quality.reviewing`'s own `skills:` renders from `it.item` — the
+  // `each: { var: qualityReviews }` loop's own current lens name, not a var —
+  // the one state exempt from the "references its own mapping-table var"
+  // assertion below. The assertion itself stays tight for the other twelve,
+  // which still catches a real var typo.
   const SKILLS_VAR_OPT_OUT = ["build.quality.reviewing"]
 
   it("declares `skills:` on exactly the thirteen compiled states the mapping table names, and nowhere else — build.review.collecting included (package 02)", () => {
@@ -954,10 +1006,10 @@ describe("the bundled unified workflow template", () => {
       fileNeedle: ".gtd/packages/",
       finishNeedle: "uncommitted and finish",
     },
-    "packages.item.building": { fileNeedle: ".gtd/SATISFIED.md", finishNeedle: "finish your turn" },
-    "packages.item.fix-suite": { fileNeedle: ".gtd/FEEDBACK.md", finishNeedle: "finish your turn" },
+    "packages.building": { fileNeedle: ".gtd/SATISFIED.md", finishNeedle: "finish your turn" },
+    "packages.fix-suite": { fileNeedle: ".gtd/FEEDBACK.md", finishNeedle: "finish your turn" },
     "build.fix": { fileNeedle: ".gtd/FEEDBACK.md", finishNeedle: "do not commit" },
-    "packages.item.fix-spec": {
+    "packages.fix-spec": {
       fileNeedle: ".gtd/SPEC_FEEDBACK.md",
       finishNeedle: "finish your turn",
     },
@@ -965,7 +1017,7 @@ describe("the bundled unified workflow template", () => {
       fileNeedle: ".gtd/REVIEW.md",
       finishNeedle: "uncommitted and finish",
     },
-    "packages.item.spec.review": {
+    "packages.spec.review": {
       fileNeedle: ".gtd/SPEC_FEEDBACK.md",
       finishNeedle: "a later step owns that",
     },
@@ -973,7 +1025,7 @@ describe("the bundled unified workflow template", () => {
       fileNeedle: ".gtd/ESCALATION.md",
       finishNeedle: "only writes the document",
     },
-    "packages.item.health.describe": {
+    "packages.health.describe": {
       fileNeedle: ".gtd/ESCALATION.md",
       finishNeedle: "only writes the document",
     },
@@ -989,7 +1041,7 @@ describe("the bundled unified workflow template", () => {
 
   it("each of the thirteen skills-bearing states still names its own steering file and its own finish condition after the trim (package 02, task 4)", () => {
     const { definition } = compileTemplate()
-    // `statesReferencing` alone misses `packages.item.fix-suite`/`build.fix`:
+    // `statesReferencing` alone misses `packages.fix-suite`/`build.fix`:
     // their prompt text reaches `.gtd/FEEDBACK.md` only through the shared
     // `fixFeedbackPrompt` var tag, not a literal in the raw (unrendered)
     // prompt `statesReferencing` scans — so the needle is checked against
@@ -1009,10 +1061,10 @@ describe("the bundled unified workflow template", () => {
   // single unconditional edge — those three are where an overreaching trim
   // could delete the very instruction the routing depends on.
   const BRANCHING_STATES = [
-    "packages.item.building",
-    "packages.item.spec.review",
+    "packages.building",
+    "packages.spec.review",
     "build.health.describe",
-    "packages.item.health.describe",
+    "packages.health.describe",
     "build.fix-quality",
   ]
 
@@ -1417,9 +1469,9 @@ describe("the bundled template's machine boundaries line up with conversational 
     }
   })
 
-  it("the identity table holds: design/architecture/build/packages.item/packages.item.spec/build.review are each exactly one of {planner, coder}, matching the tree", () => {
+  it("the identity table holds: design/architecture/build/packages/packages.spec/build.review are each exactly one of {planner, coder}, matching the tree", () => {
     const { tree } = compileTemplate()
-    // Instance path (e.g. "packages.item") -> the machine it instantiates.
+    // Instance path (e.g. "packages") -> the machine it instantiates.
     const machineAt: Record<string, string> = {}
     const walk = (node: MachineNode): void => {
       machineAt[node.key] = node.machine
@@ -1438,12 +1490,12 @@ describe("the bundled template's machine boundaries line up with conversational 
     expect(identityOf("design")).toBe("planner")
     expect(identityOf("architecture")).toBe("planner")
     expect(identityOf("build")).toBe("coder")
-    expect(identityOf("packages.item")).toBe("coder")
-    expect(identityOf("packages.item.spec")).toBe("planner")
+    expect(identityOf("packages")).toBe("coder")
+    expect(identityOf("packages.spec")).toBe("planner")
     expect(identityOf("build.review")).toBe("planner")
   })
 
-  it("packages, start-gate, review-gate, design.gate, and architecture.gate have no model — they are identity-free gate/queue machines", () => {
+  it("start-gate, review-gate, design.gate, and architecture.gate have no model — they are identity-free gate/queue machines", () => {
     const { tree } = compileTemplate()
     const machineAt: Record<string, string> = {}
     const walk = (node: MachineNode): void => {
@@ -1452,18 +1504,12 @@ describe("the bundled template's machine boundaries line up with conversational 
     }
     walk(tree!)
 
-    for (const instancePath of [
-      "packages",
-      "start-gate",
-      "review-gate",
-      "design.gate",
-      "architecture.gate",
-    ]) {
+    for (const instancePath of ["start-gate", "review-gate", "design.gate", "architecture.gate"]) {
       expect(raw.machines[machineAt[instancePath]!]?.model, instancePath).toBeUndefined()
     }
   })
 
-  it("build.health/packages.item.health (healthGate) declare a model — the escalation `describe` turn is a real prompt state, in its own memory scope separate from the surrounding build/packages.item session (package 01)", () => {
+  it("build.health/packages.health (healthGate) declare a model — the escalation `describe` turn is a real prompt state, in its own memory scope separate from the surrounding build/packages session (package 01)", () => {
     const { tree, scopes } = compileTemplate()
     const machineAt: Record<string, string> = {}
     const walk = (node: MachineNode): void => {
@@ -1472,12 +1518,12 @@ describe("the bundled template's machine boundaries line up with conversational 
     }
     walk(tree!)
 
-    for (const instancePath of ["build.health", "packages.item.health"]) {
+    for (const instancePath of ["build.health", "packages.health"]) {
       expect(raw.machines[machineAt[instancePath]!]?.model, instancePath).toBeTruthy()
     }
     expect(scopes["build.health.describe"]).toBe("build.health")
     expect(scopes["build.health.describe"]).not.toBe(scopes["build.fix"])
-    expect(scopes["packages.item.health.describe"]).toBe("packages.item.health")
+    expect(scopes["packages.health.describe"]).toBe("packages.health")
   })
 
   it("`build.review` is nested inside `build`'s own scope, so the review round-trip never breaks the builder's session", () => {
@@ -1512,7 +1558,6 @@ describe("the bundled template's machine boundaries line up with conversational 
     expect(ownPromptStates("entryGate")).toEqual([])
     expect(ownPromptStates("healthGate")).toEqual(["describe"])
     expect(ownPromptStates("questionGate")).toEqual([])
-    expect(ownPromptStates("packageLoop")).toEqual([])
   })
 
   it("no path closes a process without a human sign-off — every edge landing straight on the sign-off target is one of the four vetted sources, all downstream of a human gate (package 03)", () => {
@@ -1612,15 +1657,15 @@ describe("a section-splitting judge: never mis-cuts its survivor set on a fence 
     expect(doc.questions[1].instructions).toContain("Is the note under review chunk")
   })
 
-  it("packages.item.spec.pre: section-1 (Real A) gets the structural question, section-2 (Real B) gets the ordinary one", () => {
+  it("packages.spec.pre: section-1 (Real A) gets the structural question, section-2 (Real B) gets the ordinary one", () => {
     const { definition, vars } = compileTemplate()
-    const state = definition.states["packages.item.spec.pre"]!
+    const state = definition.states["packages.spec.pre"]!
     const files: Record<string, string> = {
-      ".gtd/NEXT.md": ".gtd/packages/01-widget.md\n",
       ".gtd/packages/01-widget.md": FENCE_STRADDLES_CUT,
     }
     const rendered = renderStateTemplate(state.judge!, {
-      ...varsOnlyContext(vars, "packages.item.spec.pre"),
+      ...varsOnlyContext(vars, "packages.spec.pre"),
+      item: ".gtd/packages/01-widget.md",
       read: (path: string) => files[path]!,
       tail: (path: string) => {
         const c = files[path]!
@@ -1638,7 +1683,7 @@ describe("a section-splitting judge: never mis-cuts its survivor set on a fence 
 })
 
 describe("a section-splitting judge: the two findTitleOffset copies stay byte-identical (package 03)", () => {
-  it("build.review.triage and packages.item.spec.pre carry the SAME findTitleOffset body — a future one-sided fix (CRLF or otherwise) fails here", () => {
+  it("build.review.triage and packages.spec.pre carry the SAME findTitleOffset body — a future one-sided fix (CRLF or otherwise) fails here", () => {
     const { definition } = compileTemplate()
     const extract = (body: string) => {
       const m = /const findTitleOffset = \(text, title, from\) => \{[\s\S]*?\n\s*\}/.exec(body)
@@ -1646,7 +1691,7 @@ describe("a section-splitting judge: the two findTitleOffset copies stay byte-id
       return m[0]
     }
     const triage = extract(definition.states["build.review.triage"]!.judge!)
-    const pre = extract(definition.states["packages.item.spec.pre"]!.judge!)
+    const pre = extract(definition.states["packages.spec.pre"]!.judge!)
     expect(pre).toBe(triage)
   })
 })
@@ -1687,15 +1732,15 @@ describe("a section-splitting judge: findTitleOffset already matches a heading o
     expect(doc.questions[1].instructions).not.toContain("truncated away")
   })
 
-  it("packages.item.spec.pre: a title the CRLF bound dropped is reported as truncated, not SURVIVED", () => {
+  it("packages.spec.pre: a title the CRLF bound dropped is reported as truncated, not SURVIVED", () => {
     const { definition, vars } = compileTemplate()
-    const state = definition.states["packages.item.spec.pre"]!
+    const state = definition.states["packages.spec.pre"]!
     const files: Record<string, string> = {
-      ".gtd/NEXT.md": ".gtd/packages/01-widget.md\n",
       ".gtd/packages/01-widget.md": CRLF_DOC,
     }
     const rendered = renderStateTemplate(state.judge!, {
-      ...varsOnlyContext(vars, "packages.item.spec.pre"),
+      ...varsOnlyContext(vars, "packages.spec.pre"),
+      item: ".gtd/packages/01-widget.md",
       read: (path: string) => files[path]!,
       tail: () => CRLF_TAIL,
       sections: () => ["Real A", "Real B"],
@@ -1736,16 +1781,16 @@ describe("a section-splitting judge: a title it cannot re-find VERBATIM is never
     }
   })
 
-  it("packages.item.spec.pre: the same two heading forms stay ordinary questions", () => {
+  it("packages.spec.pre: the same two heading forms stay ordinary questions", () => {
     const { definition, vars } = compileTemplate()
-    const state = definition.states["packages.item.spec.pre"]!
+    const state = definition.states["packages.spec.pre"]!
     const content = "Setext Section\n---\n\nbody a\n\n##  Spaced   Section\n\nbody b\n"
     const files: Record<string, string> = {
-      ".gtd/NEXT.md": ".gtd/packages/01-widget.md\n",
       ".gtd/packages/01-widget.md": content,
     }
     const rendered = renderStateTemplate(state.judge!, {
-      ...varsOnlyContext(vars, "packages.item.spec.pre"),
+      ...varsOnlyContext(vars, "packages.spec.pre"),
+      item: ".gtd/packages/01-widget.md",
       read: (path: string) => files[path]!,
       tail: (path: string) => files[path]!,
       sections: () => ["Setext Section", "Spaced Section"],
@@ -1757,7 +1802,7 @@ describe("a section-splitting judge: a title it cannot re-find VERBATIM is never
 })
 
 describe("a judge:'s single bounded read stays coupled to its own shell backstop's share = 1 (package 03)", () => {
-  // `build.review.triaging`/`packages.item.spec.scoping` compute
+  // `build.review.triaging`/`packages.spec.scoping` compute
   // `truncated` from `wc -c <file> > judgeBudgetBytes` — correct ONLY while
   // the matching `judge:` field reads the whole file through exactly one
   // bounded read at share 1. No engine wiring ties the two numbers
@@ -1794,11 +1839,11 @@ describe("a judge:'s single bounded read stays coupled to its own shell backstop
     )
   })
 
-  it("packages.item.spec.pre reads the package file with exactly one it.tail call at share 1 — packages.item.spec.scoping's wc -c backstop assumes this", () => {
+  it("packages.spec.pre reads the package file with exactly one it.tail call at share 1 — packages.spec.scoping's wc -c backstop assumes this", () => {
     const { definition } = compileTemplate()
     oneBoundedReadAtShareOne(
-      definition.states["packages.item.spec.pre"]!.judge!,
-      "packages.item.spec.scoping",
+      definition.states["packages.spec.pre"]!.judge!,
+      "packages.spec.scoping",
     )
   })
 })

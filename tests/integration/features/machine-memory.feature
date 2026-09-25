@@ -5,8 +5,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   `memoryScopeAt`, src/Edge.ts's `memoryKeyFor`) from a `prompt`-content
   state's owning MACHINE INSTANCE, never authored per state: a machine's own
   scope is its dotted instance path in the tree (`""` for the root, `"build"`,
-  `"build.health"`, `"packages.item"`, `"packages.item.health"`,
-  `"packages.item.spec"`, ...), and the key is `<scope>#<hash7>` — the first 7
+  `"build.health"`, `"packages"`, `"packages.health"`,
+  `"packages.spec"`, ...), and the key is `<scope>#<hash7>` — the first 7
   hex characters of the commit the CURRENT unbroken entry into that scope
   started FROM. Entering a DESCENDANT scope (a true dotted-prefix match)
   doesn't break the ancestor's run; entering a sibling or unrelated scope
@@ -110,76 +110,86 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And the json field "memory" matches the one recorded as "first fix attempt"
     And the json field "memory" differs from the one recorded as "the escalation turn"
 
-  Scenario: memory is retained across a CHILD's own full agent turn, and that child's own session is never confused with the caller's — packages.item.building ⇄ packages.item.spec.review ⇄ packages.item.fix-spec
+  Scenario: memory is retained across a CHILD's own full agent turn, and that child's own session is never confused with the caller's — packages.building ⇄ packages.spec.review ⇄ packages.fix-spec
     # The sharpest case, and the one the old "last label" driver design (before
     # package 07's per-scope table) got wrong: a full AGENT turn in a nested
-    # child machine (packages.item.spec, ▸ planner) sits between two turns of
-    # the caller (packages.item, ▸ coder) — the caller's session must survive
+    # child machine (packages.spec, ▸ planner) sits between two turns of
+    # the caller (packages, ▸ coder) — the caller's session must survive
     # it untouched, and the child's own session must never be confused with
     # the caller's either.
     Given a test project
     And the workflow
-    And a commit "gtd(check): packages.item.building" that adds ".gtd/NEXT.md" with:
+    And a file ".gtd/packages/01-widget.md" with:
       """
-      .gtd/packages/01-widget.md
+      Package: the widget factory.
+      """
+    And the working tree is committed as "chore: seed one package"
+    And a commit "gtd(check): packages[0].building\n\nGtd-Each: packages [\".gtd/packages/01-widget.md\"]" that adds "src/marker.txt" with:
+      """
+      starting the package
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.building\""
+    And stdout contains "\"state\":\"packages[0].building\""
     And I record the json field "memory" as "the builder's turn"
 
-    Given a commit "gtd(agent): packages.item.spec.review" that adds "src/widget.ts" with:
+    Given a commit "gtd(agent): packages[0].spec.review" that adds "src/widget.ts" with:
       """
       export const widget = () => ({})
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.spec.review\""
+    And stdout contains "\"state\":\"packages[0].spec.review\""
     And the json field "memory" differs from the one recorded as "the builder's turn"
     And I record the json field "memory" as "the reviewer's turn"
 
-    Given a commit "gtd(agent): packages.item.fix-spec" that adds ".gtd/SPEC_FEEDBACK.md" with:
+    Given a commit "gtd(agent): packages[0].fix-spec" that adds ".gtd/SPEC_FEEDBACK.md" with:
       """
       widget() should return a frozen object.
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.fix-spec\""
+    And stdout contains "\"state\":\"packages[0].fix-spec\""
     And the json field "memory" matches the one recorded as "the builder's turn"
     And the json field "memory" differs from the one recorded as "the reviewer's turn"
 
-  Scenario: a fresh memory key per entry — two different packages each get their own distinct session at packages.item.building
+  Scenario: a fresh memory key per entry — two different packages each get their own distinct session at packages.building
     Given a test project
     And the workflow
-    And a commit "gtd(check): packages.item.building" that adds ".gtd/NEXT.md" with:
+    And a file ".gtd/packages/01-widget.md" with:
       """
-      .gtd/packages/01-widget.md
+      Package: the widget factory.
+      """
+    And a file ".gtd/packages/02-gadget.md" with:
+      """
+      Package: the gadget factory.
+      """
+    And the working tree is committed as "chore: seed two packages"
+    And a commit "gtd(check): packages[0].building\n\nGtd-Each: packages [\".gtd/packages/01-widget.md\",\".gtd/packages/02-gadget.md\"]" that adds "src/marker.txt" with:
+      """
+      starting the first package
       """
     When I run gtd next with "--json"
     Then it succeeds
     And I record the json field "memory" as "package 1's builder turn"
 
-    Given a commit "gtd(agent): packages.item.closing" that adds "src/widget.ts" with:
+    # `packages`'s own `each:` advances straight from `closing` to the next
+    # item's own entry, in one decision — no separate "picking" commit
+    # exists any more (each-loop.feature covers that mechanism itself end to
+    # end); fabricated directly here as the closing turn's own outcome.
+    Given a commit "gtd(check): packages[0].closing → packages[1].building" that adds "src/widget.ts" with:
       """
       export const widget = () => ({})
       """
-    Given a commit "gtd(check): packages.picking" that adds ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/02-gadget.md
-      """
-    Given a commit "gtd(check): packages.item.building" that adds "src/marker.txt" with:
-      """
-      starting the second package
-      """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.building\""
+    And stdout contains "\"state\":\"packages[1].building\""
     And the json field "memory" differs from the one recorded as "package 1's builder turn"
 
   Scenario: two instances of one healthGate-shaped machine never share a session, even with byte-identical check output
     Given a test project
     And the workflow
-    # build.health and packages.item.health are both healthGate instances at
+    # build.health and packages.health are both healthGate instances at
     # different points in the tree (src/workflows/unified.yaml) — the proof
     # below is that their computed memory keys never collide, even though
     # both land byte-identical FEEDBACK.md check output.
@@ -192,36 +202,46 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Then it succeeds
     And stdout matches "\"memory\":\"build#[0-9a-f]{7}\""
 
-    Given a commit "gtd(check): packages.item.fix-suite" that adds ".gtd/FEEDBACK.md" with:
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget factory.
+      """
+    And the working tree is committed as "chore: seed one package"
+    Given a commit "gtd(check): packages[0].fix-suite\n\nGtd-Each: packages [\".gtd/packages/01-widget.md\"]" that adds ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
+    And stdout matches "\"memory\":\"packages\[0\]#[0-9a-f]{7}\""
 
   Scenario: a reviewer turn never resumes an implementer session, even though both are prompt-content machine instances active around the same point in the trace
-    # packages.item.spec (▸ planner) and packages.item (▸ coder) are adjacent
+    # packages.spec (▸ planner) and packages (▸ coder) are adjacent
     # in the trace below — a builder turn immediately followed by a reviewer
     # turn — yet their computed keys never share a scope prefix.
     Given a test project
     And the workflow
-    And a commit "gtd(check): packages.item.building" that adds ".gtd/NEXT.md" with:
+    And a file ".gtd/packages/01-widget.md" with:
       """
-      .gtd/packages/01-widget.md
+      Package: the widget factory.
+      """
+    And the working tree is committed as "chore: seed one package"
+    And a commit "gtd(check): packages[0].building\n\nGtd-Each: packages [\".gtd/packages/01-widget.md\"]" that adds "src/marker.txt" with:
+      """
+      starting the package
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
+    And stdout matches "\"memory\":\"packages\[0\]#[0-9a-f]{7}\""
 
-    Given a commit "gtd(agent): packages.item.spec.review" that adds "src/widget.ts" with:
+    Given a commit "gtd(agent): packages[0].spec.review" that adds "src/widget.ts" with:
       """
       export const widget = () => ({})
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout matches "\"memory\":\"packages\.item\.spec#[0-9a-f]{7}\""
-    And stdout does not contain "\"memory\":\"packages.item#"
+    And stdout matches "\"memory\":\"packages\[0\]\.spec#[0-9a-f]{7}\""
+    And stdout does not contain "\"memory\":\"packages#"
 
   Scenario: build.review's own session survives the deciding hop into an actionable round — reviewing and collecting share the session
     # humanReview is nested INSIDE buildTail (`build.review`), not a root
@@ -359,7 +379,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Technical plan: add a doc comment to src/widget.ts.
       """
-    Given a commit "gtd(agent): packages.item.building" that adds "src/widget.ts" with:
+    Given a commit "gtd(agent): packages.building" that adds "src/widget.ts" with:
       """
       // The widget.
       export const widget = () => 1
@@ -437,7 +457,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Technical plan: add a doc comment to src/widget.ts.
       """
-    Given a commit "gtd(agent): packages.item.building" that adds "src/widget.ts" with:
+    Given a commit "gtd(agent): packages.building" that adds "src/widget.ts" with:
       """
       // The widget.
       export const widget = () => 1
@@ -524,13 +544,20 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
+    And the last commit subject is "gtd(check): build.health.check → build.quality-gate"
 
-    # Blank GTD_QUALITYREVIEWS empties the queue — seeding's own clean tree
-    # hands straight on to the human review tail.
+    # The lap hasn't run this episode yet — quality-gate's own clean tree
+    # enters the loop.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.quality-gate → build.quality-check"
+
+    # Blank GTD_QUALITYREVIEWS empties the queue — `each:` chains straight
+    # through with no item ever a rest, and quality-check's own clean tree
+    # (no findings) hands straight on to the human review tail.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality-check → build.review.reviewing"
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -613,25 +640,22 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   Scenario: the per-package build queue gets a fresh reviewer session at the shared tail, distinct from any package's own session
     # The per-package build queue (packages.*) closes out into the shared tail
     # (build.review.*) — that tail opens a fresh `build.review#...` session
-    # there, never resuming any package's own `packages.item#...` session.
+    # there, never resuming any package's own `packages#...` session.
     Given a test project
     And the workflow
-    And a commit "gtd(check): packages.picking" that adds ".gtd/NEXT.md" with:
+    And a file ".gtd/packages/01-widget.md" with:
       """
-      .gtd/packages/01-widget.md
+      Package: the widget factory.
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"packages.picking\""
-
-    Given a commit "gtd(check): packages.item.building" that adds "src/marker.txt" with:
+    And the working tree is committed as "chore: seed one package"
+    And a commit "gtd(check): packages[0].building\n\nGtd-Each: packages [\".gtd/packages/01-widget.md\"]" that adds "src/marker.txt" with:
       """
       starting the package
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.building\""
-    And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
+    And stdout contains "\"state\":\"packages[0].building\""
+    And stdout matches "\"memory\":\"packages\[0\]#[0-9a-f]{7}\""
     And I record the json field "memory" as "the package builder's turn"
 
     Given a commit "gtd(check): build.review.reviewing" that adds "src/widget.ts" with:

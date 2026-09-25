@@ -15,7 +15,7 @@
 // (it lives under `.gtd/`) already catches on its own.
 export default Object.freeze({
   name: "packages-item-building",
-  state: "packages.item.building",
+  state: "packages.building",
   artifact: "src/formatName.ts",
   base: {
     ".gtd/NEXT.md": `# Package: format-name

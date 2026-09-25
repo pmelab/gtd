@@ -20,8 +20,8 @@ Feature: The bundled unified workflow — one flow, end to end
   closing-message prompt.
 
   Every `check`-actor state here (`start-gate.check`, `design.gate.check`,
-  `architecture.gate.check`, `packages.picking`, `packages.item.health.check`,
-  `packages.item.closing`, `build.health.check`, `build.review.deciding`) is
+  `architecture.gate.check`, `packages-sweep`, `packages.health.check`,
+  `packages.closing`, `build.health.check`, `build.review.deciding`) is
   simulated on the `@inmem` scenarios below by writing its verdict file
   directly and running `gtd land` — `@inmem` never executes the scripts
   themselves. Two scenarios actually need the real shell script
@@ -105,17 +105,17 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): architecture.decompose → packages.picking"
+    And the last commit subject is "gtd(agent): architecture.decompose → packages-sweep"
 
-    Given a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-greeting.md
-      """
+    # packages-sweep: nothing to sweep here -> a clean step enters the
+    # package queue, `each: { glob: '.gtd/packages/*.md' }` snapshotting the
+    # one package just written (auto-recorded as a `Gtd-Each:` trailer —
+    # never a hand-picked ".gtd/NEXT.md", which no state reads any more).
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
+    And the last commit subject is "gtd(check): packages-sweep → packages[0].building"
 
-    # packages.item.building: implements the package (a real change relative
+    # packages[0].building: implements the package (a real change relative
     # to the initial diff — a type annotation the package spec calls for)
     Given "src/greeter.ts" is modified to:
       """
@@ -123,7 +123,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
+    And the last commit subject is "gtd(agent): packages[0].building → packages[0].health.check"
 
     Given a file ".gtd/FEEDBACK.md" with:
       """
@@ -131,28 +131,28 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.fix-suite"
+    And the last commit subject is "gtd(check): packages[0].health.check → packages[0].fix-suite"
 
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.fix-suite → packages.item.health.check"
+    And the last commit subject is "gtd(agent): packages[0].fix-suite → packages[0].health.check"
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
+    And the last commit subject is "gtd(check): packages[0].health.check → packages[0].spec.pre"
 
     # spec.pre: a skipped judgment (bare land, no verdict) is the
     # conservative default — full review, never suppressed
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages[0].spec.pre → packages[0].spec.scoping"
 
     # spec.scoping: no Gtd-Judge trailer on HEAD -> nothing to scope, straight
     # through to the reviewer
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And the last commit subject is "gtd(check): packages[0].spec.scoping → packages[0].spec.review"
 
     Given a file ".gtd/SPEC_FEEDBACK.md" with:
       """
@@ -162,91 +162,59 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix-spec"
+    And the last commit subject is "gtd(agent): packages[0].spec.review → packages[0].fix-spec"
 
     Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.fix-spec → packages.item.health.check"
+    And the last commit subject is "gtd(agent): packages[0].fix-spec → packages[0].health.check"
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
+    And the last commit subject is "gtd(check): packages[0].health.check → packages[0].spec.pre"
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages[0].spec.pre → packages[0].spec.scoping"
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And the last commit subject is "gtd(check): packages[0].spec.scoping → packages[0].spec.review"
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"
+    And the last commit subject is "gtd(agent): packages[0].spec.review → packages[0].closing"
 
+    # packages[0].closing: the only package's own file goes with it — the
+    # queue drains for real (a single-item snapshot), so `each:`'s own
+    # `drained:` target stands, straight into the shared review tail. No
+    # separate "packages-sweep" round-trip on the way out any more.
     Given the file ".gtd/packages/01-greeting.md" is deleted
-    And the file ".gtd/NEXT.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.closing → packages.picking"
+    And the last commit subject is "gtd(check): packages[0].closing → build.quality-gate"
 
-    # packages.picking: the queue is now drained -> the quality lap, which
-    # every ordinary round pays for once, after the last package and before
-    # any human sees the change. The per-package review above judged that
-    # package's own spec coverage only; these lenses judge the code.
+    # quality-gate: the lap has not run this episode, so its own clean tree
+    # enters the `each:` loop over the bundled qualityReviews lenses.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → build.quality.seeding"
+    And the last commit subject is "gtd(check): build.quality-gate → build.quality[0].reviewing"
 
-    # seeding writes one padded file per bundled qualityReviews entry.
-    Given a file ".gtd/reviews/01-owasp-security.md" with:
-      """
-      owasp-security
-      """
-    And a file ".gtd/reviews/02-code-simplification.md" with:
-      """
-      code-simplification
-      """
+    # A clean lens turn — nothing blocking, so no .gtd/QUALITY.md. `each:`
+    # advances to the next lens with no pick beat in between.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.quality.picking"
+    And the last commit subject is "gtd(agent): build.quality[0].reviewing → build.quality[1].reviewing"
 
-    Given a file ".gtd/NEXT_REVIEW.md" with:
-      """
-      owasp-security
-      """
-    And the file ".gtd/reviews/01-owasp-security.md" is deleted
+    # The last lens, also clean — the loop drains to quality-check.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.picking → build.quality.reviewing"
-
-    # A clean lens turn — nothing blocking, so no .gtd/QUALITY.md.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing → build.quality.picking"
-
-    Given a file ".gtd/NEXT_REVIEW.md" with:
-      """
-      code-simplification
-      """
-    And the file ".gtd/reviews/02-code-simplification.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.picking → build.quality.reviewing"
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing → build.quality.picking"
+    And the last commit subject is "gtd(agent): build.quality[1].reviewing → build.quality-check"
 
     # The lap is drained with no findings -> straight on to human review.
-    Given the file ".gtd/NEXT_REVIEW.md" is deleted
-    And a file ".gtd/QUALITY_DONE.md" with:
-      """
-      """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.picking → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.quality-check → build.review.reviewing"
     And ".gtd/QUALITY_READY.md" does not exist
 
     Given a file ".gtd/REVIEW.md" with:
@@ -305,28 +273,25 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(judge): architecture-pre → architecture.author
       gtd(agent): architecture.author → architecture.gate.check
       gtd(check): architecture.gate.check → architecture.decompose
-      gtd(agent): architecture.decompose → packages.picking
-      gtd(check): packages.picking → packages.item.building
-      gtd(agent): packages.item.building → packages.item.health.check
-      gtd(check): packages.item.health.check → packages.item.fix-suite
-      gtd(agent): packages.item.fix-suite → packages.item.health.check
-      gtd(check): packages.item.health.check → packages.item.spec.pre
-      gtd(judge): packages.item.spec.pre → packages.item.spec.scoping
-      gtd(check): packages.item.spec.scoping → packages.item.spec.review
-      gtd(agent): packages.item.spec.review → packages.item.fix-spec
-      gtd(agent): packages.item.fix-spec → packages.item.health.check
-      gtd(check): packages.item.health.check → packages.item.spec.pre
-      gtd(judge): packages.item.spec.pre → packages.item.spec.scoping
-      gtd(check): packages.item.spec.scoping → packages.item.spec.review
-      gtd(agent): packages.item.spec.review → packages.item.closing
-      gtd(check): packages.item.closing → packages.picking
-      gtd(check): packages.picking → build.quality.seeding
-      gtd(check): build.quality.seeding → build.quality.picking
-      gtd(check): build.quality.picking → build.quality.reviewing
-      gtd(agent): build.quality.reviewing → build.quality.picking
-      gtd(check): build.quality.picking → build.quality.reviewing
-      gtd(agent): build.quality.reviewing → build.quality.picking
-      gtd(check): build.quality.picking → build.review.reviewing
+      gtd(agent): architecture.decompose → packages-sweep
+      gtd(check): packages-sweep → packages[0].building
+      gtd(agent): packages[0].building → packages[0].health.check
+      gtd(check): packages[0].health.check → packages[0].fix-suite
+      gtd(agent): packages[0].fix-suite → packages[0].health.check
+      gtd(check): packages[0].health.check → packages[0].spec.pre
+      gtd(judge): packages[0].spec.pre → packages[0].spec.scoping
+      gtd(check): packages[0].spec.scoping → packages[0].spec.review
+      gtd(agent): packages[0].spec.review → packages[0].fix-spec
+      gtd(agent): packages[0].fix-spec → packages[0].health.check
+      gtd(check): packages[0].health.check → packages[0].spec.pre
+      gtd(judge): packages[0].spec.pre → packages[0].spec.scoping
+      gtd(check): packages[0].spec.scoping → packages[0].spec.review
+      gtd(agent): packages[0].spec.review → packages[0].closing
+      gtd(check): packages[0].closing → build.quality-gate
+      gtd(check): build.quality-gate → build.quality[0].reviewing
+      gtd(agent): build.quality[0].reviewing → build.quality[1].reviewing
+      gtd(agent): build.quality[1].reviewing → build.quality-check
+      gtd(check): build.quality-check → build.review.reviewing
       gtd(agent): build.review.reviewing → build.review.await-review
       gtd(human): build.review.await-review → build.review.deciding
       gtd(check): build.review.deciding → idle
@@ -1027,101 +992,83 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a package whose work already landed closes out via .gtd/SATISFIED.md
     Given a test project
     And the workflow
-    And a commit "gtd(agent): packages.picking" that adds ".gtd/packages/01-widget.md" with:
+    And a commit "gtd(check): packages-sweep → packages[0].building\n\nGtd-Each: packages [\".gtd/packages/01-widget.md\"]" that adds ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
-    Given a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
 
     Given a file ".gtd/SATISFIED.md" with:
       """
       - [x] add src/widget.ts — already present, see commit
-        "gtd(agent): packages.picking → packages.item.building"
+        "gtd(check): packages-sweep → packages[0].building"
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
+    And the last commit subject is "gtd(agent): packages[0].building → packages[0].health.check"
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
+    And the last commit subject is "gtd(check): packages[0].health.check → packages[0].spec.pre"
 
     # spec.pre/spec.scoping: a skipped judgment (bare land) always runs the
     # full review — this package has no `## ` sections at all anyway
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
+    And the last commit subject is "gtd(judge): packages[0].spec.pre → packages[0].spec.scoping"
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And the last commit subject is "gtd(check): packages[0].spec.scoping → packages[0].spec.review"
 
-    # packages.item.spec.review (clean = approval — the reviewer's own range
+    # packages[0].spec.review (clean = approval — the reviewer's own range
     # is process-wide, so it can see the earlier package's commit that
-    # satisfied this spec) -> packages.item.closing
+    # satisfied this spec) -> packages[0].closing
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"
+    And the last commit subject is "gtd(agent): packages[0].spec.review → packages[0].closing"
 
+    # packages[0].closing: the queue drains for real (a single-item
+    # snapshot) — `each:`'s own `drained:` target stands, straight into the
+    # shared review tail, no separate "packages-sweep" round-trip on exit.
     Given the file ".gtd/packages/01-widget.md" is deleted
-    And the file ".gtd/NEXT.md" is deleted
     And the file ".gtd/SATISFIED.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.closing → packages.picking"
-
-    # packages.picking: the queue is now empty — a clean step closes out to
-    # the quality lap, which fronts the shared review tail
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → build.quality.seeding"
+    And the last commit subject is "gtd(check): packages[0].closing → build.quality-gate"
 
   @inmem
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
     Given a test project
     And the workflow
-    And a commit "gtd(agent): packages.picking" that adds ".gtd/packages/01-widget.md" with:
+    And a commit "gtd(check): packages-sweep → packages[0].building\n\nGtd-Each: packages [\".gtd/packages/01-widget.md\"]" that adds ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
-    Given a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
 
-    # packages.item.building: the agent's turn changes nothing (the issue's
+    # packages[0].building: the agent's turn changes nothing (the issue's
     # regression case) — a clean tree at a prompt rest with no "C" row lands
     # an empty attempt instead of implementing anything
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.building"
+    And the last commit subject is "gtd(agent): packages[0].building"
     And the git status is clean
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"kind\":\"stalled\""
-    And the json field "content" contains "stalled at \"packages.item.building\""
+    And the json field "content" contains "stalled at \"packages[0].building\""
 
     # the supported recovery: a human writes the satisfied evidence
     # themselves and runs gtd land — no hand-authored state commit
     Given a file ".gtd/SATISFIED.md" with:
       """
       - [x] add src/widget.ts — already present, see commit
-        "gtd(agent): packages.picking → packages.item.building"
+        "gtd(check): packages-sweep → packages[0].building"
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
+    And the last commit subject is "gtd(agent): packages[0].building → packages[0].health.check"
 
   @inmem
   Scenario: a feedback round's reviewing base is anchored at the last review round (incremental it.reviewBase)
@@ -1185,13 +1132,19 @@ Feature: The bundled unified workflow — one flow, end to end
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
+    And the last commit subject is "gtd(check): build.health.check → build.quality-gate"
     And ".gtd/FEEDBACK.md" does not exist
-    # Blank GTD_QUALITYREVIEWS empties the queue — seeding's own clean tree
-    # hands straight on to the human review tail.
+    # The lap hasn't run this episode yet — quality-gate's own clean tree
+    # enters the loop.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.quality-gate → build.quality-check"
+    # Blank GTD_QUALITYREVIEWS empties the queue — `each:` chains straight
+    # through with no item ever a rest, and quality-check's own clean tree
+    # (no findings) hands straight on to the human review tail.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality-check → build.review.reviewing"
 
   @inmem
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached, writing a fix-design document a human can edit before the next fix turn
@@ -1688,10 +1641,10 @@ Feature: The bundled unified workflow — one flow, end to end
     # Memory is COMPUTED (src/Edge.ts's memoryKeyFor) from each state's owning
     # machine-instance scope (scopes[name]) plus a commit-anchored hash — there
     # is no authored `memory:` label any more. design/architecture are sibling
-    # machines with distinct scopes ("design"/"architecture"); packages.item's
-    # own scope is "packages.item"; build/build.review are "build"/
-    # "build.review" (humanReview nested inside buildTail) — see
-    # src/workflows/unified.yaml.
+    # machines with distinct scopes ("design"/"architecture"); packages'
+    # own scope is qualified per item ("packages[0]", ...) — its `each:` loop
+    # (src/workflows/unified.yaml); build/build.review are "build"/
+    # "build.review" (humanReview nested inside buildTail).
     Given a test project
     And the workflow
     And a commit "gtd(check): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
@@ -1710,18 +1663,19 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And stdout contains "\"state\":\"architecture.author\""
     And stdout matches "\"memory\":\"architecture#[0-9a-f]{7}\""
-    Given a file ".gtd/NEXT.md" with:
+    Given a file ".gtd/packages/01-thing.md" with:
       """
-      .gtd/packages/01-thing.md
+      Package: the thing export.
       """
-    And a commit "gtd(human): packages.item.building" that adds "src/thing.ts" with:
+    And the working tree is committed as "chore: seed one package"
+    And a commit "gtd(human): packages[0].building\n\nGtd-Each: packages [\".gtd/packages/01-thing.md\"]" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.building\""
-    And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
+    And stdout contains "\"state\":\"packages[0].building\""
+    And stdout matches "\"memory\":\"packages\[0\]#[0-9a-f]{7}\""
     Given a commit "gtd(human): build.fix" that adds ".gtd/FEEDBACK.md" with:
       """
       a failing test
@@ -1819,3 +1773,203 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): nested.inner.work → done"
+
+  @inmem
+  Scenario: a three-package build runs every package, with the pick beat gone entirely — one fewer commit per package than before this migration
+    # Before .gtd/packages/04-migrate-bundled-loops.md, each package paid an
+    # extra "packages.picking" commit between the previous package's closing
+    # and this one's own building (plus one final drain visit) — N+1 "picking"
+    # beats for N packages. `each:` derives position purely from history, so
+    # NONE of that exists any more: `packages-sweep` runs exactly ONCE for the
+    # whole episode (before the queue, never once per item), and closing
+    # advances straight into the next item's building in the SAME decision.
+    # For three packages that is a beat-count drop of exactly three commits —
+    # one per package — asserted below by counting "packages-sweep" in the
+    # git log. `packages`'s own `drained:` target is `build.review` directly
+    # — the quality lap sits only on the `build.health`/`--entry
+    # fix-precheck` path (see `fix-entry.feature`), never on this one, so
+    # "every quality lens" is `quality-review-lap.feature`'s own claim
+    # against this same bundled workflow, not this scenario's.
+    Given a test project
+    And the workflow
+
+    # Entered directly at architecture.decompose (a fabricated commit
+    # history, same convention `spec-review-judgments.feature`/
+    # `machine-memory.feature` use) — the queue-loop states under test don't
+    # care how the process got there.
+    And an empty commit "gtd(agent): architecture.decompose"
+    Given a file ".gtd/packages/01-a.md" with:
+      """
+      Package: task A.
+      """
+    And a file ".gtd/packages/02-b.md" with:
+      """
+      Package: task B.
+      """
+    And a file ".gtd/packages/03-c.md" with:
+      """
+      Package: task C.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): architecture.decompose → packages-sweep"
+
+    # packages-sweep: nothing to sweep -> a clean step enters the queue,
+    # `each: { glob: '.gtd/packages/*.md' }` snapshotting all three packages
+    # in one Gtd-Each: trailer.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages-sweep → packages[0].building"
+    And the last commit body contains "Gtd-Each: packages"
+
+    # Package 1: building -> health (green) -> spec.pre/scoping (both
+    # skipped judgments) -> spec.review (clean = approval) -> closing, which
+    # advances straight into package 2's own building — no picking beat.
+    Given "src/a.ts" is modified to:
+      """
+      export const a = 1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages[0].building → packages[0].health.check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages[0].health.check → packages[0].spec.pre"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(judge): packages[0].spec.pre → packages[0].spec.scoping"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages[0].spec.scoping → packages[0].spec.review"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages[0].spec.review → packages[0].closing"
+    Given the file ".gtd/packages/01-a.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages[0].closing → packages[1].building"
+
+    # Package 2: identical shape, advancing straight into package 3.
+    Given "src/b.ts" is modified to:
+      """
+      export const b = 1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages[1].building → packages[1].health.check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages[1].health.check → packages[1].spec.pre"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(judge): packages[1].spec.pre → packages[1].spec.scoping"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages[1].spec.scoping → packages[1].spec.review"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages[1].spec.review → packages[1].closing"
+    Given the file ".gtd/packages/02-b.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages[1].closing → packages[2].building"
+
+    # Package 3 (the last): identical shape, but closing drains the queue
+    # for real, straight into the shared health/quality/review tail — no
+    # final drain "picking" visit either.
+    Given "src/c.ts" is modified to:
+      """
+      export const c = 1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages[2].building → packages[2].health.check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages[2].health.check → packages[2].spec.pre"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(judge): packages[2].spec.pre → packages[2].spec.scoping"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages[2].spec.scoping → packages[2].spec.review"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages[2].spec.review → packages[2].closing"
+    Given the file ".gtd/packages/03-c.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    # `packages`'s own `drained:` target — the queue empties for real on the
+    # LAST package — is the quality lap's own guard, never `build.health`
+    # (that only sits on the `build.fix`/`--entry fix-precheck` path,
+    # covered elsewhere).
+    And the last commit subject is "gtd(check): packages[2].closing → build.quality-gate"
+
+    # The lap has not run this episode — quality-gate's own clean tree enters
+    # the `each:` loop over the two bundled lenses, both clean here.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality-gate → build.quality[0].reviewing"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality[0].reviewing → build.quality[1].reviewing"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality[1].reviewing → build.quality-check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality-check → build.review.reviewing"
+    Given a file ".gtd/REVIEW.md" with:
+      """
+      # Review: pending
+
+      <!-- base: pending -->
+
+      ## Task A/B/C
+
+      - [ ] ./src/a.ts — added
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
+
+    # await-review: leave no comment -> sign-off (ticking the box just
+    # records that it was read).
+    Given ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: pending
+
+      <!-- base: pending -->
+
+      ## Task A/B/C
+
+      - [x] ./src/a.ts — added
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    Given the file ".gtd/REVIEW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.deciding → idle"
+
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"idle\":true"
+
+    # The beat-count claim: every package's own build/health/spec/closing
+    # beats are present (three of each), and "packages-sweep" — the ONE
+    # state that used to run once per package (as "packages.picking") — now
+    # runs exactly once for the whole episode.
+    # "packages-sweep" names ONE rest, so it appears in exactly two commit
+    # subjects — the entering commit (its target) and the leaving one (its
+    # source) — never a third time the way one visit per package would.
+    And the git log contains "packages-sweep" exactly 2 times
+    # Each package's own six transitions (building -> health.check ->
+    # spec.pre -> spec.scoping -> spec.review -> closing -> the next rest)
+    # touch that item's own qualifier in seven commit subjects — as the
+    # entering commit's target, or the leaving commit's source, or both.
+    And the git log contains "packages[0]." exactly 7 times
+    And the git log contains "packages[1]." exactly 7 times
+    And the git log contains "packages[2]." exactly 7 times
+    And the git log does not contain "packages.picking"

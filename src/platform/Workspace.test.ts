@@ -375,5 +375,43 @@ for (const { name, make } of tiers) {
         }
       }
     }, 120_000)
+
+    it("glob returns matches as repo-relative paths, ordered lexicographically", async () => {
+      t = make()
+      t.writeWorking(".gtd/packages/02-b.md", "")
+      t.writeWorking(".gtd/packages/01-a.md", "")
+      t.writeWorking(".gtd/packages/README.md", "not matched by the numeric-first fixture below")
+      const result = await t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).glob(".gtd/packages/*.md")
+        }),
+      )
+      expect(result).toEqual([
+        ".gtd/packages/01-a.md",
+        ".gtd/packages/02-b.md",
+        ".gtd/packages/README.md",
+      ])
+    })
+
+    it("glob matching nothing resolves to an empty list, not an error", async () => {
+      t = make()
+      const result = await t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).glob(".gtd/packages/*.md")
+        }),
+      )
+      expect(result).toEqual([])
+    })
+
+    it("glob is evaluated against the working tree, not a commit — an uncommitted file matches", async () => {
+      t = make()
+      t.writeWorking(".gtd/packages/01-a.md", "")
+      const result = await t.provide(
+        Effect.gen(function* () {
+          return (yield* Workspace).glob(".gtd/packages/*.md")
+        }),
+      )
+      expect(result).toEqual([".gtd/packages/01-a.md"])
+    })
   })
 }

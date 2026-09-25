@@ -17,7 +17,12 @@ import {
   STATE_FIELD_ENTRIES,
   type FieldKind,
 } from "./StateFields.js"
-import { flattenMachines, type InstancePath, type MachineNode } from "./Machines.js"
+import {
+  flattenMachines,
+  type EachSource,
+  type InstancePath,
+  type MachineNode,
+} from "./Machines.js"
 import { seededValidateCommand } from "./SteeringFormats.js"
 import { builtInModeNames } from "./steering/index.js"
 import type { Diagnostic } from "./workflow/index.js"
@@ -257,7 +262,7 @@ const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set([
   "states",
   ...MACHINE_FIELD_ENTRIES.map(([key]) => key),
 ])
-const KNOWN_REF_KEYS: ReadonlySet<string> = new Set(["machine", "with"])
+const KNOWN_REF_KEYS: ReadonlySet<string> = new Set(["machine", "with", "each"])
 
 /** A state-level key removed by an earlier rewrite, naming its replacement so a stale config's error points somewhere useful. The `model` case is instead caught pre-flatten by `LEGACY_AUTHORED_STATE_KEY_HINTS`, since by the time a state reaches `compileState` its `model` may be a legitimately machine-stamped key. */
 const LEGACY_STATE_KEY_HINTS: Readonly<Record<string, string>> = {
@@ -504,6 +509,14 @@ export interface CompiledWorkflowConfig {
    * result rather than throwing.
    */
   readonly diagnostics: readonly Diagnostic[]
+  /**
+   * Every `each:` reference's OWN source declaration (`glob:`/`var:`), keyed
+   * by the same reference path as `definition.eachRefs` — kept OUT of the
+   * pure `WorkflowDefinition` because resolving it into item tokens needs the
+   * `Workspace`/config vars (`src/Edge.ts`'s job), never the pure engine's.
+   * `{}` for a workflow that declares no `each:` at all.
+   */
+  readonly eachSources: Record<InstancePath, EachSource>
 }
 
 // ── Content resolution (file-ref auto-inlining) ─────────────────────────────
@@ -1189,6 +1202,7 @@ export const compileWorkflowConfig = (
     tree: undefined,
     scopes: {},
     diagnostics: [],
+    eachSources: {},
   }
 
   if (!isPlainObject(raw)) {
@@ -1247,12 +1261,28 @@ export const compileWorkflowConfig = (
   // shape problem and hiding what validateDefinition would otherwise catch.
   const summary = compileSummary(raw, diagnostics)
 
+  // `each:` references, keyed by the CHILD instance's own path — the pure
+  // engine only ever needs `entry`/`drained` (both base names); the source
+  // declaration itself (`glob:`/`var:`) is surfaced separately, below, for
+  // `src/Edge.ts` to resolve (it needs the `Workspace`, which neither this
+  // compiler nor the pure engine touches).
+  const eachRefsEntries = Array.from(flattened.instances.values()).flatMap((instance) =>
+    instance.each !== undefined
+      ? [[instance.path, { entry: instance.each.entry, drained: instance.each.drained }] as const]
+      : [],
+  )
+  const eachRefs = eachRefsEntries.length > 0 ? Object.fromEntries(eachRefsEntries) : undefined
+  const eachSources = Object.fromEntries(
+    eachRefsEntries.map(([path]) => [path, flattened.instances.get(path)!.each!.source]),
+  )
+
   const entries = { default: flattened.entries.default, manual }
   const definition: WorkflowDefinition = {
     states,
     entries,
     modes,
     ...(summary !== undefined ? { summary } : {}),
+    ...(eachRefs !== undefined ? { eachRefs } : {}),
   }
 
   // `flattened.scopes` is guaranteed (by construction — both are populated by
@@ -1274,5 +1304,6 @@ export const compileWorkflowConfig = (
     tree: flattened.tree,
     scopes: flattened.scopes,
     diagnostics,
+    eachSources,
   }
 }

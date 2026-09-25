@@ -64,6 +64,8 @@ const runEscalate = (dir: string, startCommit: string): void => {
     diffTail: () => "",
     vars,
     edges: [],
+    item: "",
+    itemIndex: -1,
   })
   execFileSync("sh", ["-c", script.replace(/\.gtd\//g, "")], { cwd: dir, stdio: "pipe" })
 }

@@ -119,31 +119,41 @@ Given("the file {string} is deleted", (world: GtdWorld, path: string) => {
 // ── Committed history (one step = one commit) ────────────────────────────────
 
 // The workhorse commit builder: stage exactly `path` with the given content
-// and commit it under the verbatim subject.
+// and commit it under the verbatim subject. `message` accepts a literal
+// `\n` (two characters, unescaped here into a real newline) so a scenario
+// can fabricate a full commit body — a subject plus a trailer line like
+// `Gtd-Each:`/`Gtd-Judge:` — in one `{string}`, the same way a real `gtd
+// land` commit does.
 Given(
   "a commit {string} that adds {string} with:",
   (world: GtdWorld, message: string, path: string, content: string) => {
     const normalized = content.endsWith("\n") ? content : content + "\n"
+    const fullMessage = message.replace(/\\n/g, "\n")
     if (world.tier === "inmem") {
       world.repo!.writeFile(path, normalized)
-      world.repo!.commitAllWithPrefix(message)
+      world.repo!.commitAllWithPrefix(fullMessage)
     } else {
       const full = join(world.repoDir, path)
       mkdirSync(join(full, ".."), { recursive: true })
       writeFileSync(full, normalized)
       execFileSync("git", ["add", path], { cwd: world.repoDir, stdio: "pipe" })
-      execFileSync("git", ["commit", "-q", "-m", message], { cwd: world.repoDir, stdio: "pipe" })
+      execFileSync("git", ["commit", "-q", "-m", fullMessage], {
+        cwd: world.repoDir,
+        stdio: "pipe",
+      })
     }
   },
 )
 
 // A commit that changes nothing — subject only, no file touched (like a gtd
-// workflow turn that only advances state).
+// workflow turn that only advances state). `message` accepts a literal `\n`
+// the same way "a commit {string} that adds..." does, for a trailer line.
 Given("an empty commit {string}", (world: GtdWorld, message: string) => {
+  const fullMessage = message.replace(/\\n/g, "\n")
   if (world.tier === "inmem") {
-    world.repo!.commitAllWithPrefix(message)
+    world.repo!.commitAllWithPrefix(fullMessage)
   } else {
-    execFileSync("git", ["commit", "-q", "--allow-empty", "-m", message], {
+    execFileSync("git", ["commit", "-q", "--allow-empty", "-m", fullMessage], {
       cwd: world.repoDir,
       stdio: "pipe",
     })
@@ -514,6 +524,23 @@ Then("the git log does not contain {string}", (world: GtdWorld, subject: string)
   const log = world.gitLog()
   assert.ok(!log.includes(subject), `Expected git log NOT to contain "${subject}". Got:\n${log}`)
 })
+
+// Counts commit SUBJECT lines matching `needle` exactly — distinct from "the
+// git log contains", which only proves presence, not how many times. Used to
+// pin a beat-count claim (e.g. a sweep/pick state running once per episode,
+// never once per item) against the actual commit graph.
+Then(
+  "the git log contains {string} exactly {int} times",
+  (world: GtdWorld, needle: string, times: number) => {
+    const log = world.gitLog()
+    const count = log.split("\n").filter((line) => line.includes(needle)).length
+    assert.strictEqual(
+      count,
+      times,
+      `Expected git log to contain "${needle}" exactly ${times} time(s), got ${count}.\nLog:\n${log}`,
+    )
+  },
+)
 
 // Everything after the subject line — where a `Gtd-Cost:` trailer lands.
 Then("the last commit body contains {string}", (world: GtdWorld, text: string) => {

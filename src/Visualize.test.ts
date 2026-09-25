@@ -3,6 +3,7 @@ import { compileWorkflowConfig } from "./PatternConfig.js"
 import {
   buildCurrentStateModel,
   buildVizModel,
+  groupForState,
   handleVizRequest,
   startVizServer,
   type CurrentStateModel,
@@ -431,6 +432,25 @@ describe("buildVizModel", () => {
     expect(badModel.states.find((s) => s.name === "a")!.on).toEqual([
       { pattern: "A <%= it.vars.missing.deeper %>", to: "b" },
     ])
+  })
+})
+
+// `.gtd/packages/02-derived-loop-position.md` Task 6: the static model draws
+// the item machine ONCE, at its base path — a running loop's qualified
+// current state must resolve to the SAME group as its own base name.
+describe("groupForState — Task 6's qualifier-stripped current-state lookup", () => {
+  it("resolves an unqualified state's group normally", () => {
+    expect(groupForState(model, "start.check")).toBe("start")
+  })
+
+  it("strips a runtime [n] qualifier before the lookup, resolving to the identical group", () => {
+    expect(groupForState(model, "start.check[2]")).toBe("start")
+    expect(groupForState(model, "start[2].check")).toBe("start")
+  })
+
+  it("is undefined for a state the model doesn't know, qualified or not", () => {
+    expect(groupForState(model, "no-such-state")).toBeUndefined()
+    expect(groupForState(model, "no-such-state[3]")).toBeUndefined()
   })
 })
 

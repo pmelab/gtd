@@ -354,3 +354,67 @@ describe("planStep — commit", () => {
     expect(outcome.decision.to).toBe("conservative")
   })
 })
+
+describe("planStep — Gtd-Each: snapshot trailer (Task 2)", () => {
+  const eachDef = {
+    states: {
+      picking: { actor: "human", message: "pick", on: [["* *", "item.building"]] },
+      "item.building": { actor: "agent", prompt: "build", on: [["A DONE.md", "drained"]] },
+      drained: { actor: "human", message: "done" },
+    },
+    entries: { default: "picking", manual: [] },
+    eachRefs: { item: { entry: "item.building", drained: "drained" } },
+  } as const
+
+  it("the entering commit carries a Gtd-Each: trailer naming the reference path and the JSON item list", () => {
+    const s = snapshot({
+      state: "picking",
+      stateDef: eachDef.states.picking,
+      def: eachDef,
+      changes: [{ status: "M", path: "x" }],
+      eachItems: { item: ["a", "b"] },
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    const commitStep = outcome.steps.find((step) => step.kind === "gitWrite")
+    if (commitStep?.kind !== "gitWrite" || commitStep.write.kind !== "commitAll") {
+      throw new Error("expected a commitAll step")
+    }
+    expect(commitStep.write.message).toContain('Gtd-Each: item ["a","b"]')
+  })
+
+  it("an empty item list still writes a trailer with an empty array", () => {
+    const s = snapshot({
+      state: "picking",
+      stateDef: eachDef.states.picking,
+      def: eachDef,
+      changes: [{ status: "M", path: "x" }],
+      eachItems: { item: [] },
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    const commitStep = outcome.steps.find((step) => step.kind === "gitWrite")
+    if (commitStep?.kind !== "gitWrite" || commitStep.write.kind !== "commitAll") {
+      throw new Error("expected a commitAll step")
+    }
+    expect(commitStep.write.message).toContain("Gtd-Each: item []")
+  })
+
+  it("continuing WITHIN an already-entered item carries no Gtd-Each: trailer", () => {
+    const s = snapshot({
+      state: "item[0].building",
+      stateDef: eachDef.states["item.building"],
+      def: eachDef,
+      changes: [{ status: "A", path: "DONE.md" }],
+      eachItems: { item: ["a", "b"] },
+      actor: "agent",
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    const commitStep = outcome.steps.find((step) => step.kind === "gitWrite")
+    if (commitStep?.kind !== "gitWrite" || commitStep.write.kind !== "commitAll") {
+      throw new Error("expected a commitAll step")
+    }
+    expect(commitStep.write.message).not.toContain("Gtd-Each:")
+  })
+})

@@ -7,7 +7,7 @@ import {
   type ReadFile,
 } from "../PatternConfig.js"
 import { validateDefinition, type StateName, type WorkflowDefinition } from "../PatternMachine.js"
-import type { MachineNode } from "../Machines.js"
+import type { EachSource, InstancePath, MachineNode } from "../Machines.js"
 import {
   defaultMachineTree,
   defaultStateScopes,
@@ -45,6 +45,8 @@ export interface CompiledWorkflow {
   readonly rcVars: Record<string, string>
   readonly machineTree: MachineNode
   readonly stateScopes: Record<StateName, string>
+  /** Every `each:` reference's own source declaration, keyed by reference path — see `PatternConfig.ts`'s `CompiledWorkflowConfig.eachSources`. `{}` for a workflow (including the built-in default) that declares no `each:`. */
+  readonly eachSources: Record<InstancePath, EachSource>
   /** The merged top-level `ui:` key, already decoded per layer by `ConfigSchema` (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: UiConfig
   /** Every finding across every layer/phase — sorted (origin outermost→innermost, `(built-in default)` last, then config path) and deduped by `(severity, path, message, origin)`: the same problem in two layers stays two lines. */
@@ -218,6 +220,7 @@ export const compileWorkflow = (
       ...(ui !== undefined ? { ui } : {}),
       machineTree: defaultMachineTree,
       stateScopes: defaultStateScopes,
+      eachSources: {},
       diagnostics: dedupeDiagnostics(sortDiagnostics(diagnostics, layerOrder)),
     }
   }
@@ -246,6 +249,7 @@ export const compileWorkflow = (
     ...(ui !== undefined ? { ui } : {}),
     machineTree: compiled.tree ?? defaultMachineTree,
     stateScopes: compiled.scopes,
+    eachSources: compiled.eachSources,
     diagnostics: dedupeDiagnostics(sortDiagnostics(diagnostics, layerOrder)),
   }
 }

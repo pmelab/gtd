@@ -284,6 +284,22 @@ export class InMemRepo {
       .sort()
   }
 
+  /**
+   * `Workspace.glob`'s in-memory counterpart: matches `pattern` against the
+   * WORKTREE (never a commit), sorted lexicographically. `*` matches any run
+   * of non-`/` characters, `**` matches across `/` too — the two glob tokens
+   * `each: { glob: ... }` needs (see .gtd/packages/01-each-declaration.md).
+   */
+  glob(pattern: string): ReadonlyArray<string> {
+    const regexSource = pattern
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, " ")
+      .replace(/\*/g, "[^/]*")
+      .replace(/ /g, ".*")
+    const regex = new RegExp(`^${regexSource}$`)
+    return [...this.worktree.keys()].filter((key) => regex.test(key)).sort()
+  }
+
   /** `git add -A` — the index becomes exactly the current worktree. */
   stageAll(): void {
     this.index = new Map(this.worktree)

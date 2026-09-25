@@ -4,7 +4,7 @@
 // See evals/fixture.mjs for how `base`/`variants` become a fixture repo.
 export default Object.freeze({
   name: "spec-review",
-  state: "packages.item.spec.review",
+  state: "packages.spec.review",
   plantedIdentifier: "DivisionByZeroError",
   artifact: ".gtd/SPEC_FEEDBACK.md",
   base: {

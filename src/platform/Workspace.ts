@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import {
   copyFileSync,
+  globSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -83,6 +84,13 @@ export interface WorkspaceOps {
    * files" to a judge that trusts it.
    */
   readonly diffSync: (base: string) => string
+  /**
+   * An `each: { glob: ... }` source's item tokens: matches against the
+   * WORKING TREE (never a commit — a glob has no ref to evaluate against),
+   * as repo-relative paths, ordered lexicographically. Empty when nothing
+   * matches — never an error.
+   */
+  readonly glob: (pattern: string) => readonly string[]
   /**
    * Reads an ARBITRARY path — repo-relative or already-absolute, inside the
    * repo, above it, or anywhere else on disk — with the same absence-is-a-
@@ -171,8 +179,11 @@ const makeWorkspaceOps = (root: string, git: GitOperations): WorkspaceOps => {
     }
   }
 
+  const glob = (pattern: string): readonly string[] => [...globSync(pattern, { cwd: root })].sort()
+
   return {
     readSync,
+    glob,
     read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),
     write: (path, content) =>
       Effect.try({

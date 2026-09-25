@@ -18,8 +18,12 @@ Feature: A large prompt survives its exit through a pipe
   Scenario: gtd next's large prompt is not truncated when piped into a slow consumer
     Given a test project
     And the workflow
-    And a file ".gtd/NEXT.md" padded to at least 200000 bytes with a repeating line
-    And an empty commit "gtd(check): packages.picking → packages.item.building"
+    # build.review.collecting is one of the few prompts that still inlines a
+    # whole file's content (`.gtd/REVIEW_RAW.md`, the review loop-back's raw
+    # capture — see prompt-diff-ranges.feature for the sites that don't).
+    And a file ".gtd/REVIEW_RAW.md" padded to at least 200000 bytes with a repeating line
+    And the working tree is committed as "chore: seed padded REVIEW_RAW.md"
+    And an empty commit "gtd(check): build.review.deciding → build.review.collecting"
     When I run gtd next redirected to a file and through a slow pipe
     Then it succeeds
     And the direct byte count exceeds 65536 bytes

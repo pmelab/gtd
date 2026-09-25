@@ -7,12 +7,15 @@ import { renderStateTemplate, type TemplateContext } from "../PatternTemplates.j
 import { compileTemplate } from "./index.js"
 
 /**
- * Real execution, not `bash -n`: `packages.item.spec.scoping`'s script is the
+ * Real execution, not `bash -n`: `packages.spec.scoping`'s script is the
  * whole approve/scope decision (round-3 review), and a syntax-only check
  * would never have caught either regression this file pins — a blank
  * `specPreJudge` clearing every section (fail-APPROVE) and a quoted `"yes"`
  * verdict reading as unanswered. A real temp git repo, not a fake, because
  * the script's own `git log -1 --format=%B HEAD` needs a real commit body.
+ * The package path itself now comes from `it.item` — `packages`'s own
+ * `each: { glob: ... }` loop (.gtd/packages/04-migrate-bundled-loops.md) —
+ * never `.gtd/NEXT.md`, which no state reads or writes any more.
  */
 const initRepo = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "spec-review-scoping-"))
@@ -23,8 +26,9 @@ const initRepo = (): string => {
   return dir
 }
 
+const PACKAGE_ITEM = ".gtd/packages/01-widget.md"
+
 const writePackage = (dir: string, body: string): void => {
-  writeFileSync(join(dir, "NEXT.md"), "packages/01-widget.md\n")
   mkdirSync(join(dir, "packages"), { recursive: true })
   writeFileSync(join(dir, "packages", "01-widget.md"), body)
 }
@@ -32,12 +36,7 @@ const writePackage = (dir: string, body: string): void => {
 const commitWithTrailer = (dir: string, trailer: string): void => {
   const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "pipe" })
   git("add", "-A")
-  git(
-    "commit",
-    "-q",
-    "-m",
-    `gtd(judge): packages.item.spec.pre → packages.item.spec.scoping\n\n${trailer}`,
-  )
+  git("commit", "-q", "-m", `gtd(judge): packages.spec.pre → packages.spec.scoping\n\n${trailer}`)
 }
 
 /** Renders `scoping`'s script with a given `specPreJudge` value (and an optional `judgeBudgetBytes` override) and runs it for real against `dir`. */
@@ -47,12 +46,12 @@ const runScoping = (
   varsOverride: Record<string, string> = {},
 ): void => {
   const { definition, vars } = compileTemplate()
-  const state = definition.states["packages.item.spec.scoping"]!
+  const state = definition.states["packages.spec.scoping"]!
   const script = renderStateTemplate(state.script!, {
     startCommit: "",
     currentCommit: "",
     previousCommit: "",
-    state: "packages.item.spec.scoping",
+    state: "packages.spec.scoping",
     actor: "check",
     reviewBase: "",
     processBase: "",
@@ -65,12 +64,14 @@ const runScoping = (
     diffTail: () => "",
     vars: { ...vars, specPreJudge, ...varsOverride },
     edges: [],
+    item: PACKAGE_ITEM,
+    itemIndex: 0,
   })
-  // NEXT.md points at "packages/01-widget.md" (relative to `dir`, the
-  // script's own cwd) rather than the real `.gtd/`-prefixed path — this test
-  // runs the script standalone, outside a real `.gtd` checkout, and the
-  // script itself never hardcodes the `.gtd/` prefix (it only ever reads
-  // whatever `.gtd/NEXT.md` names).
+  // `it.item` renders as ".gtd/packages/01-widget.md" (the real repo-relative
+  // shape) rather than the real `.gtd/`-prefixed path — this test runs the
+  // script standalone, outside a real `.gtd` checkout, and the script itself
+  // never hardcodes the `.gtd/` prefix (it only ever reads whatever `it.item`
+  // names).
   execFileSync("sh", ["-c", script.replace(/\.gtd\//g, "")], { cwd: dir, stdio: "pipe" })
 }
 
@@ -82,7 +83,7 @@ const readIfExists = (dir: string, name: string): string | undefined => {
   }
 }
 
-describe("packages.item.spec.scoping's script, executed for real (round-3 review)", () => {
+describe("packages.spec.scoping's script, executed for real (round-3 review)", () => {
   const PACKAGE = "Package: the widget factory.\n\n## Section A\n- [ ] add src/a.ts\n"
 
   it("a blank specPreJudge fails closed — never clears a section, however high the confidence", () => {
@@ -216,22 +217,21 @@ describe("packages.item.spec.scoping's script, executed for real (round-3 review
   })
 })
 
-describe("packages.item.spec.pre's judge template (round-3 review)", () => {
+describe("packages.spec.pre's judge template (round-3 review)", () => {
   it("interpolates the real startCommit, never the literal `it.startCommit`", () => {
     const { definition, vars } = compileTemplate()
-    const state = definition.states["packages.item.spec.pre"]!
+    const state = definition.states["packages.spec.pre"]!
     const context: TemplateContext = {
       startCommit: "abc1234def",
       currentCommit: "cur",
       previousCommit: "prev",
-      state: "packages.item.spec.pre",
+      state: "packages.spec.pre",
       actor: "human",
       reviewBase: "",
       processBase: "",
       processCost: 0,
       processCostByModel: [],
-      read: (path) =>
-        path === ".gtd/NEXT.md" ? ".gtd/packages/01-widget.md\n" : "## Do the thing\n- [ ] task\n",
+      read: () => "## Do the thing\n- [ ] task\n",
       diff: () => "",
       sections: () => ["Do the thing"],
       // A real tail bound never drops anything this small — mirrors read
@@ -242,6 +242,8 @@ describe("packages.item.spec.pre's judge template (round-3 review)", () => {
       diffTail: () => "",
       vars,
       edges: [],
+      item: PACKAGE_ITEM,
+      itemIndex: 0,
     }
     const rendered = renderStateTemplate(state.judge!, context)
     expect(rendered).not.toContain("it.startCommit")

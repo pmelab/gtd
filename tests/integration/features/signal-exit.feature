@@ -27,9 +27,9 @@ Feature: A signal death reports the promised exit status and leaves nothing half
   Scenario: SIGINT kills a spawned gtd next with status 130
     Given a test project
     And the workflow
-    And a file ".gtd/NEXT.md" padded to at least 200000 bytes with a repeating line
-    And the working tree is committed as "chore: seed NEXT.md"
-    And an empty commit "gtd(check): packages.picking → packages.item.building"
+    And a file ".gtd/REVIEW_RAW.md" padded to at least 200000 bytes with a repeating line
+    And the working tree is committed as "chore: seed padded REVIEW_RAW.md"
+    And an empty commit "gtd(check): build.review.deciding → build.review.collecting"
     And the git index has settled
     And I snapshot the repository
     When I send SIGINT to a spawned gtd next
@@ -41,9 +41,9 @@ Feature: A signal death reports the promised exit status and leaves nothing half
   Scenario: SIGTERM kills a spawned gtd next with status 143
     Given a test project
     And the workflow
-    And a file ".gtd/NEXT.md" padded to at least 200000 bytes with a repeating line
-    And the working tree is committed as "chore: seed NEXT.md"
-    And an empty commit "gtd(check): packages.picking → packages.item.building"
+    And a file ".gtd/REVIEW_RAW.md" padded to at least 200000 bytes with a repeating line
+    And the working tree is committed as "chore: seed padded REVIEW_RAW.md"
+    And an empty commit "gtd(check): build.review.deciding → build.review.collecting"
     And the git index has settled
     And I snapshot the repository
     When I send SIGTERM to a spawned gtd next

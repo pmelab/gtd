@@ -43,13 +43,16 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     And the last commit subject is "gtd(human): review-gate.check"
     # The green-baseline gate: a clean tree (tests pass) advances into the
     # quality lap — the review pre-judge fast path was removed. With the lap
-    # disabled here, seeding hands straight on to build.review.reviewing.
+    # disabled here, the each: loop chains straight on to build.review.reviewing.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → build.quality.seeding"
+    And the last commit subject is "gtd(check): review-gate.check → build.quality-gate"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.quality-gate → build.quality-check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality-check → build.review.reviewing"
     When I run gtd next
     Then it succeeds
     # The reviewing prompt NAMES the fixed base rather than inlining its diff.

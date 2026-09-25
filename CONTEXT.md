@@ -21,6 +21,17 @@ more than once with different bindings. The unit that owns a model and a
 **State**: One named position in a workflow, declaring who acts there, exactly
 one content kind, and an ordered set of edges out. _Avoid_: node, step, phase
 
+**Each**: A machine reference's `each:` declaration — the referenced machine is
+still instantiated exactly once, but its entry state is visited once per item in
+a list snapshotted at each entry (a `glob:`'s matches, or a `var:`'s comma-split
+fields), qualifying every state in its subtree by the item's index until the
+list is exhausted and the reference's `drained:` target is reached. Called a
+"loop" freely in prose — distinct from the [driver's own loop](#driver) (its
+read-`gtd next`/land cycle), but the two rarely appear in the same sentence, so
+context disambiguates. `each:` is the canonical name; use it where precision
+matters (a heading, a first reference). _Avoid_: iteration, cycle, tick,
+for-loop, sub-process
+
 **Actor**: Who is expected to act at a state — `agent`, `human`, or `check`.
 `check` is the driver executing a `script` state's rendered command; gtd itself
 executes nothing. _Avoid_: role, party, runner
@@ -39,8 +50,11 @@ report, log line
 `message`. Which kind it is determines what gtd prints and who reads it.
 
 **Rest**: Where a process currently waits, fully resolved — the state plus its
-rendered content, its model, and its memory key. What `gtd next` prints.
-_Avoid_: current state, position
+rendered content, its model, and its memory key. What `gtd next` prints. Inside
+an [each:](#each), the state name is item-qualified (e.g.
+`packages[2].building`, not the bare `packages.building`) — the rest is always
+the current item's own position, never the reference's own. _Avoid_: current
+state, position
 
 **Process**: One pass through a workflow, from an entry to a sign-off (an
 ordinary commit entering the initial state, keeping every turn commit it made)
@@ -67,8 +81,10 @@ capture the turn
 
 **Beat**: One read of `gtd next --json` and whatever it demands — nothing (a
 `message` or `stalled` beat halts the loop), an immediate land (`capture`), or
-an execution followed by a land (`script`/`prompt`). _Avoid_: iteration, tick,
-cycle
+an execution followed by a land (`script`/`prompt`). Not every hop between
+states costs one: an empty [each:](#each) entered with no items chains straight
+through to its `drained:` target without ever resting, so it is never itself a
+beat. _Avoid_: iteration, tick, cycle
 
 **Beat document**: `gtd next --json`'s output — one self-describing JSON line
 per beat: `kind` (`capture` | `message` | `script` | `prompt` | `stalled`),
@@ -87,7 +103,9 @@ cap's escalation redirect clears it, never a one-shot report.
 **Capture**: Turning a dirty tree into one turn commit, subject
 `gtd(<actor>): <from> → <to>` (collapsing to `gtd(<actor>): <to>` when there is
 no transition). The matched pattern's target is committed verbatim; nothing
-re-derives it afterwards.
+re-derives it afterwards. Inside an [each:](#each), `<from>`/`<to>` are the
+item-qualified state names, so a commit subject names the item alongside the
+state, e.g. `gtd(agent): packages[2].building → packages[2].health.check`.
 
 **Pattern**: The left side of an edge — a `<status> <glob>` change-matcher, or
 the bare token `C` matching a clean tree. A branch outcome is encoded by which
@@ -149,7 +167,10 @@ declaring `entry: true`, reachable as `gtd --entry <state>`.
 
 **Memory scope**: The span of a process over which one conversation persists,
 keyed off a machine's position in the machine tree rather than any per-state
-field. _Avoid_: session, context window, conversation, history
+field. Inside an [each:](#each), that position is further qualified by the
+current item's index, so the scope spans one item's pass through the machine,
+not the machine's whole lifetime across every item — two items never share a
+conversation. _Avoid_: session, context window, conversation, history
 
 **Session id**: The agent CLI's own conversation handle — DERIVED from a memory
 scope's key (a `uuidv5` hash), never stored anywhere, so the same scope-run

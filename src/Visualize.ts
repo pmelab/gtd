@@ -6,6 +6,7 @@ import {
   initialStateOf,
   matchesPattern,
   parsePattern,
+  stripQualifiers,
   type OnEdge,
   type PendingChange,
   type RetryDef,
@@ -331,6 +332,15 @@ export interface CurrentStateModel {
   readonly retry?: RetryDef
   readonly pending: readonly PendingChange[]
 }
+
+/**
+ * The `VizModel` group for `state` — a possibly QUALIFIED rest inside an
+ * `each:` loop item — looked up by its BASE name: the static model draws the
+ * item machine ONCE, at its base path (`.gtd/packages/02-derived-loop-position.md`
+ * Requirement E), so it never names a qualified state itself.
+ */
+export const groupForState = (model: VizModel, state: StateName): string | undefined =>
+  model.states.find((s) => s.name === stripQualifiers(state))?.group
 
 /**
  * Describe the currently-rested state: its `on` edges flagged with whether

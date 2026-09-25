@@ -35,6 +35,48 @@ const WORKFLOW = [
   "",
 ].join("\n")
 
+const EACH_WORKFLOW = [
+  "workflow:",
+  "  entry:",
+  "    default: root",
+  "  machines:",
+  "    root:",
+  "      entry: start",
+  "      states:",
+  "        start:",
+  "          actor: agent",
+  "          prompt: work-prompt",
+  "          on:",
+  '            "* **": loop',
+  "        loop:",
+  "          machine: packageItem",
+  "          with:",
+  "            onDrained: finish",
+  "          each:",
+  "            glob: '.gtd/packages/*.md'",
+  "            drained: finish",
+  "        finish:",
+  "          actor: human",
+  "          message: done",
+  "    packageItem:",
+  "      params: [onDrained]",
+  "      entry: building",
+  "      states:",
+  "        building:",
+  "          actor: agent",
+  "          prompt: build-prompt",
+  "          on:",
+  '            "* **": $onDrained',
+  "",
+].join("\n")
+
+const eachRepoAt = (): InMemRepo => {
+  const repo = new InMemRepo()
+  repo.writeFile(".gtdrc.yaml", EACH_WORKFLOW)
+  repo.commitAllWithPrefix("chore: add each: workflow")
+  return repo
+}
+
 const repoAt = (): InMemRepo => {
   const repo = new InMemRepo()
   repo.writeFile(".gtdrc.yaml", WORKFLOW)
@@ -118,6 +160,19 @@ describe("planEntry", () => {
       { kind: "gitWrite", write: { kind: "commitAll", message: "gtd(human): working" } },
       { kind: "outcome", outcome: { kind: "commit", subject: "gtd(human): working" } },
     ])
+  })
+
+  it("refuses a state inside an each: subtree, and withholds its base name from the refusal's offered list", async () => {
+    const repo = eachRepoAt()
+    const plan = await enter(repo, "start", "human", {
+      state: "loop.building",
+      commandLabel: "gtd test",
+      vars: {},
+    })
+    expect(plan.kind).toBe("refusal")
+    if (plan.kind !== "refusal") throw new Error("expected refusal")
+    expect(plan.message).toContain("not an enterable state")
+    expect(plan.message).not.toContain("\n  loop.building")
   })
 
   it("folds --var overrides into a Gtd-Var: trailer on the commit message, never the outcome subject", async () => {

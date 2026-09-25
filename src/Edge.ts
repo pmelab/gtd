@@ -10,21 +10,26 @@ import {
   templateReadCommitted,
   templateTail,
   type GitOperations,
+  type WorkspaceOps,
 } from "./platform/index.js"
 import { UNATTRIBUTED_MODEL } from "./wire/index.js"
 
 export { UNATTRIBUTED_MODEL }
 import { ConfigDiscovery, ConfigService } from "./workflow/index.js"
+import { resolveGlobTokens, resolveVarTokens, type EachSource } from "./Machines.js"
 import {
   contentKindOf,
+  inScope,
   initialStateOf,
   isRequireRevertState,
   isReviewBaseState,
   memoryScopeAt,
   parseStateSubject,
+  qualifierIndexAt,
   resolveState,
   STATE_DIR,
   step,
+  stripQualifiers,
   wouldAttempt,
   type ChangeStatus,
   type ContentKind,
@@ -150,6 +155,36 @@ const parseEntryVarTrailers = (message: string): Record<string, string> => {
   return vars
 }
 
+// The commit that first enters an `each:` reference's subtree carries a
+// `Gtd-Each: <refPath> <json-array-of-strings>` trailer — the item list
+// snapshotted at that moment (see `.gtd/packages/02-derived-loop-position.md`
+// Requirement D). JSON needs no escaping rules whatever a token contains
+// (space, comma, `"`, `#`, a literal newline — `JSON.stringify` already
+// escapes the last one, so the trailer stays one line). Scoped by ref path,
+// same discipline as `Gtd-Var:`'s name key — a process running two loops in
+// sequence keeps their snapshots apart. LAST trailer for a given ref path
+// wins, so a feedback loop-back re-enters with a fresh snapshot.
+const EACH_TRAILER_RE = /^Gtd-Each:[ \t]*(\S+)[ \t]+(.+)$/gm
+
+const parseEachTrailers = (messages: readonly string[]): Record<string, readonly string[]> => {
+  const snapshots: Record<string, readonly string[]> = {}
+  for (const message of messages) {
+    for (const match of message.matchAll(EACH_TRAILER_RE)) {
+      const refPath = match[1]!
+      try {
+        const parsed: unknown = JSON.parse(match[2]!)
+        if (Array.isArray(parsed) && parsed.every((t) => typeof t === "string")) {
+          snapshots[refPath] = parsed
+        }
+      } catch {
+        // Malformed (never emitted by gtd itself) — skipped, not fatal, same
+        // discipline as `parseJudgeTrailers`.
+      }
+    }
+  }
+  return snapshots
+}
+
 const totalCostOf = (entries: readonly CostEntry[]): number =>
   entries.reduce((sum, entry) => sum + entry.cost, 0)
 
@@ -196,7 +231,7 @@ type RestResolution =
  */
 export const resolveRestFrom = (def: WorkflowDefinition, headSubject: string): RestResolution => {
   const parsedHead = parseStateSubject(headSubject)
-  if (parsedHead !== undefined && def.states[parsedHead.state] === undefined) {
+  if (parsedHead !== undefined && def.states[stripQualifiers(parsedHead.state)] === undefined) {
     return {
       ok: false,
       error: new Error(
@@ -208,7 +243,7 @@ export const resolveRestFrom = (def: WorkflowDefinition, headSubject: string): R
     }
   }
   const state = resolveState(def, headSubject)
-  const stateDef = def.states[state]!
+  const stateDef = def.states[stripQualifiers(state)]!
   // A validated definition guarantees every state declares an actor — this
   // is a defensive check against a programmer error, not a real runtime path.
   if (stateDef.actor === undefined) {
@@ -264,6 +299,8 @@ export interface ProcessRun {
   readonly judgeVerdicts: readonly JudgeVerdictEntry[]
   /** The `Gtd-Var:` trailers recorded on the process's FIRST (oldest) commit — an entry commit's fixed `it.vars` overrides, folded into `resolveVars`'s merge (empty when the process's oldest commit carries none, or the process is empty). */
   readonly entryVars: Record<string, string>
+  /** Every `Gtd-Each:` snapshot recorded on the process's turn commits, keyed by reference path, LAST ONE WINS per key — the item list `PatternMachine.step` reads to decide whether a loop has a next item (`{}` when no `each:` loop was ever entered this process). */
+  readonly eachSnapshots: Record<string, readonly string[]>
   /**
    * HEAD's own commit, when its subject parses to a state the ACTIVE
    * definition still declares (non-commit) — `undefined` for a
@@ -302,7 +339,7 @@ const headTurnFrom = (
   const head = history[history.length - 1]!
   const parsed = parseStateSubject(subjectOf(head.message))
   if (parsed === undefined) return undefined
-  const stateDef = def.states[parsed.state]
+  const stateDef = def.states[stripQualifiers(parsed.state)]
   if (stateDef === undefined) return undefined
   return { state: parsed.state, actor: parsed.actor, empty: head.touched.length === 0 }
 }
@@ -390,6 +427,7 @@ const computeProcessRun = (
     })
     const costEntries = parseCostTrailers(processCommits.map((h) => h.message))
     const judgeVerdicts = parseJudgeTrailers(processCommits.map((h) => h.message))
+    const eachSnapshots = parseEachTrailers(processCommits.map((h) => h.message))
     const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE
     const startHash =
       startIdx < history.length ? history[startIdx]!.hash : history[history.length - 1]!.hash
@@ -405,6 +443,7 @@ const computeProcessRun = (
       costEntries,
       judgeVerdicts,
       entryVars,
+      eachSnapshots,
       headTurn,
       closingHash,
     }
@@ -475,13 +514,15 @@ const ROOT_MEMORY_SCOPE_NAME = "root"
  * across its first two turns (nothing committed yet before the very first
  * turn).
  */
-const memoryKeyFor = (
+export const memoryKeyFor = (
+  def: WorkflowDefinition,
   scopes: Readonly<Record<StateName, string>>,
   rest: ResolvedRest,
   run: ProcessRun,
 ): string | undefined => {
   if (contentKindOf(rest.stateDef) !== "prompt") return undefined
   const resolved = memoryScopeAt(
+    def,
     scopes,
     rest.state,
     run.trace.map((entry) => entry.state),
@@ -514,12 +555,20 @@ export const memoryResumedFor = (
 ): boolean => {
   if (contentKindOf(rest.stateDef) !== "prompt") return false
   const rests = [initialStateOf(def), ...run.trace.map((entry) => entry.state)]
-  const resolved = memoryScopeAt(scopes, rest.state, rests)
+  const resolved = memoryScopeAt(def, scopes, rest.state, rests)
   if (resolved === undefined) return false
   const { entryIndex } = resolved
+  // `entryIndex < 0` means "never entered this scope in `rests` at all" (a
+  // scope visited for the first time this process — e.g. an each: loop's
+  // very first turn at a NEW item) — there is no prior turn to resume,
+  // full stop. `Math.max(entryIndex, 0)` used to fold this into "start
+  // scanning from row 0", which wrongly credited an UNRELATED scope's
+  // prompt turn (a prior item's own `building`, sharing nothing but a
+  // qualifier-stripped base scope) as a prior turn in THIS scope.
+  if (entryIndex < 0) return false
   return rests
-    .slice(Math.max(entryIndex, 0), rests.length - 1)
-    .some((state) => contentKindOf(def.states[state]!) === "prompt")
+    .slice(entryIndex, rests.length - 1)
+    .some((state) => contentKindOf(def.states[stripQualifiers(state)]!) === "prompt")
 }
 
 // ── Variables (`it.vars`) ────────────────────────────────────────────────────
@@ -646,13 +695,21 @@ const withRenderedOn = (
   state: StateName,
   renderedOnEdges: readonly OnEdge[],
   renderedRoutes: readonly RouteRow[],
-): WorkflowDefinition => ({
-  ...def,
-  states: {
-    ...def.states,
-    [state]: { ...def.states[state]!, on: renderedOnEdges, routes: renderedRoutes },
-  },
-})
+): WorkflowDefinition => {
+  // `state` may be QUALIFIED (a rest inside an each: loop) — `def.states` is
+  // keyed by BASE names only (see `PatternMachine.ts`'s qualifier doc), and so
+  // is every lookup `step` performs against `stepDef`, so the patched entry
+  // must land under the base key or the rendered `on`/`routes` would never be
+  // read back.
+  const baseState = stripQualifiers(state)
+  return {
+    ...def,
+    states: {
+      ...def.states,
+      [baseState]: { ...def.states[baseState]!, on: renderedOnEdges, routes: renderedRoutes },
+    },
+  }
+}
 
 /**
  * `it.tail`/`it.diffTail`/the two-argument `it.sections(path, share)` are
@@ -692,6 +749,8 @@ const buildTemplateContext = (
   reviewBase: string,
   ledger: RenderLedger,
   boundedAllowed: boolean,
+  item: string,
+  itemIndex: number,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
     const currentCommit = yield* git.resolveRef("HEAD")
@@ -727,6 +786,8 @@ const buildTemplateContext = (
           },
       vars,
       edges: toTemplateEdges(edges),
+      item,
+      itemIndex,
     }
   })
 
@@ -751,6 +812,29 @@ const parseJudgeBudgetBytes = (vars: Record<string, string>): number => {
     )
   }
   return n
+}
+
+/**
+ * The current `each:` item's token and 0-based index for `state` — `""`/`-1`
+ * outside every declared `eachRefs` subtree. Must run BEFORE
+ * `buildTemplateContext` (Requirement's ordering trap): `skills:` is a hint
+ * rendered from the same context `renderHints` builds, so the item has to be
+ * on the context object the rest builder assembles, never injected later
+ * during content rendering.
+ */
+const itemAt = (
+  def: WorkflowDefinition,
+  eachItems: Readonly<Record<string, readonly string[]>>,
+  state: StateName,
+): { readonly item: string; readonly itemIndex: number } => {
+  const refs = def.eachRefs
+  if (refs === undefined) return { item: "", itemIndex: -1 }
+  for (const refPath of Object.keys(refs)) {
+    const idx = qualifierIndexAt(state, refPath)
+    if (idx === undefined) continue
+    return { item: eachItems[refPath]?.[idx] ?? "", itemIndex: idx }
+  }
+  return { item: "", itemIndex: -1 }
 }
 
 /**
@@ -794,6 +878,8 @@ export const summaryTemplateContext = (
       reviewBase,
       ledger,
       false,
+      "",
+      -1,
     )
   })
 
@@ -851,6 +937,61 @@ interface Rest extends ResolvedRest {
   readonly context: TemplateContext
   /** The one byte-budget ledger shared by `context`/`judgeContext` (`restAt`) — `renderRest` checks `ledger.truncated()` after rendering the content template to decide the truncation notice. */
   readonly ledger: RenderLedger
+  /** Every declared `each:` reference's item list, keyed by ref path — the ALREADY-SNAPSHOTTED list (`run.eachSnapshots`) once the loop was entered, or freshly resolved (glob/var, against `vars`) before then. `{}` for a workflow declaring no `each:`. */
+  readonly eachItems: Readonly<Record<string, readonly string[]>>
+}
+
+/** One `each:` reference's item tokens: the snapshot already recorded on a `Gtd-Each:` trailer, or a fresh glob/var resolution before the loop has ever been entered. */
+const resolveEachSource = (
+  workspace: Pick<WorkspaceOps, "glob">,
+  source: EachSource,
+  vars: Record<string, string>,
+): readonly string[] =>
+  source.kind === "glob"
+    ? resolveGlobTokens(workspace)(source.value)
+    : resolveVarTokens(vars[source.value] ?? "")
+
+/**
+ * Every declared `each:` reference's item list, resolved ONCE per `Rest`
+ * snapshot — `run.eachSnapshots[refPath]` ONLY when `currentState` is
+ * currently resting INSIDE that reference's own subtree (a continuation of
+ * the already-entered loop); otherwise a fresh glob/var resolution against
+ * the current working tree/`vars` (the value the next entering commit is
+ * about to snapshot). Resolving the source needs the `Workspace` — this is
+ * the one place that happens; the pure `step()` only ever reads the result
+ * off `StepPayload.eachItems`.
+ *
+ * The subtree check is what makes a feedback loop-back re-enter with a FRESH
+ * snapshot (`.gtd/packages/02-derived-loop-position.md` Task 2): once the
+ * process has routed back OUT of the subtree (an escalation, say), a prior
+ * `Gtd-Each:` trailer for that ref path is a STALE snapshot, not a
+ * continuation — reusing it unconditionally would mean a package authored
+ * while the escalation was resolved is never built even after the loop is
+ * re-entered, since the last-trailer-wins scan can never observe a fresh
+ * value within one process otherwise.
+ */
+const resolveEachItems = (
+  def: WorkflowDefinition,
+  eachSources: Readonly<Record<string, EachSource>>,
+  run: ProcessRun,
+  vars: Record<string, string>,
+  workspace: Pick<WorkspaceOps, "glob">,
+  currentState: StateName,
+): Readonly<Record<string, readonly string[]>> => {
+  const refs = def.eachRefs
+  if (refs === undefined) return {}
+  const baseState = stripQualifiers(currentState)
+  const result: Record<string, readonly string[]> = {}
+  for (const refPath of Object.keys(refs)) {
+    const snapshot = run.eachSnapshots[refPath]
+    if (snapshot !== undefined && inScope(baseState, refPath)) {
+      result[refPath] = snapshot
+      continue
+    }
+    const source = eachSources[refPath]
+    result[refPath] = source !== undefined ? resolveEachSource(workspace, source, vars) : []
+  }
+  return result
 }
 
 // Drops undefined-valued entries so optional hint fields are OMITTED (not
@@ -902,6 +1043,19 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     // (a `script`/`prompt` state's hints reuse `context` itself, since both
     // are disallowed there anyway).
     const contentAllowed = contentKindOf(resolved.stateDef) === "message"
+    // Resolved BEFORE either `TemplateContext` below, and the `item`/
+    // `itemIndex` it yields threaded into both — `skills:` renders from the
+    // same context `renderHints` builds next, so the item has to already be
+    // on the context object, not injected during content rendering.
+    const eachItems = resolveEachItems(
+      def,
+      config.eachSources,
+      run,
+      vars,
+      workspace,
+      resolved.state,
+    )
+    const { item, itemIndex } = itemAt(def, eachItems, resolved.state)
     const context = yield* buildTemplateContext(
       git,
       templateRead(workspace),
@@ -914,6 +1068,8 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       reviewBase,
       ledger,
       contentAllowed,
+      item,
+      itemIndex,
     )
     const hintsContext = contentAllowed
       ? yield* buildTemplateContext(
@@ -928,6 +1084,8 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
           reviewBase,
           ledger,
           false,
+          item,
+          itemIndex,
         )
       : context
     // `judge:` renders against committed-only evidence — same context shape,
@@ -948,8 +1106,10 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       reviewBase,
       ledger,
       true,
+      item,
+      itemIndex,
     )
-    const memory = memoryKeyFor(config.stateScopes, resolved, run)
+    const memory = memoryKeyFor(def, config.stateScopes, resolved, run)
     const memoryResumed = memoryResumedFor(def, config.stateScopes, resolved, run)
     // Renders every hint (the `judge:` field among them) BEFORE `renderRest`
     // renders the state's own content below — `ledger`'s sticky `truncated`
@@ -969,6 +1129,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       hints,
       context,
       ledger,
+      eachItems,
     }
   })
 
@@ -1234,6 +1395,7 @@ export const snapshotFromRest = (
     const decision = step(rest.stepDef, rest.state, rest.actor, {
       changes: rest.changes,
       processTrace: rest.run.trace.map((entry) => entry.state),
+      eachItems: rest.eachItems,
     })
     const isAttempt = decision.kind === "commit" && decision.attempt === true
     let probe: RevertProbe = { checked: false, base: "", residue: [] }
@@ -1255,5 +1417,6 @@ export const snapshotFromRest = (
       headFile,
       worktreeFile,
       revert: probe,
+      eachItems: rest.eachItems,
     }
   })
