@@ -4,15 +4,14 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { renderStateTemplate } from "../PatternTemplates.js"
-import { checkSteering, headingSections, steeringFormatFor } from "../steering/index.js"
+import { headingSections } from "../steering/index.js"
 import { compileTemplate } from "./index.js"
 
 /**
- * Real execution, not `bash -n`: this file pins two regressions a
- * syntax-only check would never catch — `fastReview` writing a chunk with no
- * pointers on an empty diff, and `triaging`'s chunk-count scan numbering a
- * `## ` heading differently than `it.sections` did for `triage`'s own
- * `chunk-N` ids. Same `initRepo`/`commitWithTrailer` shape as
+ * Real execution, not `bash -n`: this file pins a regression a syntax-only
+ * check would never catch — `triaging`'s chunk-count scan numbering a `## `
+ * heading differently than `it.sections` did for `triage`'s own `chunk-N`
+ * ids. Same `initRepo`/`commitWithTrailer` shape as
  * `specReviewScripts.test.ts` (package 02's own convention for this class of
  * check-actor script).
  */
@@ -30,8 +29,8 @@ const commitWithTrailer = (dir: string, trailer: string, files: Record<string, s
   for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content)
   git("add", "-A")
   const message = trailer
-    ? `gtd(judge): build.review.pre → build.review.preCheck\n\n${trailer}`
-    : "gtd(judge): build.review.pre → build.review.preCheck"
+    ? `gtd(judge): build.review.triage → build.review.triaging\n\n${trailer}`
+    : "gtd(judge): build.review.triage → build.review.triaging"
   git("commit", "-q", "-m", message, "--allow-empty")
 }
 
@@ -44,12 +43,7 @@ const readIfExists = (dir: string, name: string): string | undefined => {
 }
 
 /** Renders `stateName`'s script with a given `vars` override and runs it for real against `dir`. `.gtd/`-prefixed paths are stripped — same technique `specReviewScripts.test.ts` uses to run a bundled script standalone, outside a real `.gtd` checkout. */
-const runScript = (
-  dir: string,
-  stateName: string,
-  varsOverride: Record<string, string>,
-  reviewBase = "",
-): void => {
+const runScript = (dir: string, stateName: string, varsOverride: Record<string, string>): void => {
   const { definition, vars } = compileTemplate()
   const state = definition.states[stateName]!
   const script = renderStateTemplate(state.script!, {
@@ -58,138 +52,20 @@ const runScript = (
     previousCommit: "",
     state: stateName,
     actor: "check",
-    reviewBase,
+    reviewBase: "",
     processBase: "",
     processCost: 0,
     processCostByModel: [],
     read: () => "",
     diff: () => "",
     sections: () => [],
+    tail: () => "",
+    diffTail: () => "",
     vars: { ...vars, ...varsOverride },
     edges: [],
   })
   execFileSync("sh", ["-c", script.replace(/\.gtd\//g, "")], { cwd: dir, stdio: "pipe" })
 }
-
-describe("build.review.preCheck's script, executed for real", () => {
-  const ALL_CONFIDENT = [
-    'Gtd-Judge: {"id":"mechanicalOnly","answer":true,"p":0.95}',
-    'Gtd-Judge: {"id":"touchesPublicAPI","answer":false,"p":0.95}',
-    'Gtd-Judge: {"id":"changesBehavior","answer":false,"p":0.95}',
-  ].join("\n")
-
-  it("all three answered correctly at high confidence writes the fast-path marker", () => {
-    const dir = initRepo()
-    commitWithTrailer(dir, ALL_CONFIDENT)
-    runScript(dir, "build.review.preCheck", { reviewFastPath: "0.9" })
-    expect(readIfExists(dir, "REVIEW_FAST.md")).toBeDefined()
-  })
-
-  it("a missing question (only one of three answered) writes nothing — never the fast path", () => {
-    const dir = initRepo()
-    commitWithTrailer(dir, 'Gtd-Judge: {"id":"mechanicalOnly","answer":true,"p":0.99}')
-    runScript(dir, "build.review.preCheck", { reviewFastPath: "0.9" })
-    expect(readIfExists(dir, "REVIEW_FAST.md")).toBeUndefined()
-  })
-
-  it("no Gtd-Judge trailer at all (a skipped judgment) writes nothing", () => {
-    const dir = initRepo()
-    commitWithTrailer(dir, "")
-    runScript(dir, "build.review.preCheck", { reviewFastPath: "0.9" })
-    expect(readIfExists(dir, "REVIEW_FAST.md")).toBeUndefined()
-  })
-
-  it("a malformed answer (a bare number, not yes/no/true/false) writes nothing", () => {
-    const dir = initRepo()
-    commitWithTrailer(
-      dir,
-      [
-        'Gtd-Judge: {"id":"mechanicalOnly","answer":1,"p":0.95}',
-        'Gtd-Judge: {"id":"touchesPublicAPI","answer":false,"p":0.95}',
-        'Gtd-Judge: {"id":"changesBehavior","answer":false,"p":0.95}',
-      ].join("\n"),
-    )
-    runScript(dir, "build.review.preCheck", { reviewFastPath: "0.9" })
-    expect(readIfExists(dir, "REVIEW_FAST.md")).toBeUndefined()
-  })
-
-  it("a low-confidence (below reviewFastPath) correct answer writes nothing", () => {
-    const dir = initRepo()
-    commitWithTrailer(
-      dir,
-      [
-        'Gtd-Judge: {"id":"mechanicalOnly","answer":true,"p":0.5}',
-        'Gtd-Judge: {"id":"touchesPublicAPI","answer":false,"p":0.95}',
-        'Gtd-Judge: {"id":"changesBehavior","answer":false,"p":0.95}',
-      ].join("\n"),
-    )
-    runScript(dir, "build.review.preCheck", { reviewFastPath: "0.9" })
-    expect(readIfExists(dir, "REVIEW_FAST.md")).toBeUndefined()
-  })
-
-  it("a wrong answer (touchesPublicAPI: yes) writes nothing even at full confidence", () => {
-    const dir = initRepo()
-    commitWithTrailer(
-      dir,
-      [
-        'Gtd-Judge: {"id":"mechanicalOnly","answer":true,"p":0.99}',
-        'Gtd-Judge: {"id":"touchesPublicAPI","answer":true,"p":0.99}',
-        'Gtd-Judge: {"id":"changesBehavior","answer":false,"p":0.99}',
-      ].join("\n"),
-    )
-    runScript(dir, "build.review.preCheck", { reviewFastPath: "0.9" })
-    expect(readIfExists(dir, "REVIEW_FAST.md")).toBeUndefined()
-  })
-
-  it("a blank reviewFastPath disables the fast path entirely, however confident the verdict", () => {
-    const dir = initRepo()
-    commitWithTrailer(dir, ALL_CONFIDENT)
-    runScript(dir, "build.review.preCheck", { reviewFastPath: "" })
-    expect(readIfExists(dir, "REVIEW_FAST.md")).toBeUndefined()
-  })
-})
-
-describe("build.review.fastReview's script, executed for real", () => {
-  it("an ordinary diff writes one pointer per changed path, and the result passes gtd check review", () => {
-    const dir = initRepo()
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "pipe" })
-    writeFileSync(join(dir, "calc.ts"), "export const add = (a: number, b: number) => a + b\n")
-    git("add", "-A")
-    git("commit", "-q", "-m", "base")
-    const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim()
-    writeFileSync(join(dir, "calc.ts"), "export const add = (a: number, b: number) => a + b + 0\n")
-    git("add", "-A")
-    git("commit", "-q", "-m", "mechanical tweak")
-
-    runScript(dir, "build.review.fastReview", {}, base)
-
-    const written = readIfExists(dir, "REVIEW.md")!
-    expect(written).toBeDefined()
-    expect(written).toContain("- [ ] ./calc.ts")
-    expect(checkSteering(steeringFormatFor("review")!, written)).toEqual([])
-  })
-
-  it("an empty diff (reviewBase === HEAD) still writes a chunk with a pointer, and the result still passes gtd check review", () => {
-    // The concrete bug a round of review caught: a `## Changes` chunk with
-    // NO pointers refuses `gtd check review` ("has no file pointers"),
-    // stalling the human at `await-review` on a fast-pathed round that
-    // touched nothing — reachable from a clean-tree
-    // `--entry review-gate.check`.
-    const dir = initRepo()
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "pipe" })
-    writeFileSync(join(dir, "calc.ts"), "export const add = (a: number, b: number) => a + b\n")
-    git("add", "-A")
-    git("commit", "-q", "-m", "base")
-    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim()
-
-    runScript(dir, "build.review.fastReview", {}, head)
-
-    const written = readIfExists(dir, "REVIEW.md")!
-    expect(written).toBeDefined()
-    expect(written).toMatch(/- \[ ] \.\//)
-    expect(checkSteering(steeringFormatFor("review")!, written)).toEqual([])
-  })
-})
 
 describe("build.review.triaging's script, executed for real", () => {
   const THREE_CHUNKS =
@@ -325,5 +201,26 @@ describe("build.review.triaging's script, executed for real", () => {
     runScript(dir, "build.review.triaging", { reviewNoteActionable: "0.7" })
     expect(readIfExists(dir, "REVIEW_RAW.md")).toBeUndefined()
     expect(readIfExists(dir, "REVIEW.md")).toBeUndefined()
+  })
+
+  it("a LOW-CONFIDENCE yes for a chunk whose evidence was actually truncated away still forces capture — the byte-length check bypasses reviewNoteActionable's confidence gate", () => {
+    // Same ONE_CHUNK shape and the same sub-threshold p (0.2) as the test
+    // above — the only difference is judgeBudgetBytes small enough that
+    // `triage`'s own `judge:` field would have truncated this document, so
+    // this chunk's "yes" was never a genuine judgment (`triage` marks it
+    // structural and always instructs "yes"). Without the byte-length
+    // override, this p=0.2 answer would fold into sign-off exactly like the
+    // test above — the concrete hole a round of review caught.
+    const dir = initRepo()
+    const ONE_CHUNK =
+      "# Review: abc1234\n\n<!-- base: 0000000000000000000000000000000000000000 -->\n\n" +
+      "## Chunk A\n- [ ] ./a.ts#1 note\n"
+    writeFileSync(join(dir, "REVIEW.md"), ONE_CHUNK)
+    commitWithTrailer(dir, 'Gtd-Judge: {"id":"chunk-1","answer":true,"p":0.2}')
+    runScript(dir, "build.review.triaging", {
+      reviewNoteActionable: "0.7",
+      judgeBudgetBytes: "40",
+    })
+    expect(readIfExists(dir, "REVIEW_RAW.md")).toBeDefined()
   })
 })

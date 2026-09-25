@@ -194,16 +194,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # packages.picking: the queue is now drained -> the shared review tail
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → build.review.pre"
-
-    # Landed untouched, with no verdict — the conservative default runs the
-    # full review lap.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.review.preCheck → build.review.reviewing"
+    And the last commit subject is "gtd(check): packages.picking → build.review.reviewing"
 
     Given a file ".gtd/REVIEW.md" with:
       """
@@ -276,9 +267,7 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): packages.item.spec.scoping → packages.item.spec.review
       gtd(agent): packages.item.spec.review → packages.item.closing
       gtd(check): packages.item.closing → packages.picking
-      gtd(check): packages.picking → build.review.pre
-      gtd(judge): build.review.pre → build.review.preCheck
-      gtd(check): build.review.preCheck → build.review.reviewing
+      gtd(check): packages.picking → build.review.reviewing
       gtd(agent): build.review.reviewing → build.review.await-review
       gtd(human): build.review.await-review → build.review.deciding
       gtd(check): build.review.deciding → idle
@@ -1033,7 +1022,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # the shared review tail
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → build.review.pre"
+    And the last commit subject is "gtd(check): packages.picking → build.review.reviewing"
 
   @inmem
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
@@ -1134,7 +1123,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.review.pre"
+    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
     And ".gtd/FEEDBACK.md" does not exist
 
   @inmem

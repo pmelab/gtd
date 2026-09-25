@@ -1,14 +1,22 @@
 import { X509Certificate } from "node:crypto"
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import * as fs from "node:fs"
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { NodeContext } from "@effect/platform-node"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Effect, Exit } from "effect"
 import { CommandRunner } from "../CommandRunner.js"
 import { Host } from "../platform/index.js"
 import { GtdError } from "../Commentary.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert } from "./Tls.js"
+
+// `{ spy: true }` keeps every real `node:fs` implementation (a plain
+// `vi.spyOn(fs, "mkdtempSync")` below throws — Node's ESM module namespace
+// isn't configurable, so only a `vi.mock`-registered module can be spied on)
+// while still letting `withTrackedTlsTmpDir` wrap ONE export for the
+// duration of one run.
+vi.mock("node:fs", { spy: true })
 
 let tmpDir: string
 
@@ -19,6 +27,34 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true })
 })
+
+/**
+ * Runs `run`, capturing the exact `gtd-tls-*` directory `mkdtempSync` creates
+ * during it — by spying on the real `node:fs` export, the same shared module
+ * instance `Tls.ts`'s own `mkdtempSync` import resolves to, and calling
+ * through to the real implementation. A bare before/after directory-listing
+ * diff over the whole OS tmpdir is racy under vitest's default file
+ * parallelism: a SIBLING test file (`Server.test.ts` shells out to a real
+ * `openssl`/`tailscale` flow too) can create its own `gtd-tls-*` dir there
+ * during this test's own window, failing an assertion this test never
+ * caused. Tracking the one path THIS run created sidesteps that entirely.
+ */
+const withTrackedTlsTmpDir = async (run: () => Promise<unknown>): Promise<string> => {
+  const realMkdtempSync = fs.mkdtempSync
+  let created: string | undefined
+  const spy = vi.spyOn(fs, "mkdtempSync").mockImplementation((...args: [string, unknown?]) => {
+    const dir = realMkdtempSync(...(args as Parameters<typeof fs.mkdtempSync>))
+    created = dir as string
+    return dir
+  })
+  try {
+    await run()
+  } finally {
+    spy.mockRestore()
+  }
+  if (created === undefined) throw new Error("mkdtempSync was never called during this run")
+  return created
+}
 
 const runWithLiveOpenssl = <A>(eff: Effect.Effect<A, GtdError, CommandRunner>) =>
   Effect.runPromise(
@@ -136,30 +172,30 @@ describe("generateSelfSignedCert", () => {
     expect(thrown.message).toContain("openssl")
   })
 
-  const gtdTlsDirs = (): string[] =>
-    readdirSync(tmpdir()).filter((name) => name.startsWith("gtd-tls-"))
-
   it("removes its private-key tmpdir even after openssl reports a non-zero exit", async () => {
-    const before = gtdTlsDirs()
     const nonZeroExit = CommandRunner.layer(() =>
       Effect.succeed({ status: 1, output: "openssl: some failure\n" }),
     )
-    await Effect.runPromiseExit(
-      generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(nonZeroExit)),
+    const created = await withTrackedTlsTmpDir(() =>
+      Effect.runPromiseExit(
+        generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(nonZeroExit)),
+      ),
     )
-    expect(gtdTlsDirs()).toEqual(before)
+    expect(existsSync(created)).toBe(false)
   })
 
   it("removes its private-key tmpdir even when reading back the issued cert/key fails", async () => {
-    const before = gtdTlsDirs()
     // Reports success without actually writing cert.pem/key.pem into the
     // tmpdir generateSelfSignedCert created — the read-back Effect.try fails.
     const liesAboutSuccess = CommandRunner.layer(() => Effect.succeed({ status: 0, output: "" }))
-    const exit = await Effect.runPromiseExit(
-      generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(liesAboutSuccess)),
-    )
-    expect(Exit.isFailure(exit)).toBe(true)
-    expect(gtdTlsDirs()).toEqual(before)
+    let exit: Exit.Exit<unknown, unknown> | undefined
+    const created = await withTrackedTlsTmpDir(async () => {
+      exit = await Effect.runPromiseExit(
+        generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(liesAboutSuccess)),
+      )
+    })
+    expect(Exit.isFailure(exit!)).toBe(true)
+    expect(existsSync(created)).toBe(false)
   })
 })
 
@@ -207,26 +243,26 @@ describe("obtainTailscaleCert", () => {
     expect(thrown.detail.join("\n")).toContain("access denied")
   })
 
-  const gtdTlsDirs = (): string[] =>
-    readdirSync(tmpdir()).filter((name) => name.startsWith("gtd-tls-"))
-
   it("removes its private-key tmpdir even after a non-zero exit", async () => {
-    const before = gtdTlsDirs()
     const runner = CommandRunner.layer(() => Effect.succeed({ status: 1, output: "denied" }))
-    await Effect.runPromiseExit(
-      obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner)),
+    const created = await withTrackedTlsTmpDir(() =>
+      Effect.runPromiseExit(
+        obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner)),
+      ),
     )
-    expect(gtdTlsDirs()).toEqual(before)
+    expect(existsSync(created)).toBe(false)
   })
 
   it("removes its private-key tmpdir even when reading back the issued cert/key fails", async () => {
-    const before = gtdTlsDirs()
     const liesAboutSuccess = CommandRunner.layer(() => Effect.succeed({ status: 0, output: "" }))
-    const exit = await Effect.runPromiseExit(
-      obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(liesAboutSuccess)),
-    )
-    expect(Exit.isFailure(exit)).toBe(true)
-    expect(gtdTlsDirs()).toEqual(before)
+    let exit: Exit.Exit<unknown, unknown> | undefined
+    const created = await withTrackedTlsTmpDir(async () => {
+      exit = await Effect.runPromiseExit(
+        obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(liesAboutSuccess)),
+      )
+    })
+    expect(Exit.isFailure(exit!)).toBe(true)
+    expect(existsSync(created)).toBe(false)
   })
 
   it("fails naming tailscale on a spawn failure (binary absent)", async () => {

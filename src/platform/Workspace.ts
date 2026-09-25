@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os"
 import { isAbsolute, join } from "node:path"
 import { Context, Effect, Layer } from "effect"
+import type { RenderLedger } from "../PatternTemplates.js"
 import { GitService, type GitOperations } from "./Git.js"
 import { Host } from "./Host.js"
 
@@ -21,8 +22,9 @@ const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(Strin
  * real review diff (a touched lockfile or generated fixture clears it
  * easily) — `Beat.ts` raises the same default to 16 MB for the same class of
  * problem; `diffSync` goes further (64 MB) since a refused render here stalls
- * `build.review.pre` outright (`gtd next`/`gtd status`/`gtd judge` all render
- * the same rest). The judgment doc's own Risk note is deliberate: a diff too
+ * any `judge:` field calling `it.diff` outright (`gtd next`/`gtd status`/`gtd
+ * judge` all render the same rest). The judgment doc's own Risk note is
+ * deliberate: a diff too
  * big for the JUDGE MODEL's context is the driver's problem to hit, not
  * gtd's to pre-empt by truncating or refusing.
  */
@@ -69,8 +71,8 @@ export interface WorkspaceOps {
    * content alike, against `base` — for `judge:`'s Eta render (`it.diff`,
    * `PatternTemplates.ts`). The one deliberate WORKING-TREE read this port
    * exposes to a judge template, unlike every other `judge:`-bound member
-   * (`readCommittedSync`), because the fast-path review gate's whole point is
-   * ruling on hunks that are, by definition, not committed yet. A real `git
+   * (`readCommittedSync`), because a `judge:` field calling `it.diff` rules
+   * on hunks that are, by definition, not committed yet. A real `git
    * diff <base>` alone would miss a brand-new file entirely (untracked is
    * invisible to it), so this runs `git add -N -A` first — against a
    * THROWAWAY COPY of the real index (`GIT_INDEX_FILE`), deleted after, so
@@ -236,6 +238,21 @@ export const templateDiff =
   (workspace: Pick<WorkspaceOps, "diffSync">) =>
   (base: string): string =>
     workspace.diffSync(base)
+
+/**
+ * `it.tail`'s binding (`PatternTemplates.ts`'s `TemplateContext.tail`) —
+ * bounds `read`'s content through `ledger.tail`, so a caller wires this with
+ * `templateRead(workspace)` for the ordinary context or
+ * `templateReadCommitted(workspace)` for `judgeContext`, inheriting whichever
+ * evidence rule that `read` binding already enforces (same pattern
+ * `it.sections` uses in `Edge.ts`'s `buildTemplateContext`). `it.diffTail`
+ * shares the same `ledger.tail` accounting directly against `diff`'s output
+ * (`Edge.ts`), needing no separate binding here.
+ */
+export const templateTail =
+  (read: (path: string) => string, ledger: Pick<RenderLedger, "tail">) =>
+  (path: string, share: number): string =>
+    ledger.tail(read(path), share)
 
 export class Workspace extends Context.Tag("Workspace")<Workspace, WorkspaceOps>() {
   static Live = Layer.effect(

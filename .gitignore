@@ -21,6 +21,9 @@ logs
 _.log
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
+# scratch npm test log — never committed
+.gtd/.check-output
+
 # dotenv environment variable files
 .env
 .env.development.local

@@ -57,7 +57,29 @@ export interface TemplateContext {
    * working-tree write. (`it.diff`, above, is a separate, deliberately
    * working-tree-reading field; that exception is its own, not this one's.)
    */
-  readonly sections: (path: string) => readonly string[]
+  readonly sections: (path: string, share?: number) => readonly string[]
+  /**
+   * The LAST `floor(judgeBudgetBytes × share)` bytes of `path`'s content,
+   * with the leading partial line dropped so the model never sees half a
+   * line — a bound leaving room for no whole line renders the empty string.
+   * `share` is a FRACTION of the workflow's `judgeBudgetBytes` var (Task 1's
+   * Requirement), never an absolute byte count, so a repo retuning the
+   * budget scales every caller's real payload with it. Counts against the
+   * per-render byte ledger (`beginRender()` resets it once per
+   * `judge:`/`message:` render, the only two renders this is available in):
+   * the running total of every call's own floored bytes exceeding
+   * `budgetBytes` throws, as does a `share` that is `<= 0`, `> 1`, or
+   * non-finite. Shares whichever `read` binding the caller's context was
+   * wired with, exactly like `it.sections`.
+   */
+  readonly tail: (path: string, share: number) => string
+  /**
+   * `it.tail`'s sibling over `it.diff(base)`'s own output — same line-
+   * aligned cut, same ledger accounting (counts toward the same per-render
+   * byte total `it.tail` does), so a third-party `judge:` field inlining a
+   * diff is bounded too.
+   */
+  readonly diffTail: (base: string, share: number) => string
   /**
    * The merged variable map every template sees as `it.vars.<name>` —
    * assembled by `src/Edge.ts`'s `resolveVars` from four layers (later wins):
@@ -103,9 +125,95 @@ export const varsOnlyContext = (vars: Record<string, string>, state = ""): Templ
       `no working tree to read from while rendering against a vars-only context (path: ${path})`,
     )
   },
+  tail: (path: string) => {
+    throw new Error(
+      `no working tree to read from while rendering against a vars-only context (path: ${path})`,
+    )
+  },
+  diffTail: (base: string) => {
+    throw new Error(
+      `no working tree to diff from while rendering against a vars-only context (base: ${base})`,
+    )
+  },
   vars,
   edges: [],
 })
+
+/**
+ * One resolved rest's byte-budget accounting for `it.tail`/`it.diffTail`/
+ * `it.sections(path, share)` — built ONCE per rest (`Edge.ts`'s `restAt`) and
+ * shared across the ordinary context and `judgeContext`, so a `judge:` field's
+ * bounded read and the same rest's `message:` truncation notice agree on the
+ * same ledger. `truncated` is STICKY (set once, never cleared) for the life
+ * of the rest; the byte total resets per render via `beginRender()`. That
+ * total is FLOORED BYTES, not the raw `share` fraction — summing floors
+ * (`boundedBytes(share)`) can only undershoot the budget, never falsely
+ * exceed it the way summing raw IEEE-754 fractions could (nine `1/9` calls,
+ * `0.33 + 0.56 + 0.11`).
+ */
+export interface RenderLedger {
+  /** Reset the byte total ahead of one field's own render (`judge:` or `message:` — the only two this is available in). Does NOT clear `truncated`. */
+  readonly beginRender: () => void
+  /** `true` once ANY bounded read (`tail`/`diffTail`/a shared-budget `sections`) has dropped bytes, for the life of the rest. */
+  readonly truncated: () => boolean
+  /** Cut `content` to its last `floor(budgetBytes × share)` bytes on a line boundary, adding those floored bytes to the current render's running total (throws once the total exceeds `budgetBytes`). */
+  readonly tail: (content: string, share: number) => string
+  /** The same cut as `tail`, but exempt from the byte total — `it.sections(path, share)` inlines no bytes of its own, only the heading titles the cut tail's markdown parses to. */
+  readonly sectionsBound: (content: string, share: number) => string
+}
+
+const validateShare = (share: number): void => {
+  if (!Number.isFinite(share) || share <= 0 || share > 1) {
+    throw new Error(`share must be a finite number in (0, 1] — got ${share}`)
+  }
+}
+
+/** Cut `content` to its last `allowedBytes` bytes, then drop the leading partial line — never a half line. Returns `{ text, cut }`, `cut` true iff any byte was dropped. */
+const cutToTail = (content: string, allowedBytes: number): { text: string; cut: boolean } => {
+  const buf = Buffer.from(content, "utf8")
+  if (buf.length <= allowedBytes) return { text: content, cut: false }
+  const tailBuf = buf.subarray(buf.length - allowedBytes)
+  const tail = tailBuf.toString("utf8")
+  const newline = tail.indexOf("\n")
+  return { text: newline === -1 ? "" : tail.slice(newline + 1), cut: true }
+}
+
+/**
+ * `judgeBudgetBytes` is validated by the caller (`Edge.ts`'s
+ * `parseJudgeBudgetBytes`) before this is built — a blank/non-numeric/
+ * non-finite budget throws there, never here.
+ */
+export const createRenderLedger = (budgetBytes: number): RenderLedger => {
+  let truncated = false
+  let usedBytes = 0
+  const boundedBytes = (share: number): number => {
+    validateShare(share)
+    return Math.floor(budgetBytes * share)
+  }
+  return {
+    beginRender: () => {
+      usedBytes = 0
+    },
+    truncated: () => truncated,
+    tail: (content: string, share: number): string => {
+      const allowed = boundedBytes(share)
+      usedBytes += allowed
+      if (usedBytes > budgetBytes) {
+        throw new Error(
+          `it.tail/it.diffTail shares sum to more than 1 within one render (${usedBytes} bytes against a ${budgetBytes}-byte budget)`,
+        )
+      }
+      const { text, cut } = cutToTail(content, allowed)
+      if (cut) truncated = true
+      return text
+    },
+    sectionsBound: (content: string, share: number): string => {
+      const { text, cut } = cutToTail(content, boundedBytes(share))
+      if (cut) truncated = true
+      return text
+    },
+  }
+}
 
 // Filesystem template resolution is nulled out: a template may only see what
 // `TemplateContext` hands it, never reach out to disk itself via `include()`.

@@ -40,8 +40,12 @@ const commitWithTrailer = (dir: string, trailer: string): void => {
   )
 }
 
-/** Renders `scoping`'s script with a given `specPreJudge` value and runs it for real against `dir`. */
-const runScoping = (dir: string, specPreJudge: string): void => {
+/** Renders `scoping`'s script with a given `specPreJudge` value (and an optional `judgeBudgetBytes` override) and runs it for real against `dir`. */
+const runScoping = (
+  dir: string,
+  specPreJudge: string,
+  varsOverride: Record<string, string> = {},
+): void => {
   const { definition, vars } = compileTemplate()
   const state = definition.states["packages.item.spec.scoping"]!
   const script = renderStateTemplate(state.script!, {
@@ -57,7 +61,9 @@ const runScoping = (dir: string, specPreJudge: string): void => {
     read: () => "",
     diff: () => "",
     sections: () => [],
-    vars: { ...vars, specPreJudge },
+    tail: () => "",
+    diffTail: () => "",
+    vars: { ...vars, specPreJudge, ...varsOverride },
     edges: [],
   })
   // NEXT.md points at "packages/01-widget.md" (relative to `dir`, the
@@ -156,6 +162,27 @@ describe("packages.item.spec.scoping's script, executed for real (round-3 review
     expect(readIfExists(dir, "SPEC_SCOPE.md")).toBeUndefined()
     expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeDefined()
   })
+
+  it("a confident 'yes' cannot clear a section when the package file itself is over judgeBudgetBytes — pre's own evidence was truncated, so scoping fails open regardless of the trailer", () => {
+    // Same fixture and the same confident, otherwise-clearing verdict as
+    // "all three sections answered yes..." above — the only difference is
+    // a judgeBudgetBytes small enough that pre's own it.tail(pkgPath, 1)
+    // would have truncated this package file, so none of these "yes"
+    // verdicts were ever a genuine judgment over the real section text.
+    const dir = initRepo()
+    writePackage(dir, THREE_SECTIONS)
+    commitWithTrailer(
+      dir,
+      [
+        'Gtd-Judge: {"id":"section-1","answer":true,"p":0.99}',
+        'Gtd-Judge: {"id":"section-2","answer":true,"p":0.99}',
+        'Gtd-Judge: {"id":"section-3","answer":true,"p":0.99}',
+      ].join("\n"),
+    )
+    runScoping(dir, "0.9", { judgeBudgetBytes: "5" })
+    expect(readIfExists(dir, "SPEC_SCOPE.md")).toBe("- Section A\n- Section B\n- Section C\n")
+    expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeUndefined()
+  })
 })
 
 describe("packages.item.spec.pre's judge template (round-3 review)", () => {
@@ -176,6 +203,12 @@ describe("packages.item.spec.pre's judge template (round-3 review)", () => {
         path === ".gtd/NEXT.md" ? ".gtd/packages/01-widget.md\n" : "## Do the thing\n- [ ] task\n",
       diff: () => "",
       sections: () => ["Do the thing"],
+      // A real tail bound never drops anything this small — mirrors read
+      // rather than stubbing empty, so the section survives and this test
+      // exercises the ordinary (not the truncated/structural) branch.
+      tail: (path) =>
+        path === ".gtd/NEXT.md" ? ".gtd/packages/01-widget.md\n" : "## Do the thing\n- [ ] task\n",
+      diffTail: () => "",
       vars,
       edges: [],
     }

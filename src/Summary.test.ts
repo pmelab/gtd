@@ -17,6 +17,12 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   read: (path: string) => `contents of ${path}`,
   diff: (base: string) => `diff of ${base}`,
   sections: () => [],
+  tail: () => {
+    throw new Error("tail() must not be called unless the template references it.tail")
+  },
+  diffTail: () => {
+    throw new Error("diffTail() must not be called unless the template references it.diffTail")
+  },
   vars: {},
   edges: [],
   ...overrides,
@@ -136,6 +142,21 @@ describe("buildSummary", () => {
     const context = baseContext({
       read: () => {
         throw new Error("read() must not be called unless the template references it.read")
+      },
+    })
+    expect(buildSummary(def("static summary, no interpolation"), run, context)).toBe(
+      "static summary, no interpolation",
+    )
+  })
+
+  it("never calls it.tail/it.diffTail for a template that never references them", () => {
+    const run = trace([{ state: "idle", hash: "h1", actor: "agent" }])
+    const context = baseContext({
+      tail: () => {
+        throw new Error("tail() must not be called unless the template references it.tail")
+      },
+      diffTail: () => {
+        throw new Error("diffTail() must not be called unless the template references it.diffTail")
       },
     })
     expect(buildSummary(def("static summary, no interpolation"), run, context)).toBe(

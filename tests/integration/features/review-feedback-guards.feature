@@ -10,7 +10,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
   it routes to `build.review.triage` first — one noul per `## ` chunk,
   "actionable, not approval or nit?" — whose own `build.review.triaging`
   check then produces the same `.gtd/REVIEW_RAW.md` capture only when
-  something actually is (see review-lap-judgments.feature). The
+  something actually is (see `reviewLapScripts.test.ts`). The
   `build.review.collecting` agent then JUDGES whether the round is
   actionable — it never builds; when it IS actionable it CLASSIFIES the
   round straight into `.gtd/REQUIREMENTS.md` as ordered, PRODUCT/TECHNICAL

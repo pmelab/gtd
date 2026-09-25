@@ -453,6 +453,79 @@ describe("the bundled unified workflow template", () => {
     }
   })
 
+  it("build.health.judge/packages.item.health.judge strip each round's own trailing stamp before compare — two rounds differing ONLY in the stamp render byte-identical current/previous (package 02)", () => {
+    const { definition, vars } = compileTemplate()
+    for (const judgeState of ["build.health.judge", "packages.item.health.judge"]) {
+      const state = definition.states[judgeState]!
+      const body = "1 test failed\nAssertionError: expected 1 to be 2\n"
+      const current = `${body}\n<!-- gtd check abc1234 -->\n`
+      const previous = `${body}\n<!-- gtd check def5678 -->\n`
+      const files: Record<string, string> = {
+        ".gtd/FEEDBACK.md": current,
+        ".gtd/PRIOR_FEEDBACK.md": previous,
+      }
+      const rendered = renderStateTemplate(state.judge!, {
+        ...varsOnlyContext(vars, judgeState),
+        read: (path: string) => files[path]!,
+        tail: (path: string) => files[path]!,
+      })
+      const doc = JSON.parse(rendered)
+      expect(doc.state.current, judgeState).toBe(doc.state.previous)
+      expect(doc.state.current, judgeState).not.toContain("gtd check")
+    }
+  })
+
+  it("build.health.judge/packages.item.health.judge refuse to read `identical` off an unusable tail — an empty bounded read, on EITHER side, replaces current/previous with a sentinel and forbids identical (package 03)", () => {
+    const { definition, vars } = compileTemplate()
+    for (const judgeState of ["build.health.judge", "packages.item.health.judge"]) {
+      const state = definition.states[judgeState]!
+      // A single unbroken trailing line — no newline in the last cut bytes
+      // — is exactly the shape `it.tail` renders as "" (its own doc
+      // comment: "a bound leaving room for no whole line renders the empty
+      // string").
+      const files: Record<string, string> = {
+        ".gtd/FEEDBACK.md": "one very long unbroken assertion line with no newline in it at all",
+        ".gtd/PRIOR_FEEDBACK.md": "a completely different very long unbroken line, also no newline",
+      }
+      const rendered = renderStateTemplate(state.judge!, {
+        ...varsOnlyContext(vars, judgeState),
+        read: (path: string) => files[path]!,
+        tail: () => "",
+      })
+      const doc = JSON.parse(rendered)
+      expect(doc.state, judgeState).toEqual({ tailsNotComparable: true })
+      expect(doc.state, judgeState).not.toHaveProperty("current")
+      expect(doc.state, judgeState).not.toHaveProperty("previous")
+      expect(doc.questions[0].criteria, judgeState).toContain("FORBIDDEN")
+      // `instructions` must switch too — telling the model to compare
+      // `current`/`previous` one sentence after they were withheld would
+      // push it toward reading their mutual absence as sameness (spec
+      // feedback: the exact `identical` outcome this guard exists to stop).
+      expect(doc.questions[0].instructions, judgeState).not.toContain("current")
+      expect(doc.questions[0].instructions, judgeState).not.toContain("previous")
+      expect(doc.questions[0].instructions, judgeState).toContain("tailsNotComparable")
+    }
+  })
+
+  it("build.health.judge/packages.item.health.judge also guard the shape where both tails happen to match but the two whole files differ in byte length (package 03)", () => {
+    const { definition, vars } = compileTemplate()
+    for (const judgeState of ["build.health.judge", "packages.item.health.judge"]) {
+      const state = definition.states[judgeState]!
+      const sharedTail = "AssertionError: expected 1 to be 2\n"
+      const files: Record<string, string> = {
+        ".gtd/FEEDBACK.md": `extra leading context that only this round has\n${sharedTail}`,
+        ".gtd/PRIOR_FEEDBACK.md": sharedTail,
+      }
+      const rendered = renderStateTemplate(state.judge!, {
+        ...varsOnlyContext(vars, judgeState),
+        read: (path: string) => files[path]!,
+        tail: () => sharedTail,
+      })
+      const doc = JSON.parse(rendered)
+      expect(doc.state, judgeState).toEqual({ tailsNotComparable: true })
+    }
+  })
+
   it("build.health.escalate/packages.item.health.escalate are round-counting check gates — a fresh escalation routes to describe, a second round to the terminal exhausted stop (package 01, task 1/4)", () => {
     const { definition } = compileTemplate()
     for (const escalate of ["build.health.escalate", "packages.item.health.escalate"]) {
@@ -1368,9 +1441,9 @@ describe("the bundled template's machine boundaries line up with conversational 
     // commit. A future state wired straight to it (skipping every human
     // gate entirely) would close a process with no human ever having seen
     // it; this fails loudly the moment a FIFTH source is added, rather than
-    // relying on the one e2e scenario that only pins `fastReview` →
-    // `await-review`. `fix-precheck` (an already-green baseline needs no
-    // repair at all) and `build.review.collecting` (the pre-existing
+    // relying on any one e2e scenario to catch it. `fix-precheck` (an
+    // already-green baseline needs no repair at all) and
+    // `build.review.collecting` (the pre-existing
     // non-actionable short-circuit on a hand-edited round) both predate
     // this package; `build.review.deciding`/`build.review.triaging` are
     // its own two new sources — the note-only round's non-actionable
@@ -1426,25 +1499,227 @@ describe("the bundled template's machine boundaries line up with conversational 
   })
 })
 
-describe("a judgment inlines the evidence its questions ask about (package 03)", () => {
-  it("build.review.pre's rendered judgment carries real diff hunks in state.diff, and its three questions reference state.diff rather than a command the judge would have to run", () => {
+describe("a section-splitting judge: never mis-cuts its survivor set on a fence straddling the truncation boundary (package 02)", () => {
+  // A fence whose OWN `## `-looking lines sit right where a small budget
+  // cuts the document: a second heading count over the cut text alone
+  // would parse "## Fake 3" and the fence-closer-adjacent "## Real B" as
+  // two survivors against a whole document that only ever had two REAL
+  // headings — the exact miscount a round of review caught. Reading
+  // survival off byte position instead (this fix) must still land "Real
+  // A" truncated and "Real B" intact.
+  const FENCE_STRADDLES_CUT =
+    "## Real A\n\n```md\n## Fake 1\n## Fake 2\n## Fake 3\n```\n\n## Real B\n\nbody b\n"
+
+  it("build.review.triage: chunk-1 (Real A) gets the structural question, chunk-2 (Real B) gets the ordinary one, and no third id is ever produced for a fake heading inside the fence", () => {
     const { definition, vars } = compileTemplate()
-    const state = definition.states["build.review.pre"]!
-    const diffText =
-      "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n"
+    const state = definition.states["build.review.triage"]!
+    const files: Record<string, string> = { ".gtd/REVIEW.md": FENCE_STRADDLES_CUT }
     const rendered = renderStateTemplate(state.judge!, {
-      ...varsOnlyContext(vars, "build.review.pre"),
-      reviewBase: "base123",
-      diff: (base: string) => {
-        expect(base).toBe("base123")
-        return diffText
+      ...varsOnlyContext(vars, "build.review.triage"),
+      read: (path: string) => files[path]!,
+      tail: (path: string) => {
+        const c = files[path]!
+        // Same 40-byte cut `judge-payload-bound.feature` exercises against
+        // a real ledger — landing mid-fence is the point of this fixture.
+        return c.slice(c.length - 40).slice(c.slice(c.length - 40).indexOf("\n") + 1)
       },
+      sections: () => ["Real A", "Real B"],
     })
     const doc = JSON.parse(rendered)
-    expect(doc.state.diff).toBe(diffText)
-    for (const q of doc.questions) {
-      expect(q.instructions).toContain("state.diff")
-      expect(q.instructions).not.toMatch(/git diff/)
+    expect(doc.questions).toHaveLength(2)
+    expect(doc.questions[0].id).toBe("chunk-1")
+    expect(doc.questions[0].instructions).toContain("truncated away")
+    expect(doc.questions[1].id).toBe("chunk-2")
+    expect(doc.questions[1].instructions).toContain("Is the note under review chunk")
+  })
+
+  it("packages.item.spec.pre: section-1 (Real A) gets the structural question, section-2 (Real B) gets the ordinary one", () => {
+    const { definition, vars } = compileTemplate()
+    const state = definition.states["packages.item.spec.pre"]!
+    const files: Record<string, string> = {
+      ".gtd/NEXT.md": ".gtd/packages/01-widget.md\n",
+      ".gtd/packages/01-widget.md": FENCE_STRADDLES_CUT,
     }
+    const rendered = renderStateTemplate(state.judge!, {
+      ...varsOnlyContext(vars, "packages.item.spec.pre"),
+      read: (path: string) => files[path]!,
+      tail: (path: string) => {
+        const c = files[path]!
+        const cut = c.slice(c.length - 40)
+        return cut.slice(cut.indexOf("\n") + 1)
+      },
+      sections: () => ["Real A", "Real B"],
+    })
+    const doc = JSON.parse(rendered)
+    expect(doc.questions[0].id).toBe("section-1")
+    expect(doc.questions[0].instructions).toContain("truncated away")
+    expect(doc.questions[1].id).toBe("section-2")
+    expect(doc.questions[1].instructions).toContain("already fully satisfied")
+  })
+})
+
+describe("a section-splitting judge: the two findTitleOffset copies stay byte-identical (package 03)", () => {
+  it("build.review.triage and packages.item.spec.pre carry the SAME findTitleOffset body — a future one-sided fix (CRLF or otherwise) fails here", () => {
+    const { definition } = compileTemplate()
+    const extract = (body: string) => {
+      const m = /const findTitleOffset = \(text, title, from\) => \{[\s\S]*?\n\s*\}/.exec(body)
+      if (!m) throw new Error("findTitleOffset helper not found in judge: body")
+      return m[0]
+    }
+    const triage = extract(definition.states["build.review.triage"]!.judge!)
+    const pre = extract(definition.states["packages.item.spec.pre"]!.judge!)
+    expect(pre).toBe(triage)
+  })
+})
+
+describe("a section-splitting judge: findTitleOffset already matches a heading on a CRLF document (package 03, spec-feedback)", () => {
+  // Package 03's Requirement B text claims JS `$` under the `m` flag "matches
+  // before `\n`, never before `\r`". Measured, not assumed: ECMA-262's
+  // LineTerminator set includes bare CR, so `$` under `m` matches immediately
+  // before EITHER `\r\n` or a bare `\r` — `/abc$/m.test("abc\r\ndef")` and
+  // `/abc$/m.test("abc\rdef")` both return `true`. The existing
+  // `[ \t]+#{1,6})?[ \t]*$` classes therefore already find a CRLF title;
+  // adding `\r` to them would be a no-op for `findTitleOffset`'s own return
+  // value — checked directly: across several CR-only documents built to
+  // provoke over-matching (a title immediately followed by a bare `###`
+  // line), the `\r`-widened classes DO let the match's own `m[0]` span past
+  // the line boundary, but `findTitleOffset` only ever returns `from +
+  // m.index`, and `m.index` is identical with or without `\r` in every case
+  // tried — the extra span is inert here, not a live regression. These two
+  // cases pin the ALREADY-CORRECT behavior so no future refactor
+  // reintroduces the unneeded "fix".
+  const CRLF_DOC = "## Real A\r\n\r\nbody a\r\n\r\n## Real B\r\n\r\nbody b\r\n"
+  const CRLF_TAIL = "## Real B\r\n\r\nbody b\r\n"
+
+  it("build.review.triage: a title the CRLF bound dropped is reported as truncated, not SURVIVED", () => {
+    const { definition, vars } = compileTemplate()
+    const state = definition.states["build.review.triage"]!
+    const files: Record<string, string> = { ".gtd/REVIEW.md": CRLF_DOC }
+    const rendered = renderStateTemplate(state.judge!, {
+      ...varsOnlyContext(vars, "build.review.triage"),
+      read: (path: string) => files[path]!,
+      tail: () => CRLF_TAIL,
+      sections: () => ["Real A", "Real B"],
+    })
+    const doc = JSON.parse(rendered)
+    expect(doc.questions[0].id).toBe("chunk-1")
+    expect(doc.questions[0].instructions).toContain("truncated away")
+    expect(doc.questions[1].id).toBe("chunk-2")
+    expect(doc.questions[1].instructions).not.toContain("truncated away")
+  })
+
+  it("packages.item.spec.pre: a title the CRLF bound dropped is reported as truncated, not SURVIVED", () => {
+    const { definition, vars } = compileTemplate()
+    const state = definition.states["packages.item.spec.pre"]!
+    const files: Record<string, string> = {
+      ".gtd/NEXT.md": ".gtd/packages/01-widget.md\n",
+      ".gtd/packages/01-widget.md": CRLF_DOC,
+    }
+    const rendered = renderStateTemplate(state.judge!, {
+      ...varsOnlyContext(vars, "packages.item.spec.pre"),
+      read: (path: string) => files[path]!,
+      tail: () => CRLF_TAIL,
+      sections: () => ["Real A", "Real B"],
+    })
+    const doc = JSON.parse(rendered)
+    expect(doc.questions[0].id).toBe("section-1")
+    expect(doc.questions[0].instructions).toContain("truncated away")
+    expect(doc.questions[1].id).toBe("section-2")
+    expect(doc.questions[1].instructions).not.toContain("truncated away")
+  })
+})
+
+describe("a section-splitting judge: a title it cannot re-find VERBATIM is never mistaken for a truncated one (package 02)", () => {
+  // `it.sections` collapses internal whitespace and never markdown-strips —
+  // a literal `"## " + title` search misses a setext (`---`-underlined) H2
+  // entirely (no `## ` prefix in its own source) and an ATX heading whose
+  // own source has extra internal spaces the title already collapsed away.
+  // At FULL budget (nothing truncated at all — tail equals whole, so
+  // tailStart is 0) both must still render the ORDINARY question: a
+  // not-found title collapsing into "truncated" here would make the
+  // section un-clearable forever, a permanent stall rather than one round's
+  // conservative answer.
+  it("build.review.triage: a setext H2 and a whitespace-normalized ATX heading both stay ordinary questions", () => {
+    const { definition, vars } = compileTemplate()
+    const state = definition.states["build.review.triage"]!
+    const content = "Setext Chunk\n---\n\nbody a\n\n##  Spaced   Chunk\n\nbody b\n"
+    const files: Record<string, string> = { ".gtd/REVIEW.md": content }
+    const rendered = renderStateTemplate(state.judge!, {
+      ...varsOnlyContext(vars, "build.review.triage"),
+      read: (path: string) => files[path]!,
+      tail: (path: string) => files[path]!,
+      sections: () => ["Setext Chunk", "Spaced Chunk"],
+    })
+    const doc = JSON.parse(rendered)
+    expect(doc.questions).toHaveLength(2)
+    for (const q of doc.questions) {
+      expect(q.instructions).not.toContain("truncated away")
+    }
+  })
+
+  it("packages.item.spec.pre: the same two heading forms stay ordinary questions", () => {
+    const { definition, vars } = compileTemplate()
+    const state = definition.states["packages.item.spec.pre"]!
+    const content = "Setext Section\n---\n\nbody a\n\n##  Spaced   Section\n\nbody b\n"
+    const files: Record<string, string> = {
+      ".gtd/NEXT.md": ".gtd/packages/01-widget.md\n",
+      ".gtd/packages/01-widget.md": content,
+    }
+    const rendered = renderStateTemplate(state.judge!, {
+      ...varsOnlyContext(vars, "packages.item.spec.pre"),
+      read: (path: string) => files[path]!,
+      tail: (path: string) => files[path]!,
+      sections: () => ["Setext Section", "Spaced Section"],
+    })
+    const doc = JSON.parse(rendered)
+    expect(doc.questions[0].instructions).not.toContain("truncated away")
+    expect(doc.questions[1].instructions).not.toContain("truncated away")
+  })
+})
+
+describe("a judge:'s single bounded read stays coupled to its own shell backstop's share = 1 (package 03)", () => {
+  // `build.review.triaging`/`packages.item.spec.scoping` compute
+  // `truncated` from `wc -c <file> > judgeBudgetBytes` — correct ONLY while
+  // the matching `judge:` field reads the whole file through exactly one
+  // bounded read at share 1. No engine wiring ties the two numbers
+  // together; this is the tripwire.
+  // Three primitives take a `share` and count as a bounded read: `it.tail`,
+  // `it.diffTail`, and the two-argument `it.sections(path, share)` — the
+  // one-argument `it.sections(path)` both bodies also use (a real,
+  // unbounded heading count) is deliberately excluded by requiring a comma.
+  // `it.diffTail` would already be caught indirectly (its floored bytes join
+  // the same render ledger `it.tail` does, so a second bounded read
+  // overflows `budgetBytes` and throws) but `it.sections(path, share)` is
+  // ledger-EXEMPT (`createRenderLedger`'s own doc comment) — this regex is
+  // the only thing standing between a future one of those and a silent hole
+  // in the matching shell backstop.
+  const oneBoundedReadAtShareOne = (judgeBody: string, backstop: string) => {
+    // Strip `//` line comments first — both bodies' own doc comments narrate
+    // the pattern in prose ("it.sections(path, 1)") which would otherwise
+    // false-positive as a second real call.
+    const code = judgeBody.replace(/\/\/.*$/gm, "")
+    const calls = [...code.matchAll(/it\.(?:tail|diffTail|sections)\([^),]*,[^)]*\)/g)].map(
+      (m) => m[0],
+    )
+    expect(calls, `${backstop} assumes exactly one bounded read in this judge:`).toHaveLength(1)
+    expect(calls[0], `${backstop} assumes that bounded read reads at share 1`).toMatch(
+      /,\s*1\s*\)$/,
+    )
+  }
+
+  it("build.review.triage reads .gtd/REVIEW.md with exactly one it.tail call at share 1 — build.review.triaging's wc -c backstop assumes this", () => {
+    const { definition } = compileTemplate()
+    oneBoundedReadAtShareOne(
+      definition.states["build.review.triage"]!.judge!,
+      "build.review.triaging",
+    )
+  })
+
+  it("packages.item.spec.pre reads the package file with exactly one it.tail call at share 1 — packages.item.spec.scoping's wc -c backstop assumes this", () => {
+    const { definition } = compileTemplate()
+    oneBoundedReadAtShareOne(
+      definition.states["packages.item.spec.pre"]!.judge!,
+      "packages.item.spec.scoping",
+    )
   })
 })

@@ -27,6 +27,12 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
     throw new Error(`unexpected diff of ${base}`)
   },
   sections: () => [],
+  tail: (path: string) => {
+    throw new Error(`unexpected tail of ${path}`)
+  },
+  diffTail: (base: string) => {
+    throw new Error(`unexpected diffTail of ${base}`)
+  },
   vars,
   edges: [],
 })

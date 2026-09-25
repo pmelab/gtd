@@ -19,46 +19,88 @@ import pty
 import select
 import subprocess
 import sys
+import time
+
+# Wall-clock deadline for the WHOLE loop below — a child that outfills the
+# pty buffer (~64 KiB on most systems) and blocks in `write()` must still be
+# read from as it runs, or it never exits; this bound is what stops a child
+# that also never writes and never exits. Generous (a real command under
+# this suite's own full `npm test` — 10 parallel vitest workers plus
+# build/lint/etc. — can be starved of CPU for seconds at a time), and the
+# ONLY termination condition for such a child.
+IDLE_TIMEOUT_SECONDS = 10.0
+# Once the child has exited, how long the loop waits for one more chunk
+# before deciding no further data is coming — short, because there is
+# nothing left to race: see the loop's own comment for why closing `slave`
+# only AFTER draining, never before, is what actually matters here.
+SETTLE_TIMEOUT_SECONDS = 0.2
 
 
 def run_in_pty(argv):
     master, slave = pty.openpty()
     proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave)
-    os.close(slave)
     chunks = []
+    # Read and poll together instead of `proc.wait()`-then-read: a child
+    # that fills the ~64 KiB pty buffer blocks in `write()` until this
+    # process drains it, so waiting for exit before the first read can
+    # deadlock the child forever (it gets killed as an idle timeout, never
+    # having exited). Interleaving keeps the buffer from ever filling.
+    deadline = time.monotonic() + IDLE_TIMEOUT_SECONDS
+    exited = False
     while True:
-        ready, _, _ = select.select([master], [], [], 1.0)
+        timeout = (
+            SETTLE_TIMEOUT_SECONDS
+            if exited
+            else max(0.0, min(SETTLE_TIMEOUT_SECONDS, deadline - time.monotonic()))
+        )
+        ready, _, _ = select.select([master], [], [], timeout)
+        got_data = False
         if master in ready:
             try:
                 data = os.read(master, 65536)
             except OSError:
-                break
-            if not data:
-                break
-            chunks.append(data)
-        if proc.poll() is not None:
-            # Drain whatever the child already flushed before it exited. A
-            # generous 0.5s (not the original 0.05s): under heavy CPU
-            # contention (e.g. this suite's own full `npm test` running
-            # build/lint/etc. concurrently), the write() that fills the pty
-            # buffer can lag behind the scheduler noticing the child has
-            # already exited — a short timeout here read that gap as "no
-            # more data" and returned empty output, flaky in a way a
-            # standalone run of this test never reproduced.
-            while True:
-                ready, _, _ = select.select([master], [], [], 0.5)
-                if master not in ready:
-                    break
-                try:
-                    data = os.read(master, 65536)
-                except OSError:
-                    data = b""
-                if not data:
-                    break
+                data = b""
+            if data:
                 chunks.append(data)
+                got_data = True
+        if not exited:
+            if proc.poll() is not None:
+                exited = True
+                continue
+            if time.monotonic() >= deadline:
+                proc.kill()
+                proc.wait()
+                exited = True
+                continue
+        if exited and not got_data:
             break
-    os.close(master)
     proc.wait()
+    # Measured, not reasoned: this process's own `os.close(slave)` — done
+    # EITHER right after spawning the child (an early version) or right
+    # after `proc.wait()` above but BEFORE draining (a later one) — is what
+    # loses output, independent of CPU load or elapsed time. A same-process,
+    # no-load repro: spawn a child that prints one line, `proc.wait()`, close
+    # `slave`, then read — the read comes back a 0-byte EOF every time, even
+    # though the exact same sequence with the `close()` removed reads the
+    # line back correctly after an artificial multi-second sleep. This pty
+    # implementation appears to flush/drop whatever is still sitting unread
+    # in the buffer at the moment every reference to the slave side closes,
+    # rather than preserving it for a later read the way a plain pipe would
+    # — a real hangup, not a race this loop could ever win by reading
+    # faster or waiting differently. So: read everything out FIRST, close
+    # LAST.
+    #
+    # (Two earlier versions of this loop chased a DIFFERENT theory — a
+    # scheduling race between the child's exit and this process's own turn
+    # to read, first "fixed" by reading to a kernel-reported real EOF
+    # instead of a short poll-then-drain window, then by keeping this
+    # process's own `slave` reference open so the child's exit could never
+    # be the LAST close. Both were reproducible-under-load but never
+    # reliable: the actual trigger is the close itself, not who does it or
+    # when, so this version never closes `slave` until after the loop
+    # above has already collected everything.)
+    os.close(slave)
+    os.close(master)
     return proc.returncode, b"".join(chunks)
 
 

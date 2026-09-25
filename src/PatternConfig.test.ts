@@ -234,6 +234,12 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       sections: () => {
         throw new Error("must not be called")
       },
+      tail: () => {
+        throw new Error("must not be called")
+      },
+      diffTail: () => {
+        throw new Error("must not be called")
+      },
       vars: {},
       edges: [],
     }

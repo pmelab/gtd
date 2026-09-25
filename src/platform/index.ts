@@ -15,6 +15,7 @@ export {
   templateDiff,
   templateRead,
   templateReadCommitted,
+  templateTail,
   type WorkspaceOps,
 } from "./Workspace.js"
 export { Host, type HostOps } from "./Host.js"
