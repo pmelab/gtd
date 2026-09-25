@@ -1499,6 +1499,47 @@ describe("validateDefinition", () => {
     expect(errors).toContain('entries.manual declares "b" more than once')
   })
 
+  it("rejects entries.default naming a state inside an each: subtree", () => {
+    const { errors } = validateDefinition({
+      entries: { default: "item.building", manual: [] },
+      states: {
+        "item.building": { actor: "agent", prompt: "build", on: [["A DONE.md", "drained"]] },
+        drained: { actor: "human", message: "done" },
+      },
+      eachRefs: { item: { entry: "item.building", drained: "drained" } },
+    })
+    expect(errors).toContain(
+      'entries.default "item.building" is inside an each: reference — a process may not start inside a loop',
+    )
+  })
+
+  it("rejects entries.manual naming a state inside an each: subtree", () => {
+    const { errors } = validateDefinition({
+      entries: { default: "drained", manual: ["item.building"] },
+      states: {
+        "item.building": { actor: "agent", prompt: "build", on: [["A DONE.md", "drained"]] },
+        drained: { actor: "human", message: "done" },
+      },
+      eachRefs: { item: { entry: "item.building", drained: "drained" } },
+    })
+    expect(errors).toContain(
+      'entries.manual "item.building" is inside an each: reference — a process may not be entered inside a loop',
+    )
+  })
+
+  it("accepts entries that all sit outside every each: subtree", () => {
+    const { errors } = validateDefinition({
+      entries: { default: "picking", manual: ["drained"] },
+      states: {
+        picking: { actor: "human", message: "pick", on: [["* *", "item.building"]] },
+        "item.building": { actor: "agent", prompt: "build", on: [["A DONE.md", "drained"]] },
+        drained: { actor: "human", message: "done" },
+      },
+      eachRefs: { item: { entry: "item.building", drained: "drained" } },
+    })
+    expect(errors).toEqual([])
+  })
+
   it("accepts entries with only `default` (an empty `manual`)", () => {
     const { errors } = validateDefinition({
       entries: { default: "a", manual: [] },
@@ -3053,6 +3094,26 @@ describe("step — each: loop advance", () => {
         changes: [change("A", "DONE.md")],
         processTrace: ["A[0].build"],
         eachItems: { A: ["a1", "a2"], B: ["b1"] },
+      })
+      expect(decision).toMatchObject({
+        kind: "commit",
+        from: "A[0].build",
+        to: "A[1].build",
+      })
+      expect(decision).not.toHaveProperty("enteredEachRef")
+    })
+
+    it("loop A has items remaining and loop B's snapshotted list is empty: A still advances to its next item instead of being silently skipped", () => {
+      // B being empty makes `qualifyLoopTarget` chain A's own `drained:`
+      // ("B.build") straight through to B's `drained:` ("done") — the
+      // resolved target `applyEachDrainAdvance` sees is "done", which is
+      // neither A's nor B's OWN `drained:` string. Without threading the
+      // pre-chain target ("B.build", exactly A's `drained:`) through, A never
+      // advances and its second item is silently dropped.
+      const decision = step(twoLoopDef, "A[0].build", "agent", {
+        changes: [change("A", "DONE.md")],
+        processTrace: ["A[0].build"],
+        eachItems: { A: ["a1", "a2"], B: [] },
       })
       expect(decision).toMatchObject({
         kind: "commit",

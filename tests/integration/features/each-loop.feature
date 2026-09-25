@@ -211,3 +211,76 @@ Feature: gtd runs an each: loop end to end through the real driver protocol
     When I run gtd next with "--json"
     Then it succeeds
     And the json field "session.id" differs from the one recorded as "item 0's session"
+
+  Scenario: a process running two loops in sequence builds every one of the first loop's items, even though the second loop's own list is empty
+    # loopA's own `drained:` names loopB's reference directly (the natural way
+    # to author "run this loop, then that one") and loopB's glob matches no
+    # files at all — `qualifyLoopTarget` chains loopB's empty list straight
+    # through to `finish` before loopA's own advance check ever runs; without
+    # threading the pre-chain target through, loopA would stop after item 0
+    # and item 1 (b.md) would never be built (.gtd/packages/03-each-engine-fixes.md).
+    Given a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: pick
+                on:
+                  "* **": loopA
+              loopA:
+                machine: packageItem
+                with:
+                  onDrained: loopB
+                each:
+                  glob: '.gtd/packages/*.md'
+                  drained: loopB
+              loopB:
+                machine: packageItem
+                with:
+                  onDrained: finish
+                each:
+                  glob: '.gtd/empty-packages/*.md'
+                  drained: finish
+              finish:
+                actor: human
+                message: done
+          packageItem:
+            params: [onDrained]
+            entry: building
+            states:
+              building:
+                actor: agent
+                prompt: build it
+                on:
+                  "* **": $onDrained
+      """
+    And a file "NOTE.md" with:
+      """
+      begin
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): start → loopA[0].building"
+
+    And the file "NOTE.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    # loopA has a SECOND item (b.md) — loopB's own empty list must not make
+    # loopA skip straight to `finish`.
+    And the last commit subject is "gtd(agent): loopA[0].building → loopA[1].building"
+
+    And a file "STEP.md" with:
+      """
+      advance again
+      """
+    When I run gtd land
+    Then it succeeds
+    # loopA is now exhausted (item 1 was the last); loopB's own empty list
+    # chains straight through to `finish` in the same decision.
+    And the last commit subject is "gtd(agent): loopA[1].building → finish"

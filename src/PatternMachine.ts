@@ -566,7 +566,9 @@ const episodeVisits = (
  * does — a retry's `otherwise` can itself freshly enter an `each:` subtree the
  * raw pre-retry target never touched (or vice versa), so only the TERMINAL
  * hop's own determination is the right answer for the target `step` actually
- * lands on.
+ * lands on. `preChainTarget` threads the same way, so `applyEachDrainAdvance`
+ * can still recognise a `drained:` target that an intervening EMPTY loop's
+ * `qualifyLoopTarget` chained away before retry ever ran.
  */
 const applyRetry = (
   def: WorkflowDefinition,
@@ -575,13 +577,18 @@ const applyRetry = (
   currentState: StateName,
   payload: StepPayload,
   enteredEachRef: string | undefined,
+  preChainTarget: StateName,
   visited: ReadonlySet<StateName> = new Set(),
-): { readonly target: StateName; readonly enteredEachRef: string | undefined } => {
-  if (visited.has(target)) return { target, enteredEachRef }
+): {
+  readonly target: StateName
+  readonly enteredEachRef: string | undefined
+  readonly preChainTarget: StateName
+} => {
+  if (visited.has(target)) return { target, enteredEachRef, preChainTarget }
   const targetDef = def.states[stripQualifiers(target)]
-  if (targetDef?.retry === undefined) return { target, enteredEachRef }
+  if (targetDef?.retry === undefined) return { target, enteredEachRef, preChainTarget }
   const priorVisits = episodeVisits(def, target, trace)
-  if (priorVisits < targetDef.retry.max) return { target, enteredEachRef }
+  if (priorVisits < targetDef.retry.max) return { target, enteredEachRef, preChainTarget }
   const otherwise = qualifyLoopTarget(def, targetDef.retry.otherwise, currentState, payload)
   return applyRetry(
     def,
@@ -590,6 +597,7 @@ const applyRetry = (
     currentState,
     payload,
     otherwise.enteredEachRef,
+    otherwise.preChainTarget,
     new Set([...visited, target]),
   )
 }
@@ -723,6 +731,14 @@ const requalifyScope = (def: WorkflowDefinition, scope: string, state: StateName
  *     for exactly one commit (see `StepCommit.enteredEachRef`'s own doc
  *     comment: the snapshot trailer must land even when no item state is
  *     ever a rest).
+ *
+ * `preChainTarget` is always THIS call's own `target` argument, verbatim —
+ * the target it was asked to qualify, before the empty-list branch above ever
+ * recurses on `ref.drained` and rewrites the answer to something else. A
+ * caller further up the chain (`applyEachDrainAdvance`, via `step`/
+ * `applyRetry`) uses it to recognise an outer loop's OWN `drained:` target
+ * even after an inner empty loop's chaining has rewritten the resolved
+ * target away from it.
  */
 const qualifyLoopTarget = (
   def: WorkflowDefinition,
@@ -730,15 +746,23 @@ const qualifyLoopTarget = (
   currentState: StateName,
   payload: StepPayload,
   visited: ReadonlySet<string> = new Set(),
-): { readonly target: StateName; readonly enteredEachRef: string | undefined } => {
+): {
+  readonly target: StateName
+  readonly enteredEachRef: string | undefined
+  readonly preChainTarget: StateName
+} => {
   const baseTarget = stripQualifiers(target)
   const owner = eachOwnerOf(def, baseTarget)
-  if (owner === undefined) return { target, enteredEachRef: undefined }
+  if (owner === undefined) return { target, enteredEachRef: undefined, preChainTarget: target }
   const [refPath, ref] = owner
-  if (visited.has(refPath)) return { target, enteredEachRef: undefined }
+  if (visited.has(refPath)) return { target, enteredEachRef: undefined, preChainTarget: target }
   const idx = qualifierIndexAt(currentState, refPath)
   if (idx !== undefined) {
-    return { target: qualifyAt(baseTarget, refPath, idx), enteredEachRef: undefined }
+    return {
+      target: qualifyAt(baseTarget, refPath, idx),
+      enteredEachRef: undefined,
+      preChainTarget: target,
+    }
   }
   const items = payload.eachItems?.[refPath] ?? []
   if (items.length === 0) {
@@ -750,10 +774,14 @@ const qualifyLoopTarget = (
       new Set([...visited, refPath]),
     )
     return chained.enteredEachRef !== undefined
-      ? chained
-      : { target: chained.target, enteredEachRef: refPath }
+      ? { ...chained, preChainTarget: target }
+      : { target: chained.target, enteredEachRef: refPath, preChainTarget: target }
   }
-  return { target: qualifyAt(baseTarget, refPath, 0), enteredEachRef: refPath }
+  return {
+    target: qualifyAt(baseTarget, refPath, 0),
+    enteredEachRef: refPath,
+    preChainTarget: target,
+  }
 }
 
 /**
@@ -765,18 +793,29 @@ const qualifyLoopTarget = (
  * index — advancing the loop inside this one decision, no intervening rest.
  * Any other resolved target (including an exhausted or never-entered
  * `drained:`) stands verbatim.
+ *
+ * Matches `ref.drained` against EITHER the resolved `target` or
+ * `preChainTarget` — the target `qualifyLoopTarget` was originally asked to
+ * qualify (see its own doc comment) before an intervening EMPTY loop's
+ * chaining rewrote the answer to something else. Without this, loop A's
+ * `drained:` pointed straight at loop B's reference is invisible here the
+ * moment B's snapshotted list is empty: `qualifyLoopTarget` has already
+ * chained the resolved target past B to B's own `drained:`, so `target` alone
+ * never equals A's `ref.drained` and A silently ends after one item.
  */
 const applyEachDrainAdvance = (
   def: WorkflowDefinition,
   target: StateName,
   currentState: StateName,
   payload: StepPayload,
+  preChainTarget: StateName,
 ): StateName => {
   const refs = def.eachRefs
   if (refs === undefined) return target
   const baseTarget = stripQualifiers(target)
+  const basePreChainTarget = stripQualifiers(preChainTarget)
   for (const [refPath, ref] of Object.entries(refs)) {
-    if (baseTarget !== ref.drained) continue
+    if (baseTarget !== ref.drained && basePreChainTarget !== ref.drained) continue
     const idx = qualifierIndexAt(currentState, refPath)
     // `currentState` isn't inside THIS ref's own subtree — two `eachRefs`
     // may declare the same `drained:` target, and only the one whose
@@ -933,12 +972,11 @@ export const step = (
   // threads the TERMINAL `qualifyLoopTarget` call's verdict through its
   // recursion, so `retriedTarget.enteredEachRef` is whichever hop actually
   // determines the target `step` lands on.
-  const { target: qualifiedTarget, enteredEachRef: rawEnteredEachRef } = qualifyLoopTarget(
-    def,
-    target,
-    state,
-    payload,
-  )
+  const {
+    target: qualifiedTarget,
+    enteredEachRef: rawEnteredEachRef,
+    preChainTarget: rawPreChainTarget,
+  } = qualifyLoopTarget(def, target, state, payload)
   const retried = applyRetry(
     def,
     qualifiedTarget,
@@ -946,8 +984,15 @@ export const step = (
     state,
     payload,
     rawEnteredEachRef,
+    rawPreChainTarget,
   )
-  const finalTarget = applyEachDrainAdvance(def, retried.target, state, payload)
+  const finalTarget = applyEachDrainAdvance(
+    def,
+    retried.target,
+    state,
+    payload,
+    retried.preChainTarget,
+  )
   // `retried.enteredEachRef` describes `retried.target` — the moment
   // `applyEachDrainAdvance` rewrites AWAY from it (advancing loop A's own
   // item from within A, even though the pre-advance target happened to also
@@ -1013,6 +1058,12 @@ const validateEntries = (def: WorkflowDefinition, names: readonly string[]): str
     }
     if (key !== "default" && state === def.entries.default) {
       errors.push(`entries.${key} "${state}" must not be the same state as entries.default`)
+    }
+    if (isInEachSubtree(def, state)) {
+      const verb = key === "default" ? "start" : "be entered"
+      errors.push(
+        `entries.${key} "${state}" is inside an each: reference — a process may not ${verb} inside a loop`,
+      )
     }
   }
   checkEntry("default", def.entries.default)
