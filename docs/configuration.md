@@ -451,13 +451,14 @@ a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
    would reinstate the exact oversized-payload rejection it exists to prevent.
    **`qualityReviews`** (`owasp-security, code-simplification`) names the
    qualitative review lap `build.quality` runs ahead of the human review, one
-   comma-separated skill per turn/context, whenever the bundled workflow's build
-   tail reaches its own green health check — today that is the
-   `gtd --entry fix-precheck` baseline-repair path, not an ordinary round's
-   hand-off to review, which goes straight to `build.review.reviewing`. Every
-   entry costs a full turn on every round that reaches that green health check,
-   so extend the list only as far as that's worth paying for. Blanking it
-   disables the lap outright — the same convention `skillsPreamble` uses.
+   comma-separated skill per turn/context. Every round pays for it: an ordinary
+   round enters it the moment its package queue drains, and the
+   `gtd --entry fix-precheck` baseline-repair path enters it off its own green
+   health check. The per-package review it follows judges one package against
+   its own spec only — this lap is the code-quality pass over the whole change.
+   Every entry costs a full turn on every round, so extend the list only as far
+   as that's worth paying for. Blanking it disables the lap outright — the same
+   convention `skillsPreamble` uses.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
 3. **The current process's entry `--var` overrides**, if it was started via

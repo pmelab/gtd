@@ -11,7 +11,9 @@
 # concerns and resolves the PRODUCT ones' open questions (`design.gate`) ->
 # `architecture.author` works out the *how* and resolves the TECHNICAL ones
 # (`architecture.gate`) -> `architecture.decompose` writes one package file
-# per concern -> the per-package queue (`packages.*`) builds and reviews each
+# per concern -> the per-package queue (`packages.*`) builds each and reviews
+# it for its own spec coverage only -> the quality lap (`build.quality.*`)
+# runs one code-review lens per turn over the whole change
 # -> the shared tail (`build.review.*`) decides sign-off (-> `idle`, landing
 # an ordinary commit that closes the process — every per-turn commit stays on
 # the branch; run `gtd summary` afterward for a closing-message prompt) vs.
@@ -2555,10 +2557,18 @@ machines:
         with:
           onPackages: packages
 
+      # Drains into the QUALITY lap, not straight into human review: each
+      # package's own in-loop review (`packageItem.spec`) judges completeness
+      # against that package's spec only, and never code quality. The
+      # multi-lens quality pass is paid once, here, for the whole change —
+      # after the last package, before any human sees it. Every package item
+      # already ended on a green `healthGate`, so this skips `build.health`
+      # and enters `build.quality` directly rather than re-running the suite
+      # for a tree no turn has touched since.
       packages:
         machine: packageLoop
         with:
-          onDrained: build.review
+          onDrained: build.quality
 
       build:
         machine: buildTail
