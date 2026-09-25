@@ -12,7 +12,7 @@ right footer and a clean Greptile re-review.
       inside an `each:` subtree keeps its current silent behaviour
       (`manualEntryStates` withholds it from `gtd --entry`'s offer list, and the
       workflow still loads)
-- [ ] Both — `validateEntries` rejects `entries.default` AND any
+- [x] Both — `validateEntries` rejects `entries.default` AND any
       `entries.manual` state inside an `each:` subtree, so a workflow can never
       declare an entry point that `gtd --entry` will refuse at runtime; widens
       the breaking change to a second class of workflow
@@ -22,7 +22,7 @@ right footer and a clean Greptile re-review.
 
 - [ ] Every P1 gone — P2/P3 findings are noted in the PR and land unaddressed;
       concern 7 only asks that Greptile has re-reviewed the fixed head
-- [ ] A confidence score of 4/5 or better AND no P1 — a re-review that still
+- [x] A confidence score of 4/5 or better AND no P1 — a re-review that still
       reads "not safe to merge" blocks the land regardless of finding severity
 - [ ] _your answer_
 
