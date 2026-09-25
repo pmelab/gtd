@@ -4,28 +4,6 @@ Four packages, in order: merge `main` in, quote the two bundled `each:` call
 sites, fix both engine findings in `src/PatternMachine.ts`, then land with the
 right footer and a clean Greptile re-review.
 
-## Open Questions
-
-### Should the new load-time refusal also cover `entries.manual`, or only `entries.default`?
-
-- [ ] Only `entries.default` — exactly what concern 3 settled; a manual entry
-      inside an `each:` subtree keeps its current silent behaviour
-      (`manualEntryStates` withholds it from `gtd --entry`'s offer list, and the
-      workflow still loads)
-- [x] Both — `validateEntries` rejects `entries.default` AND any
-      `entries.manual` state inside an `each:` subtree, so a workflow can never
-      declare an entry point that `gtd --entry` will refuse at runtime; widens
-      the breaking change to a second class of workflow
-- [ ] _your answer_
-
-### What Greptile verdict is good enough to land?
-
-- [ ] Every P1 gone — P2/P3 findings are noted in the PR and land unaddressed;
-      concern 7 only asks that Greptile has re-reviewed the fixed head
-- [x] A confidence score of 4/5 or better AND no P1 — a re-review that still
-      reads "not safe to merge" blocks the land regardless of finding severity
-- [ ] _your answer_
-
 ## 1. Merge `main` into the branch
 
 Primary paths: `tests/tooling/support/run-in-pty.py`, `README.md`.
@@ -88,7 +66,7 @@ Primary paths: `src/PatternMachine.ts`, `src/PatternMachine.test.ts`,
 
 Both findings live in one file and one decision path. They ship together.
 
-### 3a. `entries.default` inside an `each:` subtree is a load error
+### 3a. An entry declared inside an `each:` subtree is a load error
 
 `initialStateOf` returns `def.entries.default` verbatim — no qualifier, no
 snapshot. Item qualification happens only inside `qualifyLoopTarget`, which only
@@ -102,19 +80,30 @@ Add the rule to `validateEntries`, reusing the already-exported
 for free — a default entry that can never sit inside a loop can never land there
 unqualified.
 
-Error string: name the state, name the rule, and name the fix, because
+**The rule covers `entries.manual` too, not just `entries.default`.** A workflow
+may not declare an entry point `gtd --entry` will then refuse at runtime.
+`validateEntries` already walks both keys through one `checkEntry` helper, so
+the check goes there once and fires on either. `manualEntryStates` stays exactly
+as it is — it filters `enterableStates` (every declared state), a deliberately
+broader set than `entries.manual`, so the load rule does not make it redundant.
+
+Error strings: name the state, name the rule, and name the fix, because
 `validateReachability` only runs when entries validate clean — a workflow
-tripping this rule stops reporting reachability errors in the same run, so this
-one line is all the author gets. Write it as
-`entries.default "<state>" is inside an each: reference — a process may not start inside a loop`.
-Assert the exact text in a unit test.
+tripping either rule stops reporting reachability errors in the same run, so
+that one line is all the author gets. Write them as
+`entries.default "<state>" is inside an each: reference — a process may not start inside a loop`
+and
+`entries.manual "<state>" is inside an each: reference — a process may not be entered inside a loop`.
+Assert both exact texts in unit tests.
 
-Breaking: a workflow authored this way loads today. Not reachable in the bundled
-workflow, whose default entry is `idle`.
+Breaking, in two classes: a workflow whose `entries.default` sits inside an
+`each:` subtree, and one whose `entries.manual` does. Both load today. Neither
+is reachable in the bundled workflow, whose default entry is `idle` and whose
+manual entries all sit outside every loop.
 
-Scenario: a workflow whose `entries.default` sits inside an `each:` subtree,
-with the YAML inline in the scenario text, asserting `gtd` fails to load and
-prints that named error.
+Two scenarios, one per key: a workflow whose `entries.default` sits inside an
+`each:` subtree, and one whose `entries.manual` does — YAML inline in the
+scenario text, each asserting `gtd` fails to load and prints its named error.
 
 ### 3b. An empty second loop must not make the first loop skip its items
 
@@ -167,12 +156,15 @@ semantic-release in this repo reads the footer, not the `!` in the type:
 
 - the state re-homing `packages.item.building` → `packages.building` the PR body
   already documents, and
-- package 3a's new load error rejecting a workflow whose `entries.default` sits
-  inside an `each:` subtree.
+- package 3a's new load error, rejecting a workflow whose `entries.default` OR
+  `entries.manual` names a state inside an `each:` subtree — two classes of
+  previously-valid workflow, and the footer must name both.
 
 Then re-request Greptile. Its last-reviewed commit is `1cc43fad`, its confidence
-score is 1/5, and its verdict reads "not safe to merge". Nothing lands until it
-has re-reviewed the fixed head.
+score is 1/5, and its verdict reads "not safe to merge". **The bar to land is a
+confidence score of 4/5 or better AND zero P1 findings.** A re-review that still
+reads "not safe to merge" blocks the land whatever the severity of what remains;
+clearing the three P1s is necessary, not sufficient.
 
 Risk: merging `main` again between package 1 and this one moves the head
 Greptile reviewed. Re-request after the final merge, not before.
@@ -269,6 +261,18 @@ footer, and the review that must clear before that commit merges.
 > re-reviewed the fixed head.
 
 ## Answered Questions
+
+### Should the new load-time refusal also cover `entries.manual`, or only `entries.default`?
+
+Both. `validateEntries` rejects either key naming a state inside an `each:`
+subtree, so a workflow can never declare an entry point `gtd --entry` refuses at
+runtime — accepting that this widens the breaking change to a second class of
+workflow.
+
+### What Greptile verdict is good enough to land?
+
+A confidence score of 4/5 or better AND no P1 findings. A re-review still
+reading "not safe to merge" blocks the land regardless of finding severity.
 
 ### How should loop A's advance survive loop B's empty-list chaining?
 
