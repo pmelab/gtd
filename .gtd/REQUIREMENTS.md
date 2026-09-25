@@ -13,14 +13,14 @@ Both have to close before this lands.
       shell-quoting, so a workflow author writing `pkg="<%= it.item %>"` can
       never be made to execute a filename. Matches the promise the PR body
       already makes for `var:` lists ("never reach a shell")
-- [ ] No — it is the author's job. Fix only the two bundled call sites in
+- [x] No — it is the author's job. Fix only the two bundled call sites in
       `unified.yaml`, and document in `docs/` that an item value is untrusted
       text that a `script:` must quote itself
 - [ ] _your answer_
 
 ### Should a process be allowed to start inside an `each:` loop?
 
-- [ ] No — refuse it at load time, the way manual entry (`gtd --entry`) already
+- [x] No — refuse it at load time, the way manual entry (`gtd --entry`) already
       refuses any state inside an `each:` subtree. A new validation error; it
       would reject a workflow that happens to be authored that way today
 - [ ] Yes — support it. The initial state resolves qualified at index `0` with a
