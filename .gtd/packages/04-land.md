@@ -1,51 +1,43 @@
-# Land with a breaking-change footer and a clean Greptile re-review
+# Document the `each:` entry restriction the loader now enforces
 
-## Requirement A — the release footer must carry the new breaking change
+## Requirement A — the new load error must be documented where a workflow author reads
 
-The load error that rejects a previously-valid workflow is a second breaking
-change on top of the state re-homing (`packages.item.building` →
-`packages.building`) the PR body already documents. semantic-release in this
-repo reads a literal `BREAKING CHANGE` footer, not the `!` in the type; make
-sure the landing commit carries one naming both breaks.
+`PatternMachine` now refuses a workflow at LOAD time when a reachability root
+resolves inside an `each:` reference's subtree. Two classes fail, with two
+distinct messages:
 
-The load-error break has two classes to name: a workflow whose `entries.default`
-names a state inside an `each:` subtree, and one whose `entries.manual` does.
+- `entries.default "<state>" is inside an each: reference — a process may not start inside a loop`
+- `entries.manual "<state>" is inside an each: reference — a process may not be entered inside a loop`
 
-## Requirement B — re-request Greptile after the fixes
+`docs/configuration.md` documents both halves of this — `entry: true` in the
+state key list, and `each:` on a looping reference — and neither mentions the
+restriction. The `entry: true` line is actively wrong as written: it promises
+the state is "enterable via `gtd --entry <this state's qualified name>`", which
+is no longer true inside a loop.
 
-Greptile's confidence score is 1/5 and its verdict reads "not safe to merge".
-Its last-reviewed commit is `1cc43fad`. Nothing lands until it has re-reviewed
-the fixed head.
-
-The bar to land is a confidence score of 4/5 or better AND zero P1 findings. A
-re-review that still reads "not safe to merge" blocks the land whatever the
-severity of what remains; clearing the three P1s is necessary, not sufficient.
+A previously-valid workflow now fails to load. An author who hits either message
+needs the docs to tell them what to change, not only that something broke.
 
 ## Tasks
 
-### Write the landing commit's breaking-change footer
+### State the restriction on both doc surfaces it touches
 
-Paths: the landing commit message; no source file.
+Paths: `docs/configuration.md`.
 
-- [ ] The commit message body ends with a literal `BREAKING CHANGE:` footer —
-      the `!` in the type is not enough for this repo's semantic-release
-- [ ] The footer names the state re-homing `packages.item.building` →
-      `packages.building`
-- [ ] The footer names the new load error, and names both of its classes: an
-      `entries.default` state inside an `each:` subtree, and an `entries.manual`
-      state inside one
-- [ ] The footer tells an affected workflow author what to change, not only that
-      something broke
+- [ ] The `entry: true` line in the state key list says a state inside an
+      `each:` reference's subtree may not carry it
+- [ ] The `each:` prose says a reachability root may not resolve inside the
+      loop's subtree, naming both `entries.default` and `entries.manual`
+- [ ] The prose tells an affected author the fix — move the root to a state
+      outside the loop, or drop `entry: true` from the looped state
+- [ ] No prose added here names a `src/*.ts` module, an internal function, or a
+      private type
 
-### Re-request Greptile and hold the merge until it clears the bar
+### Reflect the restriction in the README
 
-Paths: the pull request; no source file.
+Paths: `README.md`.
 
-- [ ] The re-review is requested only after the final merge from `main`, so the
-      reviewed head is the head that merges
-- [ ] Greptile's re-review names the fixed head, not `1cc43fad`
-- [ ] The re-review reports zero P1 findings
-- [ ] The re-review's confidence score is 4/5 or better
-- [ ] The re-review's verdict no longer reads "not safe to merge"
-- [ ] The branch is not merged while any of the four conditions above is unmet,
-      regardless of the severity of what remains
+- [ ] Wherever the README describes entering a workflow or declaring a loop, it
+      does not contradict the new restriction
+- [ ] Any change stays user-facing — what the author writes and what the loader
+      accepts, never how the check is implemented
