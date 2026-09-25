@@ -105,12 +105,12 @@ workflow:
       validate: <shell command>
   summary: <string> # optional — an Eta template rendered by `gtd summary`; a `./`/`../` value is inlined from the config directory like a state's content; absent is legal (`gtd summary` refuses); present-but-blank is a load error
   entry:
-    default: <machine name> # which machine is the ROOT instance — a load error if it resolves to a state inside an `each:` reference's subtree, for the same reason a state's own `entry: true` is
+    default: <machine name> # which machine is the ROOT instance
   machines:
     <name>:
       model: <string> # optional, opaque harness hint — stamped onto every one of THIS machine's own `prompt` states; declared ONCE per machine, never per state
       params: [<param>, ...] # optional, advisory — documents which $params a caller may bind
-      entry: <local or ref key> # this machine's own default local, resolved recursively
+      entry: <local or ref key> # this machine's own default local, resolved recursively; for the ROOT machine (the one `entry.default` above names), this recursive resolution IS `entries.default` — a load error if it lands inside an `each:` reference's subtree, for the same reason a state's own `entry: true` is
       states:
         <local>:
           actor: <string> # required
@@ -136,7 +136,7 @@ workflow:
           requireProgress: true # optional, requires "file" — refuse a turn whose only change deletes this state's own `file:`
           answerGate: true # optional, requires "file" — refuse a turn that edits anything while an open question in the (qa-mode) `file:` is unanswered; a turn that changes nothing at all is accepted and advances with the questions unanswered
           requireRevert: true # optional, requires "file" — refuse a turn until the human's review-round paths actually match the review base's parent
-          entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared state is a valid target); a load error on a state inside an `each:` reference's subtree — a loop has no unqualified item to enter
+          entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any state OUTSIDE an `each:` reference's subtree is a valid target, offered or not); a load error to declare on a state inside one — a loop has no unqualified item to enter, and `gtd --entry` neither accepts nor lists a looped state, `entry: true` or not
           judge: <string> # optional, requires "message" — an Eta template rendered ALONGSIDE message: (content kind stays "message"), must render to the JSON document { state, questions: [{ id, primitive, instructions, criteria }] }; `state` may only come from it.read(...)/git helpers/it.diff(...) (never an uncommitted artifact — it.diff(...) is the one deliberate exception, since it reads the working tree's own diff content, not a file); `primitive` is one of noul (yes/no), choice, score. `gtd judge`/`gtd judge answer` are the surface — see `docs/cli.md`
           shadow: true # optional, requires "judge" — records the verdict (a `Gtd-Judge:` trailer) but never consults it for routing; a repo's debugging switch for tuning a threshold, not a release stage every gate passes through
           routes: # optional, requires "judge" — an ORDERED list of judgment routing rows, first match wins, exactly like `on`; MUST end with a catch-all row carrying only `to`
@@ -170,11 +170,13 @@ remained unbuilt in that snapshot — a later re-entry starts over from a fresh
 item 0, not from where the earlier pass stopped.
 
 Neither reachability root may resolve to a state inside an `each:` reference's
-subtree: the top-level `entry.default` and every `entries.manual` state (a
-state's own `entry: true`, above) are both load errors there — a loop has no
-item selected until something enters it through the reference itself, so there
-is no unqualified state to start or jump to. Move the root to a state outside
-the loop, or drop that state's `entry: true`, to fix it.
+subtree: `entries.default` — the ROOT machine's own `entry:` local, resolved
+recursively, NOT the top-level `entry.default` key that only names which machine
+is root — and every `entries.manual` state (a state's own `entry: true`, above)
+are both load errors there — a loop has no item selected until something enters
+it through the reference itself, so there is no unqualified state to start or
+jump to. Point the root machine's `entry:` at a local outside the loop, or drop
+the manual-entry state's `entry: true`, to fix it.
 
 There is no `memory:` key anywhere in this shape — a state's memory scope is
 never authored, only computed from its position in the machine tree (see
