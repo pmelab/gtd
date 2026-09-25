@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set +e
 rm -f .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md
-pkg="undefined"
+pkg='undefined'
 threshold=0.9; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
   # A working-tree byte-length check would measure the wrong
   # document: `pre`'s judgment was made against the COMMITTED

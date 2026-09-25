@@ -5,6 +5,6 @@
 # approval — that loop carries no retry cap, so there is no
 # force-close path here.
 set +e
-pkg="undefined"
+pkg='undefined'
 [ -n "$pkg" ] && rm -f "$pkg"
 rm -f .gtd/SPEC_FEEDBACK.md .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md .gtd/SATISFIED.md

@@ -1810,7 +1810,7 @@ machines:
           #!/usr/bin/env sh
           set +e
           rm -f .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md
-          pkg="<%= it.item %>"
+          pkg='<%= it.item %>'
           threshold=<%~ it.vars.specPreJudge %>; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
             # A working-tree byte-length check would measure the wrong
             # document: `pre`'s judgment was made against the COMMITTED
@@ -2034,7 +2034,7 @@ machines:
           # approval — that loop carries no retry cap, so there is no
           # force-close path here.
           set +e
-          pkg="<%= it.item %>"
+          pkg='<%= it.item %>'
           [ -n "$pkg" ] && rm -f "$pkg"
           rm -f .gtd/SPEC_FEEDBACK.md .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md .gtd/SATISFIED.md
         on:

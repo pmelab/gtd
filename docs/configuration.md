@@ -216,7 +216,11 @@ Besides `it.vars` (below), a `script`/`prompt`/`message` template sees:
   position in the snapshotted list. `""`/`-1` outside every `each:` reference.
   Bound on every template a state can declare (`script`/`prompt`/`message`,
   `file:`, `model:`) — the bundled workflow's quality lap uses `it.item` as its
-  entire lens-selection mechanism, `skills: <%~ it.item %>`.
+  entire lens-selection mechanism, `skills: <%~ it.item %>`. It is untrusted
+  text — it comes from the working tree (a filename, a matched line), not from
+  the workflow author — so a `script:` that interpolates it into a shell command
+  must quote it itself (single quotes, not double: double quotes still let
+  `$(...)`, a backtick, or `$var` run).
 - **`it.diff(base)`** — `git diff <base>` against the working tree, tracked AND
   untracked (non-ignored) content alike, as real hunks. The one field on this
   list a `judge:` render is deliberately allowed to read fresh off the working
