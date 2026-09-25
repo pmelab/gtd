@@ -325,6 +325,14 @@ noted in steps 2, 3, and 4 below.
    every one of these correctly: it shows you the message and stops, same as any
    other question.
 
+   The `gtd --entry fix-precheck` side door (below) repairs a red baseline
+   through this same loop's own green check, and that check also runs a
+   qualitative review lap first: one configured skill per turn, each looking at
+   the change from its own angle (a security checklist, a simplification pass)
+   and fixing what it finds once, with no re-review after the fix. It never
+   replaces step 4 — your review stays the final gate, and nothing here skips
+   it.
+
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes
    `.gtd/ESCALATION.md` — what's failing, why the earlier attempts didn't fix
@@ -350,11 +358,11 @@ is fixed before the next one begins.
 
 Prefer a phone or another device over your editor? `gtd ui` opens the file whose
 turn it is as a small web app, over Tailscale — including a step that names no
-format, or one nothing recognizes, which still opens as plain, editable markdown
-structure instead of refusing to start. It also binds on an idle worktree —
-nothing pending yet — opening `.gtd/TODO.md` free-form so you can sketch from
-your phone; the sketch stays un-triaged on disk until you run `gtd` again, from
-anywhere, to pick it up. See
+format, or one nothing recognizes, which still opens as plain markdown structure
+instead of refusing to start: read, plus a note on any block. It also binds on
+an idle worktree — nothing pending yet — opening `.gtd/TODO.md` free-form with a
+bare textfield so you can sketch from your phone; the sketch stays un-triaged on
+disk until you run `gtd` again, from anywhere, to pick it up. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 

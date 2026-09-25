@@ -145,18 +145,21 @@ export const varsOnlyContext = (vars: Record<string, string>, state = ""): Templ
  * shared across the ordinary context and `judgeContext`, so a `judge:` field's
  * bounded read and the same rest's `message:` truncation notice agree on the
  * same ledger. `truncated` is STICKY (set once, never cleared) for the life
- * of the rest; the byte total resets per render via `beginRender()`. That
- * total is FLOORED BYTES, not the raw `share` fraction — summing floors
- * (`boundedBytes(share)`) can only undershoot the budget, never falsely
- * exceed it the way summing raw IEEE-754 fractions could (nine `1/9` calls,
- * `0.33 + 0.56 + 0.11`).
+ * of the rest; the share total resets per render via `beginRender()`. That
+ * total accumulates the RAW `share` fraction, not a floored byte count —
+ * flooring each share before summing would let e.g. two `0.51` shares (a
+ * combined share of `1.02`) both floor to the same byte count at a small
+ * budget and never trip the over-budget refusal. Raw IEEE-754 summation can
+ * overshoot 1 by a sliver even for an exactly-budgeted split (nine `1/9`
+ * calls, `0.33 + 0.56 + 0.11` → `1.0000000000000002`), so the refusal fires
+ * at `usedShare > 1 + 1e-9`, not `> 1`.
  */
 export interface RenderLedger {
-  /** Reset the byte total ahead of one field's own render (`judge:` or `message:` — the only two this is available in). Does NOT clear `truncated`. */
+  /** Reset the share total ahead of one field's own render (`judge:` or `message:` — the only two this is available in). Does NOT clear `truncated`. */
   readonly beginRender: () => void
   /** `true` once ANY bounded read (`tail`/`diffTail`/a shared-budget `sections`) has dropped bytes, for the life of the rest. */
   readonly truncated: () => boolean
-  /** Cut `content` to its last `floor(budgetBytes × share)` bytes on a line boundary, adding those floored bytes to the current render's running total (throws once the total exceeds `budgetBytes`). */
+  /** Cut `content` to its last `floor(budgetBytes × share)` bytes on a line boundary, adding the raw `share` to the current render's running total (throws once that total exceeds `1 + 1e-9`). */
   readonly tail: (content: string, share: number) => string
   /** The same cut as `tail`, but exempt from the byte total — `it.sections(path, share)` inlines no bytes of its own, only the heading titles the cut tail's markdown parses to. */
   readonly sectionsBound: (content: string, share: number) => string
@@ -183,24 +186,26 @@ const cutToTail = (content: string, allowedBytes: number): { text: string; cut: 
  * `parseJudgeBudgetBytes`) before this is built — a blank/non-numeric/
  * non-finite budget throws there, never here.
  */
+const SHARE_TOLERANCE = 1e-9
+
 export const createRenderLedger = (budgetBytes: number): RenderLedger => {
   let truncated = false
-  let usedBytes = 0
+  let usedShare = 0
   const boundedBytes = (share: number): number => {
     validateShare(share)
     return Math.floor(budgetBytes * share)
   }
   return {
     beginRender: () => {
-      usedBytes = 0
+      usedShare = 0
     },
     truncated: () => truncated,
     tail: (content: string, share: number): string => {
       const allowed = boundedBytes(share)
-      usedBytes += allowed
-      if (usedBytes > budgetBytes) {
+      usedShare += share
+      if (usedShare > 1 + SHARE_TOLERANCE) {
         throw new Error(
-          `it.tail/it.diffTail shares sum to more than 1 within one render (${usedBytes} bytes against a ${budgetBytes}-byte budget)`,
+          `it.tail/it.diffTail shares sum to more than 1 within one render (${usedShare} against a share budget of 1)`,
         )
       }
       const { text, cut } = cutToTail(content, allowed)

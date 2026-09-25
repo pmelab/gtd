@@ -987,6 +987,16 @@ export interface RenderedRest extends RestHints {
   readonly memoryResumed: boolean
   /** The resolved rest's `on` edges as `{ pattern, target, describe? }` — the same list templates see as `it.edges`. Always present (possibly empty); `gtd next --json` emits it so a driver has the routing (and its human-readable `describe`s) alongside the rendered content. */
   readonly edges: readonly TemplateEdge[]
+  /**
+   * `rest.ledger.truncated()`, read AFTER this render — whether ANY bounded
+   * read (a hint field's `judge:`, or this content render) dropped bytes to
+   * fit `judgeBudgetBytes`. `gtd judge answer` (`program.ts`'s
+   * `runJudgeAnswerCommand`) threads this straight into `planLanding`'s
+   * `truncated` option so the landing commit's `Gtd-Payload:` trailer stamps
+   * the flag from the SAME render that produced the judged document, never a
+   * second, later render that could disagree with it.
+   */
+  readonly truncated: boolean
 }
 
 const renderStateField = (
@@ -1130,6 +1140,7 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
       // rendered against `it.vars` — not re-derived from `rest.stateDef.on`
       // here, which would be the unrendered literal.
       edges: rest.context.edges,
+      truncated: rest.ledger.truncated(),
     }
   })
 

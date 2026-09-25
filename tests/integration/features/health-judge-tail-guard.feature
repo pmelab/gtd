@@ -42,3 +42,65 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
     When I run gtd with args "judge"
     Then it succeeds
     And stdout contains "tailsNotComparable"
+
+  # `.gtd/packages/02-judge-gate-soundness.md` Requirement "Matching tails can
+  # hide a health failure": two reports of EQUAL byte length that differ
+  # before the cut but match after it must not read as `identical` — the
+  # guard now compares the two WHOLE (stamp-stripped) reads, not their length.
+  @inmem
+  Scenario: two equal-length reports that differ before the cut but match after it forbid identical instead of escalating on a false match
+    Given a test project
+    And the workflow
+    And an environment variable "GTD_JUDGEBUDGETBYTES" set to "90"
+    And a commit "gtd(agent): build.health.check" that adds ".gtd/marker.md" with:
+      """
+      entering the health gate
+      """
+    And a file ".gtd/PRIOR_FEEDBACK.md" with:
+      """
+      attempt one failed here
+      shared tail line
+      <!-- gtd check abc1234 -->
+      """
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt two failed here
+      shared tail line
+      <!-- gtd check def5678 -->
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.health.judge"
+
+    When I run gtd with args "judge"
+    Then it succeeds
+    And stdout contains "tailsNotComparable"
+
+  @inmem
+  Scenario: two genuinely identical reports still reach the identical verdict and escalate
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): build.health.check" that adds ".gtd/marker.md" with:
+      """
+      entering the health gate
+      """
+    And a file ".gtd/PRIOR_FEEDBACK.md" with:
+      """
+      the same failure, restated
+      <!-- gtd check abc1234 -->
+      """
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      the same failure, restated
+      <!-- gtd check def5678 -->
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.health.judge"
+
+    When I run gtd judge answer with stdin:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.escalate"

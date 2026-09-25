@@ -13,21 +13,57 @@ const MARKER_TEXT_RE = /\[\^([^\s\]]+)\]/g
 const stripMarkerText = (text: string): string => text.replace(MARKER_TEXT_RE, "")
 
 /**
+ * `child`'s own raw source slice, UNCOLLAPSED — unlike `sourceText`, which
+ * collapses whitespace before a caller ever sees the string. Only
+ * `blockquoteChildrenText` needs the newlines intact a moment longer, to
+ * tell a blockquote's own line-leading `> ` continuation marker (see
+ * `stripContinuationMarker`) apart from a literal `>` typed mid-prose.
+ */
+const rawChildText = (content: string, child: RootContent): string => {
+  const start = child.position?.start.offset
+  const end = child.position?.end.offset
+  return start === undefined || end === undefined ? "" : content.slice(start, end)
+}
+
+/**
+ * A blockquote's own `> ` continuation marker sits in the raw bytes between a
+ * child's first and last line — stripped here on the RAW, uncollapsed slice
+ * (`sourceText` collapses whitespace, which would erase the newline that
+ * distinguishes a line-leading continuation marker from a literal `>` typed
+ * mid-prose), before whitespace is collapsed below.
+ */
+const stripContinuationMarker = (text: string): string => text.replace(/\n[ \t]*>[ \t]?/g, "\n")
+
+/**
  * The flattened, marker-stripped, whitespace-collapsed text of a run of
- * sibling BLOCK nodes (a blockquote's own children, a list item's own
- * non-list children) — built by taking EACH child's own `sourceText`
- * individually and joining the results, never by slicing one span from the
- * first child's start to the last child's end. A single shared span would
- * include every byte BETWEEN the children verbatim — a nested `list`
- * filtered out of a list item's own children (see `listItemText`) still
- * sits, raw markdown and all, between its neighbors' offsets; a blockquote's
- * OWN `> ` continuation markers between two paragraphs sit there too (each
- * child's own position starts right after its line's `> `, but the raw text
- * BETWEEN two children's positions still crosses that marker).
+ * sibling BLOCK nodes (a list item's own non-list children) — built by
+ * taking EACH child's own `sourceText` individually and joining the
+ * results, never by slicing one span from the first child's start to the
+ * last child's end. A single shared span would include every byte BETWEEN
+ * the children verbatim — a nested `list` filtered out of a list item's own
+ * children (see `listItemText`) still sits, raw markdown and all, between
+ * its neighbors' offsets.
  */
 const childrenText = (content: string, children: readonly RootContent[]): string =>
   children
     .map((child) => stripMarkerText(sourceText(content, child)))
+    .filter((text) => text.length > 0)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+/**
+ * A blockquote NODE's own children text — `childrenText`'s sibling, scoped
+ * to blockquotes only: a blockquote's OWN `> ` continuation markers between
+ * two paragraphs sit in the raw bytes BETWEEN two children's positions (each
+ * child's own position starts right after its line's `> `), so this strips
+ * them via `stripContinuationMarker` before the whitespace collapse. Never
+ * reused for `listItemText` — a list item's own child (a fenced code block,
+ * say) can carry a real line-leading `>` that must survive untouched.
+ */
+const blockquoteChildrenText = (content: string, children: readonly RootContent[]): string =>
+  children
+    .map((child) => stripMarkerText(stripContinuationMarker(rawChildText(content, child))))
     .filter((text) => text.length > 0)
     .join(" ")
     .replace(/\s+/g, " ")
@@ -77,9 +113,10 @@ const visibleListItems = (node: List, options?: BlockWalkOptions): readonly List
 /**
  * A top-level node's own one-line, marker-stripped, whitespace-collapsed
  * text — every block kind's `title`, and reused verbatim as a `blockquote`'s
- * own `text`. `heading`/`blockquote` use `childrenText` (their own CHILDREN
- * span — the NODE's own position starts at the `#` run / the `>` marker,
- * which `sourceText` would otherwise pull in); `code` uses its `value`
+ * own `text`. `heading` uses `headingText`, `blockquote` uses
+ * `blockquoteChildrenText` (their own CHILDREN span — the NODE's own
+ * position starts at the `#` run / the `>` marker, which `sourceText` would
+ * otherwise pull in); `code` uses its `value`
  * directly (never `sourceText`, which would pull in the fence lines),
  * falling back to `EMPTY_CODE_BLOCK_TITLE` when that value is blank; `list`
  * joins each VISIBLE item's own text (`options.skipListItem`-filtered, never
@@ -90,7 +127,7 @@ const visibleListItems = (node: List, options?: BlockWalkOptions): readonly List
  */
 const blockTitle = (content: string, node: RootContent, options?: BlockWalkOptions): string => {
   if (node.type === "heading") return headingText(content, node, stripMarkerText)
-  if (node.type === "blockquote") return childrenText(content, node.children)
+  if (node.type === "blockquote") return blockquoteChildrenText(content, node.children)
   if (node.type === "code") {
     const text = stripMarkerText(node.value).replace(/\s+/g, " ").trim()
     return text.length > 0 ? text : EMPTY_CODE_BLOCK_TITLE
@@ -104,14 +141,6 @@ const blockTitle = (content: string, node: RootContent, options?: BlockWalkOptio
   return stripMarkerText(sourceText(content, node)).replace(/\s+/g, " ").trim()
 }
 
-/** A top-level node's own raw source bytes, verbatim — the exact slice `apply` would replace to rewrite this block whole. `""` for a node with no resolvable offsets. */
-const rawNodeText = (content: string, node: RootContent): string => {
-  const start = node.position?.start.offset
-  const end = node.position?.end.offset
-  if (start === undefined || end === undefined) return ""
-  return content.slice(start, end)
-}
-
 /**
  * `SteeringViewNode.block` for one top-level node — `undefined` for a kind
  * this walk doesn't project structure for (a `thematicBreak`, an `html`
@@ -120,52 +149,34 @@ const rawNodeText = (content: string, node: RootContent): string => {
  * whitespace-collapsed like every other kind's `title` — and its `language`
  * is the fence's own info string, omitted entirely when there is none
  * (`node.lang` is `null`/`undefined`).
- *
- * `fullText`, when set, OVERRIDES whatever `text` the switch below produces
- * (including `code`/`blockquote`'s own) with the node's raw source bytes,
- * verbatim — `qa`/`review` never pass it (their `code`/`blockquote` text
- * stays the collapsed/fence-stripped form above), so this is opt-in per
- * caller, never a change to either built-in's own behavior.
  */
 const blockOf = (
   content: string,
   node: RootContent,
   options?: BlockWalkOptions,
 ): SteeringViewNode["block"] | undefined => {
-  const block = ((): SteeringViewNode["block"] | undefined => {
-    switch (node.type) {
-      case "heading":
-        return { kind: "heading", depth: node.depth }
-      case "list":
-        return {
-          kind: "list",
-          ordered: node.ordered === true,
-          items: blockListItemsOf(content, visibleListItems(node, options)),
-        }
-      case "code":
-        return {
-          kind: "code",
-          text: node.value,
-          ...(node.lang !== null && node.lang !== undefined ? { language: node.lang } : {}),
-        }
-      case "blockquote":
-        return { kind: "blockquote", text: blockTitle(content, node) }
-      case "paragraph":
-        return { kind: "paragraph" }
-      default:
-        return undefined
-    }
-  })()
-  if (block === undefined) {
-    // Free-form (`options.fullText`) has no structure of its own to fall
-    // back on, so a node kind this walk otherwise ignores (`table`, `html`,
-    // `thematicBreak`, …) still needs an editable, raw-source block — a
-    // bare `paragraph` kind carrying the node's own bytes verbatim, rather
-    // than silently dropping `block` (and with it, Task 7's edit textarea)
-    // for that node.
-    return options?.fullText ? { kind: "paragraph", text: rawNodeText(content, node) } : undefined
+  switch (node.type) {
+    case "heading":
+      return { kind: "heading", depth: node.depth }
+    case "list":
+      return {
+        kind: "list",
+        ordered: node.ordered === true,
+        items: blockListItemsOf(content, visibleListItems(node, options)),
+      }
+    case "code":
+      return {
+        kind: "code",
+        text: node.value,
+        ...(node.lang !== null && node.lang !== undefined ? { language: node.lang } : {}),
+      }
+    case "blockquote":
+      return { kind: "blockquote", text: blockTitle(content, node) }
+    case "paragraph":
+      return { kind: "paragraph" }
+    default:
+      return undefined
   }
-  return options?.fullText ? { ...block, text: rawNodeText(content, node) } : block
 }
 
 /**
@@ -187,8 +198,6 @@ export interface BlockWalkOptions {
   readonly skipNode?: (content: string, node: RootContent) => boolean
   readonly skipLine?: (line: number) => boolean
   readonly skipListItem?: (item: ListItem) => boolean
-  /** See `blockOf`'s own doc — forwarded through to every node's own `block`. */
-  readonly fullText?: boolean
 }
 
 /**

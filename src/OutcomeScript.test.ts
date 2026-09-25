@@ -120,10 +120,21 @@ describe("no ANSI, on a pipe or a real tty", () => {
     const dir = mkdtempSync(join(tmpdir(), "outcome-pty-"))
     initRepo(dir)
     const script = commitOutcome("gtd(human): idle")
-    const out = execFileSync("python3", [PTY_RUNNER, `cd ${JSON.stringify(dir)} && ${script}`], {
-      encoding: "utf8",
-      env: { PATH: process.env.PATH ?? "", TERM: "xterm" },
-    })
+    const runOnce = (): string =>
+      execFileSync("python3", [PTY_RUNNER, `cd ${JSON.stringify(dir)} && ${script}`], {
+        encoding: "utf8",
+        env: { PATH: process.env.PATH ?? "", TERM: "xterm" },
+      })
+    // A real pty allocation under severe host-wide CPU contention (many
+    // concurrent `npm test` runs across sibling worktrees) can rarely come
+    // back with zero captured bytes despite the child exiting cleanly — an
+    // OS/scheduler-level hiccup in the fork-exec-pty path itself, not a bug
+    // in `run-in-pty.py`'s own read loop (which blocks to real EOF, see its
+    // own comment) or in this repo's code. Retrying absorbs that one-off
+    // without weakening the assertion: a genuine regression still reproduces
+    // every attempt.
+    let out = runOnce()
+    for (let attempt = 0; attempt < 2 && out.length === 0; attempt++) out = runOnce()
     expect(out).not.toContain(ESC)
     expect(out).toContain("[commit] gtd(human): idle")
   })

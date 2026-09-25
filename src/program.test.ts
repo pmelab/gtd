@@ -3040,4 +3040,66 @@ describe("gtd judge / gtd judge answer (.gtd/packages/01-judgment-surface.md, Ta
   // only needs to confirm the trailer this command writes is the same shape
   // that scan reads back — already covered above by inspecting
   // `repo.lastCommitMessage()` after applying the emitted script.
+
+  // `.gtd/packages/02-judge-gate-soundness.md` Task "Stamp the renderer's
+  // truncation flag onto the landing commit" — the load-bearing joint no
+  // other test exercises: `runJudgeAnswerCommand` must thread the SAME
+  // render's `rendered.truncated` into `planLanding`, not re-resolve a fresh
+  // rest. `judge:` here reads `it.tail(".gtd/BIG.md", 1)`, the same bound
+  // `Edge.test.ts`'s "renderRest — the truncation notice" suite uses to force
+  // (or not force) `RenderLedger.truncated()`.
+  const WORKFLOW_WITH_TRUNCATING_JUDGE_LANDING = (judgeBudgetBytes: string) =>
+    [
+      "workflow:",
+      "  vars:",
+      `    judgeBudgetBytes: "${judgeBudgetBytes}"`,
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: hi",
+      '          judge: \'{ "state": <%~ JSON.stringify(it.tail(".gtd/BIG.md", 1)) %>, "questions": [{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}] }\'',
+      "          on:",
+      '            "C": landed',
+      "        landed:",
+      "          actor: human",
+      "          message: done",
+      "",
+    ].join("\n")
+
+  const seededTruncatingLandingRepo = (judgeBudgetBytes: string, bigContent: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", WORKFLOW_WITH_TRUNCATING_JUDGE_LANDING(judgeBudgetBytes))
+    repo.writeFile(".gtd/BIG.md", bigContent)
+    repo.commitAllWithPrefix("chore: add workflow with a truncating landing judge state")
+    return repo
+  }
+
+  it('gtd judge answer stamps Gtd-Payload: {"truncated":true} on the landing commit when the judged render\'s own it.tail bound truncated its evidence', async () => {
+    const repo = seededTruncatingLandingRepo("20", "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\n")
+    const { stdout, exitCode } = await withStdin(
+      JSON.stringify([{ id: "q1", answer: true, p: 0.97 }]),
+      () => run(repo, "judge", "answer", "--json=script"),
+    )
+    expect(exitCode).toBe(0)
+    const applied = applyEmittedScript(repo, new Map(), stdout)
+    expect(applied.ok).toBe(true)
+    expect(repo.lastCommitMessage()).toContain('Gtd-Payload: {"truncated":true}')
+  })
+
+  it("gtd judge answer stamps no Gtd-Payload: trailer at all when the judged render's it.tail bound never actually cut anything", async () => {
+    const repo = seededTruncatingLandingRepo("500", "short\n")
+    const { stdout, exitCode } = await withStdin(
+      JSON.stringify([{ id: "q1", answer: true, p: 0.97 }]),
+      () => run(repo, "judge", "answer", "--json=script"),
+    )
+    expect(exitCode).toBe(0)
+    const applied = applyEmittedScript(repo, new Map(), stdout)
+    expect(applied.ok).toBe(true)
+    expect(repo.lastCommitMessage()).not.toContain("Gtd-Payload:")
+  })
 })

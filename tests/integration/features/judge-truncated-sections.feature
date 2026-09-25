@@ -69,15 +69,20 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
+    # `gtd judge answer` stamps the flag from THIS render — the one the
+    # verdict above answered — not a fresh one; `scoping`'s own real script
+    # reads exactly this trailer below.
+    And the last commit body contains "Gtd-Payload: {\"truncated\":true}"
 
-    # scoping's own script (a real DRIVER's job, not this harness's) computes
-    # `truncated` from a WHOLE-FILE byte comparison, not per section — the
-    # package file itself is over judgeBudgetBytes, so EVERY section fails
-    # open into scope regardless of any trailer, Section C's confident,
-    # satisfied "yes" included: scoping cannot safely tell WHICH sections
-    # were truncated without the same fence-unsafe heading re-parse
-    # `it.sections` itself avoids, so it treats the whole package the
-    # conservative way instead — given by hand here, the same convention
+    # scoping's own script (a real DRIVER's job, not this harness's) reads
+    # `Gtd-Payload: {"truncated":true}` off the just-landed commit — stamped
+    # by the SAME render that produced the judged document — not per
+    # section: the package file was truncated, so EVERY section fails open
+    # into scope regardless of any trailer, Section C's confident, satisfied
+    # "yes" included: scoping cannot safely tell WHICH sections were
+    # truncated without the same fence-unsafe heading re-parse `it.sections`
+    # itself avoids, so it treats the whole package the conservative way
+    # instead — given by hand here, the same convention
     # `spec-review-judgments.feature` uses for this same check.
     Given a file ".gtd/SPEC_SCOPE.md" with:
       """
@@ -136,6 +141,7 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): build.review.triage → build.review.triaging"
+    And the last commit body contains "Gtd-Payload: {\"truncated\":true}"
 
     # triaging's own script (a real DRIVER's job, not this harness's)
     # recomputes actionability from the just-landed trailers — chunk-1/

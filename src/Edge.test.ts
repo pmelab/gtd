@@ -1469,6 +1469,23 @@ describe("renderRest — the truncation notice", () => {
     const rendered = await provide(renderRest(rest), repo)
     expect(rendered.content).toBe("hello")
   })
+
+  // `RenderedRest.truncated` is the flag `program.ts`'s `gtd judge answer`
+  // threads into `planLanding`'s `truncated` option — it must agree with the
+  // SAME truncation notice above, not a separately-computed fact.
+  it("RenderedRest.truncated is true exactly when it.tail truncated this rest's evidence", async () => {
+    const repo = seeded("20", "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\n")
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.truncated).toBe(true)
+  })
+
+  it("RenderedRest.truncated is false when it.tail's bound never actually cuts anything", async () => {
+    const repo = seeded("500", "short\n")
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.truncated).toBe(false)
+  })
 })
 
 // `.gtd/packages/02-payload-bound-engine.md` Requirement C: `it.tail`/

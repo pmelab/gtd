@@ -242,6 +242,8 @@ describe("renderStateTemplate — bundled `script` states render to valid bash",
       "architecture.gate.check",
       "build.health.check",
       "build.health.escalate",
+      "build.quality.picking",
+      "build.quality.seeding",
       "build.review.deciding",
       "build.review.triaging",
       "design.gate.check",
@@ -525,7 +527,22 @@ describe("createRenderLedger — the byte-budget accounting", () => {
     expect(() => ledger.tail("b\n", 0.6)).toThrow(/sum to more than 1/)
   })
 
-  it("nine it.tail(p, 1/9) calls in one render pass — floor-summed bytes never exceed the budget, unlike the raw IEEE-754 fraction sum (1.0000000000000002)", () => {
+  it("two 0.51 shares against a 3-byte budget are refused — flooring each share before summing let this through", () => {
+    const ledger = createRenderLedger(3)
+    ledger.tail("a\n", 0.51)
+    expect(() => ledger.tail("b\n", 0.51)).toThrow(/sum to more than 1/)
+  })
+
+  it("0.1 + 0.2 + 0.7 (a raw sum of 1.0000000000000002) renders against a 32768-byte budget without being refused", () => {
+    const ledger = createRenderLedger(32768)
+    expect(() => {
+      ledger.tail("x\n", 0.1)
+      ledger.tail("x\n", 0.2)
+      ledger.tail("x\n", 0.7)
+    }).not.toThrow()
+  })
+
+  it("nine it.tail(p, 1/9) calls in one render pass sum to 1.0000000000000002 and still clear the 1e-9 tolerance", () => {
     const ledger = createRenderLedger(900)
     expect(() => {
       for (let i = 0; i < 9; i++) ledger.tail("x\n", 1 / 9)

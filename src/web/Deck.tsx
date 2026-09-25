@@ -53,12 +53,15 @@ const DeckControls = ({
   return (
     <div
       data-testid="deck-controls"
-      className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3"
+      className="flex shrink-0 items-center justify-between gap-2 border-t border-divider bg-page p-3"
     >
       <Button variant="secondary" data-testid="deck-prev" onClick={() => onAdvance(-1)}>
         Back
       </Button>
-      <span data-testid="deck-progress" className="text-small text-muted">
+      <span
+        data-testid="deck-progress"
+        className="rounded-full bg-surface px-2.5 py-1 text-small text-muted tabular-nums"
+      >
         {current + 1} / {total}
       </span>
       <div className="flex gap-2">
@@ -112,7 +115,16 @@ export const Deck = <T,>({
 
   return (
     <div data-testid="deck" className="flex h-full min-h-0 flex-1 flex-col">
-      <div data-testid="deck-content" className="min-h-0 flex-1 overflow-auto">
+      {/* `key={current}`: the fade is the deck SWAPPING what you are reading,
+          so it has to replay per item — without the key the element persists
+          and the animation runs once, on mount, for the whole deck. Opacity
+          only (see the keyframe's own comment): the item's controls must not
+          be moving while a thumb is already on its way to them. */}
+      <div
+        key={current}
+        data-testid="deck-content"
+        className="min-h-0 flex-1 animate-[deck-item-in_140ms_ease-out] overflow-auto"
+      >
         {item !== undefined && renderItem(item, current)}
       </div>
       <DeckControls

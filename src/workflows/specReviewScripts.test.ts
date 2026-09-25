@@ -163,12 +163,13 @@ describe("packages.item.spec.scoping's script, executed for real (round-3 review
     expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeDefined()
   })
 
-  it("a confident 'yes' cannot clear a section when the package file itself is over judgeBudgetBytes — pre's own evidence was truncated, so scoping fails open regardless of the trailer", () => {
+  it("a confident 'yes' cannot clear a section when the landing commit carries Gtd-Payload: {\"truncated\":true} — pre's own evidence was truncated, so scoping fails open regardless of the trailer", () => {
     // Same fixture and the same confident, otherwise-clearing verdict as
     // "all three sections answered yes..." above — the only difference is
-    // a judgeBudgetBytes small enough that pre's own it.tail(pkgPath, 1)
-    // would have truncated this package file, so none of these "yes"
-    // verdicts were ever a genuine judgment over the real section text.
+    // the landing commit's own `Gtd-Payload: {"truncated":true}` trailer,
+    // stamped by the render that produced the judged document when `pre`'s
+    // own it.tail(pkgPath, 1) truncated this package file, so none of these
+    // "yes" verdicts were ever a genuine judgment over the real section text.
     const dir = initRepo()
     writePackage(dir, THREE_SECTIONS)
     commitWithTrailer(
@@ -177,11 +178,41 @@ describe("packages.item.spec.scoping's script, executed for real (round-3 review
         'Gtd-Judge: {"id":"section-1","answer":true,"p":0.99}',
         'Gtd-Judge: {"id":"section-2","answer":true,"p":0.99}',
         'Gtd-Judge: {"id":"section-3","answer":true,"p":0.99}',
+        'Gtd-Payload: {"truncated":true}',
       ].join("\n"),
     )
-    runScoping(dir, "0.9", { judgeBudgetBytes: "5" })
+    runScoping(dir, "0.9")
     expect(readIfExists(dir, "SPEC_SCOPE.md")).toBe("- Section A\n- Section B\n- Section C\n")
     expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeUndefined()
+  })
+
+  it("shortening the package file in the working tree after the judged commit landed does not clear the gate — the trailer measures what the judge saw, not what's on disk now", () => {
+    // The COMMITTED package file (what `pre` actually judged) was large
+    // enough to have truncated; the working-tree file present when
+    // `scoping` runs is a SHRUNK, under-budget stand-in — a `wc -c`-style
+    // recheck of the working tree would see it and wrongly clear the gate.
+    // The trailer is the only thing this script reads for truncation.
+    const dir = initRepo()
+    writePackage(dir, PACKAGE)
+    commitWithTrailer(
+      dir,
+      [
+        'Gtd-Judge: {"id":"section-1","answer":true,"p":0.99}',
+        'Gtd-Payload: {"truncated":true}',
+      ].join("\n"),
+    )
+    runScoping(dir, "0.9")
+    expect(readIfExists(dir, "SPEC_SCOPE.md")).toContain("Section A")
+    expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeUndefined()
+  })
+
+  it("a missing Gtd-Payload: trailer reads as not truncated — an under-budget gate still clears normally", () => {
+    const dir = initRepo()
+    writePackage(dir, PACKAGE)
+    commitWithTrailer(dir, 'Gtd-Judge: {"id":"section-1","answer":true,"p":0.99}')
+    runScoping(dir, "0.9")
+    expect(readIfExists(dir, "SPEC_SCOPE.md")).toBeUndefined()
+    expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeDefined()
   })
 })
 

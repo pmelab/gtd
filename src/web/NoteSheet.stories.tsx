@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { page } from "@vitest/browser/context"
+import { viewport } from "./testing/browserContext.js"
 import { useState } from "react"
 import { expect, fireEvent, fn, waitFor, within } from "storybook/test"
+import { token } from "./testing/palette.js"
+import { settled } from "./testing/settled.js"
 import type { SteeringAnchor } from "../steering/index.js"
 import { NoteSheet } from "./NoteSheet.js"
 import { withRealMousePress } from "./testing/realMousePress.js"
@@ -23,6 +25,7 @@ const expectOpensWithTitle =
   (title: string) =>
   async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
     await expect(canvas.getByText(title)).toBeInTheDocument()
   }
@@ -51,6 +54,7 @@ export const ExistingNotePrefillsForEditingNotADuplicate: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
     expect(textarea.value).toBe("already said this looks fine")
   },
@@ -60,6 +64,7 @@ export const NoOnDonePropRendersNoDoneButton: Story = {
   args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn() },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     await expect(canvas.queryByTestId("note-sheet-done")).not.toBeInTheDocument()
   },
 }
@@ -69,6 +74,7 @@ export const SaveAndDoneFiresOnDoneWithTheCurrentText: Story = {
   args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
     await fireEvent.change(textarea, { target: { value: "final note before handing back" } })
     await fireEvent.click(canvas.getByTestId("note-sheet-done"))
@@ -125,6 +131,7 @@ export const DismissingWithoutSavingDiscardsTheText: Story = {
   },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
     await fireEvent.change(textarea, { target: { value: "discard me" } })
     await fireEvent.click(canvas.getByTestId("note-sheet-dismiss"))
@@ -139,8 +146,9 @@ export const DismissingWithoutSavingDiscardsTheText: Story = {
 export const UsableOneHandedAt390pxWithKeyboardUp: Story = {
   args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn() },
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 500) // short viewport stands in for the space left after a keyboard opens
+    await viewport(390, 500) // short viewport stands in for the space left after a keyboard opens
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     const footer = canvas.getByTestId("note-sheet-footer")
     const sheet = canvas.getByTestId("note-sheet")
     // Realistically assertable in jsdom/browser-mode storybook without a real
@@ -179,6 +187,7 @@ export const TypingIntoTheNoteBodyFiresNoWriteEverNotAfterAnyElapsedTimeNorOnBlu
   args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn() },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
     textarea.focus()
     await fireEvent.change(textarea, { target: { value: "typed but never saved" } })
@@ -221,6 +230,7 @@ export const UnmountingWithoutSavingDiscardsTheText: Story = {
   args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn() },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
       target: { value: "typed then torn down" },
     })
@@ -260,6 +270,7 @@ export const TappingSaveFiresExactlyOneWriteWithTheTypedText: Story = {
   args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn() },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
       target: { value: "final text on save" },
     })
@@ -274,8 +285,9 @@ export const TappingSaveFiresExactlyOneWriteWithTheTypedText: Story = {
 export const FooterControlsMeetThe44pxFloor: Story = {
   args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
   play: async ({ canvasElement }) => {
-    await page.viewport(390, 844)
+    await viewport(390, 844)
     const canvas = within(canvasElement)
+    await settled(canvasElement)
     for (const testId of ["note-sheet-dismiss", "note-sheet-save", "note-sheet-done"]) {
       const rect = canvas.getByTestId(testId).getBoundingClientRect()
       expect(rect.height).toBeGreaterThanOrEqual(44)
@@ -289,26 +301,117 @@ export const FooterControlsPressedStatesDifferFromRest: Story = {
   args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await settled(canvasElement)
 
-    const dismiss = canvas.getByTestId("note-sheet-dismiss")
-    const dismissRest = getComputedStyle(dismiss).backgroundColor
-    await withRealMousePress(dismiss, () => {
-      expect(getComputedStyle(dismiss).backgroundColor).not.toBe(dismissRest)
-      expect(getComputedStyle(dismiss).backgroundColor).toBe("rgb(28, 28, 30)")
-    })
-
+    // Dismiss is pressed LAST on purpose: releasing a real press over it
+    // fires its click, which starts the sheet's exit animation and slides
+    // the whole footer off-screen — every later press would then be aimed at
+    // coordinates the buttons have already left.
     const save = canvas.getByTestId("note-sheet-save")
     const saveRest = getComputedStyle(save).backgroundColor
     await withRealMousePress(save, () => {
       expect(getComputedStyle(save).backgroundColor).not.toBe(saveRest)
-      expect(getComputedStyle(save).backgroundColor).toBe("rgb(107, 107, 112)")
+      expect(getComputedStyle(save).backgroundColor).toBe(token("border"))
     })
 
     const done = canvas.getByTestId("note-sheet-done")
     const doneRest = getComputedStyle(done).backgroundColor
     await withRealMousePress(done, () => {
       expect(getComputedStyle(done).backgroundColor).not.toBe(doneRest)
-      expect(getComputedStyle(done).backgroundColor).toBe("rgb(63, 127, 224)")
+      expect(getComputedStyle(done).backgroundColor).toBe(token("accent-pressed"))
     })
+
+    const dismiss = canvas.getByTestId("note-sheet-dismiss")
+    const dismissRest = getComputedStyle(dismiss).backgroundColor
+    await withRealMousePress(dismiss, () => {
+      expect(getComputedStyle(dismiss).backgroundColor).not.toBe(dismissRest)
+      expect(getComputedStyle(dismiss).backgroundColor).toBe(token("surface"))
+    })
+  },
+}
+
+/**
+ * The sheet is a MODAL over its document, not a screen instead of it: the
+ * scrim blurs what is behind rather than replacing it, tapping the scrim
+ * dismisses, Escape dismisses, and focus lands in the textarea so the
+ * keyboard opens on the thing you came to type into.
+ */
+export const ModalOverTheDocumentNotATakeover: Story = {
+  args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn() },
+  render: (args) => (
+    <div>
+      <p data-testid="behind">A paragraph the note is about.</p>
+      <NoteSheet {...args} />
+    </div>
+  ),
+  play: async ({ canvasElement, args }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    await settled(canvasElement)
+
+    // What the sheet covers is still mounted and still painted.
+    await expect(canvas.getByTestId("behind")).toBeVisible()
+
+    const scrim = canvas.getByTestId("note-sheet-scrim")
+    expect(getComputedStyle(scrim).backdropFilter).toContain("blur")
+
+    // Focus is in the field, not on the document behind it.
+    expect(document.activeElement).toBe(canvas.getByTestId("note-sheet-textarea"))
+
+    // The panel is anchored to the bottom of the dynamic viewport — where a
+    // thumb is, and where the space left by an open keyboard ends.
+    const panel = canvas.getByTestId("note-sheet").getBoundingClientRect()
+    expect(panel.bottom).toBeGreaterThan(panel.top)
+    expect(Math.abs(panel.bottom - window.innerHeight)).toBeLessThanOrEqual(1)
+
+    // Nothing runs past the panel's own edges — the field is full-width by
+    // default, so its gutter has to come from a wrapper, not its own margin.
+    const panelElement = canvas.getByTestId("note-sheet")
+    expect(panelElement.scrollWidth).toBeLessThanOrEqual(panelElement.clientWidth)
+    const field = canvas.getByTestId("note-sheet-textarea").getBoundingClientRect()
+    expect(field.right).toBeLessThanOrEqual(panel.right)
+    expect(field.left).toBeGreaterThanOrEqual(panel.left)
+
+    // Dismissal plays the exit first and hands up the dismissal when it
+    // finishes — so it arrives a frame or two later, never on the gesture.
+    await fireEvent.keyDown(canvas.getByTestId("note-sheet-overlay"), { key: "Escape" })
+    await waitFor(() => expect(args.onDismiss).toHaveBeenCalled())
+  },
+}
+
+/**
+ * The sheet ARRIVES and LEAVES rather than appearing and vanishing: it
+ * slides from below on open, and on dismiss it plays its exit first and only
+ * then hands the dismissal up — the screens above own the "a sheet is open"
+ * state, so calling back immediately would unmount it mid-animation with
+ * nothing left to see. Asserted through the Web Animations API, not a
+ * sampled pixel, which is the only way to say "there IS an animation" rather
+ * than "the box happened to be somewhere" on a slow machine.
+ */
+export const TheSheetSlidesInAndPlaysItsExitBeforeDismissing: Story = {
+  args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn() },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    const panel = canvas.getByTestId("note-sheet")
+
+    // On mount it is actually animating, and it starts below its resting
+    // place rather than cross-fading in position.
+    const entering = panel.getAnimations()
+    expect(entering).toHaveLength(1)
+    await settled(canvasElement)
+    // Polled, not read once: `finished` resolving is a microtask, and the
+    // style with the animation removed is only guaranteed by the next
+    // rendering update — so the first rect after it can still carry the
+    // entrance transform.
+    await waitFor(() =>
+      expect(panel.getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight + 1),
+    )
+
+    await fireEvent.click(canvas.getByTestId("note-sheet-dismiss"))
+    // Still on screen, now playing its exit — the gesture has not yet
+    // reached the screen above.
+    expect(panel.getAnimations()).toHaveLength(1)
+    expect(args.onDismiss).not.toHaveBeenCalled()
+    await waitFor(() => expect(args.onDismiss).toHaveBeenCalled())
   },
 }

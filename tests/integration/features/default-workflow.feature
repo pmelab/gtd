@@ -1112,6 +1112,9 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a green check run that also cleans up leftover feedback moves on to reviewing with no residue (D .gtd/FEEDBACK.md)
     Given a test project
     And the workflow
+    # Blanks the queue so a green health check hands straight to the human
+    # review tail — the quality lap itself is covered in its own feature.
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a commit "gtd(agent): build.fix" that adds "src/thing.ts" with:
       """
       export const thing = 1
@@ -1123,8 +1126,13 @@ Feature: The bundled unified workflow — one flow, end to end
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
     And ".gtd/FEEDBACK.md" does not exist
+    # Blank GTD_QUALITYREVIEWS empties the queue — seeding's own clean tree
+    # hands straight on to the human review tail.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
 
   @inmem
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached, writing a fix-design document a human can edit before the next fix turn

@@ -203,24 +203,64 @@ describe("build.review.triaging's script, executed for real", () => {
     expect(readIfExists(dir, "REVIEW.md")).toBeUndefined()
   })
 
-  it("a LOW-CONFIDENCE yes for a chunk whose evidence was actually truncated away still forces capture — the byte-length check bypasses reviewNoteActionable's confidence gate", () => {
+  it("a LOW-CONFIDENCE yes for a chunk whose evidence was actually truncated away still forces capture — the committed Gtd-Payload: trailer bypasses reviewNoteActionable's confidence gate", () => {
     // Same ONE_CHUNK shape and the same sub-threshold p (0.2) as the test
-    // above — the only difference is judgeBudgetBytes small enough that
-    // `triage`'s own `judge:` field would have truncated this document, so
+    // above — the only difference is the landing commit's own
+    // `Gtd-Payload: {"truncated":true}` trailer, stamped by the render that
+    // produced the judged document when `judgeBudgetBytes` truncated it, so
     // this chunk's "yes" was never a genuine judgment (`triage` marks it
-    // structural and always instructs "yes"). Without the byte-length
-    // override, this p=0.2 answer would fold into sign-off exactly like the
-    // test above — the concrete hole a round of review caught.
+    // structural and always instructs "yes"). Without the trailer, this
+    // p=0.2 answer would fold into sign-off exactly like the test above —
+    // the concrete hole a round of review caught.
     const dir = initRepo()
     const ONE_CHUNK =
       "# Review: abc1234\n\n<!-- base: 0000000000000000000000000000000000000000 -->\n\n" +
       "## Chunk A\n- [ ] ./a.ts#1 note\n"
     writeFileSync(join(dir, "REVIEW.md"), ONE_CHUNK)
-    commitWithTrailer(dir, 'Gtd-Judge: {"id":"chunk-1","answer":true,"p":0.2}')
-    runScript(dir, "build.review.triaging", {
-      reviewNoteActionable: "0.7",
-      judgeBudgetBytes: "40",
-    })
+    commitWithTrailer(
+      dir,
+      ['Gtd-Judge: {"id":"chunk-1","answer":true,"p":0.2}', 'Gtd-Payload: {"truncated":true}'].join(
+        "\n",
+      ),
+    )
+    runScript(dir, "build.review.triaging", { reviewNoteActionable: "0.7" })
     expect(readIfExists(dir, "REVIEW_RAW.md")).toBeDefined()
+  })
+
+  it("shortening REVIEW.md in the working tree after the judged commit landed does not clear the gate — the trailer measures what the judge saw, not what's on disk now", () => {
+    // The committed REVIEW.md (what `triage` actually judged) is large
+    // enough to have truncated; the working-tree file present when
+    // `triaging` runs is a SHRUNK, under-budget stand-in — a `wc -c`-style
+    // recheck of the working tree would see it and wrongly clear the gate.
+    // The trailer is the only thing this script reads for truncation.
+    const dir = initRepo()
+    const ONE_CHUNK =
+      "# Review: abc1234\n\n<!-- base: 0000000000000000000000000000000000000000 -->\n\n" +
+      "## Chunk A\n- [ ] ./a.ts#1 note\n"
+    writeFileSync(join(dir, "REVIEW.md"), ONE_CHUNK)
+    commitWithTrailer(
+      dir,
+      [
+        'Gtd-Judge: {"id":"chunk-1","answer":true,"p":0.95}',
+        'Gtd-Payload: {"truncated":true}',
+      ].join("\n"),
+    )
+    runScript(dir, "build.review.triaging", { reviewNoteActionable: "0.7" })
+    expect(readIfExists(dir, "REVIEW_RAW.md")).toBeDefined()
+  })
+
+  it("a missing Gtd-Payload: trailer reads as not truncated — an under-budget gate still clears normally", () => {
+    const dir = initRepo()
+    writeFileSync(join(dir, "REVIEW.md"), THREE_CHUNKS)
+    commitWithTrailer(
+      dir,
+      [
+        'Gtd-Judge: {"id":"chunk-1","answer":false,"p":0.9}',
+        'Gtd-Judge: {"id":"chunk-2","answer":false,"p":0.9}',
+        'Gtd-Judge: {"id":"chunk-3","answer":false,"p":0.9}',
+      ].join("\n"),
+    )
+    runScript(dir, "build.review.triaging", { reviewNoteActionable: "0.7" })
+    expect(readIfExists(dir, "REVIEW_RAW.md")).toBeUndefined()
   })
 })

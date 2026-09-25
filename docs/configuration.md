@@ -7,7 +7,13 @@ current directory to your home directory and merging every level found (the
 closest to the current directory wins on overlap). With no `workflow:`
 configured anywhere in the cwd→home config chain, the bundled unified workflow
 is used automatically, so a state command works out of the box with no config at
-all. Supported filenames (searched in this order):
+all.
+
+A `.gtdrc` value can end up on a command line gtd runs — `vars:` entries like
+`testCommand` are deliberately interpolated into shell commands. Only run gtd in
+a repository whose build scripts you would already run.
+
+Supported filenames (searched in this order):
 
 - `.gtdrc`
 - `.gtdrc.json`
@@ -224,7 +230,10 @@ Besides `it.vars` (below), a `script`/`prompt`/`message` template sees:
   budget scales every caller's real payload with it. Every call this render
   makes shares ONE running total: a cumulative `share` over `1` within a single
   `judge:`/`message:` render throws, as does a `share` that is `<= 0`, `> 1`, or
-  non-finite — the render is refused rather than silently clamped. When a
+  non-finite — the render is refused rather than silently clamped. The running
+  total is the raw share, not a floored byte count, so the throw compares
+  against `1 + 1e-9`: a hair of float tolerance for an exactly-budgeted split
+  (e.g. `0.1 + 0.2 + 0.7`) without letting a real overrun through. When a
   bounded read actually drops bytes, gtd appends a fixed notice to the gate's
   `message:` — see the judgment surface note above `judge:` for the shape, and
   the requirement this exists for: a human reading a surprising verdict needs to
@@ -440,6 +449,15 @@ a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
    POSITIVE INTEGER — blank, non-numeric, non-finite, zero, negative, or
    fractional all THROW, refusing the step, because disabling this one mechanism
    would reinstate the exact oversized-payload rejection it exists to prevent.
+   **`qualityReviews`** (`owasp-security, code-simplification`) names the
+   qualitative review lap `build.quality` runs ahead of the human review, one
+   comma-separated skill per turn/context, whenever the bundled workflow's build
+   tail reaches its own green health check — today that is the
+   `gtd --entry fix-precheck` baseline-repair path, not an ordinary round's
+   hand-off to review, which goes straight to `build.review.reviewing`. Every
+   entry costs a full turn on every round that reaches that green health check,
+   so extend the list only as far as that's worth paying for. Blanking it
+   disables the lap outright — the same convention `skillsPreamble` uses.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
 3. **The current process's entry `--var` overrides**, if it was started via

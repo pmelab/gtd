@@ -76,7 +76,7 @@ vars:
   # until real `architecture-pre` history exists to mine a value from.
   architectureSkipMinP: "0.85"
   # The nine `*Skills` vars below each name a bare, comma-separated skill
-  # list for exactly one mapping in the ten authored `skills:` states (see
+  # list for exactly one mapping in the twelve authored `skills:` states (see
   # each state's own `skills:` line) — carried verbatim into the rendered
   # `skillsPreamble`, never split or validated by gtd itself. Repointing one
   # in a project config (or its `GTD_<NAME>` env override) changes only that
@@ -87,9 +87,13 @@ vars:
   buildSkills: test-driven-development, incremental-implementation
   fixSkills: debugging-and-error-recovery
   reviewFixSkills: incremental-implementation, code-simplification
-  reviewSkills: code-review-and-quality, security-and-hardening, code-simplification
+  reviewSkills: code-review-and-quality
   specReviewSkills: code-review-and-quality, spec-driven-development
   escalateSkills: debugging-and-error-recovery
+  # One qualitative review lap per entry, each its own turn/context. Extend per
+  # project (a company security checklist, a house style skill) — every name is
+  # handed to the agent's harness untouched.
+  qualityReviews: owasp-security, code-simplification
   # Prepended ahead of a state's own prompt whenever BOTH that state's own
   # `skills:` and this var render non-blank (see `Edge.ts`'s `renderRest`) —
   # blanking this one var switches the whole mechanism off repo-wide without
@@ -606,10 +610,15 @@ machines:
             // than trusted from the cut text alone.
             const currentWhole = it.read(".gtd/FEEDBACK.md")
             const previousWhole = it.read(".gtd/PRIOR_FEEDBACK.md")
+            // The length comparison this replaced was a proxy for content: two
+            // reports of EQUAL byte length can still differ before the cut and
+            // match only after it — `stripStamp` on BOTH whole reads is
+            // load-bearing, not tidiness, since the trailing stamp always
+            // differs and would otherwise force every round "not comparable".
             const notComparable =
               current === "" ||
               previous === "" ||
-              (current === previous && currentWhole.length !== previousWhole.length)
+              (current === previous && stripStamp(currentWhole) !== stripStamp(previousWhole))
             const state = notComparable ? { tailsNotComparable: true } : { current, previous }
             // `instructions` must switch alongside `criteria`: the guarded
             // branch's `state` carries no `current`/`previous` at all, so
@@ -621,7 +630,7 @@ machines:
               ? "state carries tailsNotComparable: the two bounded tails came back unusable as evidence (see criteria). There is nothing to compare here; answer from criteria alone."
               : "Compare this round's failing check output (current) against the previous round's (previous), both in state. Classify the change."
             const criteria = notComparable
-              ? "state carries tailsNotComparable instead of current/previous: the two bounded tails are not usable evidence (one came back empty, or both matched only because two differently-sized files were both cut to their own last bytes). identical is FORBIDDEN here — answer new-failure or progress instead, defaulting to progress if genuinely unsure."
+              ? "state carries tailsNotComparable instead of current/previous: the two bounded tails are not usable evidence (one came back empty, or both matched only because the cut tails agree while the two full reports actually differ). identical is FORBIDDEN here — answer new-failure or progress instead, defaulting to progress if genuinely unsure."
               : "identical: the same failure restated, byte-for-byte or the same root cause — the trailing `<!-- gtd check <sha> -->` stamp is already stripped from both, but ignore it too if it ever reappears. new-failure: a materially different symptom than previous. progress: still red, but measurably closer to green (fewer failures, a later stage reached)."
             const payload = {
               state,
@@ -1464,7 +1473,8 @@ machines:
           #!/usr/bin/env sh
           set +e
           threshold=<%~ it.vars.reviewNoteActionable %>; head=$(git rev-parse HEAD)
-          trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
+          body=$(git log -1 --format=%B HEAD)
+          trailers=$(printf '%s\n' "$body" | grep -o 'Gtd-Judge: {[^}]*}')
           # `it.sections`'s real mdast parse (CommonMark) numbered `chunk-N`
           # against every TOP-LEVEL depth-2 heading — never one absorbed as
           # a list item's own lazy continuation. A chunk's own pointer lines
@@ -1484,23 +1494,26 @@ machines:
             END { print c + 0 }
           ' .gtd/REVIEW.md 2>/dev/null)
           [ -n "$total" ] || total=0
-          # A byte-length check, independent of any chunk's own trailer:
+          # A byte-length check against the WORKING TREE would measure the
+          # wrong document: `triage`'s judgment was made against the
+          # COMMITTED .gtd/REVIEW.md at HEAD, and if it's shortened before
+          # `gtd judge answer` lands, a working-tree recheck sees an
+          # under-budget file and trusts an answer made against the earlier,
+          # truncated one — a false sign-off through exactly the door this
+          # backstop exists to close. `Gtd-Payload: {"truncated":true}` is
+          # stamped by the SAME render that produced the judged document
+          # (`planStep.ts`'s `renderDecision`), so reading it off the just-
+          # landed commit measures the bytes the judge actually saw.
           # `reviewNoteActionable`'s confidence gate applies to a GENUINE
           # judgment (a real "not sure this is actionable" is safely folded
           # into sign-off at low confidence, the accepted tuning tradeoff
           # that var documents) — but a chunk `triage` marked structural
           # (its own evidence truncated away) is never a genuine judgment;
           # a driver piping a low-confidence "yes" for THAT id must not be
-          # able to ride the same gate into a false sign-off. Detecting
-          # truncation here needs no heading re-parse (the fence hazard a
-          # round of review already caught) — only the same byte-length
-          # comparison `it.tail`'s own bound makes.
-          budget=<%~ it.vars.judgeBudgetBytes %>; file_bytes=$(wc -c < .gtd/REVIEW.md 2>/dev/null | tr -d ' ')
+          # able to ride the same gate into a false sign-off.
           truncated=0
-          if [ -n "$file_bytes" ] \
-            && awk -v f="$file_bytes" -v b="$budget" 'BEGIN{exit !(f>b)}' 2>/dev/null; then
-            truncated=1
-          fi
+          printf '%s\n' "$body" | grep -q 'Gtd-Payload: {"truncated":true}' \
+            && truncated=1
           actionable=0
           i=1
           while [ "$i" -le "$total" ]; do
@@ -1785,31 +1798,38 @@ machines:
           rm -f .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md
           pkg=$(cat .gtd/NEXT.md 2>/dev/null)
           threshold=<%~ it.vars.specPreJudge %>; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
-            # A byte-length check, independent of any section's own
-            # trailer: `specPreJudge`'s confidence gate applies to a GENUINE
-            # judgment — but a section `pre` marked structural (its own
-            # evidence truncated away, `it.tail(pkgPath, 1)`) is never a
-            # genuine judgment, and a driver piping a confident "yes" for
-            # THAT id must not be able to ride the same gate into a false
-            # approval. When the package file itself is over budget, every
-            # section here defaults to failing regardless of any trailer —
-            # this gate cannot safely tell WHICH sections were truncated
-            # without the same fence-unsafe heading re-parse `it.sections`
-            # itself avoids (see docs/configuration.md's `it.sections`
-            # entry), so it treats the whole package the conservative way
-            # instead, the same blunt-but-safe shape `build.review.triaging`
-            # already uses for its own chunks.
-            budget=<%~ it.vars.judgeBudgetBytes %>; file_bytes=$(wc -c < "$pkg" 2>/dev/null | tr -d ' ')
+            # A working-tree byte-length check would measure the wrong
+            # document: `pre`'s judgment was made against the COMMITTED
+            # package file at HEAD, and if it's shortened before `gtd judge
+            # answer` lands, a working-tree recheck sees an under-budget file
+            # and trusts an answer made against the earlier, truncated one —
+            # a false approval through exactly the door this backstop exists
+            # to close. `Gtd-Payload: {"truncated":true}` is stamped by the
+            # SAME render that produced the judged document (`planStep.ts`'s
+            # `renderDecision`), so reading it off the just-landed commit
+            # measures the bytes the judge actually saw. `specPreJudge`'s
+            # confidence gate applies to a GENUINE judgment — but a section
+            # `pre` marked structural (its own evidence truncated away,
+            # `it.tail(pkgPath, 1)`) is never a genuine judgment, and a
+            # driver piping a confident "yes" for THAT id must not be able
+            # to ride the same gate into a false approval. When the payload
+            # was truncated, every section here defaults to failing
+            # regardless of any trailer — this gate cannot safely tell WHICH
+            # sections were truncated without the same fence-unsafe heading
+            # re-parse `it.sections` itself avoids (see
+            # docs/configuration.md's `it.sections` entry), so it treats the
+            # whole package the conservative way instead, the same
+            # blunt-but-safe shape `build.review.triaging` already uses for
+            # its own chunks.
+            body=$(git log -1 --format=%B HEAD)
             truncated=0
-            if [ -n "$file_bytes" ] \
-              && awk -v f="$file_bytes" -v b="$budget" 'BEGIN{exit !(f>b)}' 2>/dev/null; then
-              truncated=1
-            fi
+            printf '%s\n' "$body" | grep -q 'Gtd-Payload: {"truncated":true}' \
+              && truncated=1
             titles=$(awk '/^```/{f=!f} !f && /^## /{sub(/^## /,""); print}' "$pkg")
             total=0
             [ -n "$titles" ] && total=$(printf '%s\n' "$titles" | wc -l | tr -d ' ')
             if [ "$total" -gt 0 ]; then
-              trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
+              trailers=$(printf '%s\n' "$body" | grep -o 'Gtd-Judge: {[^}]*}')
               i=1
               while [ "$i" -le "$total" ]; do
                 line=$(printf '%s\n' "$trailers" | grep "\"id\":\"section-$i\"" | head -n 1)
@@ -1916,11 +1936,15 @@ machines:
           # the `on` rows below, never here.
           set +e
           mkdir -p .gtd
-          # Sweep spent design/architecture steering files (gone by now) and
-          # any REVIEW_RAW.md the review loop-back left behind — the only
-          # sweeper on that path before it would leak into a later `gtd
-          # summary` prompt's diff range.
-          rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md
+          # Sweep spent design/architecture steering files (gone by now), any
+          # REVIEW_RAW.md the review loop-back left behind, and the quality
+          # lap's own state (its queue, its picked lens, its findings and
+          # markers) — the only sweeper on that path before any of these
+          # would leak into a later `gtd summary` prompt's diff range. A
+          # feedback loop-back therefore clears `.gtd/QUALITY_DONE.md` too,
+          # re-running the whole lap.
+          rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md .gtd/NEXT_REVIEW.md .gtd/QUALITY*.md
+          rm -rf .gtd/reviews
           # Names are gtd-authored, never containing whitespace — safe to
           # disable SC2012.
           # shellcheck disable=SC2012
@@ -2058,6 +2082,111 @@ machines:
           onApproved: closing
           onFix: fix-spec
 
+  # The qualitative review lap — one dimension per turn, each its own fresh
+  # context (a gtd state invocation IS a separate context window). `seeding`
+  # and `picking` are `check` (mechanics only); `reviewing` is `prompt` (the
+  # one turn that judges). ▸ planner identity — reviewing is a planner turn,
+  # not a coder one; the fix turn lives in buildTail instead (see its
+  # `fix-quality`), so this machine stamps no coder model/system anywhere.
+  qualityReview:
+    model: <%= it.vars.plannerModel %>
+    system: |-
+      <%~ it.vars.reviewerPersona %>
+
+
+      <%~ it.vars.agentConduct %>
+    params: [onClean, onFindings]
+    entry: seeding
+    states:
+      # Short-circuits on `.gtd/QUALITY_DONE.md` — without it, `build.health`'s
+      # green route re-enters this lap forever, since both `build.fix` and
+      # `fix-quality` hand back to `build.health.check`. The guard is per
+      # EPISODE: written once by `picking` when the queue drains, swept only
+      # on the feedback loop-back path (`packageLoop.picking`'s sweep).
+      # `seeding`'s script below interpolates `<%~ it.vars.qualityReviews %>`
+      # raw into a `list="..."` shell assignment, run with `sh -c` — a value
+      # containing `$(...)` or a backtick executes. Accepted: a repository's
+      # own gtd config (`.gtdrc`, `GTD_QUALITYREVIEWS`) is TRUSTED input —
+      # `testCommand` already reaches `sh -c` raw by design (it IS a command
+      # line), so a config that could set `qualityReviews` could already set
+      # `testCommand` to anything. This reaches a shell deliberately.
+      seeding:
+        actor: check
+        label: Seeding the quality review queue
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          [ -f .gtd/QUALITY_DONE.md ] && exit 0
+          mkdir -p .gtd/reviews
+          i=1
+          list="<%~ it.vars.qualityReviews %>"
+          IFS=,
+          for name in $list; do
+            trimmed=$(printf '%s' "$name" | sed 's/^ *//; s/ *$//')
+            if [ -n "$trimmed" ]; then
+              printf '%s' "$trimmed" > "$(printf '.gtd/reviews/%02d-%s.md' "$i" "$trimmed")"
+              i=$((i + 1))
+            fi
+          done
+        on:
+          "* .gtd/reviews/**": picking
+          "C": $onClean
+      # The `ls .gtd/reviews/*.md | head -n 1` idiom `packageLoop.picking`
+      # already uses — draining its own queue is what ends the loop; the
+      # reviewer never touches `.gtd/reviews/` itself.
+      picking:
+        actor: check
+        label: Picking the next quality lens
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          # Names are gtd-authored, never containing whitespace — safe to
+          # disable SC2012.
+          # shellcheck disable=SC2012
+          next=$(ls .gtd/reviews/*.md 2>/dev/null | head -n 1)
+          if [ -n "$next" ]; then
+            cp "$next" .gtd/NEXT_REVIEW.md
+            rm -f "$next"
+          else
+            rm -f .gtd/NEXT_REVIEW.md
+            : > .gtd/QUALITY_DONE.md
+            if [ -s .gtd/QUALITY.md ]; then
+              : > .gtd/QUALITY_READY.md
+            fi
+          fi
+        # First-match-wins ordering is what routes a drained-with-findings
+        # turn (whose diff carries the queue deletions AND both markers) to
+        # the fix turn rather than the clean exit.
+        on:
+          "A .gtd/NEXT_REVIEW.md": reviewing
+          "M .gtd/NEXT_REVIEW.md": reviewing
+          "A .gtd/QUALITY_READY.md": $onFindings
+          "* **": $onClean
+          "C": $onClean
+      reviewing:
+        actor: agent
+        label: Reviewing (one quality lens)
+        file: NEXT_REVIEW.md
+        skills: <%~ it.read(".gtd/NEXT_REVIEW.md").trim() %>
+        prompt: |
+          <%~ it.vars.stateFileRules %>
+
+          - The only state file this turn writes is `.gtd/QUALITY.md` — no
+            other files for notes or output
+          - Review the whole assembled change, from `<%= it.startCommit %>`
+            to the working tree, through this ONE quality lens only — the
+            lens is named in `.gtd/NEXT_REVIEW.md`, already loaded as this
+            turn's own skill
+          - Where you find something blocking, APPEND a `## ` chunk to
+            `.gtd/QUALITY.md` describing it — never overwrite what an
+            earlier dimension already wrote there
+          - Write nothing when nothing is blocking under this lens — a
+            clean turn IS this dimension's approval
+          - Touch no other state file, and leave everything uncommitted
+        on:
+          "* **": picking
+          "C": picking
+
   # The process's build identity. ▸ coder identity — model/system stamped
   # onto fix.
   buildTail:
@@ -2092,10 +2221,47 @@ machines:
       health:
         machine: healthGate
         with:
-          onGreen: review
+          onGreen: quality
           onRed: fix
           checkLabel: Running checks
           escalateLabel: Escalating to a human
+
+      # Sits ahead of the whole humanReview machine, never inside it, so
+      # every round reaching this point pays for the lap before a human ever
+      # sees the review — there is no verdict anywhere upstream that could
+      # skip it.
+      quality:
+        machine: qualityReview
+        with:
+          onClean: review
+          onFindings: fix-quality
+
+      # A sibling of `fix`, not a state inside `qualityReview`: a machine
+      # stamps one `model:`/`system:` on every state it owns, and reviewing
+      # is a planner turn while fixing is a coder turn. The split also lets
+      # `health.check`/`health.escalate` resolve as plain local targets —
+      # targets never resolve upward in this workflow.
+      fix-quality:
+        actor: agent
+        label: Fixing quality findings
+        file: QUALITY.md
+        skills: <%= it.vars.reviewFixSkills %>
+        prompt: |
+          <%~ it.vars.stateFileRules %>
+
+          - Read `.gtd/QUALITY.md` — one `## ` chunk per quality dimension
+            that found something blocking. Merge duplicate findings across
+            dimensions FIRST, then fix every chunk
+          - Delete `.gtd/QUALITY.md` and `.gtd/QUALITY_READY.md` once every
+            finding is resolved
+          - Leave everything else uncommitted and finish your turn
+        retry:
+          max: 3
+          otherwise: health.escalate
+        on:
+          "D .gtd/QUALITY.md": health.check
+          "* **": fix-quality
+          "C": fix-quality
 
       # Nested here (not root) so the sign-off's boundary commit stays inside
       # the builder's own scope — see humanReview above.
@@ -2354,6 +2520,22 @@ machines:
         script: |
           #!/usr/bin/env sh
           set +e
+          # `architecture-pre`'s judged "no" was answered against a
+          # `it.tail(".gtd/REQUIREMENTS.md", 1)`-bound payload — a plan over
+          # judgeBudgetBytes can have structural concerns cut away from the
+          # TOP before the judge ever saw them, and still clear
+          # architectureSkipMinP confidently. The truncation is refused
+          # here, however confident that "no" was: on a truncated landing
+          # commit, this script does nothing at all — no `it.sections`
+          # heading rescue is attempted, since a fence straddling the cut
+          # boundary can mis-parse as a top-level heading (the same hazard
+          # `packages.item.spec.pre`/`build.review.triage` avoid the same
+          # way) — and the clean tree makes the "C" row below reachable,
+          # routing to the full architecture pass instead of a false
+          # promotion.
+          if git log -1 --format=%B HEAD | grep -q 'Gtd-Payload: {"truncated":true}'; then
+            exit 0
+          fi
           mkdir -p .gtd/packages
           title=$(awk '/^```/{f=!f} !f && /^## /{sub(/^## /,""); print; exit}' .gtd/REQUIREMENTS.md)
           [ -z "$title" ] && title=package
@@ -2363,9 +2545,9 @@ machines:
           mv .gtd/REQUIREMENTS.md ".gtd/packages/01-${slug}.md"
         on:
           "* **": packages
-          # Unreachable in practice (`mv` always changes the tree) but
-          # declared rather than left off: if a clean tree ever does happen
-          # here, it must run the full pass, never silently produce nothing.
+          # Reachable now: a truncated payload's refusal above leaves the
+          # tree clean, routing here into the full architecture pass instead
+          # of a false promotion.
           "C": architecture
 
       architecture:

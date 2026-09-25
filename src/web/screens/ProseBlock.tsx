@@ -1,6 +1,5 @@
 import type { ReactElement, ReactNode } from "react"
 import type { BlockListItem, SteeringViewNode } from "../../steering/index.js"
-import { Button } from "../Button.js"
 
 /** A markdown inline link — `[label](url)` — the one inline construct Requirement A names ("headings, paragraphs, lists, code blocks, links") that survives into a node's `title`/`block.text` verbatim (`Blocks.ts#blockTitle`/`sourceText` strip footnote markers only, never link syntax). */
 const LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/g
@@ -33,7 +32,13 @@ const splitOnLinks = (text: string): readonly TextPart[] => {
 const InlineText = ({ text }: { readonly text: string }): ReactNode =>
   splitOnLinks(text).map((part, index) =>
     "href" in part ? (
-      <a key={index} href={part.href} target="_blank" rel="noreferrer" className="underline">
+      <a
+        key={index}
+        href={part.href}
+        target="_blank"
+        rel="noreferrer"
+        className="text-link underline"
+      >
         {part.label}
       </a>
     ) : (
@@ -58,7 +63,7 @@ const BlockList = ({
 }) => {
   const ListTag = ordered ? "ol" : "ul"
   return (
-    <ListTag className="m-0 pl-5">
+    <ListTag className={`m-0 list-outside pl-5 ${ordered ? "list-decimal" : "list-disc"}`}>
       {items.map((item, index) => (
         <li key={index}>
           {item.checked !== undefined && (
@@ -73,10 +78,17 @@ const BlockList = ({
 }
 
 /** A `heading` block's own rendering — its own component so `BlockBody`'s switch stays a plain dispatch, with every field's fallback living next to the field it defaults. */
+/** Size follows depth: every heading rendering at one size makes a document's own sections indistinguishable from its subsections, which is the whole reason the depth survived into `block`. */
+const HEADING_CLASSES: Record<"h2" | "h3" | "h4", string> = {
+  h2: "text-large text-heading-a",
+  h3: "text-body text-heading-b",
+  h4: "text-small tracking-wide text-heading-c uppercase",
+}
+
 const HeadingBlock = ({ node }: { readonly node: SteeringViewNode }) => {
   const HeadingTag = headingTagFor(node.block?.depth ?? 2)
   return (
-    <HeadingTag className="m-0 px-3 py-2 font-semibold">
+    <HeadingTag className={`m-0 px-3 pt-4 pb-1 font-semibold ${HEADING_CLASSES[HeadingTag]}`}>
       <InlineText text={node.title} />
     </HeadingTag>
   )
@@ -84,23 +96,53 @@ const HeadingBlock = ({ node }: { readonly node: SteeringViewNode }) => {
 
 /** A `list` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
 const ListBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  <div className="px-3 py-2">
+  <div className="px-3 py-2 marker:text-link">
     <BlockList items={node.block?.items ?? []} ordered={node.block?.ordered === true} />
   </div>
 )
 
 /** A `code` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
 const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  <pre className="m-0 overflow-auto bg-muted px-3 py-2">
+  // `bg-surface`, never `bg-muted`: `muted` is a light TEXT colour in this
+  // dark palette, so it painted a near-white slab under near-white text.
+  <pre className="mx-3 my-2 overflow-x-auto rounded bg-surface p-3 text-small text-code">
     <code>{node.block?.text ?? ""}</code>
   </pre>
 )
 
 /** A `blockquote` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
 const BlockquoteBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  <blockquote className="m-0 border-l-2 border-border px-3 py-2 italic text-muted">
+  <blockquote className="m-0 border-l-4 border-quote px-3 py-2 text-muted italic">
     <InlineText text={node.block?.text ?? node.title} />
   </blockquote>
+)
+
+/**
+ * The mark a block carries when a note is attached to it. Overlaid on the
+ * block rather than placed in flow: it must be findable while SKIMMING a
+ * long document — the note's own text sits below the block and is only
+ * readable once you are already there. `aria-hidden` because the block's own
+ * accessible name already says it has one ("Edit this block's note"), so
+ * announcing it twice tells a screen-reader user nothing new.
+ */
+const NoteBadge = ({ index }: { readonly index: number }) => (
+  <span
+    data-testid={`note-badge-${index}`}
+    aria-hidden="true"
+    className="pointer-events-none absolute top-1 right-1 text-warning"
+  >
+    <svg
+      viewBox="0 0 24 24"
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  </span>
 )
 
 /** The plain `p` fallback — `block` absent, or a `kind` this doesn't (yet) render structure for — exactly the fallback Task 4 requires so a client that ignores `block` still renders `title`. */
@@ -142,7 +184,7 @@ const BlockBody = ({ node }: { readonly node: SteeringViewNode }) => {
  * no-op `onOpenNote` otherwise.
  */
 // fallow-ignore-next-line complexity
-export const ProseBlock = ({
+const ProseBlock = ({
   node,
   index,
   noteOverrides,
@@ -159,32 +201,55 @@ export const ProseBlock = ({
   const noteText = noteOverrides[line] ?? node.note
   const hasNote = noteText !== undefined && noteText.length > 0
   const isCode = node.block?.kind === "code"
+  const notable = !isCode && readOnly !== true
   return (
     <div>
-      <BlockBody node={node} />
-      {!isCode && hasNote && (
-        <div data-testid={`paragraph-note-${index}`} className="px-3 pb-2 text-small text-muted">
-          {noteText}
-        </div>
-      )}
       {/*
-       * A real, visible affordance below the block — full-width and thin
-       * relative to the block's own text (a single small line, not a
-       * card), but never a 0-visible-pixels strip: a 1px top border draws
-       * the seam itself, the label makes its purpose legible, and a 44px
-       * minimum height (Apple's/Android's own minimum recommended touch
-       * target) makes it reliably tappable on a phone.
+       * The note gesture is a DOUBLE TAP on the block itself — there is no
+       * per-block control at all, because any control repeated once per
+       * paragraph competes with the document it annotates. What that costs
+       * is discoverability and a keyboard path, so both are bought back
+       * here rather than left out: `ProseBlocks` states the gesture once at
+       * the top, and the block is a real focusable `button`-roled target
+       * that Enter/Space opens, which is also what a screen reader
+       * announces. `touch-manipulation` is load-bearing on a phone: without
+       * it the browser's own double-tap-to-zoom claims the same gesture.
        */}
-      {!isCode && !readOnly && (
-        <Button
-          variant="ghost"
-          data-testid={`note-seam-${index}`}
-          onClick={() => onOpenNote(node)}
-          className="w-full rounded-none border-t border-border px-3 text-left text-small text-muted"
-        >
-          {hasNote ? "Edit note" : "+ Add note"}
-        </Button>
-      )}
+      <div
+        data-testid={notable ? `note-target-${index}` : undefined}
+        {...(notable
+          ? {
+              role: "button",
+              tabIndex: 0,
+              "aria-label": hasNote ? "Edit this block's note" : "Add a note to this block",
+              onDoubleClick: (event: React.MouseEvent) => {
+                // A link inside the block is its own gesture — double-tapping
+                // one must not also open the note sheet behind the page the
+                // link is opening.
+                if ((event.target as HTMLElement).closest("a") !== null) return
+                onOpenNote(node)
+              },
+              onKeyDown: (event: React.KeyboardEvent) => {
+                if (event.key !== "Enter" && event.key !== " ") return
+                event.preventDefault()
+                onOpenNote(node)
+              },
+            }
+          : {})}
+        className={`relative ${
+          notable
+            ? "touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            : ""
+        }`}
+      >
+        {!isCode && hasNote && <NoteBadge index={index} />}
+        <BlockBody node={node} />
+        {!isCode && hasNote && (
+          <div data-testid={`paragraph-note-${index}`} className="px-3 pb-2 text-small text-muted">
+            {noteText}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -202,6 +267,11 @@ export const ProseBlocks = ({
   readonly readOnly?: boolean
 }) => (
   <div data-testid="prose-paragraphs">
+    {readOnly !== true && (
+      <p data-testid="note-gesture-hint" className="m-0 px-3 py-2 text-small text-muted">
+        Double-tap any block to note something about it.
+      </p>
+    )}
     {nodes.map((node, index) => (
       <ProseBlock
         key={node.anchor.kind === "paragraph" ? node.anchor.line : index}

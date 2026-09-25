@@ -21,13 +21,13 @@ import subprocess
 import sys
 import time
 
-# Wall-clock deadline for the WHOLE loop below — a child that outfills the
-# pty buffer (~64 KiB on most systems) and blocks in `write()` must still be
-# read from as it runs, or it never exits; this bound is what stops a child
-# that also never writes and never exits. Generous (a real command under
-# this suite's own full `npm test` — 10 parallel vitest workers plus
-# build/lint/etc. — can be starved of CPU for seconds at a time), and the
-# ONLY termination condition for such a child.
+# Deadline on SILENCE, not on total runtime — reset to now + this on every
+# successful read (see the loop below), so a child still producing output
+# never trips it, only one that stops producing entirely. Generous (a real
+# command under this suite's own full `npm test` — 10 parallel vitest
+# workers plus build/lint/etc. — can be starved of CPU for seconds at a
+# time). Accepted tradeoff: a child emitting one byte every nine seconds
+# runs forever — there is no total wall-clock budget here, only an idle one.
 IDLE_TIMEOUT_SECONDS = 10.0
 # Once the child has exited, how long the loop waits for one more chunk
 # before deciding no further data is coming — short, because there is
@@ -63,6 +63,8 @@ def run_in_pty(argv):
             if data:
                 chunks.append(data)
                 got_data = True
+                # Resets the idle clock — see IDLE_TIMEOUT_SECONDS above.
+                deadline = time.monotonic() + IDLE_TIMEOUT_SECONDS
         if not exited:
             if proc.poll() is not None:
                 exited = True

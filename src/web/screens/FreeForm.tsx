@@ -1,278 +1,27 @@
 import { useState } from "react"
 import { steeringFormatFor } from "../../steering/index.js"
-import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
+import type { SteeringAnchor, SteeringView } from "../../steering/index.js"
 import { Button } from "../Button.js"
-import { CardList } from "../Card.js"
 import { useContentHashOverride } from "../contentHashOverride.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
+import { existingNoteFor, optimisticNoteSave } from "../notes.js"
 import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
 import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
-import { ProseBlock } from "./ProseBlock.js"
+import { ProseBlocks } from "./ProseBlock.js"
 
 /**
- * The append row's own anchor line: `freeform.ts#freeFormApply`'s guard only
- * appends when `anchor.line` is at or beyond the document's OWN last line —
- * a value this client never has (its only view of the document is
- * `view.nodes`, never raw content/line count). `Number.MAX_SAFE_INTEGER` is
- * always past any real document's last line, so it reaches the append branch
- * unconditionally regardless of how long the file actually is, without this
- * client ever needing to know that length.
+ * The empty-document save's own anchor line: `freeform.ts#freeFormApply`'s
+ * guard only appends when `anchor.line` is at or beyond the document's OWN
+ * last line — a value this client never has (its only view of the document
+ * is `view.nodes`, never raw content/line count). `Number.MAX_SAFE_INTEGER`
+ * is always past any real document's last line, so it reaches the append
+ * branch unconditionally regardless of how long the file actually is,
+ * without this client ever needing to know that length.
  */
 const APPEND_LINE = Number.MAX_SAFE_INTEGER
-
-/** The append row's own draft discriminator — a fixed sentinel, never a hash: there is no served block text to hash for a row that doesn't exist in the document yet. */
-const APPEND_DISCRIMINATOR = "append"
-
-/**
- * A synchronous FNV-1a (32-bit), base36-encoded — `crypto.subtle` is async
- * and cannot run inside a keystroke's `onChange` handler, and this is a
- * NAMESPACE key, never a security boundary, so a fast non-cryptographic hash
- * is the right tool. Two byte-identical blocks in one file collide onto the
- * same draft (an accepted consequence — see the package's own doc comment).
- */
-const fnv1aBase36 = (text: string): string => {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return (hash >>> 0).toString(36)
-}
-
-/**
- * The draft key's own per-block half — a hash of the block's text AS SERVED
- * (`node.block.text`), never of whatever is currently in the draft textarea:
- * hashing the live draft would change the key on every keystroke, losing the
- * very draft it's meant to find again.
- */
-const blockDiscriminatorOf = (node: SteeringViewNode): string =>
-  fnv1aBase36(node.block?.text ?? node.title)
-
-/**
- * `gtd:freeform-draft:<filePath>:<blockDiscriminator>` — keyed on the file's
- * OWN served path (never its `contentHash`: a `ui.format` run, another
- * block's save, or an agent commit rewrites the file mid-type today, and a
- * hash-keyed draft would silently vanish underneath the person typing it) and
- * the block's own text-derived discriminator (never its anchor line: a block
- * added or removed above shifts every line below it, which would otherwise
- * surface a draft against the wrong block entirely).
- */
-const draftStorageKey = (filePath: string, blockDiscriminator: string): string =>
-  `gtd:freeform-draft:${filePath}:${blockDiscriminator}`
-
-const readDraft = (filePath: string, blockDiscriminator: string): string | undefined =>
-  localStorage.getItem(draftStorageKey(filePath, blockDiscriminator)) ?? undefined
-
-const writeDraft = (filePath: string, blockDiscriminator: string, text: string): void => {
-  try {
-    localStorage.setItem(draftStorageKey(filePath, blockDiscriminator), text)
-  } catch {
-    // A `QuotaExceededError` (or any other storage failure) must not escape
-    // an `onChange` handler and break typing outright — the draft just isn't
-    // persisted this keystroke; the textarea's own `value` state still holds
-    // what was typed.
-  }
-}
-
-const clearDraft = (filePath: string, blockDiscriminator: string): void => {
-  localStorage.removeItem(draftStorageKey(filePath, blockDiscriminator))
-}
-
-/** `node.anchor`'s own line — every free-form `view.nodes` entry carries a `paragraph` anchor (`freeform.ts#freeFormView`), so this only ever falls back to `index` for a malformed node. */
-const lineOf = (node: SteeringViewNode, index: number): number =>
-  node.anchor.kind === "paragraph" ? node.anchor.line : index
-
-export interface FreeFormViewProps {
-  readonly view: SteeringView | undefined
-  /** The served file's own path — see `draftStorageKey`'s doc comment for why the draft key names this, never the file's `contentHash`. */
-  readonly filePath: string
-  readonly isLoading: boolean
-  readonly readError?: unknown
-  /** The step's own `mode`, when present but unregistered (this screen never renders for `"review"`/`"qa"` — `App.tsx` dispatches those elsewhere) — named in the header rather than hidden, per the package's own "typo'd mode degrades, never silently" requirement. */
-  readonly mode: string | undefined
-  readonly onSave?: (line: number, text: string) => Promise<unknown>
-  readonly onDelete?: (line: number) => Promise<unknown>
-  readonly onDone?: () => Promise<unknown>
-  /** The note seam's own write-through — same `writeNote`/`annotate` path `Plan.tsx#PlanViewProps.onSaveNote` uses, kept as a SEPARATE call from `onSave` (which is `setValue`/`apply`, a whole-block replace): a note attaches alongside a block without rewriting its own source text. */
-  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
-  readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
-}
-
-/** One block's editable row: read-only structure plus Edit/Delete when closed, a raw-markdown textarea plus Save/Cancel/Delete when open — the draft persists to `localStorage` on every keystroke (Task 8) so a background refetch or an accidental unmount never drops what's mid-type. */
-// fallow-ignore-next-line complexity
-const FreeFormBlockRow = ({
-  node,
-  index,
-  filePath,
-  isOpen,
-  onOpen,
-  onClose,
-  onSave,
-  onDelete,
-  noteOverrides,
-  onOpenNote,
-}: {
-  readonly node: SteeringViewNode
-  readonly index: number
-  readonly filePath: string
-  readonly isOpen: boolean
-  readonly onOpen: () => void
-  readonly onClose: () => void
-  readonly onSave: (text: string) => Promise<unknown>
-  readonly onDelete: () => Promise<unknown>
-  readonly noteOverrides: Readonly<Record<number, string>>
-  readonly onOpenNote: (node: SteeringViewNode) => void
-}) => {
-  const discriminator = blockDiscriminatorOf(node)
-  const [draft, setDraft] = useState<string>(
-    () => readDraft(filePath, discriminator) ?? node.block?.text ?? "",
-  )
-
-  if (!isOpen) {
-    return (
-      <div data-testid={`freeform-block-${index}`}>
-        <ProseBlock
-          node={node}
-          index={index}
-          noteOverrides={noteOverrides}
-          onOpenNote={onOpenNote}
-        />
-        <div className="flex justify-end gap-2 border-t border-border px-3 py-2">
-          <Button
-            variant="ghost"
-            data-testid={`freeform-edit-${index}`}
-            onClick={() => {
-              setDraft(readDraft(filePath, discriminator) ?? node.block?.text ?? "")
-              onOpen()
-            }}
-          >
-            Edit
-          </Button>
-          <Button
-            variant="ghost"
-            data-testid={`freeform-delete-${index}`}
-            onClick={() => {
-              // The rejection is already reported via the caller's own
-              // `onRefusal` (`FreeFormView`'s delete wrapper) — swallow it
-              // here so a refused delete never surfaces as an unhandled
-              // promise rejection.
-              onDelete().catch(() => {})
-            }}
-          >
-            Delete
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div data-testid={`freeform-block-${index}`} className="p-3">
-      <textarea
-        data-testid={`freeform-edit-textarea-${index}`}
-        value={draft}
-        onChange={(e) => {
-          setDraft(e.target.value)
-          writeDraft(filePath, discriminator, e.target.value)
-        }}
-        className="min-h-32 w-full resize-none rounded border border-border bg-surface p-2 text-[16px] text-text"
-      />
-      <div className="mt-2 flex justify-end gap-2">
-        <Button variant="ghost" data-testid={`freeform-cancel-${index}`} onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          data-testid={`freeform-save-${index}`}
-          onClick={() => {
-            // A refused/failed save is already reported by the caller's own
-            // `onRefusal` (`FreeFormView`'s save wrapper); this row just
-            // needs to leave the draft/textarea open on rejection instead of
-            // clearing it, so nothing typed is lost.
-            onSave(draft)
-              .then(() => {
-                clearDraft(filePath, discriminator)
-                onClose()
-              })
-              .catch(() => {})
-          }}
-        >
-          Save
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-/** The append row: a persistent last child (no scroll past the document's own length needed to reach it) opening the SAME textarea shape as any other block's edit, anchored at `APPEND_LINE`. */
-const AppendRow = ({
-  filePath,
-  isOpen,
-  onOpen,
-  onClose,
-  onSave,
-}: {
-  readonly filePath: string
-  readonly isOpen: boolean
-  readonly onOpen: () => void
-  readonly onClose: () => void
-  readonly onSave: (text: string) => Promise<unknown>
-}) => {
-  const [draft, setDraft] = useState<string>(() => readDraft(filePath, APPEND_DISCRIMINATOR) ?? "")
-
-  if (!isOpen) {
-    return (
-      <Button
-        variant="ghost"
-        data-testid="freeform-append-open"
-        onClick={() => {
-          setDraft(readDraft(filePath, APPEND_DISCRIMINATOR) ?? "")
-          onOpen()
-        }}
-        className="w-full border-t border-border px-3 py-3 text-left"
-      >
-        + Add content
-      </Button>
-    )
-  }
-
-  return (
-    <div data-testid="freeform-append-row" className="border-t border-border p-3">
-      <textarea
-        data-testid="freeform-append-textarea"
-        value={draft}
-        onChange={(e) => {
-          setDraft(e.target.value)
-          writeDraft(filePath, APPEND_DISCRIMINATOR, e.target.value)
-        }}
-        className="min-h-32 w-full resize-none rounded border border-border bg-surface p-2 text-[16px] text-text"
-      />
-      <div className="mt-2 flex justify-end gap-2">
-        <Button variant="ghost" data-testid="freeform-append-cancel" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          data-testid="freeform-append-save"
-          onClick={() => {
-            onSave(draft)
-              .then(() => {
-                clearDraft(filePath, APPEND_DISCRIMINATOR)
-                setDraft("")
-                onClose()
-              })
-              .catch(() => {})
-          }}
-        >
-          Save
-        </Button>
-      </div>
-    </div>
-  )
-}
 
 const freeFormLoadingMessage = (isLoading: boolean, readError: unknown): string => {
   if (isLoading) return "Loading the file…"
@@ -281,26 +30,143 @@ const freeFormLoadingMessage = (isLoading: boolean, readError: unknown): string 
 }
 
 /**
+ * The empty-document branch: a bare textfield plus a single primary Save —
+ * no Cancel (an empty document has no closed state to return to) and no
+ * `autoFocus` (iOS Safari refuses programmatic focus without a user
+ * gesture, so autofocus would work on desktop and silently not on the
+ * device this UI is built for). Text lives in React state alone — the
+ * accepted regression is an iOS tab eviction mid-capture losing the typed
+ * text silently, traded for not carrying a whole `localStorage` draft store
+ * for a single field.
+ */
+const EmptyDocumentCapture = ({
+  onSave,
+}: {
+  readonly onSave: (text: string) => Promise<unknown>
+}) => {
+  const [text, setText] = useState("")
+  return (
+    <div className="rounded border border-border p-3">
+      <textarea
+        data-testid="freeform-empty-textarea"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        className="min-h-32 w-full resize-y"
+      />
+      <div className="mt-2 flex justify-end">
+        <Button
+          variant="primary"
+          data-testid="freeform-empty-save"
+          onClick={() => {
+            onSave(text).catch(() => {})
+          }}
+        >
+          Save
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** The modal note sheet, rendered OVER the screen it belongs to (never instead of it) once a block's note gesture opens one — split out so `FreeFormView` itself stays a single dispatch. */
+// fallow-ignore-next-line complexity
+const FreeFormNoteSheet = ({
+  view,
+  anchor,
+  noteOverrides,
+  setNoteOverrides,
+  onClose,
+  onSaveNote,
+  onRefusal,
+}: {
+  readonly view: SteeringView
+  readonly anchor: SteeringAnchor | undefined
+  readonly noteOverrides: Readonly<Record<number, string>>
+  readonly setNoteOverrides: (
+    update: (prev: Record<number, string>) => Record<number, string>,
+  ) => void
+  readonly onClose: () => void
+  readonly onSaveNote: ((anchor: SteeringAnchor, text: string) => Promise<unknown>) | undefined
+  readonly onRefusal: ((error: unknown, retry?: () => Promise<unknown>) => void) | undefined
+}) => {
+  if (anchor === undefined) return null
+  const existingNote = existingNoteFor(view.nodes, anchor, noteOverrides)
+  return (
+    <NoteSheet
+      anchor={anchor}
+      {...(existingNote !== undefined ? { note: existingNote } : {})}
+      onSave={optimisticNoteSave({
+        setOverrides: setNoteOverrides,
+        close: onClose,
+        ...(onSaveNote !== undefined ? { write: onSaveNote } : {}),
+        ...(onRefusal !== undefined ? { onRefusal } : {}),
+      })}
+      onDismiss={onClose}
+    />
+  )
+}
+
+/** The empty-document capture's own `onSave` wrapper: reports a write refusal through the screen's shared `onRefusal` banner, the same shape every other write path here uses. */
+const wrapEmptySave = (
+  onSave: ((line: number, text: string) => Promise<unknown>) | undefined,
+  onRefusal: ((error: unknown, retry?: () => Promise<unknown>) => void) | undefined,
+) => {
+  return (text: string): Promise<unknown> => {
+    if (onSave === undefined) return Promise.resolve()
+    return onSave(APPEND_LINE, text).catch((error: unknown) => {
+      onRefusal?.(error, () => onSave(APPEND_LINE, text))
+      throw error
+    })
+  }
+}
+
+/** The `plan-done` footer row — present whenever `onDone` is wired up, mirroring `Plan.tsx`'s identical control. */
+const FreeFormDoneRow = ({ onDone }: { readonly onDone: () => void }) => (
+  <div
+    data-testid="plan-done-row"
+    className="flex shrink-0 items-center justify-end border-t border-border p-3"
+  >
+    <Button variant="primary" data-testid="plan-done" onClick={onDone}>
+      Done
+    </Button>
+  </div>
+)
+
+/**
  * Presentational free-form screen — takes `view`/`filePath` as props so
  * `FreeForm.stories.tsx` can drive every shape with plain data, mirroring
  * `Plan.tsx#PlanView`'s own split. No findings surface anywhere here: a
  * mode-less file validates nothing (`freeform.ts`'s own `validate` is a
- * constant `[]`), so there is nothing to render for it.
+ * constant `[]`), so there is nothing to render for it. Reads
+ * read-plus-note, exactly like Plan's own prose branch — the empty-document
+ * textfield is the only write path left on this screen besides a note.
  */
+export interface FreeFormViewProps {
+  readonly view: SteeringView | undefined
+  readonly filePath: string
+  readonly isLoading: boolean
+  readonly readError?: unknown
+  /** The step's own `mode`, when present but unregistered (this screen never renders for `"review"`/`"qa"` — `App.tsx` dispatches those elsewhere) — named in the header rather than hidden, per the package's own "typo'd mode degrades, never silently" requirement. */
+  readonly mode: string | undefined
+  readonly onSave?: (line: number, text: string) => Promise<unknown>
+  readonly onDone?: () => Promise<unknown>
+  /** The note seam's own write-through — same `writeNote`/`annotate` path `Plan.tsx#PlanViewProps.onSaveNote` uses. */
+  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
+  readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
+}
+
 // fallow-ignore-next-line complexity
 export const FreeFormView = ({
   view,
-  filePath,
+  filePath: _filePath,
   isLoading,
   readError,
   mode,
   onSave,
-  onDelete,
   onDone,
   onSaveNote,
   onRefusal,
 }: FreeFormViewProps) => {
-  const [openLine, setOpenLine] = useState<number | undefined>(undefined)
   const [noteOverrides, setNoteOverrides] = useState<Record<number, string>>({})
   const [noteSheetAnchor, setNoteSheetAnchor] = useState<SteeringAnchor | undefined>(undefined)
 
@@ -312,120 +178,37 @@ export const FreeFormView = ({
     )
   }
 
-  if (noteSheetAnchor !== undefined) {
-    const line = noteSheetAnchor.kind === "paragraph" ? noteSheetAnchor.line : undefined
-    const originalNote = view.nodes.find(
-      (node) => node.anchor.kind === "paragraph" && node.anchor.line === line,
-    )?.note
-    const existing = (line !== undefined ? noteOverrides[line] : undefined) ?? originalNote
-    return (
-      <NoteSheet
-        anchor={noteSheetAnchor}
-        {...(existing !== undefined ? { note: existing } : {})}
-        onSave={(anchor, text) => {
-          if (anchor.kind === "paragraph") {
-            setNoteOverrides((prev) => ({ ...prev, [anchor.line]: text }))
-          }
-          setNoteSheetAnchor(undefined)
-          // A refused/failed write reverts the optimistic override — mirrors
-          // `Plan.tsx#PlanView`'s identical note-sheet `onSave` handler.
-          onSaveNote?.(anchor, text)?.catch((error: unknown) => {
-            onRefusal?.(error, () => onSaveNote(anchor, text))
-            if (anchor.kind === "paragraph") {
-              setNoteOverrides((prev) => {
-                const next = { ...prev }
-                delete next[anchor.line]
-                return next
-              })
-            }
-          })
-        }}
-        onDismiss={() => setNoteSheetAnchor(undefined)}
-      />
-    )
-  }
-
   return (
-    <div data-testid="freeform-screen" className="flex h-full min-h-0 flex-1 flex-col">
-      {mode !== undefined && steeringFormatFor(mode) === undefined && (
-        <Notice data-testid="freeform-fallback-notice">
-          {`"${mode}" has no screen — editing as plain markdown`}
-        </Notice>
-      )}
-      <div data-testid="freeform-scroll" className="min-h-0 flex-1 overflow-auto">
-        <CardList>
-          {view.nodes.map((node, index) => {
-            const line = lineOf(node, index)
-            return (
-              <FreeFormBlockRow
-                key={line}
-                node={node}
-                index={index}
-                filePath={filePath}
-                isOpen={openLine === line}
-                onOpen={() => setOpenLine(line)}
-                onClose={() => setOpenLine(undefined)}
-                onSave={(text) => {
-                  if (onSave === undefined) return Promise.resolve()
-                  return onSave(line, text).catch((error: unknown) => {
-                    onRefusal?.(error, () => onSave(line, text))
-                    throw error
-                  })
-                }}
-                onDelete={() => {
-                  if (onDelete === undefined) return Promise.resolve()
-                  return onDelete(line).catch((error: unknown) => {
-                    onRefusal?.(error, () => onDelete(line))
-                    throw error
-                  })
-                }}
-                noteOverrides={noteOverrides}
-                onOpenNote={(n) => setNoteSheetAnchor(n.anchor)}
-              />
-            )
-          })}
-        </CardList>
-      </div>
-      {/*
-       * OUTSIDE the scroll container (`shrink-0`, matching the `plan-done-row`
-       * footer right below it) — Requirement B's "lands new content at the
-       * end without scrolling the whole document first": a 200-line file
-       * would otherwise bury this affordance at the bottom of a long scroll
-       * region, exactly the dominant-capture-case friction it exists to
-       * avoid.
-       */}
-      <div className="shrink-0">
-        <AppendRow
-          filePath={filePath}
-          isOpen={openLine === APPEND_LINE}
-          onOpen={() => setOpenLine(APPEND_LINE)}
-          onClose={() => setOpenLine(undefined)}
-          onSave={(text) => {
-            if (onSave === undefined) return Promise.resolve()
-            return onSave(APPEND_LINE, text).catch((error: unknown) => {
-              onRefusal?.(error, () => onSave(APPEND_LINE, text))
-              throw error
-            })
-          }}
-        />
-      </div>
-      {onDone !== undefined && (
-        <div
-          data-testid="plan-done-row"
-          className="flex shrink-0 items-center justify-end border-t border-border p-3"
-        >
-          <Button
-            variant="primary"
-            data-testid="plan-done"
-            onClick={() => {
-              onDone()
-            }}
-          >
-            Done
-          </Button>
+    <>
+      <div data-testid="freeform-screen" className="flex h-full min-h-0 flex-1 flex-col">
+        {mode !== undefined && steeringFormatFor(mode) === undefined && (
+          <Notice data-testid="freeform-fallback-notice">
+            {`"${mode}" has no screen — editing as plain markdown`}
+          </Notice>
+        )}
+        <div data-testid="freeform-scroll" className="min-h-0 flex-1 overflow-auto">
+          {view.nodes.length === 0 ? (
+            <EmptyDocumentCapture onSave={wrapEmptySave(onSave, onRefusal)} />
+          ) : (
+            <ProseBlocks
+              nodes={view.nodes}
+              noteOverrides={noteOverrides}
+              onOpenNote={(n) => setNoteSheetAnchor(n.anchor)}
+            />
+          )}
         </div>
-      )}
-    </div>
+        {onDone !== undefined && <FreeFormDoneRow onDone={() => onDone()} />}
+      </div>
+      <FreeFormNoteSheet
+        view={view}
+        anchor={noteSheetAnchor}
+        noteOverrides={noteOverrides}
+        setNoteOverrides={setNoteOverrides}
+        onClose={() => setNoteSheetAnchor(undefined)}
+        onSaveNote={onSaveNote}
+        onRefusal={onRefusal}
+      />
+    </>
   )
 }
 
@@ -447,7 +230,7 @@ export interface FreeFormProps {
   readonly mode: string | undefined
 }
 
-/** Every mutation `FreeForm` wires up — mirrors `Plan.tsx#usePlanMutations`'s identical shape, using `setValue` (`SteeringFormat.apply`) for every block write since free-form has no note-shaped `annotate` call here: an edit/delete/append is a whole-block replace, not a footnote attach. Task 1's own token bookkeeping (the "consecutive writes with no refetch" override, and dropping it on a `stale-token` refusal) now lives in the shared `contentHashOverride.ts` hook — see its own doc comment for the WHY, kept there once for all three screens instead of copied here. */
+/** Every mutation `FreeForm` wires up — mirrors `Plan.tsx#usePlanMutations`'s identical shape, using `setValue` (`SteeringFormat.apply`) for the empty-document append since free-form has no note-shaped `annotate` call here. Task 1's own token bookkeeping (the "consecutive writes with no refetch" override, and dropping it on a `stale-token` refusal) now lives in the shared `contentHashOverride.ts` hook — see its own doc comment for the WHY, kept there once for all three screens instead of copied here. */
 const useFreeFormMutations = (
   filePath: string,
   mode: string | undefined,
@@ -505,8 +288,6 @@ const useFreeFormMutations = (
     })
   }
 
-  const onDelete = (line: number): Promise<unknown> => onSave(line, "")
-
   const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
     const tokens = override.casTokensFor(data)
     if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
@@ -526,7 +307,7 @@ const useFreeFormMutations = (
 
   const onDone = (): Promise<unknown> => done.mutateAsync({})
 
-  return { onSave, onDelete, onSaveNote, onDone, isDone: done.isSuccess }
+  return { onSave, onSaveNote, onDone, isDone: done.isSuccess }
 }
 
 const freeFormViewDataProps = (data: { readonly view?: SteeringView } | undefined) => ({
@@ -546,7 +327,7 @@ export const FreeForm = ({ filePath, mode }: FreeFormProps) => {
   // reformatted — never a refusal (the write itself succeeded), so this is
   // deliberately separate state from `useRefusal`'s own banner.
   const [formatNotice, setFormatNotice] = useState<FormatNotice | undefined>(undefined)
-  const { onSave, onDelete, onSaveNote, onDone, isDone } = useFreeFormMutations(
+  const { onSave, onSaveNote, onDone, isDone } = useFreeFormMutations(
     filePath,
     mode,
     query.data,
@@ -555,7 +336,6 @@ export const FreeForm = ({ filePath, mode }: FreeFormProps) => {
 
   const onSaveTracked = (line: number, text: string): Promise<unknown> =>
     trackSave(onSave(line, text))
-  const onDeleteTracked = (line: number): Promise<unknown> => trackSave(onDelete(line))
   const onSaveNoteTracked = (anchor: SteeringAnchor, text: string): Promise<unknown> =>
     trackSave(onSaveNote(anchor, text))
   const onDoneWithRefusal = (): Promise<unknown> =>
@@ -582,7 +362,6 @@ export const FreeForm = ({ filePath, mode }: FreeFormProps) => {
           readError={query.error}
           mode={mode}
           onSave={onSaveTracked}
-          onDelete={onDeleteTracked}
           onDone={onDoneWithRefusal}
           onSaveNote={onSaveNoteTracked}
           onRefusal={showRefusal}

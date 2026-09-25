@@ -2078,6 +2078,56 @@ describe("validateDefinition", () => {
   })
 })
 
+// `.gtd/packages/03-template-engine-fixes.md`: the load-time scan for a
+// disallowed bounded-primitive call must not mistake a comma INSIDE a quoted
+// string argument for a second argument separator.
+describe("validateDefinition — the bounded-primitive comma scan ignores quoted commas", () => {
+  const stateWith = (prompt: string) => ({
+    entries: { default: "a", manual: [] },
+    states: {
+      a: { actor: "agent", prompt, on: [] },
+    },
+  })
+
+  it("a quoted path containing a comma is not read as a second it.sections argument", () => {
+    const { errors } = validateDefinition(stateWith("<%~ it.sections('notes, 2026.md') %>"))
+    expect(errors).toEqual([])
+  })
+
+  it("a double-quoted path containing a comma is likewise not read as a second argument", () => {
+    const { errors } = validateDefinition(stateWith('<%~ it.sections("notes, 2026.md") %>'))
+    expect(errors).toEqual([])
+  })
+
+  it("a backtick-quoted path containing a comma is likewise not read as a second argument", () => {
+    const { errors } = validateDefinition(stateWith("<%~ it.sections(`notes, 2026.md`) %>"))
+    expect(errors).toEqual([])
+  })
+
+  it("a backslash-escaped quote inside the literal does not end it early, so a later real comma still isn't misread", () => {
+    const { errors } = validateDefinition(
+      stateWith(String.raw`<%~ it.sections('a \'quoted, path\' here') %>`),
+    )
+    expect(errors).toEqual([])
+  })
+
+  it("a genuine second argument is still refused outside judge:/message:, even when the first argument itself contains parens", () => {
+    const { errors } = validateDefinition(
+      stateWith("<%~ JSON.stringify(it.sections(it.read('f.md'), 0.5)) %>"),
+    )
+    expect(errors).toContain(
+      'state "a": "prompt" calls it.sections(path, share), which is allowed only in a "judge:" field or a "message:" template',
+    )
+  })
+
+  it("a one-argument call stays allowed, unflagged, everywhere", () => {
+    const { errors } = validateDefinition(
+      stateWith("<%~ JSON.stringify(it.sections('notes, 2026.md')) %>"),
+    )
+    expect(errors).toEqual([])
+  })
+})
+
 describe("validateDefinition — routes", () => {
   const base = {
     entries: { default: "a", manual: [] },

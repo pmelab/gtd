@@ -36,9 +36,9 @@ Two routes, and they combine:
   ```
 
 - **In addition to the bundled set** — declare `skills:` on any `prompt` state
-  in your own workflow; the field is not reserved to the bundled ten. There is
-  no append mechanism: an override REPLACES the var's default, it never adds to
-  it. Wanting the bundled skills plus your own means writing the whole list —
+  in your own workflow; the field is not reserved to the bundled twelve. There
+  is no append mechanism: an override REPLACES the var's default, it never adds
+  to it. Wanting the bundled skills plus your own means writing the whole list —
   bundled names included — into your own value:
 
   ```yaml
@@ -63,6 +63,36 @@ Both routes share the same safety rules:
   one in a `*Skills` var is a no-op with no error. This is the trap most likely
   to bite when picking your own set: check the skill's frontmatter before
   relying on it here.
+
+### Extending the quality-review lap
+
+`qualityReviews` (default `owasp-security, code-simplification`) is a skill set
+too, but a different shape from the `*Skills` vars above: each entry is its own
+full turn, not a list handed to one state. Extend it for a project-specific
+concern — a company security checklist, a house style skill — the same way as
+any other var, via `.gtdrc`:
+
+```yaml
+# .gtdrc — keep the bundled pair, add a company checklist
+vars:
+  qualityReviews: owasp-security, code-simplification, acme-security-checklist
+```
+
+or, highest precedence, via the matching `GTD_<NAME>` environment variable:
+
+```bash
+GTD_QUALITYREVIEWS="owasp-security, code-simplification, acme-security-checklist" gtd next
+```
+
+Unlike the `*Skills` vars, gtd DOES split this one — on every comma, one lens
+per entry — because each entry is its own turn rather than prose handed verbatim
+to one state. Keep entries free of commas and of characters that don't belong in
+a filename: each trimmed entry becomes part of a queued review file's name. It
+does NOT share the `*Skills` vars' "costs nothing" rule for a name your harness
+lacks: `reviewing` still burns its own full turn with no lens loaded, since the
+queue file exists whether or not anything can load it — a typo costs a whole
+turn, silently. Blanking the whole var, in contrast, does switch the lap off
+outright. See [Configuration](configuration.md) for the cost of extending it.
 
 ## Repository requirements
 
