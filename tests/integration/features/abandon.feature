@@ -70,6 +70,9 @@ Feature: gtd abandon — end the process underway without completing it
 
   Scenario: abandons a gtd review process — HEAD never moved for the review, so the reviewed branch tip is restored directly
     Given I mark the current commit as "base"
+    # A blank qualityReviews skips the lap review-gate now hands to — this
+    # scenario is about abandoning, not about the lap.
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -78,7 +81,10 @@ Feature: gtd abandon — end the process underway without completing it
     Then it succeeds
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
+    And the last commit subject is "gtd(check): review-gate.check → build.quality.seeding"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234

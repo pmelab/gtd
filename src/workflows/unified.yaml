@@ -425,6 +425,15 @@ machines:
           # left behind — no ordinary path from deciding/collecting reaches
           # this check.
           rm -f .gtd/REVIEW_RAW.md
+          # And sweep the quality lap's own leftovers. `.gtd/QUALITY_DONE.md`
+          # is a PER-EPISODE guard that `build.quality.seeding` short-circuits
+          # on; the only other sweeper is `packageLoop.picking`, which an
+          # entry never visits. Without this, the second and later
+          # `--entry fix-precheck`/`review-gate.check` runs in a repository
+          # would silently skip every configured lens. An entry IS a new
+          # episode, so the whole lap state goes, not just the marker.
+          rm -f .gtd/NEXT_REVIEW.md .gtd/QUALITY.md .gtd/QUALITY_DONE.md .gtd/QUALITY_READY.md
+          rm -rf .gtd/reviews
           <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
@@ -451,7 +460,13 @@ machines:
         on:
           "A .gtd/FEEDBACK.md": blocked
           "M .gtd/FEEDBACK.md": blocked
+          # The sweep rows: a green suite whose ONLY diff is this check's own
+          # cleanup still has to advance, so every path the script can delete
+          # needs a row of its own.
           "D .gtd/REVIEW_RAW.md": $onGreen
+          "D .gtd/QUALITY*.md": $onGreen
+          "D .gtd/NEXT_REVIEW.md": $onGreen
+          "D .gtd/reviews/**": $onGreen
           "D .gtd/FEEDBACK.md": $onGreen
           "C": $onGreen
       blocked:
@@ -2103,8 +2118,10 @@ machines:
       # Short-circuits on `.gtd/QUALITY_DONE.md` — without it, `build.health`'s
       # green route re-enters this lap forever, since both `build.fix` and
       # `fix-quality` hand back to `build.health.check`. The guard is per
-      # EPISODE: written once by `picking` when the queue drains, swept only
-      # on the feedback loop-back path (`packageLoop.picking`'s sweep).
+      # EPISODE: written once by `picking` when the queue drains, swept on
+      # the feedback loop-back path (`packageLoop.picking`'s sweep) and by
+      # every entry check (`&suiteCheck`), which is what keeps a repeat
+      # `--entry fix-precheck` from skipping the lap outright.
       # `seeding`'s script below interpolates `<%~ it.vars.qualityReviews %>`
       # raw into a `list="..."` shell assignment, run with `sh -c` — a value
       # containing `$(...)` or a backtick executes. Accepted: a repository's
@@ -2320,7 +2337,11 @@ machines:
         on:
           "A .gtd/FEEDBACK.md": build.fix
           "M .gtd/FEEDBACK.md": build.fix
+          # Same sweep rows as `entryGate.check`, whose script this aliases.
           "D .gtd/REVIEW_RAW.md": idle
+          "D .gtd/QUALITY*.md": idle
+          "D .gtd/NEXT_REVIEW.md": idle
+          "D .gtd/reviews/**": idle
           "D .gtd/FEEDBACK.md": idle
           "C": idle
 
@@ -2454,10 +2475,15 @@ machines:
           checkLabel: Checking the baseline
           blockedLabel: Baseline is red
 
+      # Into the quality lap, not straight into human review — same reason
+      # `packages` drains there: the lap is what looks at code quality, and
+      # a review started by hand deserves it as much as a process-driven
+      # one. The gate itself just ran the suite, so `build.health` would be
+      # a second run over an untouched tree.
       review-gate:
         machine: entryGate
         with:
-          onGreen: build.review
+          onGreen: build.quality
           reviewBase: <%= it.vars.reviewBase %>
           blockedMessage: |
             The test baseline is red — gtd will not start a review on a broken suite.

@@ -219,3 +219,56 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Then it succeeds
     And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
     And ".gtd/QUALITY_DONE.md" does not exist
+
+  @inmem
+  Scenario: a second entry sweeps the previous episode's QUALITY_DONE.md, so the lap runs again instead of short-circuiting
+    Given a test project
+    And the workflow
+    # What a completed earlier episode leaves committed: `picking` writes this
+    # marker when it drains the queue, and only `packageLoop.picking` ever
+    # swept it — a state no `--entry fix-precheck` run visits.
+    And a commit "chore: a previous episode's drained quality lap" that adds ".gtd/QUALITY_DONE.md" with:
+      """
+      """
+    When I run gtd with args "--entry fix-precheck"
+    Then it succeeds
+    And the last commit subject is "gtd(human): fix-precheck"
+
+    # The entry check's own sweep, plus a red suite. The marker's deletion is
+    # part of this same commit's diff; the FEEDBACK.md row is declared first,
+    # so a red run still routes to the fix loop.
+    Given the file ".gtd/QUALITY_DONE.md" is deleted
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): fix-precheck → build.fix"
+
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/repair.ts" with:
+      """
+      export const repaired = true
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.fix → build.health.check"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
+
+    # The marker is gone, so seeding actually seeds this time rather than
+    # short-circuiting straight through to the review tail.
+    Given a file ".gtd/reviews/01-owasp-security.md" with:
+      """
+      owasp-security
+      """
+    And a file ".gtd/reviews/02-code-simplification.md" with:
+      """
+      code-simplification
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality.seeding → build.quality.picking"
