@@ -21,10 +21,11 @@ export interface TreeDiff {
   readonly deleted: readonly string[]
 }
 
-const fingerprint = (tree: TreeView, path: string): string | undefined =>
-  tree.id !== undefined ? tree.id(path) : tree.read(path)
-
 export const diffTrees = (before: TreeView, after: TreeView): TreeDiff => {
+  // Blob ids only compare against blob ids; otherwise fall back to contents.
+  const byId = before.id !== undefined && after.id !== undefined
+  const fingerprint = (tree: TreeView, path: string): string | undefined =>
+    byId ? tree.id!(path) : tree.read(path)
   const beforePaths = new Set(before.paths())
   const afterPaths = new Set(after.paths())
   const added: string[] = []

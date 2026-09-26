@@ -8,39 +8,44 @@ export type Actor = "agent" | "human" | "check" | "judge"
 
 /** A steering-file declaration shared by the steps that rest on one. */
 export interface SteeringOptions {
-  /** The steering file, relative to `.gtd/`. */
-  readonly file?: string
+  /** The steering file — a repository path under `.gtd/`. */
+  readonly file?: string | undefined
   /** The steering file's mode — a built-in name or a `modes:` entry. Requires `file`. */
-  readonly mode?: string
+  readonly mode?: string | undefined
   /** Refuse a turn whose only change deletes `file`. */
-  readonly requireProgress?: boolean
+  readonly requireProgress?: boolean | undefined
   /** Refuse a turn that leaves a qa-mode `file` question unanswered. */
-  readonly answerGate?: boolean
+  readonly answerGate?: boolean | undefined
   /** Refuse a turn that did not revert the human's review-round edit. */
-  readonly requireRevert?: boolean
+  readonly requireRevert?: boolean | undefined
   /** The commit that enters this step anchors the review window's diff base. */
-  readonly reviewBase?: boolean
+  readonly reviewBase?: boolean | undefined
   /** Display name for drivers and viewers. */
-  readonly label?: string
+  readonly label?: string | undefined
 }
 
 export interface PersonaOptions {
-  readonly model?: string
-  readonly system?: string
+  readonly model?: string | undefined
+  readonly system?: string | undefined
 }
 
 export interface AgentOptions extends SteeringOptions, PersonaOptions {
   /** Skills prose prepended through the `skillsPreamble` var. */
-  readonly skills?: string
+  readonly skills?: string | undefined
   /**
    * A turn that changes nothing completes the step. Without this an empty turn
    * is an attempt: recorded, but the process stays at the step (a stall).
    */
-  readonly allowEmpty?: boolean
+  readonly allowEmpty?: boolean | undefined
 }
 
 export interface HumanOptions extends SteeringOptions {
-  readonly message?: string
+  readonly message?: string | undefined
+  /**
+   * A landing that changes nothing completes the gate — accepting as-is.
+   * Without this a clean landing is a no-op: the gate waits for a change.
+   */
+  readonly acceptClean?: boolean | undefined
 }
 
 export interface RunTools {
@@ -75,9 +80,9 @@ export interface JudgeQuestion {
 
 export interface JudgeOptions extends SteeringOptions {
   /** The human-facing message a driver unaware of judge gates shows. */
-  readonly message?: string
+  readonly message?: string | undefined
   /** The probability an answer must reach to count. Below it, the answer reads as `undefined`. */
-  readonly minP?: number
+  readonly minP?: number | undefined
 }
 
 /** One recorded answer. A `noul`'s boolean reads as `"yes"`/`"no"`, a `score` as its decimal string. */
@@ -130,6 +135,8 @@ export interface FlowContext {
   readonly matches: (path: string, pattern: string) => boolean
   readonly tail: (pathOrContent: string, share: number) => string
   readonly previous: (path: string, since: string) => string | undefined
+  readonly sections: (pathOrContent: string) => readonly string[]
+  readonly stepName: (name: string) => string
   readonly vars: Readonly<Record<string, string>>
   readonly refs: Refs
 }
@@ -277,6 +284,12 @@ export const deleted = (pattern?: string): readonly string[] =>
  */
 export const tail = (pathOrContent: string, share: number): string =>
   ctx().tail(pathOrContent, share)
+
+/** The top-level `## ` heading texts of a markdown file (or of literal text, when no such path exists). */
+export const sections = (pathOrContent: string): readonly string[] => ctx().sections(pathOrContent)
+
+/** The full step name `name` gets where it is called — every enclosing `scope()` prefix applied. */
+export const stepName = (name: string): string => ctx().stepName(name)
 
 export const history = {
   /** `path` as the previous completion of step `since` left it — `undefined` before a second completion. */

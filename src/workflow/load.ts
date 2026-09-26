@@ -1,37 +1,32 @@
-import { dirname } from "node:path"
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
 import { Context, Effect, Layer, Schema } from "effect"
 import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../Commentary.js"
-import type { StateName, WorkflowDefinition } from "../PatternMachine.js"
-import type { MachineNode } from "../Machines.js"
+import { analyzeWorkflow, type FlowGraph } from "../analyze/index.js"
+import type { Workflow } from "../flows/index.js"
+import builtInWorkflow from "../flows/unified.js"
+import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
-import { compileWorkflow, type ConfigLayer } from "./compile.js"
-import { ConfigDiscovery, type ConfigLevel } from "./discovery.js"
+import { compileConfig, type ConfigLayer } from "./compile.js"
+import { ConfigDiscovery, flowsDir, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
+  BUILT_IN_ORIGIN,
   formatDiagnostic,
   sortDiagnostics,
   type Diagnostic,
 } from "./Diagnostic.js"
-import type { WorkflowFiles } from "./WorkflowFiles.js"
 
 export interface ConfigOperations {
   readonly workflow: WorkflowDefinition
+  /** The workflow's own `vars:` defaults. */
   readonly workflowVars: Record<string, string>
   readonly rcVars: Record<string, string>
-  /** The active workflow's machine-instance tree, or the built-in default's tree when unconfigured. Tooling that needs the machine grouping the compiled `workflow` flattens away (e.g. `gtd visualize`) reads it; the pure engine never does. */
-  readonly machineTree: MachineNode
-  /** Qualified state name -> owning machine-instance path, or the built-in default's map when unconfigured. */
-  readonly stateScopes: Record<StateName, string>
   /** The top-level `ui:` key, decoded as-is (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: UiConfig
-  /**
-   * Non-fatal findings against the active workflow (e.g. a state with no `C`
-   * row) — `[]` for the built-in default, which ships with none. Full
-   * `Diagnostic`s (origin + config path), not bare strings — a caller
-   * printing one should go through `formatDiagnostic`, the same as an error.
-   */
+  /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
   readonly warnings: readonly Diagnostic[]
 }
 
@@ -153,38 +148,154 @@ export const load: Effect.Effect<
   const layers = decoded.flatMap((d) => (d.layer !== undefined ? [d.layer] : []))
   const decodeDiagnostics = decoded.flatMap((d) => d.diagnostics)
 
-  const files: WorkflowFiles = { read: workspace.atPath }
-  const compiled = compileWorkflow(layers, files)
+  const compiled = compileConfig(layers)
+  const module = yield* discovery.workflowModule(host.root, host.home)
+  const loaded = yield* Effect.try({
+    try: () => loadWorkflow(module),
+    catch: (e) =>
+      new GtdError(
+        `gtd config:\n  - ${module?.filepath ?? BUILT_IN_ORIGIN}: ${e instanceof Error ? e.message : String(e)}`,
+      ),
+  })
+  const shaped = shapeWorkflow(loaded, compiled.modes)
 
-  const layerOrder = levels.map((level) => level.filepath)
+  const layerOrder = [
+    ...levels.map((level) => level.filepath),
+    ...(module ? [module.filepath] : []),
+  ]
   const diagnostics = dedupeDiagnostics(
-    sortDiagnostics([...decodeDiagnostics, ...compiled.diagnostics], layerOrder),
+    sortDiagnostics(
+      [...decodeDiagnostics, ...compiled.diagnostics, ...loaded.diagnostics, ...shaped.diagnostics],
+      layerOrder,
+    ),
   )
 
   const fatal = diagnostics.filter((d) => d.severity === "error")
   if (fatal.length > 0) {
-    const lines = fatal.map(formatDiagnostic)
     // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
-    // (`src/Commentary.ts`) prints `message` verbatim (once already
-    // `gtd`-prefixed) and then ADDS one indented line per `detail` entry, so
-    // duplicating these lines into `detail` too would print each finding
-    // twice. Each line is one finding's `<origin>: <path>: <message>` —
-    // structured, replacing the old single prose blob.
+    // prints `message` verbatim and would print a duplicated `detail` twice.
+    const lines = fatal.map(formatDiagnostic)
     return yield* Effect.fail(
       new GtdError(`gtd config:\n${lines.map((line) => `  - ${line}`).join("\n")}`),
     )
   }
 
   return {
-    workflow: compiled.workflow,
-    workflowVars: compiled.workflowVars,
+    workflow: shaped.definition!,
+    workflowVars: { ...loaded.workflow.vars },
     rcVars: compiled.rcVars,
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
-    machineTree: compiled.machineTree,
-    stateScopes: compiled.stateScopes,
     warnings: diagnostics.filter((d) => d.severity === "warning"),
   }
 })
+
+interface LoadedModule {
+  readonly workflow: Workflow
+  readonly graph: FlowGraph
+  readonly origin: string
+  readonly diagnostics: readonly Diagnostic[]
+}
+
+type JitiInstance = {
+  evalModule: (source: string, options: { filename: string; async?: false }) => unknown
+}
+type JitiModule = {
+  createJiti: (id: string, options: Record<string, unknown>) => JitiInstance
+}
+
+// Loaded on first use: only a repository with its own gtd.config.ts needs it.
+let jitiModule: JitiModule | undefined
+const jiti = (): JitiInstance => {
+  jitiModule ??= createRequire(import.meta.url)("jiti") as JitiModule
+  return jitiModule.createJiti(import.meta.url, {
+    alias: { "@pmelab/gtd/flows": join(flowsDir(), "index.ts") },
+    // No transpile cache on disk, and a fresh module every load — nothing a
+    // later command could read back instead of the source.
+    fsCache: false,
+    moduleCache: false,
+    interopDefault: true,
+  })
+}
+
+const isWorkflow = (value: unknown): value is Workflow =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as { kind?: unknown }).kind === "gtd-workflow"
+
+// Analysis is pure over the source it reads, so a repeat within one process
+// (the in-memory test tier loads config on every command) reuses it.
+const analyses = new Map<string, ReturnType<typeof analyzeWorkflow>>()
+const analyze = (entryFile: string, source: string | undefined) => {
+  const key = `${entryFile}\u0000${source ?? ""}`
+  let result = analyses.get(key)
+  if (result === undefined) {
+    result = analyzeWorkflow({
+      entryFile,
+      flowsDir: flowsDir(),
+      ...(source !== undefined ? { sources: { [entryFile]: source } } : {}),
+    })
+    analyses.set(key, result)
+  }
+  return result
+}
+
+/** Evaluate `gtd.config.ts` (or take the bundled default) and read its step graph off the source. */
+const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule => {
+  if (module === undefined) {
+    const { graph, diagnostics } = analyze(join(flowsDir(), "unified.ts"), undefined)
+    return { workflow: builtInWorkflow, graph, origin: BUILT_IN_ORIGIN, diagnostics }
+  }
+  const exported = jiti().evalModule(module.source, { filename: module.filepath })
+  const workflow = (exported as { default?: unknown }).default ?? exported
+  if (!isWorkflow(workflow)) {
+    throw new Error('the default export is not a workflow(...) from "@pmelab/gtd/flows"')
+  }
+  const { graph, diagnostics } = analyze(module.filepath, module.source)
+  return { workflow, graph, origin: module.filepath, diagnostics }
+}
+
+/** The loaded definition, or why it cannot be one: the default entry must begin at exactly one step. */
+const shapeWorkflow = (
+  loaded: LoadedModule,
+  modes: WorkflowDefinition["modes"],
+): { readonly definition?: WorkflowDefinition; readonly diagnostics: readonly Diagnostic[] } => {
+  const firsts = loaded.graph.entries.find((entry) => entry.name === "default")?.edges ?? []
+  const initial = firsts.length === 1 ? firsts[0]!.to : undefined
+  if (initial === undefined || initial === "$end") {
+    return {
+      diagnostics: [
+        {
+          severity: "error",
+          path: [],
+          origin: loaded.origin,
+          message:
+            "the default entry must begin at exactly one step — that step is where a finished process waits",
+        },
+      ],
+    }
+  }
+  const known = Object.keys(modes)
+  const unknownModes: Diagnostic[] = loaded.graph.nodes
+    .filter((node) => typeof node.options.mode === "string" && !known.includes(node.options.mode))
+    .map((node) => ({
+      severity: "error",
+      path: [],
+      origin: node.file,
+      line: node.line,
+      message: `step "${node.name}": mode "${String(node.options.mode)}" is not a mode this workflow knows (${known.join(", ")})`,
+    }))
+  if (unknownModes.length > 0) return { diagnostics: unknownModes }
+  return {
+    definition: {
+      flows: loaded.workflow,
+      graph: loaded.graph,
+      modes,
+      initial,
+      manual: Object.keys(loaded.workflow.entries).filter((name) => name !== "default"),
+    },
+    diagnostics: [],
+  }
+}
 
 interface ConfigServiceOperations {
   readonly load: Effect.Effect<

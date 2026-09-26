@@ -26,8 +26,7 @@ import { Narrator } from "./Commentary.js"
 import { ConfigDiscovery, ConfigService } from "./workflow/index.js"
 import { GitService, Host, Workspace } from "./platform/index.js"
 import { currentRest, type RestRequirements } from "./Edge.js"
-import type { StateMode, WorkflowDefinition } from "./PatternMachine.js"
-import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
+import type { StateMode, WorkflowDefinition } from "./Workflow.js"
 import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
 import {
   viewOf,
@@ -161,14 +160,14 @@ export const basenameFallbackMode = (name: string): ResolvedMode | undefined => 
 export type FileModeWarning = string
 
 /**
- * Render every state's declared `file:`/`mode:` pair into an absolute-path →
- * `ResolvedMode` map. A state whose `file:` fails to render or whose `mode:`
- * doesn't resolve is skipped with a warning, not fatal; a path two states
- * both declare keeps the first declaring state's mode, also warning.
+ * Every step's declared `file:`/`mode:` pair, as the analyzer read them off
+ * the workflow's source, into an absolute-path → `ResolvedMode` map. A step
+ * whose file or mode is not a constant carries neither in the graph and is
+ * skipped; a path two steps both declare keeps the first one's mode, warning.
  */
 export const buildSteeringMap = (
   def: WorkflowDefinition,
-  vars: Record<string, string>,
+  _vars: Record<string, string>,
   root: string,
 ): {
   readonly map: ReadonlyMap<string, ResolvedMode>
@@ -176,26 +175,20 @@ export const buildSteeringMap = (
 } => {
   const map = new Map<string, ResolvedMode>()
   const warnings: FileModeWarning[] = []
-  for (const [name, stateDef] of Object.entries(def.states)) {
-    if (stateDef.file === undefined || stateDef.mode === undefined) continue
-    let rendered: string
-    try {
-      rendered = renderStateTemplate(stateDef.file, varsOnlyContext(vars, name))
-    } catch (e) {
-      warnings.push(
-        `state "${name}": "file:" failed to render, skipped — ${e instanceof Error ? e.message : String(e)}`,
-      )
-      continue
-    }
-    const absolute = resolvePath(root, rendered)
+  for (const node of def.graph.nodes) {
+    const { file, mode } = node.options
+    if (typeof file !== "string" || typeof mode !== "string") continue
+    const absolute = resolvePath(root, file)
     const existing = map.get(absolute)
     if (existing !== undefined) {
-      warnings.push(
-        `"${absolute}" is already mapped to mode "${existing.mode}" by an earlier state; state "${name}"'s mode ("${stateDef.mode}") is ignored`,
-      )
+      if (existing.mode !== mode) {
+        warnings.push(
+          `"${absolute}" is already mapped to mode "${existing.mode}" by an earlier step; step "${node.name}"'s mode ("${mode}") is ignored`,
+        )
+      }
       continue
     }
-    const resolved = resolveMode(def, name, stateDef.mode)
+    const resolved = resolveMode(def, node.name, mode as StateMode)
     if (resolved.kind === "unknown") {
       warnings.push(`${resolved.message}, skipped`)
       continue

@@ -29,6 +29,7 @@ export interface GraphEdge {
 const END = "$end"
 
 const STEP_KINDS: ReadonlySet<string> = new Set(["agent", "human", "run", "judge", "restart"])
+const STEPPING_RUNTIME: ReadonlySet<string> = new Set([...STEP_KINDS, "refuse", "scope", "persona"])
 /** The argument index of each step's options object, and of its content. */
 const OPTIONS_ARG: Readonly<Record<string, number>> = { agent: 2, human: 1, run: 2, judge: 3 }
 const CONTENT_ARG: Readonly<Record<string, number>> = { agent: 1, run: 1 }
@@ -153,9 +154,14 @@ export class GraphBuilder {
     }
   }
 
+  private readonly reported = new Set<string>()
+
   report(node: TS.Node, message: string): void {
     const source = node.getSourceFile()
     const { line, character } = source.getLineAndCharacterOfPosition(node.getStart())
+    const key = `${source.fileName}:${node.getStart()}:${message}`
+    if (this.reported.has(key)) return
+    this.reported.add(key)
     this.diagnostics.push({
       severity: "error",
       message,
@@ -176,6 +182,56 @@ export class GraphBuilder {
     this.ts.forEachChild(node, (child) => this.scanIo(child))
   }
 
+  // ── Static reachability ───────────────────────────────────────────────────
+
+  /**
+   * Whether running `node` could reach a step. Conservative where it must
+   * guess: an awaited call it cannot resolve counts as stepping.
+   */
+  private mayStep(node: TS.Node, env: Env, visiting: readonly Callable[]): boolean {
+    const ts = this.ts
+    if (
+      ts.isArrowFunction(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isFunctionDeclaration(node)
+    ) {
+      return false
+    }
+    if (ts.isCallExpression(node) && this.callMaySteps(node, env, visiting)) return true
+    return (
+      ts.forEachChild(node, (child) => this.mayStep(child, env, visiting) || undefined) ?? false
+    )
+  }
+
+  private callMaySteps(node: TS.CallExpression, env: Env, visiting: readonly Callable[]): boolean {
+    const runtime = this.resolver.runtimeName(node.expression)
+    if (runtime !== undefined) return STEPPING_RUNTIME.has(runtime)
+    const callable = this.resolver.callableOf(node.expression, env)
+    if (callable === undefined) return this.ts.isAwaitExpression(node.parent)
+    if (visiting.includes(callable.fn) || callable.fn.body === undefined) return false
+    const bound = this.bindParameters(callable.fn, node.arguments, callable.env, env)
+    return this.mayStep(callable.fn.body, bound, [...visiting, callable.fn])
+  }
+
+  /** Whether a statement can neither step nor leave its enclosing function or loop. */
+  private isInert(node: TS.Node, env: Env, ownLoop = false): boolean {
+    return !this.mayStep(node, env, []) && !this.exits(node, ownLoop)
+  }
+
+  private exits(node: TS.Node, ownLoop: boolean): boolean {
+    const ts = this.ts
+    if (
+      ts.isArrowFunction(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isFunctionDeclaration(node)
+    ) {
+      return false
+    }
+    if (ts.isReturnStatement(node) || ts.isThrowStatement(node)) return true
+    if (!ownLoop && (ts.isBreakStatement(node) || ts.isContinueStatement(node))) return true
+    return ts.forEachChild(node, (child) => this.exits(child, ownLoop) || undefined) ?? false
+  }
+
   // ── Steps ─────────────────────────────────────────────────────────────────
 
   private stepName(call: TS.CallExpression, kind: string, env: Env): string | undefined {
@@ -190,7 +246,7 @@ export class GraphBuilder {
   }
 
   private checkCollision(call: TS.CallExpression, name: string): void {
-    const site = [...this.sites, `${call.getSourceFile().fileName}:${call.getStart()}`].join(">")
+    const site = `${call.getSourceFile().fileName}:${call.getStart()}`
     const previous = this.stepSite.get(name)
     if (previous !== undefined && previous !== site) {
       this.report(
@@ -268,11 +324,15 @@ export class GraphBuilder {
   }
 
   private conditional(node: TS.ConditionalExpression, frontier: Frontier, env: Env): Frontier {
-    const branches = this.split(this.expression(node.condition, frontier, env), node.condition, env)
-    return [
+    const after = this.expression(node.condition, frontier, env)
+    const edgesBefore = this.cfgEdges.length
+    const branches = this.split(after, node.condition, env)
+    const joined = [
       ...this.expression(node.whenTrue, branches.whenTrue, env),
       ...this.expression(node.whenFalse, branches.whenFalse, env),
     ]
+    // No step in either arm: the ternary is a plain value, not a branch.
+    return this.cfgEdges.length === edgesBefore ? after : joined
   }
 
   private binary(node: TS.BinaryExpression, frontier: Frontier, env: Env): Frontier {
@@ -282,10 +342,13 @@ export class GraphBuilder {
     const shortCircuits =
       op === k.AmpersandAmpersandToken || op === k.BarBarToken || op === k.QuestionQuestionToken
     if (!shortCircuits) return this.expression(node.right, after, env)
+    const edgesBefore = this.cfgEdges.length
     const branches = this.split(after, node.left, env)
-    return op === k.AmpersandAmpersandToken
-      ? [...this.expression(node.right, branches.whenTrue, env), ...branches.whenFalse]
-      : [...branches.whenTrue, ...this.expression(node.right, branches.whenFalse, env)]
+    const joined =
+      op === k.AmpersandAmpersandToken
+        ? [...this.expression(node.right, branches.whenTrue, env), ...branches.whenFalse]
+        : [...branches.whenTrue, ...this.expression(node.right, branches.whenFalse, env)]
+    return this.cfgEdges.length === edgesBefore ? after : joined
   }
 
   private awaited(node: TS.AwaitExpression, frontier: Frontier, env: Env): Frontier {
@@ -308,8 +371,14 @@ export class GraphBuilder {
         current = this.expression(arg, current, env)
     }
     const callable = this.resolver.callableOf(node.expression, env)
-    if (callable !== undefined)
+    if (callable !== undefined) {
+      const bound = this.bindParameters(callable.fn, node.arguments, callable.env, env)
+      if (callable.fn.body !== undefined && !this.mayStep(callable.fn.body, bound, [callable.fn])) {
+        this.scanIo(callable.fn.body)
+        return current
+      }
       return this.inline(callable.fn, node.arguments, callable.env, env, node, current)
+    }
     if (awaited) this.report(node, `${AWAIT_MESSAGE} — this callee cannot be resolved`)
     return current
   }
@@ -442,6 +511,15 @@ export class GraphBuilder {
   }
 
   private ifStatement(node: TS.IfStatement, frontier: Frontier, env: MutableEnv): Frontier {
+    const arms = [
+      node.thenStatement,
+      ...(node.elseStatement === undefined ? [] : [node.elseStatement]),
+    ]
+    if (arms.every((arm) => this.isInert(arm, env))) {
+      const after = this.expression(node.expression, frontier, env)
+      for (const arm of arms) this.scanIo(arm)
+      return after
+    }
     const branches = this.split(
       this.expression(node.expression, frontier, env),
       node.expression,
@@ -526,6 +604,10 @@ export class GraphBuilder {
     env: MutableEnv,
     label: string | undefined,
   ): Frontier {
+    if (this.isInert(node, env, true)) {
+      this.scanIo(node)
+      return frontier
+    }
     const head = this.newNode(JUNCTION)
     this.connect(this.loopPreamble(node, frontier, env), head)
     const context: LoopContext = { label, breaks: [], continues: [] }

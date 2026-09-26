@@ -29,13 +29,6 @@ import {
   updateRef,
   deleteRef,
 } from "../GitScript.js"
-import { ConfigService } from "../workflow/index.js"
-import type { WorkflowDefinition } from "../PatternMachine.js"
-import {
-  defaultMachineTree,
-  defaultStateScopes,
-  defaultWorkflowDefinition,
-} from "../workflows/index.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { gitTestLayer } from "./Layers.js"
 
@@ -72,14 +65,10 @@ export interface GitTier {
   readonly name: "Live" | "InMemory"
   readonly root: string
   readonly capabilities: GitTierCapabilities
-  /** Provide `GitService` (retry-wrapped, exactly as production wires it) + `ConfigService` (defaulting to the bundled template; pass `workflow` for a custom one) + a no-op `Narrator`. */
-  readonly provide: <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow?: WorkflowDefinition,
-  ) => Promise<A>
+  /** Provide `GitService` (retry-wrapped, exactly as production wires it) + a no-op `Narrator`. */
+  readonly provide: <A>(eff: Effect.Effect<A, Error, GitService | Narrator>) => Promise<A>
   readonly provideExit: <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow?: WorkflowDefinition,
+    eff: Effect.Effect<A, Error, GitService | Narrator>,
   ) => Promise<Exit.Exit<A, Error>>
   /** A second, commit-less repo of the same tier — for the empty-repo edge cases (`commitHistory`, `hasCommits`). */
   readonly emptyRepo: () => GitTier
@@ -87,18 +76,6 @@ export interface GitTier {
   readonly observe: GitTierObserve
   readonly dispose: () => void
 }
-
-const configLayerFor = (workflow: WorkflowDefinition): Layer.Layer<ConfigService> =>
-  Layer.succeed(ConfigService, {
-    load: Effect.succeed({
-      workflow,
-      workflowVars: {},
-      rcVars: {},
-      machineTree: defaultMachineTree,
-      stateScopes: defaultStateScopes,
-      warnings: [],
-    }),
-  })
 
 /** No-op — these tests assert on git/config behavior, not narration. */
 const noopNarratorLayer = Narrator.layer(() => {}, false)
@@ -122,14 +99,10 @@ const makeLiveTier = (initialCommit = true): GitTier => {
     gitExec(`commit -m "init: first commit"`)
   }
 
-  const provide = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow: WorkflowDefinition = defaultWorkflowDefinition,
-  ): Promise<A> =>
+  const provide = <A>(eff: Effect.Effect<A, Error, GitService | Narrator>): Promise<A> =>
     Effect.runPromise(
       eff.pipe(
         Effect.provide(GitService.Live),
-        Effect.provide(configLayerFor(workflow)),
         Effect.provide(Host.layer({ root, home: root, env: {} })),
         Effect.provide(NodeContext.layer),
         Effect.provide(noopNarratorLayer),
@@ -137,13 +110,11 @@ const makeLiveTier = (initialCommit = true): GitTier => {
     )
 
   const provideExit = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow: WorkflowDefinition = defaultWorkflowDefinition,
+    eff: Effect.Effect<A, Error, GitService | Narrator>,
   ): Promise<Exit.Exit<A, Error>> =>
     Effect.runPromiseExit(
       eff.pipe(
         Effect.provide(GitService.Live),
-        Effect.provide(configLayerFor(workflow)),
         Effect.provide(Host.layer({ root, home: root, env: {} })),
         Effect.provide(NodeContext.layer),
         Effect.provide(noopNarratorLayer),
@@ -219,29 +190,13 @@ const makeInMemTier = (initialCommit = true): GitTier => {
   }
   const gitLayer = gitTestLayer(repo, IN_MEM_ROOT)
 
-  const provide = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow: WorkflowDefinition = defaultWorkflowDefinition,
-  ): Promise<A> =>
-    Effect.runPromise(
-      eff.pipe(
-        Effect.provide(gitLayer),
-        Effect.provide(configLayerFor(workflow)),
-        Effect.provide(noopNarratorLayer),
-      ),
-    )
+  const provide = <A>(eff: Effect.Effect<A, Error, GitService | Narrator>): Promise<A> =>
+    Effect.runPromise(eff.pipe(Effect.provide(gitLayer), Effect.provide(noopNarratorLayer)))
 
   const provideExit = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow: WorkflowDefinition = defaultWorkflowDefinition,
+    eff: Effect.Effect<A, Error, GitService | Narrator>,
   ): Promise<Exit.Exit<A, Error>> =>
-    Effect.runPromiseExit(
-      eff.pipe(
-        Effect.provide(gitLayer),
-        Effect.provide(configLayerFor(workflow)),
-        Effect.provide(noopNarratorLayer),
-      ),
-    )
+    Effect.runPromiseExit(eff.pipe(Effect.provide(gitLayer), Effect.provide(noopNarratorLayer)))
 
   return {
     name: "InMemory",

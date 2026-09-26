@@ -26,7 +26,11 @@ export class Resolver {
   }
 
   symbolOf(node: TS.Node): TS.Symbol | undefined {
-    const symbol = this.checker.getSymbolAtLocation(node)
+    const parent = node.parent
+    const symbol =
+      parent !== undefined && this.ts.isShorthandPropertyAssignment(parent) && parent.name === node
+        ? this.checker.getShorthandAssignmentValueSymbol(parent)
+        : this.checker.getSymbolAtLocation(node)
     if (symbol === undefined) return undefined
     return symbol.flags & this.ts.SymbolFlags.Alias ? this.checker.getAliasedSymbol(symbol) : symbol
   }
@@ -60,8 +64,34 @@ export class Resolver {
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
       return this.concat(node, env)
     }
+    if (ts.isPropertyAccessExpression(node)) return this.propertyConstant(node, env)
     const bound = this.bindingOf(node, env)
     return bound === undefined ? undefined : this.constant(bound.node, bound.env)
+  }
+
+  /** `obj.key` where `obj` resolves to an object literal whose `key` is itself constant. */
+  private propertyConstant(node: TS.PropertyAccessExpression, env: Env): Constant | undefined {
+    const found = this.property(node, env)
+    return found === undefined ? undefined : this.constant(found.node, found.env)
+  }
+
+  /** The initializer `obj.key` reads, when `obj` resolves to an object literal. */
+  property(node: TS.PropertyAccessExpression, env: Env): Binding | undefined {
+    const ts = this.ts
+    const holder = ts.isPropertyAccessExpression(node.expression)
+      ? this.property(node.expression, env)
+      : { node: node.expression, env }
+    if (holder === undefined) return undefined
+    const literal = this.objectLiteral(holder.node, holder.env)
+    const property = literal?.properties.find(
+      (p): p is TS.PropertyAssignment | TS.ShorthandPropertyAssignment =>
+        (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+        this.propertyName(p.name) === node.name.text,
+    )
+    if (property === undefined) return undefined
+    return ts.isPropertyAssignment(property)
+      ? { node: property.initializer, env: holder.env }
+      : { node: property.name, env: holder.env }
   }
 
   private unwrap(node: TS.Expression): TS.Expression {
@@ -120,7 +150,9 @@ export class Resolver {
       if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
         return { fn: current, env: currentEnv }
       }
-      const bound = this.bindingOf(current, currentEnv)
+      const bound = ts.isPropertyAccessExpression(current)
+        ? this.property(current, currentEnv)
+        : this.bindingOf(current, currentEnv)
       if (bound === undefined) return this.declaredFunction(current)
       current = bound.node
       currentEnv = bound.env
@@ -141,7 +173,9 @@ export class Resolver {
 
   objectLiteral(node: TS.Expression, env: Env): TS.ObjectLiteralExpression | undefined {
     if (this.ts.isObjectLiteralExpression(node)) return node
-    const bound = this.bindingOf(node, env)
+    const bound = this.ts.isPropertyAccessExpression(node)
+      ? this.property(node, env)
+      : this.bindingOf(node, env)
     return bound === undefined ? undefined : this.objectLiteral(bound.node, bound.env)
   }
 

@@ -87,25 +87,16 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     And the last commit subject is "gtd(human): review-gate.check"
 
   Scenario: fails with a clear usage error when the state name is not declared
-    Given a gtd config file at ".gtdrc" with:
+    Given a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("working", "do it")
+        },
+      })
       """
     When I run gtd with args "--entry review-gate.check"
     Then it fails

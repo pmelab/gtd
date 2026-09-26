@@ -12,25 +12,28 @@ import { GitService, Host, Workspace, type GitOperations, type HostOps } from ".
 import { runUiCommand, type UiRequirements } from "./ui/index.js"
 import { resolveSession } from "./Sessions.js"
 import {
+  callbackAt,
   currentRest,
   currentRun,
   renderRest,
   restAt,
+  previewLanding,
+  noProcessUnderway,
+  restIsIdle,
   reviewBaseFor,
   snapshotFromRest,
   stalledAt,
+  summaryFor,
   summaryRun,
-  summaryTemplateContext,
   type RenderedRest,
   type RestRequirements,
 } from "./Edge.js"
 import { planEntry, planStep as planStepPure, type JudgeVerdict } from "./step/index.js"
-import { buildSummary } from "./Summary.js"
 import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
 import {
   buildCurrentStateModel,
-  buildVizModel,
+  buildGraphVizModel,
   openInBrowser,
   startVizServer,
   type CurrentStateModel,
@@ -47,18 +50,7 @@ import {
 } from "./steering/index.js"
 import { seededValidateCommand } from "./SteeringFormats.js"
 import { resolveMode, validateScriptFor } from "./SteeringMode.js"
-import {
-  contentKindOf,
-  initialStateOf,
-  matchesPattern,
-  parsePattern,
-  type ContentKind,
-  type OnEdge,
-  type PendingChange,
-  type StateMode,
-  type StateName,
-  type WorkflowDefinition,
-} from "./PatternMachine.js"
+import type { PendingChange, StateMode, StateName, WorkflowDefinition } from "./Workflow.js"
 import {
   beatDocument,
   beatKindOf,
@@ -90,6 +82,7 @@ import { abandonedOutcome, abandonNoopOutcome, restoredOutcome } from "./Outcome
 import { loopLogPath } from "./WorktreeState.js"
 import { renderBriefing } from "./Install.js"
 import { selectPath } from "./Select.js"
+import { runTools } from "./Exec.js"
 
 /**
  * `Edge.ts`'s `Rest` is module-private (`.gtd/packages/05-step-core.md`
@@ -279,7 +272,7 @@ const planLanding = (
 ): Effect.Effect<LandResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const snapshot = yield* snapshotFromRest(rest)
+    const snapshot = yield* snapshotFromRest(rest, opts.judge)
     const outcome = planStepPure(snapshot, opts)
 
     if (outcome.kind === "refusal") {
@@ -297,7 +290,7 @@ const planLanding = (
         model: null,
         script: normalizeScriptNewline(landingScript(required)),
         settled: outcome.settled,
-        idle: outcome.state === initialStateOf(rest.def),
+        idle: outcome.state === rest.def.initial,
       }
     }
 
@@ -305,25 +298,15 @@ const planLanding = (
       return yield* Effect.fail(new Error(outcome.guardVerdict))
     }
 
-    const decision = outcome.decision
-    if (decision.kind !== "commit") {
-      return yield* Effect.fail(
-        new Error(
-          `gtd: internal error — plan kind "${outcome.kind}" but decision kind "${decision.kind}"`,
-        ),
-      )
-    }
-
-    const restingState = decision.to
     const required = ScriptSurface.render(outcome.steps, outcome.guardVerdict)
     return {
-      state: restingState,
-      subject: decision.subject,
+      state: outcome.to,
+      subject: outcome.subject,
       cost: opts.cost ?? null,
       model: opts.model ?? null,
       script: normalizeScriptNewline(landingScript(required)),
       settled: false,
-      idle: restingState === initialStateOf(rest.def),
+      idle: outcome.to === rest.def.initial,
     }
   })
 
@@ -331,16 +314,13 @@ const planLanding = (
  * `gtd summary`: print the prompt for an agent to write the process HEAD
  * closes or sits inside its own closing message. Writes nothing — no git, no
  * state transition, no file. Refuses (throws, mapped to the runtime-error
- * exit code) on either of the two conditions `src/Summary.ts`'s
- * `buildSummary` folds into one `undefined`: the workflow declares no
- * `summary:` template, or the resolved run has no commits to name.
+ * exit code) when the workflow declares no `summary` prompt, or the resolved
+ * run has no commits to name.
  */
 const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
     const run = yield* summaryRun
-    const context = yield* summaryTemplateContext(run)
-    const rendered = buildSummary(config.workflow, run, context)
+    const rendered = yield* summaryFor(run)
     if (rendered === undefined) {
       return yield* Effect.fail(
         new Error(
@@ -353,8 +333,7 @@ const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
   })
 
 /**
- * `gtd base`: print the review anchor hash — `reviewBaseFor(rest.def,
- * rest.run)` — bare and newline-terminated, so an external tool (a diff, a
+ * `gtd base`: print the review anchor hash — `reviewBaseFor(rest)` — bare and newline-terminated, so an external tool (a diff, a
  * PR tool, another agent) can be pointed at the range under review. Shaped
  * exactly like `runSummaryCommand`: one `Rest` resolved, nothing written — no
  * git, no state transition, no session identity. Refuses (mapped to the
@@ -368,8 +347,36 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
     if (rest.run.trace.length === 0) {
       return yield* Effect.fail(new Error("gtd base: refused — no process is underway at HEAD"))
     }
-    const base = reviewBaseFor(rest.def, rest.run)
+    const base = reviewBaseFor(rest)
     out.write(`${base}\n`)
+  })
+
+/**
+ * `gtd exec`: run the resolved rest's `run` callback in the repository. A
+ * throw fails the command; whatever the callback left in the tree lands
+ * either way, exactly as a script body's would.
+ */
+const runExecCommand = (): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const rest = yield* currentRest
+    const callback = callbackAt(rest)
+    if (callback === undefined) {
+      return yield* Effect.fail(
+        new Error(`gtd exec: refused — "${rest.state}" is not a step with a run callback`),
+      )
+    }
+    const host = yield* Host
+    const narrator = yield* Narrator
+    const tools = runTools(host.root, host.env, (chunk) =>
+      Effect.runSync(narrator.warn(chunk.replace(/\n$/, ""))),
+    )
+    yield* Effect.tryPromise({
+      try: async () => callback(tools as never),
+      catch: (e) =>
+        new Error(
+          `gtd exec: "${rest.state}" failed: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+    })
   })
 
 /**
@@ -585,11 +592,15 @@ const runEntryCommand = (
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const plan = yield* planEntry({ def: rest.def, state: rest.state }, actor, {
-      state: entryState,
-      commandLabel,
-      vars: varOverrides,
-    })
+    const plan = yield* planEntry(
+      { def: rest.def, state: rest.state, idle: noProcessUnderway(rest) },
+      actor,
+      {
+        state: entryState,
+        commandLabel,
+        vars: varOverrides,
+      },
+    )
     if (plan.kind === "refusal") {
       return yield* Effect.fail(new Error(plan.message))
     }
@@ -627,7 +638,7 @@ const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
     const def = config.workflow
-    const initial = initialStateOf(def)
+    const initial = def.initial
     const run = yield* currentRun
     if (run.trace.length === 0) {
       const required = emitScripts([
@@ -766,7 +777,7 @@ const resolveValidateScript = (
 > =>
   Effect.gen(function* () {
     const file = rest.hints.file
-    const mode = rest.stateDef.mode
+    const mode = rest.stepDef.mode
     if (file === undefined || mode === undefined) return undefined
 
     const resolved = resolveMode(rest.def, rest.state, mode)
@@ -781,14 +792,10 @@ const resolveValidateScript = (
 /** The driver-facing `BeatKind` for a currently-resolved rest, the one computation `gatherBeatDocument` reads — so a driver's `kind` field can never drift from what it assembled. */
 const restBeatKind = (rest: Rest): BeatKind =>
   beatKindOf({
-    contentKind: contentKindOf(rest.stateDef) as Exclude<ContentKind, "commit">,
+    contentKind: rest.stepDef.kind,
     dirty: rest.changes.length > 0,
     stalled: stalledAt(rest),
   })
-
-/** `idle` means exactly one thing: the machine rests at the workflow's initial state with a clean tree — the process is genuinely done. */
-const restIsIdle = (rest: Rest): boolean =>
-  rest.state === initialStateOf(rest.def) && rest.changes.length === 0
 
 /**
  * `gtd next`: pure emitter of the resolved rest's beat, in two encodings —
@@ -991,37 +998,20 @@ const runUncheckCommand = (file: string): Effect.Effect<void, Error, Workspace> 
     yield* workspace.writeAtPath(file, cleared)
   })
 
-/** Which declared `on` pattern (if any) each pending change matches. `onEdges` must already be rendered against `it.vars`, so the reported pattern is the one a real `gtd land` would match against. */
-const computeStatusChanges = (
-  onEdges: readonly OnEdge[],
-  changes: readonly PendingChange[],
-): readonly StatusChange[] =>
-  changes.map((change) => {
-    const matchedRow = onEdges.find(([patternStr]) => {
-      const parsed = parsePattern(patternStr)
-      return parsed !== undefined && matchesPattern(parsed, [change])
-    })
-    return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
-  })
+/** The pending changes, as the beat reports them — there are no patterns to match them against any more. */
+const computeStatusChanges = (changes: readonly PendingChange[]): readonly StatusChange[] =>
+  changes.map((change) => ({ status: change.status, path: change.path, pattern: null }))
 
-/**
- * First declared `on` edge whose pattern matches the whole pending change
- * list, mirroring `PatternMachine.step`'s first-match-wins semantics —
- * unlike `computeStatusChanges` above, which matches each change
- * independently. `null` when no edge matches. Reports the declared route
- * only: a capped `retry` target may redirect elsewhere at real step time,
- * which this doesn't apply.
- */
-export const computeNextMatch = (
-  onEdges: readonly OnEdge[],
-  changes: readonly PendingChange[],
-): NextMatch | null => {
-  for (const [pattern, target, , action] of onEdges) {
-    const parsed = parsePattern(pattern)
-    if (parsed !== undefined && matchesPattern(parsed, changes)) return { action, pattern, target }
-  }
-  return null
-}
+/** The step the pending change would land the process at, with the graph edge that leads there. */
+const computeNextMatch = (rest: Rest): Effect.Effect<NextMatch | null> =>
+  Effect.map(
+    rest.changes.length === 0 ? Effect.succeed(undefined) : previewLanding(rest),
+    (target) => {
+      if (target === undefined) return null
+      const edge = rest.edges.find((e) => e.target === target)
+      return { action: undefined, pattern: edge?.pattern ?? "", target }
+    },
+  )
 
 /** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json` can never describe different rests for the same beat — built as `wire`'s `Demand` (what to do) and `BeatStatus` (what no driver branches on), then flattened by `beatDocument` into the one wire-shaped object plain/`--json` both render from. */
 const gatherBeatDocument = (
@@ -1053,8 +1043,8 @@ const gatherBeatDocument = (
       rendered,
       idle: restIsIdle(rest),
       log,
-      changes: computeStatusChanges(rest.on, rest.changes),
-      next: computeNextMatch(rest.on, rest.changes),
+      changes: computeStatusChanges(rest.changes),
+      next: yield* computeNextMatch(rest),
       cost: rest.context.processCost,
       costByModel: rest.context.processCostByModel,
     })
@@ -1072,7 +1062,8 @@ const computeCurrentState = (
   Effect.gen(function* () {
     const rest = yield* restAt(undefined)
     const group = model.states.find((s) => s.name === rest.state)?.group
-    return buildCurrentStateModel(rest, rest.changes, rest.on, group)
+    const next = yield* previewLanding(rest)
+    return buildCurrentStateModel(rest, rest.changes, rest.edges, next, group)
   })
 
 /**
@@ -1089,15 +1080,10 @@ const runVisualizeCommand = (
 ): Effect.Effect<void, Error, RestRequirements> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
-    const model = buildVizModel(
-      config.workflow,
-      config.machineTree,
-      {
-        ...config.workflowVars,
-        ...config.rcVars,
-      },
-      config.stateScopes,
-    )
+    const model = buildGraphVizModel(config.workflow.graph, {
+      ...config.workflowVars,
+      ...config.rcVars,
+    })
 
     const runtime = yield* Effect.runtime<RestRequirements>()
     const resolveCurrent = () =>
@@ -1297,6 +1283,8 @@ const dispatchVoidCommand = (
       return runSummaryCommand(out)
     case "base":
       return runBaseCommand(out)
+    case "exec":
+      return runExecCommand()
     case "judge":
       return runJudgeCommand(json, out)
     case "judgeAnswer":

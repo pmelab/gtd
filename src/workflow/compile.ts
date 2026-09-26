@@ -1,37 +1,20 @@
-import {
-  compileModesMap,
-  compileVarsMap,
-  compileWorkflowConfig,
-  inlineWorkflowFileRefs,
-  mergeModes,
-  type ReadFile,
-} from "../PatternConfig.js"
-import { validateDefinition, type StateName, type WorkflowDefinition } from "../PatternMachine.js"
-import type { MachineNode } from "../Machines.js"
-import {
-  defaultMachineTree,
-  defaultStateScopes,
-  defaultWorkflowDefinition,
-  defaultWorkflowVars,
-} from "../workflows/index.js"
+import { seededValidateCommand } from "../SteeringFormats.js"
+import { builtInModeNames } from "../steering/index.js"
+import type { ModeDef } from "../Workflow.js"
+import type { UiConfig } from "../ConfigSchema.js"
 import {
   BUILT_IN_ORIGIN,
   dedupeDiagnostics,
   sortDiagnostics,
   type Diagnostic,
 } from "./Diagnostic.js"
-import type { UiConfig } from "../ConfigSchema.js"
-import type { WorkflowFiles } from "./WorkflowFiles.js"
 
 /**
  * One config layer: the raw, parsed-but-undecoded content of a single
  * `.gtdrc`-family file, plus `origin` (its filepath — the string every
- * `Diagnostic.origin` from this layer is stamped with) and `dir` (its own
- * directory — a `./`/`../` content reference in THIS layer's `workflow:`
- * resolves against `dir`, never against a child repo's cwd or another
- * layer's directory). Ordered outermost (furthest ancestor / home) to
- * innermost (closest to the repo root) — the same order `sortDiagnostics`
- * expects its `layerOrder` argument in.
+ * `Diagnostic.origin` from this layer is stamped with). Ordered outermost
+ * (furthest ancestor / home) to innermost (closest to the repo root) — the
+ * same order `sortDiagnostics` expects its `layerOrder` argument in.
  */
 export interface ConfigLayer {
   readonly origin: string
@@ -39,20 +22,138 @@ export interface ConfigLayer {
   readonly value: unknown
 }
 
-export interface CompiledWorkflow {
-  readonly workflow: WorkflowDefinition
-  readonly workflowVars: Record<string, string>
+export interface CompiledConfig {
   readonly rcVars: Record<string, string>
-  readonly machineTree: MachineNode
-  readonly stateScopes: Record<StateName, string>
-  /** The merged top-level `ui:` key, already decoded per layer by `ConfigSchema` (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
+  /** The built-in modes (qa/review, with gtd's own validators) merged with every layer's `modes:`, per half. */
+  readonly modes: Record<string, ModeDef>
   readonly ui?: UiConfig
-  /** Every finding across every layer/phase — sorted (origin outermost→innermost, `(built-in default)` last, then config path) and deduped by `(severity, path, message, origin)`: the same problem in two layers stays two lines. */
+  /** Every finding across every layer — sorted (origin outermost→innermost, then config path) and deduped. */
   readonly diagnostics: readonly Diagnostic[]
 }
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
+
+const describeType = (v: unknown): string => {
+  if (v === null) return "null"
+  if (Array.isArray(v)) return "array"
+  return typeof v
+}
+
+const isScalar = (v: unknown): v is string | number | boolean =>
+  typeof v === "string" || typeof v === "number" || typeof v === "boolean"
+
+const err = (path: readonly (string | number)[], message: string): Diagnostic => ({
+  severity: "error",
+  message,
+  path,
+  origin: "",
+})
+
+/** A flat `name -> scalar` map; a malformed value is a load error and is dropped. */
+const compileVarsMap = (
+  raw: unknown,
+): { readonly vars: Record<string, string>; readonly diagnostics: readonly Diagnostic[] } => {
+  const diagnostics: Diagnostic[] = []
+  if (raw === undefined) return { vars: {}, diagnostics }
+  if (!isPlainObject(raw)) {
+    diagnostics.push(
+      err(["vars"], `"vars" must be a mapping of name -> scalar value, got ${describeType(raw)}`),
+    )
+    return { vars: {}, diagnostics }
+  }
+  const vars: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isScalar(value)) {
+      diagnostics.push(
+        err(
+          ["vars", key],
+          `"vars.${key}" must be a string, number, or boolean, got ${describeType(value)}`,
+        ),
+      )
+      continue
+    }
+    vars[key] = String(value)
+  }
+  return { vars, diagnostics }
+}
+
+const MODE_COMMAND_KEYS = ["format", "validate"] as const
+
+/** One `modes:` entry; malformed entries are load errors and are dropped. */
+const compileMode = (
+  name: string,
+  entry: unknown,
+  diagnostics: Diagnostic[],
+): ModeDef | undefined => {
+  if (!isPlainObject(entry)) {
+    diagnostics.push(
+      err(
+        ["modes", name],
+        `mode "${name}": must be an object with "format" and/or "validate", got ${describeType(entry)}`,
+      ),
+    )
+    return undefined
+  }
+  const unknownKeys = Object.keys(entry).filter(
+    (k) => !(MODE_COMMAND_KEYS as readonly string[]).includes(k),
+  )
+  if (unknownKeys.length > 0) {
+    diagnostics.push(
+      err(["modes", name], `mode "${name}": unknown key(s) ${unknownKeys.join(", ")}`),
+    )
+  }
+  const commands: { format?: string; validate?: string } = {}
+  for (const key of MODE_COMMAND_KEYS) {
+    const command = entry[key]
+    if (command === undefined) continue
+    if (typeof command !== "string") {
+      diagnostics.push(
+        err(["modes", name, key], `mode "${name}": "${key}" must be a shell command (string)`),
+      )
+    } else if (command.trim() === "") {
+      diagnostics.push(
+        err(["modes", name, key], `mode "${name}": "${key}" must be a non-empty shell command`),
+      )
+    } else {
+      commands[key] = command
+    }
+  }
+  return commands
+}
+
+const compileModesMap = (
+  raw: unknown,
+): { readonly modes: Record<string, ModeDef>; readonly diagnostics: readonly Diagnostic[] } => {
+  const diagnostics: Diagnostic[] = []
+  if (raw === undefined) return { modes: {}, diagnostics }
+  if (!isPlainObject(raw)) {
+    diagnostics.push(
+      err(
+        ["modes"],
+        `"modes" must be a mapping of mode name -> { format, validate }, got ${describeType(raw)}`,
+      ),
+    )
+    return { modes: {}, diagnostics }
+  }
+  const modes: Record<string, ModeDef> = {}
+  for (const [name, entry] of Object.entries(raw)) {
+    if (name === "") diagnostics.push(err(["modes"], `"modes" declares a mode with an empty name`))
+    const mode = compileMode(name, entry, diagnostics)
+    if (mode !== undefined) modes[name] = mode
+  }
+  return { modes, diagnostics }
+}
+
+/** Layer one `modes:` map over another, per half: an override's `format:`/`validate:` wins, a half it leaves out keeps the base's. */
+const mergeModes = (
+  base: Readonly<Record<string, ModeDef>>,
+  override: Readonly<Record<string, ModeDef>>,
+): Record<string, ModeDef> => {
+  const merged: Record<string, ModeDef> = { ...base }
+  for (const [name, entry] of Object.entries(override)) merged[name] = { ...merged[name], ...entry }
+  return merged
+}
 
 /**
  * One config PATH's origin tree node: `self` is the innermost layer that
@@ -133,54 +234,27 @@ const withOrigin = (
 ): Diagnostic[] => diagnostics.map((d) => ({ ...d, origin: lookup(d.path) }))
 
 /**
- * The pure compile boundary: merge every layer's `workflow:` (inlining its
- * `./`/`../` content file references against ITS OWN `dir` first, via
- * `files.read` — a plain sync port, not an `Effect.Tag`, so this function
- * stays sync and total), deep-merge outermost→innermost, then compile. Never
- * throws and never performs any effectful IO of its own — `files.read` is
- * the one seam, injected by the caller (`load`, in production; a fake in a
- * test), exactly like `compileWorkflowConfig`'s own `readFile` parameter.
+ * Merge every layer outermost→innermost and compile what a `.gtdrc` may carry:
+ * `vars`, `modes` and `ui`. A workflow is defined only in `gtd.config.ts`, so a
+ * leftover `workflow:` key is an error pointing there. Pure and total.
  */
-export const compileWorkflow = (
-  layers: readonly ConfigLayer[],
-  files: WorkflowFiles,
-): CompiledWorkflow => {
-  const readFile: ReadFile = files.read
+export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig => {
   const layerOrder = layers.map((l) => l.origin)
   const diagnostics: Diagnostic[] = []
-
-  // Inline each layer's own `workflow:` file references against its own
-  // `dir`, THEN merge — the merge collapses every layer into one anonymous
-  // object, erasing which file a given path came from, so resolving up
-  // front is the only way an outer layer's reference resolves against its
-  // own directory rather than an inner repo's cwd.
-  const inlinedLayers = layers.map((layer) => {
-    if (!isPlainObject(layer.value) || layer.value["workflow"] === undefined) {
-      return isPlainObject(layer.value) ? layer.value : {}
-    }
-    const { value: workflow, diagnostics: refDiagnostics } = inlineWorkflowFileRefs(
-      layer.value["workflow"],
-      layer.dir,
-      readFile,
-    )
-    diagnostics.push(...withOrigin(refDiagnostics, () => layer.origin))
-    return { ...layer.value, workflow }
-  })
-
-  // Merge outermost→innermost, tracking per-PATH provenance as we go — NOT
-  // just which layer last touched each TOP-LEVEL key: two layers may each
-  // contribute different nested keys under the same `vars:`/`modes:`/
-  // `workflow:`, and a finding inside one must name that layer, not
-  // whichever layer happens to be innermost for the key as a whole.
   let merged: unknown = {}
-  // No real layer yet — `BUILT_IN_ORIGIN` here only matters if `layers` is
-  // empty AND some diagnostic somehow has a path (it won't: the empty-layers
-  // case takes the `mergedConfig["workflow"] === undefined` branch below,
-  // whose own findings are stamped `BUILT_IN_ORIGIN` directly).
   let originTree: OriginNode = { self: BUILT_IN_ORIGIN }
-  for (let i = 0; i < inlinedLayers.length; i++) {
-    const layer = layers[i]!
-    const step = mergeWithOrigin(merged, originTree, inlinedLayers[i], layer.origin)
+  for (const layer of layers) {
+    const value = isPlainObject(layer.value) ? layer.value : {}
+    if (value["workflow"] !== undefined) {
+      diagnostics.push({
+        ...err(
+          ["workflow"],
+          '"workflow" is no longer read from a .gtdrc file — define the workflow in gtd.config.ts (a TypeScript module default-exporting workflow(...) from "@pmelab/gtd/flows"); a .gtdrc keeps only vars, modes and ui',
+        ),
+        origin: layer.origin,
+      })
+    }
+    const step = mergeWithOrigin(merged, originTree, value, layer.origin)
     merged = step.value
     originTree = step.origin
   }
@@ -188,64 +262,17 @@ export const compileWorkflow = (
   const lookupIn = (path: readonly (string | number)[]): string => originAt(originTree, path)
 
   const ui = mergedConfig["ui"] as UiConfig | undefined
-  const { vars: rcVars, diagnostics: rcVarsDiagnostics } = compileVarsMap(mergedConfig["vars"])
-  diagnostics.push(...withOrigin(rcVarsDiagnostics, lookupIn))
-  const { modes: rcModes, diagnostics: rcModesDiagnostics } = compileModesMap(mergedConfig["modes"])
-  diagnostics.push(...withOrigin(rcModesDiagnostics, lookupIn))
-
-  if (mergedConfig["workflow"] === undefined) {
-    const modes = mergeModes(defaultWorkflowDefinition.modes, rcModes)
-    const workflow =
-      modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition
-    // Derived from the same validator a custom `workflow:` goes through
-    // (never hardcoded) — the built-in default just happens to pass clean
-    // today, so this never actually fires a diagnostic in production.
-    diagnostics.push(
-      ...withOrigin(
-        validateDefinition(defaultWorkflowDefinition).warnings.map((message) => ({
-          severity: "warning" as const,
-          message,
-          path: [] as readonly (string | number)[],
-          origin: "",
-        })),
-        () => BUILT_IN_ORIGIN,
-      ),
-    )
-    return {
-      workflow,
-      workflowVars: defaultWorkflowVars,
-      rcVars,
-      ...(ui !== undefined ? { ui } : {}),
-      machineTree: defaultMachineTree,
-      stateScopes: defaultStateScopes,
-      diagnostics: dedupeDiagnostics(sortDiagnostics(diagnostics, layerOrder)),
-    }
-  }
-
-  // Every content file reference was already inlined per-layer above, so
-  // `compileWorkflowConfig` has nothing left to resolve against a directory.
-  const compiled = compileWorkflowConfig(mergedConfig["workflow"], rcModes)
-  // `compiled.diagnostics`' own paths are relative to the `workflow:` value
-  // itself (e.g. `["machines","root",...]`) — that is NOT a real path into
-  // the user's `.gtdrc` (the file has no top-level `machines:`; it has
-  // `workflow.machines...`). Prefix with `"workflow"` on the way out, same
-  // as the origin lookup already does against `originTree` (rooted at the
-  // FULL merged config, `vars`/`modes`/`workflow` as siblings) — every
-  // printed path must mirror the actual file, not just the origin.
-  diagnostics.push(
-    ...compiled.diagnostics.map((d) => {
-      const path = ["workflow", ...d.path]
-      return { ...d, path, origin: lookupIn(path) }
-    }),
+  const { vars: rcVars, diagnostics: varsDiagnostics } = compileVarsMap(mergedConfig["vars"])
+  diagnostics.push(...withOrigin(varsDiagnostics, lookupIn))
+  const { modes: rcModes, diagnostics: modesDiagnostics } = compileModesMap(mergedConfig["modes"])
+  diagnostics.push(...withOrigin(modesDiagnostics, lookupIn))
+  const seeded = Object.fromEntries(
+    builtInModeNames().map((name) => [name, { validate: seededValidateCommand(name) }]),
   )
-
   return {
-    workflow: compiled.definition,
-    workflowVars: compiled.vars,
     rcVars,
+    modes: mergeModes(seeded, rcModes),
     ...(ui !== undefined ? { ui } : {}),
-    machineTree: compiled.tree ?? defaultMachineTree,
-    stateScopes: compiled.scopes,
     diagnostics: dedupeDiagnostics(sortDiagnostics(diagnostics, layerOrder)),
   }
 }

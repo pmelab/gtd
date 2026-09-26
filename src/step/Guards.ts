@@ -1,6 +1,5 @@
-import { STATE_DIR, type Actor, type StateDef } from "../PatternMachine.js"
+import { STATE_DIR, type Actor, type PendingChange, type StepDef } from "../Workflow.js"
 import { steeringFormatFor, unansweredQuestions } from "../steering/index.js"
-import type { PendingChange } from "../PatternMachine.js"
 import type { RepoSnapshot } from "./RepoSnapshot.js"
 
 /**
@@ -37,12 +36,12 @@ const isCodePath = (path: string): boolean => !isPlumbingPath(path)
 const REVIEW_MODE = "review"
 
 /** Selects exactly the human review gate (`await-review` in the bundled template) — a human-actor state declaring `mode: review`. */
-export const isHumanReviewGate = (stateDef: { actor?: Actor; mode?: string }): boolean =>
-  stateDef.actor === "human" && stateDef.mode === REVIEW_MODE
+export const isHumanReviewGate = (stepDef: { actor?: Actor; mode?: string }): boolean =>
+  stepDef.actor === "human" && stepDef.mode === REVIEW_MODE
 
 const reviewDocGuard: StepGuard = {
   name: "review-doc",
-  appliesTo: (s) => isHumanReviewGate(s.stateDef),
+  appliesTo: (s) => isHumanReviewGate(s.stepDef),
   check: (s) => {
     if (s.file === undefined) return undefined
     const fileDeleted = deletesFile(s.changes, s.file)
@@ -54,11 +53,11 @@ const reviewDocGuard: StepGuard = {
 
 const NOTHING_ACTIONABLE_SENTINEL = "NOTHING ACTIONABLE"
 
-const isRequireProgressState = (stateDef: StateDef): boolean => stateDef.requireProgress === true
+const isRequireProgressState = (stepDef: StepDef): boolean => stepDef.requireProgress === true
 
 const feedbackProgressGuard: StepGuard = {
   name: "feedback-progress",
-  appliesTo: (s) => isRequireProgressState(s.stateDef),
+  appliesTo: (s) => isRequireProgressState(s.stepDef),
   check: (s) => {
     if (s.file === undefined) return undefined
     const fileDeleted = deletesFile(s.changes, s.file)
@@ -73,11 +72,11 @@ const feedbackProgressGuard: StepGuard = {
 
 const QA_MODE = "qa"
 
-const isAnswerGateState = (stateDef: StateDef): boolean => stateDef.answerGate === true
+const isAnswerGateState = (stepDef: StepDef): boolean => stepDef.answerGate === true
 
 const answerCompletenessGuard: StepGuard = {
   name: "answer-completeness",
-  appliesTo: (s) => isAnswerGateState(s.stateDef) && s.stateDef.mode === QA_MODE,
+  appliesTo: (s) => isAnswerGateState(s.stepDef) && s.stepDef.mode === QA_MODE,
   check: (s) => {
     if (s.file === undefined) return undefined
     // A wholly untouched tree is the human's silence — the only stop the
@@ -97,11 +96,11 @@ const answerCompletenessGuard: StepGuard = {
   },
 }
 
-const isRequireRevertState = (stateDef: StateDef): boolean => stateDef.requireRevert === true
+const isRequireRevertState = (stepDef: StepDef): boolean => stepDef.requireRevert === true
 
 const requireRevertGuard: StepGuard = {
   name: "require-revert",
-  appliesTo: (s) => isRequireRevertState(s.stateDef),
+  appliesTo: (s) => isRequireRevertState(s.stepDef),
   check: (s) => {
     if (s.reviewBase === "" || s.reviewBase === s.startCommit) {
       return `"${s.state}" has no identifiable review round to check (reviewBase is unset) — the revert cannot be established.`

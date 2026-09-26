@@ -5,10 +5,12 @@ import {
   type JudgeAnswer,
   type JudgeQuestion,
   type PersonaOptions,
+  type RunTools,
   type StepRequest,
   type Workflow,
 } from "../flows/index.js"
 import { createRenderLedger, type RenderLedger } from "../PatternTemplates.js"
+import { headingSections } from "../steering/index.js"
 import { globMatches } from "./Glob.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
 import {
@@ -53,7 +55,7 @@ export interface ReplayInput {
 
 export type StepKind = Exclude<StepRequest["kind"], "restart">
 
-const actorOfKind = (kind: StepKind): Actor =>
+export const actorOfKind = (kind: StepKind): Actor =>
   kind === "run" ? "check" : kind === "agent" ? "agent" : kind === "human" ? "human" : "judge"
 
 /** One step replay reached, completed or not. */
@@ -91,7 +93,7 @@ export type ReplayOutcome =
   | { readonly kind: "refused"; readonly message: string }
   | { readonly kind: "failed"; readonly message: string }
 
-const memoryScopeOf = (name: string): string => {
+export const memoryScopeOf = (name: string): string => {
   const dot = name.lastIndexOf(".")
   return dot === -1 ? "" : name.slice(0, dot)
 }
@@ -206,6 +208,19 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       ? answersFrom(verdicts, request.questions, request.options.minP)
       : undefined
 
+  // A callback runs after replay returns (under `gtd exec`), yet reads vars
+  // and refs like the flow around it: it gets the replay's context back.
+  const withContext =
+    (body: (tools: RunTools) => Promise<void> | void) =>
+    async (tools: RunTools): Promise<void> => {
+      installContext(context)
+      try {
+        await body(tools)
+      } finally {
+        installContext(undefined)
+      }
+    }
+
   const reach = (request: Exclude<StepRequest, { kind: "restart" }>): ReachedStep => {
     const name = scoped(request.name)
     const occurrence = (occurrences.get(name) ?? 0) + 1
@@ -214,7 +229,9 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     const resolved =
       request.kind === "agent"
         ? { ...request, options: { ...persona, ...request.options } }
-        : request
+        : request.kind === "run" && typeof request.body === "function"
+          ? { ...request, body: withContext(request.body) }
+          : request
     if (resolved.options.reviewBase === true) reviewBase = position.hash
     const reached: ReachedStep = {
       id: { name, occurrence },
@@ -336,13 +353,21 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       const trees = completions.get(scoped(since)) ?? []
       return trees.length < 2 ? undefined : trees[trees.length - 2]!.read(path)
     },
+    sections: (pathOrContent) =>
+      headingSections(position.tree.read(pathOrContent) ?? pathOrContent),
+    stepName: scoped,
     vars: input.vars,
     refs: {
       get start() {
         return input.refs.start
       },
       get head() {
-        return position.hash
+        // At the rest, trailing attempts sit above the last step commit: the
+        // head a prompt names is the commit the process actually stands on.
+        const rest = commits.slice(cursor)
+        return rest.length > 0 && rest.every((c) => c.parsed.step === undefined)
+          ? rest[rest.length - 1]!.hash
+          : position.hash
       },
       get reviewBase() {
         return reviewBase

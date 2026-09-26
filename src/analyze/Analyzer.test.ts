@@ -272,10 +272,11 @@ export default workflow({
   default: async () => {
     await fix()
     await fix()
+    await agent("fix", "another")
   },
 })`)
       expect(messages(result)).toEqual([
-        '3: step name "fix" is already used by another call site — wrap one of them in scope()',
+        '8: step name "fix" is already used by another call site — wrap one of them in scope()',
       ])
     })
   })

@@ -1,99 +1,98 @@
 import { Effect } from "effect"
 import { Narrator } from "./Commentary.js"
-import { headingSections } from "./steering/index.js"
 import {
   GitService,
   Host,
   Workspace,
-  templateDiff,
-  templateRead,
-  templateReadCommitted,
-  templateTail,
   type GitOperations,
+  type WorkspaceOps,
 } from "./platform/index.js"
-import { UNATTRIBUTED_MODEL } from "./wire/index.js"
-
-export { UNATTRIBUTED_MODEL }
 import { ConfigDiscovery, ConfigService } from "./workflow/index.js"
 import {
-  contentKindOf,
-  initialStateOf,
-  isRequireRevertState,
-  isReviewBaseState,
-  memoryScopeAt,
-  parseStateSubject,
-  resolveState,
-  STATE_DIR,
-  step,
-  wouldAttempt,
-  type ChangeStatus,
-  type ContentKind,
-  type OnEdge,
-  type PendingChange,
-  type RouteRow,
-  type StateDef,
-  type StateName,
-  type WorkflowDefinition,
-} from "./PatternMachine.js"
-import { STATE_FIELD_ENTRIES, type FieldValue, type StateFieldsTable } from "./StateFields.js"
+  formatSubject,
+  memoryScopeOf,
+  parseCommitMessage,
+  replay,
+  treeFromRecord,
+  type EpisodeCommit,
+  type JudgeVerdict,
+  type ReachedStep,
+  type ReplayOutcome,
+  type TreeView,
+} from "./replay/index.js"
 import {
   createRenderLedger,
   renderSkillsPreamble,
-  renderStateTemplate,
-  varsOnlyContext,
-  type RenderLedger,
   type TemplateContext,
   type TemplateEdge,
 } from "./PatternTemplates.js"
-import type { RepoSnapshot, RevertProbe } from "./step/index.js"
+import { clearTicks, steeringFormatFor } from "./steering/index.js"
+import { UNATTRIBUTED_MODEL, type ModelCost } from "./wire/index.js"
+import {
+  STATE_DIR,
+  type ChangeStatus,
+  type PendingChange,
+  type StateName,
+  type StepDef,
+  type WorkflowDefinition,
+} from "./Workflow.js"
+import type { Landing, RepoSnapshot, RevertProbe } from "./step/index.js"
 
-// git's empty-tree object — the diff/reset base when a process (or the whole
-// repo) has no earlier commit to compare against.
+export { UNATTRIBUTED_MODEL }
+
+// git's empty-tree object — the base when a process starts at the repository's
+// first commit.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").trim()
+const ACTORS: ReadonlySet<string> = new Set(["agent", "human", "check", "judge"])
 
-// `gtd land --cost=<n> [--model=<name>]` records the token cost of the
-// invocation that produced the pending changes as a `Gtd-Cost: <n> <model>`
-// trailer on the turn commit; `computeProcessRun` sums these into
-// `it.processCost`/`it.processCostByModel`, rendered by `gtd summary`.
+type History = ReadonlyArray<{
+  readonly hash: string
+  readonly message: string
+  readonly touched: ReadonlyArray<string>
+}>
 
-// The number comes first so a model-less entry (`Gtd-Cost: 1450`) still parses.
-const COST_TRAILER_RE = /^Gtd-Cost:[ \t]*([0-9]+(?:\.[0-9]+)?)(?:[ \t]+(.+?))?[ \t]*$/gm
+// ── Episodes ────────────────────────────────────────────────────────────────
+
+interface EpisodeLocation {
+  /** The entry the episode runs. */
+  readonly entry: string
+  /** The commit replay starts reading from, or -1 for the empty tree before history. */
+  readonly baseIndex: number
+  /** The process's first commit — a manual entry's opening commit, else the one after the base. */
+  readonly processStart: number
+}
+
+/**
+ * Where the episode HEAD belongs to begins, read off subjects alone. Walking
+ * back from HEAD: a commit that is not a gtd step commit, or one entering the
+ * default entry's first step (a finished episode), bounds the episode from
+ * below; a trailer-less `gtd(human): <entry>` commit opens a manual entry's
+ * episode and is its first commit.
+ */
+const locateEpisode = (def: WorkflowDefinition, history: History): EpisodeLocation => {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const message = parseCommitMessage(history[i]!.message)
+    const subject = message.parsed
+    if (subject === undefined || !ACTORS.has(subject.actor) || subject.to === def.initial) {
+      return { entry: "default", baseIndex: i, processStart: i + 1 }
+    }
+    const opening =
+      message.step === undefined &&
+      subject.from === undefined &&
+      subject.actor === "human" &&
+      def.manual.includes(subject.to)
+    if (opening) return { entry: subject.to, baseIndex: i, processStart: i }
+  }
+  return { entry: "default", baseIndex: -1, processStart: 0 }
+}
+
+// ── The current process run ─────────────────────────────────────────────────
 
 export interface CostEntry {
   readonly cost: number
   readonly model: string
 }
-
-// `ModelCost` lives in `src/wire/` (`gtd next --json`'s `costByModel` entries
-// use this exact shape) — see `src/wire/types.ts`. No consumer imports it from
-// here anymore, so this is a plain internal type-only import, not a re-export.
-import type { ModelCost } from "./wire/index.js"
-
-const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
-  const entries: CostEntry[] = []
-  for (const message of messages) {
-    for (const match of message.matchAll(COST_TRAILER_RE)) {
-      const model = match[2]?.trim()
-      entries.push({
-        cost: Number(match[1]),
-        model: model !== undefined && model !== "" ? model : UNATTRIBUTED_MODEL,
-      })
-    }
-  }
-  return entries
-}
-
-// `gtd judge answer --json=script` (`src/step/planStep.ts`'s `renderDecision`)
-// can carry one or more `Gtd-Judge: <json>` trailers on the step commit — one
-// per answered question, the same `{ id, answer, p }` shape `program.ts`'s
-// `verdictSchemaFor` decoded off stdin. `computeProcessRun` collects them into
-// `ProcessRun.judgeVerdicts`, the process's verdict history, exactly like
-// `costEntries` — a malformed line (never emitted by gtd itself) is skipped
-// rather than failing the whole scan, since a corrupt trailer must never make
-// `gtd next`/`gtd land` unusable.
-const JUDGE_TRAILER_RE = /^Gtd-Judge:[ \t]*(.+)$/gm
 
 export interface JudgeVerdictEntry {
   readonly id: string
@@ -101,445 +100,172 @@ export interface JudgeVerdictEntry {
   readonly p: number
 }
 
-const isJudgeVerdictEntry = (value: unknown): value is JudgeVerdictEntry =>
-  typeof value === "object" &&
-  value !== null &&
-  typeof (value as Record<string, unknown>).id === "string" &&
-  ["string", "number", "boolean"].includes(typeof (value as Record<string, unknown>).answer) &&
-  typeof (value as Record<string, unknown>).p === "number"
-
-const parseJudgeTrailers = (messages: readonly string[]): JudgeVerdictEntry[] => {
-  const entries: JudgeVerdictEntry[] = []
-  for (const message of messages) {
-    for (const match of message.matchAll(JUDGE_TRAILER_RE)) {
-      const parsed: unknown = (() => {
-        try {
-          return JSON.parse(match[1]!) as unknown
-        } catch {
-          return undefined
-        }
-      })()
-      if (isJudgeVerdictEntry(parsed)) entries.push(parsed)
-    }
-  }
-  return entries
-}
-
-// `gtd --entry <state>` (`planEntry`) can carry a `Gtd-Review-Base:` trailer
-// naming the resolved commitish's full hash. `computeProcessRun` reads it off
-// the process's oldest commit to override `ProcessRun.diffBase` — everything
-// keyed to the diff base (`it.startCommit`, the review window's default base)
-// then operates over `<commitish>..HEAD`. The trace/retry boundary
-// (`startParentHash`) is unaffected — only the diff base moves.
-
-const REVIEW_BASE_TRAILER_RE = /^Gtd-Review-Base:[ \t]*(\S+)[ \t]*$/m
-
-const parseReviewBaseTrailer = (message: string): string | undefined =>
-  REVIEW_BASE_TRAILER_RE.exec(message)?.[1]
-
-// An entry commit can also carry `Gtd-Var: <name>=<value>` trailers — fixed
-// `it.vars` overrides read (only off the oldest commit) into
-// `ProcessRun.entryVars` and folded into `resolveVars` below the env layer.
-
-// The value is everything after the FIRST `=`, so a value containing `=` round-trips.
-const ENTRY_VAR_TRAILER_RE = /^Gtd-Var:[ \t]*([^=\s]+)=(.*)$/gm
-
-const parseEntryVarTrailers = (message: string): Record<string, string> => {
-  const vars: Record<string, string> = {}
-  for (const match of message.matchAll(ENTRY_VAR_TRAILER_RE)) vars[match[1]!] = match[2]!
-  return vars
-}
-
-const totalCostOf = (entries: readonly CostEntry[]): number =>
-  entries.reduce((sum, entry) => sum + entry.cost, 0)
-
-/** Per-model token totals, highest-cost first (ties broken by model name for a stable order). */
-const costByModel = (entries: readonly CostEntry[]): ModelCost[] => {
-  const byModel = new Map<string, number>()
-  for (const entry of entries)
-    byModel.set(entry.model, (byModel.get(entry.model) ?? 0) + entry.cost)
-  return [...byModel.entries()]
-    .map(([model, cost]) => ({ model, cost }))
-    .sort((a, b) => b.cost - a.cost || a.model.localeCompare(b.model))
-}
-
-/** Collapse an arbitrary git status letter to the pattern grammar's closed `A|M|D` set — only those three are meaningful statuses. */
-const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw === "D" ? "D" : "M")
-
-// ── Resolving the current rest ──────────────────────────────────────────────
-
-/** The currently-rested state, its definition, and its declared actor. */
-export interface ResolvedRest {
-  readonly def: WorkflowDefinition
-  readonly state: StateName
-  readonly stateDef: StateDef
-  readonly actor: string
-}
-
-/** `resolveRestFrom`'s outcome: `error` is a finished, user-facing message, not a raw Effect failure. */
-type RestResolution =
-  | { readonly ok: true; readonly rest: ResolvedRest }
-  | { readonly ok: false; readonly error: Error }
-
-/**
- * Resolve a HEAD commit's subject against the active workflow definition —
- * PURE: no git, no Effect.
- *
- * A HEAD subject that DOES parse as `gtd(actor): state`, but whose state the
- * CURRENT definition doesn't declare at all, is refused loudly here rather
- * than silently falling through `resolveState`'s initial-state fallback: a
- * process left resting at a state a workflow upgrade removed would otherwise
- * look like a fresh idle repo instead of pointing at `gtd abandon`. Every
- * other case `resolveState` folds into "rest at the initial state" (an
- * unparseable subject, an actor mismatch) is left as is — those are
- * legitimately "no active process," not a renamed-out state.
- */
-export const resolveRestFrom = (def: WorkflowDefinition, headSubject: string): RestResolution => {
-  const parsedHead = parseStateSubject(headSubject)
-  if (parsedHead !== undefined && def.states[parsedHead.state] === undefined) {
-    return {
-      ok: false,
-      error: new Error(
-        `gtd: HEAD rests at "${parsedHead.state}", which the active workflow no longer declares ` +
-          `— this looks like a process left in-flight from before a workflow change. Run \`gtd ` +
-          `abandon\` to discard it and start over (or check out the workflow version it started ` +
-          `under).`,
-      ),
-    }
-  }
-  const state = resolveState(def, headSubject)
-  const stateDef = def.states[state]!
-  // A validated definition guarantees every state declares an actor — this
-  // is a defensive check against a programmer error, not a real runtime path.
-  if (stateDef.actor === undefined) {
-    return {
-      ok: false,
-      error: new Error(`gtd: resolved at state "${state}" declaring no actor`),
-    }
-  }
-  return { ok: true, rest: { def, state, stateDef, actor: stateDef.actor } }
-}
-
-// ── Pending changes ──────────────────────────────────────────────────────────
-
-const pendingChanges = (git: GitOperations): Effect.Effect<readonly PendingChange[], Error> =>
-  git
-    .changedPaths()
-    .pipe(
-      Effect.map((entries) =>
-        entries.map((e) => ({ status: normalizeStatus(e.status), path: e.path })),
-      ),
-    )
-
-// ── The current process run ──────────────────────────────────────────────────
-
-/** One process-trace entry: a state entered, the hash of the commit that entered it — the pair `memoryKeyFor` needs to anchor a memory key to the commit immediately BEFORE an unbroken scope entry began — and the invoking actor (parsed off the commit subject), which `summaryRun`'s human-commit derivation filters on. */
+/** One process commit: the step it entered (its subject's `<to>`), its hash, and who authored it. */
 export interface TraceEntry {
   readonly state: StateName
   readonly hash: string
   readonly actor: string
 }
 
-/** The contiguous run of `gtd(actor): state` commits ending at HEAD. */
 export interface ProcessRun {
-  /** The run's first commit's hash, or HEAD's own hash when the run is empty (no turn has landed yet this process). */
+  readonly entry: string
+  /** The process's first commit, or HEAD when none has landed yet. */
   readonly startHash: string
-  /** The parent of the run's first commit — `EMPTY_TREE` when the run covers the whole history. This is the process's TRACE/retry boundary, never overridden by a `Gtd-Review-Base:` trailer. */
+  /** The parent of the process's first commit — the empty tree when that is the root commit. */
   readonly startParentHash: string
-  /**
-   * The base `it.startCommit` renders, and the review's default diff base:
-   * normally identical to `startParentHash`, but overridden to a
-   * `Gtd-Review-Base: <hash>` trailer's hash when the
-   * process's FIRST (oldest) commit carries one (see
-   * `parseReviewBaseTrailer` — written by `src/step/planEntry.ts`'s `planEntry`).
-   * The trace/retry boundary itself is untouched by this; only which commit a
-   * template/window compares against moves.
-   */
+  /** The diff base prompts name: `startParentHash`, unless the opening commit fixed a `Gtd-Review-Base`. */
   readonly diffBase: string
-  /** States entered so far this process, oldest→newest, each paired with the hash of the commit that entered it (empty when no turn has landed yet). */
   readonly trace: readonly TraceEntry[]
-  /** Every `Gtd-Cost:` entry recorded on the process's turn commits — summed into `it.processCost` and grouped into `it.processCostByModel` (empty when none were recorded). */
   readonly costEntries: readonly CostEntry[]
-  /** Every `Gtd-Judge:` entry recorded on the process's turn commits (oldest → newest) — the process's verdict history, one entry per answered question (empty when no judgment was ever recorded). */
   readonly judgeVerdicts: readonly JudgeVerdictEntry[]
-  /** The `Gtd-Var:` trailers recorded on the process's FIRST (oldest) commit — an entry commit's fixed `it.vars` overrides, folded into `resolveVars`'s merge (empty when the process's oldest commit carries none, or the process is empty). */
+  /** The opening commit's `Gtd-Var` trailers. */
   readonly entryVars: Record<string, string>
-  /**
-   * HEAD's own commit, when its subject parses to a state the ACTIVE
-   * definition still declares (non-commit) — `undefined` for a
-   * foreign/unparseable subject or a removed state. `empty` is `stalledAt`'s
-   * "did this turn's commit change anything" question, read off the same
-   * `commitHistory` array `trace` is built from. Keyed off HEAD directly
-   * rather than `trace`'s last entry because a commit entering the initial
-   * state is excluded from `trace` (it's the process boundary) — an attempt
-   * landing at a prompt state that's also the initial state would otherwise
-   * leave `trace` empty while HEAD still carries the turn.
-   */
+  /** HEAD's own gtd commit, when it is one — `empty` is whether it changed nothing. */
   readonly headTurn:
-    | { readonly state: StateName; readonly actor: string; readonly empty: boolean }
+    | {
+        readonly state: StateName
+        readonly actor: string
+        readonly empty: boolean
+        readonly step: boolean
+      }
     | undefined
-  /**
-   * Set only by `summaryRun`'s boundary-inclusive walk, when HEAD itself is a
-   * commit entering the workflow's initial state — the hash of that closing
-   * commit. `undefined` for `currentRun`/`computeProcessRun`'s ordinary
-   * (boundary-exclusive) walk, and for a `summaryRun` call whose HEAD isn't
-   * itself a boundary (a process still in flight).
-   */
+  /** Set by `summaryRun` when HEAD is itself the commit that closed the process. */
   readonly closingHash: string | undefined
+  /** The episode's step commits, oldest → newest, and the commit replay starts from. */
+  readonly episode: {
+    readonly base: string | undefined
+    readonly commits: readonly { readonly hash: string; readonly message: string }[]
+  }
 }
 
-/**
- * `ProcessRun.headTurn` from an already-fetched `commitHistory` array
- * (oldest→newest) — HEAD is its last entry. `undefined` for an empty
- * history, an unparseable/foreign subject, or a subject naming a state the
- * ACTIVE definition doesn't declare (never a real rest).
- */
-const headTurnFrom = (
+const runOf = (
   def: WorkflowDefinition,
-  history: ReadonlyArray<{ readonly message: string; readonly touched: ReadonlyArray<string> }>,
-): ProcessRun["headTurn"] => {
-  if (history.length === 0) return undefined
-  const head = history[history.length - 1]!
-  const parsed = parseStateSubject(subjectOf(head.message))
-  if (parsed === undefined) return undefined
-  const stateDef = def.states[parsed.state]
-  if (stateDef === undefined) return undefined
-  return { state: parsed.state, actor: parsed.actor, empty: head.touched.length === 0 }
-}
-
-/**
- * The `Gtd-Review-Base:`/`Gtd-Var:` overrides carried by the process's OLDEST
- * commit (its entry commit, when `planEntry` started this process) — a later
- * turn's message is never mistaken for it. `{reviewBase: undefined, vars:
- * {}}` when the process has no commits yet.
- */
-const parseEntryCommitOverrides = (
-  processCommits: ReadonlyArray<{ readonly message: string }>,
-): { readonly reviewBase: string | undefined; readonly vars: Record<string, string> } => {
-  if (processCommits.length === 0) return { reviewBase: undefined, vars: {} }
-  const message = processCommits[0]!.message
-  return { reviewBase: parseReviewBaseTrailer(message), vars: parseEntryVarTrailers(message) }
-}
-
-/**
- * The boundary-exclusive backward walk `computeProcessRun` needs, split out
- * so the surrounding Effect.gen body stays under the complexity gate. Returns
- * the trace/retry boundary's history index (`i`, `-1` when the whole history
- * belongs to the process) and, when `includeClosingBoundary` folded HEAD's own
- * closing commit into the process, its hash.
- */
-const walkProcessBoundary = (
-  history: ReadonlyArray<{ readonly message: string; readonly hash: string }>,
-  initialState: StateName,
-  includeClosingBoundary: boolean,
-): { readonly boundaryIndex: number; readonly closingHash: string | undefined } => {
-  let i = history.length - 1
-  let closingHash: string | undefined
-  if (includeClosingBoundary && i >= 0) {
-    const parsedLast = parseStateSubject(subjectOf(history[i]!.message))
-    if (parsedLast !== undefined && parsedLast.state === initialState) {
-      closingHash = history[i]!.hash
-      i--
-    }
+  history: History,
+  location: EpisodeLocation,
+  closingHash: string | undefined = undefined,
+): ProcessRun => {
+  const processCommits = history.slice(location.processStart)
+  const parsed = processCommits.map((c) => parseCommitMessage(c.message))
+  const first = parsed[0]
+  const startParentHash =
+    location.processStart > 0 ? history[location.processStart - 1]!.hash : EMPTY_TREE
+  const head = history[history.length - 1]
+  const headParsed = head === undefined ? undefined : parseCommitMessage(head.message)
+  const headSubject = headParsed?.parsed
+  return {
+    entry: location.entry,
+    startHash: processCommits[0]?.hash ?? head?.hash ?? EMPTY_TREE,
+    startParentHash,
+    diffBase: first?.reviewBase ?? startParentHash,
+    trace: processCommits.map((c, i) => ({
+      state: parsed[i]!.parsed?.to ?? "",
+      hash: c.hash,
+      actor: parsed[i]!.parsed?.actor ?? "",
+    })),
+    costEntries: parsed.flatMap((m) =>
+      m.cost.map((c) => ({ cost: c.cost, model: c.model ?? UNATTRIBUTED_MODEL })),
+    ),
+    judgeVerdicts: parsed.flatMap((m) => m.judge),
+    entryVars: location.entry === "default" ? {} : { ...(first?.vars ?? {}) },
+    headTurn:
+      headSubject !== undefined && ACTORS.has(headSubject.actor)
+        ? {
+            state: headSubject.to,
+            actor: headSubject.actor,
+            empty: head!.touched.length === 0,
+            step: headParsed!.step !== undefined,
+          }
+        : undefined,
+    closingHash,
+    episode: {
+      base: location.baseIndex >= 0 ? history[location.baseIndex]!.hash : undefined,
+      commits: history.slice(location.baseIndex + 1),
+    },
   }
-  while (i >= 0) {
-    const parsed = parseStateSubject(subjectOf(history[i]!.message))
-    if (parsed === undefined || parsed.state === initialState) break
-    i--
-  }
-  return { boundaryIndex: i, closingHash }
 }
 
-/**
- * Walk first-parent history backward from HEAD while each commit's subject
- * parses as `gtd(actor): state` and that state isn't the workflow's initial
- * state; stop — excluding that boundary commit, which belongs to the
- * finished process — at a non-matching commit or a commit entering the
- * initial state (the boundary between one approved process and the next;
- * without it, consecutive processes' commits would fuse and `retry` counts
- * would pool across them). HEAD itself being such a boundary yields an EMPTY
- * run (`trace: []`).
- *
- * `head` overrides the literal `HEAD` the walk would otherwise end at.
- *
- * `includeClosingBoundary` (default `false`) is `summaryRun`'s one-flag
- * difference from `currentRun`'s ordinary walk: when set AND the walk's very
- * last history entry (HEAD itself) is a commit entering the initial state, that
- * boundary commit is folded INTO the trace instead of excluded, and its hash
- * is recorded as `ProcessRun.closingHash`. A process still in flight (HEAD is
- * not itself such a boundary) resolves identically to the flag being unset.
- */
+const historyUpTo = (git: GitOperations, head: string | undefined): Effect.Effect<History, Error> =>
+  git.commitHistory(undefined, head)
+
 const computeProcessRun = (
   git: GitOperations,
   def: WorkflowDefinition,
-  includeClosingBoundary = false,
+  head?: string,
 ): Effect.Effect<ProcessRun, Error> =>
-  Effect.gen(function* () {
-    const initialState = initialStateOf(def)
-    const history = yield* git.commitHistory() // oldest -> newest, full first-parent history
-    const { boundaryIndex: i, closingHash } = walkProcessBoundary(
-      history,
-      initialState,
-      includeClosingBoundary,
-    )
-    const startIdx = i + 1
-    const processCommits = history.slice(startIdx)
-    const trace: TraceEntry[] = processCommits.map((h) => {
-      const parsed = parseStateSubject(subjectOf(h.message))!
-      return { state: parsed.state, hash: h.hash, actor: parsed.actor }
-    })
-    const costEntries = parseCostTrailers(processCommits.map((h) => h.message))
-    const judgeVerdicts = parseJudgeTrailers(processCommits.map((h) => h.message))
-    const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE
-    const startHash =
-      startIdx < history.length ? history[startIdx]!.hash : history[history.length - 1]!.hash
-    const { reviewBase: reviewBaseOverride, vars: entryVars } =
-      parseEntryCommitOverrides(processCommits)
-    const diffBase = reviewBaseOverride ?? startParentHash
-    const headTurn = headTurnFrom(def, history)
-    return {
-      startHash,
-      startParentHash,
-      diffBase,
-      trace,
-      costEntries,
-      judgeVerdicts,
-      entryVars,
-      headTurn,
-      closingHash,
-    }
-  })
+  Effect.map(historyUpTo(git, head), (history) => runOf(def, history, locateEpisode(def, history)))
 
-/**
- * The run alone, WITHOUT resolving a rest — `gtd abandon`'s escape hatch: it
- * must still work when HEAD names a state `currentRest` would refuse on,
- * since abandon IS the recovery command for that case.
- */
-export const currentRun: Effect.Effect<
-  ProcessRun,
-  Error,
-  GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
-> = Effect.gen(function* () {
-  const git = yield* GitService
-  const config = yield* (yield* ConfigService).load
-  return yield* computeProcessRun(git, config.workflow)
-})
+type ConfigRequirements = GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
 
-/**
- * The process HEAD closes or sits inside — `gtd summary`'s run resolution.
- * Identical to `currentRun` for a process still in flight; for a finished
- * process (HEAD is itself a commit entering the initial state), the closing
- * commit is folded back into the trace and its hash recorded as
- * `closingHash` — see `computeProcessRun`'s `includeClosingBoundary` flag.
- */
-export const summaryRun: Effect.Effect<
-  ProcessRun,
-  Error,
-  GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
-> = Effect.gen(function* () {
-  const git = yield* GitService
-  const config = yield* (yield* ConfigService).load
-  return yield* computeProcessRun(git, config.workflow, true)
-})
+/** The run alone, never replaying — `gtd abandon` must work even when replay would refuse. */
+export const currentRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = Effect.gen(
+  function* () {
+    const git = yield* GitService
+    const config = yield* (yield* ConfigService).load
+    return yield* computeProcessRun(git, config.workflow)
+  },
+)
 
-/**
- * PURE: the most-recent in-process turn commit that entered a `reviewBase`
- * state, or `run.diffBase` when none did. A backwards walk of `run.trace`,
- * so no git call, no matter how deep the process.
- */
-export const reviewBaseFor = (def: WorkflowDefinition, run: ProcessRun): string => {
-  let base: string | undefined
-  for (const entry of run.trace) {
-    if (isReviewBaseState(def, entry.state)) base = entry.hash
+/** The process HEAD closes or sits inside — `gtd summary`'s run. */
+export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = Effect.gen(
+  function* () {
+    const git = yield* GitService
+    const def = (yield* (yield* ConfigService).load).workflow
+    const history = yield* historyUpTo(git, undefined)
+    const head = history[history.length - 1]
+    const closes = head !== undefined && parseCommitMessage(head.message).parsed?.to === def.initial
+    if (!closes) return runOf(def, history, locateEpisode(def, history))
+    const before = history.slice(0, -1)
+    const location = locateEpisode(def, before)
+    return runOf(def, history, { ...location }, head.hash)
+  },
+)
+
+// ── Trees ───────────────────────────────────────────────────────────────────
+
+const commitTree = (workspace: WorkspaceOps, hash: string): TreeView => {
+  let entries: ReadonlyMap<string, string> | undefined
+  const list = () => (entries ??= workspace.treeSync(hash))
+  const contents = new Map<string, string | undefined>()
+  return {
+    paths: () => [...list().keys()].sort(),
+    read: (path) => {
+      if (!list().has(path)) return undefined
+      if (!contents.has(path)) contents.set(path, workspace.readCommittedSync(path, hash))
+      return contents.get(path)
+    },
+    id: (path) => list().get(path),
   }
-  return base ?? run.diffBase
 }
 
-// The display name for the root machine instance's own memory scope
-// (`scopes[state] === ""`, per `src/Machines.ts`'s `InstancePath` convention)
-// — `memoryScopeAt` never names the root itself, so a driver keying memory
-// off a root-owned prompt state needs SOME label rather than a bare
-// `#<hash>` key.
-const ROOT_MEMORY_SCOPE_NAME = "root"
-
-/**
- * Compute the commit-anchored memory key for the currently-rested state, or
- * `undefined` when none applies (a non-`prompt` rest, or `memoryScopeAt`
- * can't resolve a scope) — a driver groups consecutive agent turns by this
- * key.
- *
- * The key is `${scope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`, where
- * `token` anchors to the commit the CURRENT unbroken scope entry started
- * FROM, not the entry's own commit: anchoring to the entry's own commit would
- * give a workflow whose initial state is a prompt state two different tokens
- * across its first two turns (nothing committed yet before the very first
- * turn).
- */
-const memoryKeyFor = (
-  scopes: Readonly<Record<StateName, string>>,
-  rest: ResolvedRest,
-  run: ProcessRun,
-): string | undefined => {
-  if (contentKindOf(rest.stateDef) !== "prompt") return undefined
-  const resolved = memoryScopeAt(
-    scopes,
-    rest.state,
-    run.trace.map((entry) => entry.state),
-  )
-  if (resolved === undefined) return undefined
-  const { scope, entryIndex } = resolved
-  const token = entryIndex <= 0 ? run.startParentHash : run.trace[entryIndex - 1]!.hash
-  return `${scope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`
+/** The tree a landing would commit: the working tree, with any content rewrite the landing script applies first. */
+const pendingTree = (
+  workspace: WorkspaceOps,
+  rewrite: ((path: string, content: string) => string) | undefined,
+): TreeView => {
+  const paths = workspace.worktreePathsSync()
+  return {
+    paths: () => paths,
+    read: (path) => {
+      if (!paths.includes(path)) return undefined
+      const content = workspace.readSync(path)
+      return content === undefined || rewrite === undefined ? content : rewrite(path, content)
+    },
+  }
 }
 
-/**
- * True iff a `prompt` rest in the CURRENT unbroken scope-run has already been
- * passed — the derivation `src/Sessions.ts`'s `resolveSession` takes its
- * `resume` flag from.
- *
- * Computed over the process's rests, oldest→newest, with the starting state
- * prefixed (so the very first turn of a workflow whose `entries.default` IS a
- * prompt state still has a predecessor to look back at). The root scope
- * (`scope === ""`) matches every state, so filtering the prior-rests slice
- * down to `prompt`-kind states (not merely non-empty) stops a message state
- * like `idle` from counting as a prior conversation turn — otherwise the very
- * first agent beat of a process would claim `resume: true` for an id nobody
- * ever created.
- */
-export const memoryResumedFor = (
-  def: WorkflowDefinition,
-  scopes: Readonly<Record<StateName, string>>,
-  rest: ResolvedRest,
-  run: ProcessRun,
-): boolean => {
-  if (contentKindOf(rest.stateDef) !== "prompt") return false
-  const rests = [initialStateOf(def), ...run.trace.map((entry) => entry.state)]
-  const resolved = memoryScopeAt(scopes, rest.state, rests)
-  if (resolved === undefined) return false
-  const { entryIndex } = resolved
-  return rests
-    .slice(Math.max(entryIndex, 0), rests.length - 1)
-    .some((state) => contentKindOf(def.states[state]!) === "prompt")
-}
-
-// ── Variables (`it.vars`) ────────────────────────────────────────────────────
+// ── Variables ───────────────────────────────────────────────────────────────
 
 const PREFIX = "GTD_"
 
 /**
- * Assemble the merged `it.vars` map every template sees, from four layers
- * (later wins): the workflow's own `vars:` defaults, the top-level `.gtdrc`
- * `vars:`, the current process's entry commit's `Gtd-Var:` trailers
- * (`entryVars`), and — for each name declared by any of those three — a
- * `GTD_<UPPERCASE-name>` environment variable if defined. The environment can
- * only OVERRIDE a name an earlier layer declared, never introduce a new one
- * (an uppercased env key can't round-trip to an arbitrary camelCase name), so
- * an unmatched `GTD_*` var is silently ignored.
+ * The merged vars, later wins: the workflow's own defaults, `.gtdrc` `vars:`,
+ * the opening commit's `Gtd-Var` trailers, then `GTD_<NAME>` for any name an
+ * earlier layer declared (an env var never introduces a name).
  */
-const resolveVars = (
-  workflowVars: Record<string, string>,
-  rcVars: Record<string, string>,
-  entryVars: Record<string, string>,
+export const resolveVars = (
+  workflowVars: Readonly<Record<string, string>>,
+  rcVars: Readonly<Record<string, string>>,
+  entryVars: Readonly<Record<string, string>>,
   env: Readonly<Record<string, string | undefined>>,
 ): Record<string, string> => {
   const merged = { ...workflowVars, ...rcVars, ...entryVars }
@@ -550,198 +276,13 @@ const resolveVars = (
   return merged
 }
 
-// ── Template context ─────────────────────────────────────────────────────────
-
-const toTemplateEdges = (edges: readonly OnEdge[] | undefined): readonly TemplateEdge[] =>
-  (edges ?? []).map(([pattern, target, describe, action]) => ({
-    pattern,
-    target,
-    ...(describe !== undefined ? { describe } : {}),
-    ...(action !== undefined ? { action } : {}),
-  }))
-
 /**
- * Render every `on` edge's pattern key as an Eta template over `vars` ONLY —
- * a pattern never needs diffs/commit hashes, and restricting to `vars` avoids
- * an ordering circularity (the full `TemplateContext`'s `it.edges` is itself
- * derived from these same `on` edges). `target`/`describe`/`action` pass
- * through verbatim. Throws whatever Eta throws on a malformed pattern
- * template.
- */
-const renderOnEdges = (
-  edges: readonly OnEdge[] | undefined,
-  vars: Record<string, string>,
-): readonly OnEdge[] => {
-  const ctx = varsOnlyContext(vars)
-  return (edges ?? []).map(([pattern, target, describe, action]): OnEdge => {
-    const renderedPattern = renderStateTemplate(pattern, ctx)
-    if (action !== undefined) return [renderedPattern, target, describe, action]
-    if (describe !== undefined) return [renderedPattern, target, describe]
-    return [renderedPattern, target]
-  })
-}
-
-/** Wraps `renderOnEdges`, turning a thrown Eta error into a plain `Error` failure — exactly like a content render failure. */
-const renderOnEdgesOrFail = (
-  onEdges: readonly OnEdge[] | undefined,
-  vars: Record<string, string>,
-): Effect.Effect<readonly OnEdge[], Error> =>
-  Effect.try({
-    try: () => renderOnEdges(onEdges, vars),
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
-
-/**
- * Render every `routes:` row's `minP`/`maxP` as an Eta template over `vars`
- * ONLY — the same `varsOnlyContext` restriction `renderOnEdges` applies, and
- * for the same reason: a threshold never needs diffs/commit hashes, only a
- * repo's own `var:` override. `question`/`is`/`to` pass through verbatim —
- * they name a question id, an answer, and a target state, none of which are
- * meant to be templated. Throws whatever Eta throws on a malformed
- * `minP`/`maxP` template.
- */
-const renderRoutes = (
-  routes: readonly RouteRow[] | undefined,
-  vars: Record<string, string>,
-): readonly RouteRow[] => {
-  const ctx = varsOnlyContext(vars)
-  return (routes ?? []).map(
-    (row): RouteRow => ({
-      ...row,
-      ...(row.minP !== undefined ? { minP: renderStateTemplate(row.minP, ctx) } : {}),
-      ...(row.maxP !== undefined ? { maxP: renderStateTemplate(row.maxP, ctx) } : {}),
-    }),
-  )
-}
-
-/** Wraps `renderRoutes`, turning a thrown Eta error into a plain `Error` failure — exactly like a content render failure. */
-const renderRoutesOrFail = (
-  routes: readonly RouteRow[] | undefined,
-  vars: Record<string, string>,
-): Effect.Effect<readonly RouteRow[], Error> =>
-  Effect.try({
-    try: () => renderRoutes(routes, vars),
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
-
-/**
- * A shallow clone of `def` whose `state`'s `on` AND `routes` are replaced by
- * `renderedOnEdges`/`renderedRoutes` — used to feed `PatternMachine.step`,
- * which matches only `def.states[state].on`/`.routes` for the state it's
- * invoked at. Only the RESTING state needs patching, even though `step`'s
- * retry counter now reads every state's `on`/`routes` targets (plus
- * `retry.otherwise`) to derive a capped state's source set. That's still
- * sound because `renderOnEdges`/`renderRoutes` render a pattern KEY or a
- * `minP`/`maxP` threshold only and pass each edge's `target`/`to` through
- * verbatim — the source-set computation reads only target/`to` strings, never
- * pattern keys or thresholds, so every other state's un-patched, unrendered
- * `on`/`routes` still reports the right targets. Warning: if a future change
- * ever templated a state's `on` TARGET or a `routes` row's `to` (not just a
- * pattern key or a threshold), that would silently mis-scope every retry
- * budget, because the source-set computation reads targets from every state,
- * and `withRenderedOn` patches only the one being rested at.
- */
-const withRenderedOn = (
-  def: WorkflowDefinition,
-  state: StateName,
-  renderedOnEdges: readonly OnEdge[],
-  renderedRoutes: readonly RouteRow[],
-): WorkflowDefinition => ({
-  ...def,
-  states: {
-    ...def.states,
-    [state]: { ...def.states[state]!, on: renderedOnEdges, routes: renderedRoutes },
-  },
-})
-
-/**
- * `it.tail`/`it.diffTail`/the two-argument `it.sections(path, share)` are
- * published only in a `judge:` field and a `message:` template (Requirement
- * C) — every other render (`prompt:`, `script:`, and the `model:`/`label:`/
- * `file:`/`system:`/`skills:` hint fields) gets a throwing stub instead. This
- * is the render-time BACKSTOP: `PatternMachine.ts`'s
- * `validateBoundedPrimitiveFields` (a workflow-load source-text scan) is the
- * primary defense, but an aliased or computed call (`const t = it.tail`)
- * evades a source-text scan, so the stub still refuses the step here rather
- * than truncating unannounced.
- */
-const boundedPrimitiveRefusal = (name: string): string =>
-  `it.${name} is available only in a "judge:" field or a "message:" template — refused here (the aliased-or-computed-call backstop; a workflow author should never see this outside that evasion)`
-
-/**
- * Build the `PatternTemplates.TemplateContext` for rendering `state`'s content
- * at the resolved rest. `edges` must already be rendered by the caller
- * (`renderOnEdges`). `it.processCost`/`it.processCostByModel` total only the
- * process's already-committed cost entries — rest resolution always happens
- * BEFORE a step's own `--cost`/`--model` exist, so there is never an
- * in-flight step's cost to fold in here. `it.reviewBase`/`it.processBase` are
- * bases a template names for the AGENT to `git diff` itself; `it.diff` (wired
- * here, computed lazily — only when a template actually calls it) is the
- * separate, judge-facing exception that inlines the diff's own content, for
- * a judge with no repository to run that command in.
- */
-const buildTemplateContext = (
-  git: GitOperations,
-  read: (path: string) => string,
-  diff: (base: string) => string,
-  state: StateName,
-  actor: string,
-  run: ProcessRun,
-  vars: Record<string, string>,
-  edges: readonly OnEdge[] | undefined,
-  reviewBase: string,
-  ledger: RenderLedger,
-  boundedAllowed: boolean,
-): Effect.Effect<TemplateContext, Error> =>
-  Effect.gen(function* () {
-    const currentCommit = yield* git.resolveRef("HEAD")
-    const previousCommit = yield* git
-      .resolveRef("HEAD~1")
-      .pipe(Effect.catchAll(() => Effect.succeed(run.startParentHash)))
-    return {
-      startCommit: run.diffBase,
-      currentCommit,
-      previousCommit,
-      state,
-      actor,
-      reviewBase,
-      processBase: run.startParentHash,
-      processCost: totalCostOf(run.costEntries),
-      processCostByModel: costByModel(run.costEntries),
-      read,
-      diff,
-      sections: (path: string, share?: number) => {
-        if (share === undefined) return headingSections(read(path))
-        if (!boundedAllowed) throw new Error(boundedPrimitiveRefusal("sections(path, share)"))
-        return headingSections(ledger.sectionsBound(read(path), share))
-      },
-      tail: boundedAllowed
-        ? templateTail(read, ledger)
-        : () => {
-            throw new Error(boundedPrimitiveRefusal("tail"))
-          },
-      diffTail: boundedAllowed
-        ? (base: string, share: number) => ledger.tail(diff(base), share)
-        : () => {
-            throw new Error(boundedPrimitiveRefusal("diffTail"))
-          },
-      vars,
-      edges: toTemplateEdges(edges),
-    }
-  })
-
-/**
- * `judgeBudgetBytes`'s parse — the one `vars:` key that THROWS rather than
- * blanking off a mechanism (Task 3's Requirement): a template's every other
- * blanked var quietly renders empty, but disabling the payload bound would
- * reinstate the oversized-render rejection it exists to prevent, so a blank/
- * non-numeric/non-finite value here is a load-time refusal instead. Absent
- * entirely (no layer declares it — every fixture/workflow but the bundled
- * one) falls back to a conservative built-in default rather than throwing:
- * only a workflow that DECLARES the key and then blanks it hits the refusal.
+ * `judgeBudgetBytes` is the one var that refuses rather than disabling its
+ * mechanism when blanked: without a bound the judge payload is rejected
+ * anyway. Absent falls back to a conservative default.
  */
 const DEFAULT_JUDGE_BUDGET_BYTES = 32768
-const parseJudgeBudgetBytes = (vars: Record<string, string>): number => {
+const judgeBudgetBytes = (vars: Record<string, string>): number => {
   const raw = vars.judgeBudgetBytes
   if (raw === undefined) return DEFAULT_JUDGE_BUDGET_BYTES
   const n = Number(raw)
@@ -753,116 +294,288 @@ const parseJudgeBudgetBytes = (vars: Record<string, string>): number => {
   return n
 }
 
-/**
- * The `TemplateContext` `gtd summary` renders `def.summary` against — no
- * resting state, no `on` edges (a summary isn't rendered AT a state), `cost`/
- * `model` both absent (the command writes nothing, so there is no in-flight
- * step to fold in).
- */
-export const summaryTemplateContext = (
-  run: ProcessRun,
-): Effect.Effect<
-  TemplateContext,
-  Error,
-  GitService | ConfigService | ConfigDiscovery | Workspace | Host | Narrator
-> =>
-  Effect.gen(function* () {
-    const git = yield* GitService
-    const config = yield* (yield* ConfigService).load
-    const workspace = yield* Workspace
-    const host = yield* Host
-    const def = config.workflow
-    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env)
-    const reviewBase = reviewBaseFor(def, run)
-    const ledger = createRenderLedger(
-      yield* Effect.try({
-        try: () => parseJudgeBudgetBytes(vars),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
-    )
-    // A `summary:` is neither a `judge:` field nor a `message:` template —
-    // the three bounded primitives refuse here too (Requirement C).
-    return yield* buildTemplateContext(
-      git,
-      templateRead(workspace),
-      templateDiff(workspace),
-      "",
-      "",
-      run,
-      vars,
-      undefined,
-      reviewBase,
-      ledger,
-      false,
-    )
+// ── Replay ──────────────────────────────────────────────────────────────────
+
+interface ReplaySetup {
+  readonly def: WorkflowDefinition
+  readonly run: ProcessRun
+  readonly vars: Record<string, string>
+  readonly budget: number
+  readonly workspace: WorkspaceOps
+}
+
+const episodeCommits = (setup: ReplaySetup): readonly EpisodeCommit[] =>
+  setup.run.episode.commits.map((c) => ({
+    hash: c.hash,
+    message: c.message,
+    tree: commitTree(setup.workspace, c.hash),
+  }))
+
+const replayFor = (
+  setup: ReplaySetup,
+  pending?: { readonly tree: TreeView; readonly verdicts?: readonly JudgeVerdict[] },
+): Promise<ReplayOutcome> => {
+  const base = setup.run.episode.base
+  return replay({
+    workflow: setup.def.flows,
+    episode: {
+      entry: setup.run.entry,
+      base:
+        base === undefined
+          ? { hash: EMPTY_TREE, tree: treeFromRecord({}) }
+          : { hash: base, tree: commitTree(setup.workspace, base) },
+      commits: episodeCommits(setup),
+    },
+    vars: setup.vars,
+    refs: { start: setup.run.diffBase, processBase: setup.run.startParentHash },
+    budgetBytes: setup.budget,
+    ...(pending !== undefined ? { pending } : {}),
   })
+}
 
-// ── The resolved rest, fully assembled ───────────────────────────────────────
+const replayError = (outcome: ReplayOutcome): Error | undefined => {
+  if (outcome.kind === "divergence" || outcome.kind === "failed") return new Error(outcome.message)
+  if (outcome.kind === "refused") return new Error(`gtd: ${outcome.message}`)
+  if (outcome.kind === "ended") {
+    return new Error(
+      "gtd: history ends the episode, but HEAD does not enter the default entry's first step — the workflow changed under this process; run `gtd abandon` to start over",
+    )
+  }
+  return undefined
+}
 
-export type RestRequirements =
-  | GitService
-  | ConfigService
-  | ConfigDiscovery
-  | Workspace
-  | Host
-  | Narrator
+// ── The rest ────────────────────────────────────────────────────────────────
+
+const judgeDocument = (step: ReachedStep): string | undefined =>
+  step.request.kind === "judge"
+    ? JSON.stringify({ state: step.request.evidence, questions: step.request.questions })
+    : undefined
 
 /**
- * Every field a resolved rest carries as a hint (`rest: "rendered"` or
- * `"verbatim"` in `STATE_FIELDS`) — a derived mapped type, so a new field
- * declaring either `rest` kind shows up here, on `RenderedRest`, and in the
- * hint loops below with no separate edit.
+ * The fixed sentence appended to a judge gate's message when a bounded read
+ * dropped bytes to fit `judgeBudgetBytes` — a constant, so no workflow can
+ * reword or drop it.
  */
-type RestFieldName = {
-  [K in keyof StateFieldsTable]: StateFieldsTable[K] extends { rest: "rendered" | "verbatim" }
-    ? K
-    : never
-}[keyof StateFieldsTable]
+export const TRUNCATION_NOTICE =
+  "Note: some evidence above was truncated to fit the judge's payload budget."
 
-/** A state's declared hints, RENDERED. Optional keys omitted, never `undefined`-valued. */
-export type RestHints = {
-  readonly [K in RestFieldName]?: FieldValue[StateFieldsTable[K]["kind"]]
+const DEFAULT_JUDGE_MESSAGE =
+  "A judgment is pending. Run `gtd judge answer` and pipe a verdict, or land to take the conservative default with no verdict recorded."
+
+const CALLBACK_SCRIPT = `#!/usr/bin/env sh
+# This step's body is a callback: gtd runs it, the driver lands what it leaves.
+exec gtd exec
+`
+
+const withSkillsPreamble = (
+  content: string,
+  skills: string | undefined,
+  vars: Record<string, string>,
+  context: TemplateContext,
+): string => {
+  const template = vars.skillsPreamble
+  if (
+    skills === undefined ||
+    skills.trim() === "" ||
+    template === undefined ||
+    template.trim() === ""
+  ) {
+    return content
+  }
+  return `${renderSkillsPreamble(template, { ...context, skills })}\n\n${content}`
+}
+
+const optional = <K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } =>
+  (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
+
+const stepDefOf = (
+  step: ReachedStep,
+  vars: Record<string, string>,
+  context: TemplateContext,
+): StepDef => {
+  const request = step.request
+  const options = request.options
+  const common = {
+    actor: step.actor,
+    ...optional("label", options.label),
+    ...optional("file", options.file),
+    ...optional("mode", options.mode),
+    ...optional("requireProgress", options.requireProgress),
+    ...optional("answerGate", options.answerGate),
+    ...optional("requireRevert", options.requireRevert),
+  }
+  if (request.kind === "agent") {
+    return {
+      ...common,
+      kind: "prompt",
+      content: withSkillsPreamble(request.prompt, request.options.skills, vars, context),
+      ...optional("model", request.options.model),
+      ...optional("system", request.options.system),
+      ...optional("skills", request.options.skills),
+      ...optional("allowEmpty", request.options.allowEmpty),
+    }
+  }
+  if (request.kind === "run") {
+    const callback = typeof request.body === "function"
+    return {
+      ...common,
+      kind: "script",
+      content: callback ? CALLBACK_SCRIPT : (request.body as string),
+      ...(callback ? { callback: true } : {}),
+    }
+  }
+  if (request.kind === "judge") {
+    const message = request.options.message ?? DEFAULT_JUDGE_MESSAGE
+    return {
+      ...common,
+      kind: "message",
+      content: step.truncated ? `${message}\n\n${TRUNCATION_NOTICE}` : message,
+      ...optional("judge", judgeDocument(step)),
+    }
+  }
+  return {
+    ...common,
+    kind: "message",
+    content: request.options.message ?? request.options.label ?? step.name,
+    ...optional("acceptClean", request.options.acceptClean),
+  }
+}
+
+/** Is `name` inside `scope`'s subtree? The root scope `""` holds everything. */
+const inScope = (name: string, scope: string): boolean =>
+  scope === "" || name === scope || name.startsWith(`${scope}.`)
+
+/**
+ * Where the current unbroken run of rests inside `scope`'s subtree began —
+ * a dip into a descendant scope does not break it, a sibling or ancestor does.
+ */
+const scopeRunStart = (trace: readonly ReachedStep[], scope: string): number => {
+  let start = -1
+  for (let k = 0; k < trace.length; k++) {
+    if (!inScope(trace[k]!.memoryScope, scope)) continue
+    if (k === 0 || !inScope(trace[k - 1]!.memoryScope, scope)) start = k
+  }
+  return start
+}
+
+// Shown for the root scope, which has no name of its own.
+const ROOT_MEMORY_SCOPE_NAME = "root"
+
+/**
+ * An agent rest's memory key, `<scope>#<hash7>`: the hash is the commit the
+ * current unbroken run into the scope started FROM, so the same run always
+ * re-derives the same key. `resumed` is whether an agent turn in that run
+ * already landed.
+ */
+const memoryOf = (
+  trace: readonly ReachedStep[],
+  run: ProcessRun,
+): { readonly key: string | undefined; readonly resumed: boolean } => {
+  const rest = trace[trace.length - 1]
+  if (rest === undefined || rest.kind !== "agent") return { key: undefined, resumed: false }
+  const start = scopeRunStart(trace, rest.memoryScope)
+  const token = start <= 0 ? run.startParentHash : trace[start - 1]!.enteredAt
+  const resumed = trace.slice(Math.max(start, 0), trace.length - 1).some((s) => s.kind === "agent")
+  return { key: `${rest.memoryScope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`, resumed }
+}
+
+/** A rest's hints, as the wire carries them. Optional keys are omitted, never `undefined`. */
+export interface RestHints {
+  readonly model?: string
+  readonly label?: string
+  readonly file?: string
+  readonly judge?: string
+  readonly system?: string
+  readonly skills?: string
+  readonly mode?: string
+}
+
+const hintsOf = (def: StepDef): RestHints => ({
+  ...optional("model", def.model),
+  ...optional("label", def.label),
+  ...optional("file", def.file),
+  ...optional("judge", def.judge),
+  ...optional("system", def.system),
+  ...optional("skills", def.skills),
+  ...optional("mode", def.mode),
+})
+
+const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw === "D" ? "D" : "M")
+
+/** The currently rested step and its description — enough for the viewer and the LSP. */
+export interface ResolvedRest {
+  readonly def: WorkflowDefinition
+  readonly state: StateName
+  readonly stepDef: StepDef
+  readonly actor: string
 }
 
 /**
  * Where the process rests right now, fully resolved. ONE SNAPSHOT, taken
- * before any mutation — see AGENTS.md: never read a `Rest` after a `perform`.
- *
- * Module-private (`.gtd/packages/05-step-core.md` Commit 4): the planning
- * path reads this only long enough to build a `RepoSnapshot`
- * (`snapshotFromRest`) and hand it to `src/step/`'s pure core. A consumer
- * outside this file that still needs the shape (`program.ts`,
- * `Lsp.ts`) gets it structurally, through `currentRest`/`restAt`'s inferred
- * return type, never by importing this name.
+ * before any mutation.
  */
 interface Rest extends ResolvedRest {
+  readonly step: ReachedStep
+  readonly trace: readonly ReachedStep[]
   readonly run: ProcessRun
-  /** The merged four-layer `it.vars`. */
   readonly vars: Record<string, string>
-  /** The resting state's `on` edges, already rendered against `vars`. */
-  readonly on: readonly OnEdge[]
-  /** `def` with `on` patched onto the resting state — what `PatternMachine.step` must be fed. */
-  readonly stepDef: WorkflowDefinition
   readonly changes: readonly PendingChange[]
   readonly memory: string | undefined
-  /** `memoryResumedFor`'s verdict — `false` for a non-`prompt` rest or one whose scope doesn't resolve, exactly like `memory` but never `undefined` (there is always an answer, even when there is no key to answer about). */
   readonly memoryResumed: boolean
   readonly hints: RestHints
   readonly context: TemplateContext
-  /** The one byte-budget ledger shared by `context`/`judgeContext` (`restAt`) — `renderRest` checks `ledger.truncated()` after rendering the content template to decide the truncation notice. */
-  readonly ledger: RenderLedger
+  /** The rest's out-edges in the step graph, labelled with their path conditions. */
+  readonly edges: readonly TemplateEdge[]
+  readonly setup: ReplaySetup
 }
 
-// Drops undefined-valued entries so optional hint fields are OMITTED (not
-// `undefined`-valued) on the rendered result.
-const omitUndefined = <T extends Record<string, unknown>>(
-  obj: T,
-): { [K in keyof T]?: Exclude<T[K], undefined> } =>
-  Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as {
-    [K in keyof T]?: Exclude<T[K], undefined>
-  }
+const edgesOf = (def: WorkflowDefinition, name: StateName): readonly TemplateEdge[] =>
+  def.graph.edges
+    .filter((edge) => edge.from === name)
+    .map((edge) => ({ pattern: edge.label, target: edge.to === "$end" ? def.initial : edge.to }))
 
-/** Resolve `Rest` at an arbitrary ref, or `undefined` for HEAD itself. */
+const templateContext = (
+  run: ProcessRun,
+  step: ReachedStep,
+  head: string,
+  vars: Record<string, string>,
+): TemplateContext => {
+  const none = (): never => {
+    throw new Error("only it.file and it.vars are available to a mode command")
+  }
+  return {
+    startCommit: run.diffBase,
+    currentCommit: head,
+    previousCommit: step.enteredAt,
+    state: step.name,
+    actor: step.actor,
+    reviewBase: step.reviewBase,
+    processBase: run.startParentHash,
+    processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
+    processCostByModel: costByModel(run.costEntries),
+    read: none,
+    diff: none,
+    sections: none,
+    tail: none,
+    diffTail: none,
+    vars,
+    edges: [],
+  }
+}
+
+/** Per-model token totals, highest-cost first (ties broken by model name). */
+const costByModel = (entries: readonly CostEntry[]): ModelCost[] => {
+  const byModel = new Map<string, number>()
+  for (const entry of entries)
+    byModel.set(entry.model, (byModel.get(entry.model) ?? 0) + entry.cost)
+  return [...byModel.entries()]
+    .map(([model, cost]) => ({ model, cost }))
+    .sort((a, b) => b.cost - a.cost || a.model.localeCompare(b.model))
+}
+
+export type RestRequirements = ConfigRequirements
+
+/** Resolve the rest at `ref`, or at HEAD when `ref` is `undefined`. */
 export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, RestRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
@@ -870,321 +583,166 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const workspace = yield* Workspace
     const host = yield* Host
     const def = config.workflow
-
-    const headSubject = yield* git.lastCommitSubject(ref)
-    const resolution = resolveRestFrom(def, headSubject)
-    if (!resolution.ok) return yield* Effect.fail(resolution.error)
-    const resolved = resolution.rest
-    yield* (yield* Narrator).narrate(`rest resolved: ${resolved.state} (awaits ${resolved.actor})`)
-
-    const run = yield* computeProcessRun(git, def)
+    const run = yield* computeProcessRun(git, def, ref)
     const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env)
-    const on = yield* renderOnEdgesOrFail(resolved.stateDef.on, vars)
-    const routes = yield* renderRoutesOrFail(resolved.stateDef.routes, vars)
-    const stepDef = withRenderedOn(def, resolved.state, on, routes)
-    const reviewBase = reviewBaseFor(def, run)
-    const changes = yield* pendingChanges(git)
-    // ONE ledger for the whole rest, shared by `context` AND `judgeContext` —
-    // a `judge:` render's truncation and the same rest's `message:` render
-    // must agree on the same sticky `truncated` flag (`renderRest`'s notice).
-    const ledger = createRenderLedger(
-      yield* Effect.try({
-        try: () => parseJudgeBudgetBytes(vars),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
-    )
-    // The three bounded primitives (Requirement C) resolve only in a
-    // `judge:` field or a `message:` template — `context` renders the
-    // state's own content, so it's allowed exactly when this state's content
-    // kind IS `message`; every hint field (`model:`/`label:`/`file:`/
-    // `system:`/`skills:`) is disallowed regardless of content kind, so a
-    // `message` state needs a SEPARATE, disallowed context for its hints
-    // (a `script`/`prompt` state's hints reuse `context` itself, since both
-    // are disallowed there anyway).
-    const contentAllowed = contentKindOf(resolved.stateDef) === "message"
-    const context = yield* buildTemplateContext(
-      git,
-      templateRead(workspace),
-      templateDiff(workspace),
-      resolved.state,
-      resolved.actor,
-      run,
-      vars,
-      on,
-      reviewBase,
-      ledger,
-      contentAllowed,
-    )
-    const hintsContext = contentAllowed
-      ? yield* buildTemplateContext(
-          git,
-          templateRead(workspace),
-          templateDiff(workspace),
-          resolved.state,
-          resolved.actor,
-          run,
-          vars,
-          on,
-          reviewBase,
-          ledger,
-          false,
-        )
-      : context
-    // `judge:` renders against committed-only evidence — same context shape,
-    // just `read` swapped for `templateReadCommitted` (see `renderHints`).
-    // `diff` stays the SAME working-tree-reading binding as `context`'s own —
-    // it is the one field `judge:` is deliberately allowed to read fresh
-    // (see `PatternTemplates.ts`'s `diff` doc comment). `judge:` is the other
-    // field the bounded primitives are allowed from.
-    const judgeContext = yield* buildTemplateContext(
-      git,
-      templateReadCommitted(workspace),
-      templateDiff(workspace),
-      resolved.state,
-      resolved.actor,
-      run,
-      vars,
-      on,
-      reviewBase,
-      ledger,
-      true,
-    )
-    const memory = memoryKeyFor(config.stateScopes, resolved, run)
-    const memoryResumed = memoryResumedFor(def, config.stateScopes, resolved, run)
-    // Renders every hint (the `judge:` field among them) BEFORE `renderRest`
-    // renders the state's own content below — `ledger`'s sticky `truncated`
-    // flag must already be set from a truncating `judge:` field by the time
-    // the `message:` render checks it for the notice.
-    const hints = yield* renderHints(resolved.stateDef, hintsContext, judgeContext, ledger)
-
+    const budget = yield* Effect.try({
+      try: () => judgeBudgetBytes(vars),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
+    const setup: ReplaySetup = { def, run, vars, budget, workspace }
+    const outcome = yield* Effect.promise(() => replayFor(setup))
+    const error = replayError(outcome)
+    if (error !== undefined || outcome.kind !== "rest") {
+      return yield* Effect.fail(error ?? new Error("gtd: replay found no rest"))
+    }
+    const step = outcome.rest
+    yield* (yield* Narrator).narrate(`rest resolved: ${step.name} (awaits ${step.actor})`)
+    const head = ref ?? (yield* git.resolveRef("HEAD"))
+    const context = templateContext(run, step, head, vars)
+    const stepDef = yield* Effect.try({
+      try: () => stepDefOf(step, vars, context),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
+    const changes =
+      ref === undefined
+        ? (yield* git.changedPaths()).map((e) => ({
+            status: normalizeStatus(e.status),
+            path: e.path,
+          }))
+        : []
+    const memory = memoryOf(outcome.trace, run)
     return {
-      ...resolved,
+      def,
+      state: step.name,
+      stepDef,
+      actor: step.actor,
+      step,
+      trace: outcome.trace,
       run,
       vars,
-      on,
-      stepDef,
       changes,
-      memory,
-      memoryResumed,
-      hints,
+      memory: memory.key,
+      memoryResumed: memory.resumed,
+      hints: hintsOf(stepDef),
       context,
-      ledger,
+      edges: edgesOf(def, step.name),
+      setup,
     }
   })
 
 export const currentRest: Effect.Effect<Rest, Error, RestRequirements> = restAt(undefined)
 
-// ── Rendering the resolved rest's content ────────────────────────────────────
+/** The review window's diff base at the rest. */
+export const reviewBaseFor = (rest: Rest): string => rest.step.reviewBase
+
+// ── Rendering ───────────────────────────────────────────────────────────────
 
 export interface RenderedRest extends RestHints {
   readonly state: StateName
   readonly actor: string
-  readonly kind: ContentKind
+  readonly kind: StepDef["kind"]
   readonly content: string
-  /** The resolved rest's COMPUTED memory key (`memoryKeyFor`) — a commit-anchored `<scope>#<hash7>` string, omitted (not `undefined`-valued) for a non-`prompt` rest or when no scope resolves, same discipline as the `RestHints` fields. Not sourced from the state's own (still-accepted, but now unread) `memory:` declaration. */
   readonly memory?: string
-  /** `rest.memoryResumed`, verbatim — ALWAYS present (unlike `memory`, this is not a hint a driver can treat as absent-when-inapplicable; `false` is itself the answer for a non-`prompt` rest). */
   readonly memoryResumed: boolean
-  /** The resolved rest's `on` edges as `{ pattern, target, describe? }` — the same list templates see as `it.edges`. Always present (possibly empty); `gtd next --json` emits it so a driver has the routing (and its human-readable `describe`s) alongside the rendered content. */
   readonly edges: readonly TemplateEdge[]
-  /**
-   * `rest.ledger.truncated()`, read AFTER this render — whether ANY bounded
-   * read (a hint field's `judge:`, or this content render) dropped bytes to
-   * fit `judgeBudgetBytes`. `gtd judge answer` (`program.ts`'s
-   * `runJudgeAnswerCommand`) threads this straight into `planLanding`'s
-   * `truncated` option so the landing commit's `Gtd-Payload:` trailer stamps
-   * the flag from the SAME render that produced the judged document, never a
-   * second, later render that could disagree with it.
-   */
+  /** Whether a bounded read dropped bytes for this rest's judge evidence. */
   readonly truncated: boolean
 }
 
-const renderStateField = (
-  stateDef: StateDef,
-  key: string,
-  context: TemplateContext,
-): Effect.Effect<string | undefined, Error> =>
-  Effect.try({
-    try: () => {
-      const value = (stateDef as unknown as Record<string, unknown>)[key]
-      return typeof value === "string" ? renderStateTemplate(value, context) : undefined
-    },
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
-
-/**
- * `judge:`'s own field key — rendered against `judgeContext` (evidence bounded
- * to already-committed content) instead of `context` (the ordinary,
- * working-tree-reading context every other rendered field shares). The
- * evidence rule (Requirement section, Task 1) forbids a judgment consuming a
- * freshly-gathered or uncommitted artifact; this is the one field where that
- * distinction matters, so it is the one field singled out here.
- */
-const JUDGE_FIELD_KEY = "judge"
-
-/**
- * Every `STATE_FIELDS` hint for one state, resolved against `context`:
- * `rest: "rendered"` fields (`model`/`label`/`file`/`judge`, the last against
- * `judgeContext` instead — see `JUDGE_FIELD_KEY`) go through
- * `renderStateField`, `rest: "verbatim"` fields (`mode`, a closed literal
- * never Eta-rendered) pass through as-is. Derived from the table, so a new
- * hint field needs no edit here — and computed ONCE, when the `Rest`
- * snapshot is built, rather than per consumer.
- */
-const renderHints = (
-  stateDef: StateDef,
-  context: TemplateContext,
-  judgeContext: TemplateContext,
-  ledger: RenderLedger,
-): Effect.Effect<RestHints, Error> =>
-  Effect.gen(function* () {
-    const hints: Record<string, unknown> = {}
-    for (const [key, spec] of STATE_FIELD_ENTRIES) {
-      if (spec.rest === "rendered") {
-        const fieldContext = key === JUDGE_FIELD_KEY ? judgeContext : context
-        // Each hint is its OWN render — the share ledger's accumulator
-        // resets per field, never carried from `judge:` into `model:`/`label:`/`file:`.
-        ledger.beginRender()
-        hints[key] = yield* renderStateField(stateDef, key, fieldContext)
-      } else if (spec.rest === "verbatim") {
-        hints[key] = (stateDef as unknown as Record<string, unknown>)[key]
-      }
-    }
-    return omitUndefined(hints) as RestHints
-  })
-
-/**
- * Prepend the rendered `skillsPreamble` to `content`, guarded on all three of:
- * `kind` is `prompt`; `rest.hints.skills` is non-blank after trimming;
- * `rest.context.vars.skillsPreamble` is non-blank after trimming. Any one of
- * the three blank leaves `content` byte-identical — see
- * `.gtd/packages/01-state-skills-field.md`. The preamble PREPENDS (the agent
- * is told which skills to load before it reads the task), joined by exactly
- * two newlines.
- */
-const withSkillsPreamble = (
-  kind: ContentKind,
-  content: string,
-  hints: RestHints,
-  context: TemplateContext,
-): Effect.Effect<string, Error> =>
-  Effect.gen(function* () {
-    const skills = hints.skills
-    const skillsPreambleTemplate = context.vars.skillsPreamble
-    if (
-      kind !== "prompt" ||
-      skills === undefined ||
-      skills.trim() === "" ||
-      skillsPreambleTemplate === undefined ||
-      skillsPreambleTemplate.trim() === ""
-    ) {
-      return content
-    }
-    const preamble = yield* Effect.try({
-      try: () => renderSkillsPreamble(skillsPreambleTemplate, { ...context, skills }),
-      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-    })
-    return `${preamble}\n\n${content}`
-  })
-
-/**
- * The FIXED sentence `renderRest` appends to a `message:` rest whose ledger
- * recorded a bounded read dropping bytes (Task 2's Requirement) — a
- * constant, not a `vars:` key or an author template, so a repo/workflow
- * author can neither reword nor drop it, and the wording is identical at
- * every gate.
- */
-export const TRUNCATION_NOTICE =
-  "Note: some evidence above was truncated to fit the judge's payload budget."
-
-/**
- * Render a `Rest`'s declared content (script/prompt/message) plus every
- * `STATE_FIELDS` field carrying a `rest` kind and its computed memory key —
- * all of which already live on `rest` (`rest.context`/`rest.hints`/
- * `rest.memory`, built once by `restAt` via `renderHints`), so this takes no
- * other parameters.
- */
 export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
-  Effect.gen(function* () {
-    const kind = contentKindOf(rest.stateDef)
-    if (kind === undefined) {
-      return yield* Effect.fail(
-        new Error(`state "${rest.state}" declares no content — invalid definition`),
-      )
-    }
-    const template = rest.stateDef.script ?? rest.stateDef.prompt ?? rest.stateDef.message!
-    // The content render is its own render for share-ledger purposes — reset
-    // BEFORE rendering, same discipline `renderHints` applies per field.
-    rest.ledger.beginRender()
-    const rendered = yield* Effect.try({
-      try: () => renderStateTemplate(template, rest.context),
-      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-    })
-    const withPreamble = yield* withSkillsPreamble(kind, rendered, rest.hints, rest.context)
-    // The notice is appended only for a rest that actually truncated
-    // something — checked AFTER every render this rest performed (hints,
-    // then this content render), never as standing boilerplate.
-    const content =
-      kind === "message" && rest.ledger.truncated()
-        ? `${withPreamble}\n\n${TRUNCATION_NOTICE}`
-        : withPreamble
-    return {
-      state: rest.state,
-      actor: rest.actor,
-      kind,
-      content,
-      ...rest.hints,
-      ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
-      memoryResumed: rest.memoryResumed,
-      // `rest.context.edges` is the resting state's `on` edges, already
-      // rendered against `it.vars` — not re-derived from `rest.stateDef.on`
-      // here, which would be the unrendered literal.
-      edges: rest.context.edges,
-      truncated: rest.ledger.truncated(),
-    }
+  Effect.succeed({
+    state: rest.state,
+    actor: rest.actor,
+    kind: rest.stepDef.kind,
+    content: rest.stepDef.content,
+    ...rest.hints,
+    ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
+    memoryResumed: rest.memoryResumed,
+    edges: rest.edges,
+    truncated: rest.step.truncated,
   })
 
 /**
- * Derived stall detection: PURE, restart-proof by construction (any process
- * that re-resolves the same HEAD reaches the same verdict). `true` iff the
- * working tree is clean, HEAD's own commit already rests at `rest.state` with
- * an EMPTY diff (the previous dispatch's attempt landed and did nothing), and
- * another dispatch right now would just repeat that same fruitless attempt
- * (`wouldAttempt` — false once a retry cap would redirect it elsewhere,
- * which is the escalation path out of a stall). Sticky by design: resolving
- * `true` twice in a row is the correct answer, not a bug.
+ * Derived, restart-proof stall detection: the tree is clean, HEAD is an empty
+ * attempt at this very agent rest, and another dispatch would repeat it.
  */
 export const stalledAt = (rest: Rest): boolean =>
   rest.changes.length === 0 &&
+  rest.stepDef.kind === "prompt" &&
+  rest.stepDef.allowEmpty !== true &&
   rest.run.headTurn?.state === rest.state &&
-  rest.run.headTurn.empty &&
-  // A clean-tree `gtd --entry` commit (a different actor) must read as a
-  // fresh dispatch, never a stall — only the state's own actor can attempt.
   rest.run.headTurn.actor === rest.actor &&
-  wouldAttempt(
-    rest.stepDef,
-    rest.state,
-    rest.run.trace.map((entry) => entry.state),
-  )
+  !rest.run.headTurn.step &&
+  rest.run.headTurn.empty
 
-// ── RepoSnapshot adapter (src/step/05-step-core) ─────────────────────────────
-//
-// `src/step/`'s `planStep` is pure — it takes a `RepoSnapshot`, not a `Rest`,
-// and touches no Effect service at all. This is the ONE place a `Rest`
-// becomes a `RepoSnapshot`: everything the new pure core needs is read here,
-// once, before the value is frozen. `program.ts` calls this adapter, then
-// the pure `planStep`/`planEntry` from `src/step/index.ts` — not the
-// `Rest`-based ones below, which nothing outside this file's own tests uses
-// any more.
+/** `idle` means exactly one thing: the default entry's first step, first visit, clean tree. */
+/** No process is underway: the default entry's first step, first visit — a dirty tree there is a turn not yet landed, not a process. */
+export const noProcessUnderway = (rest: Rest): boolean =>
+  rest.run.entry === "default" && rest.state === rest.def.initial && rest.step.id.occurrence === 1
+
+export const restIsIdle = (rest: Rest): boolean =>
+  noProcessUnderway(rest) && rest.changes.length === 0
+
+// ── Landing ─────────────────────────────────────────────────────────────────
+
+const isHumanReviewGate = (def: StepDef): boolean => def.actor === "human" && def.mode === "review"
+
+/**
+ * What landing the pending turn at `rest` does — a pure decision from a
+ * replay with the working tree as the pending turn. The target step is
+ * computed by replaying, never matched.
+ */
+const decideLanding = (
+  rest: Rest,
+  verdicts: readonly JudgeVerdict[] | undefined,
+): Effect.Effect<Landing, Error> =>
+  Effect.gen(function* () {
+    const def = rest.stepDef
+    const clean = rest.changes.length === 0
+    if (clean && def.kind === "prompt" && def.allowEmpty !== true) {
+      return { kind: "attempt", subject: formatSubject(rest.actor, rest.state) }
+    }
+    if (clean && rest.actor === "human" && def.acceptClean !== true) {
+      return { kind: "noop", settled: false }
+    }
+    const reviewFormat = steeringFormatFor("review")
+    const rewrite =
+      isHumanReviewGate(def) && def.file !== undefined && reviewFormat !== undefined
+        ? (path: string, content: string) =>
+            path === def.file ? clearTicks(reviewFormat, content) : content
+        : undefined
+    const outcome = yield* Effect.promise(() =>
+      replayFor(rest.setup, {
+        tree: pendingTree(rest.setup.workspace, rewrite),
+        ...(verdicts !== undefined ? { verdicts } : {}),
+      }),
+    )
+    if (outcome.kind === "refused") return { kind: "refusal", message: outcome.message }
+    if (outcome.kind === "divergence" || outcome.kind === "failed") {
+      return yield* Effect.fail(new Error(outcome.message))
+    }
+    const to = outcome.kind === "rest" ? outcome.rest.name : rest.def.initial
+    if (clean && def.kind === "script" && to === rest.state) return { kind: "noop", settled: true }
+    return {
+      kind: "commit",
+      to,
+      spec: { actor: rest.actor, from: rest.state, to, step: rest.step.id },
+    }
+  })
+
+/** Where landing the pending turn would leave the process, or `undefined` when it would land nothing. */
+export const previewLanding = (rest: Rest): Effect.Effect<StateName | undefined> =>
+  decideLanding(rest, undefined).pipe(
+    Effect.map((landing) => (landing.kind === "commit" ? landing.to : undefined)),
+    Effect.catchAll(() => Effect.succeed(undefined)),
+  )
 
 const isCodePathForRevert = (path: string): boolean =>
   path !== STATE_DIR && !path.startsWith(`${STATE_DIR}/`)
 
 /**
- * The require-revert guard's own git archaeology, hoisted out of the guard
- * (which is now pure) and gated behind `isRequireRevertState` at the call
- * site below — a `gtd next` whose resting state doesn't declare
- * `requireRevert` never pays for this.
+ * The require-revert guard's git facts: which code paths the human's review
+ * round touched, and whether any still differs from before that round.
  */
 const buildRevertProbe = (
   git: GitOperations,
@@ -1205,22 +763,10 @@ const buildRevertProbe = (
     return { checked: true, base, residue }
   })
 
-/**
- * Build a `RepoSnapshot` from an already-resolved `Rest` — every fact
- * `planStep`/the pure guards need, read exactly once. `headFile`/
- * `worktreeFile` are two cheap single reads, fetched whenever the resting
- * state declares a `file:` at all (matching `src/step/Guards.ts`'s
- * `enforceStepGuards`, which already paid for them whenever ANY guard
- * applied — nearly always true at a file-bearing state). The revert probe's
- * multi-commit `git log` walk is the one read genuinely worth gating: it
- * runs the SAME pure `step()` decision `planStep` itself will make (cheap,
- * no IO) to also skip the walk when the decision would be an ATTEMPT —
- * `enforceStepGuards` bypasses every guard for one anyway, so a `gtd next`
- * resting at a `requireRevert` state that's about to attempt again pays for
- * this exactly as often as a guard could ever consult it.
- */
+/** Every fact the pure landing planner needs, read once: the rest, its steering file, and the landing decision. */
 export const snapshotFromRest = (
   rest: Rest,
+  verdicts?: readonly JudgeVerdict[],
 ): Effect.Effect<RepoSnapshot, Error, Workspace | GitService> =>
   Effect.gen(function* () {
     const file = rest.hints.file
@@ -1231,29 +777,53 @@ export const snapshotFromRest = (
       headFile = yield* workspace.committed(file)
       worktreeFile = yield* workspace.read(file)
     }
-    const decision = step(rest.stepDef, rest.state, rest.actor, {
-      changes: rest.changes,
-      processTrace: rest.run.trace.map((entry) => entry.state),
-    })
-    const isAttempt = decision.kind === "commit" && decision.attempt === true
+    const landing = yield* decideLanding(rest, verdicts)
     let probe: RevertProbe = { checked: false, base: "", residue: [] }
-    if (isRequireRevertState(rest.def, rest.state) && !isAttempt) {
-      const git = yield* GitService
-      probe = yield* buildRevertProbe(git, rest.context.reviewBase, rest.context.startCommit)
+    if (rest.stepDef.requireRevert === true && landing.kind === "commit") {
+      probe = yield* buildRevertProbe(yield* GitService, rest.step.reviewBase, rest.run.diffBase)
     }
     return {
-      def: rest.def,
       stepDef: rest.stepDef,
       state: rest.state,
-      stateDef: rest.stateDef,
       actor: rest.actor,
       changes: rest.changes,
-      processTrace: rest.run.trace.map((entry) => entry.state),
       file,
-      reviewBase: rest.context.reviewBase,
-      startCommit: rest.context.startCommit,
+      reviewBase: rest.step.reviewBase,
+      startCommit: rest.run.diffBase,
       headFile,
       worktreeFile,
       revert: probe,
+      landing,
     }
   })
+
+// ── Summary ─────────────────────────────────────────────────────────────────
+
+/** `gtd summary`'s prompt for `run`, or `undefined` when the workflow has none or there is nothing to summarize. */
+export const summaryFor = (
+  run: ProcessRun,
+): Effect.Effect<string | undefined, Error, RestRequirements> =>
+  Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    const host = yield* Host
+    const summary = config.workflow.flows.summary
+    if (summary === undefined || run.trace.length === 0) return undefined
+    const entryCommit = run.trace[0]!.hash
+    return summary({
+      entryCommit,
+      processBase: run.startParentHash,
+      processTip: run.trace[run.trace.length - 1]!.hash,
+      humanCommits: run.trace
+        .filter((entry) => entry.actor === "human" && entry.hash !== entryCommit)
+        .map((entry) => ({ hash: entry.hash, state: entry.state })),
+      processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
+      processCostByModel: costByModel(run.costEntries),
+      vars: resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env),
+    })
+  })
+
+/** The rest's body, when it is a `run` callback `gtd exec` executes. */
+export const callbackAt = (rest: Rest): ((tools: never) => Promise<void> | void) | undefined =>
+  rest.step.request.kind === "run" && typeof rest.step.request.body === "function"
+    ? (rest.step.request.body as (tools: never) => Promise<void> | void)
+    : undefined

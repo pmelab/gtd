@@ -336,15 +336,25 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: an actionable review round loops back through re-unwind — the human's hand-edit is out of the tree by the time triage runs
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add greeting" that adds "src/greet.ts" with:
+      """
+      export const greet = "hello"
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
-      ## calc
-      - [ ] ./src/calc.ts#1
-      new add function
+      ## greet
+      - [ ] ./src/greet.ts#1
+      new greeting
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     # await-review: a hand-edit to real code is feedback
     Given a file "src/calc.ts" with:
       """

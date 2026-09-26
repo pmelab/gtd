@@ -13,7 +13,13 @@ import { Effect, Layer } from "effect"
 import { isAbsolute, join } from "node:path"
 import { parse as parseYaml } from "yaml"
 import { GtdError, Narrator } from "../Commentary.js"
-import { ConfigDiscovery, ConfigService, SEARCH_PLACES, walkUp } from "../workflow/index.js"
+import {
+  ConfigDiscovery,
+  ConfigService,
+  SEARCH_PLACES,
+  WORKFLOW_MODULE,
+  walkUp,
+} from "../workflow/index.js"
 import { GitService, Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { fakeGitOperations } from "./FakeGitOperations.js"
 import { CommandRunner } from "../CommandRunner.js"
@@ -92,6 +98,9 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
       return isGitDirKey(key) ? undefined : (repo.fileAtRef(ref, key) ?? undefined)
     },
     diffSync: (base) => repo.diffWorktree(base),
+    treeSync: (ref) =>
+      new Map(repo.pathsAtRef(ref).map((path) => [path, repo.fileAtRef(ref, path) ?? ""])),
+    worktreePathsSync: () => repo.pathsUnder("").filter((path) => !isGitDirKey(path)),
     atPath: (path) => readAt(toKey(path)),
     writeAtPath: (path, content) =>
       Effect.try({
@@ -146,6 +155,18 @@ const makeInMemoryConfigDiscovery = (
         catch: toError,
       }),
     presentAt: (dir) => Effect.try({ try: () => findAt(dir) !== undefined, catch: toError }),
+    workflowModule: (levelRoot, levelHome) =>
+      Effect.try({
+        try: () => {
+          for (const dir of walkUp(levelRoot, levelHome)) {
+            const filepath = join(dir, WORKFLOW_MODULE)
+            const source = workspace.atPath(filepath)
+            if (source !== undefined) return { filepath, source }
+          }
+          return undefined
+        },
+        catch: toError,
+      }),
   })
 }
 

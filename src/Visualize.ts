@@ -1,80 +1,50 @@
 import { createServer, type Server } from "node:http"
 import { spawn } from "node:child_process"
-import {
-  contentKindOf,
-  contentOf,
-  initialStateOf,
-  matchesPattern,
-  parsePattern,
-  type OnEdge,
-  type PendingChange,
-  type RetryDef,
-  type RouteRow,
-  type StateDef,
-  type StateName,
-  type WorkflowDefinition,
-  type WorkflowEntries,
-} from "./PatternMachine.js"
-import { STATE_FIELDS, STATE_FIELD_ENTRIES, type StateFieldsTable } from "./StateFields.js"
-import type { MachineNode } from "./Machines.js"
-import type { ResolvedRest } from "./Edge.js"
-import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
-import visualizeHtml from "./visualize.html"
 import type { FlowGraph, NodeKind } from "./analyze/index.js"
+import type { ResolvedRest } from "./Edge.js"
+import type { TemplateEdge } from "./wire/index.js"
+import type { PendingChange } from "./Workflow.js"
+import visualizeHtml from "./visualize.html"
 
-/** One `on` edge, flattened for the viewer. */
+/** One edge out of a step, flattened for the viewer: `pattern` is the source text of the conditions along its path. */
 export interface VizEdge {
   readonly pattern: string
   readonly to: string
-  readonly describe?: string
-  readonly action?: string
 }
 
-/** One `routes:` row, flattened for the viewer — the judgment-routing analogue of `VizEdge`. `question`/`is`/`minP`/`maxP` are all absent for the catch-all row; `minP`/`maxP` are independently optional otherwise. */
-export interface VizRouteEdge {
-  readonly to: string
-  readonly question?: string
-  readonly is?: string
-  readonly minP?: string
-  readonly maxP?: string
-}
-
-/** Every `StateDef` field marked `viz: "field"` in `STATE_FIELDS` (key/value, as opposed to a boolean flag chip — see `FLAG_KEYS`) — derived so a new such field needs no separate edit here. */
-type VizFieldName = {
-  [K in keyof StateFieldsTable]: StateFieldsTable[K] extends { viz: "field" } ? K : never
-}[keyof StateFieldsTable]
-
-type VizFields = { readonly [K in VizFieldName]?: StateDef[K] }
-
-/** One state, described for the viewer. */
-export interface VizState extends VizFields {
+/** One step, described for the viewer. */
+export interface VizState {
   readonly name: string
-  /** `script` | `prompt` | `message` | `unknown` (a malformed state). */
+  /** `script` | `prompt` | `message` | `restart`. */
   readonly kind: string
-  /** The state's raw template source (script/prompt/message), verbatim. */
+  /** The step's content: its value when the analyzer could read it as a constant, its source text otherwise. */
   readonly content?: string
   readonly initial?: boolean
-  /** Boolean state flags that are set: reviewBase/entry/requireProgress/answerGate. */
+  readonly actor?: string
+  readonly label?: string
+  readonly file?: string
+  readonly mode?: string
+  readonly model?: string
+  readonly system?: string
+  readonly skills?: string
+  /** Boolean step options that are set, plus `entry` for an entry's first step. */
   readonly flags: readonly string[]
   readonly on: readonly VizEdge[]
-  /** This state's `routes:` rows, `minP` rendered against `it.vars` — real edges, same as `on`. */
-  readonly routes: readonly VizRouteEdge[]
-  /** Every edge (and retry redirect) that targets this state — computed, for the "routes in from" view. */
+  /** Kept for the page's shape; a TypeScript workflow routes judgments in plain code. */
+  readonly routes: readonly never[]
   readonly incoming: ReadonlyArray<{ readonly from: string; readonly pattern: string }>
-  /** This state's qualified name minus its last segment — the instance it directly belongs to, if any. */
+  /** The step's scope — its name minus its last segment. */
   readonly group?: string
 }
 
-/** One machine instance, flattened from the tree for the viewer — see `flattenTree`. */
+/** One scope, as a cluster. */
 export interface VizGroup {
-  /** The instance path — e.g. `packages.health`. */
   readonly name: string
   readonly machine: string
-  /** This instance's DIRECT states only (its descendants get their own entries). */
+  /** This scope's DIRECT steps only (its descendants get their own entries). */
   readonly states: readonly string[]
   readonly parent?: string
   readonly depth: number
-  /** This instance's machine's own `model:` (stamped onto every one of its `prompt`-content states — see `Machines.ts`'s `resolveInstanceMachineFields`), read off any one of them. Absent when the machine declares no `model:` or owns no `prompt` state. */
   readonly model?: string
 }
 
@@ -87,231 +57,40 @@ export interface VizModel {
   readonly fieldDocs: Record<string, string>
 }
 
-/** Every state property name marked `viz: "field"` in `STATE_FIELDS` — the key/value fields `toVizState` copies onto `VizState`. */
-const VIZ_FIELD_NAMES: readonly string[] = STATE_FIELD_ENTRIES.filter(
-  ([, spec]) => spec.viz === "field",
-).map(([key]) => key)
-
-/** Every state property marked `viz: "flag"` — excludes `initial` (its own `VizState` field) and `entry` (derived from `entries.manual`, not a `StateDef` field). */
-const FLAG_KEYS: readonly string[] = STATE_FIELD_ENTRIES.filter(
-  ([, spec]) => spec.viz === "flag",
-).map(([key]) => key)
-
-const fieldOf = (def: StateDef, key: string): unknown => (def as Record<string, unknown>)[key]
-
-const flagsOf = (def: StateDef): string[] => FLAG_KEYS.filter((k) => fieldOf(def, k) === true)
-
-/** Every `viz: "field"` value actually set on `def`, keyed by field name. */
-const vizFieldsOf = (def: StateDef): Record<string, unknown> => {
-  const out: Record<string, unknown> = {}
-  for (const key of VIZ_FIELD_NAMES) {
-    const value = fieldOf(def, key)
-    if (value !== undefined) out[key] = value
-  }
-  return out
-}
-
-const edgeToViz = ([pattern, to, describe, action]: OnEdge): VizEdge =>
-  stripUndefined({ pattern, to, describe, action }) as unknown as VizEdge
-
-const routeToViz = ({ question, is, minP, maxP, to }: RouteRow): VizRouteEdge =>
-  stripUndefined({ question, is, minP, maxP, to }) as unknown as VizRouteEdge
-
-/** Drop keys whose value is `undefined` (so `exactOptionalPropertyTypes` optionals stay absent, not `undefined`). */
+/** Drop keys whose value is `undefined` (so optionals stay absent, not `undefined`). */
 const stripUndefined = (o: Record<string, unknown>): Record<string, unknown> => {
   for (const key of Object.keys(o)) if (o[key] === undefined) delete o[key]
   return o
 }
 
-/** Describe one compiled state for the viewer. `onEdges` must be already rendered against `it.vars` (see `buildVizModel`), never the unrendered `def.on`. */
-const toVizState = (
-  name: string,
-  def: StateDef,
-  onEdges: readonly OnEdge[],
-  routeEdges: readonly RouteRow[],
-  group: string | undefined,
-  incoming: ReadonlyArray<{ from: string; pattern: string }>,
-  entries: WorkflowEntries,
-): VizState =>
-  stripUndefined({
-    name,
-    ...vizFieldsOf(def),
-    kind: contentKindOf(def) ?? "unknown",
-    content: contentOf(def),
-    initial: entries.default === name ? true : undefined,
-    flags: [...flagsOf(def), ...(entries.manual.includes(name) ? ["entry"] : [])],
-    on: onEdges.map(edgeToViz),
-    routes: routeEdges.map(routeToViz),
-    incoming,
-    group,
-  }) as unknown as VizState
+const VIZ_FIELD_NAMES = ["label", "file", "mode", "model", "system", "skills"] as const
 
-/** Render one `on` pattern against `vars`, falling back to the raw string on failure — the viewer is best-effort, unlike a real step (which refuses). */
-const renderPatternOrRaw = (pattern: string, vars: Record<string, string>): string => {
-  try {
-    return renderStateTemplate(pattern, varsOnlyContext(vars))
-  } catch {
-    return pattern
-  }
-}
+const FLAG_KEYS = [
+  "reviewBase",
+  "requireProgress",
+  "answerGate",
+  "requireRevert",
+  "allowEmpty",
+  "acceptClean",
+] as const
 
-/** Render every `on` edge of every state against `vars` (pattern key only — `target`/`describe`/`action` pass through verbatim), keyed by state name. */
-const renderedOnByState = (
-  workflow: WorkflowDefinition,
-  vars: Record<string, string>,
-): ReadonlyMap<string, readonly OnEdge[]> =>
-  new Map(
-    Object.entries(workflow.states).map(([name, def]) => [
-      name,
-      (def.on ?? []).map(([pattern, target, describe, action]): OnEdge => {
-        const renderedPattern = renderPatternOrRaw(pattern, vars)
-        if (action !== undefined) return [renderedPattern, target, describe, action]
-        return describe !== undefined
-          ? [renderedPattern, target, describe]
-          : [renderedPattern, target]
-      }),
-    ]),
-  )
-
-/** Render every `routes:` row's `minP`/`maxP` of every state against `vars` (`question`/`is`/`to` pass through verbatim) — same best-effort-on-failure discipline as `renderPatternOrRaw`, keyed by state name. */
-const renderedRoutesByState = (
-  workflow: WorkflowDefinition,
-  vars: Record<string, string>,
-): ReadonlyMap<string, readonly RouteRow[]> =>
-  new Map(
-    Object.entries(workflow.states).map(([name, def]) => [
-      name,
-      (def.routes ?? []).map(
-        (row): RouteRow => ({
-          ...row,
-          ...(row.minP !== undefined ? { minP: renderPatternOrRaw(row.minP, vars) } : {}),
-          ...(row.maxP !== undefined ? { maxP: renderPatternOrRaw(row.maxP, vars) } : {}),
-        }),
-      ),
-    ]),
-  )
-
-/** A one-line label for a `routes:` row, for the "routes in from" incoming view — `"otherwise"` for the catch-all. Either bound alone omits the other side. */
-const routeIncomingLabel = (row: RouteRow): string => {
-  if (row.question === undefined) return "otherwise"
-  const bounds = [
-    row.minP !== undefined ? `p≥${row.minP}` : undefined,
-    row.maxP !== undefined ? `p<${row.maxP}` : undefined,
-  ].filter((b): b is string => b !== undefined)
-  return `${row.question} = ${row.is}${bounds.length > 0 ? ` (${bounds.join(", ")})` : ""}`
-}
-
-/** A state's owning instance path, from `scopes` — a direct lookup, not a string chop off the qualified name (a state's group isn't always "everything before the last dot"). Root-owned (`""`) reports as `undefined`. */
-const groupOf = (name: string, scopes: Record<StateName, string>): string | undefined => {
-  const scope = scopes[name]
-  return scope === "" || scope === undefined ? undefined : scope
-}
-
-/**
- * Flatten a `MachineNode` tree into `VizModel.groups` — a flat, depth-first
- * array of every instance strictly below the root (the root machine is the
- * canvas, never a box). Kept flat so index-based front-end helpers
- * (`src/visualize.html`) keep working unchanged.
- */
-const flattenTree = (
-  node: MachineNode,
-  parent: string | undefined,
-  depth: number,
-  out: VizGroup[],
-): void => {
-  for (const child of node.children) {
-    out.push({
-      name: child.key,
-      machine: child.machine,
-      states: [...child.states],
-      ...(parent !== undefined ? { parent } : {}),
-      depth,
-    })
-    flattenTree(child, child.key, depth + 1, out)
-  }
-}
-
-/**
- * A group's `model:`, read off any one of its prompt-content states (every
- * prompt state one machine instance owns carries the identical `def.model`).
- * `undefined` when the group owns no prompt state or declares no `model:`.
- */
-const modelOfGroup = (
-  groupName: string,
-  workflow: WorkflowDefinition,
-  scopes: Record<StateName, string>,
-): string | undefined => {
-  for (const [name, def] of Object.entries(workflow.states)) {
-    if (scopes[name] === groupName && contentKindOf(def) === "prompt") return def.model
-  }
-  return undefined
-}
-
-/**
- * Tooltip text for every field the visualizer can show, keyed by field name:
- * every `viz`-marked `STATE_FIELDS` entry, plus `entry`/`initial` (both
- * derived pseudo-flags with no `StateFields` entry of their own).
- */
+/** Tooltip text for every field the visualizer shows. */
 const FIELD_DOCS: Record<string, string> = {
-  ...Object.fromEntries(
-    STATE_FIELD_ENTRIES.filter(([, spec]) => spec.viz !== undefined).map(([key, spec]) => [
-      key,
-      spec.doc,
-    ]),
-  ),
-  entry: STATE_FIELDS.entry.doc,
-  initial: "The one initial state — an unrecognized HEAD (any non-gtd history) resolves here.",
-}
-
-/** Build the viewer's JSON description from the compiled workflow, its machine tree, and its scope map. `vars` is shown for reference and used to render every state's `on` pattern to a real path rather than a stale literal. */
-export const buildVizModel = (
-  workflow: WorkflowDefinition,
-  tree: MachineNode,
-  vars: Record<string, string>,
-  scopes: Record<StateName, string>,
-): VizModel => {
-  const flatGroups: VizGroup[] = []
-  flattenTree(tree, undefined, 0, flatGroups)
-  const groups = flatGroups.map((group) => {
-    const model = modelOfGroup(group.name, workflow, scopes)
-    return model !== undefined ? { ...group, model } : group
-  })
-
-  const renderedOn = renderedOnByState(workflow, vars)
-  const renderedRoutes = renderedRoutesByState(workflow, vars)
-
-  const incoming = new Map<string, Array<{ from: string; pattern: string }>>()
-  const addIncoming = (target: string, from: string, pattern: string) => {
-    const list = incoming.get(target) ?? []
-    list.push({ from, pattern })
-    incoming.set(target, list)
-  }
-  for (const [name, def] of Object.entries(workflow.states)) {
-    for (const [pattern, to] of renderedOn.get(name) ?? []) addIncoming(to, name, pattern)
-    for (const row of renderedRoutes.get(name) ?? [])
-      addIncoming(row.to, name, routeIncomingLabel(row))
-    if (def.retry) addIncoming(def.retry.otherwise, name, `retry ×${def.retry.max}`)
-  }
-
-  const states = Object.entries(workflow.states).map(([name, def]) =>
-    toVizState(
-      name,
-      def,
-      renderedOn.get(name) ?? [],
-      renderedRoutes.get(name) ?? [],
-      groupOf(name, scopes),
-      incoming.get(name) ?? [],
-      workflow.entries,
-    ),
-  )
-
-  return {
-    states,
-    initial: initialStateOf(workflow),
-    groups,
-    vars,
-    fieldDocs: FIELD_DOCS,
-  }
+  actor: "Who acts at this step: agent, human, check (a run step) or judge.",
+  label: "Display name passed through gtd next --json for drivers and viewers.",
+  file: "The step's steering file, under .gtd/.",
+  mode: "The steering file's format — a built-in mode or a .gtdrc modes: entry.",
+  model: "Opaque model hint for the agent harness.",
+  system: "The agent harness system prompt — one per memory scope.",
+  skills: "Skills prose prepended through the skillsPreamble var.",
+  reviewBase: "The commit entering this step anchors the review window's diff base.",
+  requireProgress: "A turn that only deletes the steering file is refused.",
+  answerGate: "A turn leaving a qa-mode question unanswered is refused.",
+  requireRevert: "A turn that did not revert the human's review-round edit is refused.",
+  allowEmpty: "An agent turn that changes nothing completes the step instead of being an attempt.",
+  acceptClean: "A clean landing completes this human gate — accepting as-is.",
+  entry: "The first step of a --entry flow.",
+  initial: "Where a finished process waits — the default entry's first step.",
 }
 
 const GRAPH_KIND: Readonly<Record<NodeKind, string>> = {
@@ -340,14 +119,16 @@ const scopePrefixes = (scope: string): string[] =>
  * becomes a cluster.
  */
 export const buildGraphVizModel = (graph: FlowGraph, vars: Record<string, string>): VizModel => {
-  const incoming = new Map<string, Array<{ from: string; pattern: string }>>()
-  for (const edge of graph.edges) {
-    const list = incoming.get(edge.to) ?? []
-    list.push({ from: edge.from, pattern: edge.label })
-    incoming.set(edge.to, list)
-  }
   const defaultEntry = graph.entries.find((entry) => entry.name === "default")
   const initial = defaultEntry?.edges[0]?.to ?? ""
+  // The end of an episode is where the next one begins: the initial step.
+  const target = (to: string): string => (to === "$end" ? initial : to)
+  const incoming = new Map<string, Array<{ from: string; pattern: string }>>()
+  for (const edge of graph.edges) {
+    const list = incoming.get(target(edge.to)) ?? []
+    list.push({ from: edge.from, pattern: edge.label })
+    incoming.set(target(edge.to), list)
+  }
   const manual = new Set(
     graph.entries
       .filter((entry) => entry.name !== "default")
@@ -370,7 +151,7 @@ export const buildGraphVizModel = (graph: FlowGraph, vars: Record<string, string
       ],
       on: graph.edges
         .filter((e) => e.from === node.name)
-        .map((e) => ({ pattern: e.label, to: e.to })),
+        .map((e) => ({ pattern: e.label, to: target(e.to) })),
       routes: [],
       incoming: incoming.get(node.name) ?? [],
       group: node.scope === "" ? undefined : node.scope,
@@ -392,55 +173,42 @@ export const buildGraphVizModel = (graph: FlowGraph, vars: Record<string, string
   return { states, initial, groups, vars, fieldDocs: FIELD_DOCS }
 }
 
-/** One `on` edge from the currently-rested state, flagged with whether it's the one `gtd land` would fire right now. */
+/** One edge out of the rested step, flagged when it is the one the pending change replays to. */
 export interface CurrentStateEdge {
   readonly pattern: string
   readonly to: string
   readonly matched: boolean
-  readonly action?: string
 }
 
-/** Where the active process rests right now, for the viewer's "Current state" panel — resolved once at page load, never polled. */
+/** Where the active process rests right now, for the viewer's "Current state" panel. */
 export interface CurrentStateModel {
   readonly state: string
   readonly actor: string
   readonly kind: string
   readonly group?: string
   readonly edges: readonly CurrentStateEdge[]
-  readonly retry?: RetryDef
   readonly pending: readonly PendingChange[]
 }
 
-/**
- * Describe the currently-rested state: its `on` edges flagged with whether
- * each is the one that would fire on the current pending changes (same
- * first-match semantics as a real step), plus retry/pending verbatim.
- * `onEdges` must already be rendered against `it.vars` — never the unrendered
- * `rest.stateDef.on`.
- */
+/** The rested step's out-edges, the one leading to `next` (the step the pending change replays to) flagged. */
 export const buildCurrentStateModel = (
   rest: ResolvedRest,
   changes: readonly PendingChange[],
-  onEdges: readonly OnEdge[],
+  edges: readonly TemplateEdge[],
+  next: string | undefined,
   group?: string,
 ): CurrentStateModel => {
-  const matchedIndex = onEdges.findIndex(([patternStr]) => {
-    const parsed = parsePattern(patternStr)
-    return parsed !== undefined && matchesPattern(parsed, changes)
-  })
-  const edges = onEdges.map(([pattern, to, , action], i) => ({
-    pattern,
-    to,
-    matched: i === matchedIndex,
-    ...(action !== undefined ? { action } : {}),
-  }))
+  const matchedIndex = edges.findIndex((edge) => edge.target === next)
   return stripUndefined({
     state: rest.state,
     actor: rest.actor,
-    kind: contentKindOf(rest.stateDef) ?? "unknown",
+    kind: rest.stepDef.kind,
     group,
-    edges,
-    retry: rest.stateDef.retry,
+    edges: edges.map((edge, i) => ({
+      pattern: edge.pattern,
+      to: edge.target,
+      matched: i === matchedIndex,
+    })),
     pending: changes,
   }) as unknown as CurrentStateModel
 }

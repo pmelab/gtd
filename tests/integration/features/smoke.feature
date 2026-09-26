@@ -94,25 +94,16 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
 
   Scenario: a custom workflow's sign-off lands an ordinary commit into idle, retaining every turn commit
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "develop the note, then sign off"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("working", "develop the note, then sign off")
+        },
+      })
       """
     And I record the commit count
     And a file "NOTE.md" with:

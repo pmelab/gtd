@@ -3,7 +3,7 @@
 // written by gtd) is skipped, not fatal — a corrupt line must never make every
 // command unusable.
 
-const TRANSITION_SEP = " → "
+export const TRANSITION_SEP = " → "
 
 export interface ParsedSubject {
   readonly actor: string
@@ -14,7 +14,7 @@ export interface ParsedSubject {
 const SUBJECT_RE = /^gtd\(([^()]+)\): (.+)$/
 
 /** `from` equal to `to` (or absent) collapses to the bare `gtd(<actor>): <to>` form. */
-const formatSubject = (actor: string, to: string, from?: string): string =>
+export const formatSubject = (actor: string, to: string, from?: string): string =>
   from === undefined || from === to
     ? `gtd(${actor}): ${to}`
     : `gtd(${actor}): ${from}${TRANSITION_SEP}${to}`
