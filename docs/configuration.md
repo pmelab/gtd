@@ -75,13 +75,13 @@ want editor type-checking for it.
 A step is one position a process can rest at. Each step function takes a
 **literal string name** first, and resolves once that step's turn has landed.
 
-| Step                                      | Actor   | What the rest asks for                                                                                                                   |
-| ----------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent(name, prompt, opts?)`              | `agent` | An agent turn. `prompt` is printed as the beat's content; the driver hands it to an agent and lands whatever the agent left in the tree. |
-| `human(name, opts?)`                      | `human` | A person. The process waits until someone edits and lands. `opts.message` is what gtd shows.                                             |
-| `run(name, body, opts?)`                  | `check` | A script. `body` is a POSIX `sh` string the driver runs verbatim, or a callback (below).                                                 |
-| `judge(name, questions, evidence, opts?)` | `judge` | A judgment. A `message` rest carrying typed questions; `gtd judge answer` records the verdict. See [Judges](#judges).                    |
-| `restart(name)`                           | —       | Ends the episode from any depth (see [Episodes](#episodes-replay-and-divergence)). Never rests.                                          |
+| Step                         | Actor   | What the rest asks for                                                                                                                   |
+| ---------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent(name, prompt, opts?)` | `agent` | An agent turn. `prompt` is printed as the beat's content; the driver hands it to an agent and lands whatever the agent left in the tree. |
+| `human(name, opts?)`         | `human` | A person. The process waits until someone edits and lands. `opts.message` is what gtd shows.                                             |
+| `run(name, body, opts?)`     | `check` | A script. `body` is a POSIX `sh` string the driver runs verbatim, or a callback (below).                                                 |
+| `judge(name, spec)`          | `judge` | A judgment. A `message` rest carrying typed questions; `gtd judge answer` records the verdict. See [Judges](#judges).                    |
+| `restart()`                  | —       | Ends the episode from any depth (see [Episodes](#episodes-replay-and-divergence)). Never rests.                                          |
 
 A `run` body written as a callback receives `{ sh, fs }`: `sh(command)` runs a
 shell command and resolves to `{ ok, code, output }`; `fs.read`, `fs.write`,
@@ -89,8 +89,8 @@ shell command and resolves to `{ ok, code, output }`; `fs.read`, `fs.write`,
 one-line script that runs `gtd exec`, which runs the callback in the repository
 root. A callback that throws makes `gtd exec` exit 1 — the tree it leaves still
 lands like any other run. Either way, **the outcome of a run is what it leaves
-in the tree**: flow code reads it back through the helpers, never through a
-return value.
+in the tree**: flow code reads it back through `changes()` and `read()`, never
+through a return value.
 
 The step name is the `<to>` in the commit subject the landing writes,
 `gtd(<actor>): <from> → <to>`, and every step landing carries a
@@ -104,22 +104,18 @@ budget), `Gtd-Var:` (an `--entry --var` value), `Gtd-Cost:` (a
 
 Every step takes an options object; all keys are optional.
 
-| Option            | Steps                  | Meaning                                                                                                                                            |
-| ----------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `label`           | all                    | Display name shown by `gtd next` and viewers.                                                                                                      |
-| `file`            | all                    | The step's steering file, a repository path under `.gtd/`.                                                                                         |
-| `mode`            | all, requires `file`   | The steering file's mode: `qa`, `review`, or a name declared under `.gtdrc` `modes:`. An unknown name is a load error.                             |
-| `message`         | `human`, `judge`       | The text shown to the person at this rest.                                                                                                         |
-| `model`           | `agent`                | An opaque model hint passed through to the driver.                                                                                                 |
-| `system`          | `agent`                | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                          |
-| `skills`          | `agent`                | Skill names prepended to the prompt through the `skillsPreamble` var. Blank means no preamble.                                                     |
-| `allowEmpty`      | `agent`                | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).            |
-| `acceptClean`     | `human`                | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit. |
-| `requireProgress` | all, needs `file`      | Refuse a turn whose only change deletes `file`.                                                                                                    |
-| `answerGate`      | all, needs `qa` `file` | Refuse a turn that edits anything while a question in `file` is still unanswered. A turn that changes nothing is accepted.                         |
-| `requireRevert`   | all, needs `file`      | Refuse a turn that did not revert the human's review-round edit.                                                                                   |
-| `reviewBase`      | all                    | The commit that enters this step becomes the review window's diff base (`gtd base`, `refs.reviewBase`).                                            |
-| `minP`            | `judge`                | The probability an answer must reach to count. An answer below it reads as `undefined`.                                                            |
+| Option        | Steps                | Meaning                                                                                                                                            |
+| ------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `label`       | all                  | Display name shown by `gtd next` and viewers.                                                                                                      |
+| `file`        | all                  | The step's steering file, a repository path under `.gtd/`.                                                                                         |
+| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, or a name declared under `.gtdrc` `modes:`. An unknown name is a load error.                             |
+| `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                         |
+| `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                 |
+| `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                          |
+| `skills`      | `agent`              | Skill names prepended to the prompt through the `skillsPreamble` var. Blank means no preamble.                                                     |
+| `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).            |
+| `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit. |
+| `base`        | all                  | The commit this step reviews changes since — what `gtd base` prints while the process rests here. Without it, the process's `start()`.             |
 
 ### Branching: helpers read the tree the last step left
 
@@ -127,23 +123,26 @@ Flow code decides what happens next with ordinary `if`/`while`/`for` over pure
 helpers. Every helper reads **the commit replay stands on** — the tree the last
 landed step left — never the live working tree:
 
-- `exists(path)`, `read(path)` (`undefined` when absent), `glob(pattern)` (`*`
-  stays inside one path segment, `**` crosses them)
-- `changed(glob?)`, `added(glob?)`, `modified(glob?)`, `deleted(glob?)` — paths
-  the last step's commit touched, optionally filtered by a glob
-- `sections(pathOrText)` — the top-level `## ` headings of a markdown file (or
-  of literal text when no such path exists)
-- `tail(pathOrText, share)` — the end of a file, cut on a line boundary and
-  bounded to `share` (a fraction, `0 < share <= 1`) of the `judgeBudgetBytes`
-  var. All `tail` calls between two steps share one budget; asking for more than
-  the whole of it fails the step
-- `history.previous(path, { since: step })` — `path` as the previous completion
-  of `step` left it, `undefined` before a second completion
+- `read(path)` — a file's content, `undefined` when absent
+- `glob(pattern)` — every path matching `pattern` (`*` stays inside one path
+  segment, `**` crosses them)
+- `changes(glob?)` — what the last step changed, optionally only the paths
+  matching a glob: one `{ path, status, before, after }` per path, where
+  `status` is `"added"`, `"modified"` or `"deleted"` and `before`/`after` are
+  the content on either side (`undefined` on the side where the path is absent).
+  The list also has `paths` and `get(path)`. A landing that changed nothing
+  yields an empty list
+- `sections(text)` — the top-level `## ` headings of markdown `text`
+- `openQuestions(text)` — the unanswered questions of a `qa` document, each
+  `{ question, line }`
 - `vars` — the merged variables (see [Variables](#variables))
-- `refs` — commit hashes a prompt can name for an agent to inspect itself:
-  `refs.start` (the process's diff base), `refs.head` (the commit the process
-  rests on), `refs.reviewBase` (the review window's base), `refs.processBase`
-  (the parent of the process's first commit)
+- `head()` — the commit the process stands on at this point of the flow;
+  `start()` — the process's diff base. Name them in a prompt for an agent to
+  inspect a range itself
+
+Flow code is plain code, so it can also keep what it needs across steps in local
+variables — a counter, the previous round's report, the commit a review round
+started at — since replay re-runs it over the same history every time.
 
 ```ts
 await agent("build", "Implement .gtd/PLAN.md.")
@@ -152,29 +151,30 @@ while (true) {
     "check",
     `${vars.testCommand} > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md`,
   )
-  if (!exists(".gtd/FEEDBACK.md")) break
+  if (read(".gtd/FEEDBACK.md") === undefined) break
   await agent("fix", "Fix what .gtd/FEEDBACK.md reports, then delete it.", {
     file: ".gtd/FEEDBACK.md",
   })
+  if (changes(".gtd/FEEDBACK.md").get(".gtd/FEEDBACK.md")?.status === "deleted")
+    continue
+  refuse("fix: delete .gtd/FEEDBACK.md once it is addressed")
 }
 ```
 
 ### Composition
 
-- `scope(prefix, fn)` — prefixes every step name reached inside `fn` with
-  `prefix.`, so `scope("build", () => agent("fix", …))` is the step `build.fix`.
-  Scopes nest. The prefix is also the step's **memory scope**: agent steps in
-  one scope share one agent conversation (a driver resumes it through
-  `gtd next --json`'s `session`), and every agent step in one scope must run
-  with the same `model` and `system` — a mismatch fails the process, since one
-  scope is one conversation. Steps with no prefix share the `root` scope.
-- `persona({ model, system }, fn)` — every agent step inside `fn` gets this
-  `model`/`system` unless it sets its own.
+- `scope(name, fn)` — prefixes every step name reached inside `fn` with `name.`,
+  so `scope("build", () => agent("fix", …))` is the step `build.fix`. Scopes
+  nest. The prefix is also the step's **memory scope**: agent steps in one scope
+  share one agent conversation (a driver resumes it through `gtd next --json`'s
+  `session`), and every agent step in one scope must run with the same `model`
+  and `system` — a mismatch fails the process, since one scope is one
+  conversation. Steps with no prefix share the `root` scope.
+  `scope({ name, model, system }, fn)` also gives every agent step inside `fn`
+  that `model`/`system` unless it sets its own; `name` is optional there.
 - `refuse(message)` — refuse the pending landing: nothing lands, `gtd land`
-  exits 1 with `message`, and the process stays where it rests. Use it when a
-  turn left something none of the flow's branches explains.
-- `stepName(name)` — the full name `name` gets where it is called, with every
-  enclosing scope applied (useful in a script that greps commit subjects).
+  exits 1 with `message`, and the process stays where it rests. Call it right
+  after a step whose turn left something the flow does not accept.
 
 Plain TypeScript functions that await steps compose like any other code — this
 is how the reusable fragments below are written.
@@ -191,35 +191,58 @@ strands every process resting on the old name.
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | `green(name, check)`              | `name`                                                                                                                                         | `true` unless the run wrote `.gtd/FEEDBACK.md` |
 | `healthy({ texts, fix, cap, … })` | `health.check`, `health.judge`, plus `escalation`'s                                                                                            | once the suite is green                        |
-| `escalation(texts)`               | `health.escalate`, `health.describe`, `health.stop`, `health.exhausted`                                                                        | once a person has handled the escalation       |
+| `escalation(texts, count)`        | `health.describe`, `health.stop`, `health.exhausted`                                                                                           | once a person has handled the escalation       |
 | `entryGate(texts)`                | `check`, `blocked`                                                                                                                             | once the suite is green                        |
 | `questionGate(texts)`             | `gate.check`, `gate.answer`                                                                                                                    | `true` when a person answered open questions   |
 | `designLoop(name, author, gate)`  | `name`, plus `questionGate`'s                                                                                                                  | once no open question is left                  |
-| `specReview(texts)`               | `spec.pre`, `spec.scoping`, `spec.review`                                                                                                      | `true` when the package is approved            |
+| `specReview(texts)`               | `spec.pre`, `spec.review`                                                                                                                      | `true` when the package is approved            |
 | `packageQueue(texts, options)`    | `picking`, `item.building`, `item.fix-suite`, `item.fix-spec`, `item.closing`, …                                                               | once `.gtd/packages/` is drained               |
 | `qualityLap(texts)`               | `quality.seeding`, `quality.picking`, `quality.reviewing`                                                                                      | `"clean"` or `"findings"`                      |
-| `reviewTail(texts)`               | `review.reviewing`, `review.await-review`, `review.deciding`, `review.review-missing`, `review.triage`, `review.triaging`, `review.collecting` | `"signoff"` or `"feedback"`                    |
-| `noMatch(name, expected)`         | —                                                                                                                                              | refuses the landing, naming what was expected  |
+| `reviewTail(texts, base)`         | `review.reviewing`, `review.await-review`, `review.deciding`, `review.review-missing`, `review.triage`, `review.triaging`, `review.collecting` | `{ verdict: "signoff" }` or the feedback round |
+
+Three checks refuse a turn from flow code, called right after the step whose
+turn they check:
+
+- `requireProgress(file)` — refuses a turn that deleted `file` without changing
+  any code, unless the deleted content starts with `NOTHING ACTIONABLE`
+- `requireAnswers(file)` — refuses a turn that changed something while a
+  question in the `qa` document `file` is still unanswered. A turn that changes
+  nothing is accepted
+- `requireRevert(edited, base)` — refuses a turn that left any of the `edited`
+  changes differing from their content before them
 
 Call a fragment inside `scope()` to place it: the bundled workflow's
 `scope("build", …)` around `healthy` is what makes `build.health.check`.
 
 ### Judges
 
-`judge(name, question, evidence, opts)` asks one question and resolves to its
-recorded answer (a string) or `undefined`.
-`judge(name, [q1, q2], evidence, opts)` asks several and resolves to
-`{ [id]: { answer, p } }` holding every answer that cleared `opts.minP`. A
-question is `{ id, primitive, instructions, criteria }`, where `primitive` is
-`noul` (yes/no, read back as `"yes"`/`"no"`), `choice`, or `score` (read back as
-its decimal string). `evidence` is any JSON value the judge sees as its `state`
-— build it from `read`/`tail`/`sections`, never from anything the working tree
-holds uncommitted.
+`judge(name, { questions, evidence, message?, label? })` asks one or more
+questions and resolves to `{ answers, truncated }`. A question is
+`{ id, primitive, instructions, criteria }`, where `primitive` is `noul`
+(yes/no, read back as `"yes"`/`"no"`), `choice`, or `score` (read back as its
+decimal string). `evidence` is what the judge sees as its `state`: an object of
+strings, built from `read`/`sections`/`changes`, never from anything the working
+tree holds uncommitted. The `judgeBudgetBytes` var is split evenly across its
+keys; a value over its share keeps its end, cut on a line boundary.
+
+`answers` holds one `{ answer, p }` per question id, or `undefined` for a
+question the verdict left out. `truncated` lists the evidence keys the budget
+cut. The flow decides what an answer means with plain comparisons:
+
+```ts
+const { answers, truncated } = await judge("same", {
+  questions: [{ id: "verdict", primitive: "choice", instructions, criteria }],
+  evidence: { current, previous },
+})
+const verdict = answers.verdict
+const stuck =
+  truncated.length === 0 && verdict?.answer === "identical" && verdict.p >= 0.9
+```
 
 gtd never calls a model. The rest is a `message` whose `gtd next --json` `judge`
 field carries the questions; `gtd judge answer` records a verdict as
 `Gtd-Judge:` trailers (see [the CLI reference](./cli.md#commands)). Landing with
-no verdict resolves every answer to `undefined`, so write the flow so that
+no verdict leaves every answer `undefined`, so write the flow so that
 `undefined` takes the conservative branch.
 
 ### Landing rules
@@ -241,8 +264,6 @@ What a `gtd land` does depends on the step and on whether the tree changed:
   can do by running it again.
 - **The flow calls `refuse(message)`** while replaying the pending turn — the
   landing is refused, `gtd land` exits 1, and nothing lands.
-- **A guard option says no** (`requireProgress`, `answerGate`, `requireRevert`)
-  — refused the same way.
 
 ### Entries
 
@@ -254,7 +275,7 @@ the process's opening commit, so every later command replays the flow with the
 same `entry`.
 
 `base(entry, vars)` in the options may return a commitish that fixes the new
-process's diff base (`refs.start`), or `undefined` for none. It runs when the
+process's diff base (`start()`), or `undefined` for none. It runs when the
 process is entered, with the `--var` values:
 
 ```ts
@@ -317,8 +338,8 @@ and code at the module's top level are exempt — they may do anything.
   filesystem access in flow code. Read the tree through the helpers; do IO
   inside a `run()` body. gtd cannot see this mistake up front: a flow that
   branches on something other than history shows up later as a divergence.
-- **Await only steps**: a flow may `await` a step, `scope()`, `persona()`, or a
-  function that itself awaits steps. Awaiting anything else fails the replay:
+- **Await only steps**: a flow may `await` a step, `scope()`, or a function that
+  itself awaits steps. Awaiting anything else fails the replay:
   `the flow awaited something that is not a step`.
 - **Unique names**: one step name per call site; call a shared helper from two
   places inside two different `scope()`s. Two call sites sharing a name read as
@@ -457,14 +478,15 @@ unformatted steering file — `gtd land` itself does not stop it.
 
 A mode's `format:` command may reformat a steering file — whitespace, wrapping,
 reordering — but must NEVER change what a landing guard would decide. gtd's
-guards (`requireProgress`, `answerGate`, `requireRevert`, and the review-file
-checks) decide once, against whichever bytes are on disk at the moment
-`gtd land` runs — which may be before OR after a driver's own separate `format:`
-run. That is only safe because every built-in guard judges only the content it
-explicitly cares about, not incidental formatting around it. If you plug in your
-own `format:` command, the same rule binds it: a formatter that also changes
-meaning — stripping a paragraph a guard reads — makes the guard's decision and
-the file's actual content disagree, and gtd will not catch that for you.
+checks (`requireProgress`, `requireAnswers`, `requireRevert`, and the
+review-file checks) decide once, against whichever bytes are on disk at the
+moment `gtd land` runs — which may be before OR after a driver's own separate
+`format:` run. That is only safe because every built-in guard judges only the
+content it explicitly cares about, not incidental formatting around it. If you
+plug in your own `format:` command, the same rule binds it: a formatter that
+also changes meaning — stripping a paragraph a guard reads — makes the guard's
+decision and the file's actual content disagree, and gtd will not catch that for
+you.
 
 #### A missing binary in `format:`/`validate:` fails loudly, before it runs
 
@@ -612,10 +634,9 @@ or `GTD_<NAME>`:
 - **`architectureSkipMinP`** (`0.85`) — the confidence `architecture-pre`'s "no
   architecture pass needed" answer needs before a plan skips straight to one
   package. Blank means the full architecture pass always runs.
-- **`judgeBudgetBytes`** (`32768`) — the total byte budget `tail()` divides
-  across one step's inlined judge evidence. Must be a positive integer; blank,
-  zero, negative or fractional values fail the step rather than disabling the
-  bound.
+- **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
+  judge step's evidence keys. Must be a positive integer; blank, zero, negative
+  or fractional values fail the step rather than disabling the bound.
 - **`qualityReviews`** (`owasp-security, code-simplification`) — the quality lap
   `build.quality` runs ahead of the human review, one comma-separated skill per
   turn. Every round pays for it, so extend the list only as far as that is worth
@@ -662,8 +683,8 @@ output plus a HEAD stamp), `.gtd/NEXT.md` (a bare path), and
 ### Escalation
 
 A red suite that stays red past three fix turns — or that `health.judge` calls
-"identical" to the previous round — escalates instead of retrying forever. The
-`health.escalate` script counts escalation rounds from git history:
+"identical" to the previous round — escalates instead of retrying forever,
+counting escalation rounds since the last green check:
 
 - **Under 2 rounds** — an agent turn at `health.describe` reads
   `.gtd/FEEDBACK.md`, `.gtd/PRIOR_FEEDBACK.md` when present, and the code the
@@ -672,14 +693,13 @@ A red suite that stays red past three fix turns — or that `health.judge` calls
   process then waits at the human gate `health.stop`: edit the file or land it
   untouched — either way it becomes the next fix turn's primary instruction.
 - **At 2 or more rounds** — no third document is written. The last
-  `.gtd/ESCALATION.md` is restored and the process waits at `health.exhausted`,
-  naming both that file and `.gtd/FEEDBACK.md`. Editing the document there is
-  what gives the next attempt anything new to try; landing it untouched tries
-  the same analysis again.
+  `.gtd/ESCALATION.md` stays in place and the process waits at
+  `health.exhausted`, naming both that file and `.gtd/FEEDBACK.md`. Editing the
+  document there is what gives the next attempt anything new to try; landing it
+  untouched tries the same analysis again.
 
-A round is one landed `health.describe` turn since the last green check (the
-only thing that deletes `.gtd/ESCALATION.md`); editing the file at the human
-gate never spends one. Both gates release straight into the caller's fix step
-(`build.fix` or `packages.item.fix-suite`), so the turn that consumes the
-document is the very next one. `.gtd/ESCALATION.md` is free-form prose with no
-mode of its own.
+A round is one `health.describe` turn since the last green check; editing the
+file at the human gate never spends one. Both gates release straight into the
+caller's fix step (`build.fix` or `packages.item.fix-suite`), so the turn that
+consumes the document is the very next one. `.gtd/ESCALATION.md` is free-form
+prose with no mode of its own.

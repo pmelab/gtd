@@ -14,7 +14,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changed, deleted, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, run, workflow } from "@pmelab/gtd/flows"
 
       const pick = `next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
       if [ -n "$next" ]; then
@@ -31,8 +31,8 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
         for (;;) {
           await run("picking", pick)
           // The empty-queue check comes first: a deletion is also a change to NEXT.md.
-          if (deleted(".gtd/NEXT.md").length > 0 || changed().length === 0) break
-          if (changed(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
+          if (changes(".gtd/NEXT.md").some((c) => c.status === "deleted") || changes().length === 0) break
+          if (changes(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
           await agent("building", "Implement the task named in .gtd/NEXT.md, then delete that task file.")
         }
         await human("done", { message: "tasks complete" })
@@ -90,7 +90,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changed, deleted, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, run, workflow } from "@pmelab/gtd/flows"
 
       const pick = `next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
       if [ -n "$next" ]; then
@@ -107,8 +107,8 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
         for (;;) {
           await run("picking", pick)
           // The empty-queue check comes first: a deletion is also a change to NEXT.md.
-          if (deleted(".gtd/NEXT.md").length > 0 || changed().length === 0) break
-          if (changed(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
+          if (changes(".gtd/NEXT.md").some((c) => c.status === "deleted") || changes().length === 0) break
+          if (changes(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
           await agent("building", "Implement the task named in .gtd/NEXT.md, then delete that task file.")
         }
         await human("done", { message: "tasks complete" })

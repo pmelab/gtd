@@ -13,7 +13,7 @@ Feature: the return-lap stop is the human's silence, not a round cap
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, requireAnswers, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         for (;;) {
@@ -22,9 +22,9 @@ Feature: the return-lap stop is the human's silence, not a round cap
             message: "Answer the open questions.",
             file: ".gtd/TODO.md",
             mode: "qa",
-            answerGate: true,
             acceptClean: true,
           })
+          requireAnswers(".gtd/TODO.md")
         }
       })
       """

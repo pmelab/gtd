@@ -134,17 +134,13 @@ export const architecturePromoteScript = (): string =>
   `#!/usr/bin/env sh
 set +e
 # \`architecture-pre\`'s judged "no" was answered against a
-# \`it.tail(".gtd/REQUIREMENTS.md", 1)\`-bound payload — a plan over
-# judgeBudgetBytes can have structural concerns cut away from the
+# judgeBudgetBytes-bound payload — a plan over the budget can have
+# structural concerns cut away from the
 # TOP before the judge ever saw them, and still clear
 # architectureSkipMinP confidently. The truncation is refused
 # here, however confident that "no" was: on a truncated landing
-# commit, this script does nothing at all — no \`it.sections\`
-# heading rescue is attempted, since a fence straddling the cut
-# boundary can mis-parse as a top-level heading (the same hazard
-# \`packages.item.spec.pre\`/\`build.review.triage\` avoid the same
-# way) — and the clean tree makes the "C" row below reachable,
-# routing to the full architecture pass instead of a false
+# commit, this script does nothing at all, and the clean tree
+# routes to the full architecture pass instead of a false
 # promotion.
 if git log -1 --format=%B HEAD | grep -q 'Gtd-Payload: {"truncated":true}'; then
   exit 0
@@ -490,7 +486,7 @@ export const packagesItemClosingScript = (): string =>
 set +e
 pkg=$(cat .gtd/NEXT.md 2>/dev/null)
 [ -n "$pkg" ] && rm -f "$pkg"
-rm -f .gtd/SPEC_FEEDBACK.md .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md .gtd/NEXT.md .gtd/SATISFIED.md
+rm -f .gtd/SPEC_FEEDBACK.md .gtd/NEXT.md .gtd/SATISFIED.md
 `
 
 export const healthCheckScript = (): string =>
@@ -586,7 +582,8 @@ never suppresses anything).
 const specScope = (failing: readonly string[]): string =>
   failing.length > 0
     ? `- A pre-judge already found the other sections satisfied. Confine
-  your review to only these sections: ${failing.map((title) => `- ${title}\n`).join("")}`
+  your review to only these sections:
+${failing.map((title) => `  - ${title}\n`).join("")}`
     : ""
 
 export const packagesItemSpecReviewPrompt = (failing: readonly string[] = []): string =>

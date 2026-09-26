@@ -188,12 +188,12 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, persona, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, scope, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
         async () => {
           await human("idle", { message: "start" })
-          await persona({ model: vars.reviewModel }, () => agent("working", "do the work"))
+          await scope({ model: vars.reviewModel }, () => agent("working", "do the work"))
         },
         { vars: { reviewModel: "opus" } },
       )

@@ -50,55 +50,62 @@ it in place.
 
 Prefer the **fragments** `@pmelab/gtd/flows` exports over re-implementing them —
 `green`, `healthy`, `escalation`, `entryGate`, `questionGate`, `designLoop`,
-`specReview`, `packageQueue`, `qualityLap`, `reviewTail`, `noMatch`. Each takes
-its texts, caps and callbacks as arguments and never reads `vars`. Their step
-names are versioned API; `docs/configuration.md` lists them.
+`specReview`, `packageQueue`, `qualityLap`, `reviewTail`. Each takes its texts,
+caps and callbacks as arguments and never reads `vars`. Their step names are
+versioned API; `docs/configuration.md` lists them.
 
 Make one small change, **verify it loads** (see "Verify"), then make the next. A
 workflow that fails to load breaks every gtd command in the repository.
 
 ## The step API
 
-| Call                                     | Actor   | Rest content | Resolves to                                               |
-| ---------------------------------------- | ------- | ------------ | --------------------------------------------------------- |
-| `agent(name, prompt, opts?)`             | `agent` | `prompt`     | `void`, once an agent turn landed                         |
-| `human(name, opts?)`                     | `human` | `message`    | `void`, once a person landed                              |
-| `run(name, body, opts?)`                 | `check` | `script`     | `void`, once the run's tree landed                        |
-| `judge(name, question, evidence, opts?)` | `judge` | `message`    | the answer string, or `undefined`                         |
-| `judge(name, [q, …], evidence, opts?)`   | `judge` | `message`    | `{ [id]: { answer, p } }` for answers that cleared `minP` |
-| `restart(name)`                          | —       | —            | never: ends the episode from any depth                    |
+| Call                         | Actor   | Rest content | Resolves to                            |
+| ---------------------------- | ------- | ------------ | -------------------------------------- |
+| `agent(name, prompt, opts?)` | `agent` | `prompt`     | `void`, once an agent turn landed      |
+| `human(name, opts?)`         | `human` | `message`    | `void`, once a person landed           |
+| `run(name, body, opts?)`     | `check` | `script`     | `void`, once the run's tree landed     |
+| `judge(name, spec)`          | `judge` | `message`    | `{ answers, truncated }`               |
+| `restart()`                  | —       | —            | never: ends the episode from any depth |
 
 - `run` body: a POSIX `sh` string the driver runs verbatim, or a callback
   `async ({ sh, fs }) => …` that `gtd exec` runs (the beat is a one-line script
   calling `gtd exec`). A throwing callback makes `gtd exec` exit 1; the tree it
   left still lands. **A run's outcome is what it leaves in the tree** — read it
-  back with the helpers.
-- `judge` questions are
-  `{ id, primitive: "noul" | "choice" | "score", instructions, criteria }`. A
-  `noul` reads back as `"yes"`/`"no"`. Landing with no verdict gives `undefined`
-  — make `undefined` take the conservative branch.
+  back with `changes()` and `read()`.
+- `judge` takes `{ questions, evidence, message?, label? }`. Questions are
+  `{ id, primitive: "noul" | "choice" | "score", instructions, criteria }`;
+  `evidence` is an object of strings, the `judgeBudgetBytes` var split evenly
+  across its keys. It resolves to `answers` — one `{ answer, p }` per question
+  id (a `noul` reads back as `"yes"`/`"no"`), `undefined` when the verdict left
+  it out — and `truncated`, the evidence keys the budget cut. Compare answers
+  with plain `if`s; landing with no verdict leaves every answer `undefined`, so
+  make `undefined` take the conservative branch.
 - A person or a driver sees a rest as one of the five content kinds `capture` (a
   dirty tree at a human step), `message`, `script`, `prompt`, `stalled`. Every
   step you add must fit one of them; there is no sixth.
 
 Options (all optional): `label`, `file` (a `.gtd/` path), `mode` (needs `file`;
 `qa`, `review`, or a `.gtdrc` `modes:` name), `message` (human/judge), `model`,
-`system`, `skills` (agent), `allowEmpty` (agent), `acceptClean` (human),
-`requireProgress`, `answerGate`, `requireRevert`, `reviewBase`, `minP` (judge).
+`system`, `skills` (agent), `allowEmpty` (agent), `acceptClean` (human), `base`
+(the commit the step reviews since — what `gtd base` prints).
 
 Helpers — pure reads of the commit replay stands on (the tree the last step
-left, never the live working tree): `exists`, `read`, `glob`,
-`changed(glob?)`/`added`/`modified`/`deleted` (what the last step's commit
-touched), `sections(path)` (`## ` headings), `tail(path, share)` (bounded by the
-`judgeBudgetBytes` var), `history.previous(path, { since })`, `vars`, `refs`
-(`start`, `head`, `reviewBase`, `processBase`).
+left, never the live working tree): `read(path)`, `glob(pattern)`,
+`changes(glob?)` (what the last step changed: `{ path, status, before, after }`
+per path, `status` one of `"added"`/`"modified"`/`"deleted"`, plus `paths` and
+`get(path)`), `sections(text)` (`## ` headings), `openQuestions(text)` (a `qa`
+document's unanswered questions), `vars`, `head()` (the commit the flow stands
+on) and `start()` (the process's diff base). State a flow needs across steps — a
+counter, the previous report, a review round's base — lives in local variables;
+replay rebuilds them.
 
-Composition: `scope(prefix, fn)` prefixes step names (`build.fix`) and sets
-their **memory scope** (one scope = one agent conversation = one model/system —
-mixing personas inside a scope fails the process);
-`persona({ model, system }, fn)` sets defaults for agent steps inside;
-`refuse(message)` refuses the pending landing; `stepName(name)` returns the
-scoped name.
+Composition: `scope(name, fn)` prefixes step names (`build.fix`) and sets their
+**memory scope** (one scope = one agent conversation = one model/system — mixing
+them inside a scope fails the process); `scope({ name?, model, system }, fn)`
+also sets defaults for agent steps inside. `refuse(message)` refuses the pending
+landing — call it right after the step whose turn you reject. The fragments
+export `requireProgress(file)`, `requireAnswers(file)` and
+`requireRevert(edited, base)`, three such checks ready-made.
 
 ## Names, commits and history
 
@@ -125,8 +132,8 @@ scoped name.
   `acceptClean: true`, which makes "change nothing" mean "accept as-is".
 - **Run landed a clean tree** → the step completes; if replay comes straight
   back to the same step, the landing is **settled** (the driver stops).
-- **Nothing the flow branches on explains the turn** → call `refuse(message)`
-  (or the `noMatch` fragment): nothing lands, `gtd land` exits 1.
+- **Nothing the flow branches on explains the turn** → call `refuse(message)`:
+  nothing lands, `gtd land` exits 1.
 
 Branch on what the step left, not on who acted:
 
@@ -135,7 +142,7 @@ await run(
   "check",
   `${vars.testCommand} > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md`,
 )
-if (exists(".gtd/FEEDBACK.md")) {
+if (read(".gtd/FEEDBACK.md") !== undefined) {
   await agent("fix", "Fix what .gtd/FEEDBACK.md reports, then delete it.", {
     file: ".gtd/FEEDBACK.md",
   })
@@ -156,8 +163,8 @@ when replay runs, as an error or, for nondeterminism, as a divergence later.
 - No IO or nondeterminism in flow code — no clock, randomness, environment,
   network or filesystem. Read the tree through the helpers; do IO inside a
   `run()` body.
-- Await only a step, `scope()`, `persona()`, or a function that steps. Anything
-  else fails with `the flow awaited something that is not a step`.
+- Await only a step, `scope()`, or a function that steps. Anything else fails
+  with `the flow awaited something that is not a step`.
 - One call site per step name — wrap a reused helper in two different
   `scope()`s.
 - No `try`/`catch` around a step: `restart()` and refusals travel as exceptions.

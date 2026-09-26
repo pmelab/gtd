@@ -39,11 +39,11 @@ Feature: gtd install — the driver-building briefing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, persona, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
-        await persona({ model: "smart" }, () =>
+        await scope({ model: "smart" }, () =>
           agent("working", "do the work described in NOTE.md", {
             label: "Doing the work",
             file: ".gtd/PLAN.md",

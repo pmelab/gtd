@@ -1,8 +1,8 @@
 Feature: gtd base — prints the review anchor hash, writing nothing
 
   `gtd base` prints the review base bare and newline-terminated —
-  the most-recent in-process commit that entered a `reviewBase: true` step, or the
-  process's diff base when none has landed yet. It exists so an external
+  the `base` the resting step names, or the process's diff base when it
+  names none. It exists so an external
   tool (a diff, a PR tool, another agent) can be pointed at the range under
   review; gtd never reads the result back. Shaped exactly like `summary`:
   one `Rest` resolved, nothing written. It refuses (exit 1) when no process
@@ -14,23 +14,26 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, changed, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, head, human, refuse, start, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
+        let base = start()
         for (;;) {
-          await agent("building", "build it")
+          await agent("building", "build it", { base })
           await human("awaiting-review", {
             label: "Awaiting your review",
             message: "leave FEEDBACK.md for changes, or touch SIGNOFF.md to sign off",
+            base,
           })
+          base = head()
           await human("deciding", {
-            reviewBase: true,
+            base,
             acceptClean: true,
             message: "sign off (clean tree) or send back for changes",
           })
-          if (added("FEEDBACK.md").length > 0) continue
-          if (changed().length === 0) return
+          if (changes("FEEDBACK.md").some((c) => c.status === "added")) continue
+          if (changes().length === 0) return
           refuse("deciding: add FEEDBACK.md or land a clean tree")
         }
       })

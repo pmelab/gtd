@@ -117,9 +117,10 @@ spins. _Avoid_: done, finished, idle
 **Gate**: A human step — the process rests there until a person acts. _Avoid_:
 checkpoint, approval, the bare "the gate"
 
-**Guard**: A step option that refuses a landing before anything is captured
-(`requireProgress`, `answerGate`, `requireRevert`). The opposite of a gate: a
-gate waits for someone, a guard turns them away.
+**Guard**: A check in flow code that refuses a turn right after the step that
+took it (`requireProgress`, `requireAnswers`, `requireRevert`, or any
+`refuse()`). The opposite of a gate: a gate waits for someone, a guard turns
+them away.
 
 **Steering file**: A file a step declares via `file` (+ `mode`) — how a human or
 an agent steers the process by editing prose rather than talking to it. _Avoid_:
@@ -160,8 +161,8 @@ always re-derives the same id (`gtd next --json`'s
 conversation across turns in one scope. The one place "session" is the right
 word — the _Avoid_ on **Memory scope** stands.
 
-**Review base**: The commit a review is measured against — the commit entering
-the last step that set `reviewBase`, falling back to the process start.
+**Review base**: The commit a review is measured against — the `base` the
+resting step names, falling back to the process start.
 
 **Retained history**: A rewound process's turn-by-turn commits, kept behind a
 ref so `gtd restore` can bring them back — written only when `gtd abandon`

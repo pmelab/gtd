@@ -1,17 +1,13 @@
 #!/usr/bin/env sh
 set +e
 # `architecture-pre`'s judged "no" was answered against a
-# `it.tail(".gtd/REQUIREMENTS.md", 1)`-bound payload — a plan over
-# judgeBudgetBytes can have structural concerns cut away from the
+# judgeBudgetBytes-bound payload — a plan over the budget can have
+# structural concerns cut away from the
 # TOP before the judge ever saw them, and still clear
 # architectureSkipMinP confidently. The truncation is refused
 # here, however confident that "no" was: on a truncated landing
-# commit, this script does nothing at all — no `it.sections`
-# heading rescue is attempted, since a fence straddling the cut
-# boundary can mis-parse as a top-level heading (the same hazard
-# `packages.item.spec.pre`/`build.review.triage` avoid the same
-# way) — and the clean tree makes the "C" row below reachable,
-# routing to the full architecture pass instead of a false
+# commit, this script does nothing at all, and the clean tree
+# routes to the full architecture pass instead of a false
 # promotion.
 if git log -1 --format=%B HEAD | grep -q 'Gtd-Payload: {"truncated":true}'; then
   exit 0

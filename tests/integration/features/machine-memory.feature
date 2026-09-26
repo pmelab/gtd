@@ -91,9 +91,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout does not contain "\"memory\""
 
     # Two identical red rounds: the judge calls the second one "identical",
-    # escalating ahead of the fix cap. build.health.escalate is the
-    # round-counting `check` gate, not a human rest — still no memory field,
-    # same as build.health.check above.
+    # escalating ahead of the fix cap.
     Given a file ".gtd/FEEDBACK.md" with:
       """
       test failed again: widget() still returns undefined
@@ -110,19 +108,14 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       test failed again: widget() still returns undefined
       """
     And gtd lands "gtd(check): build.health.check → build.health.judge"
-    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+    And gtd lands "gtd(judge): build.health.judge → build.health.describe" judging:
       """
       [{"id": "verdict", "answer": "identical", "p": 0.95}]
       """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.health.escalate\""
-    And stdout does not contain "\"memory\""
 
     # build.health.describe is a real `prompt` state — its own memory key,
     # scoped to build.health (the healthGate instance), distinct from
     # build.fix's own "build"-scoped key recorded above.
-    Given gtd lands "gtd(check): build.health.escalate → build.health.describe"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.health.describe\""
@@ -193,8 +186,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.spec.review\""
@@ -256,8 +248,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     # A clean review turn is the approval.
     And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
     And the file ".gtd/packages/01-widget.md" is deleted
@@ -416,8 +407,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout matches "\"memory\":\"packages\.item\.spec#[0-9a-f]{7}\""
@@ -605,8 +595,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
     And the file ".gtd/packages/01-doc-comment.md" is deleted
     And the file ".gtd/NEXT.md" is deleted
@@ -720,8 +709,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
     And the file ".gtd/packages/01-doc-comment.md" is deleted
     And the file ".gtd/NEXT.md" is deleted
@@ -984,8 +972,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
     And the file ".gtd/packages/01-widget.md" is deleted
     And the file ".gtd/NEXT.md" is deleted

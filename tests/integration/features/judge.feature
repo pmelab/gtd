@@ -8,8 +8,8 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
   `judge()` step.
 
   The human fallback: a judge step is an ordinary `message` rest. Landing it
-  with no `gtd judge answer` ever run resolves the `judge()` call to
-  `undefined` — the flow's conservative branch — and carries no `Gtd-Judge:`
+  with no `gtd judge answer` ever run resolves the `judge()` call with every
+  answer `undefined` — the flow's conservative branch — and carries no `Gtd-Judge:`
   trailer, which is the only signal telling a skipped judgment apart from one
   answered conservatively.
 
@@ -21,7 +21,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       import { agent, judge, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
-        await judge("idle", { id: "q1", primitive: "noul", instructions: "i", criteria: "c" }, "idle", {
+        await judge("idle", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "idle" },
           message: "hi",
         })
         await agent("working", "go")
@@ -53,7 +55,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       import { agent, judge, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
-        await judge("idle", { id: "q1", primitive: "noul", instructions: "i", criteria: "c" }, "idle", {
+        await judge("idle", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "idle" },
           message: "hi",
         })
         await agent("working", "go")
@@ -73,7 +77,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       import { agent, judge, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
-        await judge("idle", { id: "q1", primitive: "noul", instructions: "i", criteria: "c" }, "idle", {
+        await judge("idle", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "idle" },
           message: "hi",
         })
         await agent("working", "go")
@@ -94,7 +100,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       import { agent, judge, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
-        await judge("idle", { id: "q1", primitive: "noul", instructions: "i", criteria: "c" }, "idle", {
+        await judge("idle", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "idle" },
           message: "hi",
         })
         await agent("working", "go")
@@ -116,15 +124,12 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "do the work described in NOTE.md")
-        await judge(
-          "review",
-          { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-          "review",
-          {
-            message:
-              "run `gtd judge answer` and paste a verdict, or land with a clean tree to accept the conservative default",
-          },
-        )
+        await judge("review", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "review" },
+          message:
+            "run `gtd judge answer` and paste a verdict, or land with a clean tree to accept the conservative default",
+        })
         await agent("conservative", "the conservative path")
       })
       """
@@ -147,7 +152,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     # Land the judge rest with a clean tree and no `gtd judge answer` ever
     # run — no `Gtd-Judge:` trailer exists anywhere in this process's
     # history, so this is the SKIPPED case, not one answered conservatively.
-    # The judge call resolves to undefined and the flow continues on its
+    # The judge call's answers are all undefined and the flow continues on its
     # conservative path.
     When I run gtd land
     Then it succeeds
@@ -155,7 +160,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     And the last commit body does not contain "Gtd-Judge:"
 
   # The judged-retry shape: a red check reaches the `judge` step only once a
-  # PRIOR round exists; an "identical" verdict clearing minP escalates, any
+  # PRIOR round exists; an "identical" answer at p >= 0.5 escalates, any
   # other answer (or none) falls through to the fix step, and a plain loop
   # counter caps the fix rounds. Both scenarios below share this workflow.
   @inmem
@@ -163,9 +168,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, judge, modified, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, judge, read, run, workflow } from "@pmelab/gtd/flows"
 
-      const wrote = (path: string): boolean => added(path).length + modified(path).length > 0
+      const wrote = (path: string): boolean => changes(path).some((c) => c.status !== "deleted")
 
       export default workflow(async () => {
         await human("start", { message: "go" })
@@ -174,22 +179,24 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
           await run("checking", "npm test")
           let stuck = false
           if (wrote(".gtd/PRIOR_FEEDBACK.md")) {
-            const verdict = await judge(
-              "judge",
-              {
-                id: "verdict",
-                primitive: "choice",
-                instructions: "identical, new-failure, or progress",
-                criteria: "identical: same failure restated",
+            const { answers } = await judge("judge", {
+              questions: [
+                {
+                  id: "verdict",
+                  primitive: "choice",
+                  instructions: "identical, new-failure, or progress",
+                  criteria: "identical: same failure restated",
+                },
+              ],
+              evidence: {
+                current: read(".gtd/FEEDBACK.md") ?? "",
+                previous: read(".gtd/PRIOR_FEEDBACK.md") ?? "",
               },
-              "compare .gtd/FEEDBACK.md against .gtd/PRIOR_FEEDBACK.md",
-              {
-                message:
-                  "run `gtd judge answer` and paste a verdict, or land with a clean tree to retry the fix",
-                minP: 0.5,
-              },
-            )
-            stuck = verdict === "identical"
+              message:
+                "run `gtd judge answer` and paste a verdict, or land with a clean tree to retry the fix",
+            })
+            const verdict = answers.verdict
+            stuck = verdict?.answer === "identical" && verdict.p >= 0.5
           } else if (!wrote(".gtd/FEEDBACK.md")) {
             break
           }
@@ -245,7 +252,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Then it succeeds
     And the last commit subject is "gtd(check): checking → judge"
 
-    # The aware driver answers "identical" at p >= minP — the flow escalates
+    # The aware driver answers "identical" at p >= 0.5 — the flow escalates
     # immediately, even though its fix counter (cap 2) has room for another
     # round.
     When I run gtd judge answer with stdin:
@@ -261,9 +268,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, judge, modified, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, judge, read, run, workflow } from "@pmelab/gtd/flows"
 
-      const wrote = (path: string): boolean => added(path).length + modified(path).length > 0
+      const wrote = (path: string): boolean => changes(path).some((c) => c.status !== "deleted")
 
       export default workflow(async () => {
         await human("start", { message: "go" })
@@ -272,22 +279,24 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
           await run("checking", "npm test")
           let stuck = false
           if (wrote(".gtd/PRIOR_FEEDBACK.md")) {
-            const verdict = await judge(
-              "judge",
-              {
-                id: "verdict",
-                primitive: "choice",
-                instructions: "identical, new-failure, or progress",
-                criteria: "identical: same failure restated",
+            const { answers } = await judge("judge", {
+              questions: [
+                {
+                  id: "verdict",
+                  primitive: "choice",
+                  instructions: "identical, new-failure, or progress",
+                  criteria: "identical: same failure restated",
+                },
+              ],
+              evidence: {
+                current: read(".gtd/FEEDBACK.md") ?? "",
+                previous: read(".gtd/PRIOR_FEEDBACK.md") ?? "",
               },
-              "compare .gtd/FEEDBACK.md against .gtd/PRIOR_FEEDBACK.md",
-              {
-                message:
-                  "run `gtd judge answer` and paste a verdict, or land with a clean tree to retry the fix",
-                minP: 0.5,
-              },
-            )
-            stuck = verdict === "identical"
+              message:
+                "run `gtd judge answer` and paste a verdict, or land with a clean tree to retry the fix",
+            })
+            const verdict = answers.verdict
+            stuck = verdict?.answer === "identical" && verdict.p >= 0.5
           } else if (!wrote(".gtd/FEEDBACK.md")) {
             break
           }
@@ -349,7 +358,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
 
     # An unaware driver ignores the `judge` document, reads only the message,
     # and lands with a clean tree — no `gtd judge answer` ever ran, so the
-    # judge call resolves to undefined and the flow takes its conservative
+    # judge call's answers are undefined and the flow takes its conservative
     # branch: another fix round.
     When I run gtd land
     Then it succeeds
@@ -366,15 +375,12 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       import { human, judge, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
-        await judge(
-          "verdict",
-          { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-          "verdict",
-          {
-            message:
-              "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
-          },
-        )
+        await judge("verdict", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "verdict" },
+          message:
+            "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
+        })
         await human("done", { message: "chore: done" })
       })
       """
@@ -390,15 +396,12 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       import { human, judge, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
-        await judge(
-          "verdict",
-          { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-          "verdict",
-          {
-            message:
-              "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
-          },
-        )
+        await judge("verdict", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "verdict" },
+          message:
+            "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
+        })
         await human("done", { message: "chore: done" })
       })
       """
@@ -418,15 +421,12 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       import { human, judge, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
-        await judge(
-          "verdict",
-          { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-          "verdict",
-          {
-            message:
-              "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
-          },
-        )
+        await judge("verdict", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "verdict" },
+          message:
+            "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
+        })
         await human("done", { message: "chore: done" })
       })
       """

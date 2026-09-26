@@ -1,14 +1,11 @@
 Feature: build.health.judge/packages.item.health.judge never manufacture "identical" from two unusably-cut tails
 
-  `.gtd/packages/03-bundled-judge-gates.md` Requirement A: `it.tail`'s own
-  line-boundary bound can render `""` for a document whose last cut bytes
-  hold no full line — a single long unbroken failure line, a minified
-  reporter output, a big snapshot. Reading two such empty tails as proof the
-  round is unchanged would end the retry loop on evidence nobody saw. The
-  gate instead computes a guard from the UNBOUNDED reads and, when it fires,
-  replaces `current`/`previous` in `state` with a sentinel and forbids the
-  `identical` answer in `criteria` — the routing on the verdict is untouched,
-  so escalation still depends on the model's own verdict.
+  The judge budget's line-boundary cut can render `""` for a report whose
+  last bytes hold no full line, or leave two different reports looking
+  alike once their differing starts are cut away. Reading either as proof
+  the round is unchanged would end the retry loop on evidence nobody saw.
+  So an "identical" answer only escalates when the budget cut neither
+  report; otherwise the round goes on to the next fix.
 
   @inmem
   Scenario: a judgeBudgetBytes too small for either tail to keep a full line forbids identical instead of reading two empty strings as sameness
@@ -52,22 +49,23 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.health.judge"
 
-    # At `judgeBudgetBytes: 4`, `it.tail(path, 0.5)` keeps only the last 2
-    # bytes of either file — the stamp's own trailing `>\n` — which has no
-    # full line left in it, so both tails render "".
-    When I run gtd with args "judge"
+    # At `judgeBudgetBytes: 4`, each report keeps at most its last 2 bytes —
+    # no full line — so both render "".
+    When I run gtd judge answer with stdin:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
+      """
     Then it succeeds
-    And stdout contains "tailsNotComparable"
+    And the last commit subject is "gtd(judge): build.health.judge → build.fix"
 
-  # `.gtd/packages/02-judge-gate-soundness.md` Requirement "Matching tails can
-  # hide a health failure": two reports of EQUAL byte length that differ
-  # before the cut but match after it must not read as `identical` — the
-  # guard now compares the two WHOLE (stamp-stripped) reads, not their length.
+  # Two reports of EQUAL byte length that differ before the cut but match
+  # after it must not read as `identical`.
   @inmem
   Scenario: two equal-length reports that differ before the cut but match after it forbid identical instead of escalating on a false match
     Given a test project
     And the workflow
-    And an environment variable "GTD_JUDGEBUDGETBYTES" set to "90"
+    # 40 bytes across two reports keeps only each one's "shared tail line".
+    And an environment variable "GTD_JUDGEBUDGETBYTES" set to "40"
     And gtd enters "fix-precheck"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -103,9 +101,12 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.health.judge"
 
-    When I run gtd with args "judge"
+    When I run gtd judge answer with stdin:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
+      """
     Then it succeeds
-    And stdout contains "tailsNotComparable"
+    And the last commit subject is "gtd(judge): build.health.judge → build.fix"
 
   @inmem
   Scenario: two genuinely identical reports still reach the identical verdict and escalate
@@ -149,4 +150,4 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.escalate"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"

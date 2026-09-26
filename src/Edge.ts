@@ -331,7 +331,7 @@ const replayFor = (
       commits: episodeCommits(setup),
     },
     vars: setup.vars,
-    refs: { start: setup.run.diffBase, processBase: setup.run.startParentHash },
+    start: setup.run.diffBase,
     budgetBytes: setup.budget,
     ...(pending !== undefined ? { pending } : {}),
   })
@@ -685,7 +685,7 @@ export const entryRefusal = (
           commits: [],
         },
         vars,
-        refs: { start: "", processBase: "" },
+        start: "",
         budgetBytes: rest.setup.budget,
       }),
     )

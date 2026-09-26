@@ -9,8 +9,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
   start-gate.check`, a triage turn writing the plan, a question-free
   `design.gate.check`. `architecture-promote`'s
   own shell body is a workflow-authored script a real DRIVER runs (never
-  this test harness, same convention `packages.item.spec.scoping`'s own
-  script uses elsewhere in this suite) — its effect is given by hand.
+  this test harness) — its effect is given by hand.
 
   @inmem
   Scenario: a trivial, one-concern plan judged not to warrant an architecture pass reaches the package queue without an architecture turn
@@ -119,7 +118,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ## A plan whose first concern is over 40 bytes long
 
       This plan's own text is longer than the 40-byte judge payload budget,
-      so `it.tail(".gtd/REQUIREMENTS.md", 1)` truncates it before the judge
+      so the judge budget truncates it before the judge
       ever sees this paragraph — the structural concern living right here,
       near the top, is exactly what a truncated "no" could miss.
       """

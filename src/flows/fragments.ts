@@ -382,7 +382,7 @@ export const specReview = async (texts: SpecReviewTexts): Promise<boolean> => {
   if (wrote(".gtd/SPEC_FEEDBACK.md")) return false
   if (changes(".gtd/SPEC_FEEDBACK.md").length > 0 || changes().length === 0) return true
   return refuse(
-    "gtd land: spec.review: write .gtd/SPEC_FEEDBACK.md to request changes, or change nothing to approve",
+    "gtd land: no declared pattern matches the pending changes — write .gtd/SPEC_FEEDBACK.md to request changes, or change nothing to approve",
   )
 }
 
@@ -533,7 +533,7 @@ const collect = async (texts: ReviewTexts): Promise<"signoff" | "feedback"> => {
   if (wrote(".gtd/REQUIREMENTS.md")) return "feedback"
   if (changes(".gtd/REVIEW_RAW.md").some((c) => c.status === "deleted")) return "signoff"
   return refuse(
-    "gtd land: review.collecting: write .gtd/REQUIREMENTS.md from the feedback, or delete .gtd/REVIEW_RAW.md when it asks for nothing",
+    "gtd land: no declared pattern matches the pending changes — write .gtd/REQUIREMENTS.md from the feedback, or delete .gtd/REVIEW_RAW.md when it asks for nothing",
   )
 }
 

@@ -1,15 +1,14 @@
 Feature: Prompts carry diff RANGES, never diff CONTENT
 
   A gtd prompt never inlines a rendered diff. Instead it names the commit its
-  changes are based at (`refs.reviewBase`/`refs.processBase`/`refs.start`) and
+  changes are based at (the step's review base, or the process's `start()`) and
   tells the agent to inspect the range itself with `git diff`. Coverage for
   the `build.review.reviewing` prompt site lives with its own flows
   (`default-workflow.feature`'s incremental-review scenario, `entry.feature`'s
   first-review scenario); `gtd summary`'s own prompt follows the same rule and
   is covered by `summary.feature`. This file covers the two sites nothing else
   exercises: `packages.item.spec.review` (the per-package build's own review
-  prompt) and `build.review.deciding`'s captured manifest — see
-  `src/workflows/unified.ts`.
+  prompt) and `build.review.deciding`'s captured manifest.
 
   Background:
     Given a test project
@@ -51,8 +50,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     When I run gtd next
     Then it succeeds
     And stdout contains the hash of "process-start"

@@ -51,12 +51,12 @@ Feature: gtd land — the one landing verb, actorless
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "do it")
-        if (added("DONE.md").length === 0)
+        if (!changes("DONE.md").some((c) => c.status === "added"))
           refuse("gtd land: no declared pattern matches — expected A DONE.md")
         await human("waiting", { message: "confirm before continuing" })
       })
@@ -79,13 +79,13 @@ Feature: gtd land — the one landing verb, actorless
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, human, run, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await run("checking", "true")
-        } while (added("OUT.txt").length === 0)
+        } while (!changes("OUT.txt").some((c) => c.status === "added"))
       })
       """
     And a file "NOTE.md" with:
@@ -115,11 +115,11 @@ Feature: gtd land — the one landing verb, actorless
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
-        if (added("NOTE.md").length === 0)
+        if (!changes("NOTE.md").some((c) => c.status === "added"))
           refuse("gtd land: no declared pattern matches — expected A NOTE.md")
         await agent("working", "do it")
       })

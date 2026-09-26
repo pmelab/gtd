@@ -111,14 +111,14 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "go" })
         for (;;) {
           await agent("working", "...")
-          if (added("DONE.md").length > 0) break
-          if (modified(".gtd/FEEDBACK.md").length === 0)
+          if (changes("DONE.md").some((c) => c.status === "added")) break
+          if (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "modified"))
             refuse("working must add DONE.md or edit .gtd/FEEDBACK.md")
           await agent("fixing", "...")
         }
@@ -154,12 +154,12 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "go" })
         await agent("working", "...")
-        if (added("DONE.md").length === 0) refuse("working must add DONE.md")
+        if (!changes("DONE.md").some((c) => c.status === "added")) refuse("working must add DONE.md")
         await human("done", { message: "done" })
       })
       """
@@ -183,12 +183,12 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "go" })
         await agent("working", "...")
-        if (added("DONE.md").length === 0) refuse("working must add DONE.md")
+        if (!changes("DONE.md").some((c) => c.status === "added")) refuse("working must add DONE.md")
         await human("done", { message: "done" })
       })
       """
@@ -208,15 +208,15 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Then it succeeds
     And stdout contains "\"next\":null"
 
-  Scenario: gtd next --json carries the enclosing persona's model hint — plain gtd next never shows it at a prompt rest (header dropped)
+  Scenario: gtd next --json carries the enclosing scope's model hint — plain gtd next never shows it at a prompt rest (header dropped)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, persona, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
-        await persona({ model: "smart" }, () => agent("working", "do the work described in NOTE.md"))
+        await scope({ model: "smart" }, () => agent("working", "do the work described in NOTE.md"))
       })
       """
     And a file "NOTE.md" with:
@@ -232,7 +232,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"model\":\"smart\""
 
-  Scenario: gtd next --json omits "model" entirely when no persona declares one
+  Scenario: gtd next --json omits "model" entirely when no scope declares one
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -256,15 +256,15 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     And stdout contains "\"state\":\"working\""
     And stdout does not contain "\"model\""
 
-  Scenario: gtd next --json/--json=<path> carry the enclosing persona's system prompt — plain gtd next never shows it
+  Scenario: gtd next --json/--json=<path> carry the enclosing scope's system prompt — plain gtd next never shows it
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, persona, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
-        await persona({ system: "You are a careful senior engineer." }, () =>
+        await scope({ system: "You are a careful senior engineer." }, () =>
           agent("working", "do the work described in NOTE.md"),
         )
       })
@@ -285,7 +285,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Then it succeeds
     And stdout matches "^You are a careful senior engineer.\n$"
 
-  Scenario: gtd next --json omits "system" entirely, and --json=system prints nothing, when no persona declares one
+  Scenario: gtd next --json omits "system" entirely, and --json=system prints nothing, when no scope declares one
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -309,15 +309,15 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Then it succeeds
     And stdout is empty
 
-  Scenario: plain gtd next's prompt output is byte-identical whether or not a persona declares a system prompt
+  Scenario: plain gtd next's prompt output is byte-identical whether or not a scope declares a system prompt
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, persona, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
-        await persona({ system: "You are a careful senior engineer." }, () =>
+        await scope({ system: "You are a careful senior engineer." }, () =>
           agent("working", "do the work described in NOTE.md"),
         )
       })
@@ -426,12 +426,12 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "go" })
         await agent("working", "...")
-        if (added("DONE.md").length === 0) refuse("working must add DONE.md")
+        if (!changes("DONE.md").some((c) => c.status === "added")) refuse("working must add DONE.md")
         await human("done", { message: "done" })
       })
       """
@@ -517,7 +517,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changed, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
 
       const routes = `Decide what to do next.
 
@@ -529,7 +529,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       export default workflow(async () => {
         for (;;) {
           await human("gate", { message: routes, acceptClean: true })
-          if (changed().length === 0) break
+          if (changes().length === 0) break
           await agent("revise", "revise")
         }
         await human("accept", { message: "accept" })
@@ -561,13 +561,13 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, human, run, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await run("checking", "echo hi")
-        } while (added("OUT.txt").length === 0)
+        } while (!changes("OUT.txt").some((c) => c.status === "added"))
       })
       """
     And a file "NOTE.md" with:
@@ -584,12 +584,12 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "do the work described in NOTE.md")
-        if (added("DONE.md").length === 0) refuse("working must add DONE.md")
+        if (!changes("DONE.md").some((c) => c.status === "added")) refuse("working must add DONE.md")
       })
       """
     And a file "NOTE.md" with:

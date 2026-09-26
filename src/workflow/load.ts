@@ -244,7 +244,7 @@ const firstStep = (
         workflow: loaded.workflow,
         episode: { entry: undefined, base: { hash: "", tree: treeFromRecord({}) }, commits: [] },
         vars,
-        refs: { start: "", processBase: "" },
+        start: "",
         budgetBytes: Number.MAX_SAFE_INTEGER,
       }),
     ),

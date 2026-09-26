@@ -11,14 +11,14 @@ Feature: flow branches read their paths from "vars"
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
         async () => {
           await human("idle", { message: "start" })
           do {
             await agent("working", "do the work")
-          } while (added(vars.outFile ?? "").length === 0)
+          } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
           await human("captured", { message: "done" })
         },
         { vars: { outFile: "OUT.md" } },
@@ -46,13 +46,13 @@ Feature: flow branches read their paths from "vars"
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, refuse, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
         async () => {
           await human("idle", { message: "start" })
           await agent("working", "do the work")
-          if (added(vars.outFile ?? "").length === 0) {
+          if (!changes(vars.outFile ?? "").some((c) => c.status === "added")) {
             refuse(`gtd land: no declared pattern matches — declared patterns: A ${vars.outFile}`)
           }
           await human("captured", { message: "done" })
@@ -82,14 +82,14 @@ Feature: flow branches read their paths from "vars"
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
         async () => {
           await human("idle", { message: "start" })
           do {
             await agent("working", "do the work")
-          } while (added(vars.outFile ?? "").length === 0)
+          } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
           await human("captured", { message: "done" })
         },
         { vars: { outFile: "OUT.md" } },
@@ -113,14 +113,14 @@ Feature: flow branches read their paths from "vars"
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
         async () => {
           await human("idle", { message: "start" })
           do {
             await agent("working", "do the work")
-          } while (added(vars.outFile ?? "").length === 0)
+          } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
           await human("captured", { message: "done" })
         },
         { vars: { outFile: "OUT.md" } },

@@ -10,14 +10,14 @@ Feature: Retry redirection — a state's entry cap redirects at write time
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("start", { message: "go" })
         let fixes = 0
         for (;;) {
           await run("checking", "npm test")
-          if (added("FEEDBACK.md").length === 0) break
+          if (!changes("FEEDBACK.md").some((c) => c.status === "added")) break
           if (fixes >= 1) {
             await human("escalate", { message: "stuck" })
             break
@@ -58,14 +58,14 @@ Feature: Retry redirection — a state's entry cap redirects at write time
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("start", { message: "go" })
         let fixes = 0
         for (;;) {
           await run("checking", "npm test")
-          if (added("FEEDBACK.md").length === 0) break
+          if (!changes("FEEDBACK.md").some((c) => c.status === "added")) break
           if (fixes >= 0) {
             await human("escalate", { message: "stuck" })
             break

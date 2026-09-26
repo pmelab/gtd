@@ -659,7 +659,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, requireAnswers, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await agent("drafting", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
@@ -667,8 +667,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
           message: "Answer the open questions.",
           file: ".gtd/TODO.md",
           mode: "qa",
-          answerGate: true,
         })
+        requireAnswers(".gtd/TODO.md")
       })
       """
     And the shell command "true" exits 0 with:
@@ -701,7 +701,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     When I run gtd land
     Then it fails
     And stderr contains "1 open question(s)"
-    And stderr contains "not answered at \"answering\""
+    And stderr contains "not answered"
     And the last commit subject is "gtd(agent): drafting → answering"
 
   @live

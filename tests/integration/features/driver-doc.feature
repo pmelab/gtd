@@ -23,10 +23,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, modified, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       const red = (): boolean =>
-        added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -73,10 +73,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, modified, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       const red = (): boolean =>
-        added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -133,10 +133,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, modified, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       const red = (): boolean =>
-        added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -213,7 +213,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changed, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -223,7 +223,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             message: "read PLAN.md — accept it by changing nothing, or edit it to revise",
             acceptClean: true,
           })
-          if (changed().length === 0) return
+          if (changes().length === 0) return
         }
       })
       """
@@ -253,7 +253,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changed, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -263,7 +263,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             message: "read PLAN.md — accept it by changing nothing, or edit it to revise",
             acceptClean: true,
           })
-          if (changed().length === 0) return
+          if (changes().length === 0) return
         }
       })
       """
@@ -293,13 +293,13 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, human, run, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await run("watching", "true")
-        } while (added(".gtd/FEEDBACK.md").length === 0)
+        } while (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
       })
       """
     And a file "NOTE.md" with:
@@ -316,7 +316,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -326,7 +326,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             "Build the package described below: write src/calc.ts exporting add(a, b).",
           )
           await run("checking", "true")
-        } while (added(".gtd/FEEDBACK.md").length > 0)
+        } while (changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
       })
       """
     And a file "NOTE.md" with:
@@ -353,7 +353,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, changed, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -364,7 +364,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             "Build the package described below: write src/calc.ts exporting add(a, b).",
             { allowEmpty: true },
           )
-          if (changed().length === 0) {
+          if (changes().length === 0) {
             emptyTurns++
             if (emptyTurns >= 1) {
               await human("blocked", { message: "stuck — the agent made no progress" })
@@ -373,7 +373,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             continue
           }
           await run("checking", "true")
-          if (added(".gtd/FEEDBACK.md").length === 0) return
+          if (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added")) return
         }
       })
       """
@@ -402,11 +402,11 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("confirm", { message: "confirm before continuing" })
-        if (added("REVIEW.md").length === 0) refuse("confirm expects REVIEW.md to be added")
+        if (!changes("REVIEW.md").some((c) => c.status === "added")) refuse("confirm expects REVIEW.md to be added")
         await human("done", { message: "all done" })
       })
       """
@@ -539,7 +539,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, human, run, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -549,7 +549,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             `echo "CHECK: verifying the tree"
       true`,
           )
-        } while (added(".gtd/FEEDBACK.md").length === 0)
+        } while (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
       })
       """
     And a file "NOTE.md" with:
@@ -567,7 +567,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -578,7 +578,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       echo x > .gtd/FEEDBACK.md
       exit 1`,
         )
-        if (added(".gtd/FEEDBACK.md").length === 0)
+        if (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
           refuse("checking expects .gtd/FEEDBACK.md to be added")
         await human("reviewing", { message: "sign off" })
       })
@@ -598,7 +598,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -608,7 +608,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             "Build the package described below: write src/calc.ts exporting add(a, b).",
           )
           await run("checking", "true")
-        } while (added(".gtd/FEEDBACK.md").length > 0)
+        } while (changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
       })
       """
     And a file "NOTE.md" with:
@@ -641,10 +641,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, modified, run, scope, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, scope, workflow } from "@pmelab/gtd/flows"
 
       const red = (): boolean =>
-        added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -769,10 +769,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, modified, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       const red = (): boolean =>
-        added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -825,10 +825,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, modified, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
       const red = (): boolean =>
-        added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -911,13 +911,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the last commit body does not contain "Gtd-Judge:"
 
   Scenario: A still-red suite still escalates after 3 fix attempts even when every judge round is skipped — the retry cap, not the judgment, ends the loop
-    # The pre-package-01 version of this scenario proved `build.fix`'s
-    # `retry: {max: 3}` forces `build.health.escalate` on a suite that never
-    # goes green. Task 7 kept `retry:` on `fix` (not the judge state — see
-    # `src/workflows/unified.yaml`'s own comment on why moving it would break
-    # `episodeVisits`), so that ceiling still applies REGARDLESS of what the
-    # judge rounds do. This reference driver is UNAWARE and never answers a
-    # verdict, so every `build.health.judge` round lands its clean-tree
+    # The fix cap escalates a suite that never goes green REGARDLESS of what
+    # the judge rounds do. This reference driver is UNAWARE and never answers
+    # a verdict, so every `build.health.judge` round lands its clean-tree
     # fallback (the skipped-judgment path) instead — proving the cap fires
     # even when NO judgment is ever recorded, not just when one is.
     Given a test project
@@ -950,17 +946,14 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # driver after reading (and not answering) the judge gate.
     When I run the driver from the docs
     Then it succeeds
-    # The 3rd invocation's retry-capped round now runs straight through
-    # build.health.escalate (a `check` gate, auto — 0 prior rounds, so its
-    # script leaves the tree clean) into build.health.describe, a real
-    # `prompt` turn the stub above answers by writing
+    # The 3rd invocation's capped round runs straight from the judge into
+    # build.health.describe, a real `prompt` turn the stub above answers by writing
     # `.gtd/ESCALATION.md`, which then rests the run at build.health.stop.
     When I run the driver from the docs
     Then it succeeds
     And stdout contains "Edit it"
     And stdout contains ".gtd/ESCALATION.md"
-    And the git log contains "build.health.judge → build.health.escalate"
-    And the git log contains "build.health.escalate → build.health.describe"
+    And the git log contains "build.health.judge → build.health.describe"
     And the git log contains "build.health.describe → build.health.stop"
     And the last commit body does not contain "Gtd-Judge:"
 

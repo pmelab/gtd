@@ -97,7 +97,7 @@ const replayOf = (
     workflow: wf,
     episode: h.episode(),
     vars: { cap: "2" },
-    refs: { start: hashOf(0), processBase: hashOf(0) },
+    start: hashOf(0),
     budgetBytes: 1024,
     ...(extra.pending !== undefined
       ? {

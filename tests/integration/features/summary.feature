@@ -16,7 +16,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
         async () => {
@@ -24,7 +24,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
           await agent("building", "build it")
           await human("gate", { message: "confirm before finishing" })
           await agent("finishing", "write DONE.md")
-          if (added("DONE.md").length === 0 && modified("DONE.md").length === 0) {
+          if (!changes("DONE.md").some((c) => c.status !== "deleted")) {
             refuse("finishing must write DONE.md")
           }
         },

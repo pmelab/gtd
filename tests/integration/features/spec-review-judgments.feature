@@ -5,11 +5,10 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   by the shortest real history: `--entry start-gate.check`, a one-line
   triage, `architecture-pre` judged "no" so `architecture-promote` turns
   the plan straight into the one package under test, then picking,
-  building and a green health check. `scoping`'s own shell body is a workflow-authored
-  script a real DRIVER runs (never this test harness, same convention every
-  other `actor: check` state's script uses here) — its effect is given by
-  hand, the way `packages.item.health.check`'s own script output already is
-  elsewhere in this suite.
+  building and a green health check. The flow itself reads the answers: a
+  package whose every section is confidently satisfied closes without a
+  review turn, and otherwise the reviewer is confined to the sections that
+  were not.
 
   There is no post-judge over the review's findings: `review` owns the
   severity bar itself and a round that finds only nits writes nothing, so
@@ -52,14 +51,11 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     And ".gtd/SPEC_SCOPE.md" does not exist
 
   @inmem
-  Scenario: every section answered high-confidence "yes" clears at the scoping check, no review turn spent
+  Scenario: every section answered high-confidence "yes" clears, no review turn spent
     Given a test project
     And the workflow
     And gtd enters "start-gate.check"
@@ -109,17 +105,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-
-    # scoping's own script (a real DRIVER's job, not this harness's) finds
-    # every real section answered and confident — given by hand here, same
-    # convention as the rest of this feature.
-    Given a file ".gtd/SPEC_CLEARED.md" with:
-      """
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.closing"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.closing"
     And the git log does not contain "packages.item.spec.review"
 
   @inmem
@@ -171,21 +157,17 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-
-    # sections 2 and 3 were never judged — scoping must scope the reviewer
-    # to them, never approve on section-1 alone.
-    Given a file ".gtd/SPEC_SCOPE.md" with:
-      """
-      - Section B
-      - Section C
-      """
-    When I run gtd land
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
+    # sections 2 and 3 were never judged — the reviewer is scoped to them,
+    # never approved on section-1 alone.
+    When I run gtd next
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And stdout contains "  - Section B"
+    And stdout contains "  - Section C"
+    And stdout does not contain "  - Section A"
 
   @inmem
-  Scenario: two of three sections answered "no"/low-confidence route to the scoping check, which confines the reviewer to exactly those two
+  Scenario: two of three sections answered "no"/low-confidence confine the reviewer to exactly those two
     Given a test project
     And the workflow
     And gtd enters "start-gate.check"
@@ -245,20 +227,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-
-    # scoping's own script (a real DRIVER's job, not this harness's) maps the
-    # just-landed Gtd-Judge trailers' failing ids back to section titles —
-    # given by hand here, the same convention `default-workflow.feature`
-    # uses for `packages.item.health.check`'s own script output.
-    Given a file ".gtd/SPEC_SCOPE.md" with:
-      """
-      - Section A
-      - Section B
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     When I run gtd next
     Then it succeeds
     And stdout contains "Section A"
@@ -301,8 +270,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     Given a file ".gtd/SPEC_FEEDBACK.md" with:
       """
       ## Missing null check
@@ -355,8 +323,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"

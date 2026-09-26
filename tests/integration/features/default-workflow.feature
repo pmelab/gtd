@@ -151,13 +151,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # conservative default — full review, never suppressed
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-
-    # spec.scoping: no Gtd-Judge trailer on HEAD -> nothing to scope, straight
-    # through to the reviewer
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
 
     Given a file ".gtd/SPEC_FEEDBACK.md" with:
       """
@@ -180,11 +174,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
 
     When I run gtd land
     Then it succeeds
@@ -317,13 +307,11 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): packages.item.health.check → packages.item.fix-suite
       gtd(agent): packages.item.fix-suite → packages.item.health.check
       gtd(check): packages.item.health.check → packages.item.spec.pre
-      gtd(judge): packages.item.spec.pre → packages.item.spec.scoping
-      gtd(check): packages.item.spec.scoping → packages.item.spec.review
+      gtd(judge): packages.item.spec.pre → packages.item.spec.review
       gtd(agent): packages.item.spec.review → packages.item.fix-spec
       gtd(agent): packages.item.fix-spec → packages.item.health.check
       gtd(check): packages.item.health.check → packages.item.spec.pre
-      gtd(judge): packages.item.spec.pre → packages.item.spec.scoping
-      gtd(check): packages.item.spec.scoping → packages.item.spec.review
+      gtd(judge): packages.item.spec.pre → packages.item.spec.review
       gtd(agent): packages.item.spec.review → packages.item.closing
       gtd(check): packages.item.closing → packages.picking
       gtd(check): packages.picking → build.quality.seeding
@@ -1203,15 +1191,11 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
 
-    # spec.pre/spec.scoping: a skipped judgment (bare land) always runs the
+    # spec.pre: a skipped judgment (bare land) always runs the
     # full review — this package has no `## ` sections at all anyway
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
 
     # packages.item.spec.review (clean = approval — the reviewer's own range
     # is process-wide, so it can see the earlier package's commit that
@@ -1380,8 +1364,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
-    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
     And the file ".gtd/packages/01-b.md" is deleted
     And the file ".gtd/NEXT.md" is deleted
@@ -1471,14 +1454,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And gtd lands "gtd(check): build.health.check → build.health.judge"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.escalate"
-    # build.health.escalate is now a round-counting `check` gate, not a human
-    # rest: this is the first arrival since the last green check (0 rounds so
-    # far), so its own script leaves the tree clean and the "C" row routes on
-    # to build.health.describe.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
     When I run gtd next
     Then it succeeds
     And stdout contains ".gtd/FEEDBACK.md"
@@ -1504,8 +1480,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And stdout contains ".gtd/ESCALATION.md"
     And stdout contains "Edit it"
     # The human takes the stop gate's own edge straight into build.fix — no
-    # detour back through build.health.check first, unlike the old
-    # human-rest escalate.
+    # detour back through build.health.check first.
     Given a file ".gtd/marker2.md" with:
       """
       landing the escalation document as the next fix turn's instruction
@@ -1527,7 +1502,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(agent): build.fix → build.health.check"
     # A second red run: if the fix budget were not reset by the escalation
     # round, this would already be over the cap and bounce straight back to
-    # build.health.escalate. Reaching build.fix instead is the proof the
+    # an escalation. Reaching build.fix instead is the proof the
     # escalation round genuinely restored it.
     Given a file ".gtd/FEEDBACK.md" with:
       """
@@ -1570,13 +1545,12 @@ Feature: The bundled unified workflow — one flow, end to end
       the suite fails in the setup fixture, again
       """
     And gtd lands "gtd(check): build.health.check → build.health.judge"
-    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+    When I run gtd judge answer with stdin:
       """
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
-    When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
     Given a file ".gtd/ESCALATION.md" with:
       """
       Round 1: the suite fails inside the same setup fixture every attempt.
@@ -1618,16 +1592,15 @@ Feature: The bundled unified workflow — one flow, end to end
       the fixture still leaks state
       """
     And gtd lands "gtd(check): build.health.check → build.health.judge"
-    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
-      """
-      [{"id":"verdict","answer":"identical","p":0.99}]
-      """
     # If the human's edit at `stop` had counted as a round, this would see 2
     # prior rounds already and land straight at the terminal `exhausted`
     # stop. Reaching `describe` instead is the proof it didn't.
-    When I run gtd land
+    When I run gtd judge answer with stdin:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
+      """
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
 
   @inmem
   Scenario: landing build.health.stop with a genuinely clean tree still advances to build.fix — "land it untouched" as its message promises
@@ -1661,13 +1634,12 @@ Feature: The bundled unified workflow — one flow, end to end
       the suite fails in the setup fixture, again
       """
     And gtd lands "gtd(check): build.health.check → build.health.judge"
-    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+    When I run gtd judge answer with stdin:
       """
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
-    When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
     Given a file ".gtd/ESCALATION.md" with:
       """
       Round 1: the suite fails inside the same setup fixture every attempt.
@@ -1686,9 +1658,8 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a second full escalation round rests at the terminal exhausted stop — no third document is written, and .gtd/ESCALATION.md stays on disk
     Given a test project
     And the workflow
-    # Round 1: the round-counting escalate gate's first arrival since the
-    # last green check — 0 prior `.gtd/ESCALATION.md` rounds, so its script
-    # leaves the tree clean ("C") and routes on to describe.
+    # Round 1: the first escalation since the last green check routes on to
+    # describe.
     And gtd enters "fix-precheck"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -1717,13 +1688,12 @@ Feature: The bundled unified workflow — one flow, end to end
       the suite fails in the setup fixture, again
       """
     And gtd lands "gtd(check): build.health.check → build.health.judge"
-    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+    When I run gtd judge answer with stdin:
       """
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
-    When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
     Given a file ".gtd/ESCALATION.md" with:
       """
       Round 1: the suite fails inside the same setup fixture every attempt.
@@ -1778,13 +1748,12 @@ Feature: The bundled unified workflow — one flow, end to end
       the same fixture failure, restated
       """
     And gtd lands "gtd(check): build.health.check → build.health.judge"
-    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+    When I run gtd judge answer with stdin:
       """
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
-    When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.escalate → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
     # Round 2's describe OVERWRITES round 1's still-surviving document — an
     # M, not an A, since nothing ever swept it in between.
     Given a file ".gtd/ESCALATION.md" with:
@@ -1842,19 +1811,16 @@ Feature: The bundled unified workflow — one flow, end to end
       the same fixture failure, restated
       """
     And gtd lands "gtd(check): build.health.check → build.health.judge"
-    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
-      """
-      [{"id":"verdict","answer":"identical","p":0.99}]
-      """
     Given a file ".gtd/ESCALATION.md" with:
       """
       Round 2: still the same fixture, now with a different failing assertion.
-
-      <!-- gtd escalate 0000000 -->
       """
-    When I run gtd land
+    When I run gtd judge answer with stdin:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
+      """
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.escalate → build.health.exhausted"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.exhausted"
     And ".gtd/ESCALATION.md" contains "Round 2: still the same fixture"
     And ".gtd/ESCALATION.md" does not contain "Round 1: the suite fails"
     When I run gtd next

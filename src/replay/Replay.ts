@@ -50,7 +50,8 @@ export interface ReplayInput {
   readonly workflow: Workflow
   readonly episode: Episode
   readonly vars: Readonly<Record<string, string>>
-  readonly refs: { readonly start: string; readonly processBase: string }
+  /** The process's diff base — what `start()` returns. */
+  readonly start: string
   readonly budgetBytes: number
   readonly pending?: PendingTurn
 }
@@ -276,7 +277,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       : undefined
 
   // A callback runs after replay returns (under `gtd exec`), yet reads vars
-  // and refs like the flow around it: it gets the replay's context back.
+  // and head()/start() like the flow around it: it gets the replay's context back.
   const withContext =
     (body: (tools: RunTools) => Promise<void> | void) =>
     async (tools: RunTools): Promise<void> => {
@@ -439,7 +440,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
           }))
     },
     vars: input.vars,
-    start: () => input.refs.start,
+    start: () => input.start,
     // At the rest, trailing attempts sit above the last step commit: the head a
     // prompt names is the commit the process actually stands on.
     head: () => {

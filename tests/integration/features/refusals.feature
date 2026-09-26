@@ -9,12 +9,12 @@ Feature: Refusals — no-match steps commit nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { added, agent, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "develop the note, then write COMMIT_MSG.md with the final message")
-        if (added("COMMIT_MSG.md").length === 0 && modified("COMMIT_MSG.md").length === 0) {
+        if (!changes("COMMIT_MSG.md").some((c) => c.status !== "deleted")) {
           refuse(
             "gtd land: no declared pattern matches the pending changes — expected A COMMIT_MSG.md or M COMMIT_MSG.md",
           )

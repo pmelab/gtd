@@ -27,7 +27,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changed, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "start" })
@@ -39,7 +39,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
             message: "answer",
             acceptClean: true,
           })
-          if (changed().length === 0) return
+          if (changes().length === 0) return
         }
       })
       """
@@ -64,7 +64,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changed, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "start" })
@@ -76,7 +76,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
             message: "answer",
             acceptClean: true,
           })
-          if (changed().length === 0) return
+          if (changes().length === 0) return
         }
       })
       """

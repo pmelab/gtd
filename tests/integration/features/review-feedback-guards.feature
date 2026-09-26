@@ -28,7 +28,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
   `.gtd/REQUIREMENTS.md` and no delete of `.gtd/REVIEW_RAW.md` — that is "you
   classify, you do not build" enforced structurally, not by content-sniffing.
 
-  `design.triage` declares `requireProgress: true` on that same
+  `design.triage` checks `requireProgress()` on that same
   `.gtd/REQUIREMENTS.md` file: an agent that deletes the assembled review
   input on a loop-back lap without folding it in is exactly the "captured
   then discarded" bug the capture/classify split above already guards
@@ -284,14 +284,14 @@ Feature: Review feedback — capture, classification, and the loop-back guards
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, requireProgress, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(async () => {
         await human("idle", { message: "write .gtd/FEEDBACK.md, then run `gtd land`" })
         await agent("drafting", "address .gtd/FEEDBACK.md, then delete it", {
           file: ".gtd/FEEDBACK.md",
-          requireProgress: true,
         })
+        requireProgress(".gtd/FEEDBACK.md")
         await human("done", { message: "feedback addressed" })
       })
       """
@@ -304,8 +304,8 @@ Feature: Review feedback — capture, classification, and the loop-back guards
     And the last commit subject is "gtd(human): idle → drafting"
 
     # drafting: the only pending change deletes .gtd/FEEDBACK.md, but its
-    # deleted content IS the sentinel — the one content that exempts a
-    # requireProgress state's file from the guard.
+    # deleted content IS the sentinel — the one content that exempts the
+    # file from requireProgress().
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
