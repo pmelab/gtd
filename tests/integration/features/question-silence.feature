@@ -1,7 +1,7 @@
 @inmem
 Feature: the return-lap stop is the human's silence, not a round cap
 
-  `answerCompletenessGuard` (src/step/Guards.ts) yields when the pending diff
+  The flow's answer-completeness check yields when the pending diff
   is empty — the human landed the `mode: qa` answer gate untouched — even
   though its `## Open Questions` still holds an unticked question. That's the
   only stop the return-lap loop can reach (package 01): a partial edit, code

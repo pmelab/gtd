@@ -574,7 +574,7 @@ Then("{string} contains the hash of {string}", (world: GtdWorld, path: string, n
 // against the marked commit and compares it (order-independent) to the
 // docstring's paths, one per line. Works in both tiers: `@inmem` diffs the
 // fake's own worktree/tree state, `@live` shells out to real git. Excludes
-// `.gtd/` paths, same as `src/step/Guards.ts`'s plumbing exclusion — the review
+// `.gtd/` paths — the review
 // doc itself is always part of any diff against its own base (it's a new
 // file), but it isn't reviewable content the doc's own hunk pointers name.
 Then(

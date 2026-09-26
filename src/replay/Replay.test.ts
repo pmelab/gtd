@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest"
 import fc from "fast-check"
 import {
-  added,
   agent,
-  exists,
-  history,
+  changes,
   human,
   judge,
-  persona,
   read,
   refuse,
   restart,
@@ -123,7 +120,7 @@ const fixLoop = workflow(async () => {
   await human("idle", { file: "TODO.md" })
   for (let attempt = 1; ; attempt++) {
     await run("check", "npm test")
-    if (!exists(".gtd/FEEDBACK.md")) break
+    if (read(".gtd/FEEDBACK.md") === undefined) break
     if (attempt > 2) {
       await human("stuck")
       continue
@@ -240,7 +237,8 @@ describe("replay", () => {
   it("reads helpers against the replay position, not the working tree", async () => {
     const wf = workflow(async () => {
       await human("write")
-      if (added(".gtd/*.md").length > 0) await agent("saw", read(".gtd/NOTE.md") ?? "")
+      if (changes(".gtd/*.md").some((c) => c.status === "added"))
+        await agent("saw", read(".gtd/NOTE.md") ?? "")
       else await agent("missed", "nothing")
     })
     const h = new History().land("human", "write", 1, "saw", { ".gtd/NOTE.md": "hello" })
@@ -253,12 +251,33 @@ describe("replay", () => {
     ).toBe("hello")
   })
 
-  it("resolves history.previous to what the previous completion of a step left", async () => {
-    let seen: string | undefined = "unset"
+  it("reports what the last step changed, with content on both sides", async () => {
+    let seen: unknown
     const wf = workflow(async () => {
       for (;;) {
+        await human("write")
+        seen = changes().map(({ path, status, before, after }) => ({ path, status, before, after }))
+      }
+    })
+    const h = new History()
+      .land("human", "write", 1, "write", { keep: "old", gone: "bye" })
+      .land("human", "write", 2, "write", { keep: "new", gone: null, fresh: "hi" })
+    await replayOf(wf, h)
+    expect(seen).toEqual([
+      { path: "fresh", status: "added", before: undefined, after: "hi" },
+      { path: "gone", status: "deleted", before: "bye", after: undefined },
+      { path: "keep", status: "modified", before: "old", after: "new" },
+    ])
+  })
+
+  it("keeps a local variable across replayed steps", async () => {
+    let seen: string | undefined = "unset"
+    const wf = workflow(async () => {
+      let previous: string | undefined
+      for (;;) {
         await run("check", "true")
-        seen = history.previous("OUT", { since: "check" })
+        seen = previous
+        previous = read("OUT")
         await human("look")
       }
     })
@@ -270,11 +289,12 @@ describe("replay", () => {
     expect(seen).toBe("first")
   })
 
-  it("answers a judge step from its Gtd-Judge trailer, honouring minP", async () => {
+  it("answers a judge step from its Gtd-Judge trailer", async () => {
     const question = { id: "verdict", primitive: "choice", instructions: "", criteria: "" } as const
     const wf = workflow(async () => {
-      const verdict = await judge("same", question, {}, { minP: 0.7 })
-      if (verdict === "identical") await human("escalate")
+      const { answers } = await judge("same", { questions: [question], evidence: {} })
+      const verdict = answers.verdict
+      if (verdict?.answer === "identical" && verdict.p >= 0.7) await human("escalate")
       else await human("retry")
     })
     const confident = new History().land("judge", "same", 1, "escalate", {}, [
@@ -296,20 +316,23 @@ describe("replay", () => {
     expect(outcome.kind === "rest" && outcome.rest.memoryScope).toBe("build.health")
   })
 
-  it("applies persona() to agent steps and refuses two identities in one scope", async () => {
-    const wf = workflow(async () => {
-      await persona({ model: "smart" }, () => agent("plan.one", "a"))
-      await persona({ model: "base" }, () => agent("plan.two", "b"))
-    })
-    const first = await replayOf(wf, new History())
-    expect(
-      first.kind === "rest" &&
-        first.rest.request.kind === "agent" &&
-        first.rest.request.options.model,
-    ).toBe("smart")
-    const h = new History().land("agent", "plan.one", 1, "plan.two", { a: "1" })
-    const outcome = await replayOf(wf, h)
-    expect(outcome.kind).toBe("failed")
+  it("gives a scope's model to the agent steps inside, and refuses two identities in one scope", async () => {
+    const wf = workflow(() =>
+      scope({ model: "smart" }, async () => {
+        await agent("one", "a")
+        await scope({ name: "plan", model: "base" }, () => agent("two", "b"))
+        await agent("three", "c", { model: "base" })
+      }),
+    )
+    const modelAt = (outcome: ReplayOutcome) =>
+      outcome.kind === "rest" &&
+      outcome.rest.request.kind === "agent" &&
+      outcome.rest.request.options.model
+    expect(modelAt(await replayOf(wf, new History()))).toBe("smart")
+    const h = new History().land("agent", "one", 1, "plan.two", { a: "1" })
+    expect(modelAt(await replayOf(wf, h))).toBe("base")
+    h.land("agent", "plan.two", 1, "three", { b: "1" })
+    expect((await replayOf(wf, h)).kind).toBe("failed")
   })
 
   it("ends the episode on return and on restart", async () => {
@@ -319,7 +342,7 @@ describe("replay", () => {
 
     const restarting = workflow(async () => {
       await human("first")
-      await restart("again")
+      await restart()
       await human("never")
     })
     const r = new History().land("human", "first", 1, "first")
@@ -329,7 +352,7 @@ describe("replay", () => {
   it("reports refuse() as a refusal and a throw as a failure", async () => {
     const refusing = workflow(async () => {
       await human("gate")
-      if (exists("bad")) refuse("no bad files")
+      if (read("bad") !== undefined) refuse("no bad files")
       await human("next")
     })
     const outcome = await replayOf(refusing, new History(), { pending: { bad: "x" } })

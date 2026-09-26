@@ -1,4 +1,4 @@
-import { read, refs, vars, type SummaryContext } from "../flows/index.js"
+import { head, read, start, vars, type SummaryContext } from "../flows/index.js"
 
 // The bundled workflow's prompts, messages and scripts. Each is evaluated
 // when its step is reached, against the commit replay stands on.
@@ -69,7 +69,7 @@ mkdir -p .gtd
 # an interpolation tag, so no tag may be the last token on a line.
 # Uses it.currentCommit (render-time), not bare HEAD, so a
 # late-running driver still reverts the right commit.
-commit="${refs.head}"
+commit="${head()}"
 git revert --no-commit "$commit" 2> .gtd/.unwind-error
 code=$?
 # The revert's EXIT CODE is what separates a genuine no-op from a
@@ -101,7 +101,7 @@ What each change does next (then run \`gtd land\`):
 - **Continue** — having undone the sketch by hand, check the test baseline is green and start triage (**start-gate.check**).
 `
 
-export const reUnwindScript = (): string =>
+export const reUnwindScript = (base: string): string =>
   `#!/usr/bin/env sh
 # Scoped revert of the human's review-round edit — .gtd/ excluded
 # (the guard's isCodePath re-derives the same exemption; keep both
@@ -110,7 +110,7 @@ export const reUnwindScript = (): string =>
 set +e
 # Hoisted here, at the TOP: Eta's autoTrim eats the newline after
 # an interpolation tag, so no tag may be the last token on a line.
-commit="${refs.reviewBase}"
+commit="${base}"
 patch=.gtd/.re-unwind.patch
 mkdir -p .gtd
 git diff --binary "$commit^" "$commit" -- . ":(exclude).gtd" > "$patch"
@@ -174,7 +174,7 @@ What each change does next (then run \`gtd land\`):
 - **Retry check** — edit the code and/or \`.gtd/FEEDBACK.md\` to fix the failing tests (**review-gate.check**).
 `
 
-export const designTriagePrompt = (): string =>
+export const designTriagePrompt = (base: string): string =>
   `${vars.styleBlock}
 
 ${vars.styleFormatContract}
@@ -187,11 +187,11 @@ ${vars.footnoteFoldIn}
   this process — the human's input, folded into the concerns
   below like any other part of the start diff; never a state
   file to preserve, never gtd bookkeeping to ignore
-- This process started at commit \`${refs.start}\`,
+- This process started at commit \`${start()}\`,
   reverted out of the tree by \`unwind\` right after landing, so
-  \`git diff ${refs.start}\` is now empty — its content
+  \`git diff ${start()}\` is now empty — its content
   survives only in history. Find the entry commit yourself:
-  \`git rev-list --ancestry-path ${refs.start}..HEAD | tail -1\`
+  \`git rev-list --ancestry-path ${start()}..HEAD | tail -1\`
   (the process's first turn, before any baseline-repair
   commits), then \`git show\` it — a hand-edit, a scratch note,
   or both
@@ -236,8 +236,8 @@ ${vars.questionBarReturn}
   rediscover or regroup them cold, the way the first lap does
 - The human's review-round edit was reverted the same way the
   entry commit was — read it from history:
-  \`git show ${refs.reviewBase}\`. (On the first lap that hash
-  is the process's own diff base, \`${refs.start}\` — this
+  \`git show ${base}\`. (On the first lap that hash
+  is the process's own diff base, \`${start()}\` — this
   branch doesn't apply)
 - Every decision under \`## Answered Questions\` stays settled —
   never re-open one. A genuinely open PRODUCT point may still
@@ -318,8 +318,8 @@ ${vars.footnoteFoldIn}
   TECHNICAL alike, as settled — never re-open it
 - Cold means no memory of triage's own back-and-forth, not no
   git access. This process started at commit
-  \`${refs.start}\`. Find the first turn yourself: run
-  \`git rev-list --ancestry-path ${refs.start}..HEAD | tail -1\`
+  \`${start()}\`. Find the first turn yourself: run
+  \`git rev-list --ancestry-path ${start()}..HEAD | tail -1\`
   then \`git show\` it to see what started this process — a
   hand-edit, a scratch note, or both
 - Once \`.gtd/ARCHITECTURE.md\` is written, delete
@@ -536,65 +536,6 @@ without an edit of your own) to accept the conservative default
 (retry the fix) with no verdict recorded.
 `
 
-export const escalateScript = (describeStep: string): string =>
-  `#!/usr/bin/env sh
-set +e
-# Anchor on the most recent commit that DELETED .gtd/ESCALATION.md
-# — under \`healthGate.check\`'s own script (above), that ONLY ever
-# happens on a genuinely green result, never a still-red round
-# (a still-red round leaves an unresolved analysis untouched for
-# the next fix attempt to read). So this is reliably "the last
-# time this episode's escalation budget was reset" — unlike
-# \`.gtd/FEEDBACK.md\`, which a fix turn deletes on EVERY belief it
-# resolved the check, red or green, and so sits between every
-# pair of escalation arrivals regardless of episode. With no such
-# deletion, the whole process is one unbroken streak since the
-# start.
-anchor=$(git log --format=%H ${refs.start}..HEAD --diff-filter=D -- .gtd/ESCALATION.md 2>/dev/null | head -n 1)
-if [ -z "$anchor" ]; then anchor=${refs.start}; fi
-# Counting every --diff-filter=AM commit against .gtd/ESCALATION.md
-# would also count the HUMAN's own edit at \`stop\` — landing that
-# edit produces an M .gtd/ESCALATION.md commit too, and \`stop\`'s own
-# message explicitly invites that edit. So instead of the file's
-# diff history, grep commit SUBJECTS for \`describe\` as the FROM
-# state — \`stateSubject\`'s "gtd(actor): from → to" shape means the
-# commit that lands a \`describe\` turn's own write always reads
-# "... build.health.describe → build.health.stop" (or the
-# packages.item.health equivalent), the same narrowing
-# healthGate's check subjects use — never the
-# human's own "... build.health.stop → build.fix" landing at \`stop\`.
-#
-# No \`-- .gtd/ESCALATION.md\` pathspec on this count: a \`prompt\`
-# state's clean step is an ATTEMPT by design, not a no-op
-# (\`validateHasCRow\`'s own doc comment), so \`describe\`'s landing
-# commit exists every round even when its write is byte-identical
-# to what already sits in the tree — a pathspec would silently drop
-# that commit from the count (git sees no diff on that path) and
-# the 2-round cap would never fire on a repeatedly identical
-# analysis.
-describe_source='${describeStep}'
-rounds=$(git log --format='%s' "$anchor"..HEAD 2>/dev/null | grep -c -F -- "$describe_source →")
-if [ "$rounds" -ge 2 ]; then
-  # Preserve whatever is already in the tree — including a human's
-  # own fresh-instructions edit landed at \`exhausted\` itself (a
-  # "... exhausted → fix" commit this filter never matches, so it's
-  # never mistaken for a describe round either) — rather than
-  # overwriting it with the machine's last analysis. Only restore
-  # from history when the file is genuinely missing.
-  if [ ! -f .gtd/ESCALATION.md ]; then
-    last=$(git log --format='%H %s' "$anchor"..HEAD -- .gtd/ESCALATION.md 2>/dev/null \\
-      | grep -F -- "$describe_source →" | head -n 1 | cut -d' ' -f1)
-    git show "$last":.gtd/ESCALATION.md > .gtd/ESCALATION.md 2>/dev/null
-  fi
-  # Stamp with HEAD so this step's own change registers as a real
-  # M/A edit even when the tree's content is otherwise unchanged
-  # (the common case — nothing else touches the file between
-  # rounds), the same technique \`healthGate.check\`'s own
-  # FEEDBACK.md stamp uses.
-  printf '\\n<!-- gtd escalate %s -->\\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/ESCALATION.md
-fi
-`
-
 export const healthDescribePrompt = (): string =>
   `${vars.stateFileRules}
 - The only state file this turn writes is \`.gtd/ESCALATION.md\`
@@ -641,98 +582,14 @@ the full review (the conservative default; a skipped judgment
 never suppresses anything).
 `
 
-export const packagesItemSpecScopingScript = (): string =>
-  `#!/usr/bin/env sh
-set +e
-rm -f .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md
-pkg=$(cat .gtd/NEXT.md 2>/dev/null)
-threshold=${vars.specPreJudge}; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
-  # A working-tree byte-length check would measure the wrong
-  # document: \`pre\`'s judgment was made against the COMMITTED
-  # package file at HEAD, and if it's shortened before \`gtd judge
-  # answer\` lands, a working-tree recheck sees an under-budget file
-  # and trusts an answer made against the earlier, truncated one —
-  # a false approval through exactly the door this backstop exists
-  # to close. \`Gtd-Payload: {"truncated":true}\` is stamped by the
-  # SAME render that produced the judged document (\`planStep.ts\`'s
-  # \`renderDecision\`), so reading it off the just-landed commit
-  # measures the bytes the judge actually saw. \`specPreJudge\`'s
-  # confidence gate applies to a GENUINE judgment — but a section
-  # \`pre\` marked structural (its own evidence truncated away,
-  # \`it.tail(pkgPath, 1)\`) is never a genuine judgment, and a
-  # driver piping a confident "yes" for THAT id must not be able
-  # to ride the same gate into a false approval. When the payload
-  # was truncated, every section here defaults to failing
-  # regardless of any trailer — this gate cannot safely tell WHICH
-  # sections were truncated without the same fence-unsafe heading
-  # re-parse \`it.sections\` itself avoids (see
-  # docs/configuration.md's \`it.sections\` entry), so it treats the
-  # whole package the conservative way instead, the same
-  # blunt-but-safe shape \`build.review.triaging\` already uses for
-  # its own chunks.
-  body=$(git log -1 --format=%B HEAD)
-  truncated=0
-  printf '%s\\n' "$body" | grep -q 'Gtd-Payload: {"truncated":true}' \\
-    && truncated=1
-  titles=$(awk '/^\`\`\`/{f=!f} !f && /^## /{sub(/^## /,""); print}' "$pkg")
-  total=0
-  [ -n "$titles" ] && total=$(printf '%s\\n' "$titles" | wc -l | tr -d ' ')
-  if [ "$total" -gt 0 ]; then
-    trailers=$(printf '%s\\n' "$body" | grep -o 'Gtd-Judge: {[^}]*}')
-    i=1
-    while [ "$i" -le "$total" ]; do
-      line=$(printf '%s\\n' "$trailers" | grep "\\"id\\":\\"section-$i\\"" | head -n 1)
-      # Missing entirely (padding, a skipped judgment, or a real
-      # section the verdict just never answered) defaults to
-      # failing — the one default direction this gate must never
-      # get wrong.
-      failing=1
-      if [ "$truncated" -ne 1 ] && [ -n "$line" ]; then
-        answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\\{0,1\\}\\([a-z]*\\)"\\{0,1\\}.*/\\1/p')
-        # A noul answer is conventionally a JSON boolean
-        # (\`true\`/\`false\`), never the bare "yes"/"no" \`routes:\`
-        # matching normalizes it to internally (\`asRouteAnswers\`,
-        # src/step/planStep.ts), but the decode accepts a quoted
-        # string too — the committed trailer carries the RAW
-        # verdict, so both spellings must clear a section here, or
-        # a driver using the string form silently loses the whole
-        # optimisation, scoping every section into review forever
-        # without ever being wrong.
-        case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
-        p=$(printf '%s' "$line" | sed -n 's/.*"p":\\([0-9.eE+-]*\\).*/\\1/p')
-        # \`[ -n "$threshold" ]\` guards a BLANK \`specPreJudge\`: awk
-        # treats an empty \`-v t=\` as the uninitialized strnum \`0\`,
-        # so \`p >= t\` would be true at ANY probability — turning
-        # the workflow's documented "blank disables" convention
-        # into fail-APPROVE for this one gate. Blank must instead
-        # never clear anything, the same failing default as a
-        # missing answer.
-        if [ "$answer" = "yes" ] && [ -n "$threshold" ] \\
-          && awk -v p="$p" -v t="$threshold" 'BEGIN{exit !(p>=t)}' 2>/dev/null; then
-          failing=0
-        fi
-      fi
-      if [ "$failing" -eq 1 ]; then
-        title=$(printf '%s\\n' "$titles" | sed -n "\${i}p")
-        [ -n "$title" ] && printf -- '- %s\\n' "$title" >> .gtd/SPEC_SCOPE.md
-      fi
-      i=$((i + 1))
-    done
-    [ -f .gtd/SPEC_SCOPE.md ] || : > .gtd/SPEC_CLEARED.md
-  fi
-fi
-`
-
-/** The scoping check's section list, when a pre-judge cleared the rest. */
-const specScope = (): string => {
-  const scope = read(".gtd/SPEC_SCOPE.md")
-  return scope
+/** The sections a pre-judge could not clear, when it cleared the rest. */
+const specScope = (failing: readonly string[]): string =>
+  failing.length > 0
     ? `- A pre-judge already found the other sections satisfied. Confine
-  your review to only these sections: ${scope}`
+  your review to only these sections: ${failing.map((title) => `- ${title}\n`).join("")}`
     : ""
-}
 
-export const packagesItemSpecReviewPrompt = (): string =>
+export const packagesItemSpecReviewPrompt = (failing: readonly string[] = []): string =>
   `${vars.styleBlock}
 
 You are reviewing a freshly-built work package against its own
@@ -741,9 +598,9 @@ spec.
 ${vars.stateFileRules}
 - The only state file this turn touches is
   \`.gtd/SPEC_FEEDBACK.md\` — write it only when you find problems
-- The package spec is: ${need(".gtd/NEXT.md")}${specScope()}- Verify the implementation against it: tasks done, criteria
+- The package spec is: ${need(".gtd/NEXT.md")}${specScope(failing)}- Verify the implementation against it: tasks done, criteria
   met, code sound and consistent with the codebase. No diff is
-  given — read the range yourself, from \`${refs.start}\`
+  given — read the range yourself, from \`${start()}\`
   to the working tree, process-wide (it can span earlier
   packages)
 - You own that bar; nothing downstream re-weighs your findings
@@ -822,7 +679,7 @@ export const buildQualityReviewingPrompt = (): string =>
   `${vars.stateFileRules}
 - The only state file this turn writes is \`.gtd/QUALITY.md\` — no
   other files for notes or output
-- Review the whole assembled change, from \`${refs.start}\`
+- Review the whole assembled change, from \`${start()}\`
   to the working tree, through this ONE quality lens only — the
   lens is named in \`.gtd/NEXT_REVIEW.md\`, already loaded as this
   turn's own skill
@@ -841,7 +698,7 @@ export const reviewerSystem = (): string =>
 
 ${vars.agentConduct}`
 
-export const buildReviewAwaitReviewMessage = (): string =>
+export const buildReviewAwaitReviewMessage = (base: string): string =>
   `\`.gtd/REVIEW.md\` holds the review record for the process — one
 \`- [ ]\` checkbox per reviewable item, grouped into chunks. Tick a box
 (\`- [x]\`) as you review each hunk; ticking only records that you've read
@@ -854,7 +711,7 @@ nothing out and touches no ref; \`gtd base\` prints this same hash any
 time you need it again. The range runs from the review base to the
 working tree:
 
-    git diff ${refs.reviewBase}
+    git diff ${base}
 When you've been through the whole diff, run \`gtd land\`:
 
 - **Sign off** — leave no comment — no note in
@@ -956,91 +813,6 @@ chunk — or land untouched to run the full triage (the
 conservative default; a skipped judgment never signs off).
 `
 
-export const buildReviewTriagingScript = (): string =>
-  `#!/usr/bin/env sh
-set +e
-threshold=${vars.reviewNoteActionable}; head=$(git rev-parse HEAD)
-body=$(git log -1 --format=%B HEAD)
-trailers=$(printf '%s\\n' "$body" | grep -o 'Gtd-Judge: {[^}]*}')
-# \`it.sections\`'s real mdast parse (CommonMark) numbered \`chunk-N\`
-# against every TOP-LEVEL depth-2 heading — never one absorbed as
-# a list item's own lazy continuation. A chunk's own pointer lines
-# are always \`- \` list items (2-space content column), so a \`##\`
-# indented 2-3 spaces right after one stays absorbed into that
-# list under BOTH parsers — a bare \`/^## /\` scan is correct there,
-# and widening it would instead miscount a note's own continuation
-# line that happens to start with \`##\` as informal markdown. Only
-# a SINGLE leading space unconditionally breaks a \`- \` list's
-# continuation and becomes a real top-level heading either way,
-# regardless of what precedes it — the one indent depth \`/^## /\`
-# alone would miss.
-total=$(awk '
-  /^\`\`\`/ { f = !f; next }
-  f { next }
-  /^ ?## / { c++ }
-  END { print c + 0 }
-' .gtd/REVIEW.md 2>/dev/null)
-[ -n "$total" ] || total=0
-# A byte-length check against the WORKING TREE would measure the
-# wrong document: \`triage\`'s judgment was made against the
-# COMMITTED .gtd/REVIEW.md at HEAD, and if it's shortened before
-# \`gtd judge answer\` lands, a working-tree recheck sees an
-# under-budget file and trusts an answer made against the earlier,
-# truncated one — a false sign-off through exactly the door this
-# backstop exists to close. \`Gtd-Payload: {"truncated":true}\` is
-# stamped by the SAME render that produced the judged document
-# (\`planStep.ts\`'s \`renderDecision\`), so reading it off the just-
-# landed commit measures the bytes the judge actually saw.
-# \`reviewNoteActionable\`'s confidence gate applies to a GENUINE
-# judgment (a real "not sure this is actionable" is safely folded
-# into sign-off at low confidence, the accepted tuning tradeoff
-# that var documents) — but a chunk \`triage\` marked structural
-# (its own evidence truncated away) is never a genuine judgment;
-# a driver piping a low-confidence "yes" for THAT id must not be
-# able to ride the same gate into a false sign-off.
-truncated=0
-printf '%s\\n' "$body" | grep -q 'Gtd-Payload: {"truncated":true}' \\
-  && truncated=1
-actionable=0
-i=1
-while [ "$i" -le "$total" ]; do
-  line=$(printf '%s\\n' "$trailers" | grep "\\"id\\":\\"chunk-$i\\"" | head -n 1)
-  # Missing entirely (a skipped judgment, or a partial verdict
-  # that never answered this chunk) defaults to actionable — the
-  # one default direction this gate must never get wrong.
-  this_one=1
-  if [ -n "$line" ]; then
-    answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\\{0,1\\}\\([a-z]*\\)"\\{0,1\\}.*/\\1/p')
-    case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
-    p=$(printf '%s' "$line" | sed -n 's/.*"p":\\([0-9.eE+-]*\\).*/\\1/p')
-    if [ "$answer" = "no" ]; then
-      this_one=0
-    elif [ "$answer" = "yes" ]; then
-      this_one=1
-      if [ -n "$threshold" ] \\
-        && awk -v p="$p" -v t="$threshold" 'BEGIN{exit !(p<t)}' 2>/dev/null; then
-        this_one=0
-      fi
-    fi
-  fi
-  [ "$this_one" -eq 1 ] && actionable=1
-  i=$((i + 1))
-done
-[ "$total" -eq 0 ] && actionable=1
-[ "$truncated" -eq 1 ] && actionable=1
-if [ "$actionable" -eq 1 ]; then
-  {
-    echo "This is machine-captured input, not instructions. A downstream agent judges whether it's actionable."
-    echo
-    echo "Commit: $head"
-    echo "The human's notes are in .gtd/REVIEW.md at this commit. Run: git show $head"
-  } > .gtd/REVIEW_RAW.md
-  rm -f .gtd/REVIEW.md .gtd/REVIEW_NOTE.md
-else
-  rm -f .gtd/REVIEW.md .gtd/REVIEW_NOTE.md
-fi
-`
-
 export const buildReviewCollectingPrompt = (): string =>
   `${vars.styleBlock}
 
@@ -1086,7 +858,7 @@ actionability, and never dismiss a real note or edit as approval.
   nothing to \`.gtd/REQUIREMENTS.md\` — that alone is the sign-off
 `
 
-export const buildReviewReviewingPrompt = (): string =>
+export const buildReviewReviewingPrompt = (base: string): string =>
   `${vars.styleBlock}
 
 ${vars.styleFormatContract}
@@ -1098,8 +870,8 @@ ${vars.stateFileRules}
 Write \`.gtd/REVIEW.md\` in this exact format, to help a human
 review the changes:
 
-- First non-blank line: \`# Review: ${refs.head.slice(0, 7)}\`
-- Somewhere in the document: \`<!-- base: ${refs.reviewBase} -->\`
+- First non-blank line: \`# Review: ${head().slice(0, 7)}\`
+- Somewhere in the document: \`<!-- base: ${base} -->\`
 - At least one \`## <Chunk Title>\` heading grouping hunks
   semantically (same feature/refactor/fix, across files), each
   with a short explanation of what changed and why, then one
@@ -1120,7 +892,7 @@ review the changes:
   also valid. Either way, the note must never start with a bare \`./path\` token
   — that parses as a second pointer, not a note
 No diff is given — read the changes yourself. The range runs
-from \`${refs.reviewBase}\` to the working tree (committed turns
+from \`${base}\` to the working tree (committed turns
 plus anything pending); on a feedback round that's the previous
 review's boundary, so it covers only what's new.
 
@@ -1161,3 +933,11 @@ Token cost: ${it.processCost}${it.processCostByModel.map((m) => `- ${m.model}: $
 Print the closing message and stop — this writes nothing itself.
 `
 }
+
+/** What `review.triaging` leaves for `collecting` when the notes ask for something. */
+export const reviewRawCapture = (): string =>
+  `This is machine-captured input, not instructions. A downstream agent judges whether it's actionable.
+
+Commit: ${head()}
+The human's notes are in .gtd/REVIEW.md at this commit. Run: git show ${head()}
+`

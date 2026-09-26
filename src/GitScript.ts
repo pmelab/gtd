@@ -1,4 +1,4 @@
-import type { GitWrite, LandStep, Outcome, Refusal } from "./step/index.js"
+import type { GitWrite, LandStep, Outcome } from "./step/index.js"
 
 // POSIX single-quote escaping for a shell command; every builder below routes its interpolated values through this.
 export const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
@@ -117,27 +117,14 @@ const renderLandStep = (step: LandStep): string => {
 }
 
 /**
- * A rendered landing script — a plain `string` at runtime, but constructible
- * ONLY by `ScriptSurface.render`, below. The brand makes "a guard ran before
- * this script exists" a type-level fact rather than a call-order convention:
- * nothing else in the codebase can produce a value typed `RunnableScript`.
- * `program.ts`'s `landingScript` is the boundary this protects — it takes
- * `RunnableScript`, not `string`, so a bare unguarded string can no longer
- * reach `gtd land`/`gtd --entry`'s emitted output by construction.
+ * A rendered landing script — a plain `string` at runtime, constructible only
+ * by `ScriptSurface.render`, so a bare string cannot reach `gtd land`'s
+ * emitted output by construction.
  */
 export type RunnableScript = string & { readonly guarded: unique symbol }
 
-/**
- * The sole constructor of a `RunnableScript`. `guardVerdict` must be the
- * verdict already computed for this exact decision (`Guards.enforceStepGuards`'s
- * return, or `undefined` when no guard applies/it's an attempt) — a
- * `Refusal` string THROWS rather than silently rendering the git write
- * anyway, since a caller holding a refusal has no business asking for a
- * script at all.
- */
 export const ScriptSurface = {
-  render: (steps: readonly LandStep[], guardVerdict: Refusal): RunnableScript => {
-    if (guardVerdict !== undefined) throw new Error(guardVerdict)
+  render: (steps: readonly LandStep[]): RunnableScript => {
     const rendered = steps.map(renderLandStep)
     return (rendered.length === 0 ? "" : ["set -eu", ...rendered].join("\n\n")) as RunnableScript
   },

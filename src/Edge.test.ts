@@ -1,5 +1,5 @@
 import { Effect, Exit } from "effect"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import { runCli } from "./cli/index.js"
 import {
   currentRest,
@@ -432,7 +432,7 @@ export default workflow(async () => {
 })
 
 describe("reviewBaseFor", () => {
-  const LOOP = `import { agent, exists, human, workflow, refuse } from "@pmelab/gtd/flows"
+  const LOOP = `import { agent, head, human, read, workflow, refuse } from "@pmelab/gtd/flows"
 
 export default workflow(
   async ({ entry }) => {
@@ -442,9 +442,10 @@ export default workflow(
     }
     if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
     await human("idle")
-    while (!exists("DONE")) {
-      await human("checkpoint", { reviewBase: true })
-      await agent("building", "build-prompt")
+    while (read("DONE") === undefined) {
+      const base = head()
+      await human("checkpoint", { base })
+      await agent("building", "build-prompt", { base })
     }
   },
   {
@@ -454,13 +455,13 @@ export default workflow(
 )
 `
 
-  it("is the process's diff base before any reviewBase step is reached", async () => {
+  it("is the process's diff base at a step that names no base", async () => {
     const repo = repoWith(LOOP)
     const rest = await provide(currentRest, repo)
     expect(reviewBaseFor(rest)).toBe(rest.run.diffBase)
   })
 
-  it("is the commit that entered the latest reviewBase step", async () => {
+  it("is the base the resting step names", async () => {
     const repo = repoWith(LOOP)
     const first = await land(repo, { "a.txt": "a\n" })
     expect(reviewBaseFor(await provide(currentRest, repo))).toBe(first)
@@ -474,7 +475,7 @@ export default workflow(
     expect(reviewBaseFor(await provide(currentRest, repo))).toBe(second)
   })
 
-  it("falls back to an entry's Gtd-Review-Base", async () => {
+  it("falls back to an entry's Gtd-Review-Base at a step that names no base", async () => {
     const repo = repoWith(LOOP)
     const base = headOf(repo)
     repo.writeFile("later.txt", "later\n")
@@ -485,12 +486,12 @@ export default workflow(
 })
 
 describe("memory", () => {
-  const SCOPED = `import { agent, exists, human, scope, workflow } from "@pmelab/gtd/flows"
+  const SCOPED = `import { agent, human, read, scope, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(async () => {
   await human("idle")
   do await agent("build", "b")
-  while (!exists("ROOT_DONE"))
+  while (read("ROOT_DONE") === undefined)
   for (const round of [1, 2]) {
     await scope("a", async () => {
       await agent("work", "a")
@@ -724,17 +725,16 @@ export default workflow(
 describe("judge rests", () => {
   const JUDGED = (
     budget: string,
-  ) => `import { human, judge, tail, workflow } from "@pmelab/gtd/flows"
+  ) => `import { human, judge, read, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(
   async () => {
     await human("idle")
-    await judge(
-      "verdict",
-      { id: "q", primitive: "noul", instructions: "i", criteria: "c" },
-      { log: tail("LOG.md", 1) },
-      { message: "judge-message" },
-    )
+    await judge("verdict", {
+      questions: [{ id: "q", primitive: "noul", instructions: "i", criteria: "c" }],
+      evidence: { log: read("LOG.md") ?? "" },
+      message: "judge-message",
+    })
   },
   { vars: { judgeBudgetBytes: ${JSON.stringify(budget)} } },
 )
@@ -775,72 +775,29 @@ export default workflow(
 })
 
 describe("snapshotFromRest", () => {
-  const REVERT = `import { agent, human, workflow } from "@pmelab/gtd/flows"
+  const STEERED = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(async () => {
   await human("idle")
-  await human("reviewed", { reviewBase: true })
-  await agent("awaitRevert", "revert-it", { requireRevert: true, file: ".gtd/AWAIT.md" })
+  await agent("steered", "write-it", { file: ".gtd/AWAIT.md" })
 })
 `
 
-  /** At `awaitRevert`, whose review round is the idle turn that touched `src/reviewed.ts`. */ // gtd-path-exempt: in-memory fixture
-  const revertRepo = async (): Promise<InMemRepo> => {
-    const repo = repoWith(REVERT)
-    await land(repo, { "src/reviewed.ts": "reviewed\n" })
-    await land(repo, { ".gtd/NOTE.md": "note\n" })
-    return repo
-  }
-
-  it("skips the require-revert probe for an attempt", async () => {
-    const repo = await revertRepo()
-    const rest = await provide(currentRest, repo)
-    expect(rest.state).toBe("awaitRevert")
-    const history = vi.spyOn(repo, "commitHistory")
-    const snapshot = await provide(snapshotFromRest(rest), repo)
-    expect(snapshot.landing.kind).toBe("attempt")
-    expect(snapshot.revert).toEqual({ checked: false, base: "", residue: [] })
-    expect(history).not.toHaveBeenCalled()
-  })
-
-  it("probes the review round's code paths for a landing that commits", async () => {
-    const repo = await revertRepo()
-    repo.writeFile("src/a.ts", "a\n")
-    const kept = await provide(snapshotFromRest(await provide(currentRest, repo)), repo)
-    expect(kept.landing.kind).toBe("commit")
-    expect(kept.revert.checked).toBe(true)
-    expect(kept.revert.residue).toEqual(["src/reviewed.ts"])
-
-    repo.deleteFile("src/reviewed.ts")
-    const reverted = await provide(snapshotFromRest(await provide(currentRest, repo)), repo)
-    expect(reverted.revert).toMatchObject({ checked: true, residue: [] })
-  })
-
-  it("skips the probe at a step that does not require a revert", async () => {
-    const repo = repoWith(REVERT)
-    await land(repo, { "src/reviewed.ts": "reviewed\n" })
-    repo.writeFile("src/a.ts", "a\n")
-    const rest = await provide(currentRest, repo)
-    expect(rest.state).toBe("reviewed")
-    const snapshot = await provide(snapshotFromRest(rest), repo)
-    expect(snapshot.landing.kind).toBe("commit")
-    expect(snapshot.revert.checked).toBe(false)
-  })
-
-  it("reads the declared steering file at HEAD and in the worktree", async () => {
-    const repo = await revertRepo()
+  it("names the resting step's steering file and decides the landing", async () => {
+    const repo = repoWith(STEERED)
+    await land(repo, { "src/a.ts": "a\n" })
     repo.writeFile(".gtd/AWAIT.md", "pending content\n")
     const snapshot = await provide(snapshotFromRest(await provide(currentRest, repo)), repo)
+    expect(snapshot.state).toBe("steered")
     expect(snapshot.file).toBe(".gtd/AWAIT.md")
-    expect(snapshot.headFile).toBeUndefined()
-    expect(snapshot.worktreeFile).toBe("pending content\n")
+    expect(snapshot.landing.kind).toBe("commit")
   })
 
-  it("reads no file at a step that declares none", async () => {
-    const repo = repoWith(REVERT)
-    const snapshot = await provide(snapshotFromRest(await provide(currentRest, repo)), repo)
+  it("names no file at a step that declares none", async () => {
+    const snapshot = await provide(
+      snapshotFromRest(await provide(currentRest, repoWith(STEERED))),
+      repoWith(STEERED),
+    )
     expect(snapshot.file).toBeUndefined()
-    expect(snapshot.headFile).toBeUndefined()
-    expect(snapshot.worktreeFile).toBeUndefined()
   })
 })

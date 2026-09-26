@@ -3,9 +3,6 @@ import type { Actor, ContentKind, StateMode, StateName } from "./wire/index.js"
 
 export type { Actor, ContentKind, StateMode, StateName }
 
-/** gtd's plumbing directory — every steering file lives under it. */
-export const STATE_DIR = ".gtd"
-
 export type ChangeStatus = "A" | "M" | "D"
 
 export interface PendingChange {

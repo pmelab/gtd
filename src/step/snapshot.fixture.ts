@@ -1,11 +1,9 @@
 import type { StepDef } from "../Workflow.js"
-import type { RepoSnapshot, RevertProbe } from "./RepoSnapshot.js"
-
-const NO_REVERT: RevertProbe = { checked: false, base: "", residue: [] }
+import type { RepoSnapshot } from "./RepoSnapshot.js"
 
 /**
  * One `RepoSnapshot` literal for a table test: every field is already-resolved
- * data, exactly what `planStep`/the guards receive. The landing defaults to a
+ * data, exactly what `planStep` receives. The landing defaults to a
  * commit that stays at `state`.
  */
 export const snapshot = (
@@ -19,11 +17,6 @@ export const snapshot = (
     actor: stepDef.actor,
     changes: [],
     file: stepDef.file,
-    reviewBase: "",
-    startCommit: "",
-    headFile: undefined,
-    worktreeFile: undefined,
-    revert: NO_REVERT,
     landing: {
       kind: "commit",
       to: overrides.state,

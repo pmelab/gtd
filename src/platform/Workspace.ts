@@ -53,7 +53,7 @@ const DIFF_MAX_BUFFER = 64 * 1024 * 1024
  * `.gtdrc` file-ref resolved against its own, possibly-ancestor, declaring
  * directory (read-only, both); and `program.ts`'s `gtd check`/`gtd uncheck`,
  * whose `<file>` argument is an arbitrary CLI-given path — absolute or
- * relative to `root` — never a repo-scoped one Eta/`src/step/Guards.ts` would use.
+ * relative to `root` — never a repo-scoped one Eta would use.
  * Keeping the escape on separately-named members is what makes "a
  * repo-relative path reaching `/tmp`" (the failure mode `Host`'s separate
  * scratch port exists to prevent) a loud misuse of the wrong method, not a

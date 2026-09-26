@@ -1,17 +1,17 @@
 import {
   installContext,
-  type Actor,
   type FlowContext,
+  type Change,
   type JudgeAnswer,
   type JudgeQuestion,
-  type PersonaOptions,
   type FlowArgs,
+  type ScopeOptions,
   type RunTools,
   type StepRequest,
   type Workflow,
 } from "../flows/index.js"
-import { createRenderLedger, type RenderLedger } from "../PatternTemplates.js"
-import { headingSections } from "../steering/index.js"
+import { createRenderLedger } from "../PatternTemplates.js"
+import { headingSections, steeringFormatFor, unansweredQuestions } from "../steering/index.js"
 import { globMatches } from "./Glob.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
 import {
@@ -57,6 +57,8 @@ export interface ReplayInput {
 
 export type StepKind = Exclude<StepRequest["kind"], "restart">
 
+type Actor = "agent" | "human" | "check" | "judge"
+
 const actorOfKind = (kind: StepKind): Actor =>
   kind === "run" ? "check" : kind === "agent" ? "agent" : kind === "human" ? "human" : "judge"
 
@@ -72,8 +74,7 @@ export interface ReachedStep {
   readonly memoryScope: string
   /** The commit replay stood on when it reached this step. */
   readonly enteredAt: string
-  readonly reviewBase: string
-  /** Whether a `tail` read since the previous step dropped bytes. */
+  /** Whether the judge budget cut this step's evidence. */
   readonly truncated: boolean
 }
 
@@ -106,22 +107,60 @@ class Stop extends Error {}
 
 const short = (hash: string): string => hash.slice(0, 7)
 
+/** One step's changes; content is read only when a flow asks for it. */
+const changesBetween = (before: TreeView, after: TreeView): readonly Change[] => {
+  const diff = diffTrees(before, after)
+  const change = (path: string, status: Change["status"]): Change => ({
+    path,
+    status,
+    get before() {
+      return status === "added" ? undefined : before.read(path)
+    },
+    get after() {
+      return status === "deleted" ? undefined : after.read(path)
+    },
+  })
+  return [
+    ...diff.added.map((path) => change(path, "added")),
+    ...diff.modified.map((path) => change(path, "modified")),
+    ...diff.deleted.map((path) => change(path, "deleted")),
+  ].sort((a, b) => a.path.localeCompare(b.path))
+}
+
 const normalizeAnswer = (answer: string | number | boolean): string =>
   typeof answer === "boolean" ? (answer ? "yes" : "no") : String(answer)
 
 const answersFrom = (
   verdicts: readonly JudgeVerdict[],
   questions: readonly JudgeQuestion[],
-  minP: number | undefined,
-): Readonly<Record<string, JudgeAnswer>> => {
-  const ids = new Set(questions.map((q) => q.id))
-  const answers: Record<string, JudgeAnswer> = {}
+): Readonly<Record<string, JudgeAnswer | undefined>> => {
+  const answers: Record<string, JudgeAnswer | undefined> = {}
+  for (const question of questions) answers[question.id] = undefined
   for (const verdict of verdicts) {
-    if (!ids.has(verdict.id)) continue
-    if (minP !== undefined && verdict.p < minP) continue
+    if (!(verdict.id in answers)) continue
     answers[verdict.id] = { answer: normalizeAnswer(verdict.answer), p: verdict.p }
   }
   return answers
+}
+
+/** Cut each evidence value to an even share of the judge budget; which keys were cut. */
+const budgeted = (
+  evidence: Readonly<Record<string, string>>,
+  budgetBytes: number,
+): {
+  readonly evidence: Readonly<Record<string, string>>
+  readonly truncated: readonly string[]
+} => {
+  const keys = Object.keys(evidence)
+  const ledger = createRenderLedger(budgetBytes)
+  const bounded: Record<string, string> = {}
+  const truncated: string[] = []
+  for (const key of keys) {
+    const value = evidence[key]!
+    bounded[key] = ledger.tail(value, 1 / keys.length)
+    if (bounded[key] !== value) truncated.push(key)
+  }
+  return { evidence: bounded, truncated }
 }
 
 interface Identity {
@@ -147,26 +186,23 @@ interface ParsedCommit extends EpisodeCommit {
  * Pure over its input: the same episode always yields the same outcome, and
  * the only reads are through `TreeView`s.
  */
-const STEERING_OPTIONS = [
-  "file",
-  "mode",
-  "requireProgress",
-  "answerGate",
-  "requireRevert",
-  "reviewBase",
-  "label",
-]
+const STEERING_OPTIONS = ["file", "mode", "label", "base"]
 // The option keys each step accepts. A gtd.config.ts is evaluated without a
 // type check, so a misspelt or retired key would otherwise be silently ignored.
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
   agent: new Set([...STEERING_OPTIONS, "model", "system", "skills", "allowEmpty"]),
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean"]),
   run: new Set(STEERING_OPTIONS),
-  judge: new Set([...STEERING_OPTIONS, "message", "minP"]),
+  judge: new Set([...STEERING_OPTIONS, "message"]),
 }
 const RETIRED_OPTIONS: Readonly<Record<string, string>> = {
   memory:
     "a step's memory scope is computed from its scope() prefix, so the memory option no longer exists",
+  requireProgress: "check the step's changes() in the flow and refuse() instead",
+  answerGate: "check openQuestions() in the flow and refuse() instead",
+  requireRevert: "compare the files against the changes() you kept and refuse() instead",
+  reviewBase: "record head() in the flow and pass it as the reviewing step's base",
+  minP: "compare the answer's p in the flow instead",
 }
 
 const unknownOptions = (step: ReachedStep): string | undefined => {
@@ -195,14 +231,10 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   let pendingUsed = false
   let position: Position = input.episode.base
   let previousPosition: Position = input.episode.base
-  let reviewBase = input.refs.start
   let expectedNext: { readonly name: string; readonly hash: string } | undefined
-  let ledger: RenderLedger = createRenderLedger(input.budgetBytes)
   const occurrences = new Map<string, number>()
-  const completions = new Map<string, TreeView[]>()
   const personas = new Map<string, Identity>()
-  const scopes: string[] = []
-  const personaStack: PersonaOptions[] = []
+  const scopes: ScopeOptions[] = []
   const trace: ReachedStep[] = []
   let landed: ReachedStep | undefined
   let outcome: ReplayOutcome | undefined
@@ -217,7 +249,8 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     throw new Stop()
   }
 
-  const scoped = (name: string): string => [...scopes, name].join(".")
+  const scoped = (name: string): string =>
+    [...scopes.flatMap((s) => (s.name === undefined ? [] : [s.name])), name].join(".")
 
   const isAttemptAt = (commit: ParsedCommit, name: string): boolean =>
     commit.parsed.step === undefined &&
@@ -226,13 +259,9 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     commit.parsed.parsed.to === name &&
     isEmptyDiff(diffTrees(position.tree, commit.tree))
 
-  const advance = (next: Position, name: string): void => {
+  const advance = (next: Position): void => {
     previousPosition = position
     position = next
-    const trees = completions.get(name) ?? []
-    trees.push(next.tree)
-    completions.set(name, trees)
-    ledger = createRenderLedger(input.budgetBytes)
   }
 
   const replyFor = (
@@ -240,7 +269,10 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     verdicts: readonly JudgeVerdict[],
   ): unknown =>
     request.kind === "judge"
-      ? answersFrom(verdicts, request.questions, request.options.minP)
+      ? {
+          answers: answersFrom(verdicts, request.questions),
+          truncated: judgeCuts.get(request) ?? [],
+        }
       : undefined
 
   // A callback runs after replay returns (under `gtd exec`), yet reads vars
@@ -256,18 +288,36 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       }
     }
 
+  const judgeCuts = new WeakMap<object, readonly string[]>()
+
+  const resolve = (
+    request: Exclude<StepRequest, { kind: "restart" }>,
+  ): Exclude<StepRequest, { kind: "restart" }> => {
+    if (request.kind === "agent") {
+      const persona: { model?: string; system?: string } = {}
+      for (const s of scopes) {
+        if (s.model !== undefined) persona.model = s.model
+        if (s.system !== undefined) persona.system = s.system
+      }
+      return { ...request, options: { ...persona, ...request.options } }
+    }
+    if (request.kind === "run" && typeof request.body === "function") {
+      return { ...request, body: withContext(request.body) }
+    }
+    if (request.kind === "judge") {
+      const { evidence, truncated } = budgeted(request.evidence, input.budgetBytes)
+      const bounded = { ...request, evidence }
+      judgeCuts.set(bounded, truncated)
+      return bounded
+    }
+    return request
+  }
+
   const reach = (request: Exclude<StepRequest, { kind: "restart" }>): ReachedStep => {
     const name = scoped(request.name)
     const occurrence = (occurrences.get(name) ?? 0) + 1
     occurrences.set(name, occurrence)
-    const persona = Object.assign({}, ...personaStack) as PersonaOptions
-    const resolved =
-      request.kind === "agent"
-        ? { ...request, options: { ...persona, ...request.options } }
-        : request.kind === "run" && typeof request.body === "function"
-          ? { ...request, body: withContext(request.body) }
-          : request
-    if (resolved.options.reviewBase === true) reviewBase = position.hash
+    const resolved = resolve(request)
     const reached: ReachedStep = {
       id: { name, occurrence },
       name,
@@ -276,8 +326,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       request: resolved,
       memoryScope: memoryScopeOf(name),
       enteredAt: position.hash,
-      reviewBase,
-      truncated: ledger.truncated(),
+      truncated: (judgeCuts.get(resolved) ?? []).length > 0,
     }
     trace.push(reached)
     return reached
@@ -328,7 +377,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       })
     }
     cursor++
-    advance(commit, step.name)
+    advance(commit)
     const to = commit.parsed.parsed?.to
     if (to !== undefined) expectedNext = { name: to, hash: commit.hash }
     return replyFor(step.request, commit.parsed.judge)
@@ -343,16 +392,16 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     }
     pendingUsed = true
     landed = step
-    advance({ hash: "", tree: input.pending.tree }, step.name)
+    advance({ hash: "", tree: input.pending.tree })
     return replyFor(step.request, input.pending.verdicts ?? [])
   }
 
   const handleStep = async (request: StepRequest): Promise<unknown> => {
     if (outcome !== undefined) throw new Stop()
+    if (request.kind === "restart") return finish(endOfFlow("restart"))
     if (typeof request.name !== "string" || request.name === "") {
       return finish({ kind: "failed", message: "gtd: a step was called without a name" })
     }
-    if (request.kind === "restart") return finish(endOfFlow("restart"))
     const step = reach(request)
     const blocker = blockerAt(step)
     return blocker === undefined ? answer(step) : finish(blocker)
@@ -373,43 +422,31 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       signal?.()
       throw new Stop()
     },
-    pushScope: (prefix) => scopes.push(prefix),
+    pushScope: (scope) => scopes.push(scope),
     popScope: () => void scopes.pop(),
-    pushPersona: (persona) => personaStack.push(persona),
-    popPersona: () => void personaStack.pop(),
-    exists: (path) => position.tree.read(path) !== undefined,
     read: (path) => position.tree.read(path),
     glob: (pattern) => position.tree.paths().filter((path) => globMatches(path, pattern)),
-    changes: () => diffTrees(previousPosition.tree, position.tree),
+    changes: () => changesBetween(previousPosition.tree, position.tree),
     matches: globMatches,
-    tail: (pathOrContent, share) =>
-      ledger.tail(position.tree.read(pathOrContent) ?? pathOrContent, share),
-    previous: (path, since) => {
-      const trees = completions.get(scoped(since)) ?? []
-      return trees.length < 2 ? undefined : trees[trees.length - 2]!.read(path)
+    sections: (text) => headingSections(text),
+    openQuestions: (text) => {
+      const qa = steeringFormatFor("qa")
+      return qa === undefined
+        ? []
+        : unansweredQuestions(qa, text).map((q) => ({
+            question: q.question,
+            line: q.headingLine + 1,
+          }))
     },
-    sections: (pathOrContent) =>
-      headingSections(position.tree.read(pathOrContent) ?? pathOrContent),
-    stepName: scoped,
     vars: input.vars,
-    refs: {
-      get start() {
-        return input.refs.start
-      },
-      get head() {
-        // At the rest, trailing attempts sit above the last step commit: the
-        // head a prompt names is the commit the process actually stands on.
-        const rest = commits.slice(cursor)
-        return rest.length > 0 && rest.every((c) => c.parsed.step === undefined)
-          ? rest[rest.length - 1]!.hash
-          : position.hash
-      },
-      get reviewBase() {
-        return reviewBase
-      },
-      get processBase() {
-        return input.refs.processBase
-      },
+    start: () => input.refs.start,
+    // At the rest, trailing attempts sit above the last step commit: the head a
+    // prompt names is the commit the process actually stands on.
+    head: () => {
+      const rest = commits.slice(cursor)
+      return rest.length > 0 && rest.every((c) => c.parsed.step === undefined)
+        ? rest[rest.length - 1]!.hash
+        : position.hash
     },
   }
 

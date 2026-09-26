@@ -12,7 +12,7 @@
     "src/steering/qa.ts",
     "src/steering/review.ts",
     "src/steering/index.ts",
-    "src/step/Guards.ts",
+    "src/step/planStep.ts",
     "src/workflow/load.ts",
     "src/workflow/compile.ts",
     "src/platform/Git.ts",

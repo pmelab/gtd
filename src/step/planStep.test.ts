@@ -29,14 +29,13 @@ describe("planStep — commit", () => {
   it("an attempt commits the bare subject with no step trailer and bypasses guards", () => {
     const s = snapshot({
       state: "await-answers",
-      stepDef: { actor: "agent", kind: "prompt", answerGate: true, mode: "qa" },
+      stepDef: { actor: "agent", kind: "prompt", mode: "qa" },
       actor: "agent",
       landing: { kind: "attempt", subject: "gtd(agent): await-answers" },
     })
     const outcome = planStep(s)
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
     expect(outcome.to).toBe("await-answers")
-    expect(outcome.guardVerdict).toBeUndefined()
     expect(outcome.steps).toEqual([
       { kind: "gitWrite", write: { kind: "commitAll", message: "gtd(agent): await-answers" } },
       { kind: "outcome", outcome: { kind: "commit", subject: "gtd(agent): await-answers" } },
@@ -61,23 +60,6 @@ describe("planStep — commit", () => {
       kind: "outcome",
       outcome: { kind: "transition", from: "building", to: "done" },
     })
-    expect(outcome.guardVerdict).toBeUndefined()
-  })
-
-  it("carries a guard's refusal as `guardVerdict` without dropping the steps", () => {
-    const s = snapshot({
-      state: "await-revert",
-      stepDef: { requireRevert: true, file: ".gtd/FILE.md" },
-      reviewBase: "abc123",
-      startCommit: "def456",
-      changes: [{ status: "M", path: ".gtd/FILE.md" }],
-      revert: { checked: true, base: "abc123~1", residue: ["src/a.ts"] },
-      landing: commitTo("await-revert", "done"),
-    })
-    const outcome = planStep(s)
-    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    expect(outcome.guardVerdict).toMatch(/src\/a\.ts/)
-    expect(outcome.steps.length).toBeGreaterThan(0)
   })
 
   it("prepends `gtd uncheck` at the human review gate", () => {

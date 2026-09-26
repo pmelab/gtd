@@ -9,10 +9,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
   missing path (`prettier --write`, modelled below) would have made a
   sign-off's step UNLANDABLE — `format:` was the first command in a
   `set -euo pipefail` script, and its failure aborted the whole script before
-  the commit. `deletesFile` (`src/step/Guards.ts`) still exists and is still
-  shared by the step-capture guards (see AGENTS.md's "Step-capture guards"
-  section) — it just no longer has a `steeringModeSteps` caller to skip a
-  format command for, since there is no such caller left in the landing path.
+  the commit.
 
   This scenario actually EXECUTES the rendered script (`I execute the printed
   check script`) rather than simulating its outcome by hand — `@inmem`

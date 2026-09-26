@@ -92,12 +92,9 @@ for (const name of SCRIPT_NAMES) {
       read: (path) => {
         throw new Error(`generate-shell-corpus: unexpected read(${path}) while rendering "${name}"`)
       },
-      refs: {
-        start: SAMPLE_HEAD,
-        head: SAMPLE_HEAD_2,
-        reviewBase: SAMPLE_HEAD,
-        processBase: SAMPLE_HEAD,
-      },
+      start: SAMPLE_HEAD,
+      head: SAMPLE_HEAD_2,
+      base: SAMPLE_HEAD,
     }),
   )
 }

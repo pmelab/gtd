@@ -23,7 +23,6 @@ import { renderSkillsPreamble, type TemplateContext } from "./PatternTemplates.j
 import { clearTicks, steeringFormatFor } from "./steering/index.js"
 import { UNATTRIBUTED_MODEL, type ModelCost } from "./wire/index.js"
 import {
-  STATE_DIR,
   knownModes,
   type ChangeStatus,
   type PendingChange,
@@ -31,7 +30,7 @@ import {
   type StepDef,
   type WorkflowDefinition,
 } from "./Workflow.js"
-import type { Landing, RepoSnapshot, RevertProbe } from "./step/index.js"
+import type { Landing, RepoSnapshot } from "./step/index.js"
 
 export { UNATTRIBUTED_MODEL }
 
@@ -393,10 +392,7 @@ const withSkillsPreamble = (
 const optional = <K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } =>
   (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
 
-type StepCommon = Pick<
-  StepDef,
-  "actor" | "label" | "file" | "mode" | "requireProgress" | "answerGate" | "requireRevert"
->
+type StepCommon = Pick<StepDef, "actor" | "label" | "file" | "mode">
 
 const commonOf = (step: ReachedStep): StepCommon => {
   const options = step.request.options
@@ -405,9 +401,6 @@ const commonOf = (step: ReachedStep): StepCommon => {
     ...optional("label", options.label),
     ...optional("file", options.file),
     ...optional("mode", options.mode),
-    ...optional("requireProgress", options.requireProgress),
-    ...optional("answerGate", options.answerGate),
-    ...optional("requireRevert", options.requireRevert),
   }
 }
 
@@ -580,7 +573,7 @@ const templateContext = (
     previousCommit: step.enteredAt,
     state: step.name,
     actor: step.actor,
-    reviewBase: step.reviewBase,
+    reviewBase: step.request.options.base ?? run.diffBase,
     processBase: run.startParentHash,
     processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
     processCostByModel: costByModel(run.costEntries),
@@ -707,7 +700,8 @@ export const entryRefusal = (
   })
 
 /** The review window's diff base at the rest. */
-export const reviewBaseFor = (rest: Rest): string => rest.step.reviewBase
+export const reviewBaseFor = (rest: Rest): string =>
+  rest.step.request.options.base ?? rest.run.diffBase
 
 // ── Rendering ───────────────────────────────────────────────────────────────
 
@@ -821,62 +815,19 @@ export const previewLanding = (rest: Rest): Effect.Effect<StateName | undefined>
     Effect.catchAll(() => Effect.succeed(undefined)),
   )
 
-const isCodePathForRevert = (path: string): boolean =>
-  path !== STATE_DIR && !path.startsWith(`${STATE_DIR}/`)
-
-/**
- * The require-revert guard's git facts: which code paths the human's review
- * round touched, and whether any still differs from before that round.
- */
-const buildRevertProbe = (
-  git: GitOperations,
-  reviewBase: string,
-  startCommit: string,
-): Effect.Effect<RevertProbe, Error> =>
-  Effect.gen(function* () {
-    if (reviewBase === "" || reviewBase === startCommit) {
-      return { checked: false, base: "", residue: [] }
-    }
-    const base = `${reviewBase}~1`
-    const touched = (yield* git.commitHistory(base, reviewBase))[0]?.touched ?? []
-    const scoped = touched.filter(isCodePathForRevert)
-    if (scoped.length === 0) return { checked: true, base, residue: [] }
-    const residue = (yield* git.changedPaths(base))
-      .filter((c) => scoped.includes(c.path))
-      .map((c) => c.path)
-    return { checked: true, base, residue }
-  })
-
 /** Every fact the pure landing planner needs, read once: the rest, its steering file, and the landing decision. */
 export const snapshotFromRest = (
   rest: Rest,
   verdicts?: readonly JudgeVerdict[],
 ): Effect.Effect<RepoSnapshot, Error, Workspace | GitService> =>
   Effect.gen(function* () {
-    const file = rest.hints.file
-    let headFile: string | undefined
-    let worktreeFile: string | undefined
-    if (file !== undefined) {
-      const workspace = yield* Workspace
-      headFile = yield* workspace.committed(file)
-      worktreeFile = yield* workspace.read(file)
-    }
     const landing = yield* decideLanding(rest, verdicts)
-    let probe: RevertProbe = { checked: false, base: "", residue: [] }
-    if (rest.stepDef.requireRevert === true && landing.kind === "commit") {
-      probe = yield* buildRevertProbe(yield* GitService, rest.step.reviewBase, rest.run.diffBase)
-    }
     return {
       stepDef: rest.stepDef,
       state: rest.state,
       actor: rest.actor,
       changes: rest.changes,
-      file,
-      reviewBase: rest.step.reviewBase,
-      startCommit: rest.run.diffBase,
-      headFile,
-      worktreeFile,
-      revert: probe,
+      file: rest.hints.file,
       landing,
     }
   })

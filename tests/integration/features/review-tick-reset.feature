@@ -12,8 +12,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   `qa`-mode's `- [ ]` boxes are a different format entirely: they ARE the
   answer, so `gtd uncheck` is never emitted at a `qa`-mode gate — only at the
-  human `mode: review` gate (see `src/step/Guards.ts`'s `isHumanReviewGate`,
-  shared by the guard and the emitted step).
+  human `mode: review` gate.
 
   These scenarios actually EXECUTE the rendered scripts (`I execute the
   printed check script`) rather than simulating their outcome by hand — the

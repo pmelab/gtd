@@ -11,11 +11,8 @@ describe("the bundled workflow's scripts", () => {
       "buildQualityPickingScript",
       "buildQualitySeedingScript",
       "buildReviewDecidingScript",
-      "buildReviewTriagingScript",
-      "escalateScript",
       "healthCheckScript",
       "packagesItemClosingScript",
-      "packagesItemSpecScopingScript",
       "packagesPickingScript",
       "questionCheckScript",
       "reUnwindScript",
@@ -28,7 +25,9 @@ describe("the bundled workflow's scripts", () => {
     it(`${name} renders to syntactically valid sh`, () => {
       const rendered = renderScript(name, {
         read: () => "placeholder",
-        refs: { start: "a".repeat(40), head: "b".repeat(40), reviewBase: "c".repeat(40) },
+        start: "a".repeat(40),
+        head: "b".repeat(40),
+        base: "c".repeat(40),
       })
       expect(() => execFileSync("sh", ["-n"], { input: rendered })).not.toThrow()
       expect(() => execFileSync("bash", ["-n"], { input: rendered })).not.toThrow()

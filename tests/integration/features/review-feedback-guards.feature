@@ -32,8 +32,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
   `.gtd/REQUIREMENTS.md` file: an agent that deletes the assembled review
   input on a loop-back lap without folding it in is exactly the "captured
   then discarded" bug the capture/classify split above already guards
-  against, one phase earlier — the feedback-progress guard
-  (`src/step/Guards.ts`) refuses that turn unless the deleted content is the
+  against, one phase earlier — the feedback-progress check refuses that turn unless the deleted content is the
   `NOTHING ACTIONABLE` sentinel. No bundled state writes that sentinel any
   more, so its exemption is pinned here against a minimal custom workflow
   instead.

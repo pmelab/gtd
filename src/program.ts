@@ -254,10 +254,7 @@ interface LandOptions {
  *
  * `snapshotFromRest` + `src/step/`'s pure `planStep` do the actual deciding
  * (`.gtd/packages/05-step-core.md`) — this wraps that outcome into the
- * `--json`-shaped `LandResult`, and is the one place a guard's refusal
- * (`outcome.guardVerdict`) becomes an Effect failure rather than
- * `ScriptSurface.render`'s thrown error, so `gtd land`'s exit code stays a
- * normal Effect failure, not an uncaught throw.
+ * `--json`-shaped `LandResult`.
  */
 const planLanding = (
   opts: LandOptions = {},
@@ -271,10 +268,9 @@ const planLanding = (
       return yield* Effect.fail(new Error(outcome.message))
     }
     if (outcome.kind === "noop") {
-      const required = ScriptSurface.render(
-        [{ kind: "outcome", outcome: { kind: "note", text: noopText(outcome.state) } }],
-        undefined,
-      )
+      const required = ScriptSurface.render([
+        { kind: "outcome", outcome: { kind: "note", text: noopText(outcome.state) } },
+      ])
       return {
         state: outcome.state,
         subject: null,
@@ -286,11 +282,7 @@ const planLanding = (
       }
     }
 
-    if (outcome.guardVerdict !== undefined) {
-      return yield* Effect.fail(new Error(outcome.guardVerdict))
-    }
-
-    const required = ScriptSurface.render(outcome.steps, outcome.guardVerdict)
+    const required = ScriptSurface.render(outcome.steps)
     return {
       state: outcome.to,
       subject: outcome.subject,
@@ -601,11 +593,7 @@ const runEntryCommand = (
     if (plan.kind === "refusal") {
       return yield* Effect.fail(new Error(plan.message))
     }
-    // Safe to reuse plan.steps verbatim here (unlike planLanding): an entry
-    // always lands fresh at a brand-new process's first state, which never
-    // has a file:/mode: of its own to validate ahead of the commit — no guard
-    // applies, so the verdict is always `undefined`.
-    out.write(landingScript(ScriptSurface.render(plan.steps, undefined)))
+    out.write(landingScript(ScriptSurface.render(plan.steps)))
   })
 
 /**
@@ -931,10 +919,10 @@ const runCheckCommand = (
 
 /**
  * `gtd check <mode> <file> --open-questions`: read `<file>` and run
- * `src/steering/index.ts`'s `unansweredQuestions` — the same predicate
- * `src/step/Guards.ts`'s answer-completeness guard enforces at land — printing one
- * unanswered question per line and exiting non-zero when any remain. Sharing
- * the one function keeps the gate script and the land-time guard in sync.
+ * `src/steering/index.ts`'s `unansweredQuestions` — the same predicate a
+ * flow's `openQuestions()` reads — printing one unanswered question per line
+ * and exiting non-zero when any remain. Sharing the one function keeps the
+ * gate script and the flow's own check in sync.
  *
  * A missing or unreadable file is a non-zero exit, unlike the structural
  * path above, which treats an absent file as "nothing to report".

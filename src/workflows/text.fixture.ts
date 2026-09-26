@@ -1,10 +1,13 @@
-import { installContext, type Refs } from "../flows/index.js"
+import { installContext } from "../flows/index.js"
 import * as text from "./text.js"
 import { defaults } from "./vars.js"
 
 export interface TextContext {
   readonly vars?: Readonly<Record<string, string>>
-  readonly refs?: Partial<Refs>
+  readonly head?: string
+  readonly start?: string
+  /** The review base handed to the scripts that take one. */
+  readonly base?: string
   readonly read?: (path: string) => string | undefined
 }
 
@@ -14,25 +17,20 @@ const unavailable = (): never => {
 
 /** Evaluate one of the bundled workflow's texts the way replay would, against a fixed context. */
 const renderText = <T>(text: () => T, context: TextContext = {}): T => {
-  const read = context.read ?? (() => undefined)
   installContext({
     step: unavailable,
     refuse: unavailable,
     pushScope: unavailable,
     popScope: unavailable,
-    pushPersona: unavailable,
-    popPersona: unavailable,
-    exists: (path) => read(path) !== undefined,
-    read,
+    read: context.read ?? (() => undefined),
     glob: () => [],
-    changes: () => ({ added: [], modified: [], deleted: [] }),
+    changes: () => [],
     matches: () => false,
-    tail: (pathOrContent) => read(pathOrContent) ?? pathOrContent,
-    previous: () => undefined,
     sections: () => [],
-    stepName: (name) => name,
+    openQuestions: () => [],
     vars: { ...defaults, ...context.vars },
-    refs: { start: "", head: "", reviewBase: "", processBase: "", ...context.refs },
+    head: () => context.head ?? "",
+    start: () => context.start ?? "",
   })
   try {
     return text()
@@ -49,9 +47,5 @@ export const SCRIPT_NAMES = Object.keys(text)
   .filter((name) => name.endsWith("Script"))
   .sort() as ScriptName[]
 
-/** Render the bundled script `name`; `describeStep` feeds the one script that takes an argument. */
-export const renderScript = (
-  name: ScriptName,
-  context: TextContext = {},
-  describeStep = "build.health.describe",
-): string => renderText(() => (text[name] as (step: string) => string)(describeStep), context)
+export const renderScript = (name: ScriptName, context: TextContext = {}): string =>
+  renderText(() => (text[name] as (base: string) => string)(context.base ?? ""), context)

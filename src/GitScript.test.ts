@@ -226,12 +226,8 @@ describe("ScriptSurface.render", () => {
     { kind: "outcome", outcome: { kind: "commit", subject: "gtd(human): building" } },
   ]
 
-  it("throws a guard's refusal rather than rendering a script", () => {
-    expect(() => ScriptSurface.render(steps, "gtd land: refused")).toThrow("gtd land: refused")
-  })
-
-  it("renders every step in order when the guard verdict allows it", () => {
-    const script = ScriptSurface.render(steps, undefined)
+  it("renders every step in order ", () => {
+    const script = ScriptSurface.render(steps)
     expect(script).toContain("set -eu")
     expect(script).toContain("echo hi")
     expect(script).toContain("git add -A")
@@ -240,23 +236,21 @@ describe("ScriptSurface.render", () => {
   })
 
   it("renders the empty script for no steps", () => {
-    expect(ScriptSurface.render([], undefined)).toBe("")
+    expect(ScriptSurface.render([])).toBe("")
   })
 
   it("renders a `command` step's onFailure wrapper", () => {
-    const script = ScriptSurface.render(
-      [{ kind: "command", command: "false", onFailure: "custom prompt" }],
-      undefined,
-    )
+    const script = ScriptSurface.render([
+      { kind: "command", command: "false", onFailure: "custom prompt" },
+    ])
     expect(script).toContain("custom prompt")
     expect(runBashCheckSyntax(script)).toBe(0)
   })
 
   it("renders a transition outcome naming both states", () => {
-    const script = ScriptSurface.render(
-      [{ kind: "outcome", outcome: { kind: "transition", from: "building", to: "done" } }],
-      undefined,
-    )
+    const script = ScriptSurface.render([
+      { kind: "outcome", outcome: { kind: "transition", from: "building", to: "done" } },
+    ])
     expect(script).toContain("building")
     expect(script).toContain("done")
     expect(runBashCheckSyntax(script)).toBe(0)

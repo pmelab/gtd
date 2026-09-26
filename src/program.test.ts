@@ -1013,10 +1013,9 @@ describe("gtd uncheck <file>", () => {
 })
 
 describe("gtd check <mode> <file> --open-questions", () => {
-  // Shares the exact `unansweredQuestions` predicate the answer-completeness
-  // step guard (`src/step/Guards.test.ts`) enforces at land — this is the leaf
-  // command a workflow's own gate script calls to answer the same question
-  // in-process, ahead of time.
+  // Shares the exact `unansweredQuestions` predicate a flow's `openQuestions()`
+  // reads — this is the leaf command a workflow's own gate script calls to
+  // answer the same question ahead of time.
 
   const docWithUnanswered = [
     "# Plan",
@@ -1194,14 +1193,14 @@ describe("gtd check <mode> <file> --open-questions", () => {
 describe("gtd next — Next: preview of where landing the pending turn would go", () => {
   // A human rest past the initial step: plain `gtd next` prints no header at a
   // `prompt` rest, so the plain `Next:` line needs a non-prompt one.
-  const WORKFLOW = `import { added, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
+  const WORKFLOW = `import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await human("working", { message: "do the work described in NOTE.md" })
-  if (added("PLAN.md").length > 0) {
+  if (changes("PLAN.md").some((c) => c.status === "added")) {
     await human("accepted", { message: "plan accepted" })
-  } else if (modified("REVIEW.md").length === 0) {
+  } else if (!changes("REVIEW.md").some((c) => c.status === "modified")) {
     refuse("expected a new PLAN.md or an edited REVIEW.md")
   }
 })
@@ -1257,14 +1256,14 @@ export default workflow(async () => {
 describe("gtd land — the settled signal (exit code, script content, and the --json settled field)", () => {
   // `checking` re-runs until a run leaves OUT.txt behind: a clean run there
   // replays to the same step, which is the settled no-op.
-  const SETTLED_WORKFLOW = `import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
+  const SETTLED_WORKFLOW = `import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(async () => {
   await human("idle", { message: "hi" })
   await agent("working", "go")
   do {
     await run("checking", "run-checks")
-  } while (added("OUT.txt").length === 0)
+  } while (!changes("OUT.txt").some((c) => c.status === "added"))
 })
 `
 
@@ -1414,12 +1413,12 @@ export default workflow(async () => {
 })
 
 describe("gtd land — exit code does not name the post-land rest's owner", () => {
-  const WORKFLOW = `import { added, agent, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+  const WORKFLOW = `import { agent, changes, human, refuse, run, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await agent("working", "do the work described in NOTE.md")
-  if (added("DONE.md").length > 0) {
+  if (changes("DONE.md").some((c) => c.status === "added")) {
     await human("waiting", { message: "confirm before continuing" })
   } else {
     await run("checking", "run-checks")
@@ -1484,13 +1483,13 @@ export default workflow(async () => {
 describe("gtd land — the landing script is only the commit", () => {
   // A step's mode `format:`/`validate:` pair runs in the driver, off
   // `gtd next --json`'s `validate` field — never inside the landing script.
-  const NOTES_WORKFLOW = `import { agent, deleted, human, workflow } from "@pmelab/gtd/flows"
+  const NOTES_WORKFLOW = `import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(async () => {
   await human("idle", { message: "hi" })
   do {
     await agent("drafting", "write the notes", { file: ".gtd/NOTES.md", mode: "notes" })
-  } while (deleted(".gtd/NOTES.md").length === 0)
+  } while (!changes(".gtd/NOTES.md").some((c) => c.status === "deleted"))
 })
 `
 
@@ -1713,16 +1712,18 @@ export default workflow(
 })
 
 describe("gtd base — prints the review anchor hash", () => {
-  // `deciding` anchors the review window at the commit that enters it;
+  // Each round's review window starts at the commit that entered `deciding`;
   // FEEDBACK.md sends the process round again, a clean accept finishes it.
-  const BASE_WORKFLOW = `import { added, agent, human, workflow } from "@pmelab/gtd/flows"
+  const BASE_WORKFLOW = `import { agent, changes, head, human, start, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(async () => {
   await human("idle", { message: "hi" })
+  let base = start()
   for (;;) {
-    await agent("working", "go")
-    await human("deciding", { message: "decide", reviewBase: true, acceptClean: true })
-    if (added("FEEDBACK.md").length === 0) return
+    await agent("working", "go", { base })
+    base = head()
+    await human("deciding", { message: "decide", base, acceptClean: true })
+    if (!changes("FEEDBACK.md").some((c) => c.status === "added")) return
   }
 })
 `
@@ -1759,7 +1760,7 @@ export default workflow(async () => {
     expect(stdout).toBe(`${boundaryHash}\n`)
   })
 
-  it("prints the commit entering the reviewBase step once one has landed this process", async () => {
+  it("prints the base the resting step names once one has landed this process", async () => {
     const repo = await atDeciding()
     const decidingHash = repo.commitHistory().at(-1)!.hash
 
@@ -1939,28 +1940,29 @@ describe("gtd next/land --json=<path> — the select branch", () => {
 
 describe("gtd judge / gtd judge answer", () => {
   const JUDGE_DOCUMENT =
-    '{"state":"idle","questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}'
+    '{"state":{"note":"idle"},"questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}'
 
   const QUESTION = `{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }`
 
   const judgeWorkflow = (evidence: string, then: string, vars = "{}"): string =>
-    `import { agent, human, judge, tail, workflow } from "@pmelab/gtd/flows"
+    `import { agent, human, judge, read, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(
   async () => {
-    await judge("idle", ${QUESTION}, ${evidence})
+    await judge("idle", { questions: [${QUESTION}], evidence: ${evidence} })
     await ${then}
   },
   { vars: ${vars} },
 )
 `
 
-  const seededRepo = (): InMemRepo => seed(judgeWorkflow('"idle"', 'agent("working", "go")'))
+  const seededRepo = (): InMemRepo =>
+    seed(judgeWorkflow('{ note: "idle" }', 'agent("working", "go")'))
 
   const seededRepoWithoutJudge = (): InMemRepo => seed(IDLE_THEN_WORKING)
 
   const seededLandingRepo = (): InMemRepo =>
-    seed(judgeWorkflow('"idle"', 'human("landed", { message: "done" })'))
+    seed(judgeWorkflow('{ note: "idle" }', 'human("landed", { message: "done" })'))
 
   it("gtd judge prints the judge document verbatim, plus exactly one trailing newline", async () => {
     const repo = seededRepo()
@@ -2103,7 +2105,7 @@ export default workflow(
   const seededTruncatingLandingRepo = (judgeBudgetBytes: string, bigContent: string): InMemRepo =>
     seed(
       judgeWorkflow(
-        'tail(".gtd/BIG.md", 1)',
+        '{ big: read(".gtd/BIG.md") ?? "" }',
         'human("landed", { message: "done" })',
         `{ judgeBudgetBytes: "${judgeBudgetBytes}" }`,
       ),

@@ -1,6 +1,5 @@
 import { formatCommitMessage, type JudgeVerdict } from "../replay/index.js"
 import type { StateName } from "../Workflow.js"
-import { enforceStepGuards, isHumanReviewGate, type Refusal } from "./Guards.js"
 import type { LandStep } from "./LandStep.js"
 import type { RepoSnapshot } from "./RepoSnapshot.js"
 
@@ -9,9 +8,8 @@ export type { JudgeVerdict }
 /**
  * Decide a step — WITHOUT performing it, and WITHOUT touching git: every
  * fact this needs already sits on the frozen `snapshot`. gtd never writes
- * git; the decision becomes `steps` (data) plus `guardVerdict`, and only
- * `ScriptSurface.render(steps, guardVerdict)` (in `src/GitScript.ts`) turns
- * that pair into a runnable script.
+ * git; the decision becomes `steps` (data), and only `ScriptSurface.render`
+ * turns them into a runnable script.
  */
 export type StepOutcome =
   | { readonly kind: "refusal"; readonly message: string }
@@ -23,8 +21,6 @@ export type StepOutcome =
       readonly to: StateName
       readonly subject: string
       readonly steps: readonly LandStep[]
-      /** `undefined` when no guard applies, or the landing is an attempt. A guard's refusal reason otherwise. */
-      readonly guardVerdict: Refusal
     }
 
 /**
@@ -33,7 +29,9 @@ export type StepOutcome =
  * up — a tick is read-progress, never sign-off.
  */
 const uncheckStep = (snapshot: RepoSnapshot): readonly LandStep[] =>
-  isHumanReviewGate(snapshot.stepDef) && snapshot.file !== undefined
+  snapshot.stepDef.actor === "human" &&
+  snapshot.stepDef.mode === "review" &&
+  snapshot.file !== undefined
     ? [{ kind: "uncheck", file: snapshot.file }]
     : []
 
@@ -66,7 +64,6 @@ export const planStep = (
         { kind: "gitWrite", write: { kind: "commitAll", message } },
         { kind: "outcome", outcome: { kind: "commit", subject: landing.subject } },
       ],
-      guardVerdict: undefined,
     }
   }
   const message = formatCommitMessage({
@@ -90,6 +87,5 @@ export const planStep = (
       { kind: "gitWrite", write: { kind: "commitAll", message } },
       outcome,
     ],
-    guardVerdict: enforceStepGuards(snapshot),
   }
 }

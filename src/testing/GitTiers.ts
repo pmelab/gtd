@@ -690,13 +690,11 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       ])
     })
 
-    // `requireRevertGuard` (src/step/Guards.ts) calls `changedPaths(reviewBase~1)`
-    // to check a review-round hand-edit was reverted: `git reset --mixed
-    // <base>` drops every path a commit added out of the index, leaving it
-    // untracked but present on disk. An index-based answer calls each of
-    // those a deletion (`git diff --name-status <base>` compares base to the
-    // INDEX), which would make the guard see a phantom revert. The port
-    // answers by CONTENT instead — these four cases are that contract.
+    // `git reset --mixed <base>` drops every path a commit added out of the
+    // index, leaving it untracked but present on disk. An index-based answer
+    // calls each of those a deletion (`git diff --name-status <base>` compares
+    // base to the INDEX). The port answers by CONTENT instead — these four
+    // cases are that contract.
     describe("with a base, over paths the index no longer carries", () => {
       /** Commit `REVIEW.md` on top of a seed commit, then mixed-reset the index back to that seed. Returns the head the caller measures against. */
       const commitThenRewindIndex = (content: string): string => {
@@ -741,9 +739,8 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       // `text=auto` the committed blob is normalized to LF while the working
       // tree legitimately holds CRLF, so a RAW byte comparison calls an
       // untouched file modified — and a spurious `M` on the review doc is a
-      // spurious "the human edited something real" (`Guards.ts`'s
-      // `hasCodeChange`), which flips a clean sign-off onto the feedback edge
-      // — a full re-plan nobody asked for. The fake has no filters at all, so it answers
+      // spurious "the human edited something real", which flips a clean
+      // sign-off onto the feedback edge — a full re-plan nobody asked for. The fake has no filters at all, so it answers
       // "unchanged" by construction; this pins real git to the same answer.
       it("omits an untracked path that only differs by a clean filter's normalization", async () => {
         t.seed.writeFile(".gitattributes", "* text=auto\n")

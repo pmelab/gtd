@@ -4,32 +4,21 @@
 // loaded through a user's `gtd.config.ts` (jiti) and the copy bundled into the
 // gtd binary drive the same replay.
 
-export type Actor = "agent" | "human" | "check" | "judge"
-
 /** A steering-file declaration shared by the steps that rest on one. */
 export interface SteeringOptions {
   /** The steering file — a repository path under `.gtd/`. */
   readonly file?: string | undefined
   /** The steering file's mode — a built-in name or a `modes:` entry. Requires `file`. */
   readonly mode?: string | undefined
-  /** Refuse a turn whose only change deletes `file`. */
-  readonly requireProgress?: boolean | undefined
-  /** Refuse a turn that leaves a qa-mode `file` question unanswered. */
-  readonly answerGate?: boolean | undefined
-  /** Refuse a turn that did not revert the human's review-round edit. */
-  readonly requireRevert?: boolean | undefined
-  /** The commit that enters this step anchors the review window's diff base. */
-  readonly reviewBase?: boolean | undefined
   /** Display name for drivers and viewers. */
   readonly label?: string | undefined
+  /** The commit this step reviews changes since — what `gtd base` prints while it rests here. */
+  readonly base?: string | undefined
 }
 
-export interface PersonaOptions {
+export interface AgentOptions extends SteeringOptions {
   readonly model?: string | undefined
   readonly system?: string | undefined
-}
-
-export interface AgentOptions extends SteeringOptions, PersonaOptions {
   /** Skills prose prepended through the `skillsPreamble` var. */
   readonly skills?: string | undefined
   /**
@@ -63,7 +52,7 @@ export interface RunTools {
 /**
  * A `run` body: a POSIX sh script the driver executes verbatim, or a callback
  * `gtd exec` executes. Either way the outcome is whatever it leaves in the
- * tree — flow code reads it back through the helpers, never a return value.
+ * tree — flow code reads it back through `changes()` and `read()`.
  */
 export type RunBody = string | ((tools: RunTools) => Promise<void> | void)
 
@@ -78,17 +67,50 @@ export interface JudgeQuestion {
   readonly criteria: string
 }
 
-export interface JudgeOptions extends SteeringOptions {
+export interface JudgeSpec {
+  readonly questions: readonly JudgeQuestion[]
+  /** What the judge sees. The `judgeBudgetBytes` budget is split evenly across the keys; a value over its share keeps its end. */
+  readonly evidence: Readonly<Record<string, string>>
   /** The human-facing message a driver unaware of judge gates shows. */
   readonly message?: string | undefined
-  /** The probability an answer must reach to count. Below it, the answer reads as `undefined`. */
-  readonly minP?: number | undefined
+  readonly label?: string | undefined
 }
 
 /** One recorded answer. A `noul`'s boolean reads as `"yes"`/`"no"`, a `score` as its decimal string. */
 export interface JudgeAnswer {
   readonly answer: string
   readonly p: number
+}
+
+export interface Judgment {
+  /** Every question's answer, `undefined` when the turn landed without a verdict for it. */
+  readonly answers: Readonly<Record<string, JudgeAnswer | undefined>>
+  /** The evidence keys the budget cut. */
+  readonly truncated: readonly string[]
+}
+
+/** One path the last step changed. */
+export interface Change {
+  readonly path: string
+  readonly status: "added" | "modified" | "deleted"
+  /** The content before the step, `undefined` when the step added the path. */
+  readonly before: string | undefined
+  /** The content the step left, `undefined` when the step deleted the path. */
+  readonly after: string | undefined
+}
+
+export interface Changes extends ReadonlyArray<Change> {
+  readonly paths: readonly string[]
+  readonly get: (path: string) => Change | undefined
+}
+
+export interface ScopeOptions {
+  /** Prefixes every step name inside, and so names their memory scope. */
+  readonly name?: string | undefined
+  /** The model every agent step inside runs with, unless it sets its own. */
+  readonly model?: string | undefined
+  /** The system prompt every agent step inside runs with, unless it sets its own. */
+  readonly system?: string | undefined
 }
 
 export type StepRequest =
@@ -109,48 +131,27 @@ export type StepRequest =
       readonly kind: "judge"
       readonly name: string
       readonly questions: readonly JudgeQuestion[]
-      readonly evidence: unknown
-      readonly options: JudgeOptions
+      readonly evidence: Readonly<Record<string, string>>
+      readonly options: SteeringOptions & { readonly message?: string | undefined }
     }
-  | { readonly kind: "restart"; readonly name: string }
-
-export interface Changes {
-  readonly added: readonly string[]
-  readonly modified: readonly string[]
-  readonly deleted: readonly string[]
-}
+  | { readonly kind: "restart" }
 
 /** The engine side of the facade — see `installContext`. */
 export interface FlowContext {
   readonly step: (request: StepRequest) => Promise<unknown>
   readonly refuse: (message: string) => never
-  readonly pushScope: (prefix: string) => void
+  readonly pushScope: (scope: ScopeOptions) => void
   readonly popScope: () => void
-  readonly pushPersona: (persona: PersonaOptions) => void
-  readonly popPersona: () => void
-  readonly exists: (path: string) => boolean
   readonly read: (path: string) => string | undefined
   readonly glob: (pattern: string) => readonly string[]
-  readonly changes: () => Changes
+  /** The last step's changes, content read on demand. */
+  readonly changes: () => readonly Change[]
   readonly matches: (path: string, pattern: string) => boolean
-  readonly tail: (pathOrContent: string, share: number) => string
-  readonly previous: (path: string, since: string) => string | undefined
-  readonly sections: (pathOrContent: string) => readonly string[]
-  readonly stepName: (name: string) => string
+  readonly sections: (text: string) => readonly string[]
+  readonly openQuestions: (text: string) => readonly OpenQuestion[]
   readonly vars: Readonly<Record<string, string>>
-  readonly refs: Refs
-}
-
-/** Commit positions a prompt names for an agent to inspect itself. */
-export interface Refs {
-  /** The process's diff base — its start, or the `--entry` base. */
-  readonly start: string
-  /** The commit the process rests on. */
-  readonly head: string
-  /** The review window's diff base. */
-  readonly reviewBase: string
-  /** The parent of the process's first commit. */
-  readonly processBase: string
+  readonly head: () => string
+  readonly start: () => string
 }
 
 const CONTEXT_KEY = Symbol.for("@pmelab/gtd/flow-context")
@@ -184,55 +185,28 @@ export const human = (name: string, options: HumanOptions = {}): Promise<void> =
 export const run = (name: string, body: RunBody, options: RunOptions = {}): Promise<void> =>
   ctx().step({ kind: "run", name, body, options }) as Promise<void>
 
-/**
- * A judge gate over one question. Resolves to the recorded answer, or
- * `undefined` when the turn landed without a verdict or the verdict's
- * probability fell short of `options.minP`.
- */
-export function judge(
-  name: string,
-  question: JudgeQuestion,
-  evidence: unknown,
-  options?: JudgeOptions,
-): Promise<string | undefined>
-/** A judge gate over several questions. Resolves to every answer that cleared `options.minP`, by question id. */
-export function judge(
-  name: string,
-  questions: readonly JudgeQuestion[],
-  evidence: unknown,
-  options?: JudgeOptions,
-): Promise<Readonly<Record<string, JudgeAnswer>>>
-export async function judge(
-  name: string,
-  question: JudgeQuestion | readonly JudgeQuestion[],
-  evidence: unknown,
-  options: JudgeOptions = {},
-): Promise<string | undefined | Readonly<Record<string, JudgeAnswer>>> {
-  const questions = Array.isArray(question) ? question : [question as JudgeQuestion]
-  const answers = (await ctx().step({
-    kind: "judge",
-    name,
-    questions,
-    evidence,
-    options,
-  })) as Readonly<Record<string, JudgeAnswer>>
-  if (Array.isArray(question)) return answers
-  return answers[(question as JudgeQuestion).id]?.answer
+/** A judge gate: resolves to what the judge answered, for the flow to decide on. */
+export const judge = (name: string, spec: JudgeSpec): Promise<Judgment> => {
+  const { questions, evidence, ...options } = spec
+  return ctx().step({ kind: "judge", name, questions, evidence, options }) as Promise<Judgment>
 }
 
-/** End the episode from any depth. The next episode starts the default entry afresh. */
-export const restart = (name: string): Promise<never> =>
-  ctx().step({ kind: "restart", name }) as Promise<never>
+/** End the episode from any depth. The next episode starts the flow afresh. */
+export const restart = (): Promise<never> => ctx().step({ kind: "restart" }) as Promise<never>
 
 /** Refuse the pending turn: nothing lands, the process stays where it rests. */
 export const refuse = (message: string): never => ctx().refuse(message)
 
 // ── Composition ─────────────────────────────────────────────────────────────
 
-/** Prefix every step name reached inside `fn` with `prefix.` — also the memory scope of those steps. */
-export const scope = async <T>(prefix: string, fn: () => Promise<T>): Promise<T> => {
+/**
+ * Run `fn` inside a scope: `scope("build", fn)` prefixes every step name with
+ * `build.` (also their memory scope); an object may add the model and system
+ * prompt its agent steps run with.
+ */
+export const scope = async <T>(scope: string | ScopeOptions, fn: () => Promise<T>): Promise<T> => {
   const context = ctx()
-  context.pushScope(prefix)
+  context.pushScope(typeof scope === "string" ? { name: scope } : scope)
   try {
     return await fn()
   } finally {
@@ -240,64 +214,33 @@ export const scope = async <T>(prefix: string, fn: () => Promise<T>): Promise<T>
   }
 }
 
-/** Give every agent step inside `fn` this model and system prompt, unless the step sets its own. */
-export const persona = async <T>(options: PersonaOptions, fn: () => Promise<T>): Promise<T> => {
-  const context = ctx()
-  context.pushPersona(options)
-  try {
-    return await fn()
-  } finally {
-    context.popPersona()
-  }
-}
-
-// ── Helpers: pure reads of the commit at the replay position ───────────────
-
-export const exists = (path: string): boolean => ctx().exists(path)
+// ── Reads of the commit replay stands on ────────────────────────────────────
 
 export const read = (path: string): string | undefined => ctx().read(path)
 
 /** Every path in the tree matching `pattern` (`*` stays within a segment, `**` crosses them). */
 export const glob = (pattern: string): readonly string[] => ctx().glob(pattern)
 
-const filterChanged = (paths: readonly string[], pattern: string | undefined): readonly string[] =>
-  pattern === undefined ? paths : paths.filter((path) => ctx().matches(path, pattern))
-
-/** Paths the last step's commit added, modified, or deleted, optionally filtered by glob. */
-export const changed = (pattern?: string): readonly string[] => {
-  const { added: a, modified, deleted: d } = ctx().changes()
-  return filterChanged([...a, ...modified, ...d], pattern)
+/** What the last step changed, optionally only the paths matching a glob. */
+export const changes = (pattern?: string): Changes => {
+  const context = ctx()
+  const all = context.changes()
+  const list = pattern === undefined ? all : all.filter((c) => context.matches(c.path, pattern))
+  return Object.freeze(
+    Object.assign([...list], {
+      paths: list.map((c) => c.path),
+      get: (path: string) => list.find((c) => c.path === path),
+    }),
+  )
 }
 
-export const added = (pattern?: string): readonly string[] =>
-  filterChanged(ctx().changes().added, pattern)
+/** The commit the process stands on at this point of the flow. */
+export const head = (): string => ctx().head()
 
-export const modified = (pattern?: string): readonly string[] =>
-  filterChanged(ctx().changes().modified, pattern)
+/** The process's diff base: the commit before it began, or the base `gtd --entry` fixed. */
+export const start = (): string => ctx().start()
 
-export const deleted = (pattern?: string): readonly string[] =>
-  filterChanged(ctx().changes().deleted, pattern)
-
-/**
- * The end of a file (or of literal text, when no such path exists) bounded to
- * `share` of the `judgeBudgetBytes` budget, cut at a line boundary.
- */
-export const tail = (pathOrContent: string, share: number): string =>
-  ctx().tail(pathOrContent, share)
-
-/** The top-level `## ` heading texts of a markdown file (or of literal text, when no such path exists). */
-export const sections = (pathOrContent: string): readonly string[] => ctx().sections(pathOrContent)
-
-/** The full step name `name` gets where it is called — every enclosing `scope()` prefix applied. */
-export const stepName = (name: string): string => ctx().stepName(name)
-
-export const history = {
-  /** `path` as the previous completion of step `since` left it — `undefined` before a second completion. */
-  previous: (path: string, options: { readonly since: string }): string | undefined =>
-    ctx().previous(path, options.since),
-}
-
-/** The merged workflow variables. Fragments take values as arguments instead of reading this. */
+/** The merged workflow variables. */
 export const vars: Readonly<Record<string, string>> = new Proxy(
   {},
   {
@@ -311,20 +254,19 @@ export const vars: Readonly<Record<string, string>> = new Proxy(
   },
 )
 
-export const refs: Refs = {
-  get start() {
-    return ctx().refs.start
-  },
-  get head() {
-    return ctx().refs.head
-  },
-  get reviewBase() {
-    return ctx().refs.reviewBase
-  },
-  get processBase() {
-    return ctx().refs.processBase
-  },
+// ── Text utilities ──────────────────────────────────────────────────────────
+
+/** The top-level `## ` heading texts of markdown `text`. */
+export const sections = (text: string): readonly string[] => ctx().sections(text)
+
+export interface OpenQuestion {
+  readonly question: string
+  /** The 1-based line of the question's heading. */
+  readonly line: number
 }
+
+/** The qa-format questions in `text` that are still unanswered. */
+export const openQuestions = (text: string): readonly OpenQuestion[] => ctx().openQuestions(text)
 
 // ── The workflow ────────────────────────────────────────────────────────────
 
