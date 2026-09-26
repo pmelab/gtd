@@ -58,7 +58,6 @@ export const runAgentSpec = (
     label: spec.label,
     file: spec.file,
     mode: spec.mode,
-    skills: spec.skills?.(),
     model: spec.model?.(),
     system: spec.system?.(),
     ...extra,
@@ -67,19 +66,17 @@ export const runAgentSpec = (
 // ── Agent steps ─────────────────────────────────────────────────────────────
 
 const buildFix: AgentSpec = {
-  prompt: t.buildFixPrompt,
+  prompt: () => t.withSkills(vars.fixSkills, t.buildFixPrompt()),
   label: "Fixing the check",
   file: ".gtd/FEEDBACK.md",
-  skills: () => vars.fixSkills ?? "",
   model: coder.model,
   system: t.finisherSystem,
 }
 
 const fixQuality: AgentSpec = {
-  prompt: t.buildFixQualityPrompt,
+  prompt: () => t.withSkills(vars.reviewFixSkills, t.buildFixQualityPrompt()),
   label: "Fixing quality findings",
   file: ".gtd/QUALITY.md",
-  skills: () => vars.reviewFixSkills ?? "",
   model: coder.model,
   system: t.finisherSystem,
 }
@@ -88,7 +85,6 @@ const reviewing = {
   label: "Reviewing",
   file: ".gtd/REVIEW.md",
   mode: "review",
-  skills: () => vars.reviewSkills ?? "",
   model: planner.model,
   system: t.reviewerSystem,
 }
@@ -103,62 +99,55 @@ const collecting: AgentSpec = {
 }
 
 const designTriage = (base: () => string): AgentSpec => ({
-  prompt: () => t.designTriagePrompt(base()),
+  prompt: () => t.withSkills(vars.triageSkills, t.designTriagePrompt(base())),
   label: "Triaging the change",
   file: ".gtd/REQUIREMENTS.md",
   mode: "qa",
-  skills: () => vars.triageSkills ?? "",
   model: planner.model,
   system: t.designSystem,
 })
 
 const architectureAuthor: AgentSpec = {
-  prompt: t.architectureAuthorPrompt,
+  prompt: () => t.withSkills(vars.architectureSkills, t.architectureAuthorPrompt()),
   label: "Refining the technical plan",
   file: ".gtd/ARCHITECTURE.md",
   mode: "qa",
-  skills: () => vars.architectureSkills ?? "",
   model: planner.model,
   system: t.architectSystem,
 }
 
 const decompose: AgentSpec = {
-  prompt: t.architectureDecomposePrompt,
+  prompt: () => t.withSkills(vars.decomposeSkills, t.architectureDecomposePrompt()),
   label: "Decomposing into packages",
-  skills: () => vars.decomposeSkills ?? "",
   model: planner.model,
   system: t.architectSystem,
 }
 
 const building: AgentSpec = {
-  prompt: t.packagesItemBuildingPrompt,
+  prompt: () => t.withSkills(vars.buildSkills, t.packagesItemBuildingPrompt()),
   label: "Building",
-  skills: () => vars.buildSkills ?? "",
   model: coder.model,
   system: t.builderSystem,
 }
 
 const fixSuite: AgentSpec = {
-  prompt: t.packagesItemFixSuitePrompt,
+  prompt: () => t.withSkills(vars.fixSkills, t.packagesItemFixSuitePrompt()),
   label: "Fixing the check",
   file: ".gtd/FEEDBACK.md",
-  skills: () => vars.fixSkills ?? "",
   model: coder.model,
   system: t.builderSystem,
 }
 
 const fixSpec: AgentSpec = {
-  prompt: t.packagesItemFixSpecPrompt,
+  prompt: () => t.withSkills(vars.reviewFixSkills, t.packagesItemFixSpecPrompt()),
   label: "Fixing review feedback",
   file: ".gtd/SPEC_FEEDBACK.md",
-  skills: () => vars.reviewFixSkills ?? "",
   model: coder.model,
   system: t.builderSystem,
 }
 
 const specReviewer = {
   label: "Reviewing the package",
-  skills: () => vars.specReviewSkills ?? "",
   model: planner.model,
   system: t.specReviewerSystem,
 }
@@ -171,7 +160,7 @@ const specReviewer = {
 export const agentSpecs: Readonly<Record<string, AgentSpec>> = {
   "build.review.reviewing": {
     ...reviewing,
-    prompt: () => t.buildReviewReviewingPrompt(start()),
+    prompt: () => t.withSkills(vars.reviewSkills, t.buildReviewReviewingPrompt(start())),
   },
   "build.review.collecting": collecting,
   "design.triage": designTriage(start),
@@ -179,7 +168,10 @@ export const agentSpecs: Readonly<Record<string, AgentSpec>> = {
   "packages.item.building": building,
   "packages.item.fix-suite": fixSuite,
   "packages.item.fix-spec": fixSpec,
-  "packages.item.spec.review": { ...specReviewer, prompt: () => t.packagesItemSpecReviewPrompt() },
+  "packages.item.spec.review": {
+    ...specReviewer,
+    prompt: () => t.withSkills(vars.specReviewSkills, t.packagesItemSpecReviewPrompt()),
+  },
   "architecture.decompose": decompose,
   "build.fix": buildFix,
 }
@@ -188,10 +180,9 @@ export const agentSpecs: Readonly<Record<string, AgentSpec>> = {
 
 const escalationTexts: EscalationTexts = {
   describe: {
-    prompt: t.healthDescribePrompt,
+    prompt: () => t.withSkills(vars.escalateSkills, t.healthDescribePrompt()),
     label: "Describing the escalation",
     file: ".gtd/FEEDBACK.md",
-    skills: () => vars.escalateSkills ?? "",
     model: coder.model,
     system: t.escalationSystem,
   },
@@ -246,7 +237,10 @@ const floor = (value: string | undefined): number => {
 const review = (base: string): Promise<ReviewOutcome> =>
   reviewTail(
     {
-      reviewing: { ...reviewing, prompt: t.buildReviewReviewingPrompt },
+      reviewing: {
+        ...reviewing,
+        prompt: (base) => t.withSkills(vars.reviewSkills, t.buildReviewReviewingPrompt(base)),
+      },
       awaitReview: {
         message: t.buildReviewAwaitReviewMessage,
         label: "Awaiting your review",
@@ -282,10 +276,10 @@ const buildTail = (fixFirst: boolean, base: string): Promise<ReviewOutcome> =>
         seeding: { script: t.buildQualitySeedingScript, label: "Seeding the quality review queue" },
         picking: { script: t.buildQualityPickingScript, label: "Picking the next quality lens" },
         reviewing: {
-          prompt: t.buildQualityReviewingPrompt,
+          prompt: () =>
+            t.withSkills(t.buildQualityReviewingSkills(), t.buildQualityReviewingPrompt()),
           label: "Reviewing (one quality lens)",
           file: ".gtd/NEXT_REVIEW.md",
-          skills: t.buildQualityReviewingSkills,
           model: planner.model,
           system: t.reviewerSystem,
         },
@@ -376,7 +370,11 @@ const packages = (): Promise<void> =>
         health: healthTexts,
         spec: {
           pre: { message: t.packagesItemSpecPreMessage, label: "Judging spec coverage" },
-          review: { ...specReviewer, prompt: t.packagesItemSpecReviewPrompt },
+          review: {
+            ...specReviewer,
+            prompt: (failing) =>
+              t.withSkills(vars.specReviewSkills, t.packagesItemSpecReviewPrompt(failing)),
+          },
           clearMinP: threshold(vars.specPreJudge),
         },
       },

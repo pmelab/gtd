@@ -14,7 +14,7 @@ import { CommandRunner } from "../CommandRunner.js"
 import type { UiConfig } from "../ConfigSchema.js"
 import { Host } from "../platform/index.js"
 import generatedClientHtml from "../web/generated.html"
-import { renderFileCommand } from "../PatternTemplates.js"
+import { withFileVar } from "../Emit.js"
 import {
   liveHeadSha,
   liveRunInWorktree,
@@ -379,10 +379,8 @@ const liveBeatDeps = {
  * Builds `Write.ts#WriteDeps.formatCommand` from `ui.format`: `undefined`
  * when that key is unset at all (Task 5's "unset means no formatting at
  * all — no command spawned" — `writeDeps` below must not even carry the
- * field in that case). Renders through the same Eta instance a mode's own
- * `format:`/`validate:` command renders through (`PatternTemplates.ts#renderFileCommand`),
- * with `it.file` bound to the ABSOLUTE path `Write.ts` calls this with, then
- * runs it via `run` (`Beat.ts#liveRunInWorktree` by default — the same
+ * field in that case). Runs it with `$GTD_FILE` set to the ABSOLUTE path
+ * `Write.ts` calls this with, via `run` (`Beat.ts#liveRunInWorktree` by default — the same
  * `bash -c` spawn a mode's own shell commands use, so a worktree-local
  * `node_modules/.bin` install resolves identically). `run`'s own
  * `status`/`spawnError` become `exitCode: null` for "never even spawned",
@@ -396,21 +394,8 @@ export const buildFormatCommand = (
 ): WriteDeps["formatCommand"] => {
   if (format === undefined) return undefined
   return async (absPath: string) => {
-    let command: string
-    try {
-      command = renderFileCommand(format, absPath)
-    } catch {
-      // Eta throws on a malformed template (an unclosed tag, or any
-      // variable but `it.file`, which this command's own context doesn't
-      // carry) — caught into the SAME `formatNotice` shape a non-zero exit
-      // produces, so a bad `ui.format` template degrades exactly like a
-      // missing binary rather than rejecting the whole mutation after the
-      // bytes already landed. The raw (unrendered) template stands in for
-      // `command` — there is no rendered one to report.
-      return { ok: false, command: format, exitCode: null }
-    }
-    const outcome = await run(worktreeRoot, command)
-    return { ok: outcome.status === 0, command, exitCode: outcome.status }
+    const outcome = await run(worktreeRoot, withFileVar(format, absPath))
+    return { ok: outcome.status === 0, command: format, exitCode: outcome.status }
   }
 }
 

@@ -112,7 +112,6 @@ Every step takes an options object; all keys are optional.
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                         |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                 |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                          |
-| `skills`      | `agent`              | Skill names prepended to the prompt through the `skillsPreamble` var. Blank means no preamble.                                                     |
 | `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).            |
 | `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit. |
 | `base`        | all                  | The commit this step reviews changes since — what `gtd base` prints while the process rests here. Without it, the process's `start()`.             |
@@ -411,9 +410,9 @@ load error pointing at `gtd.config.ts` — workflows are no longer read from a
 `gtd init` writes a minimal `.gtdrc.json`: the `$schema` line, the one variable
 most projects change (`vars.testCommand`, defaulting to `npm test`), and a
 `modes:` block suggesting Prettier as the steering-file formatter
-(`npx prettier --write <%= it.file %>` for `qa` and `review` — format only, so
-gtd still validates them). Edit or drop any of it, then review and commit the
-file before your first `gtd land`. `gtd init` takes no argument and refuses to
+(`npx prettier --write "$GTD_FILE"` for `qa` and `review` — format only, so gtd
+still validates them). Edit or drop any of it, then review and commit the file
+before your first `gtd land`. `gtd init` takes no argument and refuses to
 overwrite an existing config; it may also run in a plain parent directory (not a
 git repository) to seed a shared config a nested repository picks up.
 
@@ -424,14 +423,16 @@ A mode is a pair of shell commands over one steering file, both optional:
 ```yaml
 modes:
   adr:
-    format: npx prettier --write <%= it.file %>
-    validate: adr-lint <%= it.file %>
+    format: npx prettier --write "$GTD_FILE"
+    validate: adr-lint "$GTD_FILE"
 ```
 
-Each command is an Eta template that sees `it.file` (the steering file's path)
-and `it.vars` (the merged variables) — nothing else. `format:` normalizes the
-file in place; `validate:` reports findings, and exits zero only when there are
-none. A step names a mode with `{ file, mode }`.
+Each command runs in `bash` with `$GTD_FILE` set to the steering file's path.
+Quote it (`"$GTD_FILE"`) so a path with spaces stays one argument. The
+`<%= it.file %>` templates of earlier versions are refused with a hint to use
+`$GTD_FILE` instead. `format:` normalizes the file in place; `validate:` reports
+findings, and exits zero only when there are none. A step names a mode with
+`{ file, mode }`.
 
 #### Built-in steering formats are ordinary modes
 
@@ -492,8 +493,8 @@ you.
 
 The emitted script checks a mode's `format:`/`validate:` command against `$PATH`
 before running it, whenever that command is a single unambiguous leading word
-(e.g. `adr-lint <%= it.file %>`): a typo'd or uninstalled binary exits 127 with
-a `gtd:`-prefixed message naming the mode, the `format`/`validate` key, the
+(e.g. `adr-lint "$GTD_FILE"`): a typo'd or uninstalled binary exits 127 with a
+`gtd:`-prefixed message naming the mode, the `format`/`validate` key, the
 binary, and the resolved `$PATH` it was looked up in, instead of a raw shell
 error. A command gtd cannot reduce to one binary — a `VAR=x`-prefixed command, a
 pipeline, anything with a shell metacharacter — gets no such check and fails
@@ -522,12 +523,12 @@ there is no fleet to discover:
   and private key, used as-is. `--self-signed` always overrides these with a
   freshly generated throwaway pair, even when both are configured.
 - **`format`** (string, optional) — a shell command run after every write
-  `gtd ui` makes to the steering file, before the phone's request resolves (an
-  Eta template; `it.file` is the written file's absolute path). Absent means no
-  command runs at all. gtd ships no formatter — bring your own (`oxfmt`,
-  `prettier`, a script). A non-zero exit or a missing binary never reverts the
-  write or refuses it — the phone is told which command ran and what it exited
-  with, and the bytes it already wrote stay on disk either way.
+  `gtd ui` makes to the steering file, before the phone's request resolves, with
+  `$GTD_FILE` set to the written file's absolute path. Absent means no command
+  runs at all. gtd ships no formatter — bring your own (`oxfmt`, `prettier`, a
+  script). A non-zero exit or a missing binary never reverts the write or
+  refuses it — the phone is told which command ran and what it exited with, and
+  the bytes it already wrote stay on disk either way.
 
 Flags (`--host`, `--port`, `--self-signed`) always override the matching `ui:`
 value; see `docs/cli.md`'s `ui` row for the full flag list.
@@ -597,15 +598,15 @@ vars:
 GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
 
-**`skillsPreamble`** is the one variable gtd itself reads: an Eta template
-(seeing `it.skills`, the agent step's own `skills` value, and `it.vars`)
-rendered into a preamble PREPENDED to that step's prompt whenever `skills` is
-non-blank. Blanking it (`GTD_SKILLSPREAMBLE=""` or
-`vars: { skillsPreamble: "" }`) switches the mechanism off repo-wide. A template
-you write for it must carry three clauses, or the field is unsafe: load only
-what your harness has and skip the rest silently; THE STEP'S OWN FILE FORMAT AND
-COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn the turn
-interactive, because no one is at a keyboard. The precedence clause is
+**`skillsPreamble`** is the bundled workflow's introduction to the skills an
+agent step loads (its `*Skills` var), put ahead of that step's prompt with
+`{skills}` replaced by the step's skill names. Blanking it
+(`GTD_SKILLSPREAMBLE=""` or `vars: { skillsPreamble: "" }`) switches the
+preamble off for every step; blanking one `*Skills` var switches it off for that
+step. A preamble you write must carry three clauses, or the field is unsafe:
+load only what your harness has and skip the rest silently; THE STEP'S OWN FILE
+FORMAT AND COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn the
+turn interactive, because no one is at a keyboard. The precedence clause is
 load-bearing — the preamble sits above the step's own format prose, so a skill
 that reflows the steering file changes which branch the flow takes next.
 

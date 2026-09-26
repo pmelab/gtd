@@ -14,8 +14,8 @@ const INIT_VARS = {
 // only `format:` is seeded, since the built-in `qa`/`review` validators
 // already do the validating.
 const MODES_SUGGESTION = {
-  qa: { format: "npx prettier --write <%= it.file %>" },
-  review: { format: "npx prettier --write <%= it.file %>" },
+  qa: { format: 'npx prettier --write "$GTD_FILE"' },
+  review: { format: 'npx prettier --write "$GTD_FILE"' },
 } as const
 
 export interface InitScaffold {

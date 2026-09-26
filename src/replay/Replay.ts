@@ -10,7 +10,6 @@ import {
   type StepRequest,
   type Workflow,
 } from "../flows/index.js"
-import { createRenderLedger } from "../PatternTemplates.js"
 import { headingSections, steeringFormatFor, unansweredQuestions } from "../steering/index.js"
 import { globMatches } from "./Glob.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
@@ -144,6 +143,15 @@ const answersFrom = (
   return answers
 }
 
+/** The last `allowedBytes` bytes of `content`, from the first whole line on. */
+const tailOf = (content: string, allowedBytes: number): string => {
+  const buf = Buffer.from(content, "utf8")
+  if (buf.length <= allowedBytes) return content
+  const tail = buf.subarray(buf.length - allowedBytes).toString("utf8")
+  const newline = tail.indexOf("\n")
+  return newline === -1 ? "" : tail.slice(newline + 1)
+}
+
 /** Cut each evidence value to an even share of the judge budget; which keys were cut. */
 const budgeted = (
   evidence: Readonly<Record<string, string>>,
@@ -153,12 +161,12 @@ const budgeted = (
   readonly truncated: readonly string[]
 } => {
   const keys = Object.keys(evidence)
-  const ledger = createRenderLedger(budgetBytes)
+  const share = Math.floor(budgetBytes / Math.max(keys.length, 1))
   const bounded: Record<string, string> = {}
   const truncated: string[] = []
   for (const key of keys) {
     const value = evidence[key]!
-    bounded[key] = ledger.tail(value, 1 / keys.length)
+    bounded[key] = tailOf(value, share)
     if (bounded[key] !== value) truncated.push(key)
   }
   return { evidence: bounded, truncated }
@@ -191,7 +199,7 @@ const STEERING_OPTIONS = ["file", "mode", "label", "base"]
 // The option keys each step accepts. A gtd.config.ts is evaluated without a
 // type check, so a misspelt or retired key would otherwise be silently ignored.
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
-  agent: new Set([...STEERING_OPTIONS, "model", "system", "skills", "allowEmpty"]),
+  agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty"]),
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean"]),
   run: new Set(STEERING_OPTIONS),
   judge: new Set([...STEERING_OPTIONS, "message"]),
@@ -204,6 +212,7 @@ const RETIRED_OPTIONS: Readonly<Record<string, string>> = {
   requireRevert: "compare the files against the changes() you kept and refuse() instead",
   reviewBase: "record head() in the flow and pass it as the reviewing step's base",
   minP: "compare the answer's p in the flow instead",
+  skills: "put the skills preamble into the prompt yourself",
 }
 
 const unknownOptions = (step: ReachedStep): string | undefined => {

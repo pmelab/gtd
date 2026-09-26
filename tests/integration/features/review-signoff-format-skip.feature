@@ -29,8 +29,8 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       modes:
         review:
           format: |
-            test -f <%= it.file %> || {
-              echo "No files matching the pattern were found: <%= it.file %>" >&2
+            test -f $GTD_FILE || {
+              echo "No files matching the pattern were found: $GTD_FILE" >&2
               exit 2
             }
       """

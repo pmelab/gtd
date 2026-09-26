@@ -37,6 +37,16 @@ export type EmitStep =
  */
 export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file)} ] || exit 0`
 
+/** A mode or `ui.format` command finds the file it works on in `$GTD_FILE`. */
+export const withFileVar = (command: string, file: string): string =>
+  `export GTD_FILE=${shellQuote(file)}\n${command}`
+
+/** Eta's `<%` — the templating mode commands no longer have. */
+export const legacyTemplateHint = (command: string): string | undefined =>
+  command.includes("<%")
+    ? `Eta templates are gone — name the file as "$GTD_FILE" instead (e.g. prettier --write "$GTD_FILE")`
+    : undefined
+
 /**
  * The leading word of a rendered `format:`/`validate:` command, when — and
  * only when — the command has exactly one unambiguous binary to probe: a
@@ -50,10 +60,16 @@ export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file
  */
 const SIMPLE_LEADING_WORD_RE = /^[A-Za-z0-9_./-]+(?=[ \t]|$)/
 const SHELL_METACHARACTER_RE = /[|&;$<>(){}`]/
+// The file variable is an argument, never a second command.
+const FILE_VAR_RE = /"\$GTD_FILE"|"\$\{GTD_FILE\}"|\$GTD_FILE\b|\$\{GTD_FILE\}/g
+
+/** `command` with `file` written in for `$GTD_FILE` — one line an agent can copy, equivalent to running it under `withFileVar`. */
+export const commandForFile = (command: string, file: string): string =>
+  command.replace(FILE_VAR_RE, shellQuote(file))
 
 export const extractLeadingBinary = (command: string): string | undefined => {
   if (command.includes("\n")) return undefined
-  if (SHELL_METACHARACTER_RE.test(command)) return undefined
+  if (SHELL_METACHARACTER_RE.test(command.replace(FILE_VAR_RE, ""))) return undefined
   const match = SIMPLE_LEADING_WORD_RE.exec(command)
   return match === null ? undefined : match[0]
 }

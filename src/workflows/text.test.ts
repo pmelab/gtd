@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
-import { renderScript, SCRIPT_NAMES } from "./text.fixture.js"
+import { withSkills } from "./text.js"
+import { renderScript, renderText, SCRIPT_NAMES } from "./text.fixture.js"
 
 // Every bundled script body must parse: a script that fails `sh -n` kills the
 // driver's check turn before it runs.
@@ -33,4 +34,23 @@ describe("the bundled workflow's scripts", () => {
       expect(() => execFileSync("bash", ["-n"], { input: rendered })).not.toThrow()
     })
   }
+})
+
+describe("withSkills", () => {
+  const preamble = "Load: {skills}"
+  const prompted = (skills: string | undefined, skillsPreamble = preamble) =>
+    renderText(() => withSkills(skills, "do-the-work"), { vars: { skillsPreamble } })
+
+  it("puts the preamble, naming the skills, ahead of the prompt", () => {
+    expect(prompted("code-review, testing")).toBe("Load: code-review, testing\n\ndo-the-work")
+  })
+
+  it("leaves the prompt bare when there are no skills", () => {
+    expect(prompted(undefined)).toBe("do-the-work")
+    expect(prompted("  ")).toBe("do-the-work")
+  })
+
+  it("leaves the prompt bare when skillsPreamble is blank", () => {
+    expect(prompted("code-review", "  ")).toBe("do-the-work")
+  })
 })

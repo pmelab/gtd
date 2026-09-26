@@ -23,7 +23,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
+          format: "npx prettier --write $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -60,7 +60,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
+          format: "npx prettier --write $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -159,7 +159,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
+          format: "npx prettier --write $GTD_FILE"
       """
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
@@ -181,7 +181,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
+          format: "npx prettier --write $GTD_FILE"
       """
     And gtd enters "start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
@@ -214,7 +214,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
+          format: "npx prettier --write $GTD_FILE"
       """
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """

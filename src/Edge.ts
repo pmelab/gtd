@@ -19,7 +19,6 @@ import {
   type ReplayOutcome,
   type TreeView,
 } from "./replay/index.js"
-import { renderSkillsPreamble, type TemplateContext } from "./PatternTemplates.js"
 import { clearTicks, steeringFormatFor } from "./steering/index.js"
 import { UNATTRIBUTED_MODEL, type ModelCost } from "./wire/index.js"
 import {
@@ -371,24 +370,6 @@ const CALLBACK_SCRIPT = `#!/usr/bin/env sh
 exec gtd exec
 `
 
-const withSkillsPreamble = (
-  content: string,
-  skills: string | undefined,
-  vars: Record<string, string>,
-  context: TemplateContext,
-): string => {
-  const template = vars.skillsPreamble
-  if (
-    skills === undefined ||
-    skills.trim() === "" ||
-    template === undefined ||
-    template.trim() === ""
-  ) {
-    return content
-  }
-  return `${renderSkillsPreamble(template, { ...context, skills })}\n\n${content}`
-}
-
 const optional = <K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } =>
   (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
 
@@ -409,18 +390,12 @@ type RequestOf<K extends ReachedStep["request"]["kind"]> = Extract<
   { kind: K }
 >
 
-const promptDef = (
-  common: StepCommon,
-  request: RequestOf<"agent">,
-  vars: Record<string, string>,
-  context: TemplateContext,
-): StepDef => ({
+const promptDef = (common: StepCommon, request: RequestOf<"agent">): StepDef => ({
   ...common,
   kind: "prompt",
-  content: withSkillsPreamble(request.prompt, request.options.skills, vars, context),
+  content: request.prompt,
   ...optional("model", request.options.model),
   ...optional("system", request.options.system),
-  ...optional("skills", request.options.skills),
   ...optional("allowEmpty", request.options.allowEmpty),
 })
 
@@ -450,16 +425,12 @@ const messageDef = (
   ...optional("acceptClean", request.options.acceptClean),
 })
 
-const stepDefOf = (
-  step: ReachedStep,
-  vars: Record<string, string>,
-  context: TemplateContext,
-): StepDef => {
+const stepDefOf = (step: ReachedStep): StepDef => {
   const request = step.request
   const common = commonOf(step)
   switch (request.kind) {
     case "agent":
-      return promptDef(common, request, vars, context)
+      return promptDef(common, request)
     case "run":
       return scriptDef(common, request)
     case "judge":
@@ -517,7 +488,6 @@ export interface RestHints {
   readonly file?: string
   readonly judge?: string
   readonly system?: string
-  readonly skills?: string
   readonly mode?: string
 }
 
@@ -527,7 +497,6 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("file", def.file),
   ...optional("judge", def.judge),
   ...optional("system", def.system),
-  ...optional("skills", def.skills),
   ...optional("mode", def.mode),
 })
 
@@ -554,36 +523,9 @@ interface Rest extends ResolvedRest {
   readonly memory: string | undefined
   readonly memoryResumed: boolean
   readonly hints: RestHints
-  readonly context: TemplateContext
+  /** Total recorded cost of the process, and its per-model breakdown. */
+  readonly cost: { readonly total: number; readonly byModel: readonly ModelCost[] }
   readonly setup: ReplaySetup
-}
-
-const templateContext = (
-  run: ProcessRun,
-  step: ReachedStep,
-  head: string,
-  vars: Record<string, string>,
-): TemplateContext => {
-  const none = (): never => {
-    throw new Error("only it.file and it.vars are available to a mode command")
-  }
-  return {
-    startCommit: run.diffBase,
-    currentCommit: head,
-    previousCommit: step.enteredAt,
-    state: step.name,
-    actor: step.actor,
-    reviewBase: step.request.options.base ?? run.diffBase,
-    processBase: run.startParentHash,
-    processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
-    processCostByModel: costByModel(run.costEntries),
-    read: none,
-    diff: none,
-    sections: none,
-    tail: none,
-    diffTail: none,
-    vars,
-  }
 }
 
 /** Per-model token totals, highest-cost first (ties broken by model name). */
@@ -620,12 +562,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     }
     const step = outcome.rest
     yield* (yield* Narrator).narrate(`rest resolved: ${step.name} (awaits ${step.actor})`)
-    const head = ref ?? (yield* git.resolveRef("HEAD"))
-    const context = templateContext(run, step, head, vars)
-    const stepDef = yield* Effect.try({
-      try: () => stepDefOf(step, vars, context),
-      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-    })
+    const stepDef = stepDefOf(step)
     if (stepDef.mode !== undefined && def.modes[stepDef.mode] === undefined) {
       return yield* Effect.fail(
         new Error(
@@ -654,7 +591,10 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       memory: memory.key,
       memoryResumed: memory.resumed,
       hints: hintsOf(stepDef),
-      context,
+      cost: {
+        total: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
+        byModel: costByModel(run.costEntries),
+      },
       setup,
     }
   })

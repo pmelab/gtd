@@ -89,13 +89,13 @@ describe("ConfigService", () => {
   it("layers a top-level `modes:` key over the built-in modes", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [`modes:`, `  qa:`, `    format: "adr-fmt <%= it.file %>"`, ``].join("\n"),
+      [`modes:`, `  qa:`, `    format: "adr-fmt $GTD_FILE"`, ``].join("\n"),
     )
 
     const cfg = await getConfig()
 
     expect(cfg.workflow.modes["qa"]).toEqual({
-      format: "adr-fmt <%= it.file %>",
+      format: "adr-fmt $GTD_FILE",
       validate: seededValidateCommand("qa"),
     })
   })
@@ -266,7 +266,7 @@ describe("ConfigService", () => {
   it("lets a top-level `modes:` key define the mode a custom workflow's step names", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [`modes:`, `  adr:`, `    validate: "adr-lint <%= it.file %>"`, ``].join("\n"),
+      [`modes:`, `  adr:`, `    validate: "adr-lint $GTD_FILE"`, ``].join("\n"),
     )
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
@@ -282,7 +282,7 @@ describe("ConfigService", () => {
 
     const cfg = await getConfig()
 
-    expect(cfg.workflow.modes["adr"]).toEqual({ validate: "adr-lint <%= it.file %>" })
+    expect(cfg.workflow.modes["adr"]).toEqual({ validate: "adr-lint $GTD_FILE" })
   })
 
   it("rejects a default entry that never reaches a step", async () => {

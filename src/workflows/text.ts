@@ -9,6 +9,14 @@ const need = (path: string): string => {
   if (content === undefined) throw new Error(`ENOENT: no such file or directory, open '${path}'`)
   return content
 }
+
+/** `prompt` behind the `skillsPreamble` var naming `skills`; blank skills or a blank preamble leave it bare. */
+export const withSkills = (skills: string | undefined, prompt: string): string => {
+  const preamble = vars.skillsPreamble ?? ""
+  if (skills === undefined || skills.trim() === "" || preamble.trim() === "") return prompt
+  return `${preamble.replaceAll("{skills}", skills)}\n\n${prompt}`
+}
+
 export const idleMessage = (): string =>
   `No active gtd process.
 
@@ -65,10 +73,8 @@ export const unwindScript = (): string =>
   `#!/usr/bin/env sh
 set +e
 mkdir -p .gtd
-# Hoisted here, at the TOP: Eta's autoTrim eats the newline after
-# an interpolation tag, so no tag may be the last token on a line.
-# Uses it.currentCommit (render-time), not bare HEAD, so a
-# late-running driver still reverts the right commit.
+# The commit the flow stands on, not bare HEAD, so a late-running
+# driver still reverts the right commit.
 commit="${head()}"
 git revert --no-commit "$commit" 2> .gtd/.unwind-error
 code=$?
@@ -108,8 +114,6 @@ export const reUnwindScript = (base: string): string =>
 # in sync). Expected to succeed; requireRevert catches a silent
 # apply failure.
 set +e
-# Hoisted here, at the TOP: Eta's autoTrim eats the newline after
-# an interpolation tag, so no tag may be the last token on a line.
 commit="${base}"
 patch=.gtd/.re-unwind.patch
 mkdir -p .gtd

@@ -4,8 +4,6 @@
 # in sync). Expected to succeed; requireRevert catches a silent
 # apply failure.
 set +e
-# Hoisted here, at the TOP: Eta's autoTrim eats the newline after
-# an interpolation tag, so no tag may be the last token on a line.
 commit="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 patch=.gtd/.re-unwind.patch
 mkdir -p .gtd

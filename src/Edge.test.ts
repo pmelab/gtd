@@ -682,46 +682,6 @@ describe("noProcessUnderway / restIsIdle", () => {
   })
 })
 
-describe("renderRest — skills preamble", () => {
-  const SKILLS = (opts: { readonly skills?: string; readonly preamble?: string }) =>
-    `import { agent, human, workflow } from "@pmelab/gtd/flows"
-
-export default workflow(
-  async () => {
-    await human("idle", { message: "hello" })
-    await agent("working", "do-the-work", ${JSON.stringify(opts.skills === undefined ? {} : { skills: opts.skills })})
-  },
-  { vars: { skillsPreamble: ${JSON.stringify(opts.preamble ?? "Load: <%= it.skills %>")} } },
-)
-`
-
-  const contentAt = async (config: string, landFirst: boolean): Promise<string> => {
-    const repo = repoWith(config)
-    if (landFirst) await land(repo, { "a.txt": "a\n" })
-    return (await provide(renderRest(await provide(currentRest, repo)), repo)).content
-  }
-
-  it("prepends the rendered preamble to a prompt, joined by two newlines", async () => {
-    expect(await contentAt(SKILLS({ skills: "code-review, testing" }), true)).toBe(
-      "Load: code-review, testing\n\ndo-the-work",
-    )
-  })
-
-  it("leaves a prompt untouched when the step declares no skills", async () => {
-    expect(await contentAt(SKILLS({}), true)).toBe("do-the-work")
-  })
-
-  it("leaves a prompt untouched when skillsPreamble is blank", async () => {
-    expect(await contentAt(SKILLS({ skills: "code-review", preamble: "  " }), true)).toBe(
-      "do-the-work",
-    )
-  })
-
-  it("never touches the message of a step before the prompt", async () => {
-    expect(await contentAt(SKILLS({ skills: "code-review" }), false)).toBe("hello")
-  })
-})
-
 describe("judge rests", () => {
   const JUDGED = (
     budget: string,

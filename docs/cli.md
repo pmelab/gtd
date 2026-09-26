@@ -179,7 +179,7 @@ Options:
                    handing <state> to the workflow as its entry —
                    authenticated as human
   --var <name>=<value>
-                   (with --entry; repeatable) supply a fixed it.vars
+                   (with --entry; repeatable) supply a fixed variable
                    override for the new process; the name must already be
                    declared by the workflow's own vars: or the .gtdrc vars:
   --open-questions (gtd check only) ignore <mode>'s structural findings and

@@ -3,15 +3,14 @@
 ## Prerequisites
 
 Install [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills)
-— the bundled workflow's build/fix/review steps name skills from this set (an
-agent step's `skills` option) instead of spelling out their technique in prose.
-This is a real prerequisite, not an optional boost: without it installed, your
-harness has nothing to load at those steps, and the prompt no longer carries the
-prose that used to stand in for it. gtd itself never installs, resolves, or
-verifies this — a repo can also repoint any of the bundled `*Skills` config vars
-to name a different set its own harness has instead. Blanking the
-`skillsPreamble` var turns the skill names off but does not restore the deleted
-prose.
+— the bundled workflow's build/fix/review steps name skills from this set in
+their prompts instead of spelling out their technique in prose. This is a real
+prerequisite, not an optional boost: without it installed, your harness has
+nothing to load at those steps, and the prompt no longer carries the prose that
+used to stand in for it. gtd itself never installs, resolves, or verifies this —
+a repo can also repoint any of the bundled `*Skills` config vars to name a
+different set its own harness has instead. Blanking the `skillsPreamble` var
+turns the skill names off but does not restore the deleted prose.
 
 ### Using a different skill set
 
@@ -35,11 +34,10 @@ Two routes, and they combine:
   GTD_BUILDSKILLS="my-org-tdd-skill" gtd next
   ```
 
-- **In addition to the bundled set** — pass `skills` to any `agent()` step in
-  your own `gtd.config.ts`; the option is not reserved to the bundled steps.
-  There is no append mechanism: an override REPLACES the var's default, it never
-  adds to it. Wanting the bundled skills plus your own means writing the whole
-  list — bundled names included — into your own value:
+- **In addition to the bundled set** — there is no append mechanism: an override
+  REPLACES the var's default, it never adds to it. Wanting the bundled skills
+  plus your own means writing the whole list — bundled names included — into
+  your own value:
 
   ```yaml
   # .gtdrc — keep the bundled pair, add one more

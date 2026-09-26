@@ -269,7 +269,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: a modes: qa validate: entry carrying gtd's own SEEDED command keeps live diagnostics, not the external notice
     # A later package's workflow compiler will seed `qa`/`review`'s own
-    # `validate:` with the literal string `gtd check <mode> '<%= it.file %>'`
+    # `validate:` with the literal string `gtd check <mode> "$GTD_FILE"`
     # (src/SteeringFormats.ts's seededValidateCommand) — a shell-out that just
     # calls back into gtd's own parser, changing nothing about how the file is
     # actually validated. `resolveMode`'s `capabilities` field must recognize
@@ -281,7 +281,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
       modes:
         qa:
-          validate: "gtd check qa '<%= it.file %>'"
+          validate: 'gtd check qa "$GTD_FILE"'
       """
     And a gtd config file at "gtd.config.ts" with:
       """

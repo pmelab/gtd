@@ -385,7 +385,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And a gtd config file at ".gtdrc" with:
       """
       ui:
-        format: 'printf "FORMATTED\n" >> <%= it.file %>'
+        format: 'printf "FORMATTED\n" >> $GTD_FILE'
       """
     And a file "NOTE.md" with:
       """

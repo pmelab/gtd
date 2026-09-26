@@ -97,7 +97,6 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
       const key = assertRepoRelative(path)
       return isGitDirKey(key) ? undefined : (repo.fileAtRef(ref, key) ?? undefined)
     },
-    diffSync: (base) => repo.diffWorktree(base),
     treeSync: (ref) =>
       new Map(repo.pathsAtRef(ref).map((path) => [path, repo.fileAtRef(ref, path) ?? ""])),
     worktreePathsSync: () => repo.pathsUnder("").filter((path) => !isGitDirKey(path)),

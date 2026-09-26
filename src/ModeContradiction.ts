@@ -7,7 +7,7 @@ export interface ModeContradictionInputs {
   readonly samplePath: string
   /** The format's own canonical sample (`SteeringFormat.sample`), written verbatim via `printf '%s'`. */
   readonly sample: string
-  /** The mode's `format:` command, ALREADY RENDERED with `it.file` bound to `samplePath`. */
+  /** The mode's `format:` command, run with `$GTD_FILE` set to `samplePath`. */
   readonly formatCommand: string
 }
 

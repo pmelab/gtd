@@ -22,7 +22,7 @@ Feature: A declared mode command guards its own missing binary
       """
       modes:
         adr:
-          validate: "gtd-test-nonexistent-binary <%= it.file %>"
+          validate: "gtd-test-nonexistent-binary $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -49,7 +49,7 @@ Feature: A declared mode command guards its own missing binary
       """
       modes:
         adr:
-          format: "gtd-test-nonexistent-formatter <%= it.file %>"
+          format: "gtd-test-nonexistent-formatter $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -84,7 +84,7 @@ Feature: A declared mode command guards its own missing binary
       """
       modes:
         adr:
-          validate: "gtd-test-nonexistent-binary <%= it.file %> | cat"
+          validate: "gtd-test-nonexistent-binary $GTD_FILE | cat"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -110,7 +110,7 @@ Feature: A declared mode command guards its own missing binary
       """
       modes:
         adr:
-          validate: "FOO=1 gtd-test-nonexistent-binary <%= it.file %>"
+          validate: "FOO=1 gtd-test-nonexistent-binary $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """

@@ -28,7 +28,7 @@ describe("ConfigSchema — top-level `ui:`", () => {
         host: "0.0.0.0",
         cert: "./certs/server.crt",
         key: "./certs/server.key",
-        format: "npx oxfmt --write <%= it.file %>",
+        format: "npx oxfmt --write $GTD_FILE",
       },
     }
     expect(decode(input).ui).toEqual(input.ui)

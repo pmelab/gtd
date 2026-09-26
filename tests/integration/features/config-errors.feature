@@ -12,7 +12,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
       modes:
         adr:
-          validate: "adr-lint <%= it.file %>"
+          validate: "adr-lint $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -69,7 +69,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
       modes:
         adr:
-          validate: "adr-lint <%= it.file %>"
+          validate: "adr-lint $GTD_FILE"
           lint: "also adr-lint"
       """
     When I run gtd next
@@ -77,13 +77,27 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     And stderr contains "gtd config:"
     And stderr contains "mode \"adr\": unknown key(s) lint"
 
+  Scenario: a mode command still written as an Eta template fails naming "$GTD_FILE"
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      modes:
+        qa:
+          format: "npx prettier --write <%= it.file %>"
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "gtd config:"
+    And stderr contains "mode \"qa\": \"format\": Eta templates are gone"
+    And stderr contains "$GTD_FILE"
+
   Scenario: a malformed top-level "modes:" key fails the same way as a workflow-level one
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       modes:
         qa:
-          formatt: "npx prettier --write <%= it.file %>"
+          formatt: "npx prettier --write $GTD_FILE"
       """
     When I run gtd next
     Then it fails

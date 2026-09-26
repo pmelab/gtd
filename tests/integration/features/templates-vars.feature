@@ -7,7 +7,7 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
   code reads the result through `vars`, for prompt text and for a step's
   `model` alike.
 
-  Scenario: a workflow-declared "vars:" value renders into a prompt via `it.vars`
+  Scenario: a workflow-declared "vars:" value renders into a prompt through `vars`
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -184,7 +184,7 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     And stdout contains "echo env-wins"
     And stdout does not contain "npm test >"
 
-  Scenario: a machine's "model:" resolves an "it.vars" reference in "gtd next --json"
+  Scenario: an agent step's "model" read from "vars" shows in "gtd next --json"
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """

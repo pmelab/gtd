@@ -3,8 +3,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   A state's `mode:` names a steering-file MODE (see STATES.md §12): a
   `format:` and/or `validate:` shell
   command, declared in a `modes:` map — either inside `workflow:` or as the
-  top-level `.gtdrc` `modes:` layer over it. Each command is an Eta template
-  with `it.file` bound to the rendered steering-file path, run via bash;
+  top-level `.gtdrc` `modes:` layer over it. Each command runs via bash with
+  `$GTD_FILE` set to the steering file's path;
   `format` rewrites the file in place, `validate` exits 0 for valid and
   non-zero with its output as the findings.
 
@@ -32,12 +32,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
         adr:
           validate: |
             status=0
-            grep -q '^## Status' <%= it.file %> || {
-              echo "<%= it.file %>: missing a '## Status' section"
+            grep -q '^## Status' $GTD_FILE || {
+              echo "$GTD_FILE: missing a '## Status' section"
               status=1
             }
-            grep -q '^## Decision' <%= it.file %> || {
-              echo "<%= it.file %>: missing a '## Decision' section"
+            grep -q '^## Decision' $GTD_FILE || {
+              echo "$GTD_FILE: missing a '## Decision' section"
               status=1
             }
             exit $status
@@ -76,7 +76,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          validate: "adr-validate <%= it.file %>"
+          validate: "adr-validate $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -109,7 +109,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          validate: "grep -q '^## Decision' <%= it.file %>"
+          validate: "grep -q '^## Decision' $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -140,7 +140,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          validate: "adr-validate <%= it.file %>"
+          validate: "adr-validate $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -175,8 +175,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          format: "sed 's/^status: draft$/status: accepted/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
-          validate: "grep -q '^status: accepted$' <%= it.file %>"
+          format: "sed 's/^status: draft$/status: accepted/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
+          validate: "grep -q '^status: accepted$' $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -207,8 +207,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          format: "adr-format <%= it.file %>"
-          validate: "adr-validate <%= it.file %>"
+          format: "adr-format $GTD_FILE"
+          validate: "adr-validate $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -250,8 +250,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       modes:
         adr:
           validate: |
-            grep -q '^## Decision' <%= it.file %> || {
-              echo "<%= it.file %>: an ADR needs a '## Decision' section"
+            grep -q '^## Decision' $GTD_FILE || {
+              echo "$GTD_FILE: an ADR needs a '## Decision' section"
               exit 1
             }
       """
@@ -293,7 +293,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          validate: "adr-validate <%= it.file %>"
+          validate: "adr-validate $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -337,7 +337,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          validate: "grep -q '^## Decision' <%= it.file %>"
+          validate: "grep -q '^## Decision' $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -373,7 +373,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       modes:
         adr:
           format: |
-            echo "adr-fmt: cannot parse <%= it.file %>" >&2
+            echo "adr-fmt: cannot parse $GTD_FILE" >&2
             exit 3
           validate: "true"
       """
@@ -409,8 +409,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          format: "adr-format-broken <%= it.file %>"
-          validate: "adr-validate-never-runs <%= it.file %>"
+          format: "adr-format-broken $GTD_FILE"
+          validate: "adr-validate-never-runs $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -449,8 +449,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       modes:
         qa:
           validate: |
-            grep -q '^## Open Questions' <%= it.file %> || {
-              echo "<%= it.file %>: my house rule — every plan lists its open questions"
+            grep -q '^## Open Questions' $GTD_FILE || {
+              echo "$GTD_FILE: my house rule — every plan lists its open questions"
               exit 1
             }
       """
@@ -483,7 +483,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         qa:
-          format: "sed -i.bak 's/[[:space:]]*$//' <%= it.file %> && rm -f <%= it.file %>.bak"
+          format: "sed -i.bak 's/[[:space:]]*$//' $GTD_FILE && rm -f $GTD_FILE.bak"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -523,7 +523,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         qa:
-          format: "sed 's/  */ /g' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
+          format: "sed 's/  */ /g' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -554,8 +554,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          format: "sed 's/^status: draft$/status: accepted/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
-          validate: "grep -q '^status: accepted$' <%= it.file %>"
+          format: "sed 's/^status: draft$/status: accepted/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
+          validate: "grep -q '^status: accepted$' $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -583,7 +583,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          format: "sed 's/draft/DRAFT/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>" # no validate: — that half is a no-op
+          format: "sed 's/draft/DRAFT/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE" # no validate: — that half is a no-op
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -616,7 +616,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          format: "sed 's/draft/DRAFT/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
+          format: "sed 's/draft/DRAFT/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -753,7 +753,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         qa:
-          validate: "gtd check qa '<%= it.file %>'"
+          validate: 'gtd check qa "$GTD_FILE"'
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -805,7 +805,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         review:
-          format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' <%= it.file %> && rm -f <%= it.file %>.bak"
+          format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' $GTD_FILE && rm -f $GTD_FILE.bak"
       """
     And a gtd config file at "gtd.config.ts" with:
       """

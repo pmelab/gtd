@@ -16,7 +16,7 @@ const unavailable = (): never => {
 }
 
 /** Evaluate one of the bundled workflow's texts the way replay would, against a fixed context. */
-const renderText = <T>(text: () => T, context: TextContext = {}): T => {
+export const renderText = <T>(text: () => T, context: TextContext = {}): T => {
   installContext({
     step: unavailable,
     refuse: unavailable,

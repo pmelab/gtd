@@ -19,8 +19,6 @@ export interface SteeringOptions {
 export interface AgentOptions extends SteeringOptions {
   readonly model?: string | undefined
   readonly system?: string | undefined
-  /** Skills prose prepended through the `skillsPreamble` var. */
-  readonly skills?: string | undefined
   /**
    * A turn that changes nothing completes the step. Without this an empty turn
    * is an attempt: recorded, but the process stays at the step (a stall).

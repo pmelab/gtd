@@ -86,8 +86,8 @@ workflow that fails to load breaks every gtd command in the repository.
 
 Options (all optional): `label`, `file` (a `.gtd/` path), `mode` (needs `file`;
 `qa`, `review`, or a `.gtdrc` `modes:` name), `message` (human/judge), `model`,
-`system`, `skills` (agent), `allowEmpty` (agent), `acceptClean` (human), `base`
-(the commit the step reviews since — what `gtd base` prints).
+`system` (agent), `allowEmpty` (agent), `acceptClean` (human), `base` (the
+commit the step reviews since — what `gtd base` prints).
 
 Helpers — pure reads of the commit replay stands on (the tree the last step
 left, never the live working tree): `read(path)`, `glob(pattern)`,

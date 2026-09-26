@@ -12,7 +12,7 @@ const varsJsonSchema = {
 const modesJsonSchema = {
   type: "object",
   description:
-    "Steering-file modes a workflow step's mode: may name. Each entry declares at least one of format/validate: shell commands (Eta templates seeing it.file = the rendered steering-file path) gtd runs via bash. format rewrites the file in place; validate exits 0 when valid, non-zero with findings on stdout/stderr otherwise. The halves layer independently, so naming a built-in mode (qa/review) and declaring only format: adds formatting while keeping gtd's own validation. gtd ships no formatter — bring your own (prettier, dprint, a script).",
+    "Steering-file modes a workflow step's mode: may name. Each entry declares at least one of format/validate: shell commands gtd runs via bash with $GTD_FILE set to the steering file's path. format rewrites the file in place; validate exits 0 when valid, non-zero with findings on stdout/stderr otherwise. The halves layer independently, so naming a built-in mode (qa/review) and declaring only format: adds formatting while keeping gtd's own validation. gtd ships no formatter — bring your own (prettier, dprint, a script).",
   additionalProperties: {
     type: "object",
     description: "One mode: at least one of format/validate.",
@@ -22,12 +22,12 @@ const modesJsonSchema = {
       format: {
         type: "string",
         description:
-          "Shell command that rewrites the steering file in place before validation (Eta template; it.file is the file path). A non-zero exit is a hard error.",
+          "Shell command that rewrites the steering file in place before validation ($GTD_FILE is the file path). A non-zero exit is a hard error.",
       },
       validate: {
         type: "string",
         description:
-          "Shell command that validates the steering file (Eta template; it.file is the file path). Exit 0 = valid; non-zero = invalid, with its output reported as the findings.",
+          "Shell command that validates the steering file ($GTD_FILE is the file path). Exit 0 = valid; non-zero = invalid, with its output reported as the findings.",
       },
     },
   },
@@ -59,7 +59,7 @@ const uiJsonSchema = {
     format: {
       type: "string",
       description:
-        "Shell command run after every UI write, before it resolves (Eta template; it.file is the written file's absolute path). A non-zero exit or missing binary never reverts the write or refuses it — it's reported to the client as a notice naming the command and its exit code. Absent means no command runs at all.",
+        "Shell command run after every UI write, before it resolves ($GTD_FILE is the written file's absolute path). A non-zero exit or missing binary never reverts the write or refuses it — it's reported to the client as a notice naming the command and its exit code. Absent means no command runs at all.",
     },
   },
 } as const
@@ -70,9 +70,8 @@ const uiJsonSchema = {
  * a real (not `Unknown`) schema: excess sub-keys under `ui:` are rejected the
  * same way as any other excess key, by the `onExcessProperty: "error"` decode
  * option `Config.ts` already passes for the whole config (it applies
- * recursively). `format` IS an Eta template (`it.file` bound to the written
- * file's absolute path, rendered the same way a mode's own `format:` is) —
- * it's just a single string field, not a nested map, so it needs no compiler
+ * recursively). `format` runs like a mode's own `format:`, with `$GTD_FILE`
+ * the written file's absolute path — it's just a single string field, not a nested map, so it needs no compiler
  * of its own the way `modes:` does. `uiJsonSchema` above still overrides the
  * derived JSON Schema so the published shape stays a hand-annotated literal
  * like its siblings.

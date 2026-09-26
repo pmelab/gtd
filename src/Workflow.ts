@@ -11,7 +11,7 @@ export interface PendingChange {
 }
 
 /**
- * One steering-file mode: shell commands (Eta templates over `it.file`) that
+ * One steering-file mode: shell commands (reading the file from `$GTD_FILE`) that
  * format and validate a file of this format. Both run at the edge, never in
  * the engine.
  */
@@ -34,7 +34,6 @@ export interface StepDef {
   readonly mode?: StateMode
   readonly model?: string
   readonly system?: string
-  readonly skills?: string
   readonly judge?: string
   readonly requireProgress?: boolean
   readonly answerGate?: boolean

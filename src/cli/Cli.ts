@@ -309,7 +309,7 @@ const FLAGS: readonly FlagRow[] = [
     scopeError: "gtd: --var requires --entry",
     valueHint: "<name>=<value>",
     help: [
-      "(with --entry; repeatable) supply a fixed it.vars",
+      "(with --entry; repeatable) supply a fixed variable",
       "override for the new process; the name must already be",
       "declared by the workflow's own vars: or the .gtdrc vars:",
     ],

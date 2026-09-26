@@ -60,7 +60,6 @@ import {
   type NextMatch,
   type StatusChange,
 } from "./wire/index.js"
-import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
 import {
   deleteRef,
   hardResetTo,
@@ -69,7 +68,7 @@ import {
   updateRef,
   type RunnableScript,
 } from "./GitScript.js"
-import { combinedScript, emitScripts, type EmitStep } from "./Emit.js"
+import { combinedScript, commandForFile, emitScripts, type EmitStep } from "./Emit.js"
 import { abandonedOutcome, abandonNoopOutcome, restoredOutcome } from "./OutcomeScript.js"
 import { loopLogPath } from "./WorktreeState.js"
 import { renderBriefing } from "./Install.js"
@@ -366,9 +365,9 @@ const runExecCommand = (): Effect.Effect<void, Error, CommandRequirements> =>
 /**
  * `gtd judge`: read-only peek at the resolved rest's pending judgment — the
  * same `judge` field `gtd next --json` already carries (`renderRest`'s
- * `RenderedRest.judge`, rendered by `judge:`'s Eta template into the JSON
- * document `{ state, questions: [...] }`). Refuses (mapped to the
- * runtime-error exit code) when the resolved rest declares no `judge:` — a
+ * `RenderedRest.judge`, the JSON document `{ state, questions: [...] }`).
+ * Refuses (mapped to the runtime-error exit code) when the resolved rest is
+ * not a judge step — a
  * state may legitimately have none. `--json`'s three shapes match `gtd
  * next`/`gtd land`: bare prints the whole document (`rendered.judge`
  * itself), `--json=<path>` selects a dotted key out of it via the same
@@ -707,33 +706,22 @@ const runRestoreCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
   })
 
 /**
- * The mode's own resolved validate command, rendered against `file`: a
- * declared `validate:` command renders verbatim; a `"builtin"` validator or
- * no mode at all names the leaf `gtd check <mode> '<file>'` invocation
- * instead, so there's always something concrete to name.
+ * The mode's own validate command for `file`: a declared `validate:` command
+ * verbatim; a `"builtin"` validator or no mode at all names the leaf
+ * `gtd check <mode>` invocation instead, so there's always something concrete
+ * to name.
  */
-const resolveSelfValidateCommand = (
+const selfValidateCommand = (
   def: WorkflowDefinition,
   state: string,
   mode: StateMode,
   file: string,
-  context: TemplateContext,
-): Effect.Effect<string, Error> =>
-  Effect.gen(function* () {
-    const resolved = resolveMode(def, state, mode)
-    const validate = resolved.kind === "resolved" ? resolved.validate : undefined
-    if (validate?.kind === "command") {
-      const command = validate.command
-      return yield* Effect.try({
-        try: () => renderModeCommand(command, { ...context, file }),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      })
-    }
-    return yield* Effect.try({
-      try: () => renderModeCommand(seededValidateCommand(mode), { ...context, file }),
-      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-    })
-  })
+): string => {
+  const resolved = resolveMode(def, state, mode)
+  const validate = resolved.kind === "resolved" ? resolved.validate : undefined
+  const command = validate?.kind === "command" ? validate.command : seededValidateCommand(mode)
+  return commandForFile(command, file)
+}
 
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
@@ -770,7 +758,7 @@ const resolveValidateScript = (
       return yield* Effect.fail(new Error(resolved.message))
     }
 
-    const { script } = yield* validateScriptFor(resolved, file, rest.context)
+    const { script } = yield* validateScriptFor(resolved, file)
     return { file, mode, script }
   })
 
@@ -806,18 +794,10 @@ const runNextCommand = (
     } else if (json.kind === "select") {
       yield* writeSelection(out, fields, json.path)
     } else {
-      // Advisory only — a render failure here must not fail gtd next
-      // itself, so it degrades to omitting the instruction.
-      const selfValidateCommand = emitsValidatablePrompt(rendered)
-        ? yield* resolveSelfValidateCommand(
-            rest.def,
-            rest.state,
-            rendered.mode!,
-            rendered.file!,
-            rest.context,
-          ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      const validateCommand = emitsValidatablePrompt(rendered)
+        ? selfValidateCommand(rest.def, rest.state, rendered.mode!, rendered.file!)
         : undefined
-      out.write(renderBeatPlain(fields, selfValidateCommand))
+      out.write(renderBeatPlain(fields, validateCommand))
     }
   })
 
@@ -1024,8 +1004,8 @@ const gatherBeatDocument = (
       log,
       changes: computeStatusChanges(rest.changes),
       next: yield* computeNextMatch(rest),
-      cost: rest.context.processCost,
-      costByModel: rest.context.processCostByModel,
+      cost: rest.cost.total,
+      costByModel: rest.cost.byModel,
     })
     return beatDocument(demand, status)
   })

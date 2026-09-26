@@ -54,8 +54,7 @@ export { parseFootnotes } from "./Footnotes.js"
 // document" is assertable from outside `MarkdownTree.ts` — timing is not.
 export { getParseCount } from "./MarkdownTree.js"
 
-// A dynamic-count `judge:` template's own section/finding list — `it.sections`
-// (`PatternTemplates.ts`) is the one caller outside this package.
+// A flow's `sections()` is the one caller outside this package.
 export { headingSections } from "./MarkdownTree.js"
 
 /** The built-in `SteeringFormat` registered under `mode`'s name, or `undefined` when it isn't a built-in mode at all. The one place a bare mode-name string is ever looked up — `checkSteering`/`viewOf`/`clearTicks` all take the RESOLVED value this returns, never a name, so "mode is required, never inferred from a file's basename" is a type, not a rule to remember. */

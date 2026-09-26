@@ -36,7 +36,7 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
       """
       modes:
         review:
-          format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' <%= it.file %> && rm -f <%= it.file %>.bak"
+          format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' $GTD_FILE && rm -f $GTD_FILE.bak"
       """
     And a gtd config file at "gtd.config.ts" with:
       """

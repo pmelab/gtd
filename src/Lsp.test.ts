@@ -329,9 +329,9 @@ describe("documentLinksFor", () => {
 
 describe("externalValidatorNotice", () => {
   it("names the mode and the command, pointing at gtd validate", () => {
-    const diagnostic = externalValidatorNotice("qa", "npx my-linter <%= it.file %>")
+    const diagnostic = externalValidatorNotice("qa", "npx my-linter $GTD_FILE")
     expect(diagnostic.message).toBe(
-      'mode "qa" is validated by a shell command (`npx my-linter <%= it.file %>`) — run `gtd validate`; no live diagnostics',
+      'mode "qa" is validated by a shell command (`npx my-linter $GTD_FILE`) — run `gtd validate`; no live diagnostics',
     )
     expect(diagnostic.severity).toBe(3) // DiagnosticSeverity.Information
     expect(diagnostic.source).toBe("gtd")
@@ -349,7 +349,7 @@ describe("diagnosticsFor", () => {
   })
 
   it("suppresses built-in findings and publishes the external-validator notice instead when validate: is overridden", () => {
-    const def = { modes: { qa: { validate: "npx my-linter <%= it.file %>" } } }
+    const def = { modes: { qa: { validate: "npx my-linter $GTD_FILE" } } }
     const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
     const diagnostics = diagnosticsFor(resolveSteeringMode(def, "qa"), malformed)
     expect(diagnostics).toHaveLength(1)
@@ -470,7 +470,7 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("suppresses built-in diagnostics but keeps outline/actions live when validate: is shell-overridden", async () => {
-    const def = { modes: { qa: { validate: "npx my-linter <%= it.file %>" } } }
+    const def = { modes: { qa: { validate: "npx my-linter $GTD_FILE" } } }
     const resolved = resolveSteeringMode(def, "qa")!
     const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/PLAN.md", resolved]]) })
     const service = makeSteeringLanguageService(env, () => {})

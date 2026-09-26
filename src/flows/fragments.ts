@@ -29,7 +29,6 @@ export interface AgentSpec {
   readonly label?: string
   readonly file?: string
   readonly mode?: string
-  readonly skills?: Text
   readonly model?: Text
   readonly system?: Text
 }
@@ -67,7 +66,6 @@ const agentStep = (
     label: spec.label,
     file: spec.file,
     mode: spec.mode,
-    skills: spec.skills?.(),
     model: spec.model?.(),
     system: spec.system?.(),
     ...extra,
@@ -374,7 +372,6 @@ export const specReview = async (texts: SpecReviewTexts): Promise<boolean> => {
     label: texts.review.label,
     file: texts.review.file,
     mode: texts.review.mode,
-    skills: texts.review.skills?.(),
     model: texts.review.model?.(),
     system: texts.review.system?.(),
     allowEmpty: true,
@@ -550,7 +547,6 @@ export const reviewTail = async (texts: ReviewTexts, base: string): Promise<Revi
       label: texts.reviewing.label,
       file: texts.reviewing.file,
       mode: texts.reviewing.mode,
-      skills: texts.reviewing.skills?.(),
       model: texts.reviewing.model?.(),
       system: texts.reviewing.system?.(),
       base,

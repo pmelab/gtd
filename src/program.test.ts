@@ -592,7 +592,7 @@ describe("gtd next --json — embedded validate script", () => {
     const parsed = JSON.parse(stdout) as Record<string, unknown>
     expect(parsed).toHaveProperty("validate")
     expect(parsed.validate).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
-    expect(parsed.validate).toContain(`gtd check qa '.gtd/PLAN.md'`)
+    expect(parsed.validate).toContain(`export GTD_FILE='.gtd/PLAN.md'\ngtd check qa "$GTD_FILE"`)
   })
 })
 
@@ -616,7 +616,7 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
   }
 
   it("a live built-in validator (qa, with a declared format:) emits the round-trip BEFORE the existence guard, using the scratch path under TMPDIR", async () => {
-    const repo = await atWorking(["  qa:", '    format: "my-formatter <%= it.file %>"'])
+    const repo = await atWorking(["  qa:", '    format: "my-formatter $GTD_FILE"'])
     const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
     expect(exitCode).toBe(0)
 
@@ -625,7 +625,7 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
     const guardIndex = stdout.indexOf(`[ -f '.gtd/PLAN.md' ] || exit 0`)
     // The real format command, distinct from the round-trip's own copy
     // (rendered against the scratch sample path) earlier in the script.
-    const formatIndex = stdout.indexOf(`my-formatter .gtd/PLAN.md`)
+    const formatIndex = stdout.indexOf(`export GTD_FILE='.gtd/PLAN.md'\nmy-formatter $GTD_FILE`)
     const validateIndex = stdout.indexOf(`gtd_validate_out=`)
 
     expect(roundTripIndex).toBeGreaterThan(-1)
@@ -635,7 +635,7 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
     expect(formatIndex).toBeLessThan(validateIndex)
 
     expect(stdout).toContain(samplePath)
-    expect(stdout).toContain(`my-formatter ${samplePath}`)
+    expect(stdout).toContain(`export GTD_FILE='${samplePath}'\nmy-formatter $GTD_FILE`)
     expect(stdout).toContain(`gtd check qa '${samplePath}' >/dev/null 2>&1 || {`)
     expect(stdout).toContain("CONFIGURATION BUG")
     expect(stdout).toContain("Do NOT edit the steering file")
@@ -644,7 +644,7 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
   it("an external validate: command prints a one-line skip notice instead of the round-trip", async () => {
     const repo = await atWorking([
       "  qa:",
-      '    format: "my-formatter <%= it.file %>"',
+      '    format: "my-formatter $GTD_FILE"',
       '    validate: "true"',
     ])
     const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
@@ -656,11 +656,11 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
   })
 
   it("a format-only mode (no validate at all) emits neither the round-trip nor the skip notice — just the guard and the format command", async () => {
-    const repo = await atWorking(["  prose:", '    format: "my-formatter <%= it.file %>"'], "prose")
+    const repo = await atWorking(["  prose:", '    format: "my-formatter $GTD_FILE"'], "prose")
     const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
     expect(exitCode).toBe(0)
     expect(stdout).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
-    expect(stdout).toContain("my-formatter .gtd/PLAN.md")
+    expect(stdout).toContain("export GTD_FILE='.gtd/PLAN.md'\nmy-formatter $GTD_FILE")
     expect(stdout).not.toContain("printf '%s' ")
     expect(stdout).not.toContain("CONFIGURATION BUG")
     expect(stdout).not.toContain("skipping")
@@ -676,14 +676,14 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
   })
 
   it("resolves the scratch dir from node:os's tmpdir() when TMPDIR is unset or empty", async () => {
-    const repo = await atWorking(["  qa:", '    format: "my-formatter <%= it.file %>"'])
+    const repo = await atWorking(["  qa:", '    format: "my-formatter $GTD_FILE"'])
     const { stdout, exitCode } = await runEnv(repo, {}, "validate")
     expect(exitCode).toBe(0)
     expect(stdout).toContain(`gtd-mode-sample-qa-${process.pid}.md`)
   })
 
   it("gtd validate the COMMAND exits 0 even when the emitted SCRIPT would fail if run — gtd only prints it", async () => {
-    const repo = await atWorking(["  qa:", '    format: "my-formatter <%= it.file %>"'])
+    const repo = await atWorking(["  qa:", '    format: "my-formatter $GTD_FILE"'])
     const { exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
     expect(exitCode).toBe(0)
   })
@@ -1495,9 +1495,7 @@ export default workflow(async () => {
 
   const atDrafting = async (): Promise<InMemRepo> => {
     const repo = seed(NOTES_WORKFLOW, {
-      ".gtdrc.yaml": ["modes:", "  notes:", '    format: "fmt-notes <%= it.file %>"', ""].join(
-        "\n",
-      ),
+      ".gtdrc.yaml": ["modes:", "  notes:", '    format: "fmt-notes $GTD_FILE"', ""].join("\n"),
     })
     await landTurn(repo, { ".gtd/NOTES.md": "# notes\n\nfirst draft\n" })
     return repo
@@ -1530,7 +1528,7 @@ export default workflow(async () => {
     const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
     expect((JSON.parse(stdout) as { validate?: string }).validate).toContain(
-      "fmt-notes .gtd/NOTES.md",
+      "export GTD_FILE='.gtd/NOTES.md'\nfmt-notes $GTD_FILE",
     )
   })
 })
