@@ -40,8 +40,12 @@ const commitWithTrailer = (dir: string, trailer: string): void => {
   )
 }
 
-/** Renders `scoping`'s script with a given `specPreJudge` value and runs it for real against `dir`. */
-const runScoping = (dir: string, specPreJudge: string): void => {
+/** Renders `scoping`'s script with a given `specPreJudge` value (and an optional `judgeBudgetBytes` override) and runs it for real against `dir`. */
+const runScoping = (
+  dir: string,
+  specPreJudge: string,
+  varsOverride: Record<string, string> = {},
+): void => {
   const { definition, vars } = compileTemplate()
   const state = definition.states["packages.item.spec.scoping"]!
   const script = renderStateTemplate(state.script!, {
@@ -57,7 +61,9 @@ const runScoping = (dir: string, specPreJudge: string): void => {
     read: () => "",
     diff: () => "",
     sections: () => [],
-    vars: { ...vars, specPreJudge },
+    tail: () => "",
+    diffTail: () => "",
+    vars: { ...vars, specPreJudge, ...varsOverride },
     edges: [],
   })
   // NEXT.md points at "packages/01-widget.md" (relative to `dir`, the
@@ -156,6 +162,58 @@ describe("packages.item.spec.scoping's script, executed for real (round-3 review
     expect(readIfExists(dir, "SPEC_SCOPE.md")).toBeUndefined()
     expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeDefined()
   })
+
+  it("a confident 'yes' cannot clear a section when the landing commit carries Gtd-Payload: {\"truncated\":true} — pre's own evidence was truncated, so scoping fails open regardless of the trailer", () => {
+    // Same fixture and the same confident, otherwise-clearing verdict as
+    // "all three sections answered yes..." above — the only difference is
+    // the landing commit's own `Gtd-Payload: {"truncated":true}` trailer,
+    // stamped by the render that produced the judged document when `pre`'s
+    // own it.tail(pkgPath, 1) truncated this package file, so none of these
+    // "yes" verdicts were ever a genuine judgment over the real section text.
+    const dir = initRepo()
+    writePackage(dir, THREE_SECTIONS)
+    commitWithTrailer(
+      dir,
+      [
+        'Gtd-Judge: {"id":"section-1","answer":true,"p":0.99}',
+        'Gtd-Judge: {"id":"section-2","answer":true,"p":0.99}',
+        'Gtd-Judge: {"id":"section-3","answer":true,"p":0.99}',
+        'Gtd-Payload: {"truncated":true}',
+      ].join("\n"),
+    )
+    runScoping(dir, "0.9")
+    expect(readIfExists(dir, "SPEC_SCOPE.md")).toBe("- Section A\n- Section B\n- Section C\n")
+    expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeUndefined()
+  })
+
+  it("shortening the package file in the working tree after the judged commit landed does not clear the gate — the trailer measures what the judge saw, not what's on disk now", () => {
+    // The COMMITTED package file (what `pre` actually judged) was large
+    // enough to have truncated; the working-tree file present when
+    // `scoping` runs is a SHRUNK, under-budget stand-in — a `wc -c`-style
+    // recheck of the working tree would see it and wrongly clear the gate.
+    // The trailer is the only thing this script reads for truncation.
+    const dir = initRepo()
+    writePackage(dir, PACKAGE)
+    commitWithTrailer(
+      dir,
+      [
+        'Gtd-Judge: {"id":"section-1","answer":true,"p":0.99}',
+        'Gtd-Payload: {"truncated":true}',
+      ].join("\n"),
+    )
+    runScoping(dir, "0.9")
+    expect(readIfExists(dir, "SPEC_SCOPE.md")).toContain("Section A")
+    expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeUndefined()
+  })
+
+  it("a missing Gtd-Payload: trailer reads as not truncated — an under-budget gate still clears normally", () => {
+    const dir = initRepo()
+    writePackage(dir, PACKAGE)
+    commitWithTrailer(dir, 'Gtd-Judge: {"id":"section-1","answer":true,"p":0.99}')
+    runScoping(dir, "0.9")
+    expect(readIfExists(dir, "SPEC_SCOPE.md")).toBeUndefined()
+    expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeDefined()
+  })
 })
 
 describe("packages.item.spec.pre's judge template (round-3 review)", () => {
@@ -176,6 +234,12 @@ describe("packages.item.spec.pre's judge template (round-3 review)", () => {
         path === ".gtd/NEXT.md" ? ".gtd/packages/01-widget.md\n" : "## Do the thing\n- [ ] task\n",
       diff: () => "",
       sections: () => ["Do the thing"],
+      // A real tail bound never drops anything this small — mirrors read
+      // rather than stubbing empty, so the section survives and this test
+      // exercises the ordinary (not the truncated/structural) branch.
+      tail: (path) =>
+        path === ".gtd/NEXT.md" ? ".gtd/packages/01-widget.md\n" : "## Do the thing\n- [ ] task\n",
+      diffTail: () => "",
       vars,
       edges: [],
     }

@@ -306,9 +306,9 @@ noted in steps 2, 3, and 4 below.
 
 3. **You wait.** The work is split into packages and built one at a time, each
    one checked against your test suite and fixed until it passes, then reviewed
-   against its own spec before moving on. Four points along that loop are judged
-   rather than always asking you outright — each stops and hands you a verdict
-   to make (`gtd judge answer`, or land with a clean tree to accept the
+   against its own spec before moving on. Three points along that loop are
+   judged rather than always asking you outright — each stops and hands you a
+   verdict to make (`gtd judge answer`, or land with a clean tree to accept the
    conservative default, which never skips work):
    - Every red round after the first: was the failure identical, new, or
      progress?
@@ -316,22 +316,20 @@ noted in steps 2, 3, and 4 below.
      each of its requirements?
    - After a review turn raises concerns: would each one actually violate the
      spec if left unaddressed, or is it a nit?
-   - Before showing you the review document: is this round mechanical, touches
-     no public surface, and changes no behavior? Confident on all three skips
-     the agent's own review turn — step 4 still shows you a (machine-written)
-     summary of what changed.
 
    A driver built only to run this loop (not to answer judgments) still handles
    every one of these correctly: it shows you the message and stops, same as any
    other question.
 
-   The `gtd --entry fix-precheck` side door (below) repairs a red baseline
-   through this same loop's own green check, and that check also runs a
-   qualitative review lap first: one configured skill per turn, each looking at
-   the change from its own angle (a security checklist, a simplification pass)
-   and fixing what it finds once, with no re-review after the fix. It never
-   replaces step 4 — your review stays the final gate, and nothing here skips
-   it.
+   Once the last package is built, the whole change goes through a qualitative
+   review lap before you see anything: one configured skill per turn, each
+   looking at the change from its own angle (a security checklist, a
+   simplification pass) and fixing what it finds once, with no re-review after
+   the fix. The per-package review above only judges that package against its
+   own spec; this lap is where code quality is looked at, and every round pays
+   for it. It never replaces step 4 — your review stays the final gate, and
+   nothing here skips it. The `gtd --entry fix-precheck` side door (below)
+   repairs a red baseline through this same lap.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes

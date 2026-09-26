@@ -8,6 +8,7 @@ import {
   resolveRestFrom,
   renderRest,
   restAt,
+  TRUNCATION_NOTICE,
   snapshotFromRest,
   stalledAt,
   summaryRun,
@@ -1304,6 +1305,51 @@ describe("renderRest — skills preamble", () => {
   })
 })
 
+// `.gtd/packages/01-bounded-judge-read-helper.md`'s "Every failure stays
+// conservative" section: `judgeBudgetBytes` THROWS (never defaults) when a
+// workflow DECLARES it and then blanks/breaks it — the one `vars:` key that
+// refuses rather than silently disabling the mechanism it guards.
+describe("judgeBudgetBytes — refuses rather than defaults when declared-but-unusable", () => {
+  const BUDGET_WORKFLOW = (judgeBudgetBytes: string) =>
+    [
+      "workflow:",
+      "  vars:",
+      `    judgeBudgetBytes: "${judgeBudgetBytes}"`,
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: idle",
+      "      states:",
+      "        idle:",
+      "          actor: human",
+      "          message: hello",
+      "          on:",
+      '            "* **": idle',
+      "",
+    ].join("\n")
+
+  const seeded = (judgeBudgetBytes: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", BUDGET_WORKFLOW(judgeBudgetBytes))
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    return repo
+  }
+
+  it.each(["", "not-a-number", "NaN", "0", "-1", "1.5"])(
+    "refuses to resolve the rest when judgeBudgetBytes is %j",
+    async (value) => {
+      const exit = await provideExit(currentRest, seeded(value))
+      expect(Exit.isFailure(exit)).toBe(true)
+    },
+  )
+
+  it("a numeric judgeBudgetBytes resolves fine", async () => {
+    const rest = await provide(currentRest, seeded("32768"))
+    expect(rest.state).toBe("idle")
+  })
+})
+
 // The evidence rule, enforced for real: `restAt` renders `judge:` against
 // `templateReadCommitted` (`git show HEAD:<path>`), a DIFFERENT `it.read`
 // binding than every other `rest: "rendered"` field gets (`templateRead`, a
@@ -1376,6 +1422,249 @@ describe("judge: rendering — the evidence rule (no gathering turn)", () => {
     // The ordinary message: field reads the pending working-tree edit.
     expect(rendered.content).toBe(
       "working-tree read: an uncommitted edit on top of the committed version",
+    )
+  })
+})
+
+// `.gtd/packages/01-bounded-judge-read-helper.md`'s "Every over-budget render
+// stays visible" section: the fixed sentence appears on a `message` rest
+// ONLY when its ledger actually dropped bytes, never as standing boilerplate.
+describe("renderRest — the truncation notice", () => {
+  const TAIL_WORKFLOW = (judgeBudgetBytes: string) =>
+    [
+      "workflow:",
+      "  vars:",
+      `    judgeBudgetBytes: "${judgeBudgetBytes}"`,
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: a",
+      "      states:",
+      "        a:",
+      "          actor: human",
+      "          message: hello",
+      '          judge: \'{ "state": <%~ JSON.stringify(it.tail(".gtd/BIG.md", 1)) %>, "questions": [] }\'',
+      "",
+    ].join("\n")
+
+  const seeded = (judgeBudgetBytes: string, bigContent: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", TAIL_WORKFLOW(judgeBudgetBytes))
+    repo.writeFile(".gtd/BIG.md", bigContent)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    return repo
+  }
+
+  it("appends the fixed sentence to message: when it.tail truncated the judge: field's evidence", async () => {
+    const repo = seeded("20", "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\n")
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.content).toBe(`hello\n\n${TRUNCATION_NOTICE}`)
+  })
+
+  it("leaves content byte-identical when it.tail's bound never actually cuts anything", async () => {
+    const repo = seeded("500", "short\n")
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.content).toBe("hello")
+  })
+
+  // `RenderedRest.truncated` is the flag `program.ts`'s `gtd judge answer`
+  // threads into `planLanding`'s `truncated` option — it must agree with the
+  // SAME truncation notice above, not a separately-computed fact.
+  it("RenderedRest.truncated is true exactly when it.tail truncated this rest's evidence", async () => {
+    const repo = seeded("20", "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\n")
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.truncated).toBe(true)
+  })
+
+  it("RenderedRest.truncated is false when it.tail's bound never actually cuts anything", async () => {
+    const repo = seeded("500", "short\n")
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.truncated).toBe(false)
+  })
+})
+
+// `.gtd/packages/02-payload-bound-engine.md` Requirement C: `it.tail`/
+// `it.diffTail`/the two-argument `it.sections(path, share)` resolve only in a
+// `judge:` field or a `message:` template — every other field is refused at
+// WORKFLOW LOAD (a source-text scan, `PatternMachine.ts`'s
+// `validateBoundedPrimitiveFields`), naming the call, before any step runs.
+describe("bounded primitives narrowed to judge:/message: — load-time refusal (Requirement C)", () => {
+  // All THREE bounded primitives get the same load-time/render-time coverage
+  // — `it.diffTail` and the two-argument `it.sections(path, share)` are just
+  // as disallowed outside judge:/message: as `it.tail`, and the load scan's
+  // depth-aware paren walk (`hasTwoArgSectionsCall`) needs a real two-argument
+  // `it.sections` call to exercise, not just `it.tail`.
+  const CALLS = [
+    { name: "it.tail", call: "<%~ it.tail('.gtd/BIG.md', 1) %>" },
+    { name: "it.diffTail", call: "<%~ it.diffTail('HEAD', 1) %>" },
+    {
+      name: "it.sections(path, share)",
+      call: "<%~ JSON.stringify(it.sections('.gtd/BIG.md', 1)) %>",
+    },
+  ]
+
+  const workflowDeclaring = (fieldLines: readonly string[]): string =>
+    [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: a",
+      "      states:",
+      "        a:",
+      "          actor: agent",
+      ...fieldLines,
+      "",
+    ].join("\n")
+
+  const seeded = (yaml: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", yaml)
+    repo.writeFile(".gtd/BIG.md", "some content\n")
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    return repo
+  }
+
+  it.each(CALLS)("refuses a $name call in a prompt: field", async ({ call }) => {
+    const repo = seeded(workflowDeclaring([`          prompt: "${call}"`]))
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+    const failure = Exit.isFailure(exit) ? String(exit.cause) : ""
+    expect(failure).toMatch(/allowed only in a "judge:" field or a "message:" template/)
+  })
+
+  it.each(CALLS)("refuses a $name call in a script: field", async ({ call }) => {
+    const repo = seeded(workflowDeclaring([`          script: "${call}"`]))
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it.each(CALLS)("refuses a $name call in the label: hint field", async ({ call }) => {
+    const repo = seeded(
+      workflowDeclaring(["          prompt: hello", `          label: "${call}"`]),
+    )
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it.each(CALLS)("refuses a $name call in the file: hint field", async ({ call }) => {
+    const repo = seeded(workflowDeclaring(["          prompt: hello", `          file: "${call}"`]))
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it.each(CALLS)("refuses a $name call in the machine-level model: field", async ({ call }) => {
+    const yaml = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      `      model: "${call}"`,
+      "      entry: a",
+      "      states:",
+      "        a:",
+      "          actor: agent",
+      "          prompt: hello",
+      "",
+    ].join("\n")
+    const repo = seeded(yaml)
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it.each(CALLS)(
+    "still allows the SAME $name call in a judge: field and a message: template",
+    async ({ call }) => {
+      const yaml = [
+        "workflow:",
+        "  entry:",
+        "    default: root",
+        "  machines:",
+        "    root:",
+        "      entry: a",
+        "      states:",
+        "        a:",
+        "          actor: human",
+        `          message: "${call}"`,
+        // The judge field's own value must stay a valid YAML DOUBLE-quoted
+        // scalar here — `call` itself carries single-quoted string
+        // arguments, which would prematurely terminate a single-quoted YAML
+        // wrapper (unlike the fixed one-off judge literal elsewhere in this
+        // file, which deliberately uses double-quoted arguments instead).
+        `          judge: "${call}"`,
+        "",
+      ].join("\n")
+      const repo = seeded(yaml)
+      const rest = await provide(currentRest, repo)
+      expect(rest.state).toBe("a")
+    },
+  )
+
+  it("the two-argument it.sections load scan is depth-aware: a NESTED call's own comma never trips it, but a genuine second argument does even when the first argument itself contains parens", async () => {
+    const nested = seeded(
+      workflowDeclaring([`          prompt: "<%~ it.sections(String(1,2)) %>"`]),
+    )
+    const rest = await provide(currentRest, nested)
+    expect(rest.state).toBe("a")
+
+    const genuine = seeded(
+      workflowDeclaring([
+        `          prompt: "<%~ JSON.stringify(it.sections(it.read('.gtd/BIG.md'), 0.5)) %>"`,
+      ]),
+    )
+    const exit = await provideExit(currentRest, genuine)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it("the one-argument it.sections(path) stays available on every template, never flagged by the load scan", async () => {
+    const repo = seeded(
+      workflowDeclaring([`          prompt: "<%~ JSON.stringify(it.sections('.gtd/BIG.md')) %>"`]),
+    )
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("a")
+  })
+})
+
+// The known gap the load-time scan accepts (`.gtd/packages/02-payload-bound-
+// engine.md` Requirement C): an ALIASED or computed call
+// (`const t = it.tail`) never appears as literal `it.tail(` source text, so
+// the scan can't see it — the render-time throwing stub is the backstop that
+// still refuses the step rather than truncating unannounced.
+describe("bounded primitives narrowed to judge:/message: — the aliased-call backstop (Requirement C)", () => {
+  it("a prompt: field that aliases it.tail before calling it evades the load-time scan but still refuses at render", async () => {
+    const yaml = [
+      "workflow:",
+      "  entry:",
+      "    default: root",
+      "  machines:",
+      "    root:",
+      "      entry: a",
+      "      states:",
+      "        a:",
+      "          actor: agent",
+      "          prompt: \"<% const t = it.tail %><%~ t('.gtd/BIG.md', 1) %>\"",
+      "",
+    ].join("\n")
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", yaml)
+    repo.writeFile(".gtd/BIG.md", "some content\n")
+    repo.commitAllWithPrefix("chore: add custom workflow")
+
+    // Load succeeds — the scan can't see through the alias.
+    const rest = await provide(currentRest, repo)
+    // Render still refuses — the throwing stub is the backstop.
+    const exit = await Effect.runPromiseExit(renderRest(rest))
+    expect(Exit.isFailure(exit)).toBe(true)
+    const failure = Exit.isFailure(exit) ? String(exit.cause) : ""
+    expect(failure).toMatch(
+      /it\.tail is available only in a "judge:" field or a "message:" template/,
     )
   })
 })

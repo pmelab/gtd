@@ -191,19 +191,63 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.closing → packages.picking"
 
-    # packages.picking: the queue is now drained -> the shared review tail
+    # packages.picking: the queue is now drained -> the quality lap, which
+    # every ordinary round pays for once, after the last package and before
+    # any human sees the change. The per-package review above judged that
+    # package's own spec coverage only; these lenses judge the code.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → build.review.pre"
+    And the last commit subject is "gtd(check): packages.picking → build.quality.seeding"
 
-    # Landed untouched, with no verdict — the conservative default runs the
-    # full review lap.
+    # seeding writes one padded file per bundled qualityReviews entry.
+    Given a file ".gtd/reviews/01-owasp-security.md" with:
+      """
+      owasp-security
+      """
+    And a file ".gtd/reviews/02-code-simplification.md" with:
+      """
+      code-simplification
+      """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
+    And the last commit subject is "gtd(check): build.quality.seeding → build.quality.picking"
+
+    Given a file ".gtd/NEXT_REVIEW.md" with:
+      """
+      owasp-security
+      """
+    And the file ".gtd/reviews/01-owasp-security.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.preCheck → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.quality.picking → build.quality.reviewing"
+
+    # A clean lens turn — nothing blocking, so no .gtd/QUALITY.md.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing → build.quality.picking"
+
+    Given a file ".gtd/NEXT_REVIEW.md" with:
+      """
+      code-simplification
+      """
+    And the file ".gtd/reviews/02-code-simplification.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality.picking → build.quality.reviewing"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing → build.quality.picking"
+
+    # The lap is drained with no findings -> straight on to human review.
+    Given the file ".gtd/NEXT_REVIEW.md" is deleted
+    And a file ".gtd/QUALITY_DONE.md" with:
+      """
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality.picking → build.review.reviewing"
+    And ".gtd/QUALITY_READY.md" does not exist
 
     Given a file ".gtd/REVIEW.md" with:
       """
@@ -276,9 +320,13 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): packages.item.spec.scoping → packages.item.spec.review
       gtd(agent): packages.item.spec.review → packages.item.closing
       gtd(check): packages.item.closing → packages.picking
-      gtd(check): packages.picking → build.review.pre
-      gtd(judge): build.review.pre → build.review.preCheck
-      gtd(check): build.review.preCheck → build.review.reviewing
+      gtd(check): packages.picking → build.quality.seeding
+      gtd(check): build.quality.seeding → build.quality.picking
+      gtd(check): build.quality.picking → build.quality.reviewing
+      gtd(agent): build.quality.reviewing → build.quality.picking
+      gtd(check): build.quality.picking → build.quality.reviewing
+      gtd(agent): build.quality.reviewing → build.quality.picking
+      gtd(check): build.quality.picking → build.review.reviewing
       gtd(agent): build.review.reviewing → build.review.await-review
       gtd(human): build.review.await-review → build.review.deciding
       gtd(check): build.review.deciding → idle
@@ -1030,10 +1078,10 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(check): packages.item.closing → packages.picking"
 
     # packages.picking: the queue is now empty — a clean step closes out to
-    # the shared review tail
+    # the quality lap, which fronts the shared review tail
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → build.review.pre"
+    And the last commit subject is "gtd(check): packages.picking → build.quality.seeding"
 
   @inmem
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
@@ -1143,7 +1191,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # hands straight on to the human review tail.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.review.pre"
+    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
 
   @inmem
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached, writing a fix-design document a human can edit before the next fix turn

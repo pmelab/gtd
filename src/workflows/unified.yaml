@@ -11,7 +11,9 @@
 # concerns and resolves the PRODUCT ones' open questions (`design.gate`) ->
 # `architecture.author` works out the *how* and resolves the TECHNICAL ones
 # (`architecture.gate`) -> `architecture.decompose` writes one package file
-# per concern -> the per-package queue (`packages.*`) builds and reviews each
+# per concern -> the per-package queue (`packages.*`) builds each and reviews
+# it for its own spec coverage only -> the quality lap (`build.quality.*`)
+# runs one code-review lens per turn over the whole change
 # -> the shared tail (`build.review.*`) decides sign-off (-> `idle`, landing
 # an ordinary commit that closes the process — every per-turn commit stays on
 # the branch; run `gtd summary` afterward for a closing-message prompt) vs.
@@ -29,6 +31,15 @@ vars:
   # Declared (not left undeclared) so `--var reviewBase=...` passes the CLI's
   # declared-name check; blank renders empty, which the review entry refuses.
   reviewBase: ""
+  # The total byte budget a `judge:` field's `it.tail`/`it.diffTail`/
+  # `it.sections(path, share)` divide (by `share`) across the evidence they
+  # inline into ONE rendered `judge:` document — not a per-document cap.
+  # 32 KiB is about 8k tokens of raw text, so even at the ~2x `JSON.stringify`
+  # escaping inflation the rendered state stays near 16k tokens, roughly a
+  # fifth of the 166,322 raw bytes a real over-budget judge payload was
+  # rejected for. UNLIKE every other var here, this one THROWS rather than
+  # disabling its mechanism when blanked/non-numeric — see "Variables" below.
+  judgeBudgetBytes: "32768"
   # `healthGate.judge`'s probability floor for the "identical" verdict to end
   # a retry loop early — the ONLY off-switch this judged gate has (see
   # 01-judgment-surface.md's Requirement section): a repo retunes or disables
@@ -46,15 +57,6 @@ vars:
   # threshold in this file is now an unmeasured conservative default on the
   # same footing.
   specPreJudge: "0.9"
-  # `humanReview.pre`'s three nouls (mechanicalOnly, touchesPublicAPI,
-  # changesBehavior) over `git diff <reviewBase>` — all three must clear this
-  # floor at "yes"/"no"/"no" respectively to take the fast path
-  # (`fastReview`, skipping the agent's own authoring lap). Unmeasured — no
-  # mined history judges this three-way combination — so chosen
-  # conservatively high, the same
-  # unmeasured-default posture `specPreJudge` documents, until real
-  # `humanReview.pre` history exists to mine a value from.
-  reviewFastPath: "0.9"
   # `humanReview.triage`'s per-chunk noul over `.gtd/REVIEW.md`'s own
   # chunks: "actionable, not approval or nit?" A chunk answered "yes" below
   # this floor is treated as non-actionable (folded into sign-off) rather
@@ -362,6 +364,12 @@ summary: |
   - Cover the motivation, the decisions, the trade-offs, and the
     high-level architectural changes — never which files changed; `git
     diff --stat` is for that, not this message
+  - If the range removes or renames a documented config key, CLI flag, or
+    workflow state — a public surface, not an internal one — add a literal
+    `BREAKING CHANGE:` footer naming what disappears. A `!` on the type
+    prefix alone (`feat!:`/`refactor!:`) is NOT enough: this repo's own
+    commit-analyzer has missed that marker before, cutting no release
+    until a follow-up commit carried the literal footer instead
 
   The process's entry commit is `<%= it.entryCommit %>`. <% if
   (it.humanCommits.length > 0) { %>The human contributed at these commits,
@@ -417,6 +425,15 @@ machines:
           # left behind — no ordinary path from deciding/collecting reaches
           # this check.
           rm -f .gtd/REVIEW_RAW.md
+          # And sweep the quality lap's own leftovers. `.gtd/QUALITY_DONE.md`
+          # is a PER-EPISODE guard that `build.quality.seeding` short-circuits
+          # on; the only other sweeper is `packageLoop.picking`, which an
+          # entry never visits. Without this, the second and later
+          # `--entry fix-precheck`/`review-gate.check` runs in a repository
+          # would silently skip every configured lens. An entry IS a new
+          # episode, so the whole lap state goes, not just the marker.
+          rm -f .gtd/NEXT_REVIEW.md .gtd/QUALITY.md .gtd/QUALITY_DONE.md .gtd/QUALITY_READY.md
+          rm -rf .gtd/reviews
           <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
@@ -443,7 +460,13 @@ machines:
         on:
           "A .gtd/FEEDBACK.md": blocked
           "M .gtd/FEEDBACK.md": blocked
+          # The sweep rows: a green suite whose ONLY diff is this check's own
+          # cleanup still has to advance, so every path the script can delete
+          # needs a row of its own.
           "D .gtd/REVIEW_RAW.md": $onGreen
+          "D .gtd/QUALITY*.md": $onGreen
+          "D .gtd/NEXT_REVIEW.md": $onGreen
+          "D .gtd/reviews/**": $onGreen
           "D .gtd/FEEDBACK.md": $onGreen
           "C": $onGreen
       blocked:
@@ -573,8 +596,71 @@ machines:
           verdict — identical, new-failure, or progress — or land (with or
           without an edit of your own) to accept the conservative default
           (retry the fix) with no verdict recorded.
+        # A textual diff of `current`/`previous` is NOT a valid reduction —
+        # measured, not reasoned: diffing the two documents from the
+        # observed 84,761/81,561-byte failure produced 295 changed lines,
+        # almost entirely REORDERING (the runner interleaves parallel task
+        # output nondeterministically), so two byte-identical failure sets
+        # produce a large diff — suppressing the one verdict this gate
+        # exists to find (`identical`). A diff may SUPPLEMENT bounded
+        # content; it never replaces it. Filtering to failure lines was
+        # also measured and rejected: a grep for error/failed/FAIL cut
+        # 166,322 bytes to about ten lines each and the verdict fell
+        # straight out, but `testCommand` is arbitrary and a filter tuned
+        # to one runner's vocabulary drops everything on another — which
+        # reads as `identical`, the escalating direction.
         judge: |-
-          {"state": <%~ JSON.stringify({ current: it.read(".gtd/FEEDBACK.md"), previous: it.read(".gtd/PRIOR_FEEDBACK.md") }) %>, "questions": [{"id": "verdict", "primitive": "choice", "instructions": "Compare this round's failing check output (current) against the previous round's (previous), both in state. Classify the change.", "criteria": "identical: the same failure restated, byte-for-byte or the same root cause, IGNORING each round's own trailing `<!-- gtd check <sha> -->` stamp (that line always differs and is not part of the failure). new-failure: a materially different symptom than previous. progress: still red, but measurably closer to green (fewer failures, a later stage reached)."}]}
+          <%
+            // The trailing `<!-- gtd check <sha> -->` stamp always differs
+            // and must sit outside the compared region — `it.tail` takes
+            // the END of the document, exactly where the stamp is, so it
+            // is stripped here rather than left to the criteria alone.
+            const stripStamp = (text) => text.replace(/\n<!-- gtd check [0-9a-f]+ -->\n?$/, "\n")
+            const current = stripStamp(it.tail(".gtd/FEEDBACK.md", 0.5))
+            const previous = stripStamp(it.tail(".gtd/PRIOR_FEEDBACK.md", 0.5))
+            // This bound (`it.tail`) can manufacture a false "identical": a
+            // single unbroken trailing line (no newline in the last cut
+            // bytes) renders as "" for either or both documents, and two
+            // genuinely different files can render the SAME cut tail while
+            // differing earlier. Both shapes are computed from the
+            // UNBOUNDED reads (free at the payload — never inlined) rather
+            // than trusted from the cut text alone.
+            const currentWhole = it.read(".gtd/FEEDBACK.md")
+            const previousWhole = it.read(".gtd/PRIOR_FEEDBACK.md")
+            // The length comparison this replaced was a proxy for content: two
+            // reports of EQUAL byte length can still differ before the cut and
+            // match only after it — `stripStamp` on BOTH whole reads is
+            // load-bearing, not tidiness, since the trailing stamp always
+            // differs and would otherwise force every round "not comparable".
+            const notComparable =
+              current === "" ||
+              previous === "" ||
+              (current === previous && stripStamp(currentWhole) !== stripStamp(previousWhole))
+            const state = notComparable ? { tailsNotComparable: true } : { current, previous }
+            // `instructions` must switch alongside `criteria`: the guarded
+            // branch's `state` carries no `current`/`previous` at all, so
+            // telling the model to compare fields the payload does not
+            // contain would push it toward reading their mutual absence as
+            // sameness — exactly the `identical` verdict this guard exists
+            // to forbid.
+            const instructions = notComparable
+              ? "state carries tailsNotComparable: the two bounded tails came back unusable as evidence (see criteria). There is nothing to compare here; answer from criteria alone."
+              : "Compare this round's failing check output (current) against the previous round's (previous), both in state. Classify the change."
+            const criteria = notComparable
+              ? "state carries tailsNotComparable instead of current/previous: the two bounded tails are not usable evidence (one came back empty, or both matched only because the cut tails agree while the two full reports actually differ). identical is FORBIDDEN here — answer new-failure or progress instead, defaulting to progress if genuinely unsure."
+              : "identical: the same failure restated, byte-for-byte or the same root cause — the trailing `<!-- gtd check <sha> -->` stamp is already stripped from both, but ignore it too if it ever reappears. new-failure: a materially different symptom than previous. progress: still red, but measurably closer to green (fewer failures, a later stage reached)."
+            const payload = {
+              state,
+              questions: [
+                {
+                  id: "verdict",
+                  primitive: "choice",
+                  instructions,
+                  criteria,
+                },
+              ],
+            }
+          %><%~ JSON.stringify(payload) %>
         routes:
           - question: verdict
             is: identical
@@ -1085,120 +1171,8 @@ machines:
 
 
       <%~ it.vars.agentConduct %>
-    entry: pre
+    entry: reviewing
     states:
-      # The review pre-judge: three nouls over the reviewBase→worktree diff,
-      # judged BEFORE the agent's own authoring lap. Never routes off
-      # `routes:` directly — `matchRoute` (`src/PatternMachine.ts`) SKIPS a
-      # row whose question has no landed answer, so a bare
-      # conjunction-by-inversion table here would let a PARTIAL verdict
-      # (fewer than all three questions answered) fall through every escape
-      # row straight to the catch-all fast path, the exact hole
-      # `specReview.pre`'s own comment documents for its padded-slot design.
-      # Unconditionally hands off to `preCheck` instead, which recomputes
-      # the whole decision fresh from the landed `Gtd-Judge:` trailers —
-      # the same recompute-from-scratch shape `packages.item.spec.scoping`
-      # uses for the identical reason.
-      pre:
-        actor: judge
-        label: Judging whether this round needs a full review lap
-        message: |
-          Judging whether this round of changes is mechanical, touches no
-          public surface, and changes no behavior — confident enough on all
-          three to skip the agent's own review lap and land straight at the
-          human stop with a machine-written summary. Run `gtd judge answer`
-          and pipe a verdict for `mechanicalOnly`, `touchesPublicAPI`, and
-          `changesBehavior` — or land untouched to run the full lap (the
-          conservative default; a skipped judgment never suppresses it).
-        judge: |-
-          <% const diffText = it.diff(it.reviewBase) %>{"state": {"reviewBase": "<%= it.reviewBase %>", "diff": <%~ JSON.stringify(diffText) %>}, "questions": [
-            {"id": "mechanicalOnly", "primitive": "noul", "instructions": "Over state.diff (the change from reviewBase to the working tree), is every hunk mechanical — formatting, a rename, generated output, or a straight refactor with no behavior change?", "criteria": "Answer no if any hunk could plausibly change what the code does, even slightly."},
-            {"id": "touchesPublicAPI", "primitive": "noul", "instructions": "Over the same state.diff, does any hunk touch a publicly exported symbol, CLI flag, config key, or documented file format?", "criteria": "Answer yes if uncertain which surface counts as public."},
-            {"id": "changesBehavior", "primitive": "noul", "instructions": "Over the same state.diff, does any hunk change runtime behavior visible to a user or a test?", "criteria": "Answer yes if uncertain."}
-          ]}
-        on:
-          "C": preCheck
-          "* **": preCheck
-      # Recomputes the fast-path decision fresh from the just-landed
-      # `Gtd-Judge:` trailers — never trusts a verdict to be complete.
-      # Requires ALL THREE questions answered as `mechanicalOnly: yes`,
-      # `touchesPublicAPI: no`, `changesBehavior: no`, each at
-      # `reviewFastPath` confidence or better; a missing question, a
-      # malformed answer, a wrong answer, or a low-confidence right answer
-      # ALL fail the SAME way — nothing written, a clean tree, `"C"` routes
-      # to `reviewing`. Only a fully-confident, fully-answered "yes to
-      # mechanical, no to the other two" verdict writes the marker that
-      # routes to `fastReview`.
-      preCheck:
-        actor: check
-        label: Scoping the fast path
-        script: |
-          #!/usr/bin/env sh
-          set +e
-          rm -f .gtd/REVIEW_FAST.md
-          threshold=<%~ it.vars.reviewFastPath %>; trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
-          fast=1
-          for spec in mechanicalOnly:yes touchesPublicAPI:no changesBehavior:no; do
-            id=${spec%%:*}
-            want=${spec#*:}
-            line=$(printf '%s\n' "$trailers" | grep "\"id\":\"$id\"" | head -n 1)
-            if [ -z "$line" ]; then
-              fast=0
-              continue
-            fi
-            answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
-            case "$answer" in (true) answer=yes ;; (false) answer=no ;; esac
-            if [ "$answer" != "$want" ]; then
-              fast=0
-              continue
-            fi
-            p=$(printf '%s' "$line" | sed -n 's/.*"p":\([0-9.eE+-]*\).*/\1/p')
-            if [ -z "$threshold" ] \
-              || ! awk -v p="$p" -v t="$threshold" 'BEGIN{exit !(p>=t)}' 2>/dev/null; then
-              fast=0
-            fi
-          done
-          if [ "$fast" -eq 1 ]; then
-            : > .gtd/REVIEW_FAST.md
-          fi
-        on:
-          "A .gtd/REVIEW_FAST.md": fastReview
-          "C": reviewing
-      # The fast path: a `check`-actor script writes `.gtd/REVIEW.md` itself
-      # — the pre-judge already established the round is mechanical,
-      # touches no public surface, and changes no behavior, so there is
-      # nothing for the agent's own `reviewing` lap to add. The human stop
-      # is never skipped: this still routes to `await-review`. An empty
-      # diff (a fast-pathed round with nothing to point at — reachable from
-      # a clean-tree `--entry review-gate.check`) still needs at least one
-      # pointer: `.gtd/REVIEW.md` itself is the one path this script can
-      # always point at, since `gtd check review`'s own parser refuses a
-      # chunk with none.
-      fastReview:
-        actor: check
-        label: Writing the review summary
-        script: |
-          #!/usr/bin/env sh
-          set +e
-          rm -f .gtd/REVIEW_FAST.md
-          {
-            printf '# Review: %s\n\n' "$(git rev-parse --short HEAD)"
-            printf '<!-- base: <%= it.reviewBase %> -->\n\n'
-            printf '## Changes\n\n'
-            files=$(git diff --name-only <%= it.reviewBase %>)
-            if [ -n "$files" ]; then
-              printf '%s\n' "$files" | while IFS= read -r f; do
-                printf -- '- [ ] ./%s — changed\n' "$f"
-              done
-            else
-              printf -- '- [ ] ./.gtd/REVIEW.md — no file changes this round\n'
-            fi
-          } > .gtd/REVIEW.md
-        on:
-          "A .gtd/REVIEW.md": await-review
-          "M .gtd/REVIEW.md": await-review
-          "* **": await-review
-          "C": await-review
       reviewing:
         actor: agent
         label: Reviewing
@@ -1427,14 +1401,76 @@ machines:
           conservative default; a skipped judgment never signs off).
         judge: |-
           <%
+            // Sections are counted from the WHOLE document (no share) so a
+            // truncated title never reads as a shorter document than it is.
+            // DECISION, diverging from the package task text for this gate
+            // ("learn which survived via it.sections(path, 1)"): survival is
+            // NOT a second heading count over the cut tail — a fence
+            // straddling the cut boundary re-parses as top-level headings
+            // there (measured: a fenced block containing `## ` lines
+            // silently mis-cuts the survivor count once its own fence
+            // markers fall outside the tail). See the `it.sections` entry
+            // in docs/configuration.md for the full writeup. Read survival off
+            // BYTE POSITION instead: locate each WHOLE heading, by its own
+            // text, at its offset in the whole text, and compare that
+            // against where the bound tail begins (it.tail cuts to the last
+            // bytes, so the tail is a fixed-offset suffix of the whole
+            // document).
+            const whole = it.read(".gtd/REVIEW.md")
+            const tailText = it.tail(".gtd/REVIEW.md", 1)
+            const tailStart = whole.length - tailText.length
             const chunks = it.sections(".gtd/REVIEW.md")
-            const questions = chunks.map((title, i) => ({
-              id: `chunk-${i + 1}`,
-              primitive: "noul",
-              instructions: `Is the note under review chunk "${title}" (in .gtd/REVIEW.md) actionable — anything beyond an approving remark with no code edit?`,
-              criteria: "A concrete request, a question, a code comment, or a hand-edit under this chunk answers yes. No note, or a purely approving remark, answers no.",
-            }))
-          %>{"state": <%~ JSON.stringify({ review: it.read(".gtd/REVIEW.md") }) %>, "questions": <%~ JSON.stringify(questions) %>}
+            // `it.sections` returns each heading, by its own raw source text, with
+            // internal whitespace runs collapsed to one space and trimmed
+            // (never markdown-stripped) — so a literal `"## " + title`
+            // search misses two real forms: a setext (`---`-underlined) H2,
+            // which carries no `## ` prefix at all, and an ATX heading whose
+            // OWN source has extra internal spaces the title already
+            // collapsed away. Both are matched here with a per-word,
+            // whitespace-flexible regex instead, with the ATX prefix and any
+            // closing `#` sequence made optional. A title still not found
+            // this way (should not happen; kept as a last-resort fallback)
+            // is treated as SURVIVED, never as truncated: the opposite
+            // default would leave the section un-clearable forever once it
+            // legitimately exists at full budget, trading a soundness bug
+            // for a liveness one — see the review finding this fixed.
+            const findTitleOffset = (text, title, from) => {
+              const words = title
+                .split(/\s+/)
+                .filter(Boolean)
+                .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              if (words.length === 0) return -1
+              const re = new RegExp(
+                `^(?:#{1,6}[ \\t]+)?${words.join("\\s+")}(?:[ \\t]+#{1,6})?[ \\t]*$`,
+                "m",
+              )
+              const m = re.exec(text.slice(from))
+              return m ? from + m.index : -1
+            }
+            let searchFrom = 0
+            const survives = chunks.map((title) => {
+              const idx = findTitleOffset(whole, title, searchFrom)
+              if (idx === -1) return true
+              const nl = whole.indexOf("\n", idx)
+              searchFrom = nl === -1 ? whole.length : nl + 1
+              return idx >= tailStart
+            })
+            const questions = chunks.map((title, i) =>
+              survives[i]
+                ? {
+                    id: `chunk-${i + 1}`,
+                    primitive: "noul",
+                    instructions: `Is the note under review chunk "${title}" (in .gtd/REVIEW.md) actionable — anything beyond an approving remark with no code edit?`,
+                    criteria: "A concrete request, a question, a code comment, or a hand-edit under this chunk answers yes. No note, or a purely approving remark, answers no.",
+                  }
+                : {
+                    id: `chunk-${i + 1}`,
+                    primitive: "noul",
+                    instructions: `Review chunk "${title}" (in .gtd/REVIEW.md): the evidence for this section was truncated away.`,
+                    criteria: "Always answer the conservative value, never the approving one: yes (actionable), never no.",
+                  },
+            )
+          %>{"state": <%~ JSON.stringify({ review: tailText }) %>, "questions": <%~ JSON.stringify(questions) %>}
         on:
           "C": triaging
           "* **": triaging
@@ -1454,7 +1490,8 @@ machines:
           #!/usr/bin/env sh
           set +e
           threshold=<%~ it.vars.reviewNoteActionable %>; head=$(git rev-parse HEAD)
-          trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
+          body=$(git log -1 --format=%B HEAD)
+          trailers=$(printf '%s\n' "$body" | grep -o 'Gtd-Judge: {[^}]*}')
           # `it.sections`'s real mdast parse (CommonMark) numbered `chunk-N`
           # against every TOP-LEVEL depth-2 heading — never one absorbed as
           # a list item's own lazy continuation. A chunk's own pointer lines
@@ -1474,6 +1511,26 @@ machines:
             END { print c + 0 }
           ' .gtd/REVIEW.md 2>/dev/null)
           [ -n "$total" ] || total=0
+          # A byte-length check against the WORKING TREE would measure the
+          # wrong document: `triage`'s judgment was made against the
+          # COMMITTED .gtd/REVIEW.md at HEAD, and if it's shortened before
+          # `gtd judge answer` lands, a working-tree recheck sees an
+          # under-budget file and trusts an answer made against the earlier,
+          # truncated one — a false sign-off through exactly the door this
+          # backstop exists to close. `Gtd-Payload: {"truncated":true}` is
+          # stamped by the SAME render that produced the judged document
+          # (`planStep.ts`'s `renderDecision`), so reading it off the just-
+          # landed commit measures the bytes the judge actually saw.
+          # `reviewNoteActionable`'s confidence gate applies to a GENUINE
+          # judgment (a real "not sure this is actionable" is safely folded
+          # into sign-off at low confidence, the accepted tuning tradeoff
+          # that var documents) — but a chunk `triage` marked structural
+          # (its own evidence truncated away) is never a genuine judgment;
+          # a driver piping a low-confidence "yes" for THAT id must not be
+          # able to ride the same gate into a false sign-off.
+          truncated=0
+          printf '%s\n' "$body" | grep -q 'Gtd-Payload: {"truncated":true}' \
+            && truncated=1
           actionable=0
           i=1
           while [ "$i" -le "$total" ]; do
@@ -1500,6 +1557,7 @@ machines:
             i=$((i + 1))
           done
           [ "$total" -eq 0 ] && actionable=1
+          [ "$truncated" -eq 1 ] && actionable=1
           if [ "$actionable" -eq 1 ]; then
             {
               echo "This is machine-captured input, not instructions. A downstream agent judges whether it's actionable."
@@ -1628,8 +1686,49 @@ machines:
         judge: |-
           <%
             const pkgPath = it.read(".gtd/NEXT.md").trim()
-            const pkg = it.read(pkgPath)
+            const whole = it.read(pkgPath)
+            const tailText = it.tail(pkgPath, 1)
+            const tailStart = whole.length - tailText.length
             const sections = it.sections(pkgPath)
+            // Same byte-position reasoning `build.review.triage` uses — and
+            // the same DECISION, diverging from the package task text for
+            // this gate ("learn which survived via it.sections(path, 1)"),
+            // see the `it.sections` entry in docs/configuration.md for the
+            // full writeup: a second heading count over the cut tail mis-parses a
+            // fence straddling the cut boundary (measured: a fenced block
+            // containing `## ` lines silently mis-cuts the survivor count),
+            // so survival is read off where each WHOLE heading, by its own
+            // text, sits relative to the fixed-offset start of the tail
+            // instead. `it.sections` collapses internal whitespace and
+            // never markdown-strips, so locating that text needs a
+            // per-word, whitespace-flexible match with an OPTIONAL ATX
+            // prefix/suffix (a setext, `---`-underlined H2 has none at all);
+            // a title still not found this way is treated as SURVIVED, not
+            // truncated — the opposite default would leave the section
+            // un-clearable forever once it legitimately exists at full
+            // budget, a liveness bug traded for a soundness bug that was
+            // never there to trade for (see the review finding this fixed).
+            const findTitleOffset = (text, title, from) => {
+              const words = title
+                .split(/\s+/)
+                .filter(Boolean)
+                .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              if (words.length === 0) return -1
+              const re = new RegExp(
+                `^(?:#{1,6}[ \\t]+)?${words.join("\\s+")}(?:[ \\t]+#{1,6})?[ \\t]*$`,
+                "m",
+              )
+              const m = re.exec(text.slice(from))
+              return m ? from + m.index : -1
+            }
+            let searchFrom = 0
+            const survives = sections.map((title) => {
+              const idx = findTitleOffset(whole, title, searchFrom)
+              if (idx === -1) return true
+              const nl = whole.indexOf("\n", idx)
+              searchFrom = nl === -1 ? whole.length : nl + 1
+              return idx >= tailStart
+            })
             const MAX_SECTIONS = 8
             // More real sections than slots: fail open on EVERY slot rather
             // than silently judging only the first 8 and letting the rest
@@ -1645,6 +1744,13 @@ machines:
                   primitive: "noul",
                   instructions: "This package has more `## ` sections than this gate can judge (max 8) — always answer no, never yes: a confident approval here would silently skip review of the sections beyond the eighth.",
                   criteria: "Structural, not a judgment call — no is the only correct answer.",
+                })
+              } else if (title !== undefined && !survives[i]) {
+                questions.push({
+                  id: `section-${i + 1}`,
+                  primitive: "noul",
+                  instructions: `Section "${title}": the evidence for this section was truncated away.`,
+                  criteria: "Always answer the conservative value, never the approving one: no (not yet satisfied), never yes.",
                 })
               } else if (title !== undefined) {
                 questions.push({
@@ -1669,7 +1775,7 @@ machines:
                 })
               }
             }
-          %>{"state": <%~ JSON.stringify({ package: pkg }) %>, "questions": <%~ JSON.stringify(questions) %>, "specPreJudgeThreshold": "<%= it.vars.specPreJudge %>"}
+          %>{"state": <%~ JSON.stringify({ package: tailText }) %>, "questions": <%~ JSON.stringify(questions) %>, "specPreJudgeThreshold": "<%= it.vars.specPreJudge %>"}
         on:
           "C": scoping
           # A dirty-tree land with no verdict piped — package 01's own
@@ -1709,11 +1815,38 @@ machines:
           rm -f .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md
           pkg=$(cat .gtd/NEXT.md 2>/dev/null)
           threshold=<%~ it.vars.specPreJudge %>; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
+            # A working-tree byte-length check would measure the wrong
+            # document: `pre`'s judgment was made against the COMMITTED
+            # package file at HEAD, and if it's shortened before `gtd judge
+            # answer` lands, a working-tree recheck sees an under-budget file
+            # and trusts an answer made against the earlier, truncated one —
+            # a false approval through exactly the door this backstop exists
+            # to close. `Gtd-Payload: {"truncated":true}` is stamped by the
+            # SAME render that produced the judged document (`planStep.ts`'s
+            # `renderDecision`), so reading it off the just-landed commit
+            # measures the bytes the judge actually saw. `specPreJudge`'s
+            # confidence gate applies to a GENUINE judgment — but a section
+            # `pre` marked structural (its own evidence truncated away,
+            # `it.tail(pkgPath, 1)`) is never a genuine judgment, and a
+            # driver piping a confident "yes" for THAT id must not be able
+            # to ride the same gate into a false approval. When the payload
+            # was truncated, every section here defaults to failing
+            # regardless of any trailer — this gate cannot safely tell WHICH
+            # sections were truncated without the same fence-unsafe heading
+            # re-parse `it.sections` itself avoids (see
+            # docs/configuration.md's `it.sections` entry), so it treats the
+            # whole package the conservative way instead, the same
+            # blunt-but-safe shape `build.review.triaging` already uses for
+            # its own chunks.
+            body=$(git log -1 --format=%B HEAD)
+            truncated=0
+            printf '%s\n' "$body" | grep -q 'Gtd-Payload: {"truncated":true}' \
+              && truncated=1
             titles=$(awk '/^```/{f=!f} !f && /^## /{sub(/^## /,""); print}' "$pkg")
             total=0
             [ -n "$titles" ] && total=$(printf '%s\n' "$titles" | wc -l | tr -d ' ')
             if [ "$total" -gt 0 ]; then
-              trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
+              trailers=$(printf '%s\n' "$body" | grep -o 'Gtd-Judge: {[^}]*}')
               i=1
               while [ "$i" -le "$total" ]; do
                 line=$(printf '%s\n' "$trailers" | grep "\"id\":\"section-$i\"" | head -n 1)
@@ -1722,7 +1855,7 @@ machines:
                 # failing — the one default direction this gate must never
                 # get wrong.
                 failing=1
-                if [ -n "$line" ]; then
+                if [ "$truncated" -ne 1 ] && [ -n "$line" ]; then
                   answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
                   # A noul answer is conventionally a JSON boolean
                   # (`true`/`false`), never the bare "yes"/"no" `routes:`
@@ -1985,8 +2118,10 @@ machines:
       # Short-circuits on `.gtd/QUALITY_DONE.md` — without it, `build.health`'s
       # green route re-enters this lap forever, since both `build.fix` and
       # `fix-quality` hand back to `build.health.check`. The guard is per
-      # EPISODE: written once by `picking` when the queue drains, swept only
-      # on the feedback loop-back path (`packageLoop.picking`'s sweep).
+      # EPISODE: written once by `picking` when the queue drains, swept on
+      # the feedback loop-back path (`packageLoop.picking`'s sweep) and by
+      # every entry check (`&suiteCheck`), which is what keeps a repeat
+      # `--entry fix-precheck` from skipping the lap outright.
       # `seeding`'s script below interpolates `<%~ it.vars.qualityReviews %>`
       # raw into a `list="..."` shell assignment, run with `sh -c` — a value
       # containing `$(...)` or a backtick executes. Accepted: a repository's
@@ -2110,10 +2245,10 @@ machines:
           checkLabel: Running checks
           escalateLabel: Escalating to a human
 
-      # Sits ahead of the whole humanReview machine — before `pre`, not
-      # inside it — so both the fast path and the full path pay it. The lap
-      # runs on EVERY round reaching this point, mechanical or not: a wrong
-      # `mechanicalOnly` verdict must never be what silently skips it.
+      # Sits ahead of the whole humanReview machine, never inside it, so
+      # every round reaching this point pays for the lap before a human ever
+      # sees the review — there is no verdict anywhere upstream that could
+      # skip it.
       quality:
         machine: qualityReview
         with:
@@ -2202,7 +2337,11 @@ machines:
         on:
           "A .gtd/FEEDBACK.md": build.fix
           "M .gtd/FEEDBACK.md": build.fix
+          # Same sweep rows as `entryGate.check`, whose script this aliases.
           "D .gtd/REVIEW_RAW.md": idle
+          "D .gtd/QUALITY*.md": idle
+          "D .gtd/NEXT_REVIEW.md": idle
+          "D .gtd/reviews/**": idle
           "D .gtd/FEEDBACK.md": idle
           "C": idle
 
@@ -2336,10 +2475,15 @@ machines:
           checkLabel: Checking the baseline
           blockedLabel: Baseline is red
 
+      # Into the quality lap, not straight into human review — same reason
+      # `packages` drains there: the lap is what looks at code quality, and
+      # a review started by hand deserves it as much as a process-driven
+      # one. The gate itself just ran the suite, so `build.health` would be
+      # a second run over an untouched tree.
       review-gate:
         machine: entryGate
         with:
-          onGreen: build.review
+          onGreen: build.quality
           reviewBase: <%= it.vars.reviewBase %>
           blockedMessage: |
             The test baseline is red — gtd will not start a review on a broken suite.
@@ -2378,7 +2522,7 @@ machines:
           (the conservative default; a skipped judgment never suppresses
           it).
         judge: |-
-          {"state": {"requirements": <%~ JSON.stringify(it.read(".gtd/REQUIREMENTS.md")) %>}, "questions": [
+          {"state": {"requirements": <%~ JSON.stringify(it.tail(".gtd/REQUIREMENTS.md", 1)) %>}, "questions": [
             {"id": "architectureWarranted", "primitive": "noul", "instructions": "Given the settled concerns in `.gtd/REQUIREMENTS.md` (in state), does this plan warrant a dedicated architecture pass — real structural decisions, multiple integration points, or a non-obvious tradeoff — before packages are written?", "criteria": "Answer yes if uncertain; a trivial, single-concern, mechanical plan with no real design decision answers no."}
           ]}
         routes:
@@ -2404,6 +2548,22 @@ machines:
         script: |
           #!/usr/bin/env sh
           set +e
+          # `architecture-pre`'s judged "no" was answered against a
+          # `it.tail(".gtd/REQUIREMENTS.md", 1)`-bound payload — a plan over
+          # judgeBudgetBytes can have structural concerns cut away from the
+          # TOP before the judge ever saw them, and still clear
+          # architectureSkipMinP confidently. The truncation is refused
+          # here, however confident that "no" was: on a truncated landing
+          # commit, this script does nothing at all — no `it.sections`
+          # heading rescue is attempted, since a fence straddling the cut
+          # boundary can mis-parse as a top-level heading (the same hazard
+          # `packages.item.spec.pre`/`build.review.triage` avoid the same
+          # way) — and the clean tree makes the "C" row below reachable,
+          # routing to the full architecture pass instead of a false
+          # promotion.
+          if git log -1 --format=%B HEAD | grep -q 'Gtd-Payload: {"truncated":true}'; then
+            exit 0
+          fi
           mkdir -p .gtd/packages
           title=$(awk '/^```/{f=!f} !f && /^## /{sub(/^## /,""); print; exit}' .gtd/REQUIREMENTS.md)
           [ -z "$title" ] && title=package
@@ -2413,9 +2573,9 @@ machines:
           mv .gtd/REQUIREMENTS.md ".gtd/packages/01-${slug}.md"
         on:
           "* **": packages
-          # Unreachable in practice (`mv` always changes the tree) but
-          # declared rather than left off: if a clean tree ever does happen
-          # here, it must run the full pass, never silently produce nothing.
+          # Reachable now: a truncated payload's refusal above leaves the
+          # tree clean, routing here into the full architecture pass instead
+          # of a false promotion.
           "C": architecture
 
       architecture:
@@ -2423,10 +2583,18 @@ machines:
         with:
           onPackages: packages
 
+      # Drains into the QUALITY lap, not straight into human review: each
+      # package's own in-loop review (`packageItem.spec`) judges completeness
+      # against that package's spec only, and never code quality. The
+      # multi-lens quality pass is paid once, here, for the whole change —
+      # after the last package, before any human sees it. Every package item
+      # already ended on a green `healthGate`, so this skips `build.health`
+      # and enters `build.quality` directly rather than re-running the suite
+      # for a tree no turn has touched since.
       packages:
         machine: packageLoop
         with:
-          onDrained: build.review
+          onDrained: build.quality
 
       build:
         machine: buildTail

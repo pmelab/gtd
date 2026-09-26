@@ -249,16 +249,18 @@ invokes that script with.
 
 - **The required half** is everything that decides what lands in git — the
   commit itself (`gtd land`, `gtd --entry <state>`, and `gtd judge answer`, the
-  last carrying one `Gtd-Judge:` trailer per answered question alongside its
-  ordinary commit), or the ref update and reset that undo a process
-  (`gtd abandon`, `gtd restore`) — and, last, a printed line naming what just
-  landed: a transition or capture's changed-file rows, or the abandon/restore
-  prose, resolved from the repository AFTER the write above it. Its own exit
-  code IS the printed script's exit code — skipping it means the turn never
-  lands, and you never see what it did. A resting state's own steering-mode
-  `format:`/`validate:` commands are NOT part of this script — they're a
-  separate driver contract via `gtd next --json`'s own `validate` field (see
-  `gtd install`'s obligation 6).
+  last carrying one `Gtd-Judge:` trailer per answered question, plus a
+  `Gtd-Payload: {"truncated":true}` trailer when the evidence the verdict
+  answered was itself cut to fit the judge's payload budget — absent when it
+  wasn't — alongside its ordinary commit), or the ref update and reset that undo
+  a process (`gtd abandon`, `gtd restore`) — and, last, a printed line naming
+  what just landed: a transition or capture's changed-file rows, or the
+  abandon/restore prose, resolved from the repository AFTER the write above it.
+  Its own exit code IS the printed script's exit code — skipping it means the
+  turn never lands, and you never see what it did. A resting state's own
+  steering-mode `format:`/`validate:` commands are NOT part of this script —
+  they're a separate driver contract via `gtd next --json`'s own `validate`
+  field (see `gtd install`'s obligation 6).
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
   fail) and the workflow is still driven correctly either way. No emitter

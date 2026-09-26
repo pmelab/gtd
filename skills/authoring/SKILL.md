@@ -222,6 +222,38 @@ Every `script`/`prompt`/`message` value — plus a workflow's own top-level
 - `it.processCost` / `it.processCostByModel` — accumulated token cost.
 - `it.diff(base)` — `git diff <base>` against the working tree, tracked AND
   untracked (non-ignored) content alike, as real hunks.
+- `it.sections(path)` — `path`'s own top-level `## ` heading texts, in document
+  order. `it.sections(path, share)` parses the headings of the SAME bounded tail
+  `it.tail(path, share)` would read (below) and inlines nothing itself, spending
+  no `share` of the render's own budget. That second form re-derives headings
+  from PARTIAL markdown — a fence straddling the cut re-parses its own contents
+  as top-level headings there (measured), an unfixable hazard for a document
+  whose shape you don't fully control. DECISION: the bundled
+  `packages.item.spec.pre`/`build.review.triage` gates need to know which
+  WHOLE-document sections survived a bound, so neither uses this form — each
+  instead compares every whole-document title's own offset (from the unbounded
+  `it.sections(path)` call) against where the bound tail begins. The
+  two-argument form stays published: it is still right for a `judge:` field that
+  only wants the truncated text's OWN headings (a preview, not a which-survived
+  question) or for a document you control closely enough to rule out a
+  straddling fence.
+- `it.tail(path, share)` / `it.diffTail(base, share)` — the LAST
+  `floor(judgeBudgetBytes × share)` bytes of `it.read(path)` / `it.diff(base)`,
+  cut on a line boundary (never half a line — a bound with room for none renders
+  `""`). `share` is a FRACTION of the workflow's `judgeBudgetBytes` var, not a
+  byte count, and every call in one render shares a single running total: a
+  cumulative `share` over `1`, or any single `share` that's `<= 0`, `> 1`, or
+  non-finite, THROWS and refuses the render. When a bounded read drops bytes,
+  gtd appends a fixed notice to the gate's rendered `message:` — you write
+  neither the check nor the wording, only the `share` split.
+
+`it.tail`, `it.diffTail`, and the two-argument `it.sections(path, share)` are
+available ONLY in a `judge:` field and in a `message:` template — every other
+field (`script:`, `prompt:`, and the `model:`/`label:`/`file:`/`system:`/
+`skills:` hint fields, which render on any state) refuses all three, both at
+workflow load (naming the state and field) and, as a backstop, at render time.
+The one-argument `it.sections(path)` carries no such restriction and stays
+available everywhere.
 
 A `summary:` template additionally sees `it.entryCommit` (the process's entry
 commit), `it.humanCommits` (every `human`-authored commit in the process's
@@ -235,8 +267,9 @@ of the base hashes above) and tells the AGENT to run `git diff <base>` itself,
 keeping that render cheap and the prompt small and cacheable. A `judge:` field
 calls `it.diff(base)` instead — inlining the diff's own content into the
 rendered document — because the judge it renders for has no repository of its
-own to run that command in. See `humanReview.pre` in `unified.yaml` for the
-pattern.
+own to run that command in. See `packages.item.health.judge` in `unified.yaml`
+for the same inline-the-evidence pattern (there, over a bounded `it.tail` read
+rather than `it.diff`).
 
 A content value starting with `./` or `../` is a **file reference** — read
 relative to the config file at load time (a missing file is a load error).
@@ -332,7 +365,13 @@ defaults) → top-level `.gtdrc` `vars:` → `GTD_<NAME>` environment variables.
 Values are scalars only (objects/arrays are rejected). gtd blesses **no** names
 — `testCommand`, `plannerModel`, etc. in the bundled templates are ordinary
 authored data, not keys gtd interprets. Use `vars:` to make one value (a test
-command, a model tier, a file path) repointable in one place.
+command, a model tier, a file path) repointable in one place. The one exception:
+`judgeBudgetBytes` (declared once, `"32768"` in the bundled template) IS
+engine-read — it's the byte total `it.tail`/`it.diffTail`/
+`it.sections(path, share)` divide across a `judge:` render's inlined evidence.
+Blanking it does not disable anything (unlike every other var here):
+`judgeBudgetBytes` must be a POSITIVE INTEGER — blank, non-numeric, non-finite,
+zero, negative, or fractional all throw and refuse the render.
 
 ## Hard rules the compiler enforces (load-time errors)
 

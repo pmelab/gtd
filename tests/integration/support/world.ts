@@ -46,6 +46,18 @@ export const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 const SIGNAL_SEND_DELAY_MS = 300
 const SIGNAL_SEND_ATTEMPTS = 5
 
+// How long a spawned `gtd ui`'s poll loop waits for its printed bound/serve
+// URL before giving up — a real spawn shells out further (a self-signed cert
+// via real openssl, or a real `tailscale` probe) on top of the ordinary
+// bind, and this suite's own `run-in-pty.py` documents the same fact for a
+// process this heavy CI/dev load can starve of CPU for seconds at a time.
+// 5 real seconds (the previous 100 × 50ms budget) was measured too tight
+// under this suite's own full `npm test` (`test:unit` + both `test:e2e:*`
+// tasks all racing via turbo) — not a functional bug in `gtd ui`, every one
+// of these scenarios passes in isolation.
+const UI_BOUND_URL_POLL_ATTEMPTS = 600
+const UI_BOUND_URL_POLL_INTERVAL_MS = 50
+
 export type Tier = "live" | "inmem"
 
 /**
@@ -799,8 +811,8 @@ export class GtdWorld extends QuickPickleWorld {
       },
     )
     await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
-    for (let i = 0; i < 100 && !stdout.includes("https://"); i += 1) {
-      await delay(50)
+    for (let i = 0; i < UI_BOUND_URL_POLL_ATTEMPTS && !stdout.includes("https://"); i += 1) {
+      await delay(UI_BOUND_URL_POLL_INTERVAL_MS)
     }
     assert.ok(stdout.includes("https://"), `gtd ui never printed its bound URL: ${stdout}`)
     const boundUrl = stdout.split("\n")[0]!.trim()
@@ -870,8 +882,8 @@ export class GtdWorld extends QuickPickleWorld {
       },
     )
     await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
-    for (let i = 0; i < 100 && !stdout.includes("https://"); i += 1) {
-      await delay(50)
+    for (let i = 0; i < UI_BOUND_URL_POLL_ATTEMPTS && !stdout.includes("https://"); i += 1) {
+      await delay(UI_BOUND_URL_POLL_INTERVAL_MS)
     }
     assert.ok(
       stdout.includes("https://"),
@@ -1005,8 +1017,8 @@ export class GtdWorld extends QuickPickleWorld {
       },
     )
     await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
-    for (let i = 0; i < 100 && !stdout.includes("https://"); i += 1) {
-      await delay(50)
+    for (let i = 0; i < UI_BOUND_URL_POLL_ATTEMPTS && !stdout.includes("https://"); i += 1) {
+      await delay(UI_BOUND_URL_POLL_INTERVAL_MS)
     }
     assert.ok(
       stdout.includes("https://"),

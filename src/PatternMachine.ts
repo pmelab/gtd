@@ -827,6 +827,11 @@ const renderJudgeQuestionIds = (
       // own comment on why a dynamic-count `judge:` template pads its
       // `questions[]` out to a fixed slot count rather than varying it here.
       sections: () => [],
+      // Same per-call stub value as `read`/`diff` above, for the same reason:
+      // a `questions[].id` computed from `it.tail(...)`/`it.diffTail(...)`
+      // must leak the differing `STUB-A`/`STUB-B` value the same way.
+      tail: () => readStub,
+      diffTail: () => readStub,
       vars,
       edges: [],
     }
@@ -1073,6 +1078,7 @@ const validateState = (
   return [
     ...validateContentKind(name, state),
     ...validateActorShape(name, state),
+    ...validateBoundedPrimitiveFields(def, name, state),
     ...STATE_FIELD_ENTRIES.flatMap(([key, spec]) => [
       ...(BESPOKE[key]?.(def, name, state, names, vars) ?? []),
       ...validateFieldRules(name, state, key, spec),
@@ -1112,6 +1118,122 @@ const validateHasCRow = (def: WorkflowDefinition, name: string, state: StateDef)
   const edges = state.on ?? []
   if (edges.some(([pattern]) => pattern === "C")) return []
   return [`state "${name}" declares no "C" row`]
+}
+
+/** Index just past the literal that opens at `tag[quoteIndex]` (a `'`/`"`/`` ` ``), honouring `\` escapes. */
+const skipQuotedLiteral = (tag: string, quoteIndex: number): number => {
+  const quote = tag[quoteIndex]
+  let i = quoteIndex + 1
+  while (i < tag.length && tag[i] !== quote) {
+    if (tag[i] === "\\") i++
+    i++
+  }
+  return i
+}
+
+const QUOTE_CHARS = new Set(["'", '"', "`"])
+
+/** `+1` for `(`, `-1` for `)`, `0` for anything else — the paren-depth walk's one arithmetic step, split out so the walk itself stays a flat scan. */
+const parenDelta = (ch: string): number => (ch === "(" ? 1 : ch === ")" ? -1 : 0)
+
+/**
+ * Does the argument list opening at `start` (just past `it.sections(`) carry
+ * a real SECOND, top-level argument — the two-argument, share-bounded form,
+ * never the one-argument form (which stays published on every template and
+ * must never be flagged here)? A plain `,[^)]*` regex over-matches a comma
+ * inside a NESTED call's own arguments (`it.sections(f(a,b))` has no second
+ * argument of its own) and under-matches a genuine second argument whose
+ * first argument itself contains parens (`it.sections(it.read(x), 0.5)`) —
+ * so this walks the parens with a depth counter instead, only counting a
+ * comma at depth 1 (immediately inside `it.sections('s own opening paren) as
+ * a real argument separator. A quoted string argument
+ * (`it.sections('notes, 2026.md')`) would over-flag on the same logic, so the
+ * walk also skips `'`/`"`/`` ` `` literals wholesale (`skipQuotedLiteral`,
+ * honouring `\` escapes) rather than counting parens or commas inside them.
+ * A backtick literal's `${...}` interpolation is deliberately NOT parsed
+ * back out of the skip — a comma inside `${}` is skipped along with the rest
+ * of the literal, under-flagging rather than over-flagging, which is the
+ * safe direction: a false refusal breaks a valid workflow at load, while an
+ * under-flag is still caught by the render-time backstop (`Edge.ts`'s
+ * `buildTemplateContext`).
+ */
+const sectionsCallHasSecondArg = (tag: string, start: number): boolean => {
+  let depth = 1
+  for (let i = start; i < tag.length && depth > 0; i++) {
+    const ch = tag[i] ?? ""
+    if (QUOTE_CHARS.has(ch)) {
+      i = skipQuotedLiteral(tag, i)
+      continue
+    }
+    depth += parenDelta(ch)
+    if (ch === "," && depth === 1) return true
+  }
+  return false
+}
+
+/** Does `tag` (one Eta tag's own source) contain a two-argument `it.sections(...)` call? See `sectionsCallHasSecondArg` for why this isn't a plain regex. */
+const hasTwoArgSectionsCall = (tag: string): boolean => {
+  const re = /\bit\.sections\s*\(/g
+  let match: RegExpExecArray | null
+  while ((match = re.exec(tag)) !== null) {
+    if (sectionsCallHasSecondArg(tag, match.index + match[0].length)) return true
+  }
+  return false
+}
+
+const BOUNDED_PRIMITIVE_PATTERNS: ReadonlyArray<{
+  readonly name: string
+  readonly test: (tag: string) => boolean
+}> = [
+  { name: "it.tail", test: (tag) => /\bit\.tail\s*\(/.test(tag) },
+  { name: "it.diffTail", test: (tag) => /\bit\.diffTail\s*\(/.test(tag) },
+  { name: "it.sections(path, share)", test: hasTwoArgSectionsCall },
+]
+
+/** Fields a bounded primitive is refused from — every `rest: "rendered"` field except `judge:`, plus the two content kinds that aren't `message:`. `judge:` and `message:` are the only two allowed homes. */
+const BOUNDED_PRIMITIVE_DISALLOWED_FIELDS = [
+  "script",
+  "prompt",
+  "model",
+  "label",
+  "file",
+  "system",
+  "skills",
+] as const
+
+/** Every Eta tag's own source (`<% ... %>`/`<%= ... %>`/`<%~ ... %>`), delimiters included — the scan below tests only these, never a template's plain prose/comment text, so a `script:` field's shell comment describing `it.tail(...)` in English (`unified.yaml`'s `spec.pre`-adjacent `scoping` state) isn't mistaken for a real call. */
+const etaTagBodies = (template: string): readonly string[] => template.match(/<%[\s\S]*?%>/g) ?? []
+
+/**
+ * `it.tail`/`it.diffTail`/the two-argument `it.sections(path, share)` are
+ * published only in a `judge:` field and a `message:` template (`Edge.ts`'s
+ * `buildTemplateContext` enforces this at render time). This is the
+ * load-time half of that rule — a source-text scan over every field that
+ * ISN'T `judge:`/`message:`, so a disallowed call is refused when the
+ * workflow loads, naming the state and the field, rather than mid-step.
+ * Known gap, accepted deliberately: an aliased or computed call
+ * (`const t = it.tail`) evades a source-text scan — `Edge.ts`'s throwing
+ * stub is the backstop for that case.
+ */
+const validateBoundedPrimitiveFields = (
+  _def: WorkflowDefinition,
+  name: string,
+  state: StateDef,
+): string[] => {
+  const errors: string[] = []
+  for (const field of BOUNDED_PRIMITIVE_DISALLOWED_FIELDS) {
+    const value = (state as unknown as Record<string, unknown>)[field]
+    if (typeof value !== "string") continue
+    const tags = etaTagBodies(value)
+    for (const primitive of BOUNDED_PRIMITIVE_PATTERNS) {
+      if (tags.some((tag) => primitive.test(tag))) {
+        errors.push(
+          `state "${name}": "${field}" calls ${primitive.name}, which is allowed only in a "judge:" field or a "message:" template`,
+        )
+      }
+    }
+  }
+  return errors
 }
 
 /**

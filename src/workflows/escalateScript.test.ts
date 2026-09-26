@@ -60,6 +60,8 @@ const runEscalate = (dir: string, startCommit: string): void => {
     read: () => "",
     diff: () => "",
     sections: () => [],
+    tail: () => "",
+    diffTail: () => "",
     vars,
     edges: [],
   })

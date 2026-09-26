@@ -197,6 +197,55 @@ Besides `it.vars` (below), a `script`/`prompt`/`message` template sees:
   tree rather than committed-only (see the `judge:` row above) — a judgment
   ruling on the diff's own hunks needs the hunks, not just a base name it has no
   repository to `git diff` itself.
+- **`it.sections(path)`** — `path`'s own top-level `## ` heading texts, in
+  document order, off a real markdown parse (a dynamic-count `judge:` template's
+  one hook into the parser, since Eta templating is otherwise plain string
+  substitution). An optional second argument, `it.sections(path, share)`, parses
+  the headings of the SAME bounded tail `it.tail(path, share)` would read — see
+  below — and inlines nothing itself, so it spends no `share` of the render's
+  own byte budget. Parsing a bounded tail this way re-derives headings from
+  PARTIAL markdown — a fence straddling the cut boundary re-parses its own
+  contents as top-level headings there (measured against a real fixture), which
+  makes this second form a genuine, unfixable hazard for a document whose shape
+  a workflow author doesn't fully control (a package file, a review note —
+  arbitrary prose an agent or a human wrote, fences included). DECISION: the two
+  bundled gates that need survivorship (`packages.item.spec.pre`,
+  `build.review.triage`) do NOT use `it.sections(path, share)` for that reason —
+  each instead compares every WHOLE-document title's own offset (from the
+  unbounded `it.sections(path)` call above) against where `it.tail(path, share)`
+  begins. The two-argument form stays published and documented here regardless:
+  it is still the right tool for a `judge:` field that only wants the truncated
+  text's OWN headings — a preview/outline use, not a
+  which-of-the-whole-document-survived one — or for a workflow author who
+  controls the document's shape closely enough to rule out a fence straddling
+  the cut. `it.sections(path, share)` was published for exactly the survivorship
+  case first, but measurement moved the bundled gates off it; the primitive
+  itself was not retired.
+- **`it.tail(path, share)`** / **`it.diffTail(base, share)`** — the LAST
+  `floor(judgeBudgetBytes × share)` bytes of `it.read(path)` / `it.diff(base)`'s
+  own output, cut on a line boundary (the leading partial line is dropped, so
+  the model never sees half a line — a bound leaving room for no whole line
+  renders the empty string). `share` is a FRACTION of the workflow's
+  `judgeBudgetBytes` var (below), never an absolute byte count, so retuning the
+  budget scales every caller's real payload with it. Every call this render
+  makes shares ONE running total: a cumulative `share` over `1` within a single
+  `judge:`/`message:` render throws, as does a `share` that is `<= 0`, `> 1`, or
+  non-finite — the render is refused rather than silently clamped. The running
+  total is the raw share, not a floored byte count, so the throw compares
+  against `1 + 1e-9`: a hair of float tolerance for an exactly-budgeted split
+  (e.g. `0.1 + 0.2 + 0.7`) without letting a real overrun through. When a
+  bounded read actually drops bytes, gtd appends a fixed notice to the gate's
+  `message:` — see the judgment surface note above `judge:` for the shape, and
+  the requirement this exists for: a human reading a surprising verdict needs to
+  know the model saw a tail, not the whole document.
+
+`it.tail`, `it.diffTail`, and the two-argument `it.sections(path, share)` are
+available ONLY in a `judge:` field and in a `message:` template — every other
+field (`script:`, `prompt:`, and the `model:`/`label:`/`file:`/`system:`/
+`skills:` hint fields, which render on any state) refuses all three, both at
+workflow load (naming the state and field) and, as a backstop, at render time.
+The one-argument `it.sections(path)` carries no such restriction and stays
+available everywhere.
 
 #### `gtd summary`'s own template variables
 
@@ -216,18 +265,21 @@ The prompt carries no session identity of its own — no `session.id`, no
 `session.resume`, no model, no system prompt — so an agent reading it starts
 cold and reads every decision back out of the commits it names.
 
-`it.diff(base)` is bound on every template, but the BUNDLED workflow only ever
-calls it from a `judge:` field — an ordinary `script`/`prompt`/`message` names a
-base (`it.reviewBase`/`it.processBase`) and leaves the AGENT to run
-`git diff <base>` itself, keeping that render cheap and the prompt small and
-cacheable; a `judge:` template calls `it.diff(base)` instead because the judge
-it renders for has no repository of its own to run that command in. Nothing in
-the engine enforces this split — `it.diff` shells out to `git` (`git add -N` +
-`git diff`) the moment any template calls it, so a `script:`/`prompt:` that
-called it would pay the same cost. A `judge:` field naming `it.diff(...)`
-renders on every ordinary rest resolution too (`gtd next`, `gtd status`,
-`gtd judge`), not just `gtd judge answer` — there's no separate "judging now"
-mode that defers it.
+`it.diff(base)` is bound on every template, but by CONVENTION only a `judge:`
+field ever calls it: an ordinary `script`/`prompt`/`message` names a base
+(`it.reviewBase`/`it.processBase`) and leaves the AGENT to run `git diff <base>`
+itself, keeping that render cheap and the prompt small and cacheable, while a
+`judge:` template calls `it.diff(base)` instead — inlining the diff's own
+content into the rendered document — because the judge it renders for has no
+repository of its own to run that command in. No bundled `judge:` field
+currently calls it; `packages.item.health.judge` inlines its own evidence the
+same way, over a bounded `it.tail` read rather than `it.diff` (the general
+pattern this convention describes). Nothing in the engine enforces the split —
+`it.diff` shells out to `git` (`git add -N` + `git diff`) the moment any
+template calls it, so a `script:`/`prompt:` that called it would pay the same
+cost. A `judge:` field naming `it.diff(...)` renders on every ordinary rest
+resolution too (`gtd next`, `gtd status`, `gtd judge`), not just
+`gtd judge answer` — there's no separate "judging now" mode that defers it.
 
 Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
 is the agent-facing contract for producing a valid `workflow:` — the state
@@ -372,38 +424,42 @@ a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
    already judged satisfied). It is an unmeasured, deliberately conservative
    default — no mined history of "requirement already satisfied?" judgments
    exists to pick it from — and it retunes or disables (blank) exactly like
-   `judgeIdenticalMinP` above. Two more tune the review lap the same way:
-   `reviewFastPath` (`0.9`) is `build.review.pre`'s floor — all three of its
-   nouls (mechanical-only, touches-no-public-API, changes-no-behavior) must
-   clear it before `build.review.preCheck` takes the fast path
-   (`build.review.fastReview`, skipping the agent's own review turn); blanking
-   it disables the fast path outright, the same fail-closed direction as
-   `judgeIdenticalMinP`. `reviewNoteActionable` (`0.7`) is
-   `build.review.triage`'s floor for treating a review-note chunk as
-   non-actionable (folded into a sign-off) rather than spending a
-   `build.review.collecting` turn on it — blanking THIS one instead disables the
+   `judgeIdenticalMinP` above. One more tunes the review lap the same way:
+   `reviewNoteActionable` (`0.7`) is `build.review.triage`'s floor for treating
+   a review-note chunk as non-actionable (folded into a sign-off) rather than
+   spending a `build.review.collecting` turn on it — blanking it disables the
    dismissal, in the opposite (still safe) direction: every "yes" verdict counts
    as actionable at any confidence, rather than every "yes" failing to clear an
-   unmeetable floor. Neither is measured — both are unmeasured, deliberately
-   conservative defaults, the same posture `specPreJudge` takes.
-   `architectureSkipMinP` (`0.85`) is `architecture-pre`'s own floor: its
-   `architectureWarranted` noul answered "no" must clear it for a plan to skip
+   unmeetable floor. Unmeasured — a deliberately conservative default, the same
+   posture `specPreJudge` takes. `architectureSkipMinP` (`0.85`) is
+   `architecture-pre`'s own floor: its `architectureWarranted` noul answered
+   "no" must clear it for a plan to skip
    `architecture.author`/`architecture.decompose` entirely
    (`architecture-promote` instead); blanking it makes that `routes:` row fail
    to match, so the full architecture pass always runs — the same fail-closed
    direction as `judgeIdenticalMinP`. Unmeasured too — a deliberately
    conservative default, the same posture `specPreJudge` takes.
+   `judgeBudgetBytes` (`"32768"`, 32 KiB) is DIFFERENT from every var above:
+   it's the total byte budget `it.tail`/`it.diffTail`/`it.sections(path, share)`
+   (see "Besides `it.vars`" above) divide across one `judge:` render's inlined
+   evidence, not a judgment probability floor. A repo whose judge model has a
+   smaller context window turns it down the same `.gtdrc`/`GTD_JUDGEBUDGETBYTES`
+   way as any other var — but blanking it does NOT disable the bound the way
+   blanking `judgeIdenticalMinP` disables that row: `judgeBudgetBytes` must be a
+   POSITIVE INTEGER — blank, non-numeric, non-finite, zero, negative, or
+   fractional all THROW, refusing the step, because disabling this one mechanism
+   would reinstate the exact oversized-payload rejection it exists to prevent.
    **`qualityReviews`** (`owasp-security, code-simplification`) names the
    qualitative review lap `build.quality` runs ahead of the human review, one
-   comma-separated skill per turn/context, whenever the bundled workflow's build
-   tail reaches its own green health check — today that is the
-   `gtd --entry fix-precheck` baseline-repair path, not an ordinary round's
-   hand-off to review, which goes straight to `build.review.pre`. Once reached,
-   a wrong `mechanicalOnly` fast-path verdict never skips it, since it runs
-   before `build.review.pre` is even entered. Every entry costs a full turn on
-   every round that reaches that green health check, so extend the list only as
-   far as that's worth paying for. Blanking it disables the lap outright — the
-   same convention `skillsPreamble` uses.
+   comma-separated skill per turn/context. Every round pays for it: an ordinary
+   round enters it the moment its package queue drains,
+   `--entry review-gate.check` enters it straight off its green baseline gate,
+   and `--entry fix-precheck` enters it off its own green health check. The
+   per-package review it follows judges one package against its own spec only —
+   this lap is the code-quality pass over the whole change. Every entry costs a
+   full turn on every round, so extend the list only as far as that's worth
+   paying for. Blanking it disables the lap outright — the same convention
+   `skillsPreamble` uses.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
 3. **The current process's entry `--var` overrides**, if it was started via
@@ -487,15 +543,12 @@ top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
   `build.review.reviewing`), plus `.gtd/REQUIREMENTS.md` again at
   `build.review.collecting`, which classifies a review round straight into it.
 
-Four more generated files carry no injected voice, because a script — not an
+Three more generated files carry no injected voice, because a script — not an
 agent — writes them: `.gtd/FEEDBACK.md` (verbatim test-suite output plus a HEAD
 stamp — the tool's content, not gtd's prose), `.gtd/NEXT.md` (a bare path, no
-prose to style), `.gtd/REVIEW_RAW.md` (gtd's own prose, hand-tightened in the
-voice directly in `build.review.deciding`'s script rather than templated in
-through either variable), and `.gtd/REVIEW.md` when the review pre-judge
-(`build.review.pre`) takes the fast path — `build.review.fastReview`'s script
-writes a bare per-path checklist in place of `build.review.reviewing`'s own
-prose.
+prose to style), and `.gtd/REVIEW_RAW.md` (gtd's own prose, hand-tightened in
+the voice directly in `build.review.deciding`'s script rather than templated in
+through either variable).
 
 Three more vars exist purely to dedup wording repeated across several prompts —
 they carry no voice, just shared instructions — and, like every bundled var, are

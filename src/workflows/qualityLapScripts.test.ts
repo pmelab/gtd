@@ -41,6 +41,8 @@ const baseContext = (dir: string, qualityReviews: string): TemplateContext => {
     processCostByModel: [],
     read: (path: string) => readFileSync(join(dir, path), "utf8"),
     diff: () => "",
+    tail: () => "",
+    diffTail: () => "",
     sections: () => [],
     vars: { ...vars, qualityReviews },
     edges: [],

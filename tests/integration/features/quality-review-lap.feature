@@ -10,7 +10,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   re-entry into `build.quality` this same episode short-circuits straight
   through) and `.gtd/QUALITY_READY.md` only when `.gtd/QUALITY.md` is
   non-empty, which is what routes a findings round to `build.fix-quality`
-  instead of straight on to `build.review.pre`.
+  instead of straight on to `build.review.reviewing`.
 
   Every scenario here fabricates each turn's own resulting diff by hand —
   same convention as `default-workflow.feature` and
@@ -88,7 +88,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.picking → build.review.pre"
+    And the last commit subject is "gtd(check): build.quality.picking → build.review.reviewing"
     And ".gtd/QUALITY_READY.md" does not exist
 
   @inmem
@@ -157,7 +157,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And the last commit subject is "gtd(agent): build.fix-quality → build.health.check"
 
   @inmem
-  Scenario: a round the fast-path judge calls mechanical still runs the whole quality lap before reaching fastReview
+  Scenario: the quality lap runs to completion, unconditionally, ahead of the human review tail
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security"
@@ -197,28 +197,10 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.picking → build.review.pre"
-
-    # Only now — with the lap fully drained — does the fast-path pre-judge
-    # get a turn at all. A confident mechanical/no-public-API/no-behavior
-    # verdict still reaches fastReview, but only after paying for the lap.
-    When I run gtd judge answer with stdin:
-      """
-      [
-        {"id": "mechanicalOnly", "answer": true, "p": 0.95},
-        {"id": "touchesPublicAPI", "answer": false, "p": 0.95},
-        {"id": "changesBehavior", "answer": false, "p": 0.95}
-      ]
-      """
-    Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
-
-    Given a file ".gtd/REVIEW_FAST.md" with:
-      """
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.review.preCheck → build.review.fastReview"
+    # Only now — with the lap fully drained — does the process reach the
+    # human review tail at all; there is no fast-path pre-judge left ahead
+    # of it to pay for separately.
+    And the last commit subject is "gtd(check): build.quality.picking → build.review.reviewing"
 
   @inmem
   Scenario: a blank qualityReviews disables the lap — seeding writes nothing and hands straight on
@@ -235,5 +217,58 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.review.pre"
+    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
     And ".gtd/QUALITY_DONE.md" does not exist
+
+  @inmem
+  Scenario: a second entry sweeps the previous episode's QUALITY_DONE.md, so the lap runs again instead of short-circuiting
+    Given a test project
+    And the workflow
+    # What a completed earlier episode leaves committed: `picking` writes this
+    # marker when it drains the queue, and only `packageLoop.picking` ever
+    # swept it — a state no `--entry fix-precheck` run visits.
+    And a commit "chore: a previous episode's drained quality lap" that adds ".gtd/QUALITY_DONE.md" with:
+      """
+      """
+    When I run gtd with args "--entry fix-precheck"
+    Then it succeeds
+    And the last commit subject is "gtd(human): fix-precheck"
+
+    # The entry check's own sweep, plus a red suite. The marker's deletion is
+    # part of this same commit's diff; the FEEDBACK.md row is declared first,
+    # so a red run still routes to the fix loop.
+    Given the file ".gtd/QUALITY_DONE.md" is deleted
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): fix-precheck → build.fix"
+
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/repair.ts" with:
+      """
+      export const repaired = true
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.fix → build.health.check"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
+
+    # The marker is gone, so seeding actually seeds this time rather than
+    # short-circuiting straight through to the review tail.
+    Given a file ".gtd/reviews/01-owasp-security.md" with:
+      """
+      owasp-security
+      """
+    And a file ".gtd/reviews/02-code-simplification.md" with:
+      """
+      code-simplification
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality.seeding → build.quality.picking"

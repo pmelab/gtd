@@ -3,11 +3,38 @@ set +e
 rm -f .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md
 pkg=$(cat .gtd/NEXT.md 2>/dev/null)
 threshold=0.9; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
+  # A working-tree byte-length check would measure the wrong
+  # document: `pre`'s judgment was made against the COMMITTED
+  # package file at HEAD, and if it's shortened before `gtd judge
+  # answer` lands, a working-tree recheck sees an under-budget file
+  # and trusts an answer made against the earlier, truncated one —
+  # a false approval through exactly the door this backstop exists
+  # to close. `Gtd-Payload: {"truncated":true}` is stamped by the
+  # SAME render that produced the judged document (`planStep.ts`'s
+  # `renderDecision`), so reading it off the just-landed commit
+  # measures the bytes the judge actually saw. `specPreJudge`'s
+  # confidence gate applies to a GENUINE judgment — but a section
+  # `pre` marked structural (its own evidence truncated away,
+  # `it.tail(pkgPath, 1)`) is never a genuine judgment, and a
+  # driver piping a confident "yes" for THAT id must not be able
+  # to ride the same gate into a false approval. When the payload
+  # was truncated, every section here defaults to failing
+  # regardless of any trailer — this gate cannot safely tell WHICH
+  # sections were truncated without the same fence-unsafe heading
+  # re-parse `it.sections` itself avoids (see
+  # docs/configuration.md's `it.sections` entry), so it treats the
+  # whole package the conservative way instead, the same
+  # blunt-but-safe shape `build.review.triaging` already uses for
+  # its own chunks.
+  body=$(git log -1 --format=%B HEAD)
+  truncated=0
+  printf '%s\n' "$body" | grep -q 'Gtd-Payload: {"truncated":true}' \
+    && truncated=1
   titles=$(awk '/^```/{f=!f} !f && /^## /{sub(/^## /,""); print}' "$pkg")
   total=0
   [ -n "$titles" ] && total=$(printf '%s\n' "$titles" | wc -l | tr -d ' ')
   if [ "$total" -gt 0 ]; then
-    trailers=$(git log -1 --format=%B HEAD | grep -o 'Gtd-Judge: {[^}]*}')
+    trailers=$(printf '%s\n' "$body" | grep -o 'Gtd-Judge: {[^}]*}')
     i=1
     while [ "$i" -le "$total" ]; do
       line=$(printf '%s\n' "$trailers" | grep "\"id\":\"section-$i\"" | head -n 1)
@@ -16,7 +43,7 @@ threshold=0.9; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
       # failing — the one default direction this gate must never
       # get wrong.
       failing=1
-      if [ -n "$line" ]; then
+      if [ "$truncated" -ne 1 ] && [ -n "$line" ]; then
         answer=$(printf '%s' "$line" | sed -n 's/.*"answer":"\{0,1\}\([a-z]*\)"\{0,1\}.*/\1/p')
         # A noul answer is conventionally a JSON boolean
         # (`true`/`false`), never the bare "yes"/"no" `routes:`

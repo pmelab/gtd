@@ -306,8 +306,8 @@ for (const { name, make } of tiers) {
       t.commit("seed.txt", "seed\n")
       // A single-file change past 1 MB — Node's execFileSync default
       // maxBuffer — reproduces the ENOBUFS a missing `maxBuffer` option
-      // throws (`spec-review` finding: build.review.pre could never render
-      // past this size).
+      // throws (`spec-review` finding: a judge: field calling it.diff could
+      // never render past this size).
       const big = "x".repeat(1_400_000)
       t.writeWorking("big.txt", big)
       const diff = await t.provide(
@@ -359,6 +359,20 @@ for (const { name, make } of tiers) {
         )
         expect(diff, `iteration ${i}`).toContain("a.txt")
         expect(diff, `iteration ${i}`).toContain("+zzzz")
+        // Every real git call above is synchronous (`execFileSync`), so an
+        // `await` on an already-settled Effect never actually yields to the
+        // event loop's macrotask phase — across 150 iterations that starves
+        // vitest's own worker↔main birpc heartbeat (`onTaskUpdate`) of any
+        // chance to be answered, which throws its OWN ~60s timeout as an
+        // unrelated "Unhandled Error" even though every assertion here
+        // passes (a round of review traced a red `test:unit` to exactly
+        // this). `setImmediate` forces a real macrotask-phase yield,
+        // spaced out (not every iteration) to keep this test's own
+        // wall-clock budget close to what it was before.
+        if (i % 10 === 9) {
+          // eslint-disable-next-line no-await-in-loop -- deliberate: see above.
+          await new Promise((resolve) => setImmediate(resolve))
+        }
       }
     }, 120_000)
   })

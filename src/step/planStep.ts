@@ -66,10 +66,16 @@ const renderDecision = (
   cost: number | undefined,
   model: string | undefined,
   judge: readonly JudgeVerdict[] | undefined,
+  truncated: boolean | undefined,
 ): readonly LandStep[] => {
   const trailerLines = [
     cost === undefined ? undefined : `Gtd-Cost: ${cost}${model !== undefined ? ` ${model}` : ""}`,
     ...(judge ?? []).map((verdict) => `Gtd-Judge: ${JSON.stringify(verdict)}`),
+    // Emitted only when true — a missing trailer reads as not truncated, so
+    // an ordinary `gtd land` (never passes `truncated`) and a judged-but-
+    // under-budget verdict both land silent, exactly like an absent
+    // `Gtd-Judge:` reads as "no verdict recorded".
+    truncated === true ? `Gtd-Payload: ${JSON.stringify({ truncated: true })}` : undefined,
   ].filter((line): line is string => line !== undefined)
   const subjectWithTrailer =
     trailerLines.length === 0
@@ -136,9 +142,10 @@ export const planStep = (
     readonly cost?: number
     readonly model?: string
     readonly judge?: readonly JudgeVerdict[]
+    readonly truncated?: boolean
   } = {},
 ): StepOutcome => {
-  const { cost, model, judge } = opts
+  const { cost, model, judge, truncated } = opts
   // `routeAnswers` is `undefined` (not `[]`) when no verdict was answered
   // THIS call — `step`'s `routes:` precedence only applies when a verdict was
   // actually supplied; an ordinary `gtd land` (no `judge` opt) must fall
@@ -156,7 +163,7 @@ export const planStep = (
     return { kind: "noop", state: decision.state, settled: noOpSettles(snapshot) }
   }
 
-  const steps = renderDecision(snapshot, decision, cost, model, judge)
+  const steps = renderDecision(snapshot, decision, cost, model, judge, truncated)
   const guardVerdict = decision.attempt === true ? undefined : enforceStepGuards(snapshot)
 
   return { kind: "commit", state: snapshot.state, decision, steps, guardVerdict }

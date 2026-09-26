@@ -8,6 +8,7 @@ import {
   templateDiff,
   templateRead,
   templateReadCommitted,
+  templateTail,
   type GitOperations,
 } from "./platform/index.js"
 import { UNATTRIBUTED_MODEL } from "./wire/index.js"
@@ -36,9 +37,11 @@ import {
 } from "./PatternMachine.js"
 import { STATE_FIELD_ENTRIES, type FieldValue, type StateFieldsTable } from "./StateFields.js"
 import {
+  createRenderLedger,
   renderSkillsPreamble,
   renderStateTemplate,
   varsOnlyContext,
+  type RenderLedger,
   type TemplateContext,
   type TemplateEdge,
 } from "./PatternTemplates.js"
@@ -652,6 +655,20 @@ const withRenderedOn = (
 })
 
 /**
+ * `it.tail`/`it.diffTail`/the two-argument `it.sections(path, share)` are
+ * published only in a `judge:` field and a `message:` template (Requirement
+ * C) — every other render (`prompt:`, `script:`, and the `model:`/`label:`/
+ * `file:`/`system:`/`skills:` hint fields) gets a throwing stub instead. This
+ * is the render-time BACKSTOP: `PatternMachine.ts`'s
+ * `validateBoundedPrimitiveFields` (a workflow-load source-text scan) is the
+ * primary defense, but an aliased or computed call (`const t = it.tail`)
+ * evades a source-text scan, so the stub still refuses the step here rather
+ * than truncating unannounced.
+ */
+const boundedPrimitiveRefusal = (name: string): string =>
+  `it.${name} is available only in a "judge:" field or a "message:" template — refused here (the aliased-or-computed-call backstop; a workflow author should never see this outside that evasion)`
+
+/**
  * Build the `PatternTemplates.TemplateContext` for rendering `state`'s content
  * at the resolved rest. `edges` must already be rendered by the caller
  * (`renderOnEdges`). `it.processCost`/`it.processCostByModel` total only the
@@ -673,6 +690,8 @@ const buildTemplateContext = (
   vars: Record<string, string>,
   edges: readonly OnEdge[] | undefined,
   reviewBase: string,
+  ledger: RenderLedger,
+  boundedAllowed: boolean,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
     const currentCommit = yield* git.resolveRef("HEAD")
@@ -691,11 +710,48 @@ const buildTemplateContext = (
       processCostByModel: costByModel(run.costEntries),
       read,
       diff,
-      sections: (path: string) => headingSections(read(path)),
+      sections: (path: string, share?: number) => {
+        if (share === undefined) return headingSections(read(path))
+        if (!boundedAllowed) throw new Error(boundedPrimitiveRefusal("sections(path, share)"))
+        return headingSections(ledger.sectionsBound(read(path), share))
+      },
+      tail: boundedAllowed
+        ? templateTail(read, ledger)
+        : () => {
+            throw new Error(boundedPrimitiveRefusal("tail"))
+          },
+      diffTail: boundedAllowed
+        ? (base: string, share: number) => ledger.tail(diff(base), share)
+        : () => {
+            throw new Error(boundedPrimitiveRefusal("diffTail"))
+          },
       vars,
       edges: toTemplateEdges(edges),
     }
   })
+
+/**
+ * `judgeBudgetBytes`'s parse — the one `vars:` key that THROWS rather than
+ * blanking off a mechanism (Task 3's Requirement): a template's every other
+ * blanked var quietly renders empty, but disabling the payload bound would
+ * reinstate the oversized-render rejection it exists to prevent, so a blank/
+ * non-numeric/non-finite value here is a load-time refusal instead. Absent
+ * entirely (no layer declares it — every fixture/workflow but the bundled
+ * one) falls back to a conservative built-in default rather than throwing:
+ * only a workflow that DECLARES the key and then blanks it hits the refusal.
+ */
+const DEFAULT_JUDGE_BUDGET_BYTES = 32768
+const parseJudgeBudgetBytes = (vars: Record<string, string>): number => {
+  const raw = vars.judgeBudgetBytes
+  if (raw === undefined) return DEFAULT_JUDGE_BUDGET_BYTES
+  const n = Number(raw)
+  if (raw.trim() === "" || !Number.isInteger(n) || n <= 0) {
+    throw new Error(
+      `"judgeBudgetBytes" must be a positive integer — got ${JSON.stringify(raw)} (blanking this var disables the payload bound rather than the mechanism it guards, so it is refused rather than defaulted)`,
+    )
+  }
+  return n
+}
 
 /**
  * The `TemplateContext` `gtd summary` renders `def.summary` against — no
@@ -718,6 +774,14 @@ export const summaryTemplateContext = (
     const def = config.workflow
     const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env)
     const reviewBase = reviewBaseFor(def, run)
+    const ledger = createRenderLedger(
+      yield* Effect.try({
+        try: () => parseJudgeBudgetBytes(vars),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      }),
+    )
+    // A `summary:` is neither a `judge:` field nor a `message:` template —
+    // the three bounded primitives refuse here too (Requirement C).
     return yield* buildTemplateContext(
       git,
       templateRead(workspace),
@@ -728,6 +792,8 @@ export const summaryTemplateContext = (
       vars,
       undefined,
       reviewBase,
+      ledger,
+      false,
     )
   })
 
@@ -783,6 +849,8 @@ interface Rest extends ResolvedRest {
   readonly memoryResumed: boolean
   readonly hints: RestHints
   readonly context: TemplateContext
+  /** The one byte-budget ledger shared by `context`/`judgeContext` (`restAt`) — `renderRest` checks `ledger.truncated()` after rendering the content template to decide the truncation notice. */
+  readonly ledger: RenderLedger
 }
 
 // Drops undefined-valued entries so optional hint fields are OMITTED (not
@@ -816,6 +884,24 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const stepDef = withRenderedOn(def, resolved.state, on, routes)
     const reviewBase = reviewBaseFor(def, run)
     const changes = yield* pendingChanges(git)
+    // ONE ledger for the whole rest, shared by `context` AND `judgeContext` —
+    // a `judge:` render's truncation and the same rest's `message:` render
+    // must agree on the same sticky `truncated` flag (`renderRest`'s notice).
+    const ledger = createRenderLedger(
+      yield* Effect.try({
+        try: () => parseJudgeBudgetBytes(vars),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      }),
+    )
+    // The three bounded primitives (Requirement C) resolve only in a
+    // `judge:` field or a `message:` template — `context` renders the
+    // state's own content, so it's allowed exactly when this state's content
+    // kind IS `message`; every hint field (`model:`/`label:`/`file:`/
+    // `system:`/`skills:`) is disallowed regardless of content kind, so a
+    // `message` state needs a SEPARATE, disallowed context for its hints
+    // (a `script`/`prompt` state's hints reuse `context` itself, since both
+    // are disallowed there anyway).
+    const contentAllowed = contentKindOf(resolved.stateDef) === "message"
     const context = yield* buildTemplateContext(
       git,
       templateRead(workspace),
@@ -826,12 +912,30 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       vars,
       on,
       reviewBase,
+      ledger,
+      contentAllowed,
     )
+    const hintsContext = contentAllowed
+      ? yield* buildTemplateContext(
+          git,
+          templateRead(workspace),
+          templateDiff(workspace),
+          resolved.state,
+          resolved.actor,
+          run,
+          vars,
+          on,
+          reviewBase,
+          ledger,
+          false,
+        )
+      : context
     // `judge:` renders against committed-only evidence — same context shape,
     // just `read` swapped for `templateReadCommitted` (see `renderHints`).
     // `diff` stays the SAME working-tree-reading binding as `context`'s own —
     // it is the one field `judge:` is deliberately allowed to read fresh
-    // (see `PatternTemplates.ts`'s `diff` doc comment).
+    // (see `PatternTemplates.ts`'s `diff` doc comment). `judge:` is the other
+    // field the bounded primitives are allowed from.
     const judgeContext = yield* buildTemplateContext(
       git,
       templateReadCommitted(workspace),
@@ -842,10 +946,16 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       vars,
       on,
       reviewBase,
+      ledger,
+      true,
     )
     const memory = memoryKeyFor(config.stateScopes, resolved, run)
     const memoryResumed = memoryResumedFor(def, config.stateScopes, resolved, run)
-    const hints = yield* renderHints(resolved.stateDef, context, judgeContext)
+    // Renders every hint (the `judge:` field among them) BEFORE `renderRest`
+    // renders the state's own content below — `ledger`'s sticky `truncated`
+    // flag must already be set from a truncating `judge:` field by the time
+    // the `message:` render checks it for the notice.
+    const hints = yield* renderHints(resolved.stateDef, hintsContext, judgeContext, ledger)
 
     return {
       ...resolved,
@@ -858,6 +968,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       memoryResumed,
       hints,
       context,
+      ledger,
     }
   })
 
@@ -876,6 +987,16 @@ export interface RenderedRest extends RestHints {
   readonly memoryResumed: boolean
   /** The resolved rest's `on` edges as `{ pattern, target, describe? }` — the same list templates see as `it.edges`. Always present (possibly empty); `gtd next --json` emits it so a driver has the routing (and its human-readable `describe`s) alongside the rendered content. */
   readonly edges: readonly TemplateEdge[]
+  /**
+   * `rest.ledger.truncated()`, read AFTER this render — whether ANY bounded
+   * read (a hint field's `judge:`, or this content render) dropped bytes to
+   * fit `judgeBudgetBytes`. `gtd judge answer` (`program.ts`'s
+   * `runJudgeAnswerCommand`) threads this straight into `planLanding`'s
+   * `truncated` option so the landing commit's `Gtd-Payload:` trailer stamps
+   * the flag from the SAME render that produced the judged document, never a
+   * second, later render that could disagree with it.
+   */
+  readonly truncated: boolean
 }
 
 const renderStateField = (
@@ -914,12 +1035,16 @@ const renderHints = (
   stateDef: StateDef,
   context: TemplateContext,
   judgeContext: TemplateContext,
+  ledger: RenderLedger,
 ): Effect.Effect<RestHints, Error> =>
   Effect.gen(function* () {
     const hints: Record<string, unknown> = {}
     for (const [key, spec] of STATE_FIELD_ENTRIES) {
       if (spec.rest === "rendered") {
         const fieldContext = key === JUDGE_FIELD_KEY ? judgeContext : context
+        // Each hint is its OWN render — the share ledger's accumulator
+        // resets per field, never carried from `judge:` into `model:`/`label:`/`file:`.
+        ledger.beginRender()
         hints[key] = yield* renderStateField(stateDef, key, fieldContext)
       } else if (spec.rest === "verbatim") {
         hints[key] = (stateDef as unknown as Record<string, unknown>)[key]
@@ -963,6 +1088,16 @@ const withSkillsPreamble = (
   })
 
 /**
+ * The FIXED sentence `renderRest` appends to a `message:` rest whose ledger
+ * recorded a bounded read dropping bytes (Task 2's Requirement) — a
+ * constant, not a `vars:` key or an author template, so a repo/workflow
+ * author can neither reword nor drop it, and the wording is identical at
+ * every gate.
+ */
+export const TRUNCATION_NOTICE =
+  "Note: some evidence above was truncated to fit the judge's payload budget."
+
+/**
  * Render a `Rest`'s declared content (script/prompt/message) plus every
  * `STATE_FIELDS` field carrying a `rest` kind and its computed memory key —
  * all of which already live on `rest` (`rest.context`/`rest.hints`/
@@ -978,11 +1113,21 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
       )
     }
     const template = rest.stateDef.script ?? rest.stateDef.prompt ?? rest.stateDef.message!
+    // The content render is its own render for share-ledger purposes — reset
+    // BEFORE rendering, same discipline `renderHints` applies per field.
+    rest.ledger.beginRender()
     const rendered = yield* Effect.try({
       try: () => renderStateTemplate(template, rest.context),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
-    const content = yield* withSkillsPreamble(kind, rendered, rest.hints, rest.context)
+    const withPreamble = yield* withSkillsPreamble(kind, rendered, rest.hints, rest.context)
+    // The notice is appended only for a rest that actually truncated
+    // something — checked AFTER every render this rest performed (hints,
+    // then this content render), never as standing boilerplate.
+    const content =
+      kind === "message" && rest.ledger.truncated()
+        ? `${withPreamble}\n\n${TRUNCATION_NOTICE}`
+        : withPreamble
     return {
       state: rest.state,
       actor: rest.actor,
@@ -995,6 +1140,7 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
       // rendered against `it.vars` — not re-derived from `rest.stateDef.on`
       // here, which would be the unrendered literal.
       edges: rest.context.edges,
+      truncated: rest.ledger.truncated(),
     }
   })
 

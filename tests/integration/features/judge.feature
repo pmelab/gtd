@@ -525,28 +525,3 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Then it succeeds
     And the last commit subject is "gtd(judge): verdict → done"
     And the last commit body does not contain "Gtd-Judge:"
-
-  # `.gtd/packages/03-judgment-inlines-its-evidence.md`: the planning gate's
-  # Same package, Task 3: the review fast-path gate (`build.review.pre`) used
-  # to ship the judge only `reviewBase` and tell it to `git diff` itself — a
-  # judge with no repository can't. `state.diff` now carries the real hunks,
-  # tracked and untracked alike (an `add -N`'d untracked file is otherwise
-  # invisible to a plain `git diff <base>`).
-  @inmem
-  Scenario: gtd judge at build.review.pre inlines real diff hunks — a tracked edit AND a brand-new untracked file both show up (03)
-    Given a test project
-    And the workflow
-    And a commit "gtd(agent): build.building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And an empty commit "gtd(check): build.health.check → build.review.pre"
-    And a file "src/brand-new.ts" with:
-      """
-      export const neverAdded = true
-      """
-    When I run gtd with args "judge"
-    Then it succeeds
-    And stdout contains "calc.ts"
-    And stdout contains "brand-new.ts"
-    And stdout contains "neverAdded"

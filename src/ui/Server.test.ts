@@ -740,12 +740,13 @@ describe("runUiCommand", () => {
     return { out: { write: (chunk: string) => written.push(chunk), flush: () => {} }, written }
   }
 
-  /** Polls up to 1s for the forked fiber to run past the blocking wait and print its two lines — a single fixed `setTimeout` (the earlier shape here) is flaky under a loaded machine (e.g. the full `npm test` running build/lint/etc concurrently), where the fiber's own first tick can take longer than a bare 20ms. Mirrors `startScriptedServer`'s own poll below. */
+  /** Polls up to 3s for the forked fiber to run past the blocking wait and print its two lines — a single fixed `setTimeout` (the earlier shape here) is flaky under a loaded machine (e.g. the full `npm test` running build/lint/etc concurrently), where the fiber's own first tick can take longer than a bare 20ms. 1s (50 attempts) was itself measured flaky under the same concurrent-`npm test` CPU starvation `startRealServer`'s own 15s poll below documents — widened to match that budget's own reasoning, not just its symptom. Mirrors `startRealServer`'s own poll below. The final wait's own outcome is checked ONE more time before giving up — the loop's own condition only runs BEFORE each wait, so a write landing in exactly that last 20ms window was previously never observed at all, only visible after the fact in the thrown error's own "(got N)", which then read as already-satisfied — a round of review caught this exact confusing report. */
   const waitForWrites = async (written: readonly string[], count: number): Promise<void> => {
-    for (let i = 0; i < 50; i += 1) {
+    for (let i = 0; i < 150; i += 1) {
       if (written.length >= count) return
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
+    if (written.length >= count) return
     throw new Error(`server never wrote ${count} lines (got ${written.length})`)
   }
 
@@ -2419,10 +2420,22 @@ const startRealServer = async (
     ),
   )
 
-  for (let i = 0; i < 50; i += 1) {
+  // 15s (300 × 50ms), not `waitForWrites`'s 1s budget above — this poll waits
+  // on a REAL bind behind a REAL `openssl`-generated cert (`generateSelfSignedCert`
+  // shells out above), which this suite's own full `npm test` (build/lint/
+  // test:e2e:live/test:e2e:inmem all racing `test:unit` via turbo) can starve
+  // of CPU for real seconds at a time — the same fact
+  // `tests/integration/support/world.ts`'s own `UI_BOUND_URL_POLL_ATTEMPTS`
+  // documents for the identical class of spawn.
+  for (let i = 0; i < 300; i += 1) {
     if (written[0] !== undefined) return { boundUrl: written[0].trim(), fiber }
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await new Promise((resolve) => setTimeout(resolve, 50))
   }
+  // The final wait's own outcome must be checked once more before giving up
+  // — the loop's own condition only runs BEFORE each wait, so a bind landing
+  // in exactly the last window was previously never observed (see
+  // `waitForWrites`'s own comment above for the confusing report this caused).
+  if (written[0] !== undefined) return { boundUrl: written[0].trim(), fiber }
   throw new Error("server never printed its bound URL")
 }
 

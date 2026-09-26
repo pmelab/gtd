@@ -214,6 +214,51 @@ describe("planStep — commit", () => {
     expect(judgeIndex).toBeGreaterThan(costIndex)
   })
 
+  it('records a `Gtd-Payload: {"truncated":true}` trailer when `opts.truncated` is true', () => {
+    const stateDef: StateDef = { actor: "human", script: "echo hi", on: [["* **", "done"]] }
+    const s = snapshot({
+      state: "building",
+      stateDef,
+      def: {
+        states: { building: stateDef, done: { actor: "human", message: "done" } },
+        entries: { default: "building", manual: [] },
+      },
+      changes: [{ status: "M", path: ".gtd/FILE.md" }],
+    })
+    const outcome = planStep(s, {
+      judge: [{ id: "q1", answer: true, p: 0.97 }],
+      truncated: true,
+    })
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    const write = outcome.steps.find((st) => st.kind === "gitWrite")
+    if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
+    expect(write.write.message).toContain('Gtd-Payload: {"truncated":true}')
+  })
+
+  it("emits no `Gtd-Payload:` trailer when `opts.truncated` is false or omitted", () => {
+    const stateDef: StateDef = { actor: "human", script: "echo hi", on: [["* **", "done"]] }
+    const s = snapshot({
+      state: "building",
+      stateDef,
+      def: {
+        states: { building: stateDef, done: { actor: "human", message: "done" } },
+        entries: { default: "building", manual: [] },
+      },
+      changes: [{ status: "M", path: ".gtd/FILE.md" }],
+    })
+    const opts = [
+      { judge: [{ id: "q1", answer: true, p: 0.97 }], truncated: false },
+      { judge: [{ id: "q1", answer: true, p: 0.97 }] },
+    ] as const
+    for (const opt of opts) {
+      const outcome = planStep(s, opt)
+      if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+      const write = outcome.steps.find((st) => st.kind === "gitWrite")
+      if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
+      expect(write.write.message).not.toContain("Gtd-Payload:")
+    }
+  })
+
   it("an answered verdict routes via the state's own `routes:`, overriding what `on:` alone would decide", () => {
     // `on:`'s only row ("C": "conservative") would land at "conservative" for
     // a clean tree — but a verdict was supplied this call, and the state

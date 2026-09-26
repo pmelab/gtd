@@ -70,15 +70,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     # hands straight on to the human review tail.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.review.pre"
-    # Landed untouched, with no verdict — the conservative default runs the
-    # full review lap.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.pre → build.review.preCheck"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.review.preCheck → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
 
   Scenario: a dirty working tree is captured into the entry commit, not refused
     Given a file "scratch.txt" with:

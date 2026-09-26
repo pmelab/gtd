@@ -16,53 +16,93 @@ Exit code is the child's exit code.
 
 import os
 import pty
+import select
 import subprocess
 import sys
-import threading
+import time
 
-# The parent's own `slave` fd is closed right after spawn, so the child holds
-# the only remaining reference to it: `os.read(master, ...)` blocks until the
-# child writes, and returns `b""` (or raises `OSError`/`EIO` on macOS) once
-# the child's own copies of that fd are all closed — a real EOF signal, not a
-# timeout guess. A poll-then-drain loop (this file's previous shape) checked
-# `proc.poll()` and a `select()` readiness window separately, and could
-# observe "child exited" before "child's last write arrived at the master
-# end" under CPU contention, returning truncated (sometimes empty) output.
-# Reading straight to EOF removes that race by construction instead of
-# widening the drain timeout further.
-WEDGE_BUDGET_SECONDS = 10.0
+# Deadline on SILENCE, not on total runtime — reset to now + this on every
+# successful read (see the loop below), so a child still producing output
+# never trips it, only one that stops producing entirely. Generous (a real
+# command under this suite's own full `npm test` — 10 parallel vitest
+# workers plus build/lint/etc. — can be starved of CPU for seconds at a
+# time). Accepted tradeoff: a child emitting one byte every nine seconds
+# runs forever — there is no total wall-clock budget here, only an idle one.
+IDLE_TIMEOUT_SECONDS = 10.0
+# Once the child has exited, how long the loop waits for one more chunk
+# before deciding no further data is coming — short, because there is
+# nothing left to race: see the loop's own comment for why closing `slave`
+# only AFTER draining, never before, is what actually matters here.
+SETTLE_TIMEOUT_SECONDS = 0.2
 
 
-def run_in_pty(argv, timeout=WEDGE_BUDGET_SECONDS):
+def run_in_pty(argv):
     master, slave = pty.openpty()
     proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave)
-    os.close(slave)
-
-    # A genuine wedge (the read never reaching EOF — e.g. some other process
-    # still holding the slave fd open) must fail fast and visibly rather than
-    # consume the outer test/CI timeout: killing the child closes its fd
-    # copies, which unblocks the read loop below with an EOF/OSError.
-    timed_out = threading.Event()
-    watchdog = threading.Timer(timeout, lambda: (timed_out.set(), proc.kill()))
-    watchdog.start()
-
     chunks = []
-    try:
-        while True:
+    # Read and poll together instead of `proc.wait()`-then-read: a child
+    # that fills the ~64 KiB pty buffer blocks in `write()` until this
+    # process drains it, so waiting for exit before the first read can
+    # deadlock the child forever (it gets killed as an idle timeout, never
+    # having exited). Interleaving keeps the buffer from ever filling.
+    deadline = time.monotonic() + IDLE_TIMEOUT_SECONDS
+    exited = False
+    while True:
+        timeout = (
+            SETTLE_TIMEOUT_SECONDS
+            if exited
+            else max(0.0, min(SETTLE_TIMEOUT_SECONDS, deadline - time.monotonic()))
+        )
+        ready, _, _ = select.select([master], [], [], timeout)
+        got_data = False
+        if master in ready:
             try:
                 data = os.read(master, 65536)
             except OSError:
-                break
-            if not data:
-                break
-            chunks.append(data)
-    finally:
-        watchdog.cancel()
-
-    os.close(master)
+                data = b""
+            if data:
+                chunks.append(data)
+                got_data = True
+                # Resets the idle clock — see IDLE_TIMEOUT_SECONDS above.
+                deadline = time.monotonic() + IDLE_TIMEOUT_SECONDS
+        if not exited:
+            if proc.poll() is not None:
+                exited = True
+                continue
+            if time.monotonic() >= deadline:
+                proc.kill()
+                proc.wait()
+                exited = True
+                continue
+        if exited and not got_data:
+            break
     proc.wait()
-    if timed_out.is_set():
-        raise TimeoutError(f"run-in-pty: child wedged past a {timeout}s budget")
+    # Measured, not reasoned: this process's own `os.close(slave)` — done
+    # EITHER right after spawning the child (an early version) or right
+    # after `proc.wait()` above but BEFORE draining (a later one) — is what
+    # loses output, independent of CPU load or elapsed time. A same-process,
+    # no-load repro: spawn a child that prints one line, `proc.wait()`, close
+    # `slave`, then read — the read comes back a 0-byte EOF every time, even
+    # though the exact same sequence with the `close()` removed reads the
+    # line back correctly after an artificial multi-second sleep. This pty
+    # implementation appears to flush/drop whatever is still sitting unread
+    # in the buffer at the moment every reference to the slave side closes,
+    # rather than preserving it for a later read the way a plain pipe would
+    # — a real hangup, not a race this loop could ever win by reading
+    # faster or waiting differently. So: read everything out FIRST, close
+    # LAST.
+    #
+    # (Two earlier versions of this loop chased a DIFFERENT theory — a
+    # scheduling race between the child's exit and this process's own turn
+    # to read, first "fixed" by reading to a kernel-reported real EOF
+    # instead of a short poll-then-drain window, then by keeping this
+    # process's own `slave` reference open so the child's exit could never
+    # be the LAST close. Both were reproducible-under-load but never
+    # reliable: the actual trigger is the close itself, not who does it or
+    # when, so this version never closes `slave` until after the loop
+    # above has already collected everything.)
+    os.close(slave)
+    os.close(master)
     return proc.returncode, b"".join(chunks)
 
 
