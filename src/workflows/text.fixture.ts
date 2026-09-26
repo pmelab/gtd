@@ -1,13 +1,10 @@
 import { installContext } from "../flows/index.js"
-import * as text from "./text.js"
 import { defaults } from "./vars.js"
 
 export interface TextContext {
   readonly vars?: Readonly<Record<string, string>>
   readonly head?: string
   readonly start?: string
-  /** The review base handed to the scripts that take one. */
-  readonly base?: string
   readonly read?: (path: string) => string | undefined
 }
 
@@ -38,14 +35,3 @@ export const renderText = <T>(text: () => T, context: TextContext = {}): T => {
     installContext(undefined)
   }
 }
-
-type ScriptName = {
-  [K in keyof typeof text]: K extends `${string}Script` ? K : never
-}[keyof typeof text]
-
-export const SCRIPT_NAMES = Object.keys(text)
-  .filter((name) => name.endsWith("Script"))
-  .sort() as ScriptName[]
-
-export const renderScript = (name: ScriptName, context: TextContext = {}): string =>
-  renderText(() => (text[name] as (base: string) => string)(context.base ?? ""), context)

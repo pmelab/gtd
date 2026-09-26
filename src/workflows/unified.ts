@@ -16,12 +16,14 @@ import {
   type ReviewOutcome,
   agent,
   changes,
+  head,
   human,
   judge,
   read,
   refuse,
   run,
   scope,
+  sections,
   start,
   vars,
   workflow,
@@ -198,13 +200,38 @@ const escalationTexts: EscalationTexts = {
   },
 }
 
+const testCommand = (): string => vars.testCommand ?? ""
+
+// A raw review capture an abandoned process left behind is swept by every
+// check: no ordinary path from deciding or collecting reaches one.
 const healthTexts: HealthTexts = {
-  check: { script: t.healthCheckScript, label: "Running checks" },
+  check: {
+    command: testCommand,
+    label: "Running checks",
+    sweep: [".gtd/REVIEW_RAW.md"],
+    // Swept only on green: an unresolved analysis survives every retry.
+    sweepOnGreen: [".gtd/ESCALATION.md"],
+  },
   judge: { message: t.healthJudgeMessage, label: "Judging the retry" },
   escalation: escalationTexts,
 }
 
-const suiteCheck = { script: t.suiteCheckScript, label: "Checking the baseline" }
+/** The quality lap's own state: its queue, the picked lens, its findings and markers. */
+const QUALITY_STATE = [
+  ".gtd/NEXT_REVIEW.md",
+  ".gtd/QUALITY.md",
+  ".gtd/QUALITY_DONE.md",
+  ".gtd/QUALITY_READY.md",
+  ".gtd/reviews",
+]
+
+// An entry is a new episode: the whole quality lap state goes, or a later
+// entry would skip every lens.
+const suiteCheck = {
+  command: testCommand,
+  label: "Checking the baseline",
+  sweep: [".gtd/REVIEW_RAW.md", ...QUALITY_STATE],
+}
 
 const buildHealth = (fixesSoFar: number, escalations: EscalationCount): Promise<void> =>
   healthy({
@@ -278,8 +305,15 @@ const buildTail = (fixFirst: boolean, base: string): Promise<ReviewOutcome> =>
         redFirst = false
       }
       const lap = await qualityLap({
-        seeding: { script: t.buildQualitySeedingScript, label: "Seeding the quality review queue" },
-        picking: { script: t.buildQualityPickingScript, label: "Picking the next quality lens" },
+        seeding: {
+          label: "Seeding the quality review queue",
+          lenses: () =>
+            (vars.qualityReviews ?? "")
+              .split(",")
+              .map((lens) => lens.trim())
+              .filter((lens) => lens !== ""),
+        },
+        picking: { label: "Picking the next quality lens" },
         reviewing: {
           prompt: () =>
             t.withSkills(t.buildQualityReviewingSkills(), t.buildQualityReviewingPrompt()),
@@ -303,7 +337,7 @@ const design = (base: string): Promise<void> =>
       "triage",
       designTriage(() => base),
       {
-        check: { script: t.questionCheckScript, label: "Checking for open questions" },
+        check: questionCheck,
         answer: {
           message: t.designGateAnswerMessage,
           label: "Awaiting your product answers",
@@ -315,10 +349,18 @@ const design = (base: string): Promise<void> =>
     ),
   )
 
+// architecture.author deletes REQUIREMENTS.md in the turn it writes
+// ARCHITECTURE.md, so exactly one of them is there to check.
+const questionCheck = {
+  label: "Checking for open questions",
+  file: () =>
+    read(".gtd/REQUIREMENTS.md") !== undefined ? ".gtd/REQUIREMENTS.md" : ".gtd/ARCHITECTURE.md",
+}
+
 const architecture = (): Promise<void> =>
   scope("architecture", async () => {
     await designLoop("author", architectureAuthor, {
-      check: { script: t.questionCheckScript, label: "Checking for open questions" },
+      check: questionCheck,
       answer: {
         message: t.architectureGateAnswerMessage,
         label: "Awaiting your technical answers",
@@ -331,6 +373,13 @@ const architecture = (): Promise<void> =>
       refuse("gtd land: decompose: write at least one package under .gtd/packages/")
     }
   })
+
+/** A package file name from a plan's first heading. */
+const slug = (title: string): string =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "package"
 
 /** Whether the settled plan needs its own architecture pass, or goes straight to one package. */
 const architecturePass = async (): Promise<void> => {
@@ -355,10 +404,18 @@ const architecturePass = async (): Promise<void> => {
     truncated.length === 0 &&
     answered(answers.architectureWarranted, "no", threshold(vars.architectureSkipMinP))
   if (skip) {
-    await run("architecture-promote", t.architecturePromoteScript(), {
-      label: "Promoting the plan straight to a package",
-    })
-    if (changes().length > 0) return
+    const plan = read(".gtd/REQUIREMENTS.md")
+    const target = `.gtd/packages/01-${slug(sections(plan ?? "")[0] ?? "")}.md`
+    await run(
+      "architecture-promote",
+      ({ fs }) => {
+        if (plan === undefined) return
+        fs.write(target, plan)
+        fs.rm(".gtd/REQUIREMENTS.md")
+      },
+      { label: "Promoting the plan straight to a package" },
+    )
+    if (plan !== undefined) return
   }
   await architecture()
 }
@@ -367,11 +424,25 @@ const packages = (): Promise<void> =>
   scope("packages", () =>
     packageQueue(
       {
-        picking: { script: t.packagesPickingScript, label: "Picking the next package" },
+        picking: {
+          label: "Picking the next package",
+          // The spent design/architecture files, a loop-back's raw capture,
+          // and the quality lap's state, so a loop-back re-runs the lap.
+          sweep: [
+            ".gtd/REQUIREMENTS.md",
+            ".gtd/ARCHITECTURE.md",
+            ".gtd/QUESTIONS.md",
+            ".gtd/REVIEW_RAW.md",
+            ...QUALITY_STATE,
+          ],
+        },
         building,
         fixSuite,
         fixSpec,
-        closing: { script: t.packagesItemClosingScript, label: "Closing out the package" },
+        closing: {
+          label: "Closing out the package",
+          sweep: [".gtd/SPEC_FEEDBACK.md", ".gtd/SATISFIED.md"],
+        },
         health: healthTexts,
         spec: {
           pre: { message: t.packagesItemSpecPreMessage, label: "Judging spec coverage" },
@@ -390,14 +461,27 @@ const packages = (): Promise<void> =>
 // ── The flow ────────────────────────────────────────────────────────────────
 
 /** Undo the human's review-round code edit, so planning reads it from history. */
+/**
+ * Undo the human's review-round code edits. Only a path still exactly as the
+ * human left it is reverted; one changed since is left for requireRevert to
+ * name, never overwritten.
+ */
 const reUnwind = async (feedback: Extract<ReviewOutcome, { verdict: "feedback" }>) => {
-  await run("re-unwind", t.reUnwindScript(feedback.base), {
-    label: "Re-unwinding your review edit",
-    file: ".gtd/REVIEW.md",
-    base: feedback.base,
-  })
-  requireRevert(feedback.edited, feedback.base)
+  const { base, edited } = feedback
+  await run(
+    "re-unwind",
+    async ({ sh, fs }) => {
+      const untouched = edited.filter((c) => fs.read(c.path) === c.after)
+      fs.rm(...untouched.filter((c) => c.status === "added").map((c) => c.path))
+      const restored = untouched.filter((c) => c.status !== "added").map((c) => shellQuote(c.path))
+      if (restored.length > 0) await sh(`git checkout ${base}~1 -- ${restored.join(" ")}`)
+    },
+    { label: "Re-unwinding your review edit", file: ".gtd/REVIEW.md", base },
+  )
+  requireRevert(edited, base)
 }
+
+const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 /** Plan, build and review until a review round signs off; feedback re-plans from scratch. */
 const planAndBuild = async (firstBase: string): Promise<void> => {
@@ -428,9 +512,27 @@ const gate = (name: string, message: () => string): Promise<void> =>
     }),
   )
 
+/**
+ * Revert the sketch that started the process out of the tree; its intent
+ * survives in history. A failed revert is written to FEEDBACK.md, since a
+ * failure and a genuine no-op can both leave the tree clean.
+ */
+const unwind = (): Promise<void> => {
+  const commit = head()
+  return run(
+    "unwind",
+    async ({ sh, fs }) => {
+      const { ok, code, output } = await sh(`git revert --no-commit ${commit}`)
+      if (ok) return
+      fs.write(".gtd/FEEDBACK.md", t.unwindFailure(commit, code, output))
+    },
+    { label: "Unwinding your input" },
+  )
+}
+
 const ordinaryStart = async (): Promise<void> => {
   await human("idle", { message: t.idleMessage(), label: "Idle", file: ".gtd/TODO.md" })
-  await run("unwind", t.unwindScript(), { label: "Unwinding your input" })
+  await unwind()
   if (changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")) {
     await human("unwind-failed", {
       message: t.unwindFailedMessage(),

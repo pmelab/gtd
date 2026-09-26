@@ -1,6 +1,7 @@
 import {
   agent,
   changes,
+  glob,
   head,
   human,
   judge,
@@ -40,8 +41,18 @@ export interface HumanSpec {
   readonly mode?: string
 }
 
-export interface RunSpec {
-  readonly script: Text
+/** A run of the test suite: red leaves the output in `.gtd/FEEDBACK.md`. */
+export interface CheckSpec {
+  readonly command: Text
+  readonly label?: string
+  /** Paths removed before the suite runs. */
+  readonly sweep?: readonly string[]
+  /** Paths removed once it is green. */
+  readonly sweepOnGreen?: readonly string[]
+}
+
+/** A bookkeeping step: only its label is text. */
+export interface StepLabel {
   readonly label?: string
 }
 
@@ -52,6 +63,8 @@ export interface JudgeTexts {
 
 const FEEDBACK = ".gtd/FEEDBACK.md"
 const REVIEW = ".gtd/REVIEW.md"
+const QUESTIONS = ".gtd/QUESTIONS.md"
+const NEXT = ".gtd/NEXT.md"
 
 /** Whether the last step added or rewrote `path`. */
 const wrote = (path: string): boolean => changes(path).some((c) => c.status !== "deleted")
@@ -92,12 +105,34 @@ export const answered = (
   minP: number,
 ): boolean => answer !== undefined && answer.answer === expected && answer.p >= minP
 
+/** `.gtd/<name>` stamped with the commit it was written at, so a repeat of the same report still changes the file. */
+const stamped = (text: string, commit: string): string =>
+  `${text}\n<!-- gtd check ${commit.slice(0, 7)} -->\n`
+
 /**
  * Run the suite as step `name`. Red means the run added or rewrote
  * `.gtd/FEEDBACK.md`; resolves `true` when it did not.
  */
-export const green = async (name: string, check: RunSpec): Promise<boolean> => {
-  await run(name, check.script(), { label: check.label })
+export const green = async (name: string, check: CheckSpec): Promise<boolean> => {
+  const command = check.command()
+  const commit = head()
+  await run(
+    name,
+    async ({ sh, fs }) => {
+      fs.rm(...(check.sweep ?? []))
+      const { ok, code, output } = await sh(command)
+      if (ok) {
+        fs.rm(FEEDBACK, ...(check.sweepOnGreen ?? []))
+        return
+      }
+      const report =
+        output.length > 0
+          ? output
+          : `the test command failed with exit code ${code} and produced no output.`
+      fs.write(FEEDBACK, stamped(report, commit))
+    },
+    { label: check.label },
+  )
   return !wrote(FEEDBACK)
 }
 
@@ -165,7 +200,7 @@ export const escalation = async (texts: EscalationTexts, count: EscalationCount)
 }
 
 export interface HealthTexts {
-  readonly check: RunSpec
+  readonly check: CheckSpec
   readonly judge: JudgeTexts
   readonly escalation: EscalationTexts
 }
@@ -257,7 +292,7 @@ const sameFailure = async (
 // ── Gates ───────────────────────────────────────────────────────────────────
 
 export interface EntryGateTexts {
-  readonly check: RunSpec
+  readonly check: CheckSpec
   readonly blocked: HumanSpec
 }
 
@@ -269,7 +304,8 @@ export const entryGate = async (texts: EntryGateTexts): Promise<void> => {
 }
 
 export interface QuestionGateTexts {
-  readonly check: RunSpec
+  /** `file`: the steering file whose open questions stop the process. */
+  readonly check: StepLabel & { readonly file: Text }
   readonly answer: HumanSpec & { readonly file: string }
 }
 
@@ -279,8 +315,19 @@ export interface QuestionGateTexts {
  * no question was left. Steps: `gate.check`, `gate.answer`.
  */
 export const questionGate = async (texts: QuestionGateTexts): Promise<boolean> => {
-  await run("gate.check", texts.check.script(), { label: texts.check.label })
-  if (!wrote(".gtd/QUESTIONS.md")) return false
+  const file = texts.check.file()
+  const content = read(file)
+  const open = content === undefined || openQuestions(content).length > 0
+  const commit = head()
+  await run(
+    "gate.check",
+    ({ fs }) => {
+      if (open) fs.write(QUESTIONS, stamped(`open questions remain in ${file}\n`, commit))
+      else fs.rm(QUESTIONS)
+    },
+    { label: texts.check.label },
+  )
+  if (!open) return false
   await humanStep("gate.answer", texts.answer, { acceptClean: true })
   requireAnswers(texts.answer.file)
   return true
@@ -385,11 +432,13 @@ export const specReview = async (texts: SpecReviewTexts): Promise<boolean> => {
 }
 
 export interface PackageTexts {
-  readonly picking: RunSpec
+  /** `sweep`: spent steering files picking removes ahead of every package. */
+  readonly picking: StepLabel & { readonly sweep: readonly string[] }
   readonly building: AgentSpec
   readonly fixSuite: AgentSpec
   readonly fixSpec: AgentSpec
-  readonly closing: RunSpec
+  /** `sweep`: the package's leftovers closing removes with it. */
+  readonly closing: StepLabel & { readonly sweep: readonly string[] }
   readonly health: HealthTexts
   readonly spec: SpecReviewTexts
 }
@@ -407,8 +456,17 @@ export interface PackageOptions {
  */
 export const packageQueue = async (texts: PackageTexts, options: PackageOptions): Promise<void> => {
   for (;;) {
-    await run("picking", texts.picking.script(), { label: texts.picking.label })
-    if (!wrote(".gtd/NEXT.md")) return
+    const next = [...glob(".gtd/packages/*.md")].sort()[0]
+    await run(
+      "picking",
+      ({ fs }) => {
+        fs.rm(...texts.picking.sweep)
+        if (next === undefined) fs.rm(NEXT)
+        else fs.write(NEXT, next)
+      },
+      { label: texts.picking.label },
+    )
+    if (next === undefined) return
     await scope("item", () => packageItem(texts, options))
   }
 }
@@ -425,16 +483,33 @@ const packageItem = async (texts: PackageTexts, options: PackageOptions): Promis
     if (await specReview(texts.spec)) break
     await agentStep("fix-spec", texts.fixSpec)
   }
-  await run("closing", texts.closing.script(), { label: texts.closing.label })
+  const pkg = (read(NEXT) ?? "").trimEnd()
+  await run(
+    "closing",
+    ({ fs }) => {
+      if (pkg !== "") fs.rm(pkg)
+      fs.rm(NEXT, ...texts.closing.sweep)
+    },
+    { label: texts.closing.label },
+  )
 }
 
 // ── Quality lap ─────────────────────────────────────────────────────────────
 
 export interface QualityTexts {
-  readonly seeding: RunSpec
-  readonly picking: RunSpec
+  /** `lenses`: the skills the lap reviews with, one turn each. */
+  readonly seeding: StepLabel & { readonly lenses: () => readonly string[] }
+  readonly picking: StepLabel
   readonly reviewing: AgentSpec
 }
+
+const QUALITY = ".gtd/QUALITY.md"
+const QUALITY_DONE = ".gtd/QUALITY_DONE.md"
+const NEXT_REVIEW = ".gtd/NEXT_REVIEW.md"
+
+/** One queue file per lens, numbered in list order. */
+const lensQueue = (lenses: readonly string[]): [string, string][] =>
+  lenses.map((lens, i) => [`.gtd/reviews/${String(i + 1).padStart(2, "0")}-${lens}.md`, lens])
 
 /**
  * One review turn per configured lens over the whole change. Resolves
@@ -442,15 +517,35 @@ export interface QualityTexts {
  * `quality.picking`, `quality.reviewing`.
  */
 export const qualityLap = async (texts: QualityTexts): Promise<"clean" | "findings"> => {
-  await run("quality.seeding", texts.seeding.script(), { label: texts.seeding.label })
-  if (changes(".gtd/reviews/**").length === 0) return "clean"
+  // The lap runs once an episode: QUALITY_DONE.md marks it spent.
+  const queue = read(QUALITY_DONE) === undefined ? lensQueue(texts.seeding.lenses()) : []
+  await run(
+    "quality.seeding",
+    ({ fs }) => {
+      for (const [path, lens] of queue) fs.write(path, lens)
+    },
+    { label: texts.seeding.label },
+  )
+  if (queue.length === 0) return "clean"
   for (;;) {
-    await run("quality.picking", texts.picking.script(), { label: texts.picking.label })
-    if (!wrote(".gtd/NEXT_REVIEW.md")) {
-      return changes(".gtd/QUALITY_READY.md").some((c) => c.status === "added")
-        ? "findings"
-        : "clean"
-    }
+    const next = [...glob(".gtd/reviews/*.md")].sort()[0]
+    const lens = next === undefined ? undefined : (read(next) ?? "")
+    const findings = (read(QUALITY) ?? "").length > 0
+    await run(
+      "quality.picking",
+      ({ fs }) => {
+        if (next !== undefined && lens !== undefined) {
+          fs.write(NEXT_REVIEW, lens)
+          fs.rm(next)
+          return
+        }
+        fs.rm(NEXT_REVIEW)
+        fs.write(QUALITY_DONE, "")
+        if (findings) fs.write(".gtd/QUALITY_READY.md", "")
+      },
+      { label: texts.picking.label },
+    )
+    if (next === undefined) return findings ? "findings" : "clean"
     await agentStep("quality.reviewing", texts.reviewing, { allowEmpty: true })
   }
 }

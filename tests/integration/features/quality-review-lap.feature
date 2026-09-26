@@ -2,10 +2,9 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
 
   `build.quality` sits between the green health check and the human review
   tail. `seeding` writes one `.gtd/reviews/NN-<name>.md` file per
-  comma-separated `qualityReviews` entry; `picking` moves the head entry into
-  `.gtd/NEXT_REVIEW.md` and deletes it from the queue — the `ls | head -n 1`
-  idiom `packageLoop.picking` already uses; `reviewing` loads that file as
-  its own `skills:` and APPENDS any blocking finding to `.gtd/QUALITY.md`.
+  comma-separated `qualityReviews` entry; `picking` moves the lexically first
+  entry into `.gtd/NEXT_REVIEW.md` and deletes it from the queue; `reviewing`
+  names that file's skill in its prompt and APPENDS any blocking finding to `.gtd/QUALITY.md`.
   Draining the queue writes `.gtd/QUALITY_DONE.md` unconditionally (so a
   re-entry into `build.quality` this same episode short-circuits straight
   through) and `.gtd/QUALITY_READY.md` only when `.gtd/QUALITY.md` is
@@ -17,9 +16,8 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   fabricates each later turn's own resulting diff by hand — same convention
   as `default-workflow.feature` and `spec-review-judgments.feature` — since
   no real driver runs a script or an agent in this harness; only gtd's own
-  routing is under test. The
-  `seeding`/`picking` scripts themselves are rendered and executed for real by
-  `src/workflows/qualityLapScripts.test.ts`.
+  routing is under test. `quality-lap-exec.feature` runs `seeding` and
+  `picking` for real through `gtd exec`.
 
   @inmem
   Scenario: two dimensions queue and drain in padded order, then the clean lap hands straight on to the human review

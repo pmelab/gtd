@@ -210,6 +210,12 @@ turn they check:
 - `requireRevert(edited, base)` — refuses a turn that left any of the `edited`
   changes differing from their content before them
 
+Every step a fragment runs itself is a callback `run`, so a driver needs
+`gtd exec` for it. A suite check (`green`, `healthy`, `entryGate`) takes
+`{ command, label?, sweep?, sweepOnGreen? }`: it removes `sweep`, runs
+`command()` in `sh`, and on failure writes its output to `.gtd/FEEDBACK.md`; on
+success it removes `.gtd/FEEDBACK.md` and `sweepOnGreen`.
+
 Call a fragment inside `scope()` to place it: the bundled workflow's
 `scope("build", …)` around `healthy` is what makes `build.health.check`.
 

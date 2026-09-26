@@ -204,9 +204,16 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: do it.
+
+      ## Open Questions
+
+      ### Which API?
+
+      - [ ] REST
+      - [ ] GraphQL
       """
     And gtd lands "gtd(agent): design.triage → design.gate.check"
-    # simulate the question check finding an open question
+    # the question check finds the open question; its capture, given by hand
     And a file ".gtd/QUESTIONS.md" with:
       """
       open
@@ -244,9 +251,16 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
+
+      ## Open Questions
+
+      ### Which API?
+
+      - [ ] REST
+      - [ ] GraphQL
       """
     And gtd lands "gtd(agent): design.triage → design.gate.check"
-    # simulate the question check finding an open question
+    # the question check finds the open question; its capture, given by hand
     And a file ".gtd/QUESTIONS.md" with:
       """
       open

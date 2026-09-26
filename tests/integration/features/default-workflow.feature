@@ -390,7 +390,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(agent): build.review.collecting → re-unwind"
     And ".gtd/REVIEW_RAW.md" does not exist
 
-    # re-unwind: simulate the scoped `git apply -R` — @inmem never executes
+    # re-unwind: simulate the revert — @inmem never executes
     # scripts — by reverting the human's hand-edit ourselves. The human's own
     # commit ADDED src/calc.ts, so a real reverse-apply of it DELETES the  # gtd-path-exempt: scenario fixture, not a repo file
     # file, not merely rewrites its content. The human's intent survives only
@@ -460,7 +460,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): build.review.collecting → re-unwind"
 
-    # re-unwind: `git apply -R` failed and applied nothing — the tree is still
+    # re-unwind: the revert applied nothing — the tree is still
     # byte-for-byte the human's hand-edit, the exact shape a failed apply
     # leaves (an @inmem scenario never executes the check script, which makes
     # this the correct way to simulate that failure). The require-revert
@@ -576,6 +576,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: re-unwind actually reverts a hand-edited code line, never resurrects the review file, and leaves the state dir alone
     Given a test project
     And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
       """
@@ -626,9 +627,10 @@ Feature: The bundled unified workflow — one flow, end to end
     And ".gtd/marker.md" exists
 
   @live
-  Scenario: re-unwind on a note-only review round applies no patch (an empty patch is not a valid git apply input) and the C row still advances to design.triage
+  Scenario: re-unwind on a note-only review round reverts nothing and still advances to design.triage
     Given a test project
     And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
       """
@@ -684,9 +686,10 @@ Feature: The bundled unified workflow — one flow, end to end
     And the git status is clean
 
   @live
-  Scenario: a genuinely failing `git apply -R` is refused, not silently swallowed
+  Scenario: a revert that cannot apply is refused, not silently swallowed
     Given a test project
     And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
       """
@@ -717,12 +720,9 @@ Feature: The bundled unified workflow — one flow, end to end
     And the file ".gtd/REVIEW.md" is deleted
     And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
     # The collecting → re-unwind commit ALSO rewrites the exact line the
-    # human's own commit touched — a rewrite with no shared context, so the
-    # reverse-apply of the human's patch has nothing to match. This is the
-    # "atomic patch applies nothing" failure the require-revert guard exists
-    # to catch: `git apply -R` exits non-zero, the script's own
-    # `|| echo … >&2` swallows that into exit 0, and the tree is left clean —
-    # indistinguishable from a legitimate note-only round without the guard.
+    # human's own commit touched, so re-unwind must not overwrite it: it
+    # leaves the path alone and the tree clean — indistinguishable from a
+    # legitimate note-only round without the require-revert check.
     Given "src/thing.ts" is modified to:
       """
       export const thing = 1
@@ -1872,6 +1872,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: gtd next at await-review leaves HEAD untouched and writes no worktree ref
     Given a test project
     And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
       """
@@ -2094,6 +2095,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # "packages.item"; build/build.review are "build"/"build.review".
     Given a test project
     And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "start"
     And gtd enters "start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"

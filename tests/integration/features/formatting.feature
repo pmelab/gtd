@@ -188,9 +188,16 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       A plan.
+
+      ## Open Questions
+
+      ### Which API?
+
+      - [ ] REST
+      - [ ] GraphQL
       """
     And gtd lands "gtd(agent): design.triage → design.gate.check"
-    # simulate the question check finding an open question
+    # the question check finds the open question; its capture, given by hand
     And a file ".gtd/QUESTIONS.md" with:
       """
       open

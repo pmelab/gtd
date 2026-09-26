@@ -203,7 +203,7 @@ concerns.
 its phase's steering file (`.gtd/REQUIREMENTS.md` or `.gtd/ARCHITECTURE.md`) has
 an unanswered open question — a question-free phase skips the human stop
 entirely. Its presence is signaled by the `.gtd/QUESTIONS.md` marker file,
-stamped or removed by the gate's own check script and never read for content.
+stamped or removed by the gate's own check step and never read for content.
 
 **Green baseline**: The test run every entry opens with, proving the suite was
 already green before gtd changed anything — so a later red run is attributable.

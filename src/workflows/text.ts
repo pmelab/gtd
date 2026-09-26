@@ -17,6 +17,11 @@ export const withSkills = (skills: string | undefined, prompt: string): string =
   return `${preamble.replaceAll("{skills}", skills)}\n\n${prompt}`
 }
 
+export const unwindFailure = (commit: string, code: number, output: string): string =>
+  `gtd could not unwind ${commit} out of your working tree.
+
+${output.length > 0 ? output : `\`git revert --no-commit\` exited ${code} and produced no output.\n`}`
+
 export const idleMessage = (): string =>
   `No active gtd process.
 
@@ -34,67 +39,6 @@ What each change does next (then run \`gtd land\`):
 - **Start** — make any change — gtd unwinds it out of your working tree (its intent survives in history) before checking the test baseline is green, then triages the reverted diff into ordered, classified concerns and resolves product questions, then technical ones, before building each concern's package (**unwind** -> **start-gate.check**).
 `
 
-export const suiteCheckScript = (): string =>
-  `#!/usr/bin/env sh
-set +e
-mkdir -p .gtd
-# Sweep a raw review capture an earlier, abandoned process may have
-# left behind — no ordinary path from deciding/collecting reaches
-# this check.
-rm -f .gtd/REVIEW_RAW.md
-# And sweep the quality lap's own leftovers. \`.gtd/QUALITY_DONE.md\`
-# is a PER-EPISODE guard that \`build.quality.seeding\` short-circuits
-# on; the only other sweeper is \`packageLoop.picking\`, which an
-# entry never visits. Without this, the second and later
-# \`--entry fix-precheck\`/\`review-gate.check\` runs in a repository
-# would silently skip every configured lens. An entry IS a new
-# episode, so the whole lap state goes, not just the marker.
-rm -f .gtd/NEXT_REVIEW.md .gtd/QUALITY.md .gtd/QUALITY_DONE.md .gtd/QUALITY_READY.md
-rm -rf .gtd/reviews
-${vars.testCommand} > .gtd/.check-output 2>&1
-code=$?
-if [ "$code" -ne 0 ]; then
-  if [ -s .gtd/.check-output ]; then
-    mv .gtd/.check-output .gtd/FEEDBACK.md
-  else
-    rm -f .gtd/.check-output
-    printf 'the test command failed with exit code %s and produced no output.' "$code" > .gtd/FEEDBACK.md
-  fi
-  # Stamp with HEAD so a repeat identical failure still re-registers
-  # as an M/A edit instead of looking byte-identical (GREEN).
-  printf '\\n<!-- gtd check %s -->\\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/FEEDBACK.md
-else
-  rm -f .gtd/.check-output
-  rm -f .gtd/FEEDBACK.md
-fi
-`
-
-export const unwindScript = (): string =>
-  `#!/usr/bin/env sh
-set +e
-mkdir -p .gtd
-# The commit the flow stands on, not bare HEAD, so a late-running
-# driver still reverts the right commit.
-commit="${head()}"
-git revert --no-commit "$commit" 2> .gtd/.unwind-error
-code=$?
-# The revert's EXIT CODE is what separates a genuine no-op from a
-# hard failure (e.g. a merge commit with no \`-m\`) — the diff alone
-# cannot, since both can leave a clean tree. Turning the failure
-# into a FEEDBACK.md write is what makes the \`C\` row below safe:
-# once a failure always has a diff, a clean tree here means the
-# revert really did succeed and change nothing.
-if [ "$code" -ne 0 ]; then
-  printf 'gtd could not unwind %s out of your working tree.\\n\\n' "$commit" > .gtd/FEEDBACK.md
-  if [ -s .gtd/.unwind-error ]; then
-    cat .gtd/.unwind-error >> .gtd/FEEDBACK.md
-  else
-    printf '\`git revert --no-commit\` exited %s and produced no output.\\n' "$code" >> .gtd/FEEDBACK.md
-  fi
-fi
-rm -f .gtd/.unwind-error
-`
-
 export const unwindFailedMessage = (): string =>
   `gtd could not revert your sketch out of the working tree.
 \`.gtd/FEEDBACK.md\` holds the error.
@@ -107,23 +51,6 @@ What each change does next (then run \`gtd land\`):
 - **Continue** — having undone the sketch by hand, check the test baseline is green and start triage (**start-gate.check**).
 `
 
-export const reUnwindScript = (base: string): string =>
-  `#!/usr/bin/env sh
-# Scoped revert of the human's review-round edit — .gtd/ excluded
-# (the guard's isCodePath re-derives the same exemption; keep both
-# in sync). Expected to succeed; requireRevert catches a silent
-# apply failure.
-set +e
-commit="${base}"
-patch=.gtd/.re-unwind.patch
-mkdir -p .gtd
-git diff --binary "$commit^" "$commit" -- . ":(exclude).gtd" > "$patch"
-if [ -s "$patch" ]; then
-  git apply -R "$patch" || echo "re-unwind: could not revert $commit" >&2
-fi
-rm -f "$patch"
-`
-
 export const architecturePreMessage = (): string =>
   `Judging whether \`.gtd/REQUIREMENTS.md\`'s settled concerns need a
 dedicated architecture pass — real structural decisions, multiple
@@ -132,18 +59,6 @@ are written. Run \`gtd judge answer\` and pipe a verdict for
 \`architectureWarranted\` — or land untouched to run the full pass
 (the conservative default; a skipped judgment never suppresses
 it).
-`
-
-export const architecturePromoteScript = (): string =>
-  `#!/usr/bin/env sh
-set +e
-mkdir -p .gtd/packages
-title=$(awk '/^\`\`\`/{f=!f} !f && /^## /{sub(/^## /,""); print; exit}' .gtd/REQUIREMENTS.md)
-[ -z "$title" ] && title=package
-slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' \\
-  | sed 's/[^a-z0-9]\\{1,\\}/-/g; s/^-*//; s/-*$//')
-[ -z "$slug" ] && slug=package
-mv .gtd/REQUIREMENTS.md ".gtd/packages/01-\${slug}.md"
 `
 
 export const startGateBlockedMessage = (): string =>
@@ -243,27 +158,6 @@ export const designSystem = (): string =>
   `${vars.designPersona}
 
 ${vars.agentConduct}`
-
-export const questionCheckScript = (): string =>
-  `#!/usr/bin/env sh
-# Exactly one of REQUIREMENTS.md/ARCHITECTURE.md exists on disk at
-# a time — architecture.author deletes the former in the same turn
-# it writes the latter — so this probe is unambiguous either way.
-set +e
-mkdir -p .gtd
-file=.gtd/REQUIREMENTS.md
-[ -f "$file" ] || file=.gtd/ARCHITECTURE.md
-gtd check qa "$file" --open-questions > /dev/null 2>&1
-code=$?
-if [ "$code" -ne 0 ]; then
-  printf 'open questions remain in %s\\n' "$file" > .gtd/QUESTIONS.md
-  # See the shared suite check's cache-buster rationale on
-  # \`entryGate.check\` above.
-  printf '\\n<!-- gtd check %s -->\\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/QUESTIONS.md
-else
-  rm -f .gtd/QUESTIONS.md
-fi
-`
 
 export const designGateAnswerMessage = (): string =>
   `Answering here closes a gap between what you want the product to
@@ -400,32 +294,6 @@ What each change does next (then run \`gtd land\`):
 - **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it. To accept the plan as-is instead, revert everything and re-run — a clean tree is the only accept gesture.
 `
 
-export const packagesPickingScript = (): string =>
-  `#!/usr/bin/env sh
-# Mechanics only — NEXT.md's presence/absence is interpreted by
-# the \`on\` rows below, never here.
-set +e
-mkdir -p .gtd
-# Sweep spent design/architecture steering files (gone by now), any
-# REVIEW_RAW.md the review loop-back left behind, and the quality
-# lap's own state (its queue, its picked lens, its findings and
-# markers) — the only sweeper on that path before any of these
-# would leak into a later \`gtd summary\` prompt's diff range. A
-# feedback loop-back therefore clears \`.gtd/QUALITY_DONE.md\` too,
-# re-running the whole lap.
-rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md .gtd/NEXT_REVIEW.md .gtd/QUALITY*.md
-rm -rf .gtd/reviews
-# Names are gtd-authored, never containing whitespace — safe to
-# disable SC2012.
-# shellcheck disable=SC2012
-next=$(ls .gtd/packages/*.md 2>/dev/null | head -n 1)
-if [ -n "$next" ]; then
-  printf '%s' "$next" > .gtd/NEXT.md
-else
-  rm -f .gtd/NEXT.md
-fi
-`
-
 export const packagesItemBuildingPrompt = (): string =>
   `${vars.stateFileRules}
 - The only state file this turn may write is \`.gtd/SATISFIED.md\`;
@@ -467,52 +335,6 @@ export const packagesItemFixSpecPrompt = (): string =>
   resolve every concern
 - Delete \`.gtd/SPEC_FEEDBACK.md\` once resolved; leave everything
   else uncommitted and finish your turn
-`
-
-export const packagesItemClosingScript = (): string =>
-  `#!/usr/bin/env sh
-# Removes the just-reviewed package file (path in NEXT.md) plus
-# leftover spec feedback/evidence, so picking selects the next.
-# Reached only on spec-review approval — that loop carries no retry
-# cap, so there is no force-close path here.
-set +e
-pkg=$(cat .gtd/NEXT.md 2>/dev/null)
-[ -n "$pkg" ] && rm -f "$pkg"
-rm -f .gtd/SPEC_FEEDBACK.md .gtd/NEXT.md .gtd/SATISFIED.md
-`
-
-export const healthCheckScript = (): string =>
-  `#!/usr/bin/env sh
-set +e
-mkdir -p .gtd
-# Sweep a raw review capture an earlier, abandoned process may have
-# left behind — no ordinary path from deciding/collecting reaches
-# this check (same as entryGate.check's own sweep).
-rm -f .gtd/REVIEW_RAW.md
-${vars.testCommand} > .gtd/.check-output 2>&1
-code=$?
-if [ "$code" -ne 0 ]; then
-  if [ -s .gtd/.check-output ]; then
-    mv .gtd/.check-output .gtd/FEEDBACK.md
-  else
-    rm -f .gtd/.check-output
-    printf 'the test command failed with exit code %s and produced no output.' "$code" > .gtd/FEEDBACK.md
-  fi
-  # Stamp with HEAD so a repeat identical failure still re-registers
-  # as an M/A edit instead of looking byte-identical (GREEN).
-  printf '\\n<!-- gtd check %s -->\\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/FEEDBACK.md
-else
-  rm -f .gtd/.check-output
-  rm -f .gtd/FEEDBACK.md
-  # \`.gtd/ESCALATION.md\` is swept ONLY here, on a genuinely green
-  # result — never on a still-red round, so an unresolved analysis
-  # a fix turn left in place (fixFeedbackPrompt never deletes it)
-  # survives every retry within the same episode. That also makes
-  # its deletion a reliable "this episode's escalation budget just
-  # reset" signal: \`escalate\`'s own script (below) anchors its
-  # round count on the most recent such deletion.
-  rm -f .gtd/ESCALATION.md
-fi
 `
 
 export const healthJudgeMessage = (): string =>
@@ -626,42 +448,6 @@ export const buildFixQualityPrompt = (): string =>
 - Delete \`.gtd/QUALITY.md\` and \`.gtd/QUALITY_READY.md\` once every
   finding is resolved
 - Leave everything else uncommitted and finish your turn
-`
-
-export const buildQualitySeedingScript = (): string =>
-  `#!/usr/bin/env sh
-set +e
-[ -f .gtd/QUALITY_DONE.md ] && exit 0
-mkdir -p .gtd/reviews
-i=1
-list="${vars.qualityReviews}"
-IFS=,
-for name in $list; do
-  trimmed=$(printf '%s' "$name" | sed 's/^ *//; s/ *$//')
-  if [ -n "$trimmed" ]; then
-    printf '%s' "$trimmed" > "$(printf '.gtd/reviews/%02d-%s.md' "$i" "$trimmed")"
-    i=$((i + 1))
-  fi
-done
-`
-
-export const buildQualityPickingScript = (): string =>
-  `#!/usr/bin/env sh
-set +e
-# Names are gtd-authored, never containing whitespace — safe to
-# disable SC2012.
-# shellcheck disable=SC2012
-next=$(ls .gtd/reviews/*.md 2>/dev/null | head -n 1)
-if [ -n "$next" ]; then
-  cp "$next" .gtd/NEXT_REVIEW.md
-  rm -f "$next"
-else
-  rm -f .gtd/NEXT_REVIEW.md
-  : > .gtd/QUALITY_DONE.md
-  if [ -s .gtd/QUALITY.md ]; then
-    : > .gtd/QUALITY_READY.md
-  fi
-fi
 `
 
 export const buildQualityReviewingPrompt = (): string =>

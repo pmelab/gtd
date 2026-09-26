@@ -42,11 +42,18 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Add a feature.
+
+      ## Open Questions
+
+      ### Which feature?
+
+      - [ ] Search
+      - [ ] Export
       """
     And gtd lands "gtd(agent): design.triage → design.gate.check"
     And a file ".gtd/QUESTIONS.md" with:
       """
-      - [ ] Which feature?
+      open questions remain in .gtd/REQUIREMENTS.md
       """
     And gtd lands "gtd(check): design.gate.check → design.gate.answer"
     And the git index has settled

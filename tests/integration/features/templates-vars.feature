@@ -111,24 +111,6 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Then it succeeds
     And stdout does not contain "hello"
 
-  Scenario: the bundled workflow's "build.health.check" script renders "npm test" from its own declared default
-    Given a test project
-    And the workflow
-    And gtd enters "fix-precheck"
-    And a file ".gtd/FEEDBACK.md" with:
-      """
-      1 failing test
-      """
-    And gtd lands "gtd(check): fix-precheck → build.fix"
-    And a file "src/thing.ts" with:
-      """
-      export const thing = 1
-      """
-    And gtd lands "gtd(agent): build.fix → build.health.check"
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "npm test > .gtd/.check-output"
-
   Scenario: a top-level "vars:" overrides the workflow's own testCommand default
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -162,26 +144,6 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     When I run gtd next
     Then it succeeds
     And stdout contains "echo overridden"
-    And stdout does not contain "npm test >"
-
-  Scenario: a "GTD_TESTCOMMAND" environment variable overrides the bundled workflow's own testCommand
-    Given a test project
-    And the workflow
-    And gtd enters "fix-precheck"
-    And a file ".gtd/FEEDBACK.md" with:
-      """
-      1 failing test
-      """
-    And gtd lands "gtd(check): fix-precheck → build.fix"
-    And a file "src/thing.ts" with:
-      """
-      export const thing = 1
-      """
-    And gtd lands "gtd(agent): build.fix → build.health.check"
-    And an environment variable "GTD_TESTCOMMAND" set to "echo env-wins"
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "echo env-wins"
     And stdout does not contain "npm test >"
 
   Scenario: an agent step's "model" read from "vars" shows in "gtd next --json"

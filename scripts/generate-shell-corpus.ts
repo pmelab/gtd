@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { renderScript, SCRIPT_NAMES } from "../src/workflows/text.fixture.js"
 import {
   commitAll,
   commitAsIs,
@@ -81,23 +80,6 @@ const combinedOptional = emitScripts(
   [{ kind: "gitWrite", command: combinedOptionalBare }],
 ).optional
 add("combined.with-optional.sh", combinedScript(combinedRequired, combinedOptional))
-
-// ── 2. Every script text of the bundled workflow, rendered against a fixed
-// context, one "workflow.<export>.sh" file each.
-
-for (const name of SCRIPT_NAMES) {
-  add(
-    `workflow.${name}.sh`,
-    renderScript(name, {
-      read: (path) => {
-        throw new Error(`generate-shell-corpus: unexpected read(${path}) while rendering "${name}"`)
-      },
-      start: SAMPLE_HEAD,
-      head: SAMPLE_HEAD_2,
-      base: SAMPLE_HEAD,
-    }),
-  )
-}
 
 const writeInto = (dir: string): void => {
   mkdirSync(dir, { recursive: true })
