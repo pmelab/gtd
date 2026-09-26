@@ -20,6 +20,7 @@ import type { MachineNode } from "./Machines.js"
 import type { ResolvedRest } from "./Edge.js"
 import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
 import visualizeHtml from "./visualize.html"
+import type { FlowGraph, NodeKind } from "./analyze/index.js"
 
 /** One `on` edge, flattened for the viewer. */
 export interface VizEdge {
@@ -311,6 +312,84 @@ export const buildVizModel = (
     vars,
     fieldDocs: FIELD_DOCS,
   }
+}
+
+const GRAPH_KIND: Readonly<Record<NodeKind, string>> = {
+  agent: "prompt",
+  human: "message",
+  run: "script",
+  judge: "message",
+  restart: "restart",
+}
+
+const GRAPH_ACTOR: Readonly<Record<NodeKind, string | undefined>> = {
+  agent: "agent",
+  human: "human",
+  run: "check",
+  judge: "judge",
+  restart: undefined,
+}
+
+/** Every scope prefix of `scope`, outermost first: `a.b.c` → `a`, `a.b`, `a.b.c`. */
+const scopePrefixes = (scope: string): string[] =>
+  scope === "" ? [] : scope.split(".").map((_, i, parts) => parts.slice(0, i + 1).join("."))
+
+/**
+ * The viewer's model, read off the analyzer's step graph: an edge's `pattern`
+ * carries the source text of the conditions along its path, and each scope
+ * becomes a cluster.
+ */
+export const buildGraphVizModel = (graph: FlowGraph, vars: Record<string, string>): VizModel => {
+  const incoming = new Map<string, Array<{ from: string; pattern: string }>>()
+  for (const edge of graph.edges) {
+    const list = incoming.get(edge.to) ?? []
+    list.push({ from: edge.from, pattern: edge.label })
+    incoming.set(edge.to, list)
+  }
+  const defaultEntry = graph.entries.find((entry) => entry.name === "default")
+  const initial = defaultEntry?.edges[0]?.to ?? ""
+  const manual = new Set(
+    graph.entries
+      .filter((entry) => entry.name !== "default")
+      .flatMap((e) => e.edges.map((x) => x.to)),
+  )
+  const states = graph.nodes.map((node): VizState => {
+    const fields: Record<string, unknown> = { actor: GRAPH_ACTOR[node.kind] }
+    for (const key of VIZ_FIELD_NAMES) {
+      if (node.options[key] !== undefined) fields[key] = node.options[key]
+    }
+    return stripUndefined({
+      name: node.name,
+      ...fields,
+      kind: GRAPH_KIND[node.kind],
+      content: node.content,
+      initial: node.name === initial ? true : undefined,
+      flags: [
+        ...FLAG_KEYS.filter((key) => node.options[key] === true),
+        ...(manual.has(node.name) ? ["entry"] : []),
+      ],
+      on: graph.edges
+        .filter((e) => e.from === node.name)
+        .map((e) => ({ pattern: e.label, to: e.to })),
+      routes: [],
+      incoming: incoming.get(node.name) ?? [],
+      group: node.scope === "" ? undefined : node.scope,
+    }) as unknown as VizState
+  })
+  const scopes = [...new Set(graph.nodes.flatMap((node) => scopePrefixes(node.scope)))].sort()
+  const groups = scopes.map((name): VizGroup => {
+    const dot = name.lastIndexOf(".")
+    const model = graph.nodes.find((n) => n.scope === name && n.kind === "agent")?.options.model
+    return {
+      name,
+      machine: name,
+      states: graph.nodes.filter((n) => n.scope === name).map((n) => n.name),
+      ...(dot === -1 ? {} : { parent: name.slice(0, dot) }),
+      depth: name.split(".").length - 1,
+      ...(typeof model === "string" ? { model } : {}),
+    }
+  })
+  return { states, initial, groups, vars, fieldDocs: FIELD_DOCS }
 }
 
 /** One `on` edge from the currently-rested state, flagged with whether it's the one `gtd land` would fire right now. */

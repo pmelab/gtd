@@ -9,6 +9,9 @@ export interface Diagnostic {
   readonly message: string
   readonly path: readonly (string | number)[]
   readonly origin: string
+  /** A source position, for a finding against TypeScript source rather than a config path. */
+  readonly line?: number
+  readonly column?: number
 }
 
 /** The origin stamped on a finding against gtd's bundled default workflow — never a real layer filepath, always sorted last. */
@@ -58,6 +61,7 @@ export const sortDiagnostics = (
 
 /** One finding, printable: `<origin>: <path>: <message>` — the structured replacement for the old prose bullet list. */
 export const formatDiagnostic = (d: Diagnostic): string => {
+  if (d.line !== undefined) return `${d.origin}:${d.line}:${d.column ?? 1}: ${d.message}`
   const path = d.path.length > 0 ? d.path.join(".") : "(top level)"
   return `${d.origin}: ${path}: ${d.message}`
 }
@@ -71,7 +75,7 @@ export const dedupeDiagnostics = (diagnostics: readonly Diagnostic[]): Diagnosti
   const seen = new Set<string>()
   const out: Diagnostic[] = []
   for (const d of diagnostics) {
-    const key = JSON.stringify([d.severity, d.path, d.message, d.origin])
+    const key = JSON.stringify([d.severity, d.path, d.message, d.origin, d.line, d.column])
     if (seen.has(key)) continue
     seen.add(key)
     out.push(d)

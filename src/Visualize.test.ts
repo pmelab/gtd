@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest"
 import { compileWorkflowConfig } from "./PatternConfig.js"
 import {
   buildCurrentStateModel,
+  buildGraphVizModel,
   buildVizModel,
   handleVizRequest,
   startVizServer,
   type CurrentStateModel,
 } from "./Visualize.js"
+import type { FlowGraph } from "./analyze/index.js"
 import type { ResolvedRest } from "./Edge.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { STATE_FIELDS } from "./StateFields.js"
@@ -570,5 +572,76 @@ describe("startVizServer's /state.json route", () => {
     } finally {
       server.close()
     }
+  })
+})
+
+describe("buildGraphVizModel", () => {
+  const graph: FlowGraph = {
+    entries: [
+      { name: "default", edges: [{ to: "idle", label: "" }] },
+      { name: "fix-precheck", edges: [{ to: "build.check", label: "" }] },
+    ],
+    nodes: [
+      {
+        name: "idle",
+        kind: "human",
+        scope: "",
+        options: { file: "TODO.md" },
+        file: "c.ts",
+        line: 1,
+      },
+      {
+        name: "build.check",
+        kind: "run",
+        scope: "build",
+        options: {},
+        content: "npm test",
+        file: "c.ts",
+        line: 2,
+      },
+      {
+        name: "build.fix",
+        kind: "agent",
+        scope: "build",
+        options: { model: "base", requireProgress: true },
+        file: "c.ts",
+        line: 3,
+      },
+    ],
+    edges: [
+      { from: "idle", to: "build.check", label: "" },
+      { from: "build.check", to: "build.fix", label: 'exists(".gtd/FEEDBACK.md")' },
+      { from: "build.fix", to: "build.check", label: "" },
+      { from: "build.check", to: "$end", label: '!(exists(".gtd/FEEDBACK.md"))' },
+    ],
+  }
+
+  it("carries each edge's path label in its pattern and clusters steps by scope", () => {
+    const model = buildGraphVizModel(graph, { testCommand: "npm test" })
+    expect(model.initial).toBe("idle")
+    const check = model.states.find((s) => s.name === "build.check")!
+    expect(check.kind).toBe("script")
+    expect(check.group).toBe("build")
+    expect(check.flags).toEqual(["entry"])
+    expect(check.on).toEqual([
+      { pattern: 'exists(".gtd/FEEDBACK.md")', to: "build.fix" },
+      { pattern: '!(exists(".gtd/FEEDBACK.md"))', to: "$end" },
+    ])
+    expect(check.incoming).toEqual([
+      { from: "idle", pattern: "" },
+      { from: "build.fix", pattern: "" },
+    ])
+    const fix = model.states.find((s) => s.name === "build.fix")!
+    expect(fix.flags).toEqual(["requireProgress"])
+    expect(fix.model).toBe("base")
+    expect(model.groups).toEqual([
+      {
+        name: "build",
+        machine: "build",
+        states: ["build.check", "build.fix"],
+        depth: 0,
+        model: "base",
+      },
+    ])
   })
 })
