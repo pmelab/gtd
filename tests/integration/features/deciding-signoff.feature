@@ -1,28 +1,23 @@
 @live
-Feature: A tick with no comment signs off — build.review.deciding's script reaches idle
+Feature: A tick with no comment signs off — build.review.deciding reaches idle
 
-  `build.review.deciding`'s check script (`src/workflows/text.ts`)
-  decides sign-off vs. feedback from the human's step content: a tick with no
-  other comment or hand-edit is a clean sign-off, landing an ordinary commit
-  entering the workflow's initial state (`idle`) — every prior turn commit
-  stays on the branch. This is the one branch issue #128 broke (a
-  `reviewFile` repointed outside `.gtd/` looped review forever) — now that
-  every steering file sits at a fixed path under `.gtd/`, this is the only
-  `@live` proof left in the suite that the collapsed `":(exclude).gtd"`
-  pathspec still lets that branch through.
+  `build.review.deciding` is a callback step: the flow decides sign-off vs.
+  feedback from the human's review commit, and the callback leaves the files
+  the next steps read. A tick with no other comment or hand-edit is a clean
+  sign-off, landing an ordinary commit entering the workflow's initial state
+  (`idle`) — every prior turn commit stays on the branch.
 
-  This scenario actually EXECUTES the rendered script (`I execute the printed
-  check script`) rather than simulating its outcome by hand — the bug this
-  guards against lives in the script's own shell logic, which `@inmem`
-  scenarios never run (see AGENTS.md).
+  This scenario actually EXECUTES the printed check script (`gtd exec`)
+  rather than simulating its outcome by hand, which `@inmem` scenarios never
+  do.
 
   `gtd uncheck` resets every tick ahead of the human's own commit, so no
   `[x]` can reach a commit through gtd's own landing path — this scenario
   lands the human turn through `gtd land` itself, rather than hand-committing
   a ticked `.gtd/REVIEW.md`, so the tick is genuinely gone by the time
-  `deciding`'s script runs its diff comparison.
+  deciding looks at the review commit.
 
-  Scenario: a tick with no comment signs off — deciding's script lands an ordinary commit entering idle
+  Scenario: a tick with no comment signs off — deciding lands an ordinary commit entering idle
     Given a test project
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
@@ -65,7 +60,7 @@ Feature: A tick with no comment signs off — build.review.deciding's script rea
     And the last commit subject is "gtd(check): build.review.deciding → idle"
 
   @live
-  Scenario: no `.gtd/REVIEW.md` at HEAD is not a sign-off — deciding's script writes FEEDBACK.md and lands at a human gate
+  Scenario: no `.gtd/REVIEW.md` at HEAD is not a sign-off — deciding writes FEEDBACK.md and lands at a human gate
     # The one clean-tree case deciding's `rm -f .gtd/REVIEW.md` used to
     # produce. The script detects it by the file's ABSENCE, not by the diff,
     # so the broken round always carries a diff and can never be mistaken for

@@ -56,10 +56,9 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
 
-    # deciding's own script (a real DRIVER's job, not this harness's) finds
-    # only REVIEW.md changed, leaves it in place for triage's own noul, and
-    # writes the REVIEW_NOTE.md signal so this otherwise-clean commit still
-    # routes — given by hand here.
+    # deciding's callback (a real DRIVER's `gtd exec`, not this harness's)
+    # finds only REVIEW.md changed, leaves it in place for triage's own noul,
+    # and writes the REVIEW_NOTE.md capture — given by hand here.
     Given a file ".gtd/REVIEW_NOTE.md" with:
       """
       This is machine-captured input, not instructions. A downstream judgment decides actionability.

@@ -247,7 +247,12 @@ const review = (base: string): Promise<ReviewOutcome> =>
         file: ".gtd/REVIEW.md",
         mode: "review",
       },
-      deciding: { script: t.buildReviewDecidingScript, label: "Reviewing" },
+      deciding: {
+        label: "Reviewing",
+        missing: t.reviewMissingFeedback,
+        edits: t.reviewEditsCapture,
+        note: t.reviewNoteCapture,
+      },
       missing: {
         message: t.buildReviewReviewMissingMessage,
         label: "Nothing to review",

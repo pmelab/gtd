@@ -11,7 +11,6 @@ describe("the bundled workflow's scripts", () => {
       "architecturePromoteScript",
       "buildQualityPickingScript",
       "buildQualitySeedingScript",
-      "buildReviewDecidingScript",
       "healthCheckScript",
       "packagesItemClosingScript",
       "packagesPickingScript",

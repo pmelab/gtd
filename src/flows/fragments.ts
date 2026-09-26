@@ -51,6 +51,7 @@ export interface JudgeTexts {
 }
 
 const FEEDBACK = ".gtd/FEEDBACK.md"
+const REVIEW = ".gtd/REVIEW.md"
 
 /** Whether the last step added or rewrote `path`. */
 const wrote = (path: string): boolean => changes(path).some((c) => c.status !== "deleted")
@@ -460,7 +461,16 @@ export interface ReviewTexts {
   /** The reviewer's prompt and the review gate's message take the round's base. */
   readonly reviewing: Omit<AgentSpec, "prompt"> & { readonly prompt: (base: string) => string }
   readonly awaitReview: Omit<HumanSpec, "message"> & { readonly message: (base: string) => string }
-  readonly deciding: RunSpec
+  /** What `review.deciding` writes for a round, each naming the round's commit. */
+  readonly deciding: {
+    readonly label?: string
+    /** `.gtd/FEEDBACK.md` when the round left no `.gtd/REVIEW.md`. */
+    readonly missing: (commit: string) => string
+    /** `.gtd/REVIEW_RAW.md` when the human edited code. */
+    readonly edits: (commit: string) => string
+    /** `.gtd/REVIEW_NOTE.md` when the human only left notes. */
+    readonly note: (commit: string) => string
+  }
   readonly missing: HumanSpec
   readonly triage: JudgeTexts
   /** What `review.triaging` writes to `.gtd/REVIEW_RAW.md` for an actionable round. */
@@ -565,26 +575,50 @@ export const reviewTail = async (texts: ReviewTexts, base: string): Promise<Revi
     }
     const edited = changes().filter((c) => isCode(c.path))
     const round = head()
-    await run("review.deciding", texts.deciding.script(), {
-      label: texts.deciding.label,
-      file: ".gtd/REVIEW.md",
-      mode: "review",
-      base: round,
-    })
-    const verdict = await decided(texts)
+    const kind = roundKind(edited)
+    await deciding(texts, kind, round)
+    const verdict = await decided(texts, kind)
     if (verdict === "signoff") return { verdict }
     if (verdict === "feedback") return { verdict, base: round, edited }
     await humanStep("review.review-missing", texts.missing)
   }
 }
 
-/** Route on what `review.deciding` left: `undefined` when it found no review to act on. */
-const decided = async (texts: ReviewTexts): Promise<"signoff" | "feedback" | undefined> => {
-  if (wrote(FEEDBACK)) return undefined
-  if (wrote(".gtd/REVIEW_RAW.md")) return collect(texts)
-  if (changes(".gtd/REVIEW_NOTE.md").some((c) => c.status === "added")) {
-    return (await triage(texts)) ? collect(texts) : "signoff"
-  }
-  if (changes(".gtd/REVIEW.md").some((c) => c.status === "deleted")) return "signoff"
-  return undefined
+/**
+ * What the human's review round was. The review gate clears every tick
+ * before its commit, so a changed `.gtd/REVIEW.md` is a note, never a tick.
+ */
+type RoundKind = "missing" | "edits" | "note" | "signoff"
+
+const roundKind = (edited: readonly Change[]): RoundKind => {
+  if (read(REVIEW) === undefined) return "missing"
+  if (edited.length > 0) return "edits"
+  if (changes(REVIEW).length > 0) return "note"
+  return "signoff"
+}
+
+/** Capture the round for the steps after it: a hand edit for collecting, a note for triage. */
+const deciding = (texts: ReviewTexts, kind: RoundKind, commit: string): Promise<void> => {
+  const { missing, edits, note } = texts.deciding
+  return run(
+    "review.deciding",
+    ({ fs }) => {
+      if (kind === "missing") fs.write(FEEDBACK, missing(commit))
+      if (kind === "edits") fs.write(".gtd/REVIEW_RAW.md", edits(commit))
+      if (kind === "note") fs.write(".gtd/REVIEW_NOTE.md", note(commit))
+      if (kind === "edits" || kind === "signoff") fs.rm(REVIEW)
+    },
+    { label: texts.deciding.label, file: REVIEW, mode: "review", base: commit },
+  )
+}
+
+/** `undefined` when there was no review to act on. */
+const decided = async (
+  texts: ReviewTexts,
+  kind: RoundKind,
+): Promise<"signoff" | "feedback" | undefined> => {
+  if (kind === "missing") return undefined
+  if (kind === "edits") return collect(texts)
+  if (kind === "note") return (await triage(texts)) ? collect(texts) : "signoff"
+  return "signoff"
 }
