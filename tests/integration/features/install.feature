@@ -37,34 +37,26 @@ Feature: gtd install — the driver-building briefing
 
   Scenario: the briefing names every field the current gtd next --json payload carries (drift guard)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            model: smart
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                label: "Doing the work"
-                file: "PLAN.md"
-                mode: qa
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "A DONE.md": idle
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await scope({ model: "smart" }, () =>
+          agent("working", "do the work described in NOTE.md", {
+            label: "Doing the work",
+            file: ".gtd/PLAN.md",
+            mode: "qa",
+          }),
+        )
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     And a file ".gtd/PLAN.md" with:
       """
       a prior draft, so the validate field resolves

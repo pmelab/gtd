@@ -11,50 +11,31 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { renderStateTemplate, type TemplateContext } from "../PatternTemplates.js"
-import { compileTemplate } from "./index.js"
+import { renderScript, type TextContext } from "./text.fixture.js"
 
 const execFileAsync = promisify(execFile)
 
-/**
- * Runs `qualityReview.seeding`/`qualityReview.picking` for real — same render
- * path `tests/tooling/shell-corpus.test.ts` and `scripts/generate-shell-corpus.ts`
- * use — rather than a hand-written fabrication of what the script would do.
- * `tests/integration/features/quality-review-lap.feature` stays `@inmem` and
- * covers gtd's ROUTING only; this covers the two scripts' own mechanics. Lives
- * beside `escalateScript.test.ts`/`reviewLapScripts.test.ts`/
- * `specReviewScripts.test.ts` — same shape, same `test-owns-impl` sibling
- * import of `renderStateTemplate`, no barrel export needed for it.
- */
+// Runs the quality lap's seeding/picking scripts for real;
+// quality-review-lap.feature covers the routing only.
 
-const baseContext = (dir: string, qualityReviews: string): TemplateContext => {
-  const { vars } = compileTemplate()
-  return {
-    startCommit: "",
-    currentCommit: "",
-    previousCommit: "",
-    state: "build.quality.seeding",
-    actor: "check",
-    reviewBase: "",
-    processBase: "",
-    processCost: 0,
-    processCostByModel: [],
-    read: (path: string) => readFileSync(join(dir, path), "utf8"),
-    diff: () => "",
-    tail: () => "",
-    diffTail: () => "",
-    sections: () => [],
-    vars: { ...vars, qualityReviews },
-    edges: [],
-  }
-}
+const baseContext = (dir: string, qualityReviews: string): TextContext => ({
+  read: (path: string) => {
+    try {
+      return readFileSync(join(dir, path), "utf8")
+    } catch {
+      return undefined
+    }
+  },
+  vars: { qualityReviews },
+})
 
-const scriptFor = (stateName: string, context: TemplateContext): string => {
-  const { definition } = compileTemplate()
-  const state = definition.states[stateName]
-  if (state?.script === undefined) throw new Error(`"${stateName}" is not a script state`)
-  return renderStateTemplate(state.script, context)
-}
+const SCRIPTS = {
+  "build.quality.seeding": "buildQualitySeedingScript",
+  "build.quality.picking": "buildQualityPickingScript",
+} as const
+
+const scriptFor = (stateName: keyof typeof SCRIPTS, context: TextContext): string =>
+  renderScript(SCRIPTS[stateName], context)
 
 const freshDir = (): string => mkdtempSync(join(tmpdir(), "quality-lap-scripts-"))
 

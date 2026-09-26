@@ -1,4 +1,6 @@
-import { dirname } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { cosmiconfigSync, defaultLoadersSync, type LoaderSync } from "cosmiconfig"
 import { Context, Effect, Layer } from "effect"
 
@@ -8,9 +10,20 @@ export interface ConfigLevel {
   readonly config: unknown
 }
 
+/** The workflow module found on the cwd→home walk, with its source. */
+export interface WorkflowModule {
+  readonly filepath: string
+  readonly source: string
+}
+
 interface ConfigDiscoveryOps {
   /** Every level found walking `root` up through `home`, OUTERMOST→INNERMOST. */
   readonly levels: (root: string, home: string) => Effect.Effect<readonly ConfigLevel[], Error>
+  /** The innermost `gtd.config.ts` walking `root` up through `home`, if any. */
+  readonly workflowModule: (
+    root: string,
+    home: string,
+  ) => Effect.Effect<WorkflowModule | undefined, Error>
   /** Whether a gtd config lives directly at `dir` — no ancestor walk. */
   readonly presentAt: (dir: string) => Effect.Effect<boolean, Error>
 }
@@ -23,6 +36,13 @@ interface ConfigDiscoveryOps {
  * silently resolving against the stale one: a green suite over a broken
  * product.
  */
+/**
+ * The one file a workflow is defined in. Searched on the same cwd→home walk as
+ * the `.gtdrc` family, but separately: a directory may hold both, and a
+ * `.gtdrc` there still contributes `vars`/`modes`/`ui`.
+ */
+export const WORKFLOW_MODULE = "gtd.config.ts"
+
 export const SEARCH_PLACES = [
   ".gtdrc",
   ".gtdrc.json",
@@ -102,6 +122,38 @@ const levels = (root: string, home: string): Effect.Effect<readonly ConfigLevel[
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
+const workflowModule = (
+  root: string,
+  home: string,
+): Effect.Effect<WorkflowModule | undefined, Error> =>
+  Effect.try({
+    try: () => {
+      for (const dir of walkUp(root, home)) {
+        const filepath = join(dir, WORKFLOW_MODULE)
+        if (existsSync(filepath)) return { filepath, source: readFileSync(filepath, "utf8") }
+      }
+      return undefined
+    },
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/**
+ * The shipped `src/flows/` directory — `@pmelab/gtd/flows` resolves there when
+ * a `gtd.config.ts` is evaluated. Found by walking
+ * up from this module to the package root, so it holds for the bundle in
+ * `dist/` and for the sources alike.
+ */
+export const flowsDir = (): string => {
+  let dir = dirname(fileURLToPath(import.meta.url))
+  for (;;) {
+    const candidate = join(dir, "src", "flows")
+    if (existsSync(join(candidate, "runtime.ts"))) return candidate
+    const parent = dirname(dir)
+    if (parent === dir) throw new Error("gtd: cannot locate the shipped src/flows directory")
+    dir = parent
+  }
+}
+
 const presentAt = (dir: string): Effect.Effect<boolean, Error> =>
   Effect.try({
     try: () => {
@@ -125,5 +177,5 @@ export class ConfigDiscovery extends Context.Tag("ConfigDiscovery")<
   ConfigDiscovery,
   ConfigDiscoveryOps
 >() {
-  static Live = Layer.succeed(ConfigDiscovery, { levels, presentAt })
+  static Live = Layer.succeed(ConfigDiscovery, { levels, presentAt, workflowModule })
 }

@@ -12,7 +12,6 @@
  */
 export {
   Workspace,
-  templateDiff,
   templateRead,
   templateReadCommitted,
   templateTail,

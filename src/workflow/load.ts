@@ -1,37 +1,32 @@
-import { dirname } from "node:path"
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
 import { Context, Effect, Layer, Schema } from "effect"
 import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../Commentary.js"
-import type { StateName, WorkflowDefinition } from "../PatternMachine.js"
-import type { MachineNode } from "../Machines.js"
+import { replay, treeFromRecord } from "../replay/index.js"
+import type { Workflow } from "../flows/index.js"
+import { unified as builtInWorkflow } from "../workflows/index.js"
+import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
-import { compileWorkflow, type ConfigLayer } from "./compile.js"
-import { ConfigDiscovery, type ConfigLevel } from "./discovery.js"
+import { compileConfig, type ConfigLayer } from "./compile.js"
+import { ConfigDiscovery, flowsDir, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
+  BUILT_IN_ORIGIN,
   formatDiagnostic,
   sortDiagnostics,
   type Diagnostic,
 } from "./Diagnostic.js"
-import type { WorkflowFiles } from "./WorkflowFiles.js"
 
 export interface ConfigOperations {
   readonly workflow: WorkflowDefinition
+  /** The workflow's own `vars:` defaults. */
   readonly workflowVars: Record<string, string>
   readonly rcVars: Record<string, string>
-  /** The active workflow's machine-instance tree, or the built-in default's tree when unconfigured. Tooling that needs the machine grouping the compiled `workflow` flattens away (e.g. `gtd visualize`) reads it; the pure engine never does. */
-  readonly machineTree: MachineNode
-  /** Qualified state name -> owning machine-instance path, or the built-in default's map when unconfigured. */
-  readonly stateScopes: Record<StateName, string>
   /** The top-level `ui:` key, decoded as-is (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: UiConfig
-  /**
-   * Non-fatal findings against the active workflow (e.g. a state with no `C`
-   * row) — `[]` for the built-in default, which ships with none. Full
-   * `Diagnostic`s (origin + config path), not bare strings — a caller
-   * printing one should go through `formatDiagnostic`, the same as an error.
-   */
+  /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
   readonly warnings: readonly Diagnostic[]
 }
 
@@ -144,7 +139,6 @@ export const load: Effect.Effect<
   Narrator | Workspace | Host | ConfigDiscovery
 > = Effect.gen(function* () {
   const narrator = yield* Narrator
-  const workspace = yield* Workspace
   const host = yield* Host
   const discovery = yield* ConfigDiscovery
   const levels = yield* discovery.levels(host.root, host.home)
@@ -153,38 +147,116 @@ export const load: Effect.Effect<
   const layers = decoded.flatMap((d) => (d.layer !== undefined ? [d.layer] : []))
   const decodeDiagnostics = decoded.flatMap((d) => d.diagnostics)
 
-  const files: WorkflowFiles = { read: workspace.atPath }
-  const compiled = compileWorkflow(layers, files)
-
-  const layerOrder = levels.map((level) => level.filepath)
+  const compiled = compileConfig(layers)
+  const module = yield* discovery.workflowModule(host.root, host.home)
+  const loaded = yield* Effect.try({
+    try: () => loadWorkflow(module),
+    catch: (e) =>
+      new GtdError(
+        `gtd config:\n  - ${module?.filepath ?? BUILT_IN_ORIGIN}: ${e instanceof Error ? e.message : String(e)}`,
+      ),
+  })
+  const layerOrder = [
+    ...levels.map((level) => level.filepath),
+    ...(module ? [module.filepath] : []),
+  ]
   const diagnostics = dedupeDiagnostics(
     sortDiagnostics([...decodeDiagnostics, ...compiled.diagnostics], layerOrder),
   )
 
   const fatal = diagnostics.filter((d) => d.severity === "error")
   if (fatal.length > 0) {
-    const lines = fatal.map(formatDiagnostic)
     // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
-    // (`src/Commentary.ts`) prints `message` verbatim (once already
-    // `gtd`-prefixed) and then ADDS one indented line per `detail` entry, so
-    // duplicating these lines into `detail` too would print each finding
-    // twice. Each line is one finding's `<origin>: <path>: <message>` —
-    // structured, replacing the old single prose blob.
+    // prints `message` verbatim and would print a duplicated `detail` twice.
+    const lines = fatal.map(formatDiagnostic)
     return yield* Effect.fail(
       new GtdError(`gtd config:\n${lines.map((line) => `  - ${line}`).join("\n")}`),
     )
   }
 
+  const initial = yield* firstStep(loaded, { ...loaded.workflow.vars, ...compiled.rcVars })
   return {
-    workflow: compiled.workflow,
-    workflowVars: compiled.workflowVars,
+    workflow: {
+      flows: loaded.workflow,
+      modes: compiled.modes,
+      initial,
+    },
+    workflowVars: { ...loaded.workflow.vars },
     rcVars: compiled.rcVars,
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
-    machineTree: compiled.machineTree,
-    stateScopes: compiled.stateScopes,
     warnings: diagnostics.filter((d) => d.severity === "warning"),
   }
 })
+
+interface LoadedModule {
+  readonly workflow: Workflow
+  readonly origin: string
+}
+
+type JitiInstance = {
+  evalModule: (source: string, options: { filename: string; async?: false }) => unknown
+}
+type JitiModule = {
+  createJiti: (id: string, options: Record<string, unknown>) => JitiInstance
+}
+
+// Loaded on first use: only a repository with its own gtd.config.ts needs it.
+let jitiModule: JitiModule | undefined
+const jiti = (): JitiInstance => {
+  jitiModule ??= createRequire(import.meta.url)("jiti") as JitiModule
+  return jitiModule.createJiti(import.meta.url, {
+    alias: { "@pmelab/gtd/flows": join(flowsDir(), "index.ts") },
+    // No transpile cache on disk, and a fresh module every load — nothing a
+    // later command could read back instead of the source.
+    fsCache: false,
+    moduleCache: false,
+    interopDefault: true,
+  })
+}
+
+const isWorkflow = (value: unknown): value is Workflow =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as { kind?: unknown }).kind === "gtd-workflow"
+
+/** Evaluate `gtd.config.ts`, or take the bundled default. */
+const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule => {
+  if (module === undefined) return { workflow: builtInWorkflow, origin: BUILT_IN_ORIGIN }
+  const exported = jiti().evalModule(module.source, { filename: module.filepath })
+  const workflow = (exported as { default?: unknown }).default ?? exported
+  if (!isWorkflow(workflow)) {
+    throw new Error('the default export is not a workflow(...) from "@pmelab/gtd/flows"')
+  }
+  return { workflow, origin: module.filepath }
+}
+
+/**
+ * The default entry's first step — where a finished process waits — found the
+ * only way a flow can be read: by replaying it over an empty history.
+ */
+const firstStep = (
+  loaded: LoadedModule,
+  vars: Readonly<Record<string, string>>,
+): Effect.Effect<string, GtdError> =>
+  Effect.flatMap(
+    Effect.promise(() =>
+      replay({
+        workflow: loaded.workflow,
+        episode: { entry: undefined, base: { hash: "", tree: treeFromRecord({}) }, commits: [] },
+        vars,
+        start: "",
+        budgetBytes: Number.MAX_SAFE_INTEGER,
+      }),
+    ),
+    (outcome) => {
+      if (outcome.kind === "rest") return Effect.succeed(outcome.rest.name)
+      const problem =
+        outcome.kind === "failed" || outcome.kind === "refused"
+          ? outcome.message.replace(/^gtd: /, "")
+          : "the default entry must begin at a step — that step is where a finished process waits"
+      return Effect.fail(new GtdError(`gtd config:\n  - ${loaded.origin}: ${problem}`))
+    },
+  )
 
 interface ConfigServiceOperations {
   readonly load: Effect.Effect<

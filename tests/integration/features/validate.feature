@@ -24,7 +24,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: a well-formed REQUIREMENTS.md at design.triage validates cleanly
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`.
 
@@ -34,6 +34,8 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       No, named export only.
       """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/REQUIREMENTS.md: valid"
@@ -41,7 +43,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: a malformed REQUIREMENTS.md at design.triage fails with the parser's finding
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
 
@@ -51,6 +53,8 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       A question heading with no question text.
       """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains ".gtd/REQUIREMENTS.md is not valid"
@@ -60,7 +64,16 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: a well-formed REVIEW.md at build.review.reviewing validates cleanly
     Given a test project
     And the workflow
-    And a commit "gtd(human): build.review.reviewing" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add thing" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -77,7 +90,16 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: a malformed REVIEW.md at build.review.reviewing fails with the parser's finding
     Given a test project
     And the workflow
-    And a commit "gtd(human): build.review.reviewing" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add thing" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
@@ -119,7 +141,8 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # declares both `file:` and `mode:`.
     Given a test project
     And the workflow
-    And an empty commit "gtd(human): design.triage"
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next with "--json=validate"
     Then it succeeds
     And stdout contains "gtd check qa"
@@ -127,10 +150,12 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next
     Then it succeeds
     # The instruction names the MODE's own resolved validation command — for a
@@ -142,10 +167,12 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: `gtd next --json` withholds the self-validation instruction but embeds the validate script
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
@@ -159,10 +186,12 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # formatting.feature).
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. This is a deliberately long single prose line that clearly exceeds the eighty character print width, and nothing rewraps it.
       """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd with args "validate"
     Then it succeeds
     And the git status is clean
@@ -170,10 +199,19 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: gtd land no longer runs format/validate — a malformed edit lands, and gtd validate is what still catches it
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: do it.
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    # simulate the question check finding an open question
+    And a file ".gtd/QUESTIONS.md" with:
+      """
+      open
+      """
+    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a thing. Plan: do it.
@@ -201,10 +239,19 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: the step gate captures a human's valid edit (routing it back to design.triage)
     Given a test project
     And the workflow
-    And a commit "gtd(human): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    # simulate the question check finding an open question
+    And a file ".gtd/QUESTIONS.md" with:
+      """
+      open
+      """
+    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`, with a named
@@ -213,42 +260,3 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.gate.answer → design.triage"
-
-  Scenario: a state-level "model:" is rejected at load time — a machine's own model is the only way to declare one
-    # A state's `model:` moved to the machine that owns it back in the
-    # machine-scoped-memory restructure (src/PatternConfig.ts's
-    # `LEGACY_STATE_KEY_HINTS`) — the compiler now points a stale `.gtdrc`
-    # authoring it directly on a state at the machine-level replacement
-    # (`machines.<name>.model`) instead of a bare "unknown key". This is a
-    # config LOAD failure (before `gtd validate` ever reaches a steering
-    # file), so any command surfaces it identically — `gtd validate` is as
-    # good a home for it as any other, alongside this file's other
-    # validate-error scenarios.
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                model: smart
-                prompt: "go"
-                on:
-                  "* **": idle
-      """
-    When I run gtd with args "validate"
-    Then it fails
-    And stderr contains "gtd config:"
-    And stderr contains "unknown key"
-    And stderr contains "model"
-    And stderr contains "machine"

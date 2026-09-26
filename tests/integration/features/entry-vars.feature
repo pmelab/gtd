@@ -12,35 +12,33 @@ Feature: "--var" persistence across a whole process, overridden by the environme
 
   Background:
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        vars:
-          greeting: hi
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work"
-                on:
-                  "* **": announcing
-              announcing:
-                actor: agent
-                prompt: "Greeting: <%= it.vars.greeting %>"
-                on:
-                  "* **": done
-              done:
-                actor: human
-                message: "done"
+      import { agent, human, vars, workflow, refuse } from "@pmelab/gtd/flows"
+
+      const announce = () => agent("announcing", `Greeting: ${vars.greeting}`)
+
+      const work = async () => {
+        await agent("working", "do the work")
+        await announce()
+      }
+
+      export default workflow(
+        async ({ entry }) => {
+          if (entry === "working") {
+            await work()
+            return
+          }
+          if (entry === "announcing") {
+            await announce()
+            return
+          }
+          if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+          await human("idle", { message: "start" })
+          await work()
+        },
+        { vars: { greeting: "hi" } },
+      )
       """
 
   Scenario: a "--var" value supplied at entry stays visible in a later turn's rendered prompt

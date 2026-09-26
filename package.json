@@ -6,8 +6,13 @@
   "bin": {
     "gtd": "dist/gtd.bundle.mjs"
   },
+  "exports": {
+    "./flows": "./src/flows/index.ts"
+  },
   "files": [
     "dist/",
+    "src/flows/",
+    "src/workflows/",
     "README.md",
     "LICENSE",
     "schema.json"
@@ -85,7 +90,6 @@
     "fallow": "3.25.0",
     "fast-check": "^4.8.0",
     "husky": "^9.1.7",
-    "jiti": "^2.7.0",
     "lint-staged": "^17.0.8",
     "oxfmt": "^0.59.0",
     "oxlint": "^1.74.0",
@@ -113,6 +117,7 @@
     "cosmiconfig": "^9.0.2",
     "effect": "^3.19.15",
     "eta": "^4.6.0",
+    "jiti": "^2.7.0",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm-footnote": "^2.1.0",
     "mdast-util-gfm-task-list-item": "^2.0.0",

@@ -26,8 +26,7 @@ import { Narrator } from "./Commentary.js"
 import { ConfigDiscovery, ConfigService } from "./workflow/index.js"
 import { GitService, Host, Workspace } from "./platform/index.js"
 import { currentRest, type RestRequirements } from "./Edge.js"
-import type { StateMode, WorkflowDefinition } from "./PatternMachine.js"
-import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
+import type { StateMode, WorkflowDefinition } from "./Workflow.js"
 import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
 import {
   viewOf,
@@ -157,18 +156,25 @@ export const basenameFallbackMode = (name: string): ResolvedMode | undefined => 
   return resolved.kind === "resolved" ? resolved : undefined
 }
 
-/** One `buildSteeringMap` finding: a state whose `file:` failed to render, a `mode:` that didn't resolve, or a path two states both declare (first wins). */
+/** One `buildSteeringMap` finding: a `mode:` that didn't resolve, or a path two steps both declare (first wins). */
 export type FileModeWarning = string
 
+/** A step's declared steering file and its mode, as replay reached it. */
+export interface SteeringStep {
+  readonly name: string
+  readonly file?: string | undefined
+  readonly mode?: string | undefined
+}
+
 /**
- * Render every state's declared `file:`/`mode:` pair into an absolute-path →
- * `ResolvedMode` map. A state whose `file:` fails to render or whose `mode:`
- * doesn't resolve is skipped with a warning, not fatal; a path two states
- * both declare keeps the first declaring state's mode, also warning.
+ * The `file:`/`mode:` pairs of the steps the current process has reached, as
+ * an absolute-path → `ResolvedMode` map. A flow is code, so only a step replay
+ * reached is known; a path two steps both declare keeps the first one's mode,
+ * warning.
  */
 export const buildSteeringMap = (
-  def: WorkflowDefinition,
-  vars: Record<string, string>,
+  def: Pick<WorkflowDefinition, "modes">,
+  steps: readonly SteeringStep[],
   root: string,
 ): {
   readonly map: ReadonlyMap<string, ResolvedMode>
@@ -176,26 +182,20 @@ export const buildSteeringMap = (
 } => {
   const map = new Map<string, ResolvedMode>()
   const warnings: FileModeWarning[] = []
-  for (const [name, stateDef] of Object.entries(def.states)) {
-    if (stateDef.file === undefined || stateDef.mode === undefined) continue
-    let rendered: string
-    try {
-      rendered = renderStateTemplate(stateDef.file, varsOnlyContext(vars, name))
-    } catch (e) {
-      warnings.push(
-        `state "${name}": "file:" failed to render, skipped — ${e instanceof Error ? e.message : String(e)}`,
-      )
-      continue
-    }
-    const absolute = resolvePath(root, rendered)
+  for (const node of steps) {
+    const { file, mode } = node
+    if (file === undefined || mode === undefined) continue
+    const absolute = resolvePath(root, file)
     const existing = map.get(absolute)
     if (existing !== undefined) {
-      warnings.push(
-        `"${absolute}" is already mapped to mode "${existing.mode}" by an earlier state; state "${name}"'s mode ("${stateDef.mode}") is ignored`,
-      )
+      if (existing.mode !== mode) {
+        warnings.push(
+          `"${absolute}" is already mapped to mode "${existing.mode}" by an earlier step; step "${node.name}"'s mode ("${mode}") is ignored`,
+        )
+      }
       continue
     }
-    const resolved = resolveMode(def, name, stateDef.mode)
+    const resolved = resolveMode(def, node.name, mode as StateMode)
     if (resolved.kind === "unknown") {
       warnings.push(`${resolved.message}, skipped`)
       continue
@@ -494,22 +494,6 @@ const gitLayerForRoot = (root: string) =>
 const workspaceLayerForRoot = (root: string) =>
   Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayerForRoot(root), gitLayerForRoot(root))))
 
-// Mirrors the `GTD_<NAME>` env-override half of `Edge.ts`'s `resolveVars` —
-// this call site has no resolved process, so there's no `entryVars` layer to merge.
-const GTD_ENV_PREFIX = "GTD_"
-export const mergeStaticVars = (
-  workflowVars: Record<string, string>,
-  rcVars: Record<string, string>,
-  env: Readonly<Record<string, string | undefined>>,
-): Record<string, string> => {
-  const merged = { ...workflowVars, ...rcVars }
-  for (const name of Object.keys(merged)) {
-    const value = env[GTD_ENV_PREFIX + name.toUpperCase()]
-    if (value !== undefined) merged[name] = value
-  }
-  return merged
-}
-
 /** The layers `LspEnv`'s Effects run against. `Narrator` is a permanent no-op — the LSP talks stdio JSON-RPC, with nothing to narrate onto — provided only so the shared `Narrator` requirement typechecks. */
 const layersForRoot = (root: string) =>
   Layer.mergeAll(
@@ -549,18 +533,33 @@ export const resolveSteeringFile: Effect.Effect<
   RestRequirements
 > = currentRest.pipe(Effect.map((rest) => ({ state: rest.state, file: rest.hints.file })))
 
+// A repository whose process cannot be resolved (no commits yet, a diverged
+// history) still has a config: it maps nothing but keeps the basename fallback.
+const reachedSteeringSteps: Effect.Effect<
+  { readonly def: Pick<WorkflowDefinition, "modes">; readonly steps: readonly SteeringStep[] },
+  Error,
+  RestRequirements
+> = Effect.gen(function* () {
+  const config = yield* (yield* ConfigService).load
+  const rest = yield* Effect.either(currentRest)
+  const steps =
+    rest._tag === "Left"
+      ? []
+      : rest.right.trace.map((step) => ({
+          name: step.name,
+          file: step.request.options.file,
+          mode: step.request.options.mode,
+        }))
+  return { def: config.workflow, steps }
+})
+
 /** The Node adapter: the only place `LspEnv`'s Effects/layers get built and run. `startLspServer` is its production caller; most `Lsp.test.ts` coverage exercises a fake `LspEnv` instead, but this is exported so the real wiring (real git/config/repo-files layers) gets exercised against a real temp repo too. */
 export const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => ({
   cwd: liveHost.root,
 
   steeringMapFor: async (root) => {
-    const { config, env } = await runtimeFor(root).runPromise(
-      Effect.gen(function* () {
-        return { config: yield* (yield* ConfigService).load, env: (yield* Host).env }
-      }),
-    )
-    const vars = mergeStaticVars(config.workflowVars, config.rcVars, env)
-    const { map, warnings } = buildSteeringMap(config.workflow, vars, root)
+    const { def, steps } = await runtimeFor(root).runPromise(reachedSteeringSteps)
+    const { map, warnings } = buildSteeringMap(def, steps, root)
     for (const warning of warnings) warn(warning)
     return map
   },

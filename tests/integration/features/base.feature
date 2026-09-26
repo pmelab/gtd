@@ -1,8 +1,8 @@
 Feature: gtd base — prints the review anchor hash, writing nothing
 
-  `gtd base` prints `reviewBaseFor(def, run)` bare and newline-terminated —
-  the most-recent in-process commit that entered a `reviewBase` state, or the
-  process's diff base when none has landed yet. It exists so an external
+  `gtd base` prints the review base bare and newline-terminated —
+  the `base` the resting step names, or the process's diff base when it
+  names none. It exists so an external
   tool (a diff, a PR tool, another agent) can be pointed at the range under
   review; gtd never reads the result back. Shaped exactly like `summary`:
   one `Rest` resolved, nothing written. It refuses (exit 1) when no process
@@ -12,38 +12,31 @@ Feature: gtd base — prints the review anchor hash, writing nothing
   @inmem
   Scenario: gtd base tracks the process's diff base, then each review round's own boundary
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": awaiting-review
-              awaiting-review:
-                actor: human
-                label: Awaiting your review
-                message: "leave FEEDBACK.md for changes, or touch SIGNOFF.md to sign off"
-                on:
-                  "* **": deciding
-              deciding:
-                actor: human
-                reviewBase: true
-                message: "sign off (clean tree) or send back for changes"
-                on:
-                  "A FEEDBACK.md": building
-                  "C": idle
+      import { agent, changes, head, human, refuse, start, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        let base = start()
+        for (;;) {
+          await agent("building", "build it", { base })
+          await human("awaiting-review", {
+            label: "Awaiting your review",
+            message: "leave FEEDBACK.md for changes, or touch SIGNOFF.md to sign off",
+            base,
+          })
+          base = head()
+          await human("deciding", {
+            base,
+            acceptClean: true,
+            message: "sign off (clean tree) or send back for changes",
+          })
+          if (changes("FEEDBACK.md").some((c) => c.status === "added")) continue
+          if (changes().length === 0) return
+          refuse("deciding: add FEEDBACK.md or land a clean tree")
+        }
+      })
       """
     And I mark the current commit as "boundary"
     And a file "NOTE.md" with:
@@ -150,24 +143,27 @@ Feature: gtd base — prints the review anchor hash, writing nothing
 
   @inmem
   Scenario: On the bundled workflow, gtd base agrees with the review round's own base marker and range
-    # Reaches `build.review.reviewing` the same way review-window.feature's
-    # Background does — two synthetic non-initial-state commits build up the
-    # reviewable diff, then an empty commit fakes resting at `reviewing`
-    # itself, skipping the agent's own authorship of the turn.
+    # Reaches `build.review.reviewing` by the shortest real history: two
+    # feature commits build up the reviewable diff, then `--entry
+    # review-gate.check` fixes the review base at "boundary" (the quality lap
+    # disabled).
     Given a test project
     And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "boundary"
-    And a commit "gtd(agent): building" that adds "src/calc.ts" with:
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): building" that adds "src/other.ts" with:
+    And a commit "feat: add helper" that adds "src/other.ts" with:
       """
       export const untouched = () => true
       """
-    And an empty commit "gtd(check): build.review.reviewing"
+    And gtd enters "review-gate.check" with "--var reviewBase=boundary"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
     # The reviewing prompt makes the agent write this marker verbatim as
-    # `<%= it.reviewBase %>` (src/workflows/unified.yaml:769). BASE here is
+    # `refs.reviewBase` (src/workflows/text.ts). BASE here is
     # substituted for the real hash "boundary" resolves to — not typed by
     # this scenario — so the assertions below compare `gtd base`'s output
     # against a value this scenario did not itself supply: two independently
@@ -206,25 +202,14 @@ Feature: gtd base — prints the review anchor hash, writing nothing
   @live
   Scenario: gtd base writes nothing — the repository is byte-identical before and after the call
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -243,25 +228,14 @@ Feature: gtd base — prints the review anchor hash, writing nothing
   @inmem
   Scenario: gtd base prints exactly one hash plus a newline — no label, no surrounding text
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
+      })
       """
     And a file "NOTE.md" with:
       """

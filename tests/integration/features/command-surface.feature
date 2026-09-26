@@ -3,7 +3,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
   gtd v3 exposes `init`, `land` (with `--cost=<n>`/`--model=<name>`),
   `abandon`, `restore`, `next`, `validate`, `check <mode> <file>`,
-  `uncheck <file>`, `lsp`, `visualize`, `version`, and `help` as its
+  `uncheck <file>`, `lsp`, `exec`, `version`, and `help` as its
   subcommands. `--entry
   <state>` is only the bare form (no command at all) — landing and entering
   are different verbs. Bare `gtd` (no subcommand) is a usage error unless
@@ -56,7 +56,8 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout contains "--var"
     And stdout contains "abandon"
     And stdout contains "next"
-    And stdout contains "visualize"
+    And stdout contains "exec"
+    And stdout does not contain "visualize"
     And stdout contains "check <mode> <file>"
     And stdout contains "--open-questions"
     And stdout contains "uncheck <file>"
@@ -121,7 +122,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
       | check qa TODO.md --json  |
       | uncheck REVIEW.md --json |
       | init --json              |
-      | visualize --json         |
+      | exec --json              |
       | install --json           |
       | abandon --json           |
       | restore --json           |

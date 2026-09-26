@@ -1,13 +1,6 @@
-/**
- * Runs via `jiti`, which can't load `../src/workflows/templates.js` (it
- * transitively imports `unified.yaml` as raw text through a loader jiti has
- * no equivalent for) — so this script reads the yaml directly instead.
- */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { parse as parseYaml } from "yaml"
-import { compileWorkflowConfig } from "../src/PatternConfig.js"
-import { renderStateTemplate, type TemplateContext } from "../src/PatternTemplates.js"
+import { renderScript, SCRIPT_NAMES } from "../src/workflows/text.fixture.js"
 import {
   commitAll,
   commitAsIs,
@@ -29,7 +22,6 @@ import {
 } from "../src/OutcomeScript.js"
 
 const CORPUS_DIR = join(import.meta.dirname, "..", "tests", "shell", "corpus")
-const UNIFIED_YAML_PATH = join(import.meta.dirname, "..", "src", "workflows", "unified.yaml")
 
 const SAMPLE_HEAD = "a".repeat(40)
 const SAMPLE_HEAD_2 = "b".repeat(40)
@@ -90,36 +82,21 @@ const combinedOptional = emitScripts(
 ).optional
 add("combined.with-optional.sh", combinedScript(combinedRequired, combinedOptional))
 
-// ── 2. Every `script` state of the bundled workflow, rendered against a
-// fixture context. Qualified state names only use [a-z0-9.-], already safe as
-// a filename component, so no sanitizing is needed — `tests/tooling/
-// shell-corpus.test.ts` relies on this exact "workflow.<qualified-name>.sh"
-// naming to cross-check corpus coverage.
+// ── 2. Every script text of the bundled workflow, rendered against a fixed
+// context, one "workflow.<export>.sh" file each.
 
-const unifiedYamlText = readFileSync(UNIFIED_YAML_PATH, "utf8")
-const compiled = compileWorkflowConfig(parseYaml(unifiedYamlText))
-
-for (const [name, state] of Object.entries(compiled.definition.states)) {
-  if (state.script === undefined) continue
-  const context: TemplateContext = {
-    startCommit: SAMPLE_HEAD,
-    currentCommit: SAMPLE_HEAD_2,
-    previousCommit: SAMPLE_HEAD,
-    state: name,
-    actor: state.actor,
-    reviewBase: SAMPLE_HEAD,
-    retainedBase: SAMPLE_HEAD,
-    processCost: 0,
-    processCostByModel: [],
-    read: (path: string) => {
-      throw new Error(
-        `generate-shell-corpus: unexpected it.read(${path}) while rendering "${name}"`,
-      )
-    },
-    vars: compiled.vars,
-    edges: [],
-  }
-  add(`workflow.${name}.sh`, renderStateTemplate(state.script, context))
+for (const name of SCRIPT_NAMES) {
+  add(
+    `workflow.${name}.sh`,
+    renderScript(name, {
+      read: (path) => {
+        throw new Error(`generate-shell-corpus: unexpected read(${path}) while rendering "${name}"`)
+      },
+      start: SAMPLE_HEAD,
+      head: SAMPLE_HEAD_2,
+      base: SAMPLE_HEAD,
+    }),
+  )
 }
 
 const writeInto = (dir: string): void => {

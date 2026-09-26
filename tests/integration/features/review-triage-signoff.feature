@@ -10,11 +10,9 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
   actionable instead captures into `.gtd/REVIEW_RAW.md` and hands off to
   `collecting`.
 
-  Both scenarios here enter directly at `build.review.await-review` (a
-  fabricated commit history, `spec-review-judgments.feature`'s own
-  technique) rather than walking the lap from `build.review.reviewing` —
-  the states under test don't care how the process got there, only what a
-  landed verdict does next. `deciding`'s and
+  Both scenarios reach `build.review.await-review` by the shortest real
+  history — `--entry review-gate.check` with the quality lap disabled, then
+  one reviewer turn writing `.gtd/REVIEW.md`. `deciding`'s and
   `triaging`'s own shell bodies are workflow-authored scripts a real DRIVER
   runs (never this test harness, @inmem's own convention) — their effect is
   given by hand here; `reviewLapScripts.test.ts` executes the rendered
@@ -24,7 +22,16 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
   Scenario: a purely approving remark signs off with no planner turn spent
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -34,6 +41,7 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -84,7 +92,16 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
   Scenario: a single actionable note captures into REVIEW_RAW.md and hands off to collecting
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -94,6 +111,7 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234

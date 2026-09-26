@@ -53,7 +53,7 @@ const DIFF_MAX_BUFFER = 64 * 1024 * 1024
  * `.gtdrc` file-ref resolved against its own, possibly-ancestor, declaring
  * directory (read-only, both); and `program.ts`'s `gtd check`/`gtd uncheck`,
  * whose `<file>` argument is an arbitrary CLI-given path — absolute or
- * relative to `root` — never a repo-scoped one Eta/`src/step/Guards.ts` would use.
+ * relative to `root` — never a repo-scoped one Eta would use.
  * Keeping the escape on separately-named members is what makes "a
  * repo-relative path reaching `/tmp`" (the failure mode `Host`'s separate
  * scratch port exists to prevent) a loud misuse of the wrong method, not a
@@ -83,6 +83,14 @@ export interface WorkspaceOps {
    * files" to a judge that trusts it.
    */
   readonly diffSync: (base: string) => string
+  /**
+   * Every path committed at `ref`, with its blob id — sync for the same
+   * reason `readCommittedSync` is: flow code reads a commit's tree between
+   * two awaits and cannot wait on IO.
+   */
+  readonly treeSync: (ref: string) => ReadonlyMap<string, string>
+  /** Every path in the working tree git would commit (tracked or untracked, never ignored), sorted. */
+  readonly worktreePathsSync: () => readonly string[]
   /**
    * Reads an ARBITRARY path — repo-relative or already-absolute, inside the
    * repo, above it, or anywhere else on disk — with the same absence-is-a-
@@ -171,7 +179,40 @@ const makeWorkspaceOps = (root: string, git: GitOperations): WorkspaceOps => {
     }
   }
 
+  const treeSync = (ref: string): ReadonlyMap<string, string> => {
+    const entries = new Map<string, string>()
+    let out: string
+    try {
+      out = execFileSync("git", ["ls-tree", "-r", "-z", "--full-tree", ref], {
+        cwd: root,
+        encoding: "utf8",
+        maxBuffer: DIFF_MAX_BUFFER,
+      })
+    } catch {
+      return entries
+    }
+    for (const record of out.split("\0")) {
+      const tab = record.indexOf("\t")
+      if (tab === -1) continue
+      const id = record.slice(0, tab).split(" ")[2]
+      if (id !== undefined) entries.set(record.slice(tab + 1), id)
+    }
+    return entries
+  }
+
+  const worktreePathsSync = (): readonly string[] => {
+    const out = execFileSync(
+      "git",
+      ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+      { cwd: root, encoding: "utf8", maxBuffer: DIFF_MAX_BUFFER },
+    )
+    const paths = new Set(out.split("\0").filter((p) => p !== ""))
+    return [...paths].filter((p) => readFileOrAbsent(join(root, p)) !== undefined).sort()
+  }
+
   return {
+    treeSync,
+    worktreePathsSync,
     readSync,
     read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),
     write: (path, content) =>
@@ -226,18 +267,6 @@ export const templateReadCommitted =
     }
     return content
   }
-
-/**
- * `it.diff`'s binding (`PatternTemplates.ts`'s `TemplateContext.diff`) —
- * thin proxy over `workspace.diffSync`, kept as its own named export so a
- * render site wires it the same "`Pick<WorkspaceOps, ...>`" way
- * `templateRead`/`templateReadCommitted` do, rather than reaching into
- * `WorkspaceOps` directly.
- */
-export const templateDiff =
-  (workspace: Pick<WorkspaceOps, "diffSync">) =>
-  (base: string): string =>
-    workspace.diffSync(base)
 
 /**
  * `it.tail`'s binding (`PatternTemplates.ts`'s `TemplateContext.tail`) —

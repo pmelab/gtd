@@ -26,12 +26,10 @@ import {
 } from "./index.js"
 import { type CommandRequirements } from "./Cli.js"
 import { InMemRepo, testLayers } from "../testing/index.js"
-import { renderInitConfig } from "../workflows/index.js"
 
 const FLAG_NAMES = [
   "--json",
   "--port",
-  "--no-open",
   "--host",
   "--self-signed",
   "--dev",
@@ -122,7 +120,7 @@ describe("parseArgv — scope", () => {
       ["validate", "--json"],
       ["check", "qa", "TODO.md", "--json"],
       ["init", "--json"],
-      ["visualize", "--json"],
+      ["exec", "--json"],
       ["install", "--json"],
       ["abandon", "--json"],
       ["restore", "--json"],
@@ -154,21 +152,15 @@ describe("parseArgv — scope", () => {
   it("--port on land is rejected", () => {
     const plan = parseArgv(["node", "gtd.js", "land", "--port=1234"])
     expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd visualize`")
+    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd ui`")
   })
 
-  it("--port is accepted by both gtd visualize and gtd ui", () => {
-    for (const args of [
-      ["visualize", "--port", "3000"],
-      ["ui", "--port", "3000"],
-    ]) {
-      const plan = parseArgv(["node", "gtd.js", ...args])
-      expect(plan.kind).toBe("command")
-    }
+  it("--port is accepted by gtd ui", () => {
+    expect(parseArgv(["node", "gtd.js", "ui", "--port", "3000"]).kind).toBe("command")
   })
 
-  it("--host on any other command (e.g. visualize) is a scope violation", () => {
-    const plan = parseArgv(["node", "gtd.js", "visualize", "--host", "x"])
+  it("--host on any other command (e.g. next) is a scope violation", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--host", "x"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
       expect(plan.message).toBe("gtd: --host is only valid for `gtd ui`")
@@ -652,7 +644,7 @@ describe("parseArgv — --verbose / -v (the -v/-V swap)", () => {
       ["next", "--verbose", "--json"],
       ["check", "qa", "TODO.md", "--verbose"],
       ["--entry", "some-state", "--verbose"],
-      ["visualize", "--verbose"],
+      ["exec", "--verbose"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("command")
@@ -749,7 +741,7 @@ describe("parseArgv — gtd install", () => {
   it("a scoped-out flag (e.g. --port) is rejected on install", () => {
     const plan = parseArgv(["node", "gtd.js", "install", "--port=3"])
     expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd visualize`")
+    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd ui`")
   })
 })
 
@@ -853,16 +845,15 @@ describe("parseArgv — gtd judge / gtd judge answer", () => {
 })
 
 describe("standaloneKinds / needsOf", () => {
-  it("pins the six standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "init", "visualize", "check", "uncheck", "install"])
+  it("pins the standalone kinds", () => {
+    expect(standaloneKinds()).toEqual(["lsp", "init", "check", "uncheck", "install"])
   })
 
-  it("needsOf matches none/fs/config for the standalone kinds and state for everything else", () => {
+  it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {
     expect(needsOf("lsp")).toBe("none")
     expect(needsOf("check")).toBe("fs")
     expect(needsOf("uncheck")).toBe("fs")
     expect(needsOf("init")).toBe("fs")
-    expect(needsOf("visualize")).toBe("config")
     expect(needsOf("install")).toBe("none")
     for (const kind of [
       "land",
@@ -893,7 +884,7 @@ describe("renderHelp", () => {
     expect(help).toContain("next")
     expect(help).toContain("validate")
     expect(help).toContain("lsp")
-    expect(help).toContain("visualize")
+    expect(help).not.toContain("visualize")
     expect(help).toMatch(/^ {2}ui\b/m)
     expect(help).toContain("check <mode> <file>")
     expect(help).toContain("install")
@@ -904,7 +895,7 @@ describe("renderHelp", () => {
     expect(help).toContain("help")
     expect(help).toContain("--json")
     expect(help).toContain("--port")
-    expect(help).toContain("--no-open")
+    expect(help).not.toContain("--no-open")
     expect(help).toContain("--host")
     expect(help).toContain("--self-signed")
     expect(help).toContain("--dev")
@@ -1037,7 +1028,7 @@ describe("runCli — exit codes", () => {
 
   it("--host on a non-ui command exits EXIT_USAGE_ERROR with a clear scopeError message", async () => {
     const { io, captured } = capturingIo(throwingLayers)
-    await Effect.runPromise(runCli(["node", "gtd.js", "visualize", "--host", "x"], io))
+    await Effect.runPromise(runCli(["node", "gtd.js", "next", "--host", "x"], io))
     const result = captured()
     expect(result.exitCode).toBe(EXIT_USAGE_ERROR)
     expect(result.stderr).toContain("only valid for `gtd ui`")
@@ -1138,7 +1129,7 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
     // through `io.stdout` (a raw call-recording array) — a failing run must
     // produce zero calls, not merely an empty joined string.
     const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.writeFile(".gtdrc.json", "{}\n")
     repo.commitAllWithPrefix("chore: init gtd workflow")
     repo.writeFile(".gtd/TODO.md", "## Open Questions\n\n###\n\nno question text.\n")
     const stdoutCalls: string[] = []

@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import {
@@ -8,7 +7,6 @@ import {
   varsOnlyContext,
   type TemplateContext,
 } from "./PatternTemplates.js"
-import { compileTemplate } from "./workflows/index.js"
 import { Workspace, templateRead, templateReadCommitted, templateTail } from "./platform/index.js"
 import { InMemRepo, makeInMemoryWorkspaceOps } from "./testing/index.js"
 import { headingSections } from "./steering/index.js"
@@ -37,7 +35,6 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
     throw new Error("diffTail() must be stubbed by the test that calls it.diffTail")
   },
   vars: { greeting: "hi" },
-  edges: [],
   ...overrides,
 })
 
@@ -97,40 +94,6 @@ describe("renderStateTemplate — the full variable set", () => {
     )
     expect(out).toBe("greeting=none")
   })
-
-  it("renders a human-gate route list from `it.edges`, skipping edges without a describe", () => {
-    const out = renderStateTemplate(
-      [
-        "What each change does next:",
-        "<% it.edges.forEach(function (e) { if (e.describe) { %>",
-        '<%~ "- " + e.describe + "\\n" %>',
-        "<% } }) %>",
-      ].join("\n"),
-      baseContext({
-        edges: [
-          { pattern: "C", target: "building", describe: "Change nothing to accept and build." },
-          { pattern: "* **", target: "grilling", describe: "Edit the plan to grill again." },
-          { pattern: "M .gtd/X.md", target: "elsewhere" },
-        ],
-      }),
-    )
-    expect(out).toBe(
-      "What each change does next:\n- Change nothing to accept and build.\n- Edit the plan to grill again.\n",
-    )
-  })
-
-  it("the route list collapses to just its heading when no edge carries a describe", () => {
-    const out = renderStateTemplate(
-      [
-        "Heading:",
-        "<% it.edges.forEach(function (e) { if (e.describe) { %>",
-        '<%~ "- " + e.describe + "\\n" %>',
-        "<% } }) %>",
-      ].join("\n"),
-      baseContext({ edges: [{ pattern: "* **", target: "x" }] }),
-    )
-    expect(out).toBe("Heading:\n")
-  })
 })
 
 describe("renderStateTemplate — read(path)", () => {
@@ -182,7 +145,6 @@ describe("varsOnlyContext", () => {
     expect(ctx.processBase).toBe("")
     expect(ctx.processCost).toBe(0)
     expect(ctx.processCostByModel).toEqual([])
-    expect(ctx.edges).toEqual([])
   })
 
   it("accepts an optional state name", () => {
@@ -224,48 +186,6 @@ describe("renderStateTemplate — no filesystem template resolution", () => {
     const out = renderStateTemplate("just <%= it.actor %> text, no includes", baseContext())
     expect(out).toBe("just agent text, no includes")
   })
-})
-
-describe("renderStateTemplate — bundled `script` states render to valid bash", () => {
-  // Regression: Eta's default autoTrim slurps the newline after every
-  // `<%~ %>` tag. A `script` line ending in an interpolation therefore glued
-  // the next line's `else`/`fi` onto it (e.g. `rm -f .gtd/FEEDBACK.mdfi`),
-  // leaving the enclosing `if` unterminated — the driver died with
-  // "syntax error: unexpected end of file" and the check turn never ran. Every
-  // bundled `script` must survive `bash -n` after rendering with real vars.
-  const { definition, vars } = compileTemplate()
-  const scriptStates = Object.entries(definition.states).filter(([, s]) => s.script)
-
-  it("covers every bundled script state (guards against a state being dropped)", () => {
-    expect(scriptStates.map(([name]) => name).sort()).toEqual([
-      "architecture-promote",
-      "architecture.gate.check",
-      "build.health.check",
-      "build.health.escalate",
-      "build.quality.picking",
-      "build.quality.seeding",
-      "build.review.deciding",
-      "build.review.triaging",
-      "design.gate.check",
-      "fix-precheck",
-      "packages.item.closing",
-      "packages.item.health.check",
-      "packages.item.health.escalate",
-      "packages.item.spec.scoping",
-      "packages.picking",
-      "re-unwind",
-      "review-gate.check",
-      "start-gate.check",
-      "unwind",
-    ])
-  })
-
-  for (const [name, state] of scriptStates) {
-    it(`\`${name}\` renders to syntactically valid bash`, () => {
-      const rendered = renderStateTemplate(state.script!, baseContext({ state: name, vars }))
-      expect(() => execFileSync("bash", ["-n"], { input: rendered })).not.toThrow()
-    })
-  }
 })
 
 describe("renderStateTemplate — it.read through a real Workspace", () => {
@@ -313,7 +233,6 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
             throw new Error("must not be called")
           },
           vars: { file: "computed.md" },
-          edges: [],
         })
       }),
     )
@@ -348,7 +267,6 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
             throw new Error("must not be called")
           },
           vars: {},
-          edges: [],
         })
       }),
     )
@@ -398,7 +316,6 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
             throw new Error("must not be called")
           },
           vars: {},
-          edges: [],
         })
       }),
     )
@@ -434,7 +351,6 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
             throw new Error("must not be called")
           },
           vars: {},
-          edges: [],
         })
       }),
     )
@@ -473,7 +389,6 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
             throw new Error("must not be called")
           },
           vars: {},
-          edges: [],
         })
       }),
     )

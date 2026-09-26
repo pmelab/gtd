@@ -1,56 +1,40 @@
 @inmem
-Feature: Driver protocol — gtd next --json content kinds and pattern matches
+Feature: Driver protocol — gtd next --json content kinds, next and pending changes
 
-  Pins the `gtd next --json` contract (`{state, actor, kind, content,
-  edges}`) for the `script` and
-  `prompt` kinds — smoke.feature already pins the `message` kind at `idle` —
-  the `edges` list (the resting state's `on` edges as `{pattern, target,
-  describe?}`, also what a `message:` template sees as `it.edges`), and gtd's
-  pattern-match reporting (plain text and `--json`), which shows which
-  declared `on` pattern (if any) each pending change matches. `gtd next
-  --json` is now the ONLY structured surface gtd has — `gtd status` is gone,
-  and every field it used to carry (state/actor header plus the `--json`
-  payload) merged into `gtd next`. Plain `gtd next`'s own output now depends
-  on the resolved rest's `kind`: at every kind except `prompt` it prints the
-  SAME header block `gtd status` used to print (`State:`/`Awaits:`/etc.),
-  then a blank line, then the step content itself; at `kind === "prompt"` it
-  drops the header ENTIRELY and is just the bare prompt content, because
-  those bytes are the agent's own input — the header fields (`State:`,
-  `Label:`, `Model:`, `Memory:`, `File:`, `Mode:`, `Pending:`, `Next:`) are
-  observable in plain text ONLY at a non-`prompt` rest; at a `prompt` rest
-  they only ever show up in `--json`/`--json=<path>`. `gtd land`'s own
-  "settled" signal (a `script` rest's no-op is terminal) is a
-  `--json`/`--json=<path>` field (`settled`) — never the exit code, which is
-  0 on every successful landing
+  Pins the `gtd next --json` contract for the `script`, `prompt` and
+  `capture` kinds — smoke.feature already pins the `message` kind at `idle`.
+  `next` previews the step the pending change would land the process at, as
+  `{target}`, or `null` when the flow would refuse it; `changes` lists every pending change's status and path. `gtd
+  next --json` is the ONLY structured surface gtd has. Plain `gtd next`'s
+  own output depends on the resolved rest's `kind`: at every kind except
+  `prompt` it prints a header block (`State:`/`Awaits:`/etc.), then a blank
+  line, then the step content itself; at `kind === "prompt"` it drops the
+  header ENTIRELY and is just the bare prompt content, because those bytes
+  are the agent's own input — the header fields (`State:`, `Label:`,
+  `Model:`, `Memory:`, `File:`, `Mode:`, `Pending:`, `Next:`) are observable
+  in plain text ONLY at a non-`prompt` rest; at a `prompt` rest they only
+  ever show up in `--json`/`--json=<path>`. `gtd land`'s own "settled" signal
+  (a `script` rest's no-op is terminal) is a `--json`/`--json=<path>` field
+  (`settled`) — never the exit code, which is 0 on every successful landing
   regardless — and it also shows in the emitted script's own content (a
   genuine no-op prints "nothing to do" with no `git commit`).
 
   Scenario: gtd next --json reports kind "script" for a check-actor state
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "echo hi"
-                on:
-                  "C": idle
+      import { human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run("checking", "echo hi")
+      })
       """
-    And a commit "gtd(human): checking" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → checking"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking\""
@@ -60,30 +44,20 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Scenario: gtd next --json reports kind "prompt" for an agent-actor state
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
@@ -93,25 +67,14 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Scenario: gtd next --json reports kind "capture" for a message rest with a dirty tree — the human already acted
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -124,71 +87,49 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Scenario: gtd next --json's dispatch block (session/validate) is absent at a script rest, even when a prompt rest nearby would carry it
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "echo hi"
-                on:
-                  "C": idle
+      import { human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run("checking", "echo hi")
+      })
       """
-    And a commit "gtd(human): checking" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → checking"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"kind\":\"script\""
     And stdout does not contain "\"session\""
     And stdout does not contain "\"validate\""
 
-  Scenario: gtd next --json reports which declared pattern each pending change matches — plain gtd next carries no such report at a prompt rest (header dropped)
+  Scenario: gtd next --json lists each pending change with its status and path — plain gtd next carries no such report at a prompt rest (header dropped)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "..."
-                on:
-                  "A DONE.md": done
-                  "M .gtd/FEEDBACK.md": fixing
-              fixing:
-                actor: agent
-                prompt: "..."
-                on:
-                  "* **": working
-              done:
-                actor: human
-                message: "done"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        for (;;) {
+          await agent("working", "...")
+          if (changes("DONE.md").some((c) => c.status === "added")) break
+          if (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "modified"))
+            refuse("working must add DONE.md or edit .gtd/FEEDBACK.md")
+          await agent("fixing", "...")
+        }
+        await human("done", { message: "done" })
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     And a file "DONE.md" with:
       """
       done!
@@ -205,41 +146,28 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"actor\":\"agent\""
     And stdout contains "\"path\":\"DONE.md\""
-    And stdout contains "\"pattern\":\"A DONE.md\""
+    And stdout contains "{\"status\":\"A\",\"path\":\"DONE.md\"}"
     And stdout contains "\"path\":\"scratch.txt\""
-    And stdout contains "\"pattern\":null"
+    And stdout does not contain "\"pattern\""
 
-  Scenario: gtd next --json previews the declared edge that would fire next, action included — plain gtd next never shows it at a prompt rest (header dropped)
+  Scenario: gtd next --json previews the step the pending change would land at — plain gtd next never shows it at a prompt rest (header dropped)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "..."
-                on:
-                  "A DONE.md":
-                    to: done
-                    action: "Finish up"
-              done:
-                actor: human
-                message: "done"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "...")
+        if (!changes("DONE.md").some((c) => c.status === "added")) refuse("working must add DONE.md")
+        await human("done", { message: "done" })
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     And a file "DONE.md" with:
       """
       done!
@@ -249,37 +177,26 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout does not contain "Next:"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"next\":{\"action\":\"Finish up\",\"pattern\":\"A DONE.md\",\"target\":\"done\"}"
+    And stdout matches "\"next\":[{][^}]*\"target\":\"done\"[}]"
 
-  Scenario: gtd next --json reports no match in "next" when the pending change matches no declared pattern — plain gtd next shows no preview either at a prompt rest
+  Scenario: gtd next --json reports no match in "next" when the flow would refuse the pending change — plain gtd next shows no preview either at a prompt rest
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "..."
-                on:
-                  "A DONE.md": done
-              done:
-                actor: human
-                message: "done"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "...")
+        if (!changes("DONE.md").some((c) => c.status === "added")) refuse("working must add DONE.md")
+        await human("done", { message: "done" })
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     And a file "scratch.txt" with:
       """
       not matched by any pattern
@@ -291,33 +208,22 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     Then it succeeds
     And stdout contains "\"next\":null"
 
-  Scenario: gtd next --json carries the owning machine's model hint — plain gtd next never shows it at a prompt rest (header dropped)
+  Scenario: gtd next --json carries the enclosing scope's model hint — plain gtd next never shows it at a prompt rest (header dropped)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            model: smart
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await scope({ model: "smart" }, () => agent("working", "do the work described in NOTE.md"))
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Model:"
@@ -326,32 +232,22 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"model\":\"smart\""
 
-  Scenario: gtd next --json omits "model" entirely when the owning machine declares none
+  Scenario: gtd next --json omits "model" entirely when no scope declares one
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Model:"
@@ -360,33 +256,24 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout contains "\"state\":\"working\""
     And stdout does not contain "\"model\""
 
-  Scenario: gtd next --json/--json=<path> carry the owning machine's system prompt — plain gtd next never shows it
+  Scenario: gtd next --json/--json=<path> carry the enclosing scope's system prompt — plain gtd next never shows it
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            system: "You are a careful senior engineer."
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await scope({ system: "You are a careful senior engineer." }, () =>
+          agent("working", "do the work described in NOTE.md"),
+        )
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout does not contain "You are a careful senior engineer."
@@ -398,32 +285,22 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     Then it succeeds
     And stdout matches "^You are a careful senior engineer.\n$"
 
-  Scenario: gtd next --json omits "system" entirely, and --json=system prints nothing, when the owning machine declares none
+  Scenario: gtd next --json omits "system" entirely, and --json=system prints nothing, when no scope declares one
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
@@ -432,63 +309,44 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     Then it succeeds
     And stdout is empty
 
-  Scenario: plain gtd next's prompt output is byte-identical whether or not the machine declares system:
+  Scenario: plain gtd next's prompt output is byte-identical whether or not a scope declares a system prompt
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            system: "You are a careful senior engineer."
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await scope({ system: "You are a careful senior engineer." }, () =>
+          agent("working", "do the work described in NOTE.md"),
+        )
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout matches "^do the work described in NOTE\.md\n$"
 
-  Scenario: gtd next --json computes a commit-anchored memory key from the resting prompt state's scope — plain gtd next never shows it (header dropped at a prompt rest)
+  Scenario: gtd next --json computes a commit-anchored memory key from the resting prompt step's scope — plain gtd next never shows it (header dropped at a prompt rest)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Memory:"
@@ -499,25 +357,14 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Scenario: gtd next --json omits "memory" entirely for a non-prompt state — the computed key only ever applies to a prompt turn
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      })
       """
     When I run gtd next
     Then it succeeds
@@ -529,31 +376,20 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Scenario: gtd next --json carries the state's declared label — plain gtd next never shows it at a prompt rest (header dropped)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                label: "Doing the work"
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md", { label: "Doing the work" })
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Label:"
@@ -564,30 +400,20 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Scenario: gtd next --json omits "label" entirely when the state declares none — plain gtd next shows no header either way at a prompt rest
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Label:"
@@ -596,35 +422,24 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout contains "\"state\":\"working\""
     And stdout does not contain "\"label\""
 
-  Scenario: gtd next --json reports the same pattern matches structurally
+  Scenario: gtd next --json reports every pending change structurally
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "..."
-                on:
-                  "A DONE.md": done
-              done:
-                actor: human
-                message: "done"
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "...")
+        if (!changes("DONE.md").some((c) => c.status === "added")) refuse("working must add DONE.md")
+        await human("done", { message: "done" })
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     And a file "DONE.md" with:
       """
       done!
@@ -636,37 +451,25 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
-    And stdout contains "\"pattern\":\"A DONE.md\""
-    And stdout contains "\"pattern\":null"
+    And stdout contains "{\"status\":\"A\",\"path\":\"DONE.md\"}"
+    And stdout does not contain "\"pattern\""
 
   Scenario: gtd next --json carries the state's declared file/mode — plain gtd next shows neither at a prompt rest (header dropped)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md", { file: ".gtd/PLAN.md", mode: "qa" })
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout does not contain "File:"
@@ -679,30 +482,20 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Scenario: gtd next --json omits "file"/"mode" entirely when the state declares neither — plain gtd next shows no header either way at a prompt rest
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout does not contain "File:"
@@ -720,41 +513,27 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout contains "\"state\":\"idle\""
     And stdout contains "\"file\":\".gtd/TODO.md\""
 
-  Scenario: a human gate's message renders its `on` edge descriptions as a route list, and gtd next --json carries the same edges
+  Scenario: a human gate's message lists its routes, and gtd next --json carries no static out-edges — a flow is code
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: gate
-            states:
-              gate:
-                actor: human
-                message: |
-                  Decide what to do next.
+      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
 
-                  What each change does next (then run `gtd land`):
-                  <% it.edges.forEach(function (e) { if (e.describe) { %>
-                  <%~ "- " + e.describe + "\n" %>
-                  <% } }) %>
-                on:
-                  "C":
-                    to: accept
-                    describe: "Change nothing to accept the current state and proceed."
-                  "* **":
-                    to: revise
-                    describe: "Change any source file to leave feedback and start another round."
-              accept:
-                actor: human
-                message: "accept"
-              revise:
-                actor: agent
-                prompt: "revise"
-                on:
-                  "* **": gate
+      const routes = `Decide what to do next.
+
+      What each change does next (then run \`gtd land\`):
+      - Change nothing to accept the current state and proceed.
+      - Change any source file to leave feedback and start another round.
+      `
+
+      export default workflow(async () => {
+        for (;;) {
+          await human("gate", { message: routes, acceptClean: true })
+          if (changes().length === 0) break
+          await agent("revise", "revise")
+        }
+        await human("accept", { message: "accept" })
+      })
       """
     When I run gtd next
     Then it succeeds
@@ -763,41 +542,7 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
     And stdout contains "- Change any source file to leave feedback and start another round."
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"pattern\":\"C\""
-    And stdout contains "\"target\":\"accept\""
-    And stdout contains "\"describe\":\"Change nothing to accept the current state and proceed.\""
-    And stdout contains "\"target\":\"revise\""
-
-  Scenario: a string-form `on` edge emits an edge with no describe, and gtd next --json omits "edges" for a commit-only-target state with none
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "..."
-                on:
-                  "* **": idle
-      """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
-      """
-      a note
-      """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"edges\":[{\"pattern\":\"* **\",\"target\":\"idle\"}]"
-    And stdout does not contain "\"describe\""
+    And stdout does not contain "\"edges\""
 
   Scenario: gtd next --json reports the per-worktree loop log path by default (gtd#169)
     Given a test project
@@ -814,30 +559,22 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Scenario: gtd land settles at a script rest that matched nothing — a print-only script, no git commit
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "echo hi"
-                on:
-                  "A OUT.txt": idle
+      import { changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await run("checking", "echo hi")
+        } while (!changes("OUT.txt").some((c) => c.status === "added"))
+      })
       """
-    And a commit "gtd(check): checking" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → checking"
     When I run gtd land
     Then it settles
     And stdout contains "nothing to do"
@@ -845,58 +582,42 @@ Feature: Driver protocol — gtd next --json content kinds and pattern matches
 
   Scenario: gtd land is not settled at a prompt rest that matched nothing — that's an attempt, not a terminal state
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "A DONE.md": idle
+      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+        if (!changes("DONE.md").some((c) => c.status === "added")) refuse("working must add DONE.md")
+      })
       """
-    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     When I run gtd land with "--json"
     Then it succeeds
     And stdout contains "\"settled\":false"
 
   Scenario: gtd land lands an ordinary commit for a green re-entry into the initial state — HEAD never moves backward
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "echo hi"
-                on:
-                  "C": idle
+      import { human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run("checking", "echo hi")
+      })
       """
     And I record the commit count
-    And an empty commit "gtd(check): checking"
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → checking"
     When I run gtd land
     Then it succeeds
     And the commit count increased by 2

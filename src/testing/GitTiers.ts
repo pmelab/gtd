@@ -15,7 +15,7 @@ import { execSync, execFileSync } from "node:child_process"
 // loudly (`deps.alwaysBundle` in `tsdown.config.ts`), a guard alongside the
 // `TEST_DOUBLE_SENTINEL` check.
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit, Layer } from "effect"
+import { Effect, Exit } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { Narrator } from "../Commentary.js"
 import { GitService, Host, type GitOperations } from "../platform/index.js"
@@ -29,13 +29,6 @@ import {
   updateRef,
   deleteRef,
 } from "../GitScript.js"
-import { ConfigService } from "../workflow/index.js"
-import type { WorkflowDefinition } from "../PatternMachine.js"
-import {
-  defaultMachineTree,
-  defaultStateScopes,
-  defaultWorkflowDefinition,
-} from "../workflows/index.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { gitTestLayer } from "./Layers.js"
 
@@ -72,14 +65,10 @@ export interface GitTier {
   readonly name: "Live" | "InMemory"
   readonly root: string
   readonly capabilities: GitTierCapabilities
-  /** Provide `GitService` (retry-wrapped, exactly as production wires it) + `ConfigService` (defaulting to the bundled template; pass `workflow` for a custom one) + a no-op `Narrator`. */
-  readonly provide: <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow?: WorkflowDefinition,
-  ) => Promise<A>
+  /** Provide `GitService` (retry-wrapped, exactly as production wires it) + a no-op `Narrator`. */
+  readonly provide: <A>(eff: Effect.Effect<A, Error, GitService | Narrator>) => Promise<A>
   readonly provideExit: <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow?: WorkflowDefinition,
+    eff: Effect.Effect<A, Error, GitService | Narrator>,
   ) => Promise<Exit.Exit<A, Error>>
   /** A second, commit-less repo of the same tier — for the empty-repo edge cases (`commitHistory`, `hasCommits`). */
   readonly emptyRepo: () => GitTier
@@ -87,18 +76,6 @@ export interface GitTier {
   readonly observe: GitTierObserve
   readonly dispose: () => void
 }
-
-const configLayerFor = (workflow: WorkflowDefinition): Layer.Layer<ConfigService> =>
-  Layer.succeed(ConfigService, {
-    load: Effect.succeed({
-      workflow,
-      workflowVars: {},
-      rcVars: {},
-      machineTree: defaultMachineTree,
-      stateScopes: defaultStateScopes,
-      warnings: [],
-    }),
-  })
 
 /** No-op — these tests assert on git/config behavior, not narration. */
 const noopNarratorLayer = Narrator.layer(() => {}, false)
@@ -122,14 +99,10 @@ const makeLiveTier = (initialCommit = true): GitTier => {
     gitExec(`commit -m "init: first commit"`)
   }
 
-  const provide = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow: WorkflowDefinition = defaultWorkflowDefinition,
-  ): Promise<A> =>
+  const provide = <A>(eff: Effect.Effect<A, Error, GitService | Narrator>): Promise<A> =>
     Effect.runPromise(
       eff.pipe(
         Effect.provide(GitService.Live),
-        Effect.provide(configLayerFor(workflow)),
         Effect.provide(Host.layer({ root, home: root, env: {} })),
         Effect.provide(NodeContext.layer),
         Effect.provide(noopNarratorLayer),
@@ -137,13 +110,11 @@ const makeLiveTier = (initialCommit = true): GitTier => {
     )
 
   const provideExit = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow: WorkflowDefinition = defaultWorkflowDefinition,
+    eff: Effect.Effect<A, Error, GitService | Narrator>,
   ): Promise<Exit.Exit<A, Error>> =>
     Effect.runPromiseExit(
       eff.pipe(
         Effect.provide(GitService.Live),
-        Effect.provide(configLayerFor(workflow)),
         Effect.provide(Host.layer({ root, home: root, env: {} })),
         Effect.provide(NodeContext.layer),
         Effect.provide(noopNarratorLayer),
@@ -219,29 +190,13 @@ const makeInMemTier = (initialCommit = true): GitTier => {
   }
   const gitLayer = gitTestLayer(repo, IN_MEM_ROOT)
 
-  const provide = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow: WorkflowDefinition = defaultWorkflowDefinition,
-  ): Promise<A> =>
-    Effect.runPromise(
-      eff.pipe(
-        Effect.provide(gitLayer),
-        Effect.provide(configLayerFor(workflow)),
-        Effect.provide(noopNarratorLayer),
-      ),
-    )
+  const provide = <A>(eff: Effect.Effect<A, Error, GitService | Narrator>): Promise<A> =>
+    Effect.runPromise(eff.pipe(Effect.provide(gitLayer), Effect.provide(noopNarratorLayer)))
 
   const provideExit = <A>(
-    eff: Effect.Effect<A, Error, GitService | ConfigService | Narrator>,
-    workflow: WorkflowDefinition = defaultWorkflowDefinition,
+    eff: Effect.Effect<A, Error, GitService | Narrator>,
   ): Promise<Exit.Exit<A, Error>> =>
-    Effect.runPromiseExit(
-      eff.pipe(
-        Effect.provide(gitLayer),
-        Effect.provide(configLayerFor(workflow)),
-        Effect.provide(noopNarratorLayer),
-      ),
-    )
+    Effect.runPromiseExit(eff.pipe(Effect.provide(gitLayer), Effect.provide(noopNarratorLayer)))
 
   return {
     name: "InMemory",
@@ -735,13 +690,11 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       ])
     })
 
-    // `requireRevertGuard` (src/step/Guards.ts) calls `changedPaths(reviewBase~1)`
-    // to check a review-round hand-edit was reverted: `git reset --mixed
-    // <base>` drops every path a commit added out of the index, leaving it
-    // untracked but present on disk. An index-based answer calls each of
-    // those a deletion (`git diff --name-status <base>` compares base to the
-    // INDEX), which would make the guard see a phantom revert. The port
-    // answers by CONTENT instead — these four cases are that contract.
+    // `git reset --mixed <base>` drops every path a commit added out of the
+    // index, leaving it untracked but present on disk. An index-based answer
+    // calls each of those a deletion (`git diff --name-status <base>` compares
+    // base to the INDEX). The port answers by CONTENT instead — these four
+    // cases are that contract.
     describe("with a base, over paths the index no longer carries", () => {
       /** Commit `REVIEW.md` on top of a seed commit, then mixed-reset the index back to that seed. Returns the head the caller measures against. */
       const commitThenRewindIndex = (content: string): string => {
@@ -786,9 +739,8 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       // `text=auto` the committed blob is normalized to LF while the working
       // tree legitimately holds CRLF, so a RAW byte comparison calls an
       // untouched file modified — and a spurious `M` on the review doc is a
-      // spurious "the human edited something real" (`Guards.ts`'s
-      // `hasCodeChange`), which flips a clean sign-off onto the feedback edge
-      // — a full re-plan nobody asked for. The fake has no filters at all, so it answers
+      // spurious "the human edited something real", which flips a clean
+      // sign-off onto the feedback edge — a full re-plan nobody asked for. The fake has no filters at all, so it answers
       // "unchanged" by construction; this pins real git to the same answer.
       it("omits an untracked path that only differs by a clean filter's normalization", async () => {
         t.seed.writeFile(".gitattributes", "* text=auto\n")

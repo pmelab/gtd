@@ -3,28 +3,28 @@
 ## Prerequisites
 
 Install [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills)
-— the bundled workflow's build/fix/review states name skills from this set
-(`skills:` in a state's prompt) instead of spelling out their technique in
-prose. This is a real prerequisite, not an optional boost: without it installed,
-your harness has nothing to load at those states, and the prompt no longer
-carries the prose that used to stand in for it. gtd itself never installs,
-resolves, or verifies this — a repo can also repoint any of the bundled
-`*Skills` config vars to name a different set its own harness has instead.
-Blanking the `skillsPreamble` var turns the skill names off but does not restore
-the deleted prose.
+— the bundled workflow's build/fix/review steps name skills from this set (an
+agent step's `skills` option) instead of spelling out their technique in prose.
+This is a real prerequisite, not an optional boost: without it installed, your
+harness has nothing to load at those steps, and the prompt no longer carries the
+prose that used to stand in for it. gtd itself never installs, resolves, or
+verifies this — a repo can also repoint any of the bundled `*Skills` config vars
+to name a different set its own harness has instead. Blanking the
+`skillsPreamble` var turns the skill names off but does not restore the deleted
+prose.
 
 ### Using a different skill set
 
 Two routes, and they combine:
 
-- **Instead of the bundled set** — repoint the `*Skills` var for the state you
+- **Instead of the bundled set** — repoint the `*Skills` var for the step you
   want to change. There are nine: `triageSkills`, `architectureSkills`,
   `decomposeSkills`, `buildSkills`, `fixSkills`, `reviewFixSkills`,
   `reviewSkills`, `specReviewSkills`, `escalateSkills`. Each is an ordinary
   workflow var, overridable per repo via `.gtdrc`:
 
   ```yaml
-  # .gtdrc — build states load your own skill instead of the bundled pair
+  # .gtdrc — build steps load your own skill instead of the bundled pair
   vars:
     buildSkills: my-org-tdd-skill
   ```
@@ -35,11 +35,11 @@ Two routes, and they combine:
   GTD_BUILDSKILLS="my-org-tdd-skill" gtd next
   ```
 
-- **In addition to the bundled set** — declare `skills:` on any `prompt` state
-  in your own workflow; the field is not reserved to the bundled twelve. There
-  is no append mechanism: an override REPLACES the var's default, it never adds
-  to it. Wanting the bundled skills plus your own means writing the whole list —
-  bundled names included — into your own value:
+- **In addition to the bundled set** — pass `skills` to any `agent()` step in
+  your own `gtd.config.ts`; the option is not reserved to the bundled steps.
+  There is no append mechanism: an override REPLACES the var's default, it never
+  adds to it. Wanting the bundled skills plus your own means writing the whole
+  list — bundled names included — into your own value:
 
   ```yaml
   # .gtdrc — keep the bundled pair, add one more
@@ -68,7 +68,7 @@ Both routes share the same safety rules:
 
 `qualityReviews` (default `owasp-security, code-simplification`) is a skill set
 too, but a different shape from the `*Skills` vars above: each entry is its own
-full turn, not a list handed to one state. Extend it for a project-specific
+full turn, not a list handed to one step. Extend it for a project-specific
 concern — a company security checklist, a house style skill — the same way as
 any other var, via `.gtdrc`:
 
@@ -86,7 +86,7 @@ GTD_QUALITYREVIEWS="owasp-security, code-simplification, acme-security-checklist
 
 Unlike the `*Skills` vars, gtd DOES split this one — on every comma, one lens
 per entry — because each entry is its own turn rather than prose handed verbatim
-to one state. Keep entries free of commas and of characters that don't belong in
+to one step. Keep entries free of commas and of characters that don't belong in
 a filename: each trimmed entry becomes part of a queued review file's name. It
 does NOT share the `*Skills` vars' "costs nothing" rule for a name your harness
 lacks: `reviewing` still burns its own full turn with no lens loaded, since the
@@ -101,15 +101,15 @@ outright. See [Configuration](configuration.md) for the cost of extending it.
 - **Test/build artifacts must be gitignored.** This is **load-bearing**, not a
   style preference: gtd decides "the check is green" by the working tree going
   clean, and anything `.gitignore` matches is invisible to that decision. If a
-  script state's command (or the build it triggers) writes output — a `dist/`, a
+  `run` step's command (or the build it triggers) writes output — a `dist/`, a
   coverage report, a log file — into the working tree, the tree never goes clean
   after a green run and the process cannot advance. Gitignore every path your
   scripts write before wiring gtd into a repo.
 - **Repository root invocation.** Every state subcommand must run from the git
   repository root. `--help`/`--version` (and the `help`/`version` subcommands),
-  `lsp`, `init`, `visualize`, `check`, and `install` skip this guard entirely
-  (`visualize` still reads the `.gtdrc` workflow, but needs no git state; `init`
-  may even run outside a repository to seed a shared parent-dir config).
+  `lsp`, `init`, `check`, and `install` skip this guard entirely (`lsp` still
+  loads `gtd.config.ts`, but needs no git state; `init` may even run outside a
+  repository to seed a shared parent-dir config).
 - **Linked worktrees are independent.** N `git worktree` worktrees of one
   repository (sharing a single `.git`) each run their own gtd process, so a
   process underway in one worktree neither blocks nor rewrites any other.
@@ -135,8 +135,8 @@ outright. See [Configuration](configuration.md) for the cost of extending it.
   definition to its first marker's exact column — in both formats, within the
   same file
 - live diagnostics for both formats as you edit
-- a `gtd.openSteeringFile` command that jumps to the current state's steering
-  file, falling back to `.gtd/TODO.md` when the resting state declares none, so
+- a `gtd.openSteeringFile` command that jumps to the current step's steering
+  file, falling back to `.gtd/TODO.md` when the resting step declares none, so
   the keybinding has an answer even before a process has started
 
 The command only names that path — it never creates it — so on a repository that
@@ -144,8 +144,8 @@ has never run gtd, `.gtd/` may not exist yet and editors differ on opening a
 file whose parent directory is missing. This bites only the very first sketch in
 a fresh repository.
 
-Which format a file gets is config-driven via each state's `file:`/`mode:`, with
-a fallback to basename dispatch (`REVIEW.md` → `review`) when no config is in
+Which format a file gets is config-driven via each step's `file`/`mode`, with a
+fallback to basename dispatch (`REVIEW.md` → `review`) when no config is in
 sight.
 
 `qa` and `review` are gtd's two built-in steering-file formats: each has its own

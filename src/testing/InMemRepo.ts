@@ -26,6 +26,7 @@ function makeHash(message: string, parent: string | null, tree: Map<string, stri
 export class InMemRepo {
   // Data-only marker read by no code path: embeds the sentinel in every
   // instance so a leaked object still carries it.
+  // fallow-ignore-next-line unused-class-member
   readonly testDouble = TEST_DOUBLE_SENTINEL
 
   private commits: Map<string, Commit> = new Map()
@@ -276,6 +277,11 @@ export class InMemRepo {
   }
 
   /** Every worktree path under `prefix`, sorted. `prefix === ""` returns the whole worktree. */
+  /** Every path committed at `ref`, sorted — empty when it resolves to nothing. */
+  pathsAtRef(ref: string): ReadonlyArray<string> {
+    return [...this.treeAt(ref).keys()].sort()
+  }
+
   pathsUnder(prefix: string): ReadonlyArray<string> {
     if (prefix === "") return [...this.worktree.keys()].sort()
     const dirPrefix = prefix.endsWith("/") ? prefix : `${prefix}/`

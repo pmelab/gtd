@@ -10,6 +10,7 @@ export const SETUP_FILES: readonly string[] = [
   "./tests/integration/support/steps/common.steps.ts",
   "./tests/integration/support/steps/config.steps.ts",
   "./tests/integration/support/steps/formatting.steps.ts",
+  "./tests/integration/support/steps/history.steps.ts",
   "./tests/integration/support/steps/driver-doc.steps.ts",
   "./tests/integration/support/steps/lsp.steps.ts",
   "./tests/integration/support/steps/review-signoff.steps.ts",

@@ -64,10 +64,8 @@ export const buildGeneratedHtml = (template, script, cssRaw, distWebAssetNames) 
 // Runs between the two tsdown builds in `npm run build` (see package.json):
 // the browser build already produced dist/web/main.js by the time this
 // runs, and the Tailwind CLI step right after it has produced
-// dist/web/main.css. Folds both into one self-contained HTML file — the
-// exact ".html" text-loader trick `src/Visualize.ts` already uses for its
-// hand-written visualize.html — so the node build can import the whole
-// client as a string constant.
+// dist/web/main.css. Folds both into one self-contained HTML file, which the
+// node build imports through its ".html" text loader as a string constant.
 //
 // Guarded behind this check so `tests/tooling/inline-web-client.test.ts` can
 // import `buildGeneratedHtml` above without these real-filesystem reads

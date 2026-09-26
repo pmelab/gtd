@@ -1,38 +1,32 @@
 @inmem
 Feature: Pattern-matching grammar — statuses, glob depth, declaration order, clean event
 
-  Pins `PatternMachine.matchesPattern`/`parsePattern` through the real CLI: each
-  scenario declares a minimal custom `.gtdrc` `workflow:` isolating one
-  grammar concern so the pattern under test is the only thing that could make
-  it pass or fail.
+  A flow branches on what a landing changed with `changes()` — each path's
+  status and its content before and after — optionally filtered by a glob
+  (`*` stays within one path segment, `**` crosses them). Branches are plain code, so
+  the first one that matches in code order wins; a landing no branch
+  explains is refused with `refuse(message)`. A clean landing completes a
+  human gate only when it declares `acceptClean` — otherwise it is a silent
+  no-op. Each scenario declares a minimal `gtd.config.ts` isolating one
+  concern so the helper under test is the only thing that could make it pass
+  or fail.
 
   Scenario: an "A" pattern matches only an added path
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "A NOTE.md": added
-                  "M NOTE.md": modified
-                  "D NOTE.md": deleted
-              added:
-                actor: human
-                message: "added"
-              modified:
-                actor: human
-                message: "modified"
-              deleted:
-                actor: human
-                message: "deleted"
+      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changes("NOTE.md").some((c) => c.status === "added")) await human("added", { message: "added" })
+        else if (changes("NOTE.md").some((c) => c.status === "modified")) await human("modified", { message: "modified" })
+        else if (changes("NOTE.md").some((c) => c.status === "deleted")) await human("deleted", { message: "deleted" })
+        else
+          refuse(
+            "gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md",
+          )
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -44,31 +38,20 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
 
   Scenario: an "M" pattern matches only a modified path
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "A NOTE.md": added
-                  "M NOTE.md": modified
-                  "D NOTE.md": deleted
-              added:
-                actor: human
-                message: "added"
-              modified:
-                actor: human
-                message: "modified"
-              deleted:
-                actor: human
-                message: "deleted"
+      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changes("NOTE.md").some((c) => c.status === "added")) await human("added", { message: "added" })
+        else if (changes("NOTE.md").some((c) => c.status === "modified")) await human("modified", { message: "modified" })
+        else if (changes("NOTE.md").some((c) => c.status === "deleted")) await human("deleted", { message: "deleted" })
+        else
+          refuse(
+            "gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md",
+          )
+      })
       """
     And a commit "chore: seed" that adds "NOTE.md" with:
       """
@@ -84,31 +67,20 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
 
   Scenario: a "D" pattern matches only a deleted path
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "A NOTE.md": added
-                  "M NOTE.md": modified
-                  "D NOTE.md": deleted
-              added:
-                actor: human
-                message: "added"
-              modified:
-                actor: human
-                message: "modified"
-              deleted:
-                actor: human
-                message: "deleted"
+      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changes("NOTE.md").some((c) => c.status === "added")) await human("added", { message: "added" })
+        else if (changes("NOTE.md").some((c) => c.status === "modified")) await human("modified", { message: "modified" })
+        else if (changes("NOTE.md").some((c) => c.status === "deleted")) await human("deleted", { message: "deleted" })
+        else
+          refuse(
+            "gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md",
+          )
+      })
       """
     And a commit "chore: seed" that adds "NOTE.md" with:
       """
@@ -121,23 +93,17 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
 
   Scenario: a "*" status pattern matches any change kind
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "* NOTE.md": any-change
-              any-change:
-                actor: human
-                message: "matched"
+      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changes("NOTE.md").length === 0) {
+          refuse("gtd land: no declared pattern matches — declared patterns: * NOTE.md")
+        }
+        await human("any-change", { message: "matched" })
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -149,23 +115,17 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
 
   Scenario: a single-segment glob does not cross a path separator
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "* .gtd/*": shallow
-              shallow:
-                actor: human
-                message: "matched"
+      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changes(".gtd/*").length === 0) {
+          refuse("gtd land: no declared pattern matches — declared patterns: * .gtd/*")
+        }
+        await human("shallow", { message: "matched" })
+      })
       """
     And a file ".gtd/sub/DEEP.md" with:
       """
@@ -178,23 +138,17 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
 
   Scenario: "**" matches a nested path across segments
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "* .gtd/**": deep
-              deep:
-                actor: human
-                message: "matched"
+      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changes(".gtd/**").length === 0) {
+          refuse("gtd land: no declared pattern matches — declared patterns: * .gtd/**")
+        }
+        await human("deep", { message: "matched" })
+      })
       """
     And a file ".gtd/sub/DEEP.md" with:
       """
@@ -206,27 +160,16 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
 
   Scenario: the first matching pattern in declaration order wins
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "* NOTE.md": first-match
-                  "A NOTE.md": second-match
-              first-match:
-                actor: human
-                message: "matched first"
-              second-match:
-                actor: human
-                message: "matched second"
+      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changes("NOTE.md").length > 0) await human("first-match", { message: "matched first" })
+        else if (changes("NOTE.md").some((c) => c.status === "added")) await human("second-match", { message: "matched second" })
+        else refuse("gtd land: no declared pattern matches — declared patterns: * NOTE.md, A NOTE.md")
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -238,23 +181,15 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
 
   Scenario: the bare "C" token matches only a clean tree
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "C": settled
-              settled:
-                actor: human
-                message: "clean"
+      import { changes, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        // acceptClean: a landing that changes nothing completes the gate.
+        await human("start", { message: "go", acceptClean: true })
+        if (changes().length === 0) await human("settled", { message: "clean" })
+      })
       """
     When I run gtd land
     Then it succeeds
@@ -262,25 +197,43 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
 
   Scenario: a clean tree with no declared "C" event is a silent no-op
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "* NOTE.md": working
-              working:
-                actor: agent
-                message: "..."
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        // No acceptClean: a clean landing leaves the gate waiting for a change.
+        await human("start", { message: "go" })
+        await agent("working", "...")
+      })
       """
     And I record the commit count
     When I run gtd land
     Then it succeeds
     And the commit count is unchanged
+
+  Scenario: a branch reads a change's content before and after the landing
+    Given a test project
+    And a commit "chore: add note" that adds "NOTE.md" with:
+      """
+      status: draft
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { changes, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        const note = changes().get("NOTE.md")
+        if (note?.before?.includes("draft") && note.after?.includes("final"))
+          await human("promoted", { message: "promoted" })
+        else await human("other", { message: "other" })
+      })
+      """
+    And "NOTE.md" is modified to:
+      """
+      status: final
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): start → promoted"

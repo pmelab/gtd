@@ -9,60 +9,77 @@ scrollback.
 
 ### Engine
 
-**Workflow**: The whole definition of what gtd can do, authored as data
-(`entry:` + `machines:`) rather than code. One workflow is bundled as the
-built-in default; a `.gtdrc` `workflow:` key replaces it wholesale. _Avoid_:
-state machine, config, pipeline
+**Workflow**: The whole definition of what gtd can do — the default export of a
+`gtd.config.ts`, mapping [entry](#entry) names to [flows](#flow). One workflow
+is bundled as the built-in default; a repository's own `gtd.config.ts` replaces
+it wholesale. _Avoid_: state machine, config, pipeline
 
-**Machine**: A named, reusable, parameterizable group of states, instantiable
-more than once with different bindings. The unit that owns a model and a
-[memory scope](#memory-scope) — not the state. _Avoid_: module, subgraph, group
+**gtd.config.ts**: The TypeScript module a workflow lives in — the innermost one
+walking up from the current directory, never merged. Code gtd evaluates on every
+command that resolves workflow state, so it carries the same trust as any other
+script in the repository. _Avoid_: workflow file, workflow config, `.gtdrc`
+workflow
 
-**State**: One named position in a workflow, declaring who acts there, exactly
-one content kind, and an ordered set of edges out. _Avoid_: node, step, phase
+**Flow**: An async function that awaits [steps](#step) — plain code, branching
+over what the last step left in the tree. The workflow's one kind of logic.
+_Avoid_: machine, state table, graph
 
-**Actor**: Who is expected to act at a state — `agent`, `human`, or `check`.
-`check` is the driver executing a `script` state's rendered command; gtd itself
-executes nothing. _Avoid_: role, party, runner
+**Step**: One named position a process can rest at, reached by awaiting
+`agent()`, `human()`, `run()` or `judge()`. Its name is the `<to>` of the commit
+subject that lands it and, up to its last dot, its
+[memory scope](#memory-scope). _Avoid_: state, node, phase
+
+**Fragment**: A reusable function of steps exported alongside the step API — a
+health loop, a question gate, a review tail. The step names it declares are
+public, versioned API. _Avoid_: machine, sub-workflow, module
+
+**Actor**: Who is expected to act at a step — `agent`, `human`, `check` (a `run`
+step, executed by the driver) or `judge`. gtd itself executes nothing. _Avoid_:
+role, party, runner
 
 **Driver**: Whatever executes what gtd prints — a driver (the README's minimal
 driver, or your own), a loop harness, a CI job, or a person reading it aloud.
 gtd is indifferent to which. _Avoid_: harness, runner, client
 
 **Outcome line**: The human-facing line an emitted script prints for what it
-just landed — a transition, a bare capture, an abandon, a restore. Authored in
-TS (`src/OutcomeScript.ts`), printed by the driver's bash, so it reads the same
-whether a driver runs the script or a person pastes it into a terminal. _Avoid_:
-report, log line
+just landed — a transition, a bare capture, an abandon, a restore. It reads the
+same whether a driver runs the script or a person pastes it into a terminal.
+_Avoid_: report, log line
 
-**Content kind**: The one thing a state carries: a `script`, a `prompt`, or a
-`message`. Which kind it is determines what gtd prints and who reads it.
+**Content kind**: What a rest hands the driver: `capture`, `message`, `script`,
+`prompt` or `stalled`. Every rest resolves to exactly one.
 
-**Rest**: Where a process currently waits, fully resolved — the state plus its
-rendered content, its model, and its memory key. What `gtd next` prints.
-_Avoid_: current state, position
+**Rest**: Where a process currently waits, fully resolved — the step plus its
+content, its model, and its memory key. What `gtd next` prints. _Avoid_: current
+state, position
 
-**Process**: One pass through a workflow, from an entry to a sign-off (an
-ordinary commit entering the initial state, keeping every turn commit it made)
-or an abandonment. It does not return to where it started. _Avoid_: cycle, run,
+**Process**: One pass through a workflow, from an entry to the flow's end or an
+abandonment. It does not return to where it started. _Avoid_: cycle, run,
 session
+
+**Episode**: The commits one run of the flow answers — first-parent history
+since the episode began. It ends when the flow returns or calls `restart()`; the
+next begins at the flow's first step on an ordinary start. _Avoid_: session, run
+
+**Replay**: How gtd finds the rest: run the flow again, answering each step from
+the episode's next commit, until a step has no commit left. Pure over history,
+so flow code must be pure too. _Avoid_: fold, resume, reconstruct
+
+**Divergence**: History that no longer replays — a commit naming a step the
+current workflow does not reach there. gtd refuses loudly and points at
+`gtd abandon`; there is no migration. _Avoid_: drift, stale state, migration
 
 **Turn**: What an actor actually did — the work sitting in the tree, captured as
 one commit. _Avoid_: action, move
 
-**Attempt**: A turn that changed nothing, committed anyway — an empty
-`gtd(<actor>): <state>` self-loop at a `prompt` rest declaring no `C` row — so
-the fruitless dispatch is in history rather than invisible. Entries in the
-process trace, so a `retry:` cap on the state counts them like any other entry
-and redirects once the cap is reached.
-
-**Step**: One `gtd land` invocation. Distinct from a turn: a step may capture a
-turn, refuse, or do nothing at all.
+**Attempt**: An agent turn that changed nothing, committed anyway as an empty
+`gtd(agent): <step>` — so the fruitless dispatch is in history rather than
+invisible. The process stays at the step, unless it sets `allowEmpty`.
 
 **Land**: Recording what an actor did — `gtd land` decides and emits the script;
 the driver running that script is what actually writes to git. The verb for the
 third move of a [beat](#beat). Actorless: which actor a landing is attributed to
-is derived from the resting state, never passed in. _Avoid_: step actor, commit,
+is derived from the resting step, never passed in. _Avoid_: step actor, commit,
 capture the turn
 
 **Beat**: One read of `gtd next --json` and whatever it demands — nothing (a
@@ -71,112 +88,98 @@ an execution followed by a land (`script`/`prompt`). _Avoid_: iteration, tick,
 cycle
 
 **Beat document**: `gtd next --json`'s output — one self-describing JSON line
-per beat: `kind` (`capture` | `message` | `script` | `prompt` | `stalled`),
-`content`, `log`, and — on a `prompt` beat only — `session` (`{id, resume}`,
-derived) and the embedded `validate` script. The driver's whole read surface.
-_Avoid_: next payload, dispatch document
+per beat: `kind`, `content`, `log`, and — on a `prompt` beat only — `session`
+(`{id, resume}`, derived) and the embedded `validate` script. The driver's whole
+read surface. _Avoid_: next payload, dispatch document
 
-**Stall**: HEAD is an empty [attempt](#attempt) at the resting `prompt` state,
-the tree is clean, and another dispatch would just repeat it — derived from
-history (`Edge.ts`'s `stalledAt`), not tracked by any marker, so it survives a
-restart and reads the same whether polled, peeked, or dispatched. Sticky until
-something actually changes: the workflow's own `C` edge (a state that may
-legitimately finish with nothing to change should declare one) or a `retry:`
-cap's escalation redirect clears it, never a one-shot report.
+**Stall**: HEAD is an empty [attempt](#attempt) at the resting agent step, the
+tree is clean, and another dispatch would just repeat it — derived from history,
+not tracked by any marker, so it survives a restart and reads the same whether
+polled, peeked, or dispatched. Sticky until something actually changes.
 
 **Capture**: Turning a dirty tree into one turn commit, subject
-`gtd(<actor>): <from> → <to>` (collapsing to `gtd(<actor>): <to>` when there is
-no transition). The matched pattern's target is committed verbatim; nothing
-re-derives it afterwards.
+`gtd(<actor>): <from> → <to>` with a `Gtd-Step: <name>#<n>` trailer. What the
+flow does next is decided by replaying it over that commit, never re-derived
+from the subject.
 
-**Pattern**: The left side of an edge — a `<status> <glob>` change-matcher, or
-the bare token `C` matching a clean tree. A branch outcome is encoded by which
-pattern the authored diff happens to match; the pattern is the rule. _Avoid_:
-rule, matcher, condition
+**Refusal**: A landing rejected before anything is captured — a guard saying no,
+or the flow calling `refuse()` because nothing it branches on explains the turn.
 
-**Edge**: One whole `on` row — a pattern paired with its target state, plus the
-optional `describe`/`action` sentences a `message`/`prompt` renders for a human.
+**No-op**: A landing that authors nothing: a clean tree at a human step without
+`acceptClean`. An agent step's equivalent is an [attempt](#attempt), not a
+no-op.
 
-**Refusal**: A step rejected because something happened that nothing recognizes
-— a dirty tree matching no declared pattern, or a guard saying no.
+**Settled**: A landing with nothing left to do — a clean run whose replay leads
+straight back to the same step, so re-running it cannot change anything.
+Reported as `settled: true` by `gtd land --json` so a loop exits rather than
+spins. _Avoid_: done, finished, idle
 
-**No-op**: A step at a `script`/`message` rest that authors nothing, because the
-tree is clean and the state declares no `C` pattern. The default for a
-`script`/`message` actor invoked before it has acted — a `prompt` rest's
-equivalent is an [attempt](#attempt), not a no-op.
+**Gate**: A human step — the process rests there until a person acts. _Avoid_:
+checkpoint, approval, the bare "the gate"
 
-**Settled**: A step with nothing left to land — a no-op at a `script` rest (the
-check ran, left nothing any pattern claims, and re-running it cannot change
-that). Reported as exit 3 (and `settled: true` under `--json`) by `gtd land` so
-a loop exits rather than spins. An attempt at a `prompt` rest is not settled but
-stalled; a commit decision — even one re-entering the initial state — is never
-settled either, since `gtd land` never moves HEAD. _Avoid_: done, finished, idle
+**Guard**: A check in flow code that refuses a turn right after the step that
+took it (`requireProgress`, `requireAnswers`, `requireRevert`, or any
+`refuse()`). The opposite of a gate: a gate waits for someone, a guard turns
+them away.
 
-**Gate**: A state whose actor is `human` — the process rests there until a
-person acts. _Avoid_: checkpoint, approval, the bare "the gate"
-
-**Guard**: An edge-side condition that refuses a step before anything is
-captured (the steering-file, answer-completeness, require-revert, and
-green-baseline guards). The opposite of a gate: a gate waits for someone, a
-guard turns them away.
-
-**Steering file**: A file a state declares via `file:` + `mode:` — how a human
-or an agent steers the process by editing prose rather than talking to it.
-_Avoid_: state file, gate file, doc
+**Steering file**: A file a step declares via `file` (+ `mode`) — how a human or
+an agent steers the process by editing prose rather than talking to it. _Avoid_:
+state file, gate file, doc
 
 **Mode**: A named pair of shell commands over one steering file — `format:` to
 normalize it in place, `validate:` to report findings. Zero findings means
-valid. Every mode a state's `mode:` names must be declared in the workflow's own
-`modes:` map (`qa`/`review` are seeded there automatically); an undeclared name
-is a load-time error, never a silent fallback.
+valid. Declared under `.gtdrc` `modes:` (`qa`/`review` are seeded
+automatically); a step naming an undeclared mode is a load-time error, never a
+silent fallback.
 
 **Steering format**: What a steering file's CONTENT is — the shape a mode's NAME
 identifies (`qa`'s open-questions checkboxes, `review`'s hunk pointers),
 independent of who validates it. A format is what the LSP outlines/offers
 actions over; a mode is that format plus the specific `format:`/`validate:`
-commands ONE workflow plugs in for it. Overriding a built-in mode's `validate:`
-changes who validates, not what the file is — the format (and so the
-outline/actions) survives the override.
+commands one repository plugs in for it. Overriding a built-in mode's
+`validate:` changes who validates, not what the file is.
 
-**Squash**: No longer an engine concept — gtd never rewrites history. A sign-off
-ends a process with an ordinary commit into the initial state, keeping every
-turn commit; a squash (or an amend, or a PR body) is something a human or a
-driver may still do afterward, outside gtd, using `gtd summary`'s prompt to
-write the message.
+**Squash**: Not an engine concept — gtd never rewrites history. A process ends
+with ordinary commits, keeping every turn; a squash (or an amend, or a PR body)
+is something a human or a driver may still do afterward, outside gtd, using
+`gtd summary`'s prompt to write the message.
 
-**Entry**: A state a process may start at — the `default` one, plus every state
-declaring `entry: true`, reachable as `gtd --entry <state>`.
+**Entry**: The name `gtd --entry <name>` hands the flow as its `entry` argument
+to start a process somewhere other than an ordinary start; the flow decides
+which names it accepts, and the workflow's `base` may fix the process's diff
+base. _Avoid_: initial state, entry state
 
-**Memory scope**: The span of a process over which one conversation persists,
-keyed off a machine's position in the machine tree rather than any per-state
-field. _Avoid_: session, context window, conversation, history
+**Memory scope**: The span of a process over which one agent conversation
+persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`
+when there are none). One scope, one model and system prompt. _Avoid_: session,
+context window, conversation, history
 
 **Session id**: The agent CLI's own conversation handle — DERIVED from a memory
 scope's key (a `uuidv5` hash), never stored anywhere, so the same scope-run
 always re-derives the same id (`gtd next --json`'s
 `session.id`/`session.resume`) and a driver can resume the same agent
 conversation across turns in one scope. The one place "session" is the right
-word — the _Avoid_ on **Memory scope** stands: gtd's own span is still a memory
-scope, not a session.
+word — the _Avoid_ on **Memory scope** stands.
 
-**Review base**: The commit a review is measured against — the last state that
-declared `reviewBase`, falling back to the process start.
+**Review base**: The commit a review is measured against — the `base` the
+resting step names, falling back to the process start.
 
 **Retained history**: A rewound process's turn-by-turn commits, kept behind a
 ref so `gtd restore` can bring them back — written only when `gtd abandon`
 rewinds an in-flight process. `gtd land` never moves HEAD, so it never writes
 this ref.
 
-**Vars**: A workflow's own declared values, readable from any template as
-`it.vars`. The engine blesses no names: `testCommand` is the bundled workflow's
-data, not a key gtd interprets.
+**Vars**: Flat string values flow code reads as `vars` — the workflow's own
+defaults, then `.gtdrc` `vars:`, then an entry's `--var`, then `GTD_<NAME>`. gtd
+blesses no names: `testCommand` is the bundled workflow's data, not a key gtd
+interprets.
 
 ### Bundled workflow
 
 These terms belong to the one workflow gtd ships, not to the engine. Replace the
 workflow and they go with it.
 
-**Unwind**: The beat (`unwind`) that reverts the entry commit's diff — the
+**Unwind**: The step (`unwind`) that reverts the entry commit's diff — the
 change that started the process, whether a hand-edit to real code or a scratch
 note — back out of the working tree, leaving it identical to the process's start
 commit. The input's intent isn't lost: it survives in history for

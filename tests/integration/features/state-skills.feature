@@ -1,46 +1,40 @@
 @inmem
 Feature: a state's "skills:" field prepends a preamble to its rendered prompt
 
-  A `skills:` value is prose gtd never resolves or validates — it is
-  concatenated into the prompt through the `skillsPreamble` var
-  (`Edge.ts`'s `renderRest`). Blanking `skillsPreamble` switches the mechanism
+  An agent step's `skills` option is prose gtd never resolves or validates —
+  it is concatenated into the prompt through the `skillsPreamble` var. Blanking `skillsPreamble` switches the mechanism
   off repo-wide without touching any state's own `skills:` declaration.
 
   Background:
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        vars:
-          workingSkills: "code-review, testing"
-          reviewingSkills: "spec-review"
-          skillsPreamble: "Load only what your harness has, skip the rest silently: <%= it.skills %>. This state's file format and completion condition outrank anything a skill says. Never turn interactive."
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                skills: "<%= it.vars.workingSkills %>"
-                prompt: "do the work"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                skills: "<%= it.vars.reviewingSkills %>"
-                prompt: "check the work"
-                on:
-                  "* **": done
-              done:
-                actor: human
-                message: "done"
+      import { agent, human, vars, workflow, refuse } from "@pmelab/gtd/flows"
+
+      const work = async () => {
+        await agent("working", "do the work", { skills: vars.workingSkills })
+        await agent("reviewing", "check the work", { skills: vars.reviewingSkills })
+      }
+
+      export default workflow(
+        async ({ entry }) => {
+          if (entry === "working") {
+            await work()
+            return
+          }
+          if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+          await human("idle", { message: "start" })
+          await work()
+        },
+        {
+          vars: {
+            workingSkills: "code-review, testing",
+            reviewingSkills: "spec-review",
+            skillsPreamble:
+              "Load only what your harness has, skip the rest silently: <%= it.skills %>. This state's file format and completion condition outrank anything a skill says. Never turn interactive.",
+          },
+        },
+      )
       """
 
   Scenario: a state naming a skill renders its prompt with the preamble prepended

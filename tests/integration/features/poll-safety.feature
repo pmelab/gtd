@@ -18,8 +18,8 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
   Scenario: repeated reads at a resting prompt turn change nothing — session, memory, and model all stay put
     Given a test project
     And the workflow
-    When I run gtd with args "--entry design.triage"
-    Then it succeeds
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     And the git index has settled
     And I snapshot the repository
     When I run gtd next with "--json"
@@ -37,8 +37,18 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
   Scenario: repeated reads at a settled gate change nothing
     Given a test project
     And the workflow
-    When I run gtd with args "--entry design.gate.answer"
-    Then it succeeds
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Add a feature.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And a file ".gtd/QUESTIONS.md" with:
+      """
+      - [ ] Which feature?
+      """
+    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
     And the git index has settled
     And I snapshot the repository
     When I run gtd next with "--json"

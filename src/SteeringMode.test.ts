@@ -8,7 +8,9 @@ import { seededValidateCommand } from "./SteeringFormats.js"
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!
 import type { TemplateContext } from "./PatternTemplates.js"
-import type { WorkflowDefinition } from "./PatternMachine.js"
+import type { WorkflowDefinition } from "./Workflow.js"
+
+type ModesDef = Pick<WorkflowDefinition, "modes">
 
 const context = (vars: Record<string, string> = {}): TemplateContext => ({
   startCommit: "aaa",
@@ -34,14 +36,9 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
     throw new Error(`unexpected diffTail of ${base}`)
   },
   vars,
-  edges: [],
 })
 
-const commandsDef = (modes: NonNullable<WorkflowDefinition["modes"]>): WorkflowDefinition => ({
-  modes,
-  states: {},
-  entries: { default: "x", manual: [] },
-})
+const commandsDef = (modes: WorkflowDefinition["modes"]): ModesDef => ({ modes })
 
 const envVarsLayer = Host.layer({ root: "/repo", home: "/repo", env: { PATH: "/usr/bin:/bin" } })
 
@@ -61,7 +58,7 @@ const runScriptExit = (resolved: ModeResolution, file: string, ctx: TemplateCont
 
 describe("resolveMode", () => {
   it("resolves the two built-in names to their in-process validator, their format, and to no formatter", () => {
-    const def: WorkflowDefinition = { states: {}, entries: { default: "x", manual: [] } }
+    const def: ModesDef = { modes: {} }
     expect(resolveMode(def, "drafting", "qa")).toEqual({
       kind: "resolved",
       mode: "qa",
@@ -131,7 +128,7 @@ describe("resolveMode", () => {
   })
 
   it("resolves nothing for `prose` with no declared entry — it is not in the built-in registry", () => {
-    const def: WorkflowDefinition = { states: {}, entries: { default: "x", manual: [] } }
+    const def: ModesDef = { modes: {} }
     expect(resolveMode(def, "drafting", "prose").kind).toBe("unknown")
   })
 

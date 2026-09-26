@@ -18,30 +18,15 @@ Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the 
 
   Background:
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "echo hi"
-                on:
-                  "C": idle
+      import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+        await run("checking", "echo hi")
+      })
       """
 
   Scenario: a message rest — the initial gate before anything has happened
@@ -59,7 +44,7 @@ Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the 
       """
       a note
       """
-    And an empty commit "gtd(human): working"
+    And gtd lands "gtd(human): idle → working"
     When I run gtd with args "next"
     And I record stdout as "next-content"
     When I run gtd next with "--json"
@@ -74,8 +59,12 @@ Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the 
       """
       a note
       """
-    And an empty commit "gtd(human): working"
-    And an empty commit "gtd(agent): checking"
+    And gtd lands "gtd(human): idle → working"
+    And a file "WORK.md" with:
+      """
+      the work
+      """
+    And gtd lands "gtd(agent): working → checking"
     When I run gtd with args "next"
     And I record stdout as "next-content"
     When I run gtd next with "--json"

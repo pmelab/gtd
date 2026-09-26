@@ -18,7 +18,6 @@ const rendered = (overrides: Partial<RenderedDemandSource> = {}): RenderedDemand
   state: "build.fixing",
   actor: "agent",
   content: "fix it",
-  edges: [],
   ...overrides,
 })
 
@@ -120,7 +119,7 @@ describe("beatDocument / renderBeatJson", () => {
     expect("validate" in parsed).toBe(false)
   })
 
-  it("emits model/system/memory/file/mode/label/edges at every kind when present, never null", () => {
+  it("emits model/system/memory/file/mode/label at every kind when present, never null", () => {
     const r = rendered({
       model: "opus",
       system: "You are a careful senior engineer.",
@@ -128,7 +127,6 @@ describe("beatDocument / renderBeatJson", () => {
       file: "TODO.md",
       mode: "qa",
       label: "Fixing",
-      edges: [{ pattern: "C", target: "idle" }],
     })
     for (const kind of BEAT_KINDS) {
       const line = renderJsonLine({ rendered: r, kind })
@@ -139,7 +137,7 @@ describe("beatDocument / renderBeatJson", () => {
       expect(parsed.file).toBe("TODO.md")
       expect(parsed.mode).toBe("qa")
       expect(parsed.label).toBe("Fixing")
-      expect(parsed.edges).toEqual([{ pattern: "C", target: "idle" }])
+      expect(parsed).not.toHaveProperty("edges")
     }
   })
 
@@ -192,7 +190,6 @@ describe("beatDocument / renderBeatJson", () => {
       file: "TODO.md",
       mode: "qa",
       label: "Fixing",
-      edges: [{ pattern: "C", target: "idle" }],
       judge: '{"state":"build.fixing","questions":[]}',
     })
     const line = renderJsonLine({
@@ -202,8 +199,8 @@ describe("beatDocument / renderBeatJson", () => {
       log: ".git/gtd-loop.log",
       session: { id: "8f2c", resume: true },
       validate: "gtd check qa 'TODO.md'",
-      changes: [{ status: "M", path: "TODO.md", pattern: null }],
-      next: { action: undefined, pattern: "C", target: "idle" },
+      changes: [{ status: "M", path: "TODO.md" }],
+      next: { target: "idle" },
       cost: 12,
       costByModel: [{ model: "opus", cost: 12 }],
     })
@@ -223,7 +220,6 @@ describe("beatDocument / renderBeatJson", () => {
       "memory",
       "file",
       "mode",
-      "edges",
       "changes",
       "next",
       "cost",
@@ -238,8 +234,8 @@ describe("beatDocument / renderBeatJson", () => {
 
   it("carries changes verbatim, always present even when empty", () => {
     const changes = [
-      { status: "M", path: "TODO.md", pattern: "TODO.md" },
-      { status: "A", path: "REVIEW.md", pattern: null },
+      { status: "M", path: "TODO.md" },
+      { status: "A", path: "REVIEW.md" },
     ]
     const line = renderJsonLine({ kind: "prompt", changes })
     const parsed = JSON.parse(line) as { changes: unknown }
@@ -252,18 +248,18 @@ describe("beatDocument / renderBeatJson", () => {
 
     const matched = renderJsonLine({
       kind: "prompt",
-      next: { action: undefined, pattern: "C", target: "idle" },
+      next: { target: "idle" },
     })
     const parsedMatch = JSON.parse(matched) as { next: Record<string, unknown> }
-    expect(parsedMatch.next).toEqual({ pattern: "C", target: "idle" })
+    expect(parsedMatch.next).toEqual({ target: "idle" })
     expect("action" in parsedMatch.next).toBe(false)
 
     const matchedWithAction = renderJsonLine({
       kind: "prompt",
-      next: { action: "land", pattern: "C", target: "idle" },
+      next: { target: "idle" },
     })
     const parsedAction = JSON.parse(matchedWithAction) as { next: Record<string, unknown> }
-    expect(parsedAction.next).toEqual({ action: "land", pattern: "C", target: "idle" })
+    expect(parsedAction.next).toEqual({ target: "idle" })
   })
 
   it("omits cost/costByModel when cost is zero, emits both when a cost was recorded", () => {
@@ -308,15 +304,14 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
     file: "TODO.md",
     mode: "qa",
     label: "Fixing",
-    edges: [{ pattern: "C", target: "idle", describe: "clean tree" }],
     judge: '{"state":"build.fixing","questions":[]}',
   })
   const commonInput = {
     rendered: fullRendered,
     idle: false,
     log: ".git/gtd-loop.log",
-    changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
-    next: { action: "land", pattern: "C", target: "idle" },
+    changes: [{ status: "M", path: "TODO.md" }],
+    next: { target: "idle" },
     cost: 12,
     costByModel: [{ model: "opus", cost: 12 }],
   }
@@ -337,9 +332,8 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         memory: "build#a1b2c3d",
         file: "TODO.md",
         mode: "qa",
-        edges: [{ pattern: "C", target: "idle", describe: "clean tree" }],
-        changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
-        next: { action: "land", pattern: "C", target: "idle" },
+        changes: [{ status: "M", path: "TODO.md" }],
+        next: { target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
         judge: '{"state":"build.fixing","questions":[]}',
@@ -363,9 +357,8 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         memory: "build#a1b2c3d",
         file: "TODO.md",
         mode: "qa",
-        edges: [{ pattern: "C", target: "idle", describe: "clean tree" }],
-        changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
-        next: { action: "land", pattern: "C", target: "idle" },
+        changes: [{ status: "M", path: "TODO.md" }],
+        next: { target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
         judge: '{"state":"build.fixing","questions":[]}',
@@ -389,9 +382,8 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         memory: "build#a1b2c3d",
         file: "TODO.md",
         mode: "qa",
-        edges: [{ pattern: "C", target: "idle", describe: "clean tree" }],
-        changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
-        next: { action: "land", pattern: "C", target: "idle" },
+        changes: [{ status: "M", path: "TODO.md" }],
+        next: { target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
         judge: '{"state":"build.fixing","questions":[]}',
@@ -424,9 +416,8 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         memory: "build#a1b2c3d",
         file: "TODO.md",
         mode: "qa",
-        edges: [{ pattern: "C", target: "idle", describe: "clean tree" }],
-        changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
-        next: { action: "land", pattern: "C", target: "idle" },
+        changes: [{ status: "M", path: "TODO.md" }],
+        next: { target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
         judge: '{"state":"build.fixing","questions":[]}',
@@ -450,9 +441,8 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         memory: "build#a1b2c3d",
         file: "TODO.md",
         mode: "qa",
-        edges: [{ pattern: "C", target: "idle", describe: "clean tree" }],
-        changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
-        next: { action: "land", pattern: "C", target: "idle" },
+        changes: [{ status: "M", path: "TODO.md" }],
+        next: { target: "idle" },
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
         judge: '{"state":"build.fixing","questions":[]}',

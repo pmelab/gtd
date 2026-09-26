@@ -52,9 +52,7 @@ export interface GitReaderOperations {
    * Pending working-tree changes vs `base` (default `HEAD`), as
    * `{path, status}` pairs: tracked diff unioned with untracked files.
    *
-   * `base` exists for one caller — `src/step/Guards.ts`'s `requireRevertGuard`,
-   * which compares the current tree against `reviewBase~1`. An untracked path
-   * is classified by CONTENT against `base`, not the index (see
+   * An untracked path is classified by CONTENT against `base`, not the index (see
    * `classifyUntracked`): reporting the index's view instead would call a
    * present-but-untracked file `D` (deleted) whenever the index doesn't match
    * the working tree. A REAL deletion still reports `D`: it's absent from the

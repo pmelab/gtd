@@ -28,10 +28,12 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
   Scenario: a styled REQUIREMENTS.md passes gtd check qa and design.triage advances
     Given a test project
     And the workflow
-    And a commit "gtd(check): start-gate.check → design.triage" that adds "src/calc.ts" with:
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     # The styled file itself — bold claim up front, flat imperative sentences,
     # no padding — with the "## Open Questions" / "### <question>" / "- [ ]"
     # grammar `gtd check qa` requires still intact.
@@ -59,10 +61,14 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
   Scenario: a styled REVIEW.md passes gtd check review and build.review.reviewing advances
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.health.check → build.review.reviewing" that adds "src/calc.ts" with:
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
     # The styled file itself — bold claim, imperative, no padding — with the
     # "# Review: <hash>" header, the base marker, and "## <chunk>" / "- [ ]
     # ./path#line" rows `gtd check review` requires still intact.

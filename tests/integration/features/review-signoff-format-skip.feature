@@ -9,10 +9,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
   missing path (`prettier --write`, modelled below) would have made a
   sign-off's step UNLANDABLE — `format:` was the first command in a
   `set -euo pipefail` script, and its failure aborted the whole script before
-  the commit. `deletesFile` (`src/step/Guards.ts`) still exists and is still
-  shared by the step-capture guards (see AGENTS.md's "Step-capture guards"
-  section) — it just no longer has a `steeringModeSteps` caller to skip a
-  format command for, since there is no such caller left in the landing path.
+  the commit.
 
   This scenario actually EXECUTES the rendered script (`I execute the printed
   check script`) rather than simulating its outcome by hand — `@inmem`
@@ -37,7 +34,16 @@ Feature: A review sign-off lands even when its mode declares a format: command t
               exit 2
             }
       """
-    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -47,6 +53,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234

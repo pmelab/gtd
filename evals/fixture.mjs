@@ -11,7 +11,6 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import assert from "node:assert"
-import { parse as parseYaml } from "yaml"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const GTD_BIN = join(HERE, "..", "dist", "gtd.bundle.mjs")
@@ -93,11 +92,17 @@ function writeOxfmtConfig(repo) {
   writeFileSync(join(repo, ".oxfmtrc.json"), readFileSync(OXFMTRC_PATH, "utf-8"))
 }
 
+// The bundled workflow enters only its own review/fix entries, so a case's
+// step is reached through the evals' own workflow; GTD_EVAL_WORKFLOW names a
+// different gtd.config.ts to use instead.
+const EVAL_WORKFLOW = join(HERE, "gtd.config.ts")
 function writeEvalWorkflowConfig(repo) {
-  const workflowPath = process.env.GTD_EVAL_WORKFLOW
-  if (!workflowPath) return
-  const doc = parseYaml(readFileSync(workflowPath, "utf-8"))
-  writeFileSync(join(repo, ".gtdrc.json"), JSON.stringify({ workflow: doc }, null, 2) + "\n")
+  const source = readFileSync(process.env.GTD_EVAL_WORKFLOW || EVAL_WORKFLOW, "utf-8")
+  const workflows = join(HERE, "..", "src", "workflows", "index.ts")
+  writeFileSync(
+    join(repo, "gtd.config.ts"),
+    source.replace('"../src/workflows/index.js"', JSON.stringify(workflows)),
+  )
 }
 
 /**

@@ -14,7 +14,6 @@ import {
   externalValidatorNotice,
   makeNodeLspEnv,
   makeSteeringLanguageService,
-  mergeStaticVars,
   resolveSteeringFile,
   resolvedModeForDocument,
   resolveWorkspaceRoot,
@@ -38,7 +37,7 @@ import {
 } from "vscode-languageserver/node"
 import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
 import { steeringFormatFor } from "./steering/index.js"
-import type { WorkflowDefinition } from "./PatternMachine.js"
+import type { WorkflowDefinition } from "./Workflow.js"
 import { InMemRepo, testLayers } from "./testing/index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
@@ -51,7 +50,10 @@ const resolveBuiltInMode = (mode: string): ResolvedMode | undefined => {
 }
 
 /** Test-local stand-in for the old `resolveSteeringMode` — resolves `mode` against a definition, discarding the "unknown" arm. */
-const resolveSteeringMode = (def: WorkflowDefinition, mode: string): ResolvedMode | undefined => {
+const resolveSteeringMode = (
+  def: Pick<WorkflowDefinition, "modes">,
+  mode: string,
+): ResolvedMode | undefined => {
   const resolved = resolveMode(def, "state", mode)
   return resolved.kind === "resolved" ? resolved : undefined
 }
@@ -65,33 +67,17 @@ describe("basenameFallbackMode", () => {
 })
 
 describe("buildSteeringMap", () => {
-  const def = (
-    states: WorkflowDefinition["states"],
-    modes: WorkflowDefinition["modes"] = { qa: {}, review: {} },
-  ): WorkflowDefinition => ({
-    states,
-    entries: { default: Object.keys(states)[0]!, manual: [] },
-    modes,
-  })
+  const node = (name: string, options: { file?: string; mode?: string }) => ({ name, ...options })
+  const QA_REVIEW: WorkflowDefinition["modes"] = { qa: {}, review: {} }
 
-  it("renders each state's `file:` (vars-layer context) into an absolute path keyed to its resolved mode", () => {
+  it("maps each reached step's `file:` to an absolute path keyed to its resolved mode", () => {
     const { map, warnings } = buildSteeringMap(
-      def({
-        grilling: {
-          actor: "agent",
-          prompt: "x",
-          file: "<%= it.vars.todoFile %>",
-          mode: "qa",
-        },
-        reviewing: {
-          actor: "agent",
-          prompt: "x",
-          file: "<%= it.vars.reviewFile %>",
-          mode: "review",
-        },
-        idle: { actor: "human", message: "x" },
-      }),
-      { todoFile: ".gtd/TODO.md", reviewFile: ".gtd/REVIEW.md" },
+      { modes: QA_REVIEW },
+      [
+        node("grilling", { file: ".gtd/TODO.md", mode: "qa" }),
+        node("reviewing", { file: ".gtd/REVIEW.md", mode: "review" }),
+        node("idle", {}),
+      ],
       "/repo",
     )
     expect(warnings).toEqual([])
@@ -100,53 +86,35 @@ describe("buildSteeringMap", () => {
     expect(map.size).toBe(2)
   })
 
-  it("skips a state whose `file:` fails to render and warns, without failing the whole map", () => {
+  it("keeps the FIRST declaring step's mode on a path conflict, warning about the later one", () => {
     const { map, warnings } = buildSteeringMap(
-      def({
-        broken: { actor: "agent", prompt: "x", file: "<%= it.vars.nope.deeper %>", mode: "qa" },
-        ok: { actor: "agent", prompt: "x", file: "PLAN.md", mode: "qa" },
-      }),
-      {},
-      "/repo",
-    )
-    expect(map.get("/repo/PLAN.md")?.format).toBe(QA_FORMAT)
-    expect(map.size).toBe(1)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('state "broken"')
-  })
-
-  it("keeps the FIRST declaring state's mode on a path conflict, warning about the later one", () => {
-    const { map, warnings } = buildSteeringMap(
-      def({
-        first: { actor: "agent", prompt: "x", file: "SHARED.md", mode: "qa" },
-        second: { actor: "agent", prompt: "x", file: "SHARED.md", mode: "review" },
-      }),
-      {},
+      { modes: QA_REVIEW },
+      [
+        node("first", { file: "SHARED.md", mode: "qa" }),
+        node("second", { file: "SHARED.md", mode: "review" }),
+      ],
       "/repo",
     )
     expect(map.get("/repo/SHARED.md")?.format).toBe(QA_FORMAT)
     expect(map.size).toBe(1)
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('state "second"')
+    expect(warnings[0]).toContain('step "second"')
   })
 
-  it("ignores a state declaring neither `file:` nor `mode:`", () => {
+  it("ignores a step declaring no `file:` and `mode:` pair", () => {
     const { map, warnings } = buildSteeringMap(
-      def({ idle: { actor: "human", message: "x" } }),
-      {},
+      { modes: QA_REVIEW },
+      [node("idle", {}), node("drafting", { file: "PLAN.md" })],
       "/repo",
     )
     expect(map.size).toBe(0)
     expect(warnings).toEqual([])
   })
 
-  it("skips (with a warning) a state whose `mode:` does not resolve — an unregistered, undeclared name", () => {
+  it("skips (with a warning) a step whose `mode:` does not resolve — an unregistered, undeclared name", () => {
     const { map, warnings } = buildSteeringMap(
-      def(
-        { drafting: { actor: "agent", prompt: "x", file: "docs/adr.md", mode: "adr" } },
-        undefined,
-      ),
-      {},
+      { modes: {} },
+      [node("drafting", { file: "docs/adr.md", mode: "adr" })],
       "/repo",
     )
     expect(map.size).toBe(0)
@@ -381,11 +349,7 @@ describe("diagnosticsFor", () => {
   })
 
   it("suppresses built-in findings and publishes the external-validator notice instead when validate: is overridden", () => {
-    const def: WorkflowDefinition = {
-      states: {},
-      entries: { default: "x", manual: [] },
-      modes: { qa: { validate: "npx my-linter <%= it.file %>" } },
-    }
+    const def = { modes: { qa: { validate: "npx my-linter <%= it.file %>" } } }
     const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
     const diagnostics = diagnosticsFor(resolveSteeringMode(def, "qa"), malformed)
     expect(diagnostics).toHaveLength(1)
@@ -506,11 +470,7 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("suppresses built-in diagnostics but keeps outline/actions live when validate: is shell-overridden", async () => {
-    const def: WorkflowDefinition = {
-      states: {},
-      entries: { default: "x", manual: [] },
-      modes: { qa: { validate: "npx my-linter <%= it.file %>" } },
-    }
+    const def = { modes: { qa: { validate: "npx my-linter <%= it.file %>" } } }
     const resolved = resolveSteeringMode(def, "qa")!
     const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/PLAN.md", resolved]]) })
     const service = makeSteeringLanguageService(env, () => {})
@@ -997,25 +957,6 @@ describe("resolveSteeringFile", () => {
     expect(resolved.state).toBe("idle")
     expect(resolved.file).toBe(".gtd/TODO.md")
     expect(repo.hasPath(".gtd/TODO.md")).toBe(false)
-  })
-})
-
-describe("mergeStaticVars", () => {
-  it("layers rcVars over workflowVars, then a GTD_<NAME> env override over both", () => {
-    const merged = mergeStaticVars(
-      { todoFile: ".gtd/TODO.md", reviewFile: ".gtd/REVIEW.md" },
-      { reviewFile: ".gtd/REVIEW2.md" },
-      { GTD_TODOFILE: "/override/TODO.md" },
-    )
-    expect(merged).toEqual({
-      todoFile: "/override/TODO.md",
-      reviewFile: ".gtd/REVIEW2.md",
-    })
-  })
-
-  it("ignores env entries that don't match a GTD_<NAME> for a known var", () => {
-    const merged = mergeStaticVars({ todoFile: ".gtd/TODO.md" }, {}, { GTD_OTHER: "x" })
-    expect(merged).toEqual({ todoFile: ".gtd/TODO.md" })
   })
 })
 

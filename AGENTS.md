@@ -88,7 +88,7 @@ every gate that runs the test suite: `start-gate`, `review-gate`, and
 
 Two mechanisms keep files there conforming, and neither is new code: husky →
 lint-staged runs `oxfmt --write` over staged files during the step commit, and a
-state that declares a `mode:` carries its own `format:`/`validate:` pair, run by
+step that declares a `mode` carries its own `format:`/`validate:` pair, run by
 the DRIVER (via `gtd next --json`'s `validate` field, or `gtd validate`) ahead
 of `gtd land` — never emitted into the landing script.
 
@@ -108,13 +108,16 @@ the decision and its reason — never a summary of the module.
 
 ## Changing the workflow
 
-A workflow is DATA, not code: `src/workflows/unified.yaml` is the bundled
-default, and there is no engine-side wiring to trace when its shape changes.
-Edit the YAML; the tests that pin its shape (`src/workflows/templates.test.ts`
-and the e2e features that set it up with the `Given the workflow` step) tell you
-what you broke.
+A workflow is CODE, not data: the bundled default is plain TypeScript under
+`src/workflows/`, built from the fragments `src/flows/` exports, and a user's
+own lives in a `gtd.config.ts`. There is no engine-side wiring to trace when its
+shape changes — edit the flow. The tests that pin it are the unit tests beside
+it in `src/workflows/` and the e2e features that set a workflow up with a
+`gtd config file at "gtd.config.ts"` step; they tell you what you broke. A
+fragment's step names are public API: renaming one strands every process resting
+on it, so it is a breaking change.
 
-The one thing those tests cannot tell you: every state a process can rest at
-must resolve to exactly one content kind a driver already handles
+The one thing those tests cannot tell you: every step a process can rest at must
+resolve to exactly one content kind a driver already handles
 (`capture`/`message`/`script`/`prompt`/`stalled`). There is no sixth kind to add
 without changing every driver in the world.

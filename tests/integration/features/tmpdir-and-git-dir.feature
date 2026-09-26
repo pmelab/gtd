@@ -41,30 +41,24 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          review:
-            format: "true"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                file: REVIEW.md
-                mode: review
-                prompt: "review"
-                on:
-                  "* **": idle
+      modes:
+        review:
+          format: "true"
       """
-    And an empty commit "gtd(human): reviewing"
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+      })
+      """
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And gtd lands "gtd(human): idle → reviewing"
     And the repo's git dir relocated outside the worktree, with TMPDIR pointed at a fresh scratch directory
     When I run gtd next with "--json=validate"
     Then it succeeds

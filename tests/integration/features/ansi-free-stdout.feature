@@ -27,30 +27,15 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
 
   Background:
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "echo hi"
-                on:
-                  "C": idle
+      import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md", { allowEmpty: true })
+        await run("checking", "echo hi")
+      })
       """
 
   @inmem
@@ -63,16 +48,16 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
       """
       a note
       """
-    And the working tree is committed as "gtd(human): working"
+    And gtd lands "gtd(human): idle → working"
     When I run gtd with args "next"
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
-    # checking: a script rest (check actor, `script:` field) — `gtd next`
-    # prints the script text itself. The tree is already clean (NOTE.md
-    # landed above), so this empty commit leaves it clean too — required for
-    # the land below to match "checking"'s declared "C" (clean-tree) row.
-    And an empty commit "gtd(agent): checking"
+    # checking: a script rest (a `run` step with a shell string) — `gtd
+    # next` prints the script text itself. The tree is already clean (NOTE.md
+    # landed above); `working` allows an empty turn, so this clean landing
+    # completes it, and the clean landing at "checking" below ends the flow.
+    And gtd lands "gtd(agent): working → checking"
     When I run gtd with args "next"
     Then it succeeds
     And stdout contains no ANSI escape sequence
@@ -85,7 +70,7 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
-    # Landing the clean checking rest matches its "C" row and commits back to
+    # Landing the clean checking rest ends the flow and commits back to
     # idle. Plain `gtd land`'s own stdout is one prose sentence now, with no
     # script and no ANSI source text at all — this leg proves the prose
     # itself stays escape-free.
@@ -103,16 +88,16 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
       """
       a note
       """
-    And the working tree is committed as "gtd(human): working"
+    And gtd lands "gtd(human): idle → working"
     When I run gtd with args "next"
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
-    # checking: a script rest (check actor, `script:` field) — `gtd next`
-    # prints the script text itself. The tree is already clean (NOTE.md
-    # landed above), so this empty commit leaves it clean too — required for
-    # the land below to match "checking"'s declared "C" (clean-tree) row.
-    And an empty commit "gtd(agent): checking"
+    # checking: a script rest (a `run` step with a shell string) — `gtd
+    # next` prints the script text itself. The tree is already clean (NOTE.md
+    # landed above); `working` allows an empty turn, so this clean landing
+    # completes it, and the clean landing at "checking" below ends the flow.
+    And gtd lands "gtd(agent): working → checking"
     When I run gtd with args "next"
     Then it succeeds
     And stdout contains no ANSI escape sequence
@@ -125,7 +110,7 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
-    # Landing the clean checking rest matches its "C" row and commits back to
+    # Landing the clean checking rest ends the flow and commits back to
     # idle. Plain `gtd land`'s own stdout is one prose sentence now, with no
     # script and no ANSI source text at all — this leg proves the prose
     # itself stays escape-free.

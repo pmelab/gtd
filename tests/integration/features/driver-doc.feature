@@ -21,38 +21,32 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
   Scenario: Chains an agent turn through a check turn and halts back at the human gate
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: |
-                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-                on:
-                  "A .gtd/FEEDBACK.md": working
-                  "M .gtd/FEEDBACK.md": working
-                  "C": idle
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      const red = (): boolean =>
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run(
+            "checking",
+            `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
+          )
+        } while (red())
+      })
       """
-    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → working"
     And a stub agent script that responds to prompts with:
       """
       case "$GTD_LOOP_PROMPT" in
@@ -77,45 +71,34 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
   Scenario: A check script's own cleanup mechanic (a sole swept deletion) advances the process instead of stalling
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "Build the package described below: write src/calc.ts exporting add(a, b), and also leave a leaked.md scratch file behind."
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: |
-                  rm -f leaked.md
-                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-                on:
-                  "A .gtd/FEEDBACK.md": working
-                  "M .gtd/FEEDBACK.md": working
-                  "* **": reviewing
-                  "C": reviewing
-              reviewing:
-                actor: human
-                message: "sign off to finish"
-                on:
-                  "* **": idle
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      const red = (): boolean =>
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b), and also leave a leaked.md scratch file behind.",
+          )
+          await run(
+            "checking",
+            `rm -f leaked.md
+      if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
+          )
+        } while (red())
+        await human("reviewing", { message: "sign off to finish" })
+      })
       """
-    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → working"
     And a stub agent script that responds to prompts with:
       """
       case "$GTD_LOOP_PROMPT" in
@@ -148,33 +131,26 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # tree), landed immediately (idle's `* **` -> working), then it drives
     # working -> checking -> done on its own.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: |
-                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-                on:
-                  "A .gtd/FEEDBACK.md": working
-                  "M .gtd/FEEDBACK.md": working
-                  "C": idle
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      const red = (): boolean =>
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run(
+            "checking",
+            `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
+          )
+        } while (red())
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -208,30 +184,20 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # the loop halts cleanly at its own message handling instead of authoring
     # an attempt — there is no opening move to fail.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": announcing
-              announcing:
-                actor: agent
-                message: "heads up: work is starting"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await human("announcing", { message: "heads up: work is starting" })
+      })
       """
-    And a commit "gtd(human): announcing" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → announcing"
     And the driver pasted from docs/driver.md
     When I run the driver from the docs
     Then it succeeds
@@ -245,36 +211,32 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # what makes it the human's: the opening beat lands, "C" matches, and the
     # run drives on to the finale instead of reprinting the gate forever.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": planning
-              planning:
-                actor: agent
-                prompt: "Write PLAN.md describing the build."
-                on:
-                  "* **": await
-              await:
-                actor: human
-                message: "read PLAN.md — accept it by changing nothing, or edit it to revise"
-                on:
-                  "C": idle
-                  "* **": planning
+      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        for (;;) {
+          await agent("planning", "Write PLAN.md describing the build.")
+          await human("await", {
+            message: "read PLAN.md — accept it by changing nothing, or edit it to revise",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      })
       """
-    And a commit "gtd(agent): await" that adds "PLAN.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → planning"
+    And a file "PLAN.md" with:
+      """
+      Build a calculator.
+      """
+    And gtd lands "gtd(agent): planning → await"
     And the driver pasted from docs/driver.md
     When I run the driver from the docs
     Then it succeeds
@@ -289,31 +251,21 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # print it and stop. Same workflow, same gate, opposite outcome: the only
     # difference is which beat reaches it.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": planning
-              planning:
-                actor: agent
-                prompt: "Write PLAN.md describing the build."
-                on:
-                  "* **": await
-              await:
-                actor: human
-                message: "read PLAN.md — accept it by changing nothing, or edit it to revise"
-                on:
-                  "C": idle
-                  "* **": planning
+      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        for (;;) {
+          await agent("planning", "Write PLAN.md describing the build.")
+          await human("await", {
+            message: "read PLAN.md — accept it by changing nothing, or edit it to revise",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -339,30 +291,22 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
   Scenario: Settles instead of looping forever when a script rest makes no progress
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": watching
-              watching:
-                actor: check
-                script: "true"
-                on:
-                  "A .gtd/FEEDBACK.md": idle
+      import { changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await run("watching", "true")
+        } while (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
+      })
       """
-    And a commit "gtd(check): watching" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       note
       """
+    And gtd lands "gtd(human): idle → watching"
     And the driver pasted from docs/driver.md
     When I run the driver from the docs
     Then it succeeds
@@ -370,35 +314,26 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
   Scenario: Stops instead of spinning when the agent's turn makes no progress
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "true"
-                on:
-                  "A .gtd/FEEDBACK.md": working
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run("checking", "true")
+        } while (changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
+      })
       """
-    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → working"
     And a stub agent script that responds to prompts with:
       """
       : # does nothing — the build prompt is never acted on
@@ -416,43 +351,37 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # `blocked` instead: one wasted dispatch, then an ordinary human hand-off,
     # not a non-zero halt.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                retry:
-                  max: 1
-                  otherwise: blocked
-                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "true"
-                on:
-                  "A .gtd/FEEDBACK.md": working
-              blocked:
-                actor: human
-                message: "stuck — the agent made no progress"
-                on:
-                  "* **": idle
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        let emptyTurns = 0
+        for (;;) {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+            { allowEmpty: true },
+          )
+          if (changes().length === 0) {
+            emptyTurns++
+            if (emptyTurns >= 1) {
+              await human("blocked", { message: "stuck — the agent made no progress" })
+              return
+            }
+            continue
+          }
+          await run("checking", "true")
+          if (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added")) return
+        }
+      })
       """
-    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → working"
     And a stub agent script that responds to prompts with:
       """
       : # does nothing — the build prompt is never acted on
@@ -471,23 +400,15 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # falls straight through to landing it as reviewer, with no display and no
     # halt, continuing on to the next gate.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: confirm
-            states:
-              confirm:
-                actor: reviewer
-                message: "confirm before continuing"
-                on:
-                  "A REVIEW.md": done
-              done:
-                actor: human
-                message: "all done"
+      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("confirm", { message: "confirm before continuing" })
+        if (!changes("REVIEW.md").some((c) => c.status === "added")) refuse("confirm expects REVIEW.md to be added")
+        await human("done", { message: "all done" })
+      })
       """
     And a file "REVIEW.md" with:
       """
@@ -496,7 +417,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the driver pasted from docs/driver.md
     When I run the driver from the docs
     Then it succeeds
-    And the last commit subject is "gtd(reviewer): confirm → done"
+    And the last commit subject is "gtd(human): confirm → done"
     And stdout contains "all done"
 
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
@@ -513,32 +434,23 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # the stub writes a valid plan — only then does the paste step, landing
     # the commit that enters idle.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": planning
-              planning:
-                actor: agent
-                file: PLAN.md
-                mode: qa
-                prompt: "Write .gtd/PLAN.md with the plan."
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("planning", "Write .gtd/PLAN.md with the plan.", {
+          file: ".gtd/PLAN.md",
+          mode: "qa",
+        })
+      })
       """
-    And a commit "gtd(agent): planning" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → planning"
     And a file ".gtd/PLAN.md" with:
       """
       a prior draft, about to be overwritten
@@ -580,32 +492,23 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
   Scenario: Stops instead of stepping when a steering file still fails validation after 3 fix attempts
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": planning
-              planning:
-                actor: agent
-                file: PLAN.md
-                mode: qa
-                prompt: "Write .gtd/PLAN.md with the plan."
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("planning", "Write .gtd/PLAN.md with the plan.", {
+          file: ".gtd/PLAN.md",
+          mode: "qa",
+        })
+      })
       """
-    And a commit "gtd(agent): planning" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → planning"
     # A placeholder — needed so the paste's embedded `.validate` field (read
     # from the beat fetched BEFORE the agent's turn) is populated at all; see
     # the comment on the scenario above.
@@ -634,32 +537,26 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
   Scenario: Redirects the check script's own output to the log file instead of the terminal
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": watching
-              watching:
-                actor: check
-                script: |
-                  echo "CHECK: verifying the tree"
-                  true
-                on:
-                  "A .gtd/FEEDBACK.md": idle
+      import { changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await run(
+            "watching",
+            `echo "CHECK: verifying the tree"
+      true`,
+          )
+        } while (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
+      })
       """
-    And a commit "gtd(check): watching" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       note
       """
+    And gtd lands "gtd(human): idle → watching"
     And the driver pasted from docs/driver.md
     When I run the driver from the docs
     Then it succeeds
@@ -668,32 +565,23 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
   Scenario: A check script that exits non-zero still lets the pattern decide the outcome
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: |
-                  echo "CHECK BOOM" >&2
-                  mkdir -p .gtd
-                  echo x > .gtd/FEEDBACK.md
-                  exit 1
-                on:
-                  "A .gtd/FEEDBACK.md": reviewing
-              reviewing:
-                actor: human
-                message: "sign off"
+      import { changes, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run(
+          "checking",
+          `echo "CHECK BOOM" >&2
+      mkdir -p .gtd
+      echo x > .gtd/FEEDBACK.md
+      exit 1`,
+        )
+        if (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
+          refuse("checking expects .gtd/FEEDBACK.md to be added")
+        await human("reviewing", { message: "sign off" })
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -708,35 +596,26 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
   Scenario: A failing agent CLI stops the run instead of stepping past it
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "true"
-                on:
-                  "A .gtd/FEEDBACK.md": working
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run("checking", "true")
+        } while (changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
+      })
       """
-    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → working"
     And a stub agent script that responds to prompts with:
       """
       echo "BOOM: agent exploded" >&2
@@ -760,58 +639,39 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # THAT SAME fix-scope id resumed on fix's second turn. The check's attempt
     # counter lives in .git (never the work tree), forcing exactly two fix laps.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "Create src/fix.ts for the initial build."
-                on:
-                  "* **": fix.checking
-              fix:
-                machine: fixLoop
-                with:
-                  onGreen: idle
-          fixLoop:
-            params: [onGreen]
-            entry: checking
-            states:
-              checking:
-                actor: check
-                script: |
-                  set +e
-                  mkdir -p .gtd
-                  c=".git/testcount"
-                  n=$(cat "$c" 2>/dev/null || echo 0)
-                  n=$((n + 1))
-                  echo "$n" > "$c"
-                  if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
-                on:
-                  "A .gtd/FEEDBACK.md": fixing
-                  "M .gtd/FEEDBACK.md": fixing
-                  "D .gtd/FEEDBACK.md": "$onGreen"
-                  "C": "$onGreen"
-              fixing:
-                actor: agent
-                prompt: "Fix the failing check."
-                on:
-                  "* **": checking
+      import { agent, changes, human, run, scope, workflow } from "@pmelab/gtd/flows"
+
+      const red = (): boolean =>
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "Create src/fix.ts for the initial build.")
+        await scope("fix", async () => {
+          for (;;) {
+            await run(
+              "checking",
+              `set +e
+      mkdir -p .gtd
+      c=".git/testcount"
+      n=$(cat "$c" 2>/dev/null || echo 0)
+      n=$((n + 1))
+      echo "$n" > "$c"
+      if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi`,
+            )
+            if (!red()) return
+            await agent("fixing", "Fix the failing check.")
+          }
+        })
+      })
       """
-    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → working"
     And a stub agent script that responds to prompts with:
       """
       echo "AGENT SESSION=${GTD_LOOP_SESSION_ID} RESUME=${GTD_LOOP_MEMORY_RESUME}"
@@ -849,56 +709,24 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # regression where the review turn's id wrongly carried over would fail
     # this specific assertion, not just "some earlier id resumed".
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": build.building
-              build:
-                machine: buildLoop
-                with:
-                  onGreen: idle
-          buildLoop:
-            params: [onGreen]
-            entry: building
-            states:
-              building:
-                actor: agent
-                prompt: "first build turn"
-                on:
-                  "* **": review.reviewing
-              review:
-                machine: reviewChild
-                with:
-                  onDone: building2
-              building2:
-                actor: agent
-                prompt: "second build turn, revisits the build scope"
-                on:
-                  "* **": "$onGreen"
-          reviewChild:
-            params: [onDone]
-            entry: reviewing
-            states:
-              reviewing:
-                actor: agent
-                prompt: "review turn, a nested child scope"
-                on:
-                  "* **": "$onDone"
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await scope("build", async () => {
+          await agent("building", "first build turn")
+          await scope("review", () => agent("reviewing", "review turn, a nested child scope"))
+          await agent("building2", "second build turn, revisits the build scope")
+        })
+      })
       """
-    And a commit "gtd(human): build.building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a thing.
       """
+    And gtd lands "gtd(human): idle → build.building"
     And a stub agent script that responds to prompts with:
       """
       echo "AGENT SESSION=${GTD_LOOP_SESSION_ID} RESUME=${GTD_LOOP_MEMORY_RESUME}"
@@ -939,38 +767,32 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # attempt) and only accepts `--resume` — proving the fallback recovers
     # within the very first beat, with no driver restart needed.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: |
-                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-                on:
-                  "A .gtd/FEEDBACK.md": working
-                  "M .gtd/FEEDBACK.md": working
-                  "C": idle
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      const red = (): boolean =>
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run(
+            "checking",
+            `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
+          )
+        } while (red())
+      })
       """
-    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → working"
     And a stub agent script that responds to prompts with:
       """
       echo "AGENT SESSION=${GTD_LOOP_SESSION_ID} RESUME=${GTD_LOOP_MEMORY_RESUME}"
@@ -1001,39 +823,32 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # a second `working` turn happens at all — that second turn is the one
     # that carries `resume: true` and exercises the fallback.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: |
-                  if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
-                on:
-                  "A .gtd/FEEDBACK.md": working
-                  "M .gtd/FEEDBACK.md": working
-                  "D .gtd/FEEDBACK.md": idle
-                  "C": idle
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      const red = (): boolean =>
+        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run(
+            "checking",
+            `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
+          )
+        } while (red())
+      })
       """
-    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       Build a calculator.
       """
+    And gtd lands "gtd(human): idle → working"
     And a stub agent script that responds to prompts with:
       """
       echo "AGENT SESSION=${GTD_LOOP_SESSION_ID} RESUME=${GTD_LOOP_MEMORY_RESUME}"
@@ -1096,13 +911,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the last commit body does not contain "Gtd-Judge:"
 
   Scenario: A still-red suite still escalates after 3 fix attempts even when every judge round is skipped — the retry cap, not the judgment, ends the loop
-    # The pre-package-01 version of this scenario proved `build.fix`'s
-    # `retry: {max: 3}` forces `build.health.escalate` on a suite that never
-    # goes green. Task 7 kept `retry:` on `fix` (not the judge state — see
-    # `src/workflows/unified.yaml`'s own comment on why moving it would break
-    # `episodeVisits`), so that ceiling still applies REGARDLESS of what the
-    # judge rounds do. This reference driver is UNAWARE and never answers a
-    # verdict, so every `build.health.judge` round lands its clean-tree
+    # The fix cap escalates a suite that never goes green REGARDLESS of what
+    # the judge rounds do. This reference driver is UNAWARE and never answers
+    # a verdict, so every `build.health.judge` round lands its clean-tree
     # fallback (the skipped-judgment path) instead — proving the cap fires
     # even when NO judgment is ever recorded, not just when one is.
     Given a test project
@@ -1135,17 +946,14 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # driver after reading (and not answering) the judge gate.
     When I run the driver from the docs
     Then it succeeds
-    # The 3rd invocation's retry-capped round now runs straight through
-    # build.health.escalate (a `check` gate, auto — 0 prior rounds, so its
-    # script leaves the tree clean) into build.health.describe, a real
-    # `prompt` turn the stub above answers by writing
+    # The 3rd invocation's capped round runs straight from the judge into
+    # build.health.describe, a real `prompt` turn the stub above answers by writing
     # `.gtd/ESCALATION.md`, which then rests the run at build.health.stop.
     When I run the driver from the docs
     Then it succeeds
     And stdout contains "Edit it"
     And stdout contains ".gtd/ESCALATION.md"
-    And the git log contains "build.health.judge → build.health.escalate"
-    And the git log contains "build.health.escalate → build.health.describe"
+    And the git log contains "build.health.judge → build.health.describe"
     And the git log contains "build.health.describe → build.health.stop"
     And the last commit body does not contain "Gtd-Judge:"
 

@@ -12,8 +12,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   `qa`-mode's `- [ ]` boxes are a different format entirely: they ARE the
   answer, so `gtd uncheck` is never emitted at a `qa`-mode gate — only at the
-  human `mode: review` gate (see `src/step/Guards.ts`'s `isHumanReviewGate`,
-  shared by the guard and the emitted step).
+  human `mode: review` gate.
 
   These scenarios actually EXECUTE the rendered scripts (`I execute the
   printed check script`) rather than simulating their outcome by hand — the
@@ -22,7 +21,16 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   Scenario: ticking boxes and changing nothing else is a clean sign-off — the ticks are gone from disk and the round reaches idle
     Given a test project
-    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -32,6 +40,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -55,7 +64,16 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   Scenario: ticking boxes and leaving a note is feedback — the commit carries the note, no tick, and routes to triage
     Given a test project
-    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -65,6 +83,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -89,7 +108,16 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   Scenario: ticking a two-space-indented (nested) hunk is cleared at the review gate too — the live bug this rewrite fixes
     Given a test project
-    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -99,6 +127,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] ./src/calc.ts#1
         - [ ] ./src/calc.ts#2
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -122,7 +151,16 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   Scenario: a '- [x]' line inside a fenced code block in a chunk description is never a hunk pointer, and ticking the chunk never touches it
     Given a test project
-    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -139,6 +177,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -165,7 +204,9 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
   Scenario: a ticked answer at a qa-mode gate survives the land — gtd uncheck never runs there
     Given a test project
     And the workflow
-    And a commit "gtd(agent): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
 
@@ -177,6 +218,12 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And a file ".gtd/QUESTIONS.md" with:
+      """
+      open questions remain in .gtd/REQUIREMENTS.md
+      """
+    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a widget.

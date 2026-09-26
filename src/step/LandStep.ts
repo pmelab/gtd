@@ -1,4 +1,4 @@
-import type { StateName } from "../PatternMachine.js"
+import type { StateName } from "../Workflow.js"
 
 /**
  * The core's git effect, as DATA — never shell text. `src/GitScript.ts` is

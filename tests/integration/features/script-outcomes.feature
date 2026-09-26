@@ -15,23 +15,19 @@ Feature: Emitted required/optional scripts print their own outcome lines
 
   Background:
     Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("working", "go")
+      })
+      """
+    # The process base the abandon scenario names is this last setup commit.
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "go"
+      vars: {}
       """
 
   Scenario: a landed transition's required script prints the transition row

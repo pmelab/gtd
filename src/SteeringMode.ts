@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { Host } from "./platform/index.js"
 import { isSeededValidateCommand } from "./SteeringFormats.js"
 import { steeringFormatFor, type SteeringFinding, type SteeringFormat } from "./steering/index.js"
-import { knownModes, type StateMode, type WorkflowDefinition } from "./PatternMachine.js"
+import { knownModes, type StateMode, type WorkflowDefinition } from "./Workflow.js"
 import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
 import { buildModeContradictionCheck, modeContradictionSkipNotice } from "./ModeContradiction.js"
 import {
@@ -100,7 +100,7 @@ const capabilitiesFor = (
  * can never drift from what actually resolved.
  */
 export const resolveMode = (
-  def: WorkflowDefinition | undefined,
+  def: Pick<WorkflowDefinition, "modes"> | undefined,
   state: string,
   mode: StateMode,
 ): ModeResolution => {

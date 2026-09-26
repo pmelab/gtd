@@ -28,40 +28,30 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: |
-              status=0
-              grep -q '^## Status' <%= it.file %> || {
-                echo "<%= it.file %>: missing a '## Status' section"
-                status=1
-              }
-              grep -q '^## Decision' <%= it.file %> || {
-                echo "<%= it.file %>: missing a '## Decision' section"
-                status=1
-              }
-              exit $status
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: |
+            status=0
+            grep -q '^## Status' <%= it.file %> || {
+              echo "<%= it.file %>: missing a '## Status' section"
+              status=1
+            }
+            grep -q '^## Decision' <%= it.file %> || {
+              echo "<%= it.file %>: missing a '## Decision' section"
+              status=1
+            }
+            exit $status
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -69,6 +59,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       Accepted.
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains ".gtd/docs/adr.md is not valid"
@@ -83,37 +74,28 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: "adr-validate <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: "adr-validate <%= it.file %>"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
       """
     And the shell command "adr-validate .gtd/docs/adr.md" exits 1 with:
       """
       .gtd/docs/adr.md: missing a '## Decision' section
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains ".gtd/docs/adr.md is not valid"
@@ -125,30 +107,20 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: "grep -q '^## Decision' <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: "grep -q '^## Decision' <%= it.file %>"
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -156,6 +128,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       Adopt it.
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
@@ -165,34 +138,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: "adr-validate <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: "adr-validate <%= it.file %>"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
       """
     And the shell command "adr-validate .gtd/docs/adr.md" exits 0 with:
       """
       ok
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
@@ -200,6 +163,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       Adopt it.
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
@@ -209,37 +173,28 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            format: "sed 's/^status: draft$/status: accepted/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
-            validate: "grep -q '^status: accepted$' <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          format: "sed 's/^status: draft$/status: accepted/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
+          validate: "grep -q '^status: accepted$' <%= it.file %>"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
       """
       # Validation therefore passes only because formatting ran FIRST, in place.
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
       status: draft
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
@@ -250,29 +205,19 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            format: "adr-format <%= it.file %>"
-            validate: "adr-validate <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          format: "adr-format <%= it.file %>"
+          validate: "adr-validate <%= it.file %>"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
       """
     And the shell command "adr-format .gtd/docs/adr.md" rewrites ".gtd/docs/adr.md" to:
       """
@@ -284,12 +229,13 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       ok
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
 
       status: draft
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
@@ -301,37 +247,28 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: |
-              grep -q '^## Decision' <%= it.file %> || {
-                echo "<%= it.file %>: an ADR needs a '## Decision' section"
-                exit 1
-              }
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: |
+            grep -q '^## Decision' <%= it.file %> || {
+              echo "<%= it.file %>: an ADR needs a '## Decision' section"
+              exit 1
+            }
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -354,37 +291,28 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: "adr-validate <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: "adr-validate <%= it.file %>"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
       """
     And the shell command "adr-validate .gtd/docs/adr.md" exits 1 with:
       """
       .gtd/docs/adr.md: an ADR needs a '## Decision' section
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -407,33 +335,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: "grep -q '^## Decision' <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: "grep -q '^## Decision' <%= it.file %>"
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -451,36 +370,27 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            format: |
-              echo "adr-fmt: cannot parse <%= it.file %>" >&2
-              exit 3
-            validate: "true"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          format: |
+            echo "adr-fmt: cannot parse <%= it.file %>" >&2
+            exit 3
+          validate: "true"
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd (edited)
@@ -497,38 +407,29 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            format: "adr-format-broken <%= it.file %>"
-            validate: "adr-validate-never-runs <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          format: "adr-format-broken <%= it.file %>"
+          validate: "adr-validate-never-runs <%= it.file %>"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
       """
     And the shell command "adr-format-broken .gtd/docs/adr.md" exits 3 with:
       """
       adr-fmt: cannot parse .gtd/docs/adr.md
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd (edited)
@@ -545,41 +446,32 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          qa:
-            validate: |
-              grep -q '^## Open Questions' <%= it.file %> || {
-                echo "<%= it.file %>: my house rule — every plan lists its open questions"
-                exit 1
-              }
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": grilling
-              grilling:
-                actor: agent
-                prompt: "Draft the plan."
-                file: TODO.md
-                mode: qa
-                on:
-                  "* **": idle
+      modes:
+        qa:
+          validate: |
+            grep -q '^## Open Questions' <%= it.file %> || {
+              echo "<%= it.file %>: my house rule — every plan lists its open questions"
+              exit 1
+            }
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("grilling", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
+      })
       """
       # gtd's own open-questions parser accepts this file (no "## Open
       # Questions" section at all is trivially valid to it) — the workflow's
       # own command does not, which is how we can tell the declared `validate:`
       # displaced the built-in parser.
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       Build a thing. Plan: add src/thing.ts.
       """
+    And gtd lands "gtd(human): idle → grilling"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "my house rule"
@@ -589,33 +481,23 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          qa:
-            format: "sed -i.bak 's/[[:space:]]*$//' <%= it.file %> && rm -f <%= it.file %>.bak"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": grilling
-              grilling:
-                actor: agent
-                prompt: "Draft the plan."
-                file: TODO.md
-                mode: qa
-                on:
-                  "* **": idle
+      modes:
+        qa:
+          format: "sed -i.bak 's/[[:space:]]*$//' <%= it.file %> && rm -f <%= it.file %>.bak"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("grilling", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
+      })
       """
       # The mode declares a formatter and no validator, so gtd's open-questions
       # parser still runs — and still rejects an `### ` question heading with
       # no question text.
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       Build a thing.
 
@@ -625,6 +507,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       No question text on the heading.
       """
+    And gtd lands "gtd(human): idle → grilling"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "has no question text"
@@ -641,30 +524,21 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       modes:
         qa:
           format: "sed 's/  */ /g' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": grilling
-              grilling:
-                actor: agent
-                file: TODO.md
-                mode: qa
-                prompt: "plan"
-                on:
-                  "* **": idle
       """
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
+      })
+      """
+    And a file ".gtd/TODO.md" with:
       """
       Build a thing.    Plan: add src/thing.ts.
       """
+    And gtd lands "gtd(human): idle → grilling"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/TODO.md: valid"
@@ -672,40 +546,32 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
   @live
   Scenario: a top-level modes: entry layers over the workflow's own, half by half
+    # A workflow (gtd.config.ts) no longer declares modes of its own — `.gtdrc`
+    # `modes:` is the only place one lives — so both halves are declared on the
+    # one entry here; what is still under test is that they run in order.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       modes:
         adr:
           format: "sed 's/^status: draft$/status: accepted/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
-      workflow:
-        modes:
-          adr:
-            validate: "grep -q '^status: accepted$' <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+          validate: "grep -q '^status: accepted$' <%= it.file %>"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
       """
       # Validation passes only because both halves survived the merge and ran in order.
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a file ".gtd/docs/adr.md" with:
       """
       status: draft
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
@@ -715,33 +581,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            format: "sed 's/draft/DRAFT/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>" # no validate: — that half is a no-op
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          format: "sed 's/draft/DRAFT/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>" # no validate: — that half is a no-op
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       status: draft
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
@@ -757,30 +614,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            format: "sed 's/draft/DRAFT/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          format: "sed 's/draft/DRAFT/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
       """
-    And an empty commit "gtd(human): drafting"
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
+      """
+    And a file "NOTES.md" with:
+      """
+      start
+      """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd next with "--json=validate"
     Then it succeeds
     And stdout contains "-f "
@@ -802,36 +653,29 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          qa:
-            validate: "true"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: drafting
-            states:
-              drafting:
-                actor: agent
-                prompt: "Draft the plan."
-                file: TODO.md
-                mode: qa
-                on:
-                  "* **": answering
-              answering:
-                actor: human
-                message: "Answer the open questions."
-                file: TODO.md
-                mode: qa
-                answerGate: true
-                on:
-                  "* **": drafting
+      modes:
+        qa:
+          validate: "true"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, requireAnswers, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await agent("drafting", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
+        await human("answering", {
+          message: "Answer the open questions.",
+          file: ".gtd/TODO.md",
+          mode: "qa",
+        })
+        requireAnswers(".gtd/TODO.md")
+      })
       """
     And the shell command "true" exits 0 with:
       """
+
       """
-    And a commit "gtd(agent): answering" that adds ".gtd/TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       Build a thing.
 
@@ -842,6 +686,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       - [ ] REST
       - [ ] GraphQL
       """
+    And gtd lands "gtd(agent): drafting → answering"
     And a file ".gtd/TODO.md" with:
       """
       Build a thing. (still deciding)
@@ -856,8 +701,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     When I run gtd land
     Then it fails
     And stderr contains "1 open question(s)"
-    And stderr contains "not answered at \"answering\""
-    And the last commit subject is "gtd(agent): answering"
+    And stderr contains "not answered"
+    And the last commit subject is "gtd(agent): drafting → answering"
 
   @live
   Scenario: a seeded validate: command's bare "gtd" resolves to the build under test
@@ -870,36 +715,27 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: |
-              v=$(gtd version)
-              echo "path-shim: $v"
-              exit 1
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: |
+            v=$(gtd version)
+            echo "path-shim: $v"
+            exit 1
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "path-shim:"
@@ -915,30 +751,20 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          qa:
-            validate: "gtd check qa '<%= it.file %>'"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the plan."
-                file: docs/PLAN.md
-                mode: qa
-                on:
-                  "* **": idle
+      modes:
+        qa:
+          validate: "gtd check qa '<%= it.file %>'"
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/PLAN.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("drafting", "Write the plan.", { file: ".gtd/docs/PLAN.md", mode: "qa" })
+      })
+      """
+    And a file ".gtd/docs/PLAN.md" with:
       """
       Build a thing.
 
@@ -952,6 +778,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
       some notes.
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains ".gtd/docs/PLAN.md:9:1: A '##' section appears after '## Answered Questions', which must come last"
@@ -976,30 +803,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          review:
-            format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' <%= it.file %> && rm -f <%= it.file %>.bak"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                file: REVIEW.md
-                mode: review
-                prompt: "review"
-                on:
-                  "* **": idle
+      modes:
+        review:
+          format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' <%= it.file %> && rm -f <%= it.file %>.bak"
       """
-    And an empty commit "gtd(human): reviewing"
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+      })
+      """
+    And a file "NOTES.md" with:
+      """
+      start
+      """
+    And gtd lands "gtd(human): idle → reviewing"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "mode \"review\""
@@ -1014,29 +835,20 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: the same repo with the formatter removed exits 0 — no contradiction to find
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                file: REVIEW.md
-                mode: review
-                prompt: "review"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+      })
       """
-    And an empty commit "gtd(human): reviewing"
+    And a file "NOTES.md" with:
+      """
+      start
+      """
+    And gtd lands "gtd(human): idle → reviewing"
     When I run gtd with args "validate"
     Then it succeeds
 
@@ -1054,31 +866,25 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          review:
-            format: "true"
-            validate: "true"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                file: REVIEW.md
-                mode: review
-                prompt: "review"
-                on:
-                  "* **": idle
+      modes:
+        review:
+          format: "true"
+          validate: "true"
       """
-    And an empty commit "gtd(human): reviewing"
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+      })
+      """
+    And a file "NOTES.md" with:
+      """
+      start
+      """
+    And gtd lands "gtd(human): idle → reviewing"
     When I run gtd next with "--json=validate"
     Then it succeeds
     And stdout contains "mode \"review\" has an external validate: command"

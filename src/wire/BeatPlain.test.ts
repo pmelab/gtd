@@ -12,7 +12,6 @@ const rendered = (overrides: Partial<RenderedDemandSource> = {}): RenderedDemand
   state: "build.fixing",
   actor: "agent",
   content: "fix it",
-  edges: [],
   ...overrides,
 })
 
@@ -23,16 +22,15 @@ const documentFor = (kind: BeatKind, content: string, rest: Partial<RenderedDema
     rendered: r,
     idle: false,
     log: "log",
-    changes: [{ status: "M", path: "TODO.md", pattern: "TODO.md" }],
-    next: { action: undefined, pattern: "C", target: "idle" },
+    changes: [{ status: "M", path: "TODO.md" }],
+    next: { target: "idle" },
     cost: 0,
     costByModel: [],
   })
   return beatDocument(demand, status)
 }
 
-const HEADER =
-  "State: build.fixing\nAwaits: agent\nPending:\n  M TODO.md -> TODO.md\nNext: C → idle"
+const HEADER = "State: build.fixing\nAwaits: agent\nPending:\n  M TODO.md\nNext: → idle"
 
 describe("renderBeatPlain", () => {
   it("prepends the run instruction, then shows header, blank line, content verbatim at kind script", () => {

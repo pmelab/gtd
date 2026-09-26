@@ -1,8 +1,4 @@
 import { Eta } from "eta"
-// `TemplateEdge` lives in `src/wire/` (`gtd next --json`'s `edges` entries
-// use this exact shape) and is re-exported here — see `src/wire/types.ts`.
-import type { TemplateEdge } from "./wire/index.js"
-export type { TemplateEdge }
 
 /** The full variable set a `script`/`prompt`/`message` template may reference as `it.<name>`. All fields are caller-supplied. */
 export interface TemplateContext {
@@ -90,8 +86,6 @@ export interface TemplateContext {
    * is exempt from that filter. No name is blessed by the engine.
    */
   readonly vars: Record<string, string>
-  /** The resting state's own `on` edges, in declaration order — lets a `message:` template surface which change routes where. */
-  readonly edges: readonly TemplateEdge[]
 }
 
 /**
@@ -136,7 +130,6 @@ export const varsOnlyContext = (vars: Record<string, string>, state = ""): Templ
     )
   },
   vars,
-  edges: [],
 })
 
 /**

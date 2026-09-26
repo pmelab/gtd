@@ -7,23 +7,23 @@ driver's job. The minimal driver below (see
 [A complete minimal driver](#a-complete-minimal-driver)) is that driver: save it
 as `~/.local/bin/gtd-build`, `chmod +x` it, and run it from a repository root —
 it takes no arguments and runs the loop until it's your turn. It drives the
-autonomous states (agent turns, check runs) and stops at the first
-non-autonomous one: reaching a human gate it prints the gate's message and
-exits. You act by editing files (answer a plan question, tick a review box, fix
-code) and re-running it — your pending edit arrives as the loop's first beat
+autonomous steps (agent turns, check runs) and stops at the first non-autonomous
+one: reaching a human gate it prints the gate's message and exits. You act by
+editing files (answer a plan question, tick a review box, fix code) and
+re-running it — your pending edit arrives as the loop's first beat
 (`kind: "capture"`, landed immediately), so you never run `gtd land` by hand.
 
-Some gates could accept by INACTION instead: a workflow may declare a `"C"`
-(clean-tree) pattern on a human-actor state that routes onward, so changing
-nothing there means "accept as-is" rather than nothing happening. That reaches
-the driver as `kind: "message"` either way, which no inspection can tell apart
-from a gate you have not read yet — so the driver treats its OPENING beat as
-yours regardless and lands it: you re-ran it while resting there, and that
-invocation IS the decision. Every later beat halts as usual, because a gate the
-driver produced mid-run is one you have not seen. Landing an opening beat at a
-gate with no `"C"` pattern is harmless — a benign no-op (see `gtd land`'s exit
-codes below) — and the gate then prints on the next beat. A mid-process restart
-simply resumes driving from whatever beat is actually next.
+Some gates could accept by INACTION instead: a workflow may declare a human step
+with `acceptClean: true`, so changing nothing there means "accept as-is" rather
+than nothing happening. That reaches the driver as `kind: "message"` either way,
+which no inspection can tell apart from a gate you have not read yet — so the
+driver treats its OPENING beat as yours regardless and lands it: you re-ran it
+while resting there, and that invocation IS the decision. Every later beat halts
+as usual, because a gate the driver produced mid-run is one you have not seen.
+Landing an opening beat at a gate without `acceptClean` is harmless — a benign
+no-op (see `gtd land`'s exit codes below) — and the gate then prints on the next
+beat. A mid-process restart simply resumes driving from whatever beat is
+actually next.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around the driver,
@@ -31,67 +31,52 @@ not of the loop itself; see
 [Terminal-multiplexer status: a herdr wrapper](#terminal-multiplexer-status-a-herdr-wrapper)
 below for a worked example.
 
-A workflow state can declare an optional `label:` — a human-readable display
-name surfaced in `gtd next --json`/plain `gtd next`. The driver uses it for its
+A workflow step can declare an optional `label` — a human-readable display name
+surfaced in `gtd next --json`/plain `gtd next`. The driver uses it for its
 per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
 can use it the same way.
 
-A machine may also declare `system:` — like `model:`, stamped once at the
-machine level onto every one of that machine's own `prompt` states, never
-authored on an individual state. It is passed to the agent CLI as (in the
-reference driver's case) `--system-prompt`, which **replaces** the harness's own
-default system prompt outright rather than appending to it (contrast with an
-`--append-system-prompt`-shaped flag) — so a machine declaring `system:` loses
-not only the harness's own tool-use instructions but also its dynamic per-turn
-sections: current working directory, environment info, memory-path information,
-git status. A workflow author reaching for `system:` for the first time is
-therefore writing a complete replacement system prompt, not a tweak on top of
-the harness's own. The scoping is machine-level for the same reason memory is
-machine-scoped below: a machine is the unit of conversational identity, so its
-system prompt — like its model tier — is one property of that identity, constant
-across every turn of the one resumed session, never a per-state override. Like
-`model:`/`file:`, a `system:` value prefixed `./` or `../` is inlined from the
-declaring config file's own directory at compile time — for a user's own
-`.gtdrc` `workflow:` config only; the bundled template ships no filesystem
-references at all, since it has to work inside a single-file build. The bundled
-default template ships six such personas already, one per prompt-bearing machine
-— `designPersona`, `architectPersona`, `reviewerPersona`, `specReviewerPersona`,
-`builderPersona`, `finisherPersona` — and, like any other bundled var, each is
-overridable through a top-level `.gtdrc` `vars:` key or a `GTD_<NAME>`-style
-environment variable (e.g. `GTD_DESIGNPERSONA`) — gtd's existing, generic
-vars-override mechanism, nothing new. Each persona var carries only that
-machine's own role paragraph; a shared `agentConduct` var (tool-use conduct,
-orienting with git since there is no injected status block, and inspecting what
-the turn's own message names) is appended after it at all six sites, so the six
-identities differ only in role, never in how they're told to behave.
+An agent step may also carry `model` and `system` (set on the step, or for a
+whole group of steps with `scope({ model, system }, fn)`). `system` is passed to
+the agent CLI as (in the reference driver's case) `--system-prompt`, which
+**replaces** the harness's own default system prompt outright rather than
+appending to it (contrast with an `--append-system-prompt`-shaped flag) — so a
+step declaring `system` loses not only the harness's own tool-use instructions
+but also its dynamic per-turn sections: current working directory, environment
+info, memory-path information, git status. A workflow author reaching for
+`system` for the first time is therefore writing a complete replacement system
+prompt, not a tweak on top of the harness's own. Every agent step in one memory
+scope (below) must run with the same `model` and `system` — one scope is one
+conversation, and a conversation has one identity. The bundled workflow ships
+seven such personas — `designPersona`, `architectPersona`, `reviewerPersona`,
+`specReviewerPersona`, `builderPersona`, `finisherPersona`, `escalationPersona`
+— each an ordinary variable, overridable through a `.gtdrc` `vars:` key or a
+`GTD_<NAME>` environment variable (e.g. `GTD_DESIGNPERSONA`). Each carries only
+its role paragraph; a shared `agentConduct` var (tool-use conduct, orienting
+with git since there is no injected status block, and inspecting what the turn's
+own message names) is appended after it everywhere, so the identities differ
+only in role, never in how they're told to behave.
 
-Memory is **entry-scoped to a machine**, not a state-authored label: each
-machine instance (a node in the `machines:` tree, e.g. `build`, `build.health`,
-`packages.item`, `packages.item.health`) owns its own conversational scope, and
-a `prompt`-content state's `memory` key — surfaced in `gtd next --json`'s
-`memory` field, and as a `Memory: <key>` line in plain `gtd next` — is computed,
-never authored, as `<scope>#<hash7>`: `<scope>` is that machine instance's
-dotted path (the root instance is shown as `root`), and `<hash7>` anchors to the
-commit the CURRENT unbroken entry into that scope started FROM. Entering a
-**descendant** scope (e.g. dipping from `build` into `build.health`) does not
-break the parent's unbroken run — a full agent turn in a nested child machine,
-then back to the parent, still resumes the SAME parent conversation; entering a
-**sibling or unrelated** scope does start a fresh one. The bundled template's
-`build.review` (the human review tail) is a worked example: it is nested INSIDE
-`build` (the builder's own machine) so that a `gtd --entry fix-precheck` run —
-`build.fix` -> `build.health.check` -> `build.review.*` — stays inside one
-subtree, letting `build.review.reviewing` resume the SAME session that made the
-fixes instead of a root-level sibling forcing it to re-derive the range from
-scratch on every pass through the tail. (An actionable review round breaks the
-run on purpose instead — it leaves `build` entirely through a root-level
-`re-unwind` state and a full re-plan, since a hand-edit made during review is a
-sketch to reconsider, not a fix to build on.) Two instances of the same reusable
-machine (e.g. `build.health` and `packages.item.health`, both instantiating
-`healthGate`) get different scopes and so never share a key, even though they're
-the "same shaped" machine. One consequence is a structural guarantee: **a
-reviewer's turn never resumes an implementer's session, and vice versa** — a
-reviewer machine and the implementer machine it reviews are always different
-instances with different scopes.
+Memory follows the step name. A step's **memory scope** is its name up to the
+last dot — the `scope()` prefixes around it — so `build.fix` and
+`build.review.reviewing` are in scopes `build` and `build.review`, and a step
+with no prefix is in `root`. An agent rest's `memory` key — surfaced in
+`gtd next --json`'s `memory` field, and as a `Memory: <key>` line in plain
+`gtd next` — is `<scope>#<hash7>`, where `<hash7>` anchors to the commit the
+CURRENT unbroken run inside that scope started FROM. Dipping into a
+**descendant** scope (from `build` into `build.health`) does not break the
+parent's run — an agent turn in `build.health`, then back to `build`, still
+resumes the SAME `build` conversation; entering a **sibling or unrelated** scope
+does start a fresh one. The bundled workflow's review tail is a worked example:
+it sits inside `build` (as `build.review.*`) so that a
+`gtd --entry fix-precheck` run — `build.fix` → `build.health.check` →
+`build.review.*` — stays inside one subtree. (An actionable review round breaks
+the run on purpose instead: it leaves `build` through the root-level `re-unwind`
+step and a full re-plan, since a hand-edit made during review is a sketch to
+reconsider, not a fix to build on.) The same fragment placed under two different
+prefixes (`build.health` and `packages.item.health`) gets two different scopes,
+so a reviewer's turn never resumes an implementer's session as long as the two
+live in different scopes.
 
 `gtd` itself stores NOTHING to make this work: `session.id` is
 `UUIDv5(<fixed gtd namespace>, <memory key>)` — a deterministic hash of the
@@ -102,7 +87,7 @@ same scope-run. Because nothing is written, calling `gtd next --json` twice in a
 row — a driver's own opening peek, a status poll, a curious human — derives
 IDENTICAL `session.id`/`session.resume` values both times, since there is
 nothing to poison: looking is free, and there is no separate claiming form to
-protect. The per-scope survival story (a child machine's own excursion doesn't
+protect. The per-scope survival story (a child scope's own excursion doesn't
 disturb the parent's session) falls out of the key itself, not out of a
 per-scope row: the parent's anchor commit is unaffected by whatever the child
 scope does in between. A driver maps `session.id`/`session.resume` straight onto
@@ -240,11 +225,11 @@ Every script gtd emits — `gtd land --json=script`, `gtd --entry <state>`,
 `gtd abandon`, `gtd restore`, `gtd judge answer --json=script`, and the
 format/validate script `gtd validate` prints — is POSIX `sh`, portable to
 `dash`: a driver may run any of them with any POSIX-compliant shell, not
-specifically bash. The same convention extends to the workflow's own
-`vars.testCommand` (what a `script`-content check state actually executes): it
-is expected to be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION
-only — gtd never inspects or validates `testCommand`'s shell dialect itself, it
-only renders the value into a script and hands it to whatever shell the driver
+specifically bash. The same convention extends to the bundled workflow's
+`testCommand` variable (what its `run` steps actually execute): it is expected
+to be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION only — gtd
+never inspects or validates `testCommand`'s shell dialect itself, it only
+renders the value into a script and hands it to whatever shell the driver
 invokes that script with.
 
 - **The required half** is everything that decides what lands in git — the
@@ -257,17 +242,15 @@ invokes that script with.
   what just landed: a transition or capture's changed-file rows, or the
   abandon/restore prose, resolved from the repository AFTER the write above it.
   Its own exit code IS the printed script's exit code — skipping it means the
-  turn never lands, and you never see what it did. A resting state's own
+  turn never lands, and you never see what it did. A resting step's own
   steering-mode `format:`/`validate:` commands are NOT part of this script —
   they're a separate driver contract via `gtd next --json`'s own `validate`
   field (see `gtd install`'s obligation 6).
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
-  fail) and the workflow is still driven correctly either way. No emitter
-  currently populates it (it's always the empty string, from every command), so
-  `combinedScript`'s optional-half wrapping is dead weight in practice today;
-  it's kept as a stable slot in `EmittedScripts`/`combinedScript` for a future
-  presentation-only follow-up, not removed as unreachable.
+  fail) and the workflow is still driven correctly either way. No command
+  currently populates it; it is kept as a stable slot for a future
+  presentation-only follow-up.
 
 `gtd next --json` carries one more field worth a custom driver's attention:
 
@@ -280,7 +263,7 @@ invokes that script with.
   output to it and truncates once at the start of a run, exactly like the driver
   above does.
 
-Even a genuine no-op `gtd land` (a clean tree matching no `on` pattern) has a
+Even a genuine no-op `gtd land` (a clean landing that completes nothing) has a
 PRINT-ONLY script under `--json=script`: no git write, just the same
 `nothing to do at "<state>"` line the script prints when a driver runs it —
 running it is never optional. Plain `gtd land` at the same no-op prints that
@@ -297,8 +280,8 @@ rule this replaces: never `gtd land` outside a beat you dispatched. A stray land
 at a clean `prompt` rest authors an empty attempt on purpose (that IS the stall
 bookkeeping), so an unconditional opening land would manufacture a stall out of
 a fresh start. The one EXCEPTION is the run's very first beat: land it before
-trusting `idle` there too, so a workflow whose initial state declares its own
-clean-tree `"C"` pattern still gets a chance to advance on a human's bare
+trusting `idle` there too, so a workflow whose first step is a human step with
+`acceptClean: true` still gets a chance to advance on a human's bare
 re-invocation, rather than the driver concluding "nothing owed" without ever
 giving that edge a turn (see the reference driver's own comment on this).
 
@@ -315,9 +298,9 @@ reads `settled`/`idle` first for exactly this reason). A no-op at a `script`
 rest settles right where it rests (stop immediately, nothing more to read); an
 ordinary landing that finishes the whole process instead resolves `idle` on the
 FOLLOWING `gtd next` — the reference driver below reads once more only to
-DISPLAY that gate's message, never to decide whether to stop. Declaring a `C`
-edge on a `script` state is the workflow-side way to make the state advance
-instead of settling.
+DISPLAY that gate's message, never to decide whether to stop. A run step settles
+only when replaying its clean landing leads straight back to the same step; a
+flow that moves on after a clean run advances instead.
 
 ### Drivers other than sh
 
@@ -335,13 +318,13 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 20 keys (18 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 19 keys (17 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`); a real driver reads 8 of
-the 20. The minimal driver below is the reference for exactly which: `kind`,
+the 19. The minimal driver below is the reference for exactly which: `kind`,
 `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, and `validate` — every
-`--json=<path>` selector its `case` arms touch. The remaining 12 (`state`,
-`actor`, `label`, `memory`, `file`, `mode`, `edges`, `changes`, `next`, `cost`,
+`--json=<path>` selector its `case` arms touch. The remaining 11 (`state`,
+`actor`, `label`, `memory`, `file`, `mode`, `changes`, `next`, `cost`,
 `costByModel`, `judge`) are read only by a human looking at plain output, or by
 a driver author deciding what to log or route to a judge model (see "Judge
 gates" below) — no `case` arm in THIS reference driver branches on them. This is
@@ -393,8 +376,8 @@ while :; do
 
   # `idle` (true iff the initial state, clean tree) is the one shape that
   # means the process is genuinely done — EXCEPT on the run's opening beat:
-  # land it anyway, so a workflow whose initial state declares its own
-  # clean-tree "C" pattern still gets a chance to fire.
+  # land it anyway, so a workflow whose first step accepts a clean landing
+  # (acceptClean) still gets a chance to fire.
   if [ "$beat" -gt 1 ] && [ "${idle:-}" = true ]; then
     gtd next
     exit 0
@@ -485,8 +468,8 @@ Line by line it is the protocol described above:
 independent, idempotent reads — each a pure `gtd next --json=<path>` call, safe
 to make as often as needed, with no `eval` and no shared preamble to keep them
 consistent with each other. The very first beat lands even when `idle` is
-already true, so a workflow whose initial state declares its own clean-tree
-`"C"` pattern still gets a chance to fire before the driver calls it done.
+already true, so a workflow whose first step is a human step with
+`acceptClean: true` still gets a chance to fire before the driver calls it done.
 `kind: "stalled"` prints `gtd next --json=content` (the diagnosis) to stderr and
 stops; `message` halts unless it is the opening beat, which the human's own
 re-invocation authored and which therefore lands like any other decision (see
@@ -496,10 +479,10 @@ gtd deliberately does not keep). A judge gate is a `message` rest whose own
 `--json=judge` is non-empty — this reference driver never reads that field at
 all (it is UNAWARE of judge gates by design) and just displays the message
 (which itself tells you to run `gtd judge answer`) and stops; it never calls the
-network, and landing that gate with no verdict ever recorded falls onto the
-state's own conservative `"C"` edge exactly like any other clean-tree message
-gate (see [Judge gates](#judge-gates-an-aware-drivers-env-var-mapping) below for
-what an aware driver does instead). `capture` lands a human's already-made edit
+network, and landing that gate with no verdict ever recorded resolves every
+answer to `undefined`, which a workflow routes to its conservative branch (see
+[Judge gates](#judge-gates-an-aware-drivers-env-var-mapping) below for what an
+aware driver does instead). `capture` lands a human's already-made edit
 outright, no display needed; `script` reads its content off `--json=content`
 (the raw script, not plain `gtd next`'s prose) and runs it; `prompt` pipes plain
 `gtd next`'s own output to the agent over stdin, with
@@ -543,11 +526,11 @@ not something the green suite can catch.)
 
 ### Judge gates: an aware driver's env var mapping
 
-A judge gate declares `actor: judge` and is a `kind: "message"` rest whose
-`--json=judge` field is non-empty — the rendered JSON document
+A judge gate is a `judge()` step (actor `judge`) and a `kind: "message"` rest
+whose `--json=judge` field is non-empty — the rendered JSON document
 `{ state, questions: [...] }` the pending judgment asks about. `gtd` itself
-never calls a model: the reference driver above only displays the state's
-`message:` (which tells you to run `gtd judge answer` and paste a verdict) and
+never calls a model: the reference driver above only displays the step's
+`message` (which tells you to run `gtd judge answer` and paste a verdict) and
 stops. An AWARE driver — one built to answer a judge gate automatically —
 instead reads `--json=judge`, pipes that document to a judgment model such as
 TypeSafe's Jev, and pipes the verdict it gets back into
@@ -577,7 +560,7 @@ paste from the reference one.
 
 ### The self-validation gate
 
-After an agent turn at a state that declares `file:`+`mode:`, run the script:
+After an agent turn at a step that declares `file` and `mode`, run the script:
 either `gtd next --json`'s own embedded `.validate` field (present at every
 `prompt` beat that hands over a validatable file), or, standalone,
 `gtd validate`'s own plain-text output — both resolve the exact same script from
@@ -585,7 +568,7 @@ one shared resolver. This field is now populated even at a FIRST-WRITE beat,
 before the steering file exists at all: the script itself carries a leading
 `[ -f <file> ] || exit 0` guard rather than gtd checking existence ahead of
 time, so a driver's `while [ -n "$validate" ]` repair loop is armed from the
-very first turn at a state, not just the second and later ones. Exit 0 means the
+very first turn at a step, not just the second and later ones. Exit 0 means the
 file is well-formed (or genuinely doesn't exist yet) — proceed to `gtd land`. A
 non-zero exit usually means the script's own captured output IS a complete,
 ready-to-send fix prompt (an instruction plus the findings): send it back to the
@@ -613,7 +596,7 @@ Several different things can go wrong, and they mean different things — and mo
 non-zero-looking exits are not a failure at all:
 
 - **`gtd` itself exits 1.** Nothing was attempted — this is a refusal (a guard
-  rejected the turn, or the resolved rest declares no `judge:` for
+  rejected the turn, or the resolved rest is not a judge step, for
   `gtd judge`/`gtd judge answer`). No script was ever produced.
 - **`gtd` itself exits 2.** A usage error — nothing was even attempted, the
   invocation itself was wrong: unknown option/command, bad arity, a scope
@@ -661,14 +644,14 @@ do not queue it, store it, or hand it to another worktree.
   scripts (`gtd land`, `gtd --entry <state>`, `gtd abandon`, `gtd restore`) are
   POSIX sh; captured, then piped into it (see
   [Writing your own driver](#writing-your-own-driver) above).
-- **`gtd` on `PATH`** — a mode's seeded `validate:` command (the one the
-  compiler fills in for the built-in `qa`/`review` formats) is literally the
-  string `gtd check <mode> '<file>'`, invoked by NAME from inside an emitted
-  script, not by absolute path. This is a deliberate trade: a readable,
-  overridable, copy-pasteable command in exchange for depending on shell name
-  resolution at the moment the script runs. The sharp edge: if the `gtd` binary
-  you invoked to GENERATE the script differs from the `gtd` that resolves on
-  `PATH` when the script later RUNS (a locally-built dev binary vs. a
-  globally-installed release, say), you can get version skew between the two —
-  the command that validates may not be the command that decided. Keep the two
-  in sync (one `gtd` on `PATH`, consistently) if you care about that gap.
+- **`gtd` on `PATH`** — a mode's seeded `validate:` command (the one gtd fills
+  in for the built-in `qa`/`review` formats) is literally the string
+  `gtd check <mode> '<file>'`, invoked by NAME from inside an emitted script,
+  not by absolute path. This is a deliberate trade: a readable, overridable,
+  copy-pasteable command in exchange for depending on shell name resolution at
+  the moment the script runs. The sharp edge: if the `gtd` binary you invoked to
+  GENERATE the script differs from the `gtd` that resolves on `PATH` when the
+  script later RUNS (a locally-built dev binary vs. a globally-installed
+  release, say), you can get version skew between the two — the command that
+  validates may not be the command that decided. Keep the two in sync (one `gtd`
+  on `PATH`, consistently) if you care about that gap.

@@ -1,29 +1,24 @@
 @inmem
-Feature: gtd --entry <state> — start a brand new process at a declared state
+Feature: gtd --entry <name> — start a brand new process the workflow opens for a name
 
-  `gtd --entry <state>` (always authenticated as `human`) replaces the two
-  former named commands `gtd review <commitish>`/`gtd fix` with one generic
-  entry mechanism: `<state>` may be ANY declared, non-commit state — not just
-  one flagged `entry: true` (that flag only seeds `entries.manual`, the
-  reachability-root set). Repeatable `--var <name>=<value>` supplies that new
-  process's fixed `it.vars` overrides, which must already be declared by the
-  workflow's own `vars:` (or `.gtdrc` `vars:`).
+  `gtd --entry <name>` (always authenticated as `human`) starts a process with
+  the workflow's flow receiving `{ entry: "<name>" }`; an ordinary start passes
+  `undefined`. The flow decides what each name means and `refuse()`s the names
+  it does not accept; a flow that never reads `entry` accepts none. The name is
+  recorded on the opening commit, so every later command replays the flow with
+  the same entry. Repeatable `--var <name>=<value>` supplies that process's
+  fixed vars, which must already be declared by the workflow's own `vars` (or
+  `.gtdrc` `vars:`).
 
-  The bundled unified template declares `entries.manual` as exactly
-  `["fix-precheck", "review-gate.check", "start-gate.check"]`, but only
-  `review-gate.check` and `fix-precheck` are meant to actually be entered this
-  way in practice. `review-gate.check`
-  declares a template-form `reviewBase: "<%= it.vars.reviewBase %>"` — entering
-  it FIXES the whole process's diff base to whatever `--var
-  reviewBase=<commitish>` renders to; the default empty string renders blank,
-  which is refused, so a review entry always requires an explicit `--var
-  reviewBase=<commitish>`. `fix-precheck` declares no `reviewBase` and needs no
-  `--var`.
+  The bundled workflow accepts `review-gate.check`, `fix-precheck` and
+  `start-gate.check`. `review-gate.check` fixes the whole process's diff base
+  to whatever `--var reviewBase=<commitish>` names; the default empty string
+  is refused, so a review entry always requires an explicit `--var
+  reviewBase=<commitish>`. `fix-precheck` needs no `--var`.
 
   Resting at the initial state is required — a process already underway
   refuses. The working tree need not be clean: whatever it carries is CAPTURED
-  into the entry commit (`commitAllWithPrefix`), exactly like an ordinary `gtd
-  land`.
+  into the entry commit, exactly like an ordinary `gtd land`.
 
   Background:
     Given a test project
@@ -87,25 +82,14 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     And the last commit subject is "gtd(human): review-gate.check"
 
   Scenario: fails with a clear usage error when the state name is not declared
-    Given a gtd config file at ".gtdrc" with:
+    Given a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "do it")
+      })
       """
     When I run gtd with args "--entry review-gate.check"
     Then it fails
@@ -163,3 +147,68 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     When I run gtd with args "--entry review-gate.check --var reviewBase=here"
     Then it fails
     And stderr contains "is HEAD — nothing to review"
+
+  Scenario: the flow receives the entry name as its argument, and every later command replays with it
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async ({ entry }) => {
+        if (entry === undefined) {
+          await human("idle", { message: "go" })
+          return
+        }
+        if (!entry.startsWith("hotfix-")) refuse(`"${entry}" is not an enterable state`)
+        await agent("patch", `Patch ${entry.slice("hotfix-".length)}.`)
+        await agent("verify", `Verify the ${entry} patch.`)
+      })
+      """
+    When I run gtd with args "--entry hotfix-login"
+    Then it succeeds
+    And the last commit subject is "gtd(human): hotfix-login"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Patch login."
+    Given a file "fix.txt" with:
+      """
+      fixed
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): patch → verify"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Verify the hotfix-login patch."
+
+  Scenario: a name the flow refuses is refused with the flow's own message, and nothing is committed
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async ({ entry }) => {
+        if (entry !== undefined && entry !== "hotfix") refuse(`"${entry}" is not an enterable state`)
+        if (entry === undefined) await human("idle", { message: "go" })
+        await agent("patch", "Patch it.")
+      })
+      """
+    And I record the commit count
+    When I run gtd with args "--entry release"
+    Then it fails
+    And stderr contains "gtd --entry release: \"release\" is not an enterable state"
+    And the commit count is unchanged
+
+  Scenario: a workflow whose flow never reads its entry accepts no --entry
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "do it")
+      })
+      """
+    And I record the commit count
+    When I run gtd with args "--entry working"
+    Then it fails
+    And stderr contains "this workflow reads no entry"
+    And the commit count is unchanged

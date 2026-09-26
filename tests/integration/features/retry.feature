@@ -1,51 +1,32 @@
 @inmem
 Feature: Retry redirection — a state's entry cap redirects at write time
 
-  Pins `PatternMachine.applyRetry` (the `retry` property) through the real
-  CLI: once a `retry`-capped state has
-  already been entered `max` times within the current process, the NEXT
-  transition that would enter it again is redirected to `otherwise` instead —
-  decided at write time, so the redirected label is what actually lands in
-  history, not the raw `on`-match target.
+  A retry cap is a plain loop counter in flow code: once the fix step has
+  run `max` times within the current process, the next red check hands to the
+  fallback step instead — and because the landing's target is computed by
+  replaying the flow, the fallback is what actually lands in history.
 
   Scenario: repeated check failures redirect to "otherwise" once the cap is reached
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "npm test"
-                on:
-                  "A FEEDBACK.md": fixing
-                  "C": done
-              fixing:
-                actor: agent
-                retry:
-                  max: 1
-                  otherwise: escalate
-                prompt: "fix it"
-                on:
-                  "* **": checking
-              escalate:
-                actor: human
-                message: "stuck"
-                on:
-                  "* **": done
-              done:
-                actor: human
-                message: "done"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        let fixes = 0
+        for (;;) {
+          await run("checking", "npm test")
+          if (!changes("FEEDBACK.md").some((c) => c.status === "added")) break
+          if (fixes >= 1) {
+            await human("escalate", { message: "stuck" })
+            break
+          }
+          fixes++
+          await agent("fixing", "fix it")
+        }
+        await human("done", { message: "done" })
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -75,42 +56,25 @@ Feature: Retry redirection — a state's entry cap redirects at write time
 
   Scenario: a retry cap of 0 redirects on the very first entry attempt
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: start
-            states:
-              start:
-                actor: human
-                message: "go"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "npm test"
-                on:
-                  "A FEEDBACK.md": fixing
-                  "C": done
-              fixing:
-                actor: agent
-                retry:
-                  max: 0
-                  otherwise: escalate
-                prompt: "fix it"
-                on:
-                  "* **": checking
-              escalate:
-                actor: human
-                message: "stuck"
-                on:
-                  "* **": done
-              done:
-                actor: human
-                message: "done"
+      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        let fixes = 0
+        for (;;) {
+          await run("checking", "npm test")
+          if (!changes("FEEDBACK.md").some((c) => c.status === "added")) break
+          if (fixes >= 0) {
+            await human("escalate", { message: "stuck" })
+            break
+          }
+          fixes++
+          await agent("fixing", "fix it")
+        }
+        await human("done", { message: "done" })
+      })
       """
     And a file "NOTE.md" with:
       """

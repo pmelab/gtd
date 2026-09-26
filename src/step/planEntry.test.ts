@@ -4,45 +4,37 @@ import { planEntry, type EntryOutcome } from "./planEntry.js"
 import { InMemRepo, testLayers } from "../testing/index.js"
 import { ConfigService } from "../workflow/index.js"
 
-const WORKFLOW = [
-  "workflow:",
-  "  vars:",
-  "    base: ''",
-  "  entry:",
-  "    default: root",
-  "  machines:",
-  "    root:",
-  "      entry: idle",
-  "      states:",
-  "        idle:",
-  "          actor: human",
-  "          message: hi",
-  "          on:",
-  '            "* **": working',
-  "        working:",
-  "          entry: true",
-  "          actor: agent",
-  "          prompt: work-prompt",
-  "          on:",
-  '            "* **": idle',
-  "        reviewcheck:",
-  "          entry: true",
-  "          actor: agent",
-  "          prompt: work-prompt",
-  "          reviewBase: '<%= it.vars.base %>'",
-  "          on:",
-  '            "* **": idle',
-  "",
-].join("\n")
+const WORKFLOW = `import { agent, human, workflow, refuse } from "@pmelab/gtd/flows"
+
+export default workflow(
+  async ({ entry }) => {
+    if (entry === "working") {
+      await agent("work", "work-prompt")
+      return
+    }
+    if (entry === "reviewcheck") {
+      await agent("work", "work-prompt")
+      return
+    }
+    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
+    await human("idle", { message: "hi" })
+    await agent("work", "work-prompt")
+  },
+  {
+    vars: { base: "" },
+    base: (entry, vars) => (entry === "reviewcheck" ? (vars.base ?? "") : undefined),
+  },
+)
+`
 
 const repoAt = (): InMemRepo => {
   const repo = new InMemRepo()
-  repo.writeFile(".gtdrc.yaml", WORKFLOW)
+  repo.writeFile("gtd.config.ts", WORKFLOW)
   repo.commitAllWithPrefix("chore: add custom workflow")
   return repo
 }
 
-/** Loads the real compiled workflow (via `ConfigService`, same as `Edge.ts`'s `restAt`) so `planEntry`'s `enterableStates`/`reviewBase` checks see the actual state table, then runs `planEntry` against it. */
+/** Loads the real compiled workflow (via `ConfigService`, same as `Edge.ts`'s `restAt`) so `planEntry`'s entry and `reviewBase` checks see the loaded workflow, then runs `planEntry` against it. */
 const enter = (
   repo: InMemRepo,
   state: string,
@@ -52,11 +44,16 @@ const enter = (
     readonly commandLabel: string
     readonly vars: Record<string, string>
   },
+  entryRefusal?: string,
 ): Promise<EntryOutcome> =>
   Effect.runPromise(
     Effect.gen(function* () {
       const config = yield* (yield* ConfigService).load
-      return yield* planEntry({ def: config.workflow, state }, actor, entry)
+      return yield* planEntry(
+        { def: config.workflow, state, idle: state === config.workflow.initial, entryRefusal },
+        actor,
+        entry,
+      )
     }).pipe(Effect.provide(testLayers(repo))),
   )
 
@@ -72,15 +69,19 @@ describe("planEntry", () => {
     expect(plan.kind === "refusal" && plan.message).toContain("already underway")
   })
 
-  it("refuses an entry naming a state the workflow doesn't declare at all", async () => {
+  it("refuses, under the command's label, an entry the flow will not open", async () => {
     const repo = repoAt()
-    const plan = await enter(repo, "idle", "human", {
-      state: "nonexistent",
-      commandLabel: "gtd test",
-      vars: {},
+    const plan = await enter(
+      repo,
+      "idle",
+      "human",
+      { state: "nonexistent", commandLabel: "gtd test", vars: {} },
+      '"nonexistent" is not an enterable state',
+    )
+    expect(plan).toEqual({
+      kind: "refusal",
+      message: 'gtd test: "nonexistent" is not an enterable state',
     })
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("not an enterable state")
   })
 
   it("refuses an undeclared --var name", async () => {

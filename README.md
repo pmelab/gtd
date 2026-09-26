@@ -29,6 +29,12 @@ bundled workflow names skills from it at several states instead of spelling out
 technique in the prompt itself; see
 [Setup](https://github.com/pmelab/gtd/blob/main/docs/setup.md) for the details.
 
+> **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
+> is a TypeScript module, and every gtd command that looks at workflow state —
+> `gtd next` and `gtd lsp` included, not just `gtd land` — evaluates it. Treat
+> it like a Makefile or a `package.json` script: don't run gtd in a checkout you
+> don't trust.
+
 ## Quick start
 
 Pipe the output of `gtd install` into your coding agent and answer its
@@ -75,15 +81,17 @@ gtd next
 ```
 No active gtd process.
 
-To start one, make ANY change — a hand-edit to real code, a scratch note,
-anything at all. TODO.md is a good default place to start sketching.
+To start one, make ANY change — a hand-edit to real code, a scratch
+note, anything at all. .gtd/TODO.md is a good default
+place to start sketching.
 ```
 
-This means its your turn. Add a `TODO.md` file with a detailed, well articulated
-idea:
+This means its your turn. Add a `.gtd/TODO.md` file with a detailed, well
+articulated idea:
 
 ```bash
-echo "Make a billion dollar SaaS. Make no mistakes." > TODO.md
+mkdir -p .gtd
+echo "Make a billion dollar SaaS. Make no mistakes." > .gtd/TODO.md
 ```
 
 Ask again, and gtd leads with what to do, then reports what it sees:
@@ -92,14 +100,13 @@ Ask again, and gtd leads with what to do, then reports what it sees:
 The edit is already made — run `gtd land` to land it.
 State: idle
 Awaits: human
-Pending:
-  A TODO.md -> * **
-Next: Start → unwind
+Label: Idle
+File: .gtd/TODO.md
 ```
 
-Your change matched the pattern `* **`, which routes to the `unwind` state. For
-the moment its not important what that is. Important is the fact that changes to
-the source tree control what is going to happen next.
+At `idle`, any change at all starts a process, and the next step is `unwind`.
+For the moment its not important what that is. Important is the fact that what
+you leave in the tree controls what is going to happen next.
 
 ### Beat 2 — `gtd land` records it as a commit
 
@@ -123,7 +130,6 @@ gtd land --json=script | sh
 
 ```
 -> idle → unwind
-   TODO.md
 ```
 
 ```bash
@@ -171,13 +177,13 @@ baseline is green:
 ```
 State: start-gate.check
 Awaits: check
-Next: C → design.triage
+Label: Checking the baseline
 ```
 
-`C` is the clean-tree pattern: the suite passed, nothing changed, so move on to
-triage. A red suite instead writes `.gtd/FEEDBACK.md`, which matches a different
-pattern and routes to `start-gate.blocked` — same two commands, different
-outcome, decided entirely by what the beat left in the tree.
+A green suite leaves the tree clean, so the process moves on to triage. A red
+suite instead writes `.gtd/FEEDBACK.md`, and the process goes to
+`start-gate.blocked` — same two commands, different outcome, decided entirely by
+what the beat left in the tree.
 
 Land the green one, and the beat after it belongs to an agent.
 
@@ -374,9 +380,11 @@ gtd --entry review-gate.check --var reviewBase=<commitish>
 starts a pure review of everything from `<commitish>` to HEAD — straight to step
 4, no planning and no building.
 
-The workflow itself is data, not code: a `.gtdrc` `workflow:` key replaces it
-wholesale. See
-[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md).
+The workflow itself is a plain async TypeScript function: a `gtd.config.ts` at
+the repository root replaces it, and the pieces the bundled one is built from
+are exported for yours to reuse. See
+[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md) —
+and remember gtd evaluates that file on every command.
 
 ## License
 

@@ -1,17 +1,15 @@
 @inmem
 Feature: Initial-state entry — every unrecognized HEAD lands at the initial state
 
-  Pins `PatternMachine.resolveState` (an `initial: true` state) against the
-  bundled default workflow: a
-  non-`gtd(actor): state` HEAD, an old v1/v2-style `gtd: <label>` subject, and
-  an actor the workflow doesn't declare all resolve to the initial state
+  Against the bundled default workflow, a HEAD that records no process — an
+  ordinary commit, an old v1/v2-style `gtd: <label>` subject, or an actor the
+  workflow doesn't declare — resolves to the default entry's first step
   (`idle`) rather than erroring.
 
-  A state name the workflow doesn't declare AT ALL is the one exception
-  (`src/Edge.ts`'s `resolveRest`, package 06): that specific shape means an
-  in-flight process got renamed/removed out from under it by a workflow
-  change, so it refuses loudly (pointing at `gtd abandon`) rather than
-  silently looking like a fresh, idle repo.
+  The one exception is an in-flight process whose recorded step the workflow
+  no longer reaches — it got renamed or removed out from under the process by
+  a workflow change — which refuses loudly (pointing at `gtd abandon`) rather
+  than silently looking like a fresh, idle repo.
 
   Scenario: an ordinary non-gtd HEAD resolves to the initial state
     Given a test project
@@ -33,10 +31,29 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
 
   Scenario: a subject naming a state the workflow doesn't declare AT ALL refuses, pointing at `gtd abandon`
     Given a test project
-    And the workflow
-    And a commit "gtd(human): frobnicate" that adds "NOTE.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("frobnicate", { message: "write NOTE.md to start" })
+        await agent("planning", "plan it")
+      })
+      """
+    And a file "NOTE.md" with:
       """
       a plan
+      """
+    And gtd lands "gtd(human): frobnicate → planning"
+    # The workflow renames the step out from under the in-flight process.
+    And "gtd.config.ts" is modified to:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await agent("planning", "plan it")
+      })
       """
     When I run gtd next
     Then it fails
