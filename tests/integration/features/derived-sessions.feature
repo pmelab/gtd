@@ -2,55 +2,35 @@
 Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
 
   `gtd next --json` (a pure peek, called once or twice back to back — both
-  derive the exact same answer, since nothing is written; see
-  src/Sessions.ts's own doc comment) resolves a `session: {id, resume}` pair
-  at every `prompt` rest by hashing the resting state's memory key
-  (`<scope>#<anchor7>`, src/Edge.ts's `memoryKeyFor`) into a UUIDv5. There is
-  no per-scope table anymore: the same scope-run always re-derives the same
-  id, and `resume` is `true` iff a prior `prompt` rest already landed a turn
-  commit within that same scope-run (src/Edge.ts's `memoryResumedFor`).
+  derive the exact same answer, since nothing is written) resolves a
+  `session: {id, resume}` pair at every `prompt` rest by hashing the resting
+  step's memory key (`<scope>#<anchor7>`, the scope being the step name's
+  `scope()` prefix) into a UUIDv5. There is no per-scope table: the same
+  scope-run always re-derives the same id, and `resume` is `true` iff a prior
+  agent turn already landed within that same scope-run.
 
   Background:
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          child:
-            params: [onDone]
-            entry: verify
-            states:
-              verify:
-                actor: check
-                script: "echo verify"
-                on:
-                  "C": ask
-              ask:
-                actor: reviewer
-                prompt: "confirm before returning"
-                on:
-                  "* **": $onDone
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work"
-                on:
-                  "M NOTE.md": working
-                  "A CHECKFILE.md": checking
-                  "M CHECKFILE.md": checking
-              checking:
-                machine: child
-                with:
-                  onDone: working
+      import { added, agent, human, modified, refuse, run, scope, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          for (;;) {
+            await agent("working", "do the work")
+            if (added("CHECKFILE.md").length > 0 || modified("CHECKFILE.md").length > 0) {
+              await scope("checking", async () => {
+                await run("verify", "echo verify")
+                await agent("ask", "confirm before returning")
+              })
+            } else if (modified("NOTE.md").length === 0) {
+              refuse("working: modify NOTE.md or write CHECKFILE.md")
+            }
+          }
+        },
+      })
       """
 
   Scenario: the same scope-run derives the same id across laps; resume flips false → true once a turn commit lands
@@ -177,7 +157,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(reviewer): checking.ask → working"
+    And the last commit subject is "gtd(agent): checking.ask → working"
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -216,7 +196,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(reviewer): checking.ask → working"
+    And the last commit subject is "gtd(agent): checking.ask → working"
 
     Given a file "CHECKFILE.md" with:
       """

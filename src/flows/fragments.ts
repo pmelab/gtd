@@ -495,6 +495,22 @@ const collect = async (texts: ReviewTexts): Promise<"signoff" | "feedback"> => {
  * `review.await-review`, `review.deciding`, `review.review-missing`,
  * `review.triage`, `review.triaging`, `review.collecting`.
  */
+/** A note-only round: judge whether it asks for anything, and sign off when it does not. */
+const triage = async (texts: ReviewTexts): Promise<"signoff" | "feedback"> => {
+  const whole = read(".gtd/REVIEW.md") ?? ""
+  const tailText = tail(".gtd/REVIEW.md", 1)
+  await judge(
+    "review.triage",
+    triageQuestions(whole, tailText),
+    { review: tailText },
+    { message: texts.triage.message(), label: texts.triage.label },
+  )
+  await run("review.triaging", texts.triaging.script(), { label: texts.triaging.label })
+  if (deleted(".gtd/REVIEW.md").length > 0 && added(".gtd/REVIEW_RAW.md").length === 0)
+    return "signoff"
+  return collect(texts)
+}
+
 export const reviewTail = async (texts: ReviewTexts): Promise<"signoff" | "feedback"> => {
   for (;;) {
     await agentStep("review.reviewing", texts.reviewing)
@@ -507,23 +523,7 @@ export const reviewTail = async (texts: ReviewTexts): Promise<"signoff" | "feedb
     })
     if (!wrote(FEEDBACK)) {
       if (wrote(".gtd/REVIEW_RAW.md")) return collect(texts)
-      if (added(".gtd/REVIEW_NOTE.md").length > 0) {
-        const whole = read(".gtd/REVIEW.md") ?? ""
-        const tailText = tail(".gtd/REVIEW.md", 1)
-        await judge(
-          "review.triage",
-          triageQuestions(whole, tailText),
-          { review: tailText },
-          {
-            message: texts.triage.message(),
-            label: texts.triage.label,
-          },
-        )
-        await run("review.triaging", texts.triaging.script(), { label: texts.triaging.label })
-        if (deleted(".gtd/REVIEW.md").length > 0 && added(".gtd/REVIEW_RAW.md").length === 0)
-          return "signoff"
-        return collect(texts)
-      }
+      if (added(".gtd/REVIEW_NOTE.md").length > 0) return triage(texts)
       if (deleted(".gtd/REVIEW.md").length > 0) return "signoff"
     }
     await humanStep("review.review-missing", texts.missing)

@@ -3,17 +3,8 @@ set +e
 mkdir -p .gtd
 # Sweep a raw review capture an earlier, abandoned process may have
 # left behind — no ordinary path from deciding/collecting reaches
-# this check.
+# this check (same as entryGate.check's own sweep).
 rm -f .gtd/REVIEW_RAW.md
-# And sweep the quality lap's own leftovers. `.gtd/QUALITY_DONE.md`
-# is a PER-EPISODE guard that `build.quality.seeding` short-circuits
-# on; the only other sweeper is `packageLoop.picking`, which an
-# entry never visits. Without this, the second and later
-# `--entry fix-precheck`/`review-gate.check` runs in a repository
-# would silently skip every configured lens. An entry IS a new
-# episode, so the whole lap state goes, not just the marker.
-rm -f .gtd/NEXT_REVIEW.md .gtd/QUALITY.md .gtd/QUALITY_DONE.md .gtd/QUALITY_READY.md
-rm -rf .gtd/reviews
 npm test > .gtd/.check-output 2>&1
 code=$?
 if [ "$code" -ne 0 ]; then
@@ -29,4 +20,12 @@ if [ "$code" -ne 0 ]; then
 else
   rm -f .gtd/.check-output
   rm -f .gtd/FEEDBACK.md
+  # `.gtd/ESCALATION.md` is swept ONLY here, on a genuinely green
+  # result — never on a still-red round, so an unresolved analysis
+  # a fix turn left in place (fixFeedbackPrompt never deletes it)
+  # survives every retry within the same episode. That also makes
+  # its deletion a reliable "this episode's escalation budget just
+  # reset" signal: `escalate`'s own script (below) anchors its
+  # round count on the most recent such deletion.
+  rm -f .gtd/ESCALATION.md
 fi

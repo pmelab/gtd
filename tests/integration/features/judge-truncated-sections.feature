@@ -2,32 +2,33 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
 
   Both section-splitting judged gates — `packages.item.spec.pre` and
   `build.review.triage` — count `## ` sections/chunks from the WHOLE
-  document (`it.sections(path)`, no share). DECISION, diverging from this
-  package's own task text ("learn which survived via `it.sections(path,
-  1)`"): survivorship of the bound tail is NOT read via a second
-  `it.sections(path, 1)` call — a fence straddling the cut boundary
-  re-parses as top-level headings in the truncated text (measured — a
-  fenced block containing `## ` lines silently mis-counts the survivor
-  set), an unfixable hazard for a document neither gate's own author
-  controls (a package file, a review note). `it.sections(path, share)`
-  itself stays published — see docs/configuration.md's `it.sections` entry
-  — for a `judge:` field that only wants the truncated text's own
-  headings, or a document whose shape rules out a straddling fence; these
-  two gates are simply not that case. Each instead locates every
-  WHOLE-document title's own offset in the untruncated text and compares it
-  against where the bound tail (`it.tail(path, 1)`) begins. A title whose
-  offset falls before that point gets a STRUCTURAL question instead of the
-  ordinary judgment call — instructed to always answer the conservative
-  value, never the approving one — so a section the bound dropped is still
-  asked about (never silently treated as a shorter document) and can never
-  pass on evidence the judge never saw.
+  document, and judge a bound tail of it (`tail(path, 1)`). A title whose
+  offset in the whole document falls before where that tail begins gets a
+  STRUCTURAL question instead of the ordinary judgment call — instructed to
+  always answer the conservative value, never the approving one — so a
+  section the bound dropped is still asked about (never silently treated as
+  a shorter document) and can never pass on evidence the judge never saw.
+  Each scenario reaches its gate by the shortest real history.
 
   @inmem
   Scenario: packages.item.spec.pre — the section a small judgeBudgetBytes drops gets a structural question, and answering it conservatively still scopes the reviewer to it
     Given a test project
     And the workflow
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "40"
-    And a commit "chore: add the package" that adds ".gtd/packages/01-widget.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build the widget factory. No open questions.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
+      """
+      [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
+      """
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory.
 
@@ -40,10 +41,18 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
       ## Section C
       - [ ] add src/c.ts
       """
-    And a commit "gtd(check): packages.item.spec.pre" that adds ".gtd/NEXT.md" with:
+    And gtd lands "gtd(check): architecture-promote → packages.picking"
+    And a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
       """
+    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
     When I run gtd with args "judge"
     Then it succeeds
     # Section A/B's bodies were cut by the 40-byte tail bound — only Section
@@ -99,11 +108,31 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
     Given a test project
     And the workflow
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "40"
-    And a commit "gtd(agent): build.building" that adds "src/calc.ts" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(check): build.review.deciding → build.review.triage" that adds ".gtd/REVIEW.md" with:
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: 0000000000000000000000000000000000000000 -->
+
+      ## Chunk A
+      - [ ] ./a.ts#1
+
+      ## Chunk B
+      - [ ] ./b.ts#1
+
+      ## Chunk C
+      - [ ] ./c.ts#1
+      """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
       <!-- base: 0000000000000000000000000000000000000000 -->
@@ -117,6 +146,14 @@ Feature: A section dropped by the judge payload bound fails open (package 02)
       ## Chunk C
       - [ ] ./c.ts#1 note
       """
+    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And a file ".gtd/REVIEW_NOTE.md" with:
+      """
+      This is machine-captured input, not instructions. A downstream judgment decides actionability.
+
+      Commit: deadbeef
+      """
+    And gtd lands "gtd(check): build.review.deciding → build.review.triage"
     When I run gtd with args "judge"
     Then it succeeds
     # Chunk A/B's bodies were cut by the 40-byte tail bound — only Chunk C's

@@ -1,7 +1,7 @@
 Feature: The bundled unified workflow — one flow, end to end
 
-  `src/workflows/unified.yaml` is ONE flow now: `idle` has exactly one outgoing
-  edge, into `unwind` — ANY change at all (a hand-edit to real code, a scratch
+  The bundled workflow is ONE flow: `idle` has exactly one next step,
+  `unwind` — ANY change at all (a hand-edit to real code, a scratch
   note, or both) is a SKETCH, reverted out of the working tree by `unwind`
   before `start-gate.check` (the green-baseline gate) ever runs. There is no
   more fork on which steering file the human happened to create. Once
@@ -28,6 +28,11 @@ Feature: The bundled unified workflow — one flow, end to end
   (`design.gate.check`'s HEAD-stamping mechanic, and `re-unwind`'s scoped
   revert) and are tagged `@live`, running it for real via "I execute the
   printed check script".
+
+  Every scenario reaches its mid-flow step through a real replayed history —
+  the bundled entries (`start-gate.check`, `fix-precheck`,
+  `review-gate.check`) are the shortcuts, never a hand-authored state
+  commit.
 
   @inmem
   Scenario: an ordinary code change starts the process — triage, both gates skip when question-free, one package built/fixed/reviewed, then a clean review sign-off lands directly into idle
@@ -413,7 +418,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: re-unwind refuses to land while the human's review-round paths are still un-reverted, then a hand-revert recovers
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add greeting" that adds "src/greet.ts" with:
+      """
+      export const greet = "hello"
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -422,6 +436,7 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     # await-review: a hand-edit to real code is feedback
     Given a file "src/calc.ts" with:
       """
@@ -484,7 +499,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a non-actionable review round (an approving remark, no code edit) short-circuits straight to sign-off
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add greeting" that adds "src/greet.ts" with:
+      """
+      export const greet = "hello"
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -493,6 +517,7 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     # await-review: a note is still feedback-shaped from deciding's own
     # point of view (any REVIEW.md edit beyond a tick), even though it's just
     # an approving remark
@@ -561,11 +586,15 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: re-unwind actually reverts a hand-edited code line, never resurrects the review file, and leaves the state dir alone
     Given a test project
-    And a file "src/thing.ts" with:
+    And the workflow
+    And I mark the current commit as "base"
+    And a commit "feat: add thing" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
-    And the working tree is committed as "gtd(agent): build.review.reviewing"
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -574,19 +603,29 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Chunk
       - [ ] ./src/thing.ts#1
       """
-    And the working tree is committed as "gtd(check): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given "src/thing.ts" is modified to:
       """
       export const thing = 1
       // TODO: also export doubled
       """
-    And the file ".gtd/REVIEW.md" is deleted
     And a file ".gtd/marker.md" with:
       """
       keep this — under .gtd/, must survive the revert
       """
-    And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
-    And an empty commit "gtd(agent): build.review.collecting → re-unwind"
+    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And a file ".gtd/REVIEW_RAW.md" with:
+      """
+      Raw review material captured for classification.
+      """
+    And the file ".gtd/REVIEW.md" is deleted
+    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Export doubled
+      """
+    And the file ".gtd/REVIEW_RAW.md" is deleted
+    And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     When I run gtd next with "--json"
     Then it succeeds
     And I execute the printed check script
@@ -600,11 +639,15 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: re-unwind on a note-only review round applies no patch (an empty patch is not a valid git apply input) and the C row still advances to design.triage
     Given a test project
-    And a file "src/thing.ts" with:
+    And the workflow
+    And I mark the current commit as "base"
+    And a commit "feat: add thing" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
-    And the working tree is committed as "gtd(agent): build.review.reviewing"
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -613,7 +656,7 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Chunk
       - [ ] ./src/thing.ts#1
       """
-    And the working tree is committed as "gtd(check): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -623,9 +666,26 @@ Feature: The bundled unified workflow — one flow, end to end
       - [x] ./src/thing.ts#1
       looks great, nice work
       """
+    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And a file ".gtd/REVIEW_NOTE.md" with:
+      """
+      A downstream judgment decides actionability.
+      """
+    And gtd lands "gtd(check): build.review.deciding → build.review.triage"
+    And gtd lands "gtd(judge): build.review.triage → build.review.triaging"
+    And a file ".gtd/REVIEW_RAW.md" with:
+      """
+      Raw review material captured for classification.
+      """
     And the file ".gtd/REVIEW.md" is deleted
-    And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
-    And an empty commit "gtd(agent): build.review.collecting → re-unwind"
+    And the file ".gtd/REVIEW_NOTE.md" is deleted
+    And gtd lands "gtd(check): build.review.triaging → build.review.collecting"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Export doubled
+      """
+    And the file ".gtd/REVIEW_RAW.md" is deleted
+    And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     When I run gtd next with "--json"
     Then it succeeds
     And I execute the printed check script
@@ -637,11 +697,15 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: a genuinely failing `git apply -R` is refused, not silently swallowed
     Given a test project
-    And a file "src/thing.ts" with:
+    And the workflow
+    And I mark the current commit as "base"
+    And a commit "feat: add thing" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
-    And the working tree is committed as "gtd(agent): build.review.reviewing"
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -650,14 +714,19 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Chunk
       - [ ] ./src/thing.ts#1
       """
-    And the working tree is committed as "gtd(check): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given "src/thing.ts" is modified to:
       """
       export const thing = 1
       // TODO: also export doubled
       """
+    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And a file ".gtd/REVIEW_RAW.md" with:
+      """
+      Raw review material captured for classification.
+      """
     And the file ".gtd/REVIEW.md" is deleted
-    And the working tree is committed as "gtd(human): build.review.await-review → build.review.deciding"
+    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
     # The collecting → re-unwind commit ALSO rewrites the exact line the
     # human's own commit touched — a rewrite with no shared context, so the
     # reverse-apply of the human's patch has nothing to match. This is the
@@ -670,7 +739,12 @@ Feature: The bundled unified workflow — one flow, end to end
       export const thing = 1
       // TODO: something else entirely landed here first
       """
-    And the working tree is committed as "gtd(agent): build.review.collecting → re-unwind"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Export doubled
+      """
+    And the file ".gtd/REVIEW_RAW.md" is deleted
+    And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     When I run gtd next with "--json"
     Then it succeeds
     And I execute the printed check script
@@ -699,7 +773,9 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: the design gate refuses an unanswered open question, then ticking loops back to triage
     Given a test project
     And the workflow
-    And a commit "gtd(agent): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
 
@@ -711,6 +787,12 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And a file ".gtd/QUESTIONS.md" with:
+      """
+      open questions remain in .gtd/REQUIREMENTS.md
+      """
+    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
     # answerGate: stepping with no tick is refused, even though something
     # else in the doc changed — a dirty tree that still leaves the question
     # unanswered, not a no-op on an untouched one
@@ -750,7 +832,9 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: the accept-all escape — deleting the whole Open Questions section is allowed and loops to triage to finalize
     Given a test project
     And the workflow
-    And a commit "gtd(agent): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
 
@@ -762,6 +846,12 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Postgres
       - [ ] _your answer_
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And a file ".gtd/QUESTIONS.md" with:
+      """
+      open questions remain in .gtd/REQUIREMENTS.md
+      """
+    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
     # delete the whole Open Questions section — accept-all, no unanswered question remains
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
@@ -775,7 +865,19 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a ticked free-text slot with text is a valid answer at the technical gate; the placeholder alone is refused
     Given a test project
     And the workflow
-    And a commit "gtd(agent): architecture.gate.answer" that adds ".gtd/ARCHITECTURE.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Widget
+
+      Build a widget.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/ARCHITECTURE.md" with:
       """
       Modules: widget.ts, store.ts.
 
@@ -787,6 +889,12 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] raw SQL
       - [ ] _your answer_
       """
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.check"
+    And a file ".gtd/QUESTIONS.md" with:
+      """
+      open questions remain in .gtd/ARCHITECTURE.md
+      """
+    And gtd lands "gtd(check): architecture.gate.check → architecture.gate.answer"
     # free-text slot ticked but still the placeholder -> refused (a real dirty
     # edit — ticking the box — that still leaves the question unanswered)
     Given ".gtd/ARCHITECTURE.md" is modified to:
@@ -831,7 +939,10 @@ Feature: The bundled unified workflow — one flow, end to end
     # to architecture.author with a question still open. This can only be
     # caught by actually running the real script (@inmem never executes it).
     Given a test project
-    And a commit "gtd(agent): design.gate.check" that adds ".gtd/REQUIREMENTS.md" with:
+    And the workflow
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
 
@@ -843,6 +954,7 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
     When I run gtd next with "--json"
     Then it succeeds
     And I execute the printed check script
@@ -899,7 +1011,9 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a self-answered question in ## Answered Questions never stops the process at design.gate.answer
     Given a test project
     And the workflow
-    And a commit "gtd(agent): design.triage → design.gate.check" that adds ".gtd/REQUIREMENTS.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Greeting export
 
@@ -911,6 +1025,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
       SQLite — no concurrent writers, a confident default.
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): design.gate.check → architecture-pre"
@@ -983,14 +1098,19 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: the handover — architecture.author works from REQUIREMENTS.md alone, a cold read with no assumption of a prior design conversation
     Given a test project
     And the workflow
-    # Jump straight into architecture.author — no design.triage/design.gate
-    # commit anywhere in this history at all.
-    And a commit "gtd(check): architecture.author" that adds ".gtd/REQUIREMENTS.md" with:
+    # The prompt tells the author to work from REQUIREMENTS.md alone, even
+    # though design's own turns sit right there in the history.
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Greeting export
 
       Add a `greet()` export returning a friendly string. No open questions.
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture.author"
     When I run gtd next
     Then it succeeds
     And stdout contains "You do not resume the design conversation"
@@ -1010,12 +1130,8 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a question must clear the three-part bar, or the planner decides it itself
     Given a test project
     And the workflow
-    And a commit "gtd(check): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export returning a friendly string.
-      """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next
     Then it succeeds
     And stdout contains "held back for a later lap is a bug"
@@ -1023,12 +1139,15 @@ Feature: The bundled unified workflow — one flow, end to end
     # architecture.author's copy of the bar must be the byte-identical
     # criteria — this identical-string assertion is the only guard against
     # the two inlined copies drifting apart.
-    Given a commit "gtd(check): architecture.author" that adds ".gtd/REQUIREMENTS.md" with:
+    Given a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Greeting export
 
       Add a `greet()` export returning a friendly string. No open questions.
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture.author"
     When I run gtd next
     Then it succeeds
     And stdout contains "held back for a later lap is a bug"
@@ -1037,11 +1156,31 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a package whose work already landed closes out via .gtd/SATISFIED.md
     Given a test project
     And the workflow
-    And a commit "gtd(agent): packages.picking" that adds ".gtd/packages/01-widget.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Widget factory
+
+      Add a widget factory.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan: src/widget.ts exports a factory.
+      """
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.check"
+    And gtd lands "gtd(check): architecture.gate.check → architecture.decompose"
+    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
+    And gtd lands "gtd(agent): architecture.decompose → packages.picking"
     Given a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
@@ -1097,11 +1236,31 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
     Given a test project
     And the workflow
-    And a commit "gtd(agent): packages.picking" that adds ".gtd/packages/01-widget.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Widget factory
+
+      Add a widget factory.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan: src/widget.ts exports a factory.
+      """
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.check"
+    And gtd lands "gtd(check): architecture.gate.check → architecture.decompose"
+    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
+    And gtd lands "gtd(agent): architecture.decompose → packages.picking"
     Given a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
@@ -1135,17 +1294,22 @@ Feature: The bundled unified workflow — one flow, end to end
 
   @inmem
   Scenario: a feedback round's reviewing base is anchored at the last review round (incremental it.reviewBase)
-    # reviewBase: true on build.review.deciding anchors it.reviewBase: a
-    # re-review's range starts only from the previous review round's
-    # boundary, not the whole process. fileA landed before that boundary;
-    # fileB after it.
+    # reviewBase: true on build.review.deciding anchors refs.reviewBase at
+    # the commit entering it: a re-review's range starts only from the
+    # previous review round's boundary, not the whole process. fileA landed
+    # before that boundary; fileB after it, on the re-planned lap.
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.review.reviewing" that adds "fileA.ts" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add fileA.ts" that adds "fileA.ts" with:
       """
       export const A = 1
       """
-    And a commit "gtd(agent): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: aaaaaaa
       <!-- base: 0000000 -->
@@ -1153,24 +1317,76 @@ Feature: The bundled unified workflow — one flow, end to end
       ## A
       - [ ] ./fileA.ts#1
       """
-    And a commit "gtd(human): build.review.deciding" that adds ".gtd/REVIEW_RAW.md" with:
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And "fileA.ts" is modified to:
+      """
+      export const A = 1
+      // also add B
+      """
+    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And I mark the current commit as "review-round-1"
+    And a file ".gtd/REVIEW_RAW.md" with:
       """
       Feedback:
       - [ ] ./fileA.ts#1 — also add B
       """
-    And I mark the current commit as "review-round-1"
-    And a commit "gtd(agent): build.review.collecting" that adds ".gtd/marker.md" with:
+    And the file ".gtd/REVIEW.md" is deleted
+    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
-      entering re-unwind
+      ## Add B
+
+      Also export a `B` constant.
       """
-    And a commit "gtd(agent): build.health.check" that adds "fileB.ts" with:
+    And the file ".gtd/REVIEW_RAW.md" is deleted
+    And gtd lands "gtd(agent): build.review.collecting → re-unwind"
+    And "fileA.ts" is modified to:
+      """
+      export const A = 1
+      """
+    And gtd lands "gtd(check): re-unwind → design.triage"
+    And ".gtd/REQUIREMENTS.md" is modified to:
+      """
+      ## Add B
+
+      Export a `B` constant from fileB.ts.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan: fileB.ts exports `B`.
+      """
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.check"
+    And gtd lands "gtd(check): architecture.gate.check → architecture.decompose"
+    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And a file ".gtd/packages/01-b.md" with:
+      """
+      Package: export B.
+      - [ ] add fileB.ts
+      """
+    And gtd lands "gtd(agent): architecture.decompose → packages.picking"
+    And a file ".gtd/NEXT.md" with:
+      """
+      .gtd/packages/01-b.md
+      """
+    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And a file "fileB.ts" with:
       """
       export const B = 2
       """
-    And a commit "gtd(check): build.review.reviewing" that adds ".gtd/note.md" with:
-      """
-      green, re-reviewing
-      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
+    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
+    And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
+    And the file ".gtd/packages/01-b.md" is deleted
+    And the file ".gtd/NEXT.md" is deleted
+    And gtd lands "gtd(check): packages.item.closing → packages.picking"
+    And gtd lands "gtd(check): packages.picking → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
     When I run gtd next
     Then it succeeds
     # The reviewing prompt names it.reviewBase — the previous review round's
@@ -1184,14 +1400,17 @@ Feature: The bundled unified workflow — one flow, end to end
     # Blanks the queue so a green health check hands straight to the human
     # review tail — the quality lap itself is covered in its own feature.
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And a commit "gtd(agent): build.fix" that adds "src/thing.ts" with:
-      """
-      export const thing = 1
-      """
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
       """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
@@ -1207,41 +1426,51 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached, writing a fix-design document a human can edit before the next fix turn
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 1 failed
       """
-    And a commit "gtd(check): build.fix" that adds ".gtd/fix-1.md" with:
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-1.md" with:
       """
       fixed attempt 1
       """
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 2 failed
       """
-    And a commit "gtd(check): build.fix" that adds ".gtd/fix-2.md" with:
+    And gtd lands "gtd(check): build.health.check → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-2.md" with:
       """
       fixed attempt 2
       """
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 3 failed
       """
-    And a commit "gtd(check): build.fix" that adds ".gtd/fix-3.md" with:
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
+    And gtd lands "gtd(judge): build.health.judge → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-3.md" with:
       """
       fixed attempt 3
       """
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/marker.md" with:
-      """
-      entering checking a 4th time
-      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 4 failed
       """
+    # A red round after the first is judged before the cap is consulted; a
+    # skipped judgment leaves the cap to decide.
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.health.escalate"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.escalate"
     # build.health.escalate is now a round-counting `check` gate, not a human
     # rest: this is the first arrival since the last green check (0 rounds so
     # far), so its own script leaves the tree clean and the "C" row routes on
@@ -1252,7 +1481,7 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd next
     Then it succeeds
     And stdout contains ".gtd/FEEDBACK.md"
-    And stdout contains ".gtd/PRIOR_FEEDBACK.md"
+    And stdout contains "git log -p -- .gtd/FEEDBACK.md"
     And stdout contains ".gtd/ESCALATION.md"
     Given a file ".gtd/ESCALATION.md" with:
       """
@@ -1295,27 +1524,54 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.fix → build.health.check"
-    # A second red run: if the retry budget were still process-pooled (the
-    # OLD whole-trace rule), this would see build.fix's 3 prior visits and
-    # bounce straight back to build.health.escalate. Reaching build.fix
-    # instead is the proof the escalation round genuinely restored it —
-    # build.health.describe (a non-source of build.fix) sat between every
-    # pair of arrivals.
+    # A second red run: if the fix budget were not reset by the escalation
+    # round, this would already be over the cap and bounce straight back to
+    # build.health.escalate. Reaching build.fix instead is the proof the
+    # escalation round genuinely restored it.
     Given a file ".gtd/FEEDBACK.md" with:
       """
       attempt 5 failed
       """
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.fix"
+    And the last commit subject is "gtd(judge): build.health.judge → build.fix"
 
   @inmem
   Scenario: landing build.health.stop with a clean tree still hands the document to the next fix turn, and editing ESCALATION.md there does not spend a second escalation round
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker1.md" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
-      entering the first escalation round
+      the suite fails in the setup fixture
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      the suite fails in the setup fixture, again
+      """
+    And gtd lands "gtd(check): build.health.check → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 2
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      the suite fails in the setup fixture, again
+      """
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
+    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
       """
     When I run gtd land
     Then it succeeds
@@ -1353,13 +1609,17 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.fix → build.health.check"
-    # Jump straight to a second arrival at escalate the same way the
-    # existing two-full-rounds scenario does (an injected commit), rather
-    # than re-driving the retry-cap's own 3-strikes count — that mechanism
-    # is unrelated to what this scenario pins.
-    Given a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker3.md" with:
+    # Reach a second arrival at escalate the short way — a judged
+    # "identical" red round — rather than re-driving the fix cap's count,
+    # which is unrelated to what this scenario pins.
+    Given a file ".gtd/FEEDBACK.md" with:
       """
-      entering what must be the SECOND escalation round, not the third
+      the fixture still leaks state
+      """
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
+    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
       """
     # If the human's edit at `stop` had counted as a round, this would see 2
     # prior rounds already and land straight at the terminal `exhausted`
@@ -1372,9 +1632,37 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: landing build.health.stop with a genuinely clean tree still advances to build.fix — "land it untouched" as its message promises
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker1.md" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
-      entering the first escalation round
+      the suite fails in the setup fixture
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      the suite fails in the setup fixture, again
+      """
+    And gtd lands "gtd(check): build.health.check → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 2
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      the suite fails in the setup fixture, again
+      """
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
+    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
       """
     When I run gtd land
     Then it succeeds
@@ -1400,9 +1688,37 @@ Feature: The bundled unified workflow — one flow, end to end
     # Round 1: the round-counting escalate gate's first arrival since the
     # last green check — 0 prior `.gtd/ESCALATION.md` rounds, so its script
     # leaves the tree clean ("C") and routes on to describe.
-    And a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker1.md" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
-      entering the first escalation round
+      the suite fails in the setup fixture
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      the suite fails in the setup fixture, again
+      """
+    And gtd lands "gtd(check): build.health.check → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 2
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      the suite fails in the setup fixture, again
+      """
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
+    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
       """
     When I run gtd land
     Then it succeeds
@@ -1440,18 +1756,30 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       attempt 5 failed
       """
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.fix"
+    And the last commit subject is "gtd(judge): build.health.judge → build.fix"
     And ".gtd/ESCALATION.md" contains "Round 1: the suite fails"
 
     # Round 2: back at the same red check, escalating again — still under 2
     # prior rounds (round 1's own add is the only one so far), so the script
     # again leaves the tree clean and routes on to describe rather than the
     # terminal stop.
-    Given a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker3.md" with:
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
       """
-      entering the second escalation round
+      export const thing = 4
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      the same fixture failure, restated
+      """
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
+    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
       """
     When I run gtd land
     Then it succeeds
@@ -1487,9 +1815,10 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       attempt 6 failed
       """
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.fix"
+    And the last commit subject is "gtd(judge): build.health.judge → build.fix"
     And ".gtd/ESCALATION.md" contains "Round 2: still the same fixture"
 
     # Round 3: the cap. Two prior `.gtd/ESCALATION.md` rounds are already on
@@ -1501,9 +1830,20 @@ Feature: The bundled unified workflow — one flow, end to end
     # (an M, the file never having been swept) even though the content is
     # otherwise unchanged. It restores from history only when the file is
     # missing, which it isn't here.
-    Given a commit "gtd(check): build.health.check → build.health.escalate" that adds ".gtd/marker5.md" with:
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
       """
-      entering the third escalation round
+      export const thing = 5
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      the same fixture failure, restated
+      """
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
+    And gtd lands "gtd(judge): build.health.judge → build.health.escalate" judging:
+      """
+      [{"id":"verdict","answer":"identical","p":0.99}]
       """
     Given a file ".gtd/ESCALATION.md" with:
       """
@@ -1533,7 +1873,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: deleting REVIEW.md at await-review is refused — sign off by leaving no comment, not by deleting
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -1542,6 +1891,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - [ ] ./src/thing.ts#1
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given I record the commit count
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
@@ -1555,7 +1905,15 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: gtd next at await-review leaves HEAD untouched and writes no worktree ref
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And I mark the current commit as "base"
+    And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -1564,6 +1922,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - [ ] ./src/thing.ts#1
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given I mark the current commit as "before"
     When I run gtd next
     Then it succeeds
@@ -1574,7 +1933,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a sign-off lands even with a box still unticked — a tick only records that a hunk was read
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -1584,6 +1952,7 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] ./src/a.ts#1
       - [ ] ./src/b.ts#1
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -1606,7 +1975,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: at await-review, gtd next surfaces the sign-off vs. feedback contract in its human-gate message
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -1615,6 +1993,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - [ ] ./src/thing.ts#1
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     When I run gtd next
     Then it succeeds
     And stdout contains "**Sign off** — leave no comment"
@@ -1625,7 +2004,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a code edit at await-review is feedback — it routes to review-deciding (which turns it into a fix + re-review round)
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -1634,6 +2022,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - [ ] ./src/thing.ts#1
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given a file "src/extra.ts" with:
       """
       export const extra = 1
@@ -1646,45 +2035,82 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: an ordinary sign-off commit into idle is a process boundary — a fresh process's fixing retry budget doesn't pool with a previous process's
     Given a test project
     And the workflow
-    # cycle 1: already spent its whole fixing retry budget (3 entries) before
-    # ending at a commit entering `idle` — the sign-off edge's own boundary
-    # commit, per computeProcessRun stopping at any commit entering the
-    # workflow's initial state.
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
+    # cycle 1: spends its whole fixing retry budget (3 fix turns) before a
+    # clean review sign-off ends the process at `idle` — the episode
+    # boundary a fresh process's replay starts after.
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       cycle 1 attempt 1 failed
       """
-    And a commit "gtd(check): build.fix" that adds ".gtd/fix-1.md" with:
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-1.md" with:
       """
       fixed cycle 1 attempt 1
       """
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       cycle 1 attempt 2 failed
       """
-    And a commit "gtd(check): build.fix" that adds ".gtd/fix-2.md" with:
+    And gtd lands "gtd(check): build.health.check → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-2.md" with:
       """
       fixed cycle 1 attempt 2
       """
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       cycle 1 attempt 3 failed
       """
-    And a commit "gtd(check): build.fix" that adds ".gtd/fix-3.md" with:
+    And gtd lands "gtd(check): build.health.check → build.health.judge"
+    And gtd lands "gtd(judge): build.health.judge → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-3.md" with:
       """
       fixed cycle 1 attempt 3
       """
-    And a commit "gtd(check): build.review.deciding → idle" that adds "src/cycle1.ts" with:
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
-      export const cycle1 = 1
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Fixes
+      - [ ] ./.gtd/fix-3.md#1
       """
-    # cycle 2 starts fresh after the sign-off boundary. If retry counts pooled
-    # across it, this process's very FIRST entry into "build.fix" would
-    # already see 3 prior visits and redirect straight to "escalate".
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/marker.md" with:
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And ".gtd/REVIEW.md" is modified to:
       """
-      fresh process boundary — cycle 2, first pass through build.health.check
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Fixes
+      - [x] ./.gtd/fix-3.md#1
       """
+    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And the file ".gtd/REVIEW.md" is deleted
+    And gtd lands "gtd(check): build.review.deciding → idle"
+    # cycle 2 starts fresh after the sign-off boundary. If fix counts pooled
+    # across it, this process's very first red check would already be over
+    # the cap and escalate instead of fixing.
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      cycle 2 precheck failed
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/cycle2.ts" with:
+      """
+      export const cycle2 = 2
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     Given a file ".gtd/FEEDBACK.md" with:
       """
       cycle 2 attempt 1 failed
@@ -1695,55 +2121,73 @@ Feature: The bundled unified workflow — one flow, end to end
 
   @inmem
   Scenario: each machine's own agent states compute a memory key from their owning machine-instance scope
-    # Memory is COMPUTED (src/Edge.ts's memoryKeyFor) from each state's owning
-    # machine-instance scope (scopes[name]) plus a commit-anchored hash — there
-    # is no authored `memory:` label any more. design/architecture are sibling
-    # machines with distinct scopes ("design"/"architecture"); packages.item's
-    # own scope is "packages.item"; build/build.review are "build"/
-    # "build.review" (humanReview nested inside buildTail) — see
-    # src/workflows/unified.yaml.
+    # Memory is COMPUTED from each step's enclosing scope plus a
+    # commit-anchored hash — there is no authored `memory:` label.
+    # design/architecture are sibling scopes; packages.item's own scope is
+    # "packages.item"; build/build.review are "build"/"build.review".
     Given a test project
     And the workflow
-    And a commit "gtd(check): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
-      """
-      Build a thing.
-      """
+    And I mark the current commit as "start"
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
     And stdout matches "\"memory\":\"design#[0-9a-f]{7}\""
-    Given a commit "gtd(check): architecture.author" that adds ".gtd/ARCHITECTURE.md" with:
+    Given a file ".gtd/REQUIREMENTS.md" with:
       """
-      Technical plan: src/thing.ts.
+      Build a thing.
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture.author"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"architecture.author\""
     And stdout matches "\"memory\":\"architecture#[0-9a-f]{7}\""
-    Given a file ".gtd/NEXT.md" with:
+    Given the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan: src/thing.ts.
+      """
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.check"
+    And gtd lands "gtd(check): architecture.gate.check → architecture.decompose"
+    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And a file ".gtd/packages/01-thing.md" with:
+      """
+      Package: the thing.
+      - [ ] add src/thing.ts
+      """
+    And gtd lands "gtd(agent): architecture.decompose → packages.picking"
+    And a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-thing.md
       """
-    And a commit "gtd(human): packages.item.building" that adds "src/thing.ts" with:
-      """
-      export const thing = 1
-      """
+    And gtd lands "gtd(check): packages.picking → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
     And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
-    Given a commit "gtd(human): build.fix" that adds ".gtd/FEEDBACK.md" with:
+    # build.* is entered through its own entry, off a fresh history.
+    Given I hard-reset to "start"
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       a failing test
       """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
     And stdout matches "\"memory\":\"build#[0-9a-f]{7}\""
-    Given a commit "gtd(human): build.review.reviewing" that adds "src/thing2.ts" with:
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing2.ts" with:
       """
       export const thing2 = 2
       """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
@@ -1752,49 +2196,26 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a custom two-level nested machine reference resolves $param bindings and qualified names across both levels
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    # A scope nested inside a scope qualifies its steps with both prefixes;
+    # a flow fragment's "where to go when done" is just the code after it.
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          leaf:
-            params: [onDone]
-            entry: work
-            states:
-              work:
-                actor: agent
-                prompt: "do the work"
-                on:
-                  "* **": $onDone
-          mid:
-            params: [onDone]
-            entry: gate
-            states:
-              gate:
-                actor: human
-                message: "approve?"
-                on:
-                  "* **": inner
-              inner:
-                machine: leaf
-                with:
-                  onDone: $onDone
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": nested
-              nested:
-                machine: mid
-                with:
-                  onDone: done
-              done:
-                actor: human
-                message: "done"
+      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
+
+      const leaf = () => scope("inner", () => agent("work", "do the work"))
+
+      const mid = async () => {
+        await human("gate", { message: "approve?" })
+        await leaf()
+      }
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "start" })
+          await scope("nested", mid)
+          await human("done", { message: "done" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -1804,9 +2225,9 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(human): idle → nested.gate"
 
-    # root's own idle -> nested resolved through mid's own entry (nested.gate);
-    # this step resolves ONE level deeper still, through mid's "inner" reference
-    # into leaf's own entry (nested.inner.work) — a two-level qualified name.
+    # idle -> mid's first step (nested.gate); this step resolves ONE level
+    # deeper still, into leaf's own scope (nested.inner.work) — a two-level
+    # qualified name.
     Given a file "NOTE.md" with:
       """
       approved
@@ -1818,10 +2239,8 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And stdout contains "do the work"
 
-    # leaf's own $onDone was bound at mid's reference site to mid's OWN
-    # $onDone, which was in turn bound at root's reference site to "done" — a
-    # param threaded grandparent -> parent -> child resolves in the
-    # grandparent's namespace, landing on the ordinary state two levels up.
+    # leaf returns, then mid returns, and the root flow carries on to its
+    # own "done" step two levels up.
     Given a file "NOTE.md" with:
       """
       done

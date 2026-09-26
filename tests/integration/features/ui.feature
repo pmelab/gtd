@@ -48,28 +48,22 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: a clean message rest (non-idle), resting with a human but with no steering file, refuses on the actor axis
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": done
-              done:
-                actor: human
-                message: "all done"
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("done", { message: "all done" })
+        },
+      })
       """
-    And a commit "gtd(human): done" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → done"
     When I run gtd with args "ui --self-signed --host 100.64.0.1"
     Then it fails
     And the exit code is 2
@@ -78,28 +72,22 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: a dirty rest (kind capture), resting with a human but with no steering file, refuses on the steering-file axis — the content kind is never the axis
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": done
-              done:
-                actor: human
-                message: "all done"
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("done", { message: "all done" })
+        },
+      })
       """
-    And a commit "gtd(human): done" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → done"
     And a file "scratch.txt" with:
       """
       uncommitted content — dirties the tree, turning the rest into a capture
@@ -112,30 +100,17 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: a script rest, resting with the check actor, refuses on the actor axis
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "echo hi"
-                on:
-                  "C": idle
+      import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await agent("working", "do the work described in NOTE.md")
+          await run("checking", "echo hi")
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -157,31 +132,23 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: a stalled rest (a clean-tree agent attempt at a prompt state), resting with the agent actor, refuses on the actor axis
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do the work described in NOTE.md"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await agent("working", "do the work described in NOTE.md")
+        },
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
-    And an empty commit "gtd(agent): working"
+    And gtd lands "gtd(human): idle → working"
+    And gtd lands "gtd(agent): working"
     When I run gtd with args "ui --self-signed --host 100.64.0.1"
     Then it fails
     And the exit code is 2
@@ -191,33 +158,32 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: a prompt rest resting with a human, whose mode resolves to no registered steering format, binds a port instead of refusing
     Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", {
+            file: ".gtd/PLAN.md",
+            mode: "custom-mode",
+            message: "answer the plan",
+          })
+        },
+      })
+      """
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          custom-mode:
-            validate: "true"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: custom-mode
-                prompt: "answer the plan"
+      modes:
+        custom-mode:
+          validate: "true"
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
@@ -239,25 +205,20 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: a human rest reporting kind message, carrying a file and a registered mode, binds a port and exits 0
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": awaiting-review
-              awaiting-review:
-                actor: human
-                file: "REVIEW.md"
-                mode: qa
-                message: "awaiting your review"
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("awaiting-review", {
+            file: ".gtd/REVIEW.md",
+            mode: "qa",
+            message: "awaiting your review",
+          })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -265,10 +226,6 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
     When I run gtd land
     Then it succeeds
-    # The workflow's own `file: "REVIEW.md"` is RELATIVE to ".gtd/" — the
-    # compiler prepends that directory (`StateFields.ts`'s own doc comment),
-    # so the served steering file is ".gtd/REVIEW.md", never bare
-    # "REVIEW.md" at the repo root.
     And a file ".gtd/REVIEW.md" with:
       """
       Paragraph zero here.
@@ -285,34 +242,27 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # write, hands off, and formats on write — the free-form screen's own
   # end-to-end acceptance. Every scenario below shares the same workflow
   # shape: `idle` (write NOTE.md to start) → `planning`, a human rest
-  # carrying `file: "TODO.md"` and no `mode:` at all. ─────────────────────
+  # carrying `file: ".gtd/TODO.md"` and no `mode` at all. ─────────────────────
 
   @live
   Scenario: a mode-less steering file renders as its own structure — headings, a list, and a fenced code block
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": planning
-              planning:
-                actor: human
-                file: "TODO.md"
-                message: "edit the plan"
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
+        },
+      })
       """
-    And a commit "gtd(human): planning" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → planning"
     And a file ".gtd/TODO.md" with:
       """
       # Plan
@@ -340,29 +290,22 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: writing to a mode-less steering file via setValue appends the bytes to disk
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": planning
-              planning:
-                actor: human
-                file: "TODO.md"
-                message: "edit the plan"
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
+        },
+      })
       """
-    And a commit "gtd(human): planning" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → planning"
     And a file ".gtd/TODO.md" with:
       """
       Paragraph zero here.
@@ -374,29 +317,22 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: writing against a stale token refuses instead of clobbering the file
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": planning
-              planning:
-                actor: human
-                file: "TODO.md"
-                message: "edit the plan"
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
+        },
+      })
       """
-    And a commit "gtd(human): planning" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → planning"
     And a file ".gtd/TODO.md" with:
       """
       Paragraph zero here.
@@ -409,29 +345,22 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: writing against a served path that is a directory refuses instead of truncating it
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": planning
-              planning:
-                actor: human
-                file: "TODO.md"
-                message: "edit the plan"
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
+        },
+      })
       """
-    And a commit "gtd(human): planning" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → planning"
     And a directory at ".gtd/TODO.md"
     When I attempt to edit paragraph 0 of ".gtd/TODO.md" with the text "Clobber attempt." against an unreadable file via a spawned gtd ui
     Then the write is refused with reason "file-vanished"
@@ -440,29 +369,22 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: handing off a genuinely mode-less rest (no mode key at all) exits 0 with the edit on disk
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": planning
-              planning:
-                actor: human
-                file: "TODO.md"
-                message: "edit the plan"
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
+        },
+      })
       """
-    And a commit "gtd(human): planning" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → planning"
     And a file ".gtd/TODO.md" with:
       """
       Paragraph zero here.
@@ -474,31 +396,27 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: ui.format rewrites a mode-less write, and a second write against the returned hash still succeeds
     Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
+        },
+      })
+      """
     And a gtd config file at ".gtdrc" with:
       """
       ui:
         format: 'printf "FORMATTED\n" >> <%= it.file %>'
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": planning
-              planning:
-                actor: human
-                file: "TODO.md"
-                message: "edit the plan"
       """
-    And a commit "gtd(human): planning" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → planning"
     And a file ".gtd/TODO.md" with:
       """
       Paragraph zero here.
@@ -522,25 +440,20 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: a free-text answer typed long enough to wrap saves byte-for-byte through a spawned gtd ui, with no tail of the previous wrapped answer left behind
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": awaiting-review
-              awaiting-review:
-                actor: human
-                file: "REVIEW.md"
-                mode: qa
-                message: "awaiting your review"
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("awaiting-review", {
+            file: ".gtd/REVIEW.md",
+            mode: "qa",
+            message: "awaiting your review",
+          })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """

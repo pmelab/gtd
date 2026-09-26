@@ -13,23 +13,16 @@ Feature: gtd land — the one landing verb, actorless
   @inmem
   Scenario: a capture landing into a prompt state succeeds and lands
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do it"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("working", "do it")
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -42,23 +35,16 @@ Feature: gtd land — the one landing verb, actorless
   @inmem
   Scenario: a clean message rest at the initial state exits 0 (idle) printing nothing to do
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do it"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("working", "do it")
+        },
+      })
       """
     When I run gtd land
     Then the exit code is 0
@@ -67,33 +53,24 @@ Feature: gtd land — the one landing verb, actorless
   @inmem
   Scenario: a landing whose next rest is a message state succeeds
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do it"
-                on:
-                  "A DONE.md": waiting
-              waiting:
-                actor: human
-                message: "confirm before continuing"
+      import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("working", "do it")
+          if (added("DONE.md").length === 0) refuse("gtd land: no declared pattern matches — expected A DONE.md")
+          await human("waiting", { message: "confirm before continuing" })
+        },
+      })
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → working"
     And a file "DONE.md" with:
       """
       done
@@ -105,30 +82,24 @@ Feature: gtd land — the one landing verb, actorless
   @inmem
   Scenario: a clean script rest settles at exit 0 and still prints its note
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": checking
-              checking:
-                actor: check
-                script: "true"
-                on:
-                  "A OUT.txt": idle
+      import { added, human, run, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          do {
+            await run("checking", "true")
+          } while (added("OUT.txt").length === 0)
+        },
+      })
       """
-    And a commit "gtd(check): checking" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → checking"
     When I run gtd land
     Then the exit code is 0
     And stdout contains "nothing to do at \"checking\""
@@ -149,23 +120,17 @@ Feature: gtd land — the one landing verb, actorless
   @inmem
   Scenario: a dirty no-match exits 1 authoring nothing
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "A NOTE.md": working
-              working:
-                actor: agent
-                prompt: "do it"
+      import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          if (added("NOTE.md").length === 0) refuse("gtd land: no declared pattern matches — expected A NOTE.md")
+          await agent("working", "do it")
+        },
+      })
       """
     And a file "scratch.txt" with:
       """
@@ -196,23 +161,16 @@ Feature: gtd land — the one landing verb, actorless
   @inmem
   Scenario: gtd land --json=<path> and --json now exist, carrying script/settled/idle/state/subject/cost/model
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do it"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("working", "do it")
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -242,23 +200,16 @@ Feature: gtd land — the one landing verb, actorless
   @inmem
   Scenario: plain gtd land prints one prose sentence, never the script — --json/--json=<path> alone carry it
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do it"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("working", "do it")
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -286,23 +237,16 @@ Feature: gtd land — the one landing verb, actorless
   @live
   Scenario: gtd land --json=script piped straight into sh lands the turn
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "do it"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("working", "do it")
+        },
+      })
       """
     And a file "NOTE.md" with:
       """

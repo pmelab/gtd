@@ -12,10 +12,12 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   non-empty, which is what routes a findings round to `build.fix-quality`
   instead of straight on to `build.review.reviewing`.
 
-  Every scenario here fabricates each turn's own resulting diff by hand —
-  same convention as `default-workflow.feature` and
-  `spec-review-judgments.feature` — since no real driver runs a script or an
-  agent in this harness; only gtd's own routing is under test. The
+  Every scenario reaches `build.health.check` through a real
+  `--entry fix-precheck` history (a red precheck, then one fix turn) and
+  fabricates each later turn's own resulting diff by hand — same convention
+  as `default-workflow.feature` and `spec-review-judgments.feature` — since
+  no real driver runs a script or an agent in this harness; only gtd's own
+  routing is under test. The
   `seeding`/`picking` scripts themselves are rendered and executed for real by
   `src/workflows/qualityLapScripts.test.ts`.
 
@@ -23,14 +25,17 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   Scenario: two dimensions queue and drain in padded order, then the clean lap hands straight on to the human review
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.fix" that adds "src/thing.ts" with:
-      """
-      export const thing = 1
-      """
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/FEEDBACK.md" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
       """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
@@ -95,10 +100,18 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   Scenario: a findings lap routes through fix-quality and back to the health check
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.health.check" that adds "src/thing.ts" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failed
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
       """
       export const thing = 1
       """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
@@ -161,10 +174,18 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security"
-    And a commit "gtd(agent): build.health.check" that adds "src/thing.ts" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failed
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
       """
       export const thing = 1
       """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
@@ -207,10 +228,18 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And a commit "gtd(agent): build.health.check" that adds "src/thing.ts" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failed
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
       """
       export const thing = 1
       """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"

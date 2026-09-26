@@ -1,17 +1,359 @@
 # Configuration reference
 
-## Configuration
+gtd reads two kinds of configuration, both optional:
 
-gtd reads an optional `.gtdrc` config file, discovered by walking up from the
-current directory to your home directory and merging every level found (the
-closest to the current directory wins on overlap). With no `workflow:`
-configured anywhere in the cwd→home config chain, the bundled unified workflow
-is used automatically, so a state command works out of the box with no config at
-all.
+- **`gtd.config.ts`** — the workflow itself: a TypeScript module that says which
+  steps a process goes through. Without one, gtd runs its bundled default
+  workflow, so every command works with no configuration at all.
+- **`.gtdrc`** — per-repository tuning of whatever workflow is active: variable
+  overrides (`vars`), steering-file modes (`modes`), and `gtd ui` settings
+  (`ui`). Nothing else.
 
-A `.gtdrc` value can end up on a command line gtd runs — `vars:` entries like
-`testCommand` are deliberately interpolated into shell commands. Only run gtd in
-a repository whose build scripts you would already run.
+> **Trust: `gtd.config.ts` is code, and gtd runs it.** Because the workflow is a
+> TypeScript module, every gtd command that resolves workflow state evaluates
+> the repository's `gtd.config.ts` — including the read-only ones: `gtd next`,
+> `gtd visualize`, `gtd lsp`, `gtd validate`, `gtd judge`, not only `gtd land`.
+> The lookup walks up from the current directory, so a `gtd.config.ts` in a
+> parent directory counts too. Treat a repository's `gtd.config.ts` like any
+> other code you run from it — a Makefile, a `package.json` script: **do not run
+> gtd in a checkout you do not trust.** `.gtdrc` values end up on command lines
+> too (`vars:` entries like `testCommand` are interpolated into the scripts gtd
+> emits), which is the same trust decision.
+
+## `gtd.config.ts`
+
+### Lookup
+
+gtd walks from the current directory **up to your home directory** (or to the
+filesystem root when the current directory is outside home) and uses the
+**innermost** `gtd.config.ts` it finds. There is no merging: one file is the
+whole workflow, and a `gtd.config.ts` found nowhere means the bundled default. A
+`.gtdrc` in the same directory still contributes `vars`, `modes` and `ui`.
+
+`gtd init` never writes a `gtd.config.ts` — write one only to change the
+workflow itself.
+
+### Shape
+
+The module default-exports one `workflow(...)` call from `@pmelab/gtd/flows`:
+
+```ts
+import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+
+export default workflow(
+  {
+    default: async () => {
+      await human("idle", {
+        message: "Sketch the change in .gtd/TODO.md.",
+        file: ".gtd/TODO.md",
+      })
+      await agent(
+        "plan",
+        "Read the sketch in history and write .gtd/PLAN.md.",
+        {
+          file: ".gtd/PLAN.md",
+        },
+      )
+      await run(
+        "check",
+        "npm test > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md",
+      )
+    },
+  },
+  { vars: { testCommand: "npm test" } },
+)
+```
+
+The first argument maps **entry names** to **flows**. A flow is an `async`
+function that awaits steps. `default` is required: it is where a process starts
+when nothing else is asked for, and its first step is where a finished process
+waits (the bundled workflow calls it `idle`). The second argument is optional:
+`vars` (the workflow's own variable defaults, see [Variables](#variables)) and
+`summary` (the prompt `gtd summary` prints, see [Summary](#summary)).
+
+gtd resolves `@pmelab/gtd/flows` itself, so a `gtd.config.ts` needs no
+`package.json` or install. Add `@pmelab/gtd` as a dev dependency only if you
+want editor type-checking for it.
+
+### Steps
+
+A step is one position a process can rest at. Each step function takes a
+**literal string name** first, and resolves once that step's turn has landed.
+
+| Step                                      | Actor   | What the rest asks for                                                                                                                   |
+| ----------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent(name, prompt, opts?)`              | `agent` | An agent turn. `prompt` is printed as the beat's content; the driver hands it to an agent and lands whatever the agent left in the tree. |
+| `human(name, opts?)`                      | `human` | A person. The process waits until someone edits and lands. `opts.message` is what gtd shows.                                             |
+| `run(name, body, opts?)`                  | `check` | A script. `body` is a POSIX `sh` string the driver runs verbatim, or a callback (below).                                                 |
+| `judge(name, questions, evidence, opts?)` | `judge` | A judgment. A `message` rest carrying typed questions; `gtd judge answer` records the verdict. See [Judges](#judges).                    |
+| `restart(name)`                           | —       | Ends the episode from any depth (see [Episodes](#episodes-replay-and-divergence)). Never rests.                                          |
+
+A `run` body written as a callback receives `{ sh, fs }`: `sh(command)` runs a
+shell command and resolves to `{ ok, code, output }`; `fs.read`, `fs.write`,
+`fs.rm` and `fs.exists` work on repository paths. The beat for such a step is a
+one-line script that runs `gtd exec`, which runs the callback in the repository
+root. A callback that throws makes `gtd exec` exit 1 — the tree it leaves still
+lands like any other run. Either way, **the outcome of a run is what it leaves
+in the tree**: flow code reads it back through the helpers, never through a
+return value.
+
+The step name is the `<to>` in the commit subject the landing writes,
+`gtd(<actor>): <from> → <to>`, and every step landing carries a
+`Gtd-Step: <name>#<n>` trailer (`<n>` counts how often that name was reached in
+the episode). Other trailers a landing may carry: `Gtd-Judge:` (one per answered
+judge question), `Gtd-Payload:` (the judge's evidence was cut to fit its
+budget), `Gtd-Var:` (an `--entry --var` value), `Gtd-Cost:` (a
+`gtd land --cost`), and `Gtd-Review-Base:` (an entry's fixed diff base).
+
+### Step options
+
+Every step takes an options object; all keys are optional.
+
+| Option            | Steps                  | Meaning                                                                                                                                            |
+| ----------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `label`           | all                    | Display name shown by `gtd next` and viewers.                                                                                                      |
+| `file`            | all                    | The step's steering file, a repository path under `.gtd/`.                                                                                         |
+| `mode`            | all, requires `file`   | The steering file's mode: `qa`, `review`, or a name declared under `.gtdrc` `modes:`. An unknown name is a load error.                             |
+| `message`         | `human`, `judge`       | The text shown to the person at this rest.                                                                                                         |
+| `model`           | `agent`                | An opaque model hint passed through to the driver.                                                                                                 |
+| `system`          | `agent`                | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                          |
+| `skills`          | `agent`                | Skill names prepended to the prompt through the `skillsPreamble` var. Blank means no preamble.                                                     |
+| `allowEmpty`      | `agent`                | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).            |
+| `acceptClean`     | `human`                | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit. |
+| `requireProgress` | all, needs `file`      | Refuse a turn whose only change deletes `file`.                                                                                                    |
+| `answerGate`      | all, needs `qa` `file` | Refuse a turn that edits anything while a question in `file` is still unanswered. A turn that changes nothing is accepted.                         |
+| `requireRevert`   | all, needs `file`      | Refuse a turn that did not revert the human's review-round edit.                                                                                   |
+| `reviewBase`      | all                    | The commit that enters this step becomes the review window's diff base (`gtd base`, `refs.reviewBase`).                                            |
+| `minP`            | `judge`                | The probability an answer must reach to count. An answer below it reads as `undefined`.                                                            |
+
+### Branching: helpers read the tree the last step left
+
+Flow code decides what happens next with ordinary `if`/`while`/`for` over pure
+helpers. Every helper reads **the commit replay stands on** — the tree the last
+landed step left — never the live working tree:
+
+- `exists(path)`, `read(path)` (`undefined` when absent), `glob(pattern)` (`*`
+  stays inside one path segment, `**` crosses them)
+- `changed(glob?)`, `added(glob?)`, `modified(glob?)`, `deleted(glob?)` — paths
+  the last step's commit touched, optionally filtered by a glob
+- `sections(pathOrText)` — the top-level `## ` headings of a markdown file (or
+  of literal text when no such path exists)
+- `tail(pathOrText, share)` — the end of a file, cut on a line boundary and
+  bounded to `share` (a fraction, `0 < share <= 1`) of the `judgeBudgetBytes`
+  var. All `tail` calls between two steps share one budget; asking for more than
+  the whole of it fails the step
+- `history.previous(path, { since: step })` — `path` as the previous completion
+  of `step` left it, `undefined` before a second completion
+- `vars` — the merged variables (see [Variables](#variables))
+- `refs` — commit hashes a prompt can name for an agent to inspect itself:
+  `refs.start` (the process's diff base), `refs.head` (the commit the process
+  rests on), `refs.reviewBase` (the review window's base), `refs.processBase`
+  (the parent of the process's first commit)
+
+```ts
+await agent("build", "Implement .gtd/PLAN.md.")
+while (true) {
+  await run(
+    "check",
+    `${vars.testCommand} > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md`,
+  )
+  if (!exists(".gtd/FEEDBACK.md")) break
+  await agent("fix", "Fix what .gtd/FEEDBACK.md reports, then delete it.", {
+    file: ".gtd/FEEDBACK.md",
+  })
+}
+```
+
+### Composition
+
+- `scope(prefix, fn)` — prefixes every step name reached inside `fn` with
+  `prefix.`, so `scope("build", () => agent("fix", …))` is the step `build.fix`.
+  Scopes nest. The prefix is also the step's **memory scope**: agent steps in
+  one scope share one agent conversation (a driver resumes it through
+  `gtd next --json`'s `session`), and every agent step in one scope must run
+  with the same `model` and `system` — a mismatch fails the process, since one
+  scope is one conversation. Steps with no prefix share the `root` scope.
+- `persona({ model, system }, fn)` — every agent step inside `fn` gets this
+  `model`/`system` unless it sets its own.
+- `refuse(message)` — refuse the pending landing: nothing lands, `gtd land`
+  exits 1 with `message`, and the process stays where it rests. Use it when a
+  turn left something none of the flow's branches explains.
+- `stepName(name)` — the full name `name` gets where it is called, with every
+  enclosing scope applied (useful in a script that greps commit subjects).
+
+Plain TypeScript functions that await steps compose like any other code — this
+is how the reusable fragments below are written.
+
+### Fragments
+
+`@pmelab/gtd/flows` also exports the building blocks the bundled workflow is
+made of. Each takes its texts, caps and callbacks as arguments and never reads
+`vars` itself. The step names a fragment declares are part of gtd's versioned
+API: a fragment never renames them outside a major release, because a rename
+strands every process resting on the old name.
+
+| Fragment                          | Steps it declares                                                                                                                              | Resolves to                                    |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `green(name, check)`              | `name`                                                                                                                                         | `true` unless the run wrote `.gtd/FEEDBACK.md` |
+| `healthy({ texts, fix, cap, … })` | `health.check`, `health.judge`, plus `escalation`'s                                                                                            | once the suite is green                        |
+| `escalation(texts)`               | `health.escalate`, `health.describe`, `health.stop`, `health.exhausted`                                                                        | once a person has handled the escalation       |
+| `entryGate(texts)`                | `check`, `blocked`                                                                                                                             | once the suite is green                        |
+| `questionGate(texts)`             | `gate.check`, `gate.answer`                                                                                                                    | `true` when a person answered open questions   |
+| `designLoop(name, author, gate)`  | `name`, plus `questionGate`'s                                                                                                                  | once no open question is left                  |
+| `specReview(texts)`               | `spec.pre`, `spec.scoping`, `spec.review`                                                                                                      | `true` when the package is approved            |
+| `packageQueue(texts, options)`    | `picking`, `item.building`, `item.fix-suite`, `item.fix-spec`, `item.closing`, …                                                               | once `.gtd/packages/` is drained               |
+| `qualityLap(texts)`               | `quality.seeding`, `quality.picking`, `quality.reviewing`                                                                                      | `"clean"` or `"findings"`                      |
+| `reviewTail(texts)`               | `review.reviewing`, `review.await-review`, `review.deciding`, `review.review-missing`, `review.triage`, `review.triaging`, `review.collecting` | `"signoff"` or `"feedback"`                    |
+| `noMatch(name, expected)`         | —                                                                                                                                              | refuses the landing, naming what was expected  |
+
+Call a fragment inside `scope()` to place it: the bundled workflow's
+`scope("build", …)` around `healthy` is what makes `build.health.check`.
+
+### Judges
+
+`judge(name, question, evidence, opts)` asks one question and resolves to its
+recorded answer (a string) or `undefined`.
+`judge(name, [q1, q2], evidence, opts)` asks several and resolves to
+`{ [id]: { answer, p } }` holding every answer that cleared `opts.minP`. A
+question is `{ id, primitive, instructions, criteria }`, where `primitive` is
+`noul` (yes/no, read back as `"yes"`/`"no"`), `choice`, or `score` (read back as
+its decimal string). `evidence` is any JSON value the judge sees as its `state`
+— build it from `read`/`tail`/`sections`, never from anything the working tree
+holds uncommitted.
+
+gtd never calls a model. The rest is a `message` whose `gtd next --json` `judge`
+field carries the questions; `gtd judge answer` records a verdict as
+`Gtd-Judge:` trailers (see [the CLI reference](./cli.md#commands)). Landing with
+no verdict resolves every answer to `undefined`, so write the flow so that
+`undefined` takes the conservative branch.
+
+### Landing rules
+
+What a `gtd land` does depends on the step and on whether the tree changed:
+
+- **Agent, tree changed** — the step completes; the commit carries the
+  `Gtd-Step:` trailer.
+- **Agent, nothing changed** — an **attempt**: gtd records an empty commit
+  `gtd(agent): <step>` and the process stays at the step. Dispatching again
+  after an attempt is a **stall** (`kind: "stalled"`), which clears only when
+  something changes. Set `allowEmpty: true` on a step where "nothing to change"
+  is a legitimate outcome.
+- **Human, nothing changed** — a no-op (nothing lands), unless the step sets
+  `acceptClean: true`, in which case the clean landing completes the gate.
+- **Run, nothing changed** — the step completes. If replaying that landing
+  brings the flow straight back to the same step, the landing is a **settled**
+  no-op (`gtd land --json`'s `settled: true`): there is nothing more a driver
+  can do by running it again.
+- **The flow calls `refuse(message)`** while replaying the pending turn — the
+  landing is refused, `gtd land` exits 1, and nothing lands.
+- **A guard option says no** (`requireProgress`, `answerGate`, `requireRevert`)
+  — refused the same way.
+
+### Entries
+
+Every key other than `default` in the entries object is an **entry** a person
+starts with `gtd --entry <name>`; `default` itself cannot be entered by name. An
+entry is a flow, or `{ flow, base }`, where `base(vars)` returns a commitish
+that fixes the new process's diff base (`refs.start`):
+
+```ts
+export default workflow({
+  default: mainFlow,
+  "review-only": {
+    flow: reviewFlow,
+    base: (vars) => vars.reviewBase ?? "",
+  },
+})
+```
+
+```bash
+gtd --entry review-only --var reviewBase=main
+```
+
+`--var <name>=<value>` is repeatable and only valid with `--entry`; the name
+must already be declared by the workflow's `vars` or a `.gtdrc` `vars:`. The
+values are recorded as `Gtd-Var:` trailers on the process's first commit and
+stay in force for the whole process.
+
+The bundled workflow declares three entries: `fix-precheck` (repair a red
+baseline through the build tail), `review-gate.check` (a pure review of
+everything since `--var reviewBase=<commitish>`), and `start-gate.check` (skip
+the unwind and start at the baseline check).
+
+### Episodes, replay and divergence
+
+gtd keeps **no state outside git**. To find where a process rests, it
+**replays** the flow over the current **episode**: the first-parent commits
+since the episode began, each answering the step it names, until a step has no
+commit left — that step is the rest. Replaying the same history always reaches
+the same rest, which is why flow code has to be pure (below).
+
+An episode ends when its flow returns or calls `restart()`. The next episode
+starts over at the `default` entry's first step — for the bundled workflow,
+`idle`.
+
+**There is no migration.** A process's commits are only meaningful to the
+workflow that made them. If you change `gtd.config.ts` (or upgrade gtd, and the
+bundled workflow changed) while a process is underway and its history no longer
+replays to the steps its commits name, gtd refuses loudly with a **divergence**
+error and tells you to run `gtd abandon`. Finish or abandon an in-flight process
+before changing the workflow under it.
+
+### Rules for flow code
+
+Flow code is re-run on every gtd command, so gtd checks it when the config
+loads. A `run()` body and code at the module's top level are exempt — they may
+do anything.
+
+- **No IO or nondeterminism**: no `Date`, `process`, `fetch`, `require`, timers,
+  `performance`, `crypto`, `Math.random`, and no imports from `fs`,
+  `child_process`, `http(s)`, `net`, `os` and similar node modules. Read the
+  tree through the helpers; do IO inside a `run()` body.
+- **Await only steps**: a flow may `await` a step, `scope()`, `persona()`, or a
+  function that itself awaits steps — nothing else.
+- **Literal step names**: the first argument of a step and of `scope()` must be
+  a string literal.
+- **Unique names**: one step name per call site; call a shared helper from two
+  places inside two different `scope()`s.
+- **No try/catch around a step**: a step that fails is recorded in history,
+  never caught.
+- **No recursion**: a flow function may not call itself; write the repetition as
+  a loop.
+- **Shape**: the default export must be a `workflow(...)` call with an object
+  literal of named entries, and the `default` entry must begin at exactly one
+  step.
+
+A violation is a load error reported with its source position, and every gtd
+command that loads the workflow refuses until it is fixed:
+
+```
+gtd config:
+  - /path/to/repo/gtd.config.ts:7:9: Date is IO or nondeterministic — flow code is replayed and must be pure; do it inside a run() body
+  - /path/to/repo/gtd.config.ts:8:5: try/catch around a step is not allowed — a step that fails is recorded in history, never caught
+  - /path/to/repo/gtd.config.ts:12:17: step name "a" is already used by another call site — wrap one of them in scope()
+```
+
+`gtd visualize` draws the step graph gtd reads off the source — the quickest way
+to see whether a branch goes where you meant.
+
+### Summary
+
+`workflow(entries, { summary })` sets the prompt `gtd summary` prints: a
+function receiving
+`{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, vars }`
+and returning a string. `humanCommits` lists every human-authored commit of the
+process as `{ hash, state }`. Without `summary`, `gtd summary` refuses.
+
+Authoring a workflow with a coding agent? `skills/authoring/SKILL.md` is the
+agent-facing guide.
+
+## `.gtdrc`
+
+gtd reads an optional `.gtdrc`, discovered on the same walk as `gtd.config.ts` —
+from the current directory up to your home directory — but **merged**: every
+level found is deep-merged, the innermost winning on overlap. A shared `.gtdrc`
+in a worktree-parent directory cascades to every checkout beneath it, and any
+checkout can still override it with its own.
 
 Supported filenames (searched in this order):
 
@@ -24,23 +366,17 @@ Supported filenames (searched in this order):
 
 ### Schema
 
-`.gtdrc` has exactly four blessed top-level keys:
+`.gtdrc` has exactly these top-level keys:
 
-- **`workflow`** (object, optional) — the whole machine definition (its states,
-  plus its own `vars:` defaults and `modes:`). Absent = gtd's built-in default
-  is used. Declare it to fully REPLACE that default with your own machine (there
-  is no `extends`/merge).
 - **`vars`** (object, optional) — a flat `name -> scalar` map, one layer of the
-  merged `it.vars` every template sees.
+  merged variables (see [Variables](#variables)).
 - **`modes`** (object, optional) — steering-file modes (`format:`/`validate:`
-  shell commands), layered over the active workflow's own `modes:` and gtd's
-  built-in validators, so a project can plug in its formatter or linter without
-  re-declaring that mode on the workflow itself.
-- **`ui`** (object, optional) — `gtd ui`'s own settings (port, host, certificate
-  paths). See [The `ui:` key](#the-ui-key) below.
-- **`$schema`** (string, optional) — stripped before validation, so it never
-  counts as an unknown key. Point it at the published schema for editor-backed
-  autocompletion (this is what `gtd init` writes):
+  shell commands) a step's `mode` may name, layered over gtd's built-in `qa` and
+  `review` modes.
+- **`ui`** (object, optional) — `gtd ui`'s own settings. See
+  [The `ui:` key](#the-ui-key).
+- **`$schema`** (string, optional) — ignored by gtd. Point it at the published
+  schema for editor autocompletion (this is what `gtd init` writes):
 
   ```
   https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json
@@ -51,9 +387,100 @@ Supported filenames (searched in this order):
   `@pmelab/gtd@8/schema.json`, or point at your own install
   (`./node_modules/@pmelab/gtd/schema.json`) to work offline.
 
-Any other top-level key is **rejected**. The engine blesses no VARIABLE NAMES
-either — `testCommand` is workflow-authored data like any other `it.vars` entry,
-not a special key gtd interprets.
+Any other top-level key is **rejected**. A `workflow:` key in particular is a
+load error pointing at `gtd.config.ts` — workflows are no longer read from a
+`.gtdrc`.
+
+`gtd init` writes a minimal `.gtdrc.json`: the `$schema` line, the one variable
+most projects change (`vars.testCommand`, defaulting to `npm test`), and a
+`modes:` block suggesting Prettier as the steering-file formatter
+(`npx prettier --write <%= it.file %>` for `qa` and `review` — format only, so
+gtd still validates them). Edit or drop any of it, then review and commit the
+file before your first `gtd land`. `gtd init` takes no argument and refuses to
+overwrite an existing config; it may also run in a plain parent directory (not a
+git repository) to seed a shared config a nested repository picks up.
+
+### Modes
+
+A mode is a pair of shell commands over one steering file, both optional:
+
+```yaml
+modes:
+  adr:
+    format: npx prettier --write <%= it.file %>
+    validate: adr-lint <%= it.file %>
+```
+
+Each command is an Eta template that sees `it.file` (the steering file's path)
+and `it.vars` (the merged variables) — nothing else. `format:` normalizes the
+file in place; `validate:` reports findings, and exits zero only when there are
+none. A step names a mode with `{ file, mode }`.
+
+#### Built-in steering formats are ordinary modes
+
+`qa` and `review` are gtd's two built-in steering-file formats (parsed and
+validated in-process, because `gtd lsp` needs the same parsers for live
+diagnostics), but their `validate:` is not hidden: every workflow's modes are
+seeded with `qa`/`review` entries whose `validate:` is the command
+`gtd check <mode> '<file>'`. That seeded command is visible in `gtd visualize`
+and in the editor JSON schema like any other mode, and overridable the same way
+— declare `modes: { qa: { validate: "your-own-command" } }` and your command
+displaces the seed; declaring only a `format:` for `qa`/`review` composes with
+the seeded `validate:` rather than replacing it.
+
+The `qa` format also checks section order: `## Open Questions` must come before
+every other `##` section in the file, and `## Answered Questions` must come
+after every other `##` section — a file that gets this backwards fails
+`gtd check qa` / `gtd validate`. A `###` question heading or a `- [ ]` option
+indented 4 or more spaces stops counting as one (it is Markdown indented code,
+or a lazy continuation of the line above it) and fails `gtd check qa` /
+`gtd validate` naming the exact line; 2 or 3 spaces of indent are still fine.
+
+Both formats also understand **footnotes** — your own comment attached to an
+exact spot in the file, for the next agent turn to read as a mandatory note
+rather than as an instruction. Mark the spot with `[^name]` (any name, no
+whitespace or `]` — the same name may mark more than one spot), then define it
+anywhere below — on its own line, at the start of the line — as
+`[^name]: explain what you mean here`; a definition's own name must be unique in
+the file. Indent a longer comment's continuation lines so they stay part of the
+same definition. The next agent turn folds the comment into its own work and
+deletes both the marker and the definition — a footnote is never carried forward
+or left for a later turn to re-read. `gtd check`/`gtd validate` flag four things
+about a footnote: a marker with no matching definition, a definition with no
+matching marker, the same name defined twice, and a definition still holding the
+literal seeded placeholder text `your comment` unedited — each fails the file
+until fixed.
+
+#### The normalization-only contract on `format:`
+
+`gtd land`'s own emitted script never runs a mode's `format:`/`validate:` pair —
+it is only the HEAD assertion and the commit. Formatting and validating a
+steering file is a driver contract instead: run it explicitly, ahead of
+`gtd land`, off `gtd next --json`'s own `validate` field (or `gtd validate`,
+which prints the same script). A driver that skips this can land a malformed or
+unformatted steering file — `gtd land` itself does not stop it.
+
+A mode's `format:` command may reformat a steering file — whitespace, wrapping,
+reordering — but must NEVER change what a landing guard would decide. gtd's
+guards (`requireProgress`, `answerGate`, `requireRevert`, and the review-file
+checks) decide once, against whichever bytes are on disk at the moment
+`gtd land` runs — which may be before OR after a driver's own separate `format:`
+run. That is only safe because every built-in guard judges only the content it
+explicitly cares about, not incidental formatting around it. If you plug in your
+own `format:` command, the same rule binds it: a formatter that also changes
+meaning — stripping a paragraph a guard reads — makes the guard's decision and
+the file's actual content disagree, and gtd will not catch that for you.
+
+#### A missing binary in `format:`/`validate:` fails loudly, before it runs
+
+The emitted script checks a mode's `format:`/`validate:` command against `$PATH`
+before running it, whenever that command is a single unambiguous leading word
+(e.g. `adr-lint <%= it.file %>`): a typo'd or uninstalled binary exits 127 with
+a `gtd:`-prefixed message naming the mode, the `format`/`validate` key, the
+binary, and the resolved `$PATH` it was looked up in, instead of a raw shell
+error. A command gtd cannot reduce to one binary — a `VAR=x`-prefixed command, a
+pipeline, anything with a shell metacharacter — gets no such check and fails
+exactly as it always has.
 
 ### The `ui:` key
 
@@ -79,407 +506,67 @@ there is no fleet to discover:
   freshly generated throwaway pair, even when both are configured.
 - **`format`** (string, optional) — a shell command run after every write
   `gtd ui` makes to the steering file, before the phone's request resolves (an
-  Eta template; `it.file` is the written file's absolute path — the same
-  rendering a mode's own `format:` command gets). Absent means no command runs
-  at all. gtd ships no formatter — bring your own (`oxfmt`, `prettier`, a
-  script). A non-zero exit or a missing binary never reverts the write or
-  refuses it — the phone is told which command ran and what it exited with, and
-  the bytes it already wrote stay on disk either way.
+  Eta template; `it.file` is the written file's absolute path). Absent means no
+  command runs at all. gtd ships no formatter — bring your own (`oxfmt`,
+  `prettier`, a script). A non-zero exit or a missing binary never reverts the
+  write or refuses it — the phone is told which command ran and what it exited
+  with, and the bytes it already wrote stay on disk either way.
 
 Flags (`--host`, `--port`, `--self-signed`) always override the matching `ui:`
 value; see `docs/cli.md`'s `ui` row for the full flag list.
 
-### The `workflow:` key
+### Validation and errors
 
-A declared `workflow:` key fully REPLACES gtd's built-in default. The built-in
-default is itself a YAML asset compiled through the exact same compiler your own
-`workflow:` value goes through — no privileged code path. Its shape:
+Config problems — an unknown `.gtdrc` key, a wrong type, a flow-code rule broken
+in `gtd.config.ts` — are collected together. A bad config fails **once**,
+listing every finding, at load time — before anything touches the repository —
+never partially, and never deferred to land time. Each line names the file it
+came from and either the config path (for `.gtdrc`) or the line and column (for
+`gtd.config.ts`):
 
-```yaml
-workflow:
-  vars: # optional — the workflow's own declared `it.vars` defaults
-    anyKey: anyScalarValue
-  modes: # optional — steering-file modes a state's `mode:` may name
-    <name>:
-      format: <shell command> # both optional — {} is the format-only tier
-      validate: <shell command>
-  summary: <string> # optional — an Eta template rendered by `gtd summary`; a `./`/`../` value is inlined from the config directory like a state's content; absent is legal (`gtd summary` refuses); present-but-blank is a load error
-  entry:
-    default: <machine name> # which machine is the ROOT instance
-  machines:
-    <name>:
-      model: <string> # optional, opaque harness hint — stamped onto every one of THIS machine's own `prompt` states; declared ONCE per machine, never per state
-      params: [<param>, ...] # optional, advisory — documents which $params a caller may bind
-      entry: <local or ref key> # this machine's own default local, resolved recursively
-      states:
-        <local>:
-          actor: <string> # required
-          script: <string> # exactly one of script/prompt/message
-          prompt: <string>
-          message: <string>
-          skills: <string> # optional, requires "prompt" — an Eta template (typically a workflow var: reference) naming the skills this state's agent should load; prepended to the rendered prompt as a preamble via the `skillsPreamble` var (see "Variables" below). A literal `skills: ""` is rejected at load; a value that RENDERS blank means "no skills this run" and the preamble is simply omitted
-          on: # a mapping, DECLARATION ORDER PRESERVED
-            "<pattern>": <targetState> # short form
-            "<pattern>": {
-                to: <targetState>,
-                describe: <sentence>,
-                action: <label>,
-              } # description/action
-          retry:
-            max: <number>
-            otherwise: <targetState>
-          label: <string> # optional, opaque display name passed through `gtd next --json`
-          file: <string> # optional, an Eta template naming the state's steering file RELATIVE to ".gtd/" — the compiler prepends that directory automatically
-          mode: <modeName> # optional, requires "file" — must be declared in `modes:` (qa/review are seeded for you; everything else, including prose, you declare)
-          reviewBase: true # optional — anchor the review's diff base (printed by `gtd base`) to this state's most-recent commit
-          # reviewBase: <Eta template> # OR a template — rendered (only meaningful entering via --entry) to a commitish that fixes the WHOLE PROCESS's diff base
-          requireProgress: true # optional, requires "file" — refuse a turn whose only change deletes this state's own `file:`
-          answerGate: true # optional, requires "file" — refuse a turn that edits anything while an open question in the (qa-mode) `file:` is unanswered; a turn that changes nothing at all is accepted and advances with the questions unanswered
-          requireRevert: true # optional, requires "file" — refuse a turn until the human's review-round paths actually match the review base's parent
-          entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared state is a valid target)
-          judge: <string> # optional, requires "message" — an Eta template rendered ALONGSIDE message: (content kind stays "message"), must render to the JSON document { state, questions: [{ id, primitive, instructions, criteria }] }; `state` may only come from it.read(...)/git helpers/it.diff(...) (never an uncommitted artifact — it.diff(...) is the one deliberate exception, since it reads the working tree's own diff content, not a file); `primitive` is one of noul (yes/no), choice, score. `gtd judge`/`gtd judge answer` are the surface — see `docs/cli.md`
-          shadow: true # optional, requires "judge" — records the verdict (a `Gtd-Judge:` trailer) but never consults it for routing; a repo's debugging switch for tuning a threshold, not a release stage every gate passes through
-          routes: # optional, requires "judge" — an ORDERED list of judgment routing rows, first match wins, exactly like `on`; MUST end with a catch-all row carrying only `to`
-            - question: <one of judge:'s own question ids>
-              is: <the expected answer>
-              minP: <string> # optional — probability floor (>=) the answer's own p must clear; an Eta template, typically a workflow var: reference
-              maxP: <string> # optional — probability ceiling (<) the answer's own p must stay under; same Eta-template convention as minP
-              to: <targetState>
-            - to: <targetState> # the trailing catch-all row — no question/is/minP/maxP; MUST name the SAME target as this state's own "C" and "* **" on: rows — a skipped judgment (no verdict ever recorded) and a "keep going" verdict both land the conservative default, never the optimistic one
-        <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
+```
+gtd config:
+  - /path/to/repo/.gtdrc.json: vars.testCommand: "vars.testCommand" must be a string, number, or boolean, got array
+  - /path/to/repo/gtd.config.ts:7:17: the first argument of agent() must be a string literal step name
 ```
 
-There is no `memory:` key anywhere in this shape — a state's memory scope is
-never authored, only computed from its position in the machine tree (see
-[Driving the loop](./driver.md#driving-the-loop) for the key format and how it
-derives a driver's session id).
+The same problem carried by several `.gtdrc` layers prints one line per file: a
+nearer layer overriding the value does not silence the outer layer's line,
+because each is a separate edit in a file you own. All load failures exit **1**
+and write to **stderr**, never stdout.
 
-The top-level `entry:` key (naming the root machine, `entry.default`) and a
-state's own `entry: true` flag are the same word at two different levels, by
-design: one selects the workflow's root machine, the other opts one state in as
-an extra manual entry point.
+gtd requires a repository with **at least one commit** before any state command
+(`land`, `--entry`, `next`, `abandon`, `restore`, `validate`, `summary`) will
+run — there is no workflow state to derive from an empty history. `gtd init`,
+`gtd install`, `gtd lsp`, `gtd visualize`, and `gtd check` are unaffected, since
+none of them needs a process history (`gtd lsp` and `gtd visualize` still load
+`gtd.config.ts`).
 
-A workflow is authored as a TREE of reusable, parameterized machines — a
-gate/loop written once and instantiated several times with different `with:`
-bindings (dedup), or a complex cluster grouped under one name for source
-comprehension (encapsulation). Every reference is expanded at load time into
-concrete, qualified states (`<local>.<childLocal>`, however deep) before the
-engine ever sees the definition. MACHINE BOUNDARIES ARE THE UNIT OF
-CONVERSATIONAL IDENTITY: a machine that holds an identity (a planner or a coder
-persona) declares its own `model:` once, at the machine level, instead of
-repeating it per state — and, per the memory rule above, two references to the
-SAME machine (a dedup instantiation) are always two independent instances with
-two independent memory scopes, never one shared conversation across both call
-sites.
+## Variables
 
-Besides `it.vars` (below), a `script`/`prompt`/`message` template sees:
+Flow code reads `vars` — a flat `Record<string, string>` assembled from four
+layers, **later wins**:
 
-- **`it.startCommit`** — the process's diff base (the commit the current process
-  started from, or the base a `--var reviewBase=<commitish>` entry resolved to).
-- **`it.reviewBase`** — the previous review round's boundary, falling back to
-  `it.startCommit` on a first review. In the bundled template, an actionable
-  round's NEXT review therefore covers the revert of the human's own lines
-  (`re-unwind`) followed by the whole lap that re-derives and re-implements them
-  — the net diff is the final implementation, the right thing to review, but no
-  longer the tiny "just the fixes" delta a quick fix-and-re-review would have
-  shown.
-- **`it.processBase`** — the process's own trace/retry boundary (the parent of
-  its first turn commit), never moved by a review entry's fixed base.
-  `gtd summary` uses this to name the range it asks the agent to inspect.
-- **`it.currentCommit`** / **`it.previousCommit`** — HEAD's hash and its parent,
-  at render time.
-- **`it.processCost`** / **`it.processCostByModel`** — accumulated token cost
-  over the process (every `--cost`/`--model` recorded on `gtd land`), total and
-  broken down per model.
-- **`it.diff(base)`** — `git diff <base>` against the working tree, tracked AND
-  untracked (non-ignored) content alike, as real hunks. The one field on this
-  list a `judge:` render is deliberately allowed to read fresh off the working
-  tree rather than committed-only (see the `judge:` row above) — a judgment
-  ruling on the diff's own hunks needs the hunks, not just a base name it has no
-  repository to `git diff` itself.
-- **`it.sections(path)`** — `path`'s own top-level `## ` heading texts, in
-  document order, off a real markdown parse (a dynamic-count `judge:` template's
-  one hook into the parser, since Eta templating is otherwise plain string
-  substitution). An optional second argument, `it.sections(path, share)`, parses
-  the headings of the SAME bounded tail `it.tail(path, share)` would read — see
-  below — and inlines nothing itself, so it spends no `share` of the render's
-  own byte budget. Parsing a bounded tail this way re-derives headings from
-  PARTIAL markdown — a fence straddling the cut boundary re-parses its own
-  contents as top-level headings there (measured against a real fixture), which
-  makes this second form a genuine, unfixable hazard for a document whose shape
-  a workflow author doesn't fully control (a package file, a review note —
-  arbitrary prose an agent or a human wrote, fences included). DECISION: the two
-  bundled gates that need survivorship (`packages.item.spec.pre`,
-  `build.review.triage`) do NOT use `it.sections(path, share)` for that reason —
-  each instead compares every WHOLE-document title's own offset (from the
-  unbounded `it.sections(path)` call above) against where `it.tail(path, share)`
-  begins. The two-argument form stays published and documented here regardless:
-  it is still the right tool for a `judge:` field that only wants the truncated
-  text's OWN headings — a preview/outline use, not a
-  which-of-the-whole-document-survived one — or for a workflow author who
-  controls the document's shape closely enough to rule out a fence straddling
-  the cut. `it.sections(path, share)` was published for exactly the survivorship
-  case first, but measurement moved the bundled gates off it; the primitive
-  itself was not retired.
-- **`it.tail(path, share)`** / **`it.diffTail(base, share)`** — the LAST
-  `floor(judgeBudgetBytes × share)` bytes of `it.read(path)` / `it.diff(base)`'s
-  own output, cut on a line boundary (the leading partial line is dropped, so
-  the model never sees half a line — a bound leaving room for no whole line
-  renders the empty string). `share` is a FRACTION of the workflow's
-  `judgeBudgetBytes` var (below), never an absolute byte count, so retuning the
-  budget scales every caller's real payload with it. Every call this render
-  makes shares ONE running total: a cumulative `share` over `1` within a single
-  `judge:`/`message:` render throws, as does a `share` that is `<= 0`, `> 1`, or
-  non-finite — the render is refused rather than silently clamped. The running
-  total is the raw share, not a floored byte count, so the throw compares
-  against `1 + 1e-9`: a hair of float tolerance for an exactly-budgeted split
-  (e.g. `0.1 + 0.2 + 0.7`) without letting a real overrun through. When a
-  bounded read actually drops bytes, gtd appends a fixed notice to the gate's
-  `message:` — see the judgment surface note above `judge:` for the shape, and
-  the requirement this exists for: a human reading a surprising verdict needs to
-  know the model saw a tail, not the whole document.
+1. **The workflow's own `vars`** (`workflow(entries, { vars })`) — the author's
+   declared defaults.
+2. **A `.gtdrc` `vars:` key** — per-repository tuning without touching the
+   workflow.
+3. **The current process's entry `--var` overrides**, if it was started with
+   `gtd --entry <name> --var <name>=<value>`. Each name must already be declared
+   by layer 1 or 2; an undeclared name is a usage error.
+4. **`GTD_<UPPERCASE-name>` environment variables** — checked at every
+   invocation, case-insensitively against each name already declared by layers
+   1–3: `GTD_TESTCOMMAND` overrides `testCommand`. The environment can only
+   OVERRIDE a declared name — a `GTD_*` var matching no declared name is
+   ignored.
 
-`it.tail`, `it.diffTail`, and the two-argument `it.sections(path, share)` are
-available ONLY in a `judge:` field and in a `message:` template — every other
-field (`script:`, `prompt:`, and the `model:`/`label:`/`file:`/`system:`/
-`skills:` hint fields, which render on any state) refuses all three, both at
-workflow load (naming the state and field) and, as a backstop, at render time.
-The one-argument `it.sections(path)` carries no such restriction and stays
-available everywhere.
-
-#### `gtd summary`'s own template variables
-
-A workflow's top-level `summary:` template is rendered against everything above,
-plus three fields that mean nothing at an ordinary state template (the same
-precedent a mode's `format:`/`validate:` command sets with `it.file`):
-
-- **`it.entryCommit`** — the process's own entry commit, the trace's first hash.
-- **`it.humanCommits`** — every `human`-authored commit in the process's trace,
-  oldest to newest, as `{hash, state}` — a review round's edit, an answered
-  question gate — minus `entryCommit` when it coincides with one. Derived
-  generically off the commit subject's invoking actor, never by naming a state.
-- **`it.processTip`** — the process's closing/current tip, the trace's last
-  commit.
-
-The prompt carries no session identity of its own — no `session.id`, no
-`session.resume`, no model, no system prompt — so an agent reading it starts
-cold and reads every decision back out of the commits it names.
-
-`it.diff(base)` is bound on every template, but by CONVENTION only a `judge:`
-field ever calls it: an ordinary `script`/`prompt`/`message` names a base
-(`it.reviewBase`/`it.processBase`) and leaves the AGENT to run `git diff <base>`
-itself, keeping that render cheap and the prompt small and cacheable, while a
-`judge:` template calls `it.diff(base)` instead — inlining the diff's own
-content into the rendered document — because the judge it renders for has no
-repository of its own to run that command in. No bundled `judge:` field
-currently calls it; `packages.item.health.judge` inlines its own evidence the
-same way, over a bounded `it.tail` read rather than `it.diff` (the general
-pattern this convention describes). Nothing in the engine enforces the split —
-`it.diff` shells out to `git` (`git add -N` + `git diff`) the moment any
-template calls it, so a `script:`/`prompt:` that called it would pay the same
-cost. A `judge:` field naming `it.diff(...)` renders on every ordinary rest
-resolution too (`gtd next`, `gtd status`, `gtd judge`), not just
-`gtd judge answer` — there's no separate "judging now" mode that defers it.
-
-Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
-is the agent-facing contract for producing a valid `workflow:` — the state
-model, pattern grammar, load-time rules, and how to verify a change compiles.
-
-> **Upgrading from a pre-8.2 `workflow:`?** The old flat `states:` shape (with a
-> per-state `initial: true`/`reviewEntry: true`/`fixEntry: true` flag) is no
-> longer accepted — finish or `gtd abandon` any in-flight process before
-> upgrading, since the old and new shapes aren't compatible mid-process. Wrap
-> your states under a single
-> `machines: { <name>: { entry: <initial state>, states: {...} } }` and declare
-> `entry: { default: <name> }` at the top level (moving any
-> `reviewEntry`/`fixEntry` state to a plain per-state `entry: true` flag,
-> entered via `gtd --entry <state>` — see the next note).
-
-> **Upgrading a `workflow:` that still declares `entry.review`/`entry.fix`?**
-> Those two keys, and the `gtd review <commitish>`/`gtd fix` commands that used
-> them, are gone. Replace `entry.review: <target>`/`entry.fix: <target>` with a
-> plain `entry: true` flag on that same state, and enter it with
-> `gtd --entry <state>` instead of the removed commands.
-> `gtd review <commitish>` required a clean tree and a `<commitish>` argument;
-> the replacement instead captures whatever is pending in the working tree (just
-> like an ordinary `gtd land`) and takes the commitish as a
-> `--var reviewBase=<commitish>` override consumed by that state's own
-> template-form `reviewBase:` (see the `workflow:` shape above and
-> [`gtd --entry`](./cli.md#commands)). `gtd fix` likewise becomes
-> `gtd --entry <the state that was entry.fix>` (e.g. the bundled template's
-> `gtd --entry fix-precheck`).
-
-> **Upgrading a `workflow:` that still declares a per-state `model:` or
-> `memory:`?** `model:` moved from a state key to a MACHINE key: declare it once
-> on the `machines.<name>:` entry instead of on every one of that machine's
-> states — it is stamped onto every one of that machine's own `prompt` states
-> automatically (see the `workflow:` shape above). A state that still declares
-> its own `model:` is a load error naming the machine to move it to, never a
-> silently ignored key. `memory:` is gone outright, with **no** replacement key
-> — a workflow author simply removes it; a state's memory scope is now computed
-> from its position in the machine tree instead of authored (see
-> [Driving the loop](./driver.md#driving-the-loop)). The bundled template was
-> also restructured so machine boundaries line up with this new identity model,
-> renaming twenty-two states:
->
-> - `building` → `build.building`
-> - `decompose` → `build.decompose` → `design.decompose`
-> - `squashing` → `build.squashing`
-> - `review.building` → `build.addressing`
-> - `packages.building` → `packages.item.building`
-> - `packages.closing` → `packages.item.closing`
-> - `packages.health.check` → `packages.item.health.check`
-> - `packages.health.fix` → `packages.item.fix-suite`
-> - `packages.health.escalate` → `packages.item.health.escalate`
-> - `packages.spec.review` → `packages.item.spec.review`
-> - `packages.spec.fix` → `packages.item.fix-spec`
-> - `build.check` → `build.health.check`
-> - `build.escalate` → `build.health.escalate`
-> - `review.reviewing` → `build.review.reviewing`
-> - `review.await-review` → `build.review.await-review`
-> - `review.deciding` → `build.review.deciding`
-> - `review.collecting` → `build.review.collecting`
-> - `product.author` → `design.product-author`
-> - `product.answer` → `design.product-answer`
-> - `technical.author` → `design.technical-author`
-> - `technical.answer` → `design.technical-answer`
->
-> (`decompose`'s two hops both land in this same release, so a process upgrading
-> from before either restructure only ever sees one hop: `decompose` →
-> `design.decompose`.) Because of these renames, an in-flight process left
-> resting at one of the old qualified state names can no longer be resumed after
-> upgrading — those names no longer exist in the definition, and gtd refuses
-> loudly rather than silently treating the rest as idle. Run `gtd abandon` to
-> discard it and start over (or finish the process on the pre-upgrade workflow
-> version first).
-
-> **Upgrading a `workflow:` from the old two-flow (`.gtd/TODO.md` vs.
-> `.gtd/REQUIREMENTS.md`) shape?** The bundled template collapsed that fork into
-> one flow: `idle` now has a single outgoing edge — any change at all starts the
-> process, never a fork on which steering file you create — and
-> `plan-gate.check`/`spec-gate.check` merged into one shared `start-gate.check`.
-> The old plan-iteration machine's `plan.planning`/`plan.await-plan` states and
-> its monolithic `build.building` state are gone outright; every concern now
-> goes through the same per-package build queue instead. Renamed:
-> `design.product-author` → `design.triage`, `design.product-answer` →
-> `design.gate.answer`, `design.technical-author` → `architecture.author`,
-> `design.technical-answer` → `architecture.gate.answer`, `design.decompose` →
-> `architecture.decompose` (architecture is now its own sibling machine with its
-> own memory scope, not nested under `design`). The `prose` mode is gone and
-> there is no more free-form _plan_ file — `todoFile` itself came back later
-> with a different job: `idle`'s own mode-less `file:` hint, gtd's sketch pad
-> that no state writes or reads. As with every rename above, an in-flight
-> process resting at one of the old names can no longer be resumed;
-> `gtd abandon` it (or finish it on the pre-upgrade workflow version) before
-> upgrading.
-
-> **Upgrading a `workflow:` that still references `build.addressing`?** That
-> state is REMOVED, not renamed — the implementer's own follow-through on review
-> feedback is gone outright, since an actionable review round is now re-planned
-> from scratch through a new root-level `re-unwind` state (reverting the human's
-> hand-edit) instead of being built upon. A non-actionable round (an approving
-> remark with no code edit) short-circuits straight to sign-off instead of
-> spending a lap on nothing. As with every rename above, an in-flight process
-> resting at `build.addressing` can no longer be resumed after upgrading;
-> `gtd abandon` it (or finish it on the pre-upgrade workflow version) first.
-
-> **Upgrading a `workflow:` that still declares a `commit:` state key, or
-> templates against `it.retainedBase`?** The automatic squash finale is gone:
-> the `commit:` content kind is removed from the engine, not just from the
-> bundled workflow, so a state declaring `commit:` fails to LOAD — loudly, with
-> a message naming the removal and pointing at `gtd summary` — rather than
-> silently becoming an unknown-field error. A review sign-off now lands one more
-> ordinary commit entering the workflow's initial state instead, keeping every
-> per-turn commit on the branch; replace a `commit:` finale with a plain state
-> your own `on` routing already leads into `idle`, and run `gtd summary`
-> afterward (see [The `workflow:` key](#the-workflow-key) above) for a
-> closing-message prompt. Separately, and by contrast, `it.retainedBase` was
-> renamed `it.processBase` — the SAME rename fails SILENTLY, not loudly: Eta
-> renders a reference to a missing key as an empty string rather than throwing,
-> so a template still referencing `it.retainedBase` keeps loading and running,
-> it just renders blank where the process's trace boundary used to appear.
-> Search your workflow for both names before upgrading; only the `commit:` key
-> refuses to load and tells you where.
-
-### Variables
-
-Every template — `script`/`prompt`/`message`, a workflow's top-level `summary:`,
-a machine's own `model:`, and a state's `file:` — sees `it.vars`: a flat
-`Record<string, string>` assembled from four layers, **later wins**:
-
-1. **The workflow's own `vars:` key** (sibling to `entry:`/`machines:`) — the
-   workflow author's declared defaults. The unified template declares
-   `vars: { testCommand: "npm test" }`, read by `build.health.check`'s script as
-   `<%~ it.vars.testCommand %>`. It also declares `judgeIdenticalMinP: "0.7"` —
-   the probability floor `healthGate.judge`'s `routes:` row requires before an
-   "identical" verdict ends a retry loop early; this is the ONE off-switch that
-   judged gate has, so retuning or disabling it is exactly this same
-   `.gtdrc`/`GTD_JUDGEIDENTICALMINP` override the four layers below already give
-   every other var — there is no separate mechanism. Blanking it
-   (`judgeIdenticalMinP: ""`) disables the row outright: a blank, non-numeric,
-   or otherwise non-finite rendered `minP`/`maxP` makes its `routes:` row fail
-   closed (never match), never the opposite (`Number("")` would silently be `0`,
-   a floor of nothing). One more judged gate tunes the same way: `specPreJudge`
-   (`specReview.pre`'s floor for skipping a package's `review` turn on a section
-   already judged satisfied). It is an unmeasured, deliberately conservative
-   default — no mined history of "requirement already satisfied?" judgments
-   exists to pick it from — and it retunes or disables (blank) exactly like
-   `judgeIdenticalMinP` above. One more tunes the review lap the same way:
-   `reviewNoteActionable` (`0.7`) is `build.review.triage`'s floor for treating
-   a review-note chunk as non-actionable (folded into a sign-off) rather than
-   spending a `build.review.collecting` turn on it — blanking it disables the
-   dismissal, in the opposite (still safe) direction: every "yes" verdict counts
-   as actionable at any confidence, rather than every "yes" failing to clear an
-   unmeetable floor. Unmeasured — a deliberately conservative default, the same
-   posture `specPreJudge` takes. `architectureSkipMinP` (`0.85`) is
-   `architecture-pre`'s own floor: its `architectureWarranted` noul answered
-   "no" must clear it for a plan to skip
-   `architecture.author`/`architecture.decompose` entirely
-   (`architecture-promote` instead); blanking it makes that `routes:` row fail
-   to match, so the full architecture pass always runs — the same fail-closed
-   direction as `judgeIdenticalMinP`. Unmeasured too — a deliberately
-   conservative default, the same posture `specPreJudge` takes.
-   `judgeBudgetBytes` (`"32768"`, 32 KiB) is DIFFERENT from every var above:
-   it's the total byte budget `it.tail`/`it.diffTail`/`it.sections(path, share)`
-   (see "Besides `it.vars`" above) divide across one `judge:` render's inlined
-   evidence, not a judgment probability floor. A repo whose judge model has a
-   smaller context window turns it down the same `.gtdrc`/`GTD_JUDGEBUDGETBYTES`
-   way as any other var — but blanking it does NOT disable the bound the way
-   blanking `judgeIdenticalMinP` disables that row: `judgeBudgetBytes` must be a
-   POSITIVE INTEGER — blank, non-numeric, non-finite, zero, negative, or
-   fractional all THROW, refusing the step, because disabling this one mechanism
-   would reinstate the exact oversized-payload rejection it exists to prevent.
-   **`qualityReviews`** (`owasp-security, code-simplification`) names the
-   qualitative review lap `build.quality` runs ahead of the human review, one
-   comma-separated skill per turn/context. Every round pays for it: an ordinary
-   round enters it the moment its package queue drains,
-   `--entry review-gate.check` enters it straight off its green baseline gate,
-   and `--entry fix-precheck` enters it off its own green health check. The
-   per-package review it follows judges one package against its own spec only —
-   this lap is the code-quality pass over the whole change. Every entry costs a
-   full turn on every round, so extend the list only as far as that's worth
-   paying for. Blanking it disables the lap outright — the same convention
-   `skillsPreamble` uses.
-2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
-   inside it) — per-repo tuning without redefining the whole workflow.
-3. **The current process's entry `--var` overrides**, if it was started via
-   `gtd --entry <state>` — repeatable `--var <name>=<value>` flags fixed at the
-   moment of entry and recorded as `Gtd-Var: <name>=<value>` trailers on the
-   process's oldest commit, re-parsed on every turn for as long as that process
-   is underway. Each `--var` name must already be declared by layer 1 or 2; an
-   undeclared name is a usage error, not a silent no-op.
-4. **`GTD_<UPPERCASE-name>` environment variables** — highest precedence,
-   checked at every invocation, case-insensitively against each name already
-   declared by layers 1–3: `GTD_TESTCOMMAND` overrides `testCommand`. The
-   environment can only OVERRIDE a name an earlier layer already declared — a
-   `GTD_*` var matching no declared name is silently ignored.
-
-Values in layers 1–2 must be YAML scalars (string/number/boolean), coerced to
-strings at load time; an object or array value is a load error. A `--var` value
-(layer 3) is always a single-line string as given on the command line.
+Values in layers 1–2 must be scalars (string/number/boolean), coerced to
+strings; an object or array value is a load error. A `--var` value is always a
+single-line string as given on the command line. gtd itself blesses no variable
+names — `testCommand` is the bundled workflow's data like any other.
 
 ```yaml
-# .gtdrc — overriding the unified template's testCommand
+# .gtdrc — overriding the bundled workflow's testCommand
 vars:
   testCommand: npm run test:ci
 ```
@@ -489,20 +576,64 @@ vars:
 GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
 
-One var is meaningful only when a state also declares `skills:`:
-**`skillsPreamble`** — the Eta template (seeing `it.skills`, the state's own
-rendered `skills:` value, alongside the ordinary `it.vars`) that renders into
-the preamble PREPENDED to that state's prompt. Blanking it
-(`GTD_SKILLSPREAMBLE=""` or `.gtdrc`'s `vars: { skillsPreamble: "" }`) switches
-the mechanism off repo-wide without editing a single state's `skills:`
-declaration — the prompt then renders exactly as if `skills:` were absent. A
-template you write for this var must carry three clauses, or the field is
-unsafe: load only what your harness has and skip the rest silently; THIS STATE'S
-FILE FORMAT AND COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn
-the turn interactive, because no one is at a keyboard. The precedence clause is
-load-bearing — the preamble PREPENDS, sitting above the state's own format prose
-in the rendered prompt, so a skill that reflows the steering file changes which
-`on:` pattern matches, and with it the transition.
+**`skillsPreamble`** is the one variable gtd itself reads: an Eta template
+(seeing `it.skills`, the agent step's own `skills` value, and `it.vars`)
+rendered into a preamble PREPENDED to that step's prompt whenever `skills` is
+non-blank. Blanking it (`GTD_SKILLSPREAMBLE=""` or
+`vars: { skillsPreamble: "" }`) switches the mechanism off repo-wide. A template
+you write for it must carry three clauses, or the field is unsafe: load only
+what your harness has and skip the rest silently; THE STEP'S OWN FILE FORMAT AND
+COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn the turn
+interactive, because no one is at a keyboard. The precedence clause is
+load-bearing — the preamble sits above the step's own format prose, so a skill
+that reflows the steering file changes which branch the flow takes next.
+
+### The bundled workflow's variables
+
+Every value below is an ordinary variable, overridable through `.gtdrc` `vars:`
+or `GTD_<NAME>`:
+
+- **`testCommand`** (`npm test`) — the suite every health check and baseline
+  gate runs. It is interpolated into a POSIX `sh` script, so keep it
+  sh-compatible.
+- **`plannerModel`** (`smart`) / **`coderModel`** (`base`) — the `model` hints
+  of the planning/reviewing steps and of the building/fixing steps.
+- **`*Skills`** — the skill names each agent step loads; see
+  [Setup](./setup.md#using-a-different-skill-set).
+- **`judgeIdenticalMinP`** (`0.7`) — the confidence an "identical failure"
+  verdict at `health.judge` needs before a red streak escalates early. Blank,
+  non-numeric or non-finite means it can never be cleared, so the early
+  escalation is off.
+- **`specPreJudge`** (`0.9`) — `spec.pre`'s floor for skipping a package's
+  review turn on a section already judged satisfied. Blank disables the skip.
+- **`reviewNoteActionable`** (`0.7`) — `build.review.triage`'s floor for
+  treating a review-note chunk as non-actionable (folded into a sign-off) rather
+  than spending a `build.review.collecting` turn on it. Blank disables the
+  dismissal: every chunk counts as actionable.
+- **`architectureSkipMinP`** (`0.85`) — the confidence `architecture-pre`'s "no
+  architecture pass needed" answer needs before a plan skips straight to one
+  package. Blank means the full architecture pass always runs.
+- **`judgeBudgetBytes`** (`32768`) — the total byte budget `tail()` divides
+  across one step's inlined judge evidence. Must be a positive integer; blank,
+  zero, negative or fractional values fail the step rather than disabling the
+  bound.
+- **`qualityReviews`** (`owasp-security, code-simplification`) — the quality lap
+  `build.quality` runs ahead of the human review, one comma-separated skill per
+  turn. Every round pays for it, so extend the list only as far as that is worth
+  paying for; blanking it disables the lap. See
+  [Setup](./setup.md#extending-the-quality-review-lap).
+- **`reviewBase`** (empty) — the commitish `--entry review-gate.check` reviews
+  from.
+
+Several more exist only to dedup wording shared by several prompts, and can be
+overridden or blanked like any other: `styleBlock` and `styleFormatContract`
+(the voice, below), `agentConduct` (tool-use conduct shared by every agent
+step), the six role paragraphs `designPersona`, `architectPersona`,
+`reviewerPersona`, `specReviewerPersona`, `builderPersona`, `finisherPersona`
+plus `escalationPersona` (each step's `system` prompt), `stateFileRules`,
+`questionBar`/`questionBarReturn` (how the planners raise and fold in open
+questions), `fixFeedbackPrompt` (the shared body of the fix turns),
+`footnoteRules`/`footnoteFoldIn`.
 
 #### The voice
 
@@ -513,285 +644,43 @@ opt-in. It is a specialisation of the "Spartan" output style from
 prose stating the same density discipline, rewritten for deliverables (files
 that run as long as the work needs) rather than chat replies. No upstream text
 ships in gtd's bundle. This is a point-in-time derivation with no refresh
-mechanism — it will silently go stale as upstream moves on, and nothing in gtd
-will notice.
+mechanism — it will silently go stale as upstream moves on.
 
-It is two independently-overridable variables, each an ordinary `vars:` entry
-that can be overridden or blanked through the same layers as any other (a
-top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
-`GTD_STYLEFORMATCONTRACT` environment variable):
-
-- **`styleBlock`** — the voice itself, injected at all six prompt states that
-  generate content, not just two: the free-prose ones — the `.gtd/packages/`
-  package files (`architecture.decompose`) and `.gtd/SPEC_FEEDBACK.md`
-  (`packages.item.spec.review`) — plus the four machine-parsed states named in
-  the next bullet. Blanking `GTD_STYLEBLOCK` strips the voice from all six,
-  including the machine-parsed ones, not only the free-prose two. In short: it's
-  a deliverable, not a chat reply, so size follows the work; answer-first with
-  no restatement; blunt and imperative; plain words; bold carries the load; ship
-  the artifact bare; compressing is not dropping; one idea per block; flag risk
-  in one blunt line; never narrate the work — and never-trim outranks every
-  other rule in the set.
-- **`styleFormatContract`** — the structural override for machine-parsed files:
+- **`styleBlock`** — the voice itself, injected into every agent step that
+  writes a deliverable: the package files, `.gtd/SPEC_FEEDBACK.md`,
+  `.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md` and `.gtd/REVIEW.md`. Blanking
+  it strips the voice from all of them.
+- **`styleFormatContract`** — the structural override for machine-read files:
   the format contract (headings, checkbox rows, marker lines) outranks the
-  voice, and a violation refuses the turn. It renders at the top of the prompt,
-  ahead of the role sentence and well before any state-specific format-contract
-  text — `styleBlock` first, then `styleFormatContract`, at the four prompt
-  states whose output a parser reads: the two `qa`-mode steering files
-  (`.gtd/REQUIREMENTS.md` at `design.triage`, `.gtd/ARCHITECTURE.md` at
-  `architecture.author`) and the `review`-mode one (`.gtd/REVIEW.md` at
-  `build.review.reviewing`), plus `.gtd/REQUIREMENTS.md` again at
-  `build.review.collecting`, which classifies a review round straight into it.
+  voice, and a violation refuses the turn. Injected right after `styleBlock` at
+  the steps whose output a parser reads (`design.triage`, `architecture.author`,
+  `build.review.reviewing`, `build.review.collecting`).
 
-Three more generated files carry no injected voice, because a script — not an
-agent — writes them: `.gtd/FEEDBACK.md` (verbatim test-suite output plus a HEAD
-stamp — the tool's content, not gtd's prose), `.gtd/NEXT.md` (a bare path, no
-prose to style), and `.gtd/REVIEW_RAW.md` (gtd's own prose, hand-tightened in
-the voice directly in `build.review.deciding`'s script rather than templated in
-through either variable).
+Files a script writes carry no injected voice: `.gtd/FEEDBACK.md` (verbatim test
+output plus a HEAD stamp), `.gtd/NEXT.md` (a bare path), and
+`.gtd/REVIEW_RAW.md`.
 
-Three more vars exist purely to dedup wording repeated across several prompts —
-they carry no voice, just shared instructions — and, like every bundled var, are
-overridable via `.gtdrc` `vars:` or a `GTD_<NAME>` environment variable:
+### Escalation
 
-- **`stateFileRules`** — the "this workflow steers itself through its own state
-  files, treat them as a private scratchpad" opener, injected as the first line
-  of every prompt that touches a `.gtd/` file directly.
-- **`questionBar`** — states the goal (asking closes a gap between what the
-  human wants and what the agent is about to build) that outranks the
-  open-questions warrant test, plus the decide-it-yourself sink, the
-  `## Open Questions` checkbox shape, and the rule that `## Open Questions` must
-  come first and `## Answered Questions` must come last among a file's `##`
-  sections. Injected into the first lap of both `design.triage` and
-  `architecture.author`. Each site still states its own phase scope
-  (product-only vs. TECHNICAL) locally, since that's where the two genuinely
-  disagree.
-- **`questionBarReturn`** — the return-lap half of the same instruction,
-  continuing `questionBar`'s goal: folding a human's answers back in, raising a
-  genuinely new follow-up fork, and the silent-lap rule that ends the questions
-  when nothing changed. Injected into the return lap of both `design.triage` and
-  `architecture.author`, under its own `## Return lap` heading. Each site still
-  states its own phase scope (product-only vs. TECHNICAL) locally, same as
-  `questionBar`.
-- **`fixFeedbackPrompt`** — the body `packages.item.fix-suite` and `build.fix`
-  share byte for byte: read `.gtd/FEEDBACK.md`, fix the code, leave it
-  uncommitted, and — when `.gtd/ESCALATION.md` is present — treat it as the
-  primary instruction, but never edit or delete it: only a genuinely green check
-  retires it (see [Escalation](#escalation) below), so a wrong attempt still
-  leaves the next turn's instruction in place. `fix-suite` appends one extra
-  sentence about implementing a later package's work when that's the only way to
-  green the suite; `build.fix` does not.
+A red suite that stays red past three fix turns — or that `health.judge` calls
+"identical" to the previous round — escalates instead of retrying forever. The
+`health.escalate` script counts escalation rounds from git history:
 
-#### Escalation
+- **Under 2 rounds** — an agent turn at `health.describe` reads
+  `.gtd/FEEDBACK.md`, `.gtd/PRIOR_FEEDBACK.md` when present, and the code the
+  earlier attempts touched, then writes `.gtd/ESCALATION.md`: what is failing,
+  why the attempts did not resolve it, and concrete approaches to try next. The
+  process then waits at the human gate `health.stop`: edit the file or land it
+  untouched — either way it becomes the next fix turn's primary instruction.
+- **At 2 or more rounds** — no third document is written. The last
+  `.gtd/ESCALATION.md` is restored and the process waits at `health.exhausted`,
+  naming both that file and `.gtd/FEEDBACK.md`. Editing the document there is
+  what gives the next attempt anything new to try; landing it untouched tries
+  the same analysis again.
 
-`build.health.escalate`/`packages.item.health.escalate` (both instances of the
-shared `healthGate` machine) are where a check that stays red past `build.fix`'s
-or `packages.item.fix-suite`'s own `retry: {max: 3}` cap — or a
-`healthGate.judge` verdict of "identical" — ends up. Rather than resting there
-directly, `escalate` is a `check` gate that counts escalation rounds from git
-history and routes accordingly:
-
-- **Under 2 rounds** — routes to `describe`
-  (`build.health.describe`/`packages.item.health.describe`): an agent turn that
-  reads `.gtd/FEEDBACK.md`, `.gtd/PRIOR_FEEDBACK.md` when present, and the code
-  its own earlier attempts touched, then writes `.gtd/ESCALATION.md` — what's
-  failing, why the previous attempts didn't resolve it, and concrete approaches
-  to try next. That turn rests at a human gate
-  (`build.health.stop`/`packages.item.health.stop`) on that file: edit it or
-  land it untouched, either way handing it to the next fix turn as its primary
-  instruction (see `fixFeedbackPrompt` above).
-- **At 2 or more rounds** — the cap: no third document is written. The script
-  restores the last `.gtd/ESCALATION.md` and rests at a terminal human gate
-  (`build.health.exhausted`/`packages.item.health.exhausted`) naming both that
-  file and `.gtd/FEEDBACK.md`. Editing the document there is what gives the next
-  attempt anything new to try; landing it untouched tries the same analysis
-  again.
-
-The round count comes from git history, not the file's mere presence: since a
-still-red fix turn never touches `.gtd/ESCALATION.md` (see `fixFeedbackPrompt`
-above), the same document can survive several retries as one round, and
-`healthGate.check`'s own script sweeps it ONLY on a genuinely green result —
-never on a still-red one. That deletion is therefore a reliable "this episode's
-escalation budget just reset" marker: `escalate`'s script anchors its round
-count on the most recent such deletion (falling back to the process start when
-none exists), then counts commits since that anchor whose subject names
-`describe` as the transition's FROM state — that is, `describe`'s own landed
-turn, every round, whether or not its write actually changed the file. Editing
-`.gtd/ESCALATION.md` at the human gate itself never spends a round: that edit
-lands under a different subject (`stop`/`exhausted` as the FROM state), which
-this count does not match.
-
-Both human gates release straight into the caller's own fix state
-(`build.fix`/`packages.item.fix-suite`) — no detour back through the check — so
-the fix turn that consumes the (possibly hand-edited) document is the very next
-turn. `.gtd/ESCALATION.md` is a steering file like any other under `.gtd/`:
-oxfmt-formatted, but with no `mode:`/`format:`/`validate:` pair of its own —
-freeform prose, not a parsed document.
-
-### Lookup and precedence
-
-gtd walks from the current working directory **up to your home directory** (or
-to the filesystem root when cwd is outside home), collecting every `.gtdrc` it
-finds along the way. All found levels are **deep-merged**, with the **innermost
-(cwd) config winning** on conflicts — so a shared `.gtdrc` in a worktree-parent
-directory cascades to every checkout beneath it, while any individual checkout
-can still override with its own `.gtdrc`.
-
-### Validation and errors
-
-Config-shape problems (unknown keys, wrong types, unreadable file references)
-are collected together; if the shape is clean, the assembled definition is
-additionally run through the engine's own validation. A bad config fails
-**once**, listing every finding, at load time — before anything touches the
-repository — never partially, and never deferred to land time. Each line names
-the config **path** (mirroring your YAML's own nesting) and the config file
-(**origin**) it came from, so with more than one `.gtdrc` layer in play you can
-tell which file to fix:
-
-```
-gtd config:
-  - .gtdrc: workflow.machines.root.states.idle: must declare exactly one of script/prompt/message (found 2)
-  - .gtdrc: workflow.machines.root.states.idle.on.* **: "on" target "nowhere" is not a defined state
-```
-
-The same problem carried by three config layers prints three lines, one per
-file: a nearer layer overriding the value does not silence the outer layer's
-line, because each is a separate edit in a file you own.
-
-Those findings include the **semantic graph checks**: every `on` target and
-`retry.otherwise` must name a defined state, and every state must be
-**reachable** from the initial state. All load failures exit **1** and write to
-**stderr**, never stdout.
-
-Many of these problems never reach gtd at all if your editor validates against
-the [published schema](#schema), which fully types the `workflow:` key. The
-rules JSON Schema cannot express — exactly one content kind, `entry.default`
-resolving to a real state, targets naming defined states, reachability — remain
-the compiler's job at load time.
-
-Not every finding is fatal. A non-`prompt`, non-initial, non-`human`-actor state
-that declares no `"C"` (clean-tree) row is a **warning**, never a load error — a
-clean tree there is a legitimate no-op by design (see "Step capture" in
-AGENTS.md), but usually an oversight worth a nudge:
-
-```
-gtd: warning: .gtdrc: workflow.machines.root.states.checking: state "checking" declares no "C" row
-```
-
-Every command that resolves workflow state prints each such warning once per
-invocation, on stderr only — never stdout, and never a nonzero exit. It repeats
-on every invocation until the workflow declares either a `"C"` row or is
-otherwise fixed; that repetition is intentional, not a bug. `gtd visualize` and
-`gtd lsp` never print it (neither resolves workflow state the same way
-`gtd next`/`gtd land`/`gtd --entry` do).
-
-The bundled unified template prints no such warning: every one of its script
-states routes its clean case. Two of them used to be exceptions, and how they
-were fixed is the pattern to copy when your own workflow trips this warning.
-Both had a clean tree that was ambiguous from the diff alone — `unwind` could
-not tell a completed no-op from a `git revert` failure swallowed by `set +e`,
-and `build.review.deciding`'s clean tree meant its own `REVIEW.md` was never
-provisioned, not that a human signed off. Neither could be routed honestly as
-written.
-
-The fix is to resolve the ambiguity **inside the script**, not in the routing:
-each now checks the thing the diff cannot show you (the revert's exit code; the
-file's absence) and writes `.gtd/FEEDBACK.md` on the broken branch. That gives
-the failure a diff of its own, which forks to a human gate — and leaves a clean
-tree meaning exactly one thing, so the `"C"` row can finally say where it goes.
-Adding a `"C"` row that merely guesses, to silence the warning, is worse than
-the noise.
-
-### The normalization-only contract on `format:`
-
-`gtd land`'s own emitted script never runs a mode's `format:`/`validate:` pair —
-it's only the HEAD assertion and the commit. Formatting and validating a
-steering file is a driver contract instead: run it explicitly, ahead of
-`gtd land`, off `gtd next --json`'s own `validate` field (or `gtd validate`,
-which prints the same script). A driver that skips this can land a malformed or
-unformatted steering file — `gtd land` itself no longer stops it.
-
-A mode's `format:` command may reformat a steering file — whitespace, wrapping,
-reordering — but must NEVER change what a land-capture guard would decide. gtd's
-guards (the review-doc check, the feedback-progress check, the
-answer-completeness check, the require-revert check) decide ONCE, against
-whichever bytes are on disk at the moment `gtd land` runs — which may be before
-OR after a driver's own separate `format:` run, since that's a different process
-at a different time with no guaranteed ordering against "gtd decided". That's
-only safe because every built-in guard judges only the content it explicitly
-cares about, not incidental formatting around it — the feedback-progress guard,
-for instance, only checks whether a deleted file's trimmed first line is the
-`NOTHING ACTIONABLE` sentinel, so reindenting the rest of it changes nothing the
-guard reads. If you plug in your own `format:` command, the same rule binds it:
-a formatter that also changes meaning — stripping a paragraph a guard reads —
-makes the guard's decision and the file's actual content disagree, and gtd will
-not catch that for you.
-
-### A missing binary in `format:`/`validate:` fails loudly, before it runs
-
-The emitted script checks a mode's `format:`/`validate:` command against `$PATH`
-before running it, whenever that command is a single unambiguous leading word
-(e.g. `adr-lint <%= it.file %>`): a typo'd or uninstalled binary exits 127 with
-a `gtd:`-prefixed message naming the mode, the `format`/ `validate` key, the
-binary, and the resolved `$PATH` it was looked up in, instead of a raw shell
-error. A command gtd can't reduce to one binary — a `VAR=x`-prefixed command, a
-pipeline, anything with a shell metacharacter — gets no such check and fails
-exactly as it always has.
-
-### Built-in steering formats are ordinary modes
-
-`qa` and `review` are gtd's two built-in steering-file formats (parsed and
-validated in-process because `gtd lsp` needs the same parsers for live
-diagnostics), but their `validate:` is not hardcoded or hidden: the compiler
-SEEDS every workflow's `modes:` map with `qa`/`review` entries whose `validate:`
-is the same `gtd check <mode> '<file>'` string described above. That seeded
-command is visible in `gtd visualize`'s compiled model and in the editor JSON
-schema like any other mode, and it's overridable the same way any mode is —
-declare `modes: { qa: { validate: "your-own-command" } }` (in the workflow or in
-`.gtdrc`) and your command displaces the seed; declaring only a `format:` for
-`qa`/`review` composes with the seeded `validate:` rather than replacing it.
-There is no special-cased built-in behavior a driver needs to know about beyond
-the ordinary mode-resolution rules already documented under
-[The `workflow:` key](#the-workflow-key). The `qa` format also checks section
-order: `## Open Questions` must come before every other `##` section in the
-file, and `## Answered Questions` must come after every other `##` section — a
-file that gets this backwards fails `gtd check qa` / `gtd validate`. A `###`
-question heading or a `- [ ]` option indented 4 or more spaces stops counting as
-one (it's Markdown indented code, or a lazy continuation of the line above it)
-and fails `gtd check qa` / `gtd validate` naming the exact line; 2 or 3 spaces
-of indent are still fine.
-
-Both formats also understand **footnotes** — your own comment attached to an
-exact spot in the file, for the next agent turn to read as a mandatory note
-rather than as an instruction. Mark the spot with `[^name]` (any name, no
-whitespace or `]` — the same name may mark more than one spot), then define it
-anywhere below — on its own line, at the start of the line — as
-`[^name]: explain what you mean here`; a definition's own name must be unique in
-the file. Indent a longer comment's continuation lines so they stay part of the
-same definition. The next agent turn folds the comment into its own work and
-deletes both the marker and the definition — a footnote is never carried forward
-or left for a later turn to re-read. `gtd check`/`gtd validate` flag four things
-about a footnote: a marker with no matching definition, a definition with no
-matching marker, the same name defined twice, and a definition still holding the
-literal seeded placeholder text `your comment` unedited — each fails the file
-until fixed.
-
-This writes a minimal `.gtdrc.json` seeding the one variable most projects
-change — the test command (`vars.testCommand`, defaulting to `npm test`) — plus
-a top-level `modes:` block suggesting **Prettier** as the steering-file
-formatter (`npx prettier --write` for the built-in `qa`/`review` modes — format
-only, so gtd still validates them); edit or drop either freely (point
-`testCommand` at your suite, swap Prettier for dprint or a script, delete a
-key). It writes **no** `workflow:` key — the machine is built in — so review and
-commit the file before your first `gtd land`. `gtd init` takes no argument and
-refuses to clobber an existing config; it may also run in a plain parent
-directory (not a git repo) to seed a shared config a nested repo picks up. To
-customize the machine itself, add a `workflow:` key (there is no default
-fallback to merge over — a `workflow:` is the whole definition).
-
-gtd requires a repository with **at least one commit** before any state command
-(`land`, `--entry`, `next`, `status`, `abandon`, `restore`, `validate`,
-`summary`) will run — there is no workflow state to derive from an empty
-history. Committing the `.gtdrc.json` above (or anything else) satisfies this by
-construction; `gtd init`, `gtd install`, `gtd lsp`, `gtd visualize`, and
-`gtd check` are unaffected since none of them derive workflow state.
+A round is one landed `health.describe` turn since the last green check (the
+only thing that deletes `.gtd/ESCALATION.md`); editing the file at the human
+gate never spends one. Both gates release straight into the caller's fix step
+(`build.fix` or `packages.item.fix-suite`), so the turn that consumes the
+document is the very next one. `.gtd/ESCALATION.md` is free-form prose with no
+mode of its own.

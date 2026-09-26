@@ -22,7 +22,7 @@ if [ -z "$anchor" ]; then anchor=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi
 # commit that lands a `describe` turn's own write always reads
 # "... build.health.describe → build.health.stop" (or the
 # packages.item.health equivalent), the same narrowing
-# `healthGate.check`'s own `episode_anchor` uses above — never the
+# healthGate's check subjects use — never the
 # human's own "... build.health.stop → build.fix" landing at `stop`.
 #
 # No `-- .gtd/ESCALATION.md` pathspec on this count: a `prompt`

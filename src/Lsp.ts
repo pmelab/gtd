@@ -156,7 +156,7 @@ export const basenameFallbackMode = (name: string): ResolvedMode | undefined => 
   return resolved.kind === "resolved" ? resolved : undefined
 }
 
-/** One `buildSteeringMap` finding: a state whose `file:` failed to render, a `mode:` that didn't resolve, or a path two states both declare (first wins). */
+/** One `buildSteeringMap` finding: a `mode:` that didn't resolve, or a path two steps both declare (first wins). */
 export type FileModeWarning = string
 
 /**
@@ -167,7 +167,6 @@ export type FileModeWarning = string
  */
 export const buildSteeringMap = (
   def: WorkflowDefinition,
-  _vars: Record<string, string>,
   root: string,
 ): {
   readonly map: ReadonlyMap<string, ResolvedMode>
@@ -487,22 +486,6 @@ const gitLayerForRoot = (root: string) =>
 const workspaceLayerForRoot = (root: string) =>
   Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayerForRoot(root), gitLayerForRoot(root))))
 
-// Mirrors the `GTD_<NAME>` env-override half of `Edge.ts`'s `resolveVars` —
-// this call site has no resolved process, so there's no `entryVars` layer to merge.
-const GTD_ENV_PREFIX = "GTD_"
-export const mergeStaticVars = (
-  workflowVars: Record<string, string>,
-  rcVars: Record<string, string>,
-  env: Readonly<Record<string, string | undefined>>,
-): Record<string, string> => {
-  const merged = { ...workflowVars, ...rcVars }
-  for (const name of Object.keys(merged)) {
-    const value = env[GTD_ENV_PREFIX + name.toUpperCase()]
-    if (value !== undefined) merged[name] = value
-  }
-  return merged
-}
-
 /** The layers `LspEnv`'s Effects run against. `Narrator` is a permanent no-op — the LSP talks stdio JSON-RPC, with nothing to narrate onto — provided only so the shared `Narrator` requirement typechecks. */
 const layersForRoot = (root: string) =>
   Layer.mergeAll(
@@ -547,13 +530,10 @@ export const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => ({
   cwd: liveHost.root,
 
   steeringMapFor: async (root) => {
-    const { config, env } = await runtimeFor(root).runPromise(
-      Effect.gen(function* () {
-        return { config: yield* (yield* ConfigService).load, env: (yield* Host).env }
-      }),
+    const config = await runtimeFor(root).runPromise(
+      Effect.flatMap(ConfigService, (service) => service.load),
     )
-    const vars = mergeStaticVars(config.workflowVars, config.rcVars, env)
-    const { map, warnings } = buildSteeringMap(config.workflow, vars, root)
+    const { map, warnings } = buildSteeringMap(config.workflow, root)
     for (const warning of warnings) warn(warning)
     return map
   },

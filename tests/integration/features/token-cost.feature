@@ -4,10 +4,10 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
   A loop driver knows how many tokens the invocation it just drove cost, and on
   which model. `gtd land --cost=<n> [--model=<name>]` records both as a
   `Gtd-Cost: <n> <model>` trailer on the turn commit (persisted in the git log,
-  one per turn, subject line untouched). `computeProcessRun` collects every
-  such entry across the current process; a workflow's `summary:` template
-  renders the whole-process total via `it.processCost` and the per-model
-  breakdown via `it.processCostByModel` — the complete cost of the feature,
+  one per turn, subject line untouched). Every such entry across the current
+  process is collected; a workflow's `summary` option renders the
+  whole-process total via `processCost` and the per-model breakdown via
+  `processCostByModel` — the complete cost of the feature,
   itemized by model, since tokens alone don't tell you the price. `gtd next`
   shows the running total (and per-model breakdown) mid-process — via its
   `--json` `cost`/`costByModel` fields when the resting state is a bare
@@ -15,35 +15,23 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
 
   Scenario: gtd land --cost records a Gtd-Cost trailer on the turn commit, subject untouched
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                prompt: "review it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("building", "build it")
+          await agent("reviewing", "review it")
+        },
+      })
       """
-    And a commit "gtd(human): building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → building"
     And a file "src/x.ts" with:
       """
       export const x = 1
@@ -58,30 +46,22 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     # recorded cost is observable on the landed commit's own trailer, exactly
     # like this file's first scenario.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("building", "build it")
+        },
+      })
       """
-    And a commit "gtd(human): building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → building"
     And a file "src/x.ts" with:
       """
       export const x = 1
@@ -93,40 +73,24 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
 
   Scenario: gtd next --json shows the running process cost, accumulated across turns
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                prompt: "review it"
-                on:
-                  "* **": polishing
-              polishing:
-                actor: agent
-                prompt: "polish it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("building", "build it")
+          await agent("reviewing", "review it")
+          await agent("polishing", "polish it")
+        },
+      })
       """
-    And a commit "gtd(human): building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → building"
     And a file "src/a.ts" with:
       """
       export const a = 1
@@ -151,30 +115,22 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
 
   Scenario: gtd next --json omits the cost field when no cost has been recorded
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("building", "build it")
+        },
+      })
       """
-    And a commit "gtd(human): building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → building"
     # building is a bare `prompt` state — plain `gtd next` output there drops
     # the header entirely, so check --json directly: the `cost` field is
     # omitted outright (never emitted as a zero) when nothing was recorded.
@@ -185,40 +141,28 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
 
   Scenario: gtd summary renders it.processCost — the whole-process total, after an ordinary sign-off commit into idle
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        summary: |
-          feat: ship it
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-          Total token cost: <%= it.processCost %>
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": finishing
-              finishing:
-                actor: agent
-                prompt: "write DONE.md"
-                on:
-                  "A DONE.md": idle
-                  "M DONE.md": idle
+      export default workflow(
+        {
+          default: async () => {
+            await human("idle", { message: "go" })
+            await agent("building", "build it")
+            await agent("finishing", "write DONE.md")
+          },
+        },
+        {
+          summary: (it) => `feat: ship it\n\nTotal token cost: ${it.processCost}`,
+        },
+      )
       """
-    And a commit "gtd(human): building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → building"
     And a file "src/a.ts" with:
       """
       export const a = 1
@@ -263,35 +207,23 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
 
   Scenario: gtd land --cost --model records the model alongside the cost in the trailer
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                prompt: "review it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("building", "build it")
+          await agent("reviewing", "review it")
+        },
+      })
       """
-    And a commit "gtd(human): building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → building"
     And a file "src/x.ts" with:
       """
       export const x = 1
@@ -306,30 +238,22 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     # values land on the same Gtd-Cost trailer this file's earlier
     # "records the model alongside the cost" scenario already asserts on.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("building", "build it")
+        },
+      })
       """
-    And a commit "gtd(human): building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → building"
     And a file "src/x.ts" with:
       """
       export const x = 1
@@ -340,40 +264,24 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
 
   Scenario: gtd next --json shows the per-model breakdown under the running total
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                prompt: "review it"
-                on:
-                  "* **": polishing
-              polishing:
-                actor: agent
-                prompt: "polish it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("building", "build it")
+          await agent("reviewing", "review it")
+          await agent("polishing", "polish it")
+        },
+      })
       """
-    And a commit "gtd(human): building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → building"
     And a file "src/a.ts" with:
       """
       export const a = 1
@@ -397,43 +305,34 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
 
   Scenario: gtd summary itemizes it.processCostByModel across the whole process
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        summary: |
-          feat: ship it
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-          Total token cost: <%= it.processCost %>
-          <% it.processCostByModel.forEach(function(m){ %>
-          - <%= m.model %>: <%= m.cost %>
-          <% }) %>
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": finishing
-              finishing:
-                actor: agent
-                prompt: "write DONE.md"
-                on:
-                  "A DONE.md": idle
-                  "M DONE.md": idle
+      export default workflow(
+        {
+          default: async () => {
+            await human("idle", { message: "go" })
+            await agent("building", "build it")
+            await agent("finishing", "write DONE.md")
+          },
+        },
+        {
+          summary: (it) =>
+            [
+              "feat: ship it",
+              "",
+              `Total token cost: ${it.processCost}`,
+              ...it.processCostByModel.map((m) => `- ${m.model}: ${m.cost}`),
+            ].join("\n"),
+        },
+      )
       """
-    And a commit "gtd(human): building" that adds "NOTE.md" with:
+    And a file "NOTE.md" with:
       """
       a note
       """
+    And gtd lands "gtd(human): idle → building"
     And a file "src/a.ts" with:
       """
       export const a = 1

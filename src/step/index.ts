@@ -1,5 +1,5 @@
-export { planStep, type StepOutcome, type JudgeVerdict } from "./planStep.js"
-export { planEntry, type EntryCurrent, type EntryOutcome } from "./planEntry.js"
+export { planStep, type JudgeVerdict } from "./planStep.js"
+export { planEntry } from "./planEntry.js"
 export type { GitWrite, LandStep, Outcome } from "./LandStep.js"
 export type { Refusal } from "./Guards.js"
 export type { Landing, RepoSnapshot, RevertProbe } from "./RepoSnapshot.js"

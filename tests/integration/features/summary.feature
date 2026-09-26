@@ -5,53 +5,42 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
   to write the process's own closing message — naming the entry commit, every
   human-authored commit in the trace (a review round's own edit, an answered
   question gate — derived generically by invoking actor, never by naming a
-  state), a diff range to inspect, and `it.processCost`/`it.processCostByModel`.
+  state), a diff range to inspect, and the process cost, total and per model.
   It writes NOTHING: no git, no filesystem, no state transition, no session
   identity (no `gtd_session_id`, no resume flag, no model, no system prompt).
-  It refuses when the active workflow declares no `summary:` template, or
+  It refuses when the active workflow declares no `summary` option, or
   when the resolved run has an empty trace (nothing to summarize at HEAD).
 
   @inmem
   Scenario: gtd summary names the entry commit and every human-authored commit, carrying the message instructions
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        summary: |
-          The process is closed. Write its closing message.
+      import { added, agent, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
 
-          Entry: <%= it.entryCommit %>
-          <% it.humanCommits.forEach(function (c) { %>
-          Human: <%= c.hash %> entering <%= c.state %>
-          <% }) %>
-          Range: <%= it.processBase %>..<%= it.processTip %>
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": gate
-              gate:
-                actor: human
-                message: "confirm before finishing"
-                on:
-                  "* **": finishing
-              finishing:
-                actor: agent
-                prompt: "write DONE.md"
-                on:
-                  "A DONE.md": idle
-                  "M DONE.md": idle
+      export default workflow(
+        {
+          default: async () => {
+            await human("idle", { message: "write NOTE.md to start a process" })
+            await agent("building", "build it")
+            await human("gate", { message: "confirm before finishing" })
+            await agent("finishing", "write DONE.md")
+            if (added("DONE.md").length === 0 && modified("DONE.md").length === 0) {
+              refuse("finishing must write DONE.md")
+            }
+          },
+        },
+        {
+          summary: (it) =>
+            [
+              "The process is closed. Write its closing message.",
+              "",
+              `Entry: ${it.entryCommit}`,
+              ...it.humanCommits.map((c) => `Human: ${c.hash} entering ${c.state}`),
+              `Range: ${it.processBase}..${it.processTip}`,
+            ].join("\n"),
+        },
+      )
       """
     And a file "NOTE.md" with:
       """
@@ -104,27 +93,19 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
   @live
   Scenario: gtd summary writes nothing — the repository is byte-identical before and after the call
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        summary: |
-          Closing message for <%= it.entryCommit %>..<%= it.processTip %>.
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(
+        {
+          default: async () => {
+            await human("idle", { message: "write NOTE.md to start a process" })
+            await agent("building", "build it")
+          },
+        },
+        { summary: (it) => `Closing message for ${it.entryCommit}..${it.processTip}.` },
+      )
       """
     And a file "NOTE.md" with:
       """
@@ -161,25 +142,16 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
   @inmem
   Scenario: gtd summary refuses when the active workflow declares no summary: template
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": building
-              building:
-                actor: agent
-                prompt: "build it"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("building", "build it")
+        },
+      })
       """
     And a file "NOTE.md" with:
       """

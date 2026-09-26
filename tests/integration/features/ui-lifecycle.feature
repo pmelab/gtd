@@ -16,27 +16,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   @live
   Scenario: gtd ui binds for real and exits 130 on SIGINT — the same signal Ctrl-C sends
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -56,27 +45,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   @live
   Scenario: gtd ui binds for real and exits 143 on SIGTERM
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -106,27 +84,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   @live
   Scenario: gtd ui binds for real over tailscale serve and exits 130 on SIGINT, tearing down its mapping
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -147,27 +114,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   @live
   Scenario: gtd ui binds for real over tailscale serve and exits 143 on SIGTERM, tearing down its mapping
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -188,27 +144,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   @live
   Scenario: handing off exits 0, with the human's note durably on disk and no child process spawned
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -216,11 +161,6 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
-    # The workflow's own `file: "PLAN.md"` is RELATIVE to ".gtd/" — the
-    # compiler prepends that directory (`StateFields.ts`'s own doc comment),
-    # so the steering file the served step actually names, and the one a
-    # real phone client's `readSteeringFile`/`writeNote` calls would use, is
-    # ".gtd/PLAN.md" — never bare "PLAN.md" at the repo root.
     And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
@@ -239,27 +179,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   @live
   Scenario: handing off with no note (package 04's Done control) exits the same way the note-carrying handoff does
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -296,27 +225,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     # fake hostname resolves nowhere real) — proving both the publish AND
     # the teardown side of Task 4's ownership guarantee.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -350,30 +268,22 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     # --host nor ui.host given. On CI that address is a loopback alias the
     # workflow adds (.github/workflows/test.yml), not a joined tailnet.
     Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
+      """
     And a gtd config file at ".gtdrc" with:
       """
       ui:
         cert: cert.pem
         key: key.pem
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
       """
     And a self-signed TLS cert and key at "cert.pem" and "key.pem"
     And a file "NOTE.md" with:
@@ -401,27 +311,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   @live
   Scenario: no --port given, 8443 already carries a foreign mapping, gtd ui's own candidate walk lands on 10000 and tears only that down
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -446,27 +345,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   @live
   Scenario: picking a question option writes the tick through to disk over a real setValue round trip
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -474,8 +362,6 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
-    # See the handoff scenario above: the workflow's `file: "PLAN.md"` is
-    # relative to ".gtd/", so the served steering file is ".gtd/PLAN.md".
     And a file ".gtd/PLAN.md" with:
       """
       Sample plan.
@@ -503,27 +389,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     # request a pull-to-refresh reissues) must still be served, and the
     # process must still end through a real `done` handoff afterward, exit 0.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start"
-                on:
-                  "* **": working
-              working:
-                actor: human
-                file: "PLAN.md"
-                mode: qa
-                prompt: "answer the plan"
-                on:
-                  "* **": idle
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start" })
+          await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """

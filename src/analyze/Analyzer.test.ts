@@ -213,6 +213,20 @@ export default workflow({
       expect(result.diagnostics[0]?.origin).toBe(CONFIG)
     })
 
+    it("an option key the step does not accept, naming a retired one's replacement", () => {
+      const result = analyze(`${IMPORTS}
+export default workflow({
+  default: async () => {
+    await human("idle", { mesage: "typo" })
+    await agent("work", "p", { memory: "plan", model: "m" })
+  },
+})`)
+      expect(messages(result)).toEqual([
+        '5: step "idle": unknown key(s) mesage in human() options',
+        '6: step "work": unknown key(s) memory in agent() options — a step\'s memory scope is computed from its scope() prefix, so the memory option no longer exists',
+      ])
+    })
+
     it("an await on anything but a step", () => {
       const result = analyze(`${IMPORTS}
 export default workflow({
@@ -263,6 +277,17 @@ export default workflow({
 })`,
       )
       expect(messages(result).map((m) => m.split(":")[0])).toEqual(["6", "7", "8", "9"])
+    })
+
+    it("IO inside a step's options object and a template span", () => {
+      const result = analyze(`${IMPORTS}
+export default workflow({
+  default: async () => {
+    await human("idle", { message: \`started \${Date.now()}\` })
+    await agent("go", "p", { model: new Date().toISOString() })
+  },
+})`)
+      expect(messages(result).map((m) => m.split(":")[0])).toEqual(["5", "6"])
     })
 
     it("duplicate step names from different call sites", () => {

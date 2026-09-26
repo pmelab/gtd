@@ -20,33 +20,26 @@ Feature: A declared mode command guards its own missing binary
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: "gtd-test-nonexistent-binary <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: "gtd-test-nonexistent-binary <%= it.file %>"
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "start a decision record" })
+          await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+        },
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "mode \"adr\": \"validate\" command not found: gtd-test-nonexistent-binary"
@@ -56,33 +49,26 @@ Feature: A declared mode command guards its own missing binary
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            format: "gtd-test-nonexistent-formatter <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          format: "gtd-test-nonexistent-formatter <%= it.file %>"
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "start a decision record" })
+          await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+        },
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "mode \"adr\": \"format\" command not found: gtd-test-nonexistent-formatter"
@@ -100,33 +86,26 @@ Feature: A declared mode command guards its own missing binary
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: "gtd-test-nonexistent-binary <%= it.file %> | cat"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: "gtd-test-nonexistent-binary <%= it.file %> | cat"
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "start a decision record" })
+          await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+        },
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout does not contain "mode \"adr\": \"validate\" command not found"
@@ -135,33 +114,26 @@ Feature: A declared mode command guards its own missing binary
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          adr:
-            validate: "FOO=1 gtd-test-nonexistent-binary <%= it.file %>"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start a decision record"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                prompt: "Write the ADR."
-                file: docs/adr.md
-                mode: adr
-                on:
-                  "* **": idle
+      modes:
+        adr:
+          validate: "FOO=1 gtd-test-nonexistent-binary <%= it.file %>"
       """
-    And a commit "gtd(human): drafting" that adds ".gtd/docs/adr.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "start a decision record" })
+          await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+        },
+      })
+      """
+    And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
       """
+    And gtd lands "gtd(human): idle → drafting"
     When I run gtd with args "validate"
     Then it fails
     And stderr does not contain "command not found: gtd-test-nonexistent-binary"

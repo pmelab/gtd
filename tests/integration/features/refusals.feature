@@ -1,40 +1,31 @@
 @inmem
 Feature: Refusals — no-match steps commit nothing
 
-  Pins `PatternMachine.step`'s no-match refusal end to end: a dirty tree
-  matching none of the awaited state's declared patterns is refused naming
-  those patterns.
-  `gtd land` derives who acts from the resolved rest itself (see `Edge.ts`'s
-  `planStep`), so the pure engine's OTHER refusal shape — out-of-turn — is
-  unreachable through it by construction; it stays covered purely at
-  `PatternMachine.test.ts`'s level. A refusal exits non-zero and touches no
-  history — no commit is ever written for a refused step.
+  A flow refuses a landing it cannot explain with `refuse(message)`: the
+  landing exits non-zero, the message is printed on stderr, and no commit is
+  ever written for a refused step — the process stays where it rests.
 
   Scenario: no-match refusal names the declared patterns and commits nothing
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "develop the note, then write COMMIT_MSG.md with the final message"
-                on:
-                  "A COMMIT_MSG.md": done
-                  "M COMMIT_MSG.md": done
-              done:
-                actor: human
-                message: "done"
+      import { added, agent, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent(
+            "working",
+            "develop the note, then write COMMIT_MSG.md with the final message",
+          )
+          if (added("COMMIT_MSG.md").length === 0 && modified("COMMIT_MSG.md").length === 0) {
+            refuse(
+              "gtd land: no declared pattern matches the pending changes — expected A COMMIT_MSG.md or M COMMIT_MSG.md",
+            )
+          }
+          await human("done", { message: "done" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """

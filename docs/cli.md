@@ -10,7 +10,7 @@ Commands:
                    default variables you are most likely to change (the test
                    command) and a Prettier formatting suggestion. gtd runs its
                    built-in workflow by default, so no workflow is written —
-                   add a workflow: key only to customize the machine itself.
+                   write a gtd.config.ts only to customize the workflow itself.
                    Takes no argument. Run once per repo; refuses if a gtd
                    config already exists. Leaves the file uncommitted for you
                    to review and commit
@@ -135,6 +135,12 @@ Commands:
                    the first review round it's the process's diff base;
                    afterward it's the most-recent review round's boundary.
                    Refuses (exit 1) when no process is underway.
+  exec             Run the resolved rest's run callback — the step body a
+                   workflow wrote as a function rather than a shell string —
+                   in the repository root. This is what such a step's script
+                   invokes; the driver lands whatever it leaves in the tree.
+                   Command output goes to stderr. Exits 1 when the callback
+                   throws, or when the resolved rest has no run callback
   judge            Print the resolved rest's pending judgment — the prepared
                    state, its typed questions, and their criteria — the same
                    judge field `gtd next --json` already carries. Read-only:
@@ -272,18 +278,14 @@ other than `gtd land` are all usage errors.
 
 ### `gtd next`'s `Next:`/`next`
 
-Both plain and `--json` output include a headline preview of what would happen
-next: the first declared `on` edge whose pattern matches the pending changes AS
-A WHOLE (the same first-match-wins semantics `gtd land` itself uses), using its
-`action` when the edge declares one, else its raw pattern, alongside its target
-state. Plain output prints a `Next: <action-or-pattern> → <target>` line (or
-`Next: (no match — nothing would happen)`); `--json`'s `next` key mirrors it as
-`{ action?, pattern, target }`, or `null` on no match.
-
-This reports the **declared** route only: a capped `retry` may redirect
-elsewhere when the land is decided, which `Next:`/`next` does not apply — it
-previews what the declared `on` patterns would match, not a guarantee of where a
-real `gtd land` lands.
+Both plain and `--json` output include a preview of where the pending changes
+would take the process: gtd replays the workflow as if the working tree were
+landed now and reports the step it would reach, alongside the step-graph
+condition that leads there (empty when the step follows unconditionally). Plain
+output prints a `Next: <condition> → <step>` line (or
+`Next: (no match — nothing would happen)` on a clean tree); `--json`'s `next`
+key mirrors it as `{ pattern, target }`, or `null`. It is a preview, not a
+landing: a guard or a `refuse()` can still turn the real `gtd land` away.
 
 ### Error envelope
 
@@ -324,10 +326,10 @@ Stderr carries two things beyond the `gtd: ` message line above: NARRATION,
 gated by `--verbose`/`-v`, and REMEDIATION, unconditional.
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
-command's dispatch already computes — which rest resolved, which declared
-pattern each pending change matched, and how config resolved across `.gtdrc`
-layers. Without it, none of this is printed; stdout is never touched either way
-— narration is a stderr-only concern, exactly like the error envelope above.
+command's dispatch already computes — which rest resolved, and how config
+resolved across `.gtdrc` layers. Without it, none of this is printed; stdout is
+never touched either way — narration is a stderr-only concern, exactly like the
+error envelope above.
 
 A failure's remediation detail is unconditional — it prints at every verbosity,
 on the line(s) right after the `gtd: `-prefixed message, each indented two

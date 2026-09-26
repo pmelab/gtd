@@ -1,11 +1,11 @@
 Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
 
   `packages.item.spec.pre` renders one `noul` per `## ` section of the
-  package the current build is judged against. It is entered directly here
-  (a fabricated commit history, exactly `machine-memory.feature`'s
-  technique) rather than walked through triage/architecture — the states
-  under test don't care how the process got there, only what a landed
-  verdict does next. `scoping`'s own shell body is a workflow-authored
+  package the current build is judged against. Each scenario reaches it
+  by the shortest real history: `--entry start-gate.check`, a one-line
+  triage, `architecture-pre` judged "no" so `architecture-promote` turns
+  the plan straight into the one package under test, then picking,
+  building and a green health check. `scoping`'s own shell body is a workflow-authored
   script a real DRIVER runs (never this test harness, same convention every
   other `actor: check` state's script uses here) — its effect is given by
   hand, the way `packages.item.health.check`'s own script output already is
@@ -20,15 +20,36 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: a skipped judgment (no verdict) always runs the full review — the fail-open default, even for a package with no `## ` sections at all
     Given a test project
     And the workflow
-    And a commit "chore: add the package" that adds ".gtd/packages/01-widget.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build the widget factory. No open questions.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
+      """
+      [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
+      """
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
-    And a commit "gtd(check): packages.item.spec.pre" that adds ".gtd/NEXT.md" with:
+    And gtd lands "gtd(check): architecture-promote → packages.picking"
+    And a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
       """
+    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
@@ -41,7 +62,20 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: every section answered high-confidence "yes" clears at the scoping check, no review turn spent
     Given a test project
     And the workflow
-    And a commit "chore: add the package" that adds ".gtd/packages/01-widget.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build the widget factory. No open questions.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
+      """
+      [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
+      """
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory.
 
@@ -54,10 +88,18 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ## Section C
       - [ ] add src/c.ts
       """
-    And a commit "gtd(check): packages.item.spec.pre" that adds ".gtd/NEXT.md" with:
+    And gtd lands "gtd(check): architecture-promote → packages.picking"
+    And a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
       """
+    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
     When I run gtd judge answer with stdin:
       """
       [
@@ -84,7 +126,20 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: only one of three sections answered — a partial verdict never approves; the unanswered sections default to failing
     Given a test project
     And the workflow
-    And a commit "chore: add the package" that adds ".gtd/packages/01-widget.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build the widget factory. No open questions.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
+      """
+      [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
+      """
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory.
 
@@ -97,10 +152,18 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ## Section C
       - [ ] add src/c.ts
       """
-    And a commit "gtd(check): packages.item.spec.pre" that adds ".gtd/NEXT.md" with:
+    And gtd lands "gtd(check): architecture-promote → packages.picking"
+    And a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
       """
+    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
     When I run gtd judge answer with stdin:
       """
       [
@@ -125,7 +188,20 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: two of three sections answered "no"/low-confidence route to the scoping check, which confines the reviewer to exactly those two
     Given a test project
     And the workflow
-    And a commit "chore: add the package" that adds ".gtd/packages/01-widget.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build the widget factory. No open questions.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
+      """
+      [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
+      """
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory.
 
@@ -138,10 +214,18 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ## Section C
       - [ ] add src/c.ts
       """
-    And a commit "gtd(check): packages.item.spec.pre" that adds ".gtd/NEXT.md" with:
+    And gtd lands "gtd(check): architecture-promote → packages.picking"
+    And a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
       """
+    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
     # Dereferences the pointer: the judge's own evidence is the package
     # markdown itself, never the literal ".gtd/packages/01-widget.md" text
     # `.gtd/NEXT.md` holds.
@@ -185,18 +269,40 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: a written .gtd/SPEC_FEEDBACK.md routes straight to fix-spec with every finding intact — no post-judge re-weighs them
     Given a test project
     And the workflow
-    And a commit "chore: add the package" that adds ".gtd/packages/01-widget.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build the widget factory. No open questions.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
+      """
+      [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
+      """
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory.
 
       ## Section A
       - [ ] add src/a.ts
       """
-    And a commit "chore: point at the package" that adds ".gtd/NEXT.md" with:
+    And gtd lands "gtd(check): architecture-promote → packages.picking"
+    And a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
       """
-    And an empty commit "gtd(agent): packages.item.spec.review"
+    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
+    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
     Given a file ".gtd/SPEC_FEEDBACK.md" with:
       """
       ## Missing null check
@@ -217,18 +323,40 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: a review that writes no .gtd/SPEC_FEEDBACK.md approves the package outright — silence is the only approval
     Given a test project
     And the workflow
-    And a commit "chore: add the package" that adds ".gtd/packages/01-widget.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build the widget factory. No open questions.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.check"
+    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
+      """
+      [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
+      """
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory.
 
       ## Section A
       - [ ] add src/a.ts
       """
-    And a commit "chore: point at the package" that adds ".gtd/NEXT.md" with:
+    And gtd lands "gtd(check): architecture-promote → packages.picking"
+    And a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
       """
-    And an empty commit "gtd(agent): packages.item.spec.review"
+    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
+    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.scoping"
+    And gtd lands "gtd(check): packages.item.spec.scoping → packages.item.spec.review"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"

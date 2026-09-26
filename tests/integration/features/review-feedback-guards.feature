@@ -1,7 +1,7 @@
 @inmem
 Feature: Review feedback — capture, classification, and the loop-back guards
 
-  The review feedback lap of the bundled unified workflow (see STATES.md §10).
+  The review feedback lap of the bundled unified workflow.
   A human comment at `await-review` routes to `build.review.deciding`, which is
   the MECHANICAL decider: a hand-edit outside `.gtd/` is a fact, so it CAPTURES
   the raw material into `.gtd/REVIEW_RAW.md` straight away (never interprets
@@ -21,13 +21,12 @@ Feature: Review feedback — capture, classification, and the loop-back guards
 
   Consuming the raw capture with nothing else, and writing no
   `.gtd/REQUIREMENTS.md`, IS a legal outcome now — the non-actionable
-  sign-off short-circuit (`"D .gtd/REVIEW_RAW.md": $onSignoff`), the same trick
+  sign-off short-circuit (a deleted `.gtd/REVIEW_RAW.md` signs off), the same trick
   `deciding` already uses one state earlier. What `collecting` still refuses
   is a dirty tree that touches something OTHER than `.gtd/REQUIREMENTS.md` /
-  `.gtd/REVIEW_RAW.md` while leaving neither of the declared rows matched: no
-  `A`/`M` on `.gtd/REQUIREMENTS.md` and no `D` on `.gtd/REVIEW_RAW.md`, and no
-  `"* **"` catch-all declared to excuse it — that is "you classify, you do
-  not build" enforced structurally, not by content-sniffing.
+  `.gtd/REVIEW_RAW.md` while doing neither expected thing: no write to
+  `.gtd/REQUIREMENTS.md` and no delete of `.gtd/REVIEW_RAW.md` — that is "you
+  classify, you do not build" enforced structurally, not by content-sniffing.
 
   `design.triage` declares `requireProgress: true` on that same
   `.gtd/REQUIREMENTS.md` file: an agent that deletes the assembled review
@@ -46,15 +45,20 @@ Feature: Review feedback — capture, classification, and the loop-back guards
   Scenario: a note-like unchecked line outside a file pointer no longer blocks sign-off
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.building" that adds "src/calc.ts" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
     # The committed REVIEW.md already carries a non-`./`-prefixed "- [ ]" note,
     # untouched by the human's edit below. Only the real file pointer is
     # ticked, with no other comment — it signs off cleanly, because the
     # review-doc guard no longer reads tick state at all.
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -68,6 +72,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -89,11 +94,16 @@ Feature: Review feedback — capture, classification, and the loop-back guards
   Scenario: a note flows through capture, and collecting classifies it into REQUIREMENTS.md — re-unwind re-plans it, never builds on it
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.building" that adds "src/calc.ts" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -103,6 +113,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -168,11 +179,35 @@ Feature: Review feedback — capture, classification, and the loop-back guards
   Scenario: build.review.collecting refuses touching anything other than the raw capture
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.building" that adds "src/calc.ts" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(check): build.review.deciding → build.review.collecting" that adds ".gtd/REVIEW_RAW.md" with:
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1
+      new add function
+      """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    # await-review: a hand-edit outside `.gtd/` is feedback — deciding
+    # captures it straight into the raw capture (given by hand).
+    And a file "src/greet.ts" with:
+      """
+      export const greet = "hello"
+      """
+    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And the file ".gtd/REVIEW.md" is deleted
+    And a file ".gtd/REVIEW_RAW.md" with:
       """
       Raw review material captured for classification.
 
@@ -180,6 +215,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
 
       - [x] ./src/calc.ts#1 — rename `add` to `sum`
       """
+    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
     # Neither a write (A/M) on REQUIREMENTS.md nor a consume (D) on the raw
     # capture — the raw capture is left exactly as committed, while some OTHER
     # file is touched instead. No declared row recognizes this shape: not a
@@ -195,17 +231,51 @@ Feature: Review feedback — capture, classification, and the loop-back guards
   Scenario: design.triage refuses deleting the assembled requirements file on a loop-back lap without addressing it
     Given a test project
     And the workflow
-    # Simulates resting at design.triage on a REVIEW LOOP-BACK lap: an earlier
-    # actionable round's `build.review.collecting` already classified the
-    # feedback straight into REQUIREMENTS.md, and re-unwind already handed off
-    # here.
-    And a commit "gtd(check): re-unwind → design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+    # Rests at design.triage on a REVIEW LOOP-BACK lap: an actionable round's
+    # `build.review.collecting` classified the feedback straight into
+    # REQUIREMENTS.md, and re-unwind reverted the hand-edit and handed off here.
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
+    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1
+      new add function
+      """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And a file "src/greet.ts" with:
+      """
+      export const greet = "hello"
+      """
+    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And the file ".gtd/REVIEW.md" is deleted
+    And a file ".gtd/REVIEW_RAW.md" with:
+      """
+      Raw review material captured for classification.
+      """
+    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
+    And the file ".gtd/REVIEW_RAW.md" is deleted
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Rename `add` to `sum`
 
       PRODUCT — the review left a note on ./src/calc.ts#1 asking to rename
       the `add` export to `sum`.
       """
+    And gtd lands "gtd(agent): build.review.collecting → re-unwind"
+    And the file "src/greet.ts" is deleted
+    And gtd lands "gtd(check): re-unwind → design.triage"
     Given the file ".gtd/REQUIREMENTS.md" is deleted
     When I run gtd land
     Then it fails
@@ -213,30 +283,20 @@ Feature: Review feedback — capture, classification, and the loop-back guards
 
   Scenario: a NOTHING ACTIONABLE sentinel is the one exemption, pinned against a minimal custom workflow since no bundled state writes it any more
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write .gtd/FEEDBACK.md, then run `gtd land`"
-                on:
-                  "* **": drafting
-              drafting:
-                actor: agent
-                file: FEEDBACK.md
-                requireProgress: true
-                prompt: "address .gtd/FEEDBACK.md, then delete it"
-                on:
-                  "* **": done
-              done:
-                actor: human
-                message: "feedback addressed"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write .gtd/FEEDBACK.md, then run `gtd land`" })
+          await agent("drafting", "address .gtd/FEEDBACK.md, then delete it", {
+            file: ".gtd/FEEDBACK.md",
+            requireProgress: true,
+          })
+          await human("done", { message: "feedback addressed" })
+        },
+      })
       """
     And a file ".gtd/FEEDBACK.md" with:
       """

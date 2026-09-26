@@ -34,6 +34,28 @@ const STEPPING_RUNTIME: ReadonlySet<string> = new Set([...STEP_KINDS, "refuse", 
 const OPTIONS_ARG: Readonly<Record<string, number>> = { agent: 2, human: 1, run: 2, judge: 3 }
 const CONTENT_ARG: Readonly<Record<string, number>> = { agent: 1, run: 1 }
 
+const STEERING_OPTIONS = [
+  "file",
+  "mode",
+  "requireProgress",
+  "answerGate",
+  "requireRevert",
+  "reviewBase",
+  "label",
+]
+/** Option keys each step accepts — the runtime's option types, which jiti never type-checks. */
+const KNOWN_OPTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
+  agent: new Set([...STEERING_OPTIONS, "model", "system", "skills", "allowEmpty"]),
+  human: new Set([...STEERING_OPTIONS, "message", "acceptClean"]),
+  run: new Set(STEERING_OPTIONS),
+  judge: new Set([...STEERING_OPTIONS, "message", "minP"]),
+}
+// Keys an older workflow format accepted, with what replaced them.
+const RETIRED_OPTIONS: Readonly<Record<string, string>> = {
+  memory:
+    "a step's memory scope is computed from its scope() prefix, so the memory option no longer exists",
+}
+
 interface Pending {
   readonly from: number
   readonly conds: readonly string[]
@@ -220,15 +242,9 @@ export class GraphBuilder {
 
   private exits(node: TS.Node, ownLoop: boolean): boolean {
     const ts = this.ts
-    if (
-      ts.isArrowFunction(node) ||
-      ts.isFunctionExpression(node) ||
-      ts.isFunctionDeclaration(node)
-    ) {
-      return false
-    }
+    if (ts.isFunctionLike(node)) return false
     if (ts.isReturnStatement(node) || ts.isThrowStatement(node)) return true
-    if (!ownLoop && (ts.isBreakStatement(node) || ts.isContinueStatement(node))) return true
+    if (!ownLoop && ts.isBreakOrContinueStatement(node)) return true
     return ts.forEachChild(node, (child) => this.exits(child, ownLoop) || undefined) ?? false
   }
 
@@ -255,6 +271,25 @@ export class GraphBuilder {
       )
     }
     this.stepSite.set(name, site)
+  }
+
+  private checkOptionKeys(call: TS.CallExpression, kind: string, name: string, env: Env): void {
+    const known = KNOWN_OPTIONS[kind]
+    const arg = call.arguments[OPTIONS_ARG[kind] ?? -1]
+    const literal =
+      known === undefined || arg === undefined ? undefined : this.resolver.objectLiteral(arg, env)
+    if (literal === undefined) return
+    const unknown = literal.properties.flatMap((property) => {
+      if (property.name === undefined) return []
+      const key = this.resolver.propertyName(property.name)
+      return key === undefined || known!.has(key) ? [] : [key]
+    })
+    if (unknown.length === 0) return
+    const why = unknown.flatMap((key) => (RETIRED_OPTIONS[key] ? [RETIRED_OPTIONS[key]] : []))
+    this.report(
+      literal,
+      `step "${name}": unknown key(s) ${unknown.join(", ")} in ${kind}() options${why.length > 0 ? ` — ${why.join("; ")}` : ""}`,
+    )
   }
 
   private contentOf(
@@ -294,6 +329,7 @@ export class GraphBuilder {
     const name = this.stepName(call, kind, env)
     if (name === undefined) return []
     this.checkCollision(call, name)
+    this.checkOptionKeys(call, kind, name, env)
     const index = this.nodeFor(call, kind, name, env)
     this.connect(frontier, index)
     const after: Frontier = [{ from: index, conds: [] }]
@@ -316,9 +352,19 @@ export class GraphBuilder {
       return frontier
     }
     this.checkIo(node)
+    return this.subexpressions(node, frontier, env)
+  }
+
+  // Property assignments, template spans and the like are not expressions
+  // themselves, but the expressions inside them are still flow code.
+  private subexpressions(node: TS.Node, frontier: Frontier, env: Env): Frontier {
     let current = frontier
-    ts.forEachChild(node, (child) => {
-      if (ts.isExpression(child)) current = this.expression(child, current, env)
+    this.ts.forEachChild(node, (child) => {
+      if (this.ts.isExpression(child)) current = this.expression(child, current, env)
+      else if (!this.ts.isToken(child) && !this.ts.isTypeNode(child)) {
+        this.checkIo(child)
+        current = this.subexpressions(child, current, env)
+      }
     })
     return current
   }
@@ -360,9 +406,18 @@ export class GraphBuilder {
   }
 
   private call(node: TS.CallExpression, frontier: Frontier, env: Env, awaited: boolean): Frontier {
-    const ts = this.ts
     const runtime = this.resolver.runtimeName(node.expression)
     if (runtime !== undefined) return this.runtimeCall(node, runtime, frontier, env)
+    const current = this.callOperands(node, frontier, env)
+    const callable = this.resolver.callableOf(node.expression, env)
+    if (callable !== undefined) return this.callResolved(node, callable, current, env)
+    if (awaited) this.report(node, `${AWAIT_MESSAGE} — this callee cannot be resolved`)
+    return current
+  }
+
+  /** The callee and its non-function arguments, evaluated in order. */
+  private callOperands(node: TS.CallExpression, frontier: Frontier, env: Env): Frontier {
+    const ts = this.ts
     let current = frontier
     if (ts.isIdentifier(node.expression)) this.checkIo(node.expression)
     else current = this.expression(node.expression, current, env)
@@ -370,17 +425,21 @@ export class GraphBuilder {
       if (!ts.isArrowFunction(arg) && !ts.isFunctionExpression(arg))
         current = this.expression(arg, current, env)
     }
-    const callable = this.resolver.callableOf(node.expression, env)
-    if (callable !== undefined) {
-      const bound = this.bindParameters(callable.fn, node.arguments, callable.env, env)
-      if (callable.fn.body !== undefined && !this.mayStep(callable.fn.body, bound, [callable.fn])) {
-        this.scanIo(callable.fn.body)
-        return current
-      }
-      return this.inline(callable.fn, node.arguments, callable.env, env, node, current)
-    }
-    if (awaited) this.report(node, `${AWAIT_MESSAGE} — this callee cannot be resolved`)
     return current
+  }
+
+  private callResolved(
+    node: TS.CallExpression,
+    callable: { readonly fn: Callable; readonly env: Env },
+    current: Frontier,
+    env: Env,
+  ): Frontier {
+    const bound = this.bindParameters(callable.fn, node.arguments, callable.env, env)
+    if (callable.fn.body !== undefined && !this.mayStep(callable.fn.body, bound, [callable.fn])) {
+      this.scanIo(callable.fn.body)
+      return current
+    }
+    return this.inline(callable.fn, node.arguments, callable.env, env, node, current)
   }
 
   private runtimeCall(

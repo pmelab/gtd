@@ -10,7 +10,6 @@ import {
 import { ConfigDiscovery, ConfigService } from "./workflow/index.js"
 import {
   formatSubject,
-  memoryScopeOf,
   parseCommitMessage,
   replay,
   treeFromRecord,
@@ -21,7 +20,6 @@ import {
   type TreeView,
 } from "./replay/index.js"
 import {
-  createRenderLedger,
   renderSkillsPreamble,
   type TemplateContext,
   type TemplateEdge,
@@ -138,8 +136,34 @@ export interface ProcessRun {
   }
 }
 
+const headTurnOf = (head: History[number] | undefined): ProcessRun["headTurn"] => {
+  if (head === undefined) return undefined
+  const message = parseCommitMessage(head.message)
+  const subject = message.parsed
+  if (subject === undefined || !ACTORS.has(subject.actor)) return undefined
+  return {
+    state: subject.to,
+    actor: subject.actor,
+    empty: head.touched.length === 0,
+    step: message.step !== undefined,
+  }
+}
+
+const traceEntryOf = (
+  hash: string,
+  message: ReturnType<typeof parseCommitMessage>,
+): TraceEntry => ({
+  state: message.parsed?.to ?? "",
+  hash,
+  actor: message.parsed?.actor ?? "",
+})
+
+const costEntriesOf = (message: ReturnType<typeof parseCommitMessage>): CostEntry[] =>
+  message.cost.map((c) => ({ cost: c.cost, model: c.model ?? UNATTRIBUTED_MODEL }))
+
+const hashAt = (history: History, index: number): string | undefined => history[index]?.hash
+
 const runOf = (
-  def: WorkflowDefinition,
   history: History,
   location: EpisodeLocation,
   closingHash: string | undefined = undefined,
@@ -147,38 +171,21 @@ const runOf = (
   const processCommits = history.slice(location.processStart)
   const parsed = processCommits.map((c) => parseCommitMessage(c.message))
   const first = parsed[0]
-  const startParentHash =
-    location.processStart > 0 ? history[location.processStart - 1]!.hash : EMPTY_TREE
+  const startParentHash = hashAt(history, location.processStart - 1) ?? EMPTY_TREE
   const head = history[history.length - 1]
-  const headParsed = head === undefined ? undefined : parseCommitMessage(head.message)
-  const headSubject = headParsed?.parsed
   return {
     entry: location.entry,
-    startHash: processCommits[0]?.hash ?? head?.hash ?? EMPTY_TREE,
+    startHash: hashAt(history, location.processStart) ?? head?.hash ?? EMPTY_TREE,
     startParentHash,
     diffBase: first?.reviewBase ?? startParentHash,
-    trace: processCommits.map((c, i) => ({
-      state: parsed[i]!.parsed?.to ?? "",
-      hash: c.hash,
-      actor: parsed[i]!.parsed?.actor ?? "",
-    })),
-    costEntries: parsed.flatMap((m) =>
-      m.cost.map((c) => ({ cost: c.cost, model: c.model ?? UNATTRIBUTED_MODEL })),
-    ),
+    trace: processCommits.map((c, i) => traceEntryOf(c.hash, parsed[i]!)),
+    costEntries: parsed.flatMap(costEntriesOf),
     judgeVerdicts: parsed.flatMap((m) => m.judge),
-    entryVars: location.entry === "default" ? {} : { ...(first?.vars ?? {}) },
-    headTurn:
-      headSubject !== undefined && ACTORS.has(headSubject.actor)
-        ? {
-            state: headSubject.to,
-            actor: headSubject.actor,
-            empty: head!.touched.length === 0,
-            step: headParsed!.step !== undefined,
-          }
-        : undefined,
+    entryVars: location.entry === "default" ? {} : { ...first?.vars },
+    headTurn: headTurnOf(head),
     closingHash,
     episode: {
-      base: location.baseIndex >= 0 ? history[location.baseIndex]!.hash : undefined,
+      base: hashAt(history, location.baseIndex),
       commits: history.slice(location.baseIndex + 1),
     },
   }
@@ -192,7 +199,7 @@ const computeProcessRun = (
   def: WorkflowDefinition,
   head?: string,
 ): Effect.Effect<ProcessRun, Error> =>
-  Effect.map(historyUpTo(git, head), (history) => runOf(def, history, locateEpisode(def, history)))
+  Effect.map(historyUpTo(git, head), (history) => runOf(history, locateEpisode(def, history)))
 
 type ConfigRequirements = GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
 
@@ -213,10 +220,10 @@ export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = 
     const history = yield* historyUpTo(git, undefined)
     const head = history[history.length - 1]
     const closes = head !== undefined && parseCommitMessage(head.message).parsed?.to === def.initial
-    if (!closes) return runOf(def, history, locateEpisode(def, history))
+    if (!closes) return runOf(history, locateEpisode(def, history))
     const before = history.slice(0, -1)
     const location = locateEpisode(def, before)
-    return runOf(def, history, { ...location }, head.hash)
+    return runOf(history, { ...location }, head.hash)
   },
 )
 
@@ -262,7 +269,7 @@ const PREFIX = "GTD_"
  * the opening commit's `Gtd-Var` trailers, then `GTD_<NAME>` for any name an
  * earlier layer declared (an env var never introduces a name).
  */
-export const resolveVars = (
+const resolveVars = (
   workflowVars: Readonly<Record<string, string>>,
   rcVars: Readonly<Record<string, string>>,
   entryVars: Readonly<Record<string, string>>,
@@ -388,14 +395,14 @@ const withSkillsPreamble = (
 const optional = <K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } =>
   (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
 
-const stepDefOf = (
-  step: ReachedStep,
-  vars: Record<string, string>,
-  context: TemplateContext,
-): StepDef => {
-  const request = step.request
-  const options = request.options
-  const common = {
+type StepCommon = Pick<
+  StepDef,
+  "actor" | "label" | "file" | "mode" | "requireProgress" | "answerGate" | "requireRevert"
+>
+
+const commonOf = (step: ReachedStep): StepCommon => {
+  const options = step.request.options
+  return {
     actor: step.actor,
     ...optional("label", options.label),
     ...optional("file", options.file),
@@ -404,40 +411,70 @@ const stepDefOf = (
     ...optional("answerGate", options.answerGate),
     ...optional("requireRevert", options.requireRevert),
   }
-  if (request.kind === "agent") {
-    return {
-      ...common,
-      kind: "prompt",
-      content: withSkillsPreamble(request.prompt, request.options.skills, vars, context),
-      ...optional("model", request.options.model),
-      ...optional("system", request.options.system),
-      ...optional("skills", request.options.skills),
-      ...optional("allowEmpty", request.options.allowEmpty),
-    }
-  }
-  if (request.kind === "run") {
-    const callback = typeof request.body === "function"
-    return {
-      ...common,
-      kind: "script",
-      content: callback ? CALLBACK_SCRIPT : (request.body as string),
-      ...(callback ? { callback: true } : {}),
-    }
-  }
-  if (request.kind === "judge") {
-    const message = request.options.message ?? DEFAULT_JUDGE_MESSAGE
-    return {
-      ...common,
-      kind: "message",
-      content: step.truncated ? `${message}\n\n${TRUNCATION_NOTICE}` : message,
-      ...optional("judge", judgeDocument(step)),
-    }
-  }
+}
+
+type RequestOf<K extends ReachedStep["request"]["kind"]> = Extract<
+  ReachedStep["request"],
+  { kind: K }
+>
+
+const promptDef = (
+  common: StepCommon,
+  request: RequestOf<"agent">,
+  vars: Record<string, string>,
+  context: TemplateContext,
+): StepDef => ({
+  ...common,
+  kind: "prompt",
+  content: withSkillsPreamble(request.prompt, request.options.skills, vars, context),
+  ...optional("model", request.options.model),
+  ...optional("system", request.options.system),
+  ...optional("skills", request.options.skills),
+  ...optional("allowEmpty", request.options.allowEmpty),
+})
+
+const scriptDef = (common: StepCommon, request: RequestOf<"run">): StepDef =>
+  typeof request.body === "function"
+    ? { ...common, kind: "script", content: CALLBACK_SCRIPT, callback: true }
+    : { ...common, kind: "script", content: request.body }
+
+const judgeDef = (common: StepCommon, request: RequestOf<"judge">, step: ReachedStep): StepDef => {
+  const message = request.options.message ?? DEFAULT_JUDGE_MESSAGE
   return {
     ...common,
     kind: "message",
-    content: request.options.message ?? request.options.label ?? step.name,
-    ...optional("acceptClean", request.options.acceptClean),
+    content: step.truncated ? `${message}\n\n${TRUNCATION_NOTICE}` : message,
+    ...optional("judge", judgeDocument(step)),
+  }
+}
+
+const messageDef = (
+  common: StepCommon,
+  request: RequestOf<"human">,
+  step: ReachedStep,
+): StepDef => ({
+  ...common,
+  kind: "message",
+  content: request.options.message ?? request.options.label ?? step.name,
+  ...optional("acceptClean", request.options.acceptClean),
+})
+
+const stepDefOf = (
+  step: ReachedStep,
+  vars: Record<string, string>,
+  context: TemplateContext,
+): StepDef => {
+  const request = step.request
+  const common = commonOf(step)
+  switch (request.kind) {
+    case "agent":
+      return promptDef(common, request, vars, context)
+    case "run":
+      return scriptDef(common, request)
+    case "judge":
+      return judgeDef(common, request, step)
+    case "human":
+      return messageDef(common, request, step)
   }
 }
 
@@ -475,7 +512,10 @@ const memoryOf = (
   if (rest === undefined || rest.kind !== "agent") return { key: undefined, resumed: false }
   const start = scopeRunStart(trace, rest.memoryScope)
   const token = start <= 0 ? run.startParentHash : trace[start - 1]!.enteredAt
-  const resumed = trace.slice(Math.max(start, 0), trace.length - 1).some((s) => s.kind === "agent")
+  // A child scope's turns keep the run unbroken but are their own conversation.
+  const resumed = trace
+    .slice(Math.max(start, 0), trace.length - 1)
+    .some((s) => s.kind === "agent" && s.memoryScope === rest.memoryScope)
   return { key: `${rest.memoryScope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`, resumed }
 }
 
@@ -675,17 +715,39 @@ export const stalledAt = (rest: Rest): boolean =>
   !rest.run.headTurn.step &&
   rest.run.headTurn.empty
 
-/** `idle` means exactly one thing: the default entry's first step, first visit, clean tree. */
 /** No process is underway: the default entry's first step, first visit — a dirty tree there is a turn not yet landed, not a process. */
 export const noProcessUnderway = (rest: Rest): boolean =>
   rest.run.entry === "default" && rest.state === rest.def.initial && rest.step.id.occurrence === 1
 
+/** `idle` means exactly one thing: no process underway, clean tree. */
 export const restIsIdle = (rest: Rest): boolean =>
   noProcessUnderway(rest) && rest.changes.length === 0
 
 // ── Landing ─────────────────────────────────────────────────────────────────
 
 const isHumanReviewGate = (def: StepDef): boolean => def.actor === "human" && def.mode === "review"
+
+/** The landing a clean tree decides before any replay, if it decides one. */
+const cleanLanding = (rest: Rest): Landing | undefined => {
+  if (rest.changes.length > 0) return undefined
+  const def = rest.stepDef
+  if (def.kind === "prompt" && def.allowEmpty !== true) {
+    return { kind: "attempt", subject: formatSubject(rest.actor, rest.state) }
+  }
+  if (rest.actor === "human" && def.acceptClean !== true) return { kind: "noop", settled: false }
+  return undefined
+}
+
+/** At the human review gate the pending tree lands with every tick cleared, as the landing script will. */
+const reviewGateRewrite = (
+  def: StepDef,
+): ((path: string, content: string) => string) | undefined => {
+  const reviewFormat = steeringFormatFor("review")
+  if (!isHumanReviewGate(def) || def.file === undefined || reviewFormat === undefined) {
+    return undefined
+  }
+  return (path, content) => (path === def.file ? clearTicks(reviewFormat, content) : content)
+}
 
 /**
  * What landing the pending turn at `rest` does — a pure decision from a
@@ -697,23 +759,11 @@ const decideLanding = (
   verdicts: readonly JudgeVerdict[] | undefined,
 ): Effect.Effect<Landing, Error> =>
   Effect.gen(function* () {
-    const def = rest.stepDef
-    const clean = rest.changes.length === 0
-    if (clean && def.kind === "prompt" && def.allowEmpty !== true) {
-      return { kind: "attempt", subject: formatSubject(rest.actor, rest.state) }
-    }
-    if (clean && rest.actor === "human" && def.acceptClean !== true) {
-      return { kind: "noop", settled: false }
-    }
-    const reviewFormat = steeringFormatFor("review")
-    const rewrite =
-      isHumanReviewGate(def) && def.file !== undefined && reviewFormat !== undefined
-        ? (path: string, content: string) =>
-            path === def.file ? clearTicks(reviewFormat, content) : content
-        : undefined
+    const early = cleanLanding(rest)
+    if (early !== undefined) return early
     const outcome = yield* Effect.promise(() =>
       replayFor(rest.setup, {
-        tree: pendingTree(rest.setup.workspace, rewrite),
+        tree: pendingTree(rest.setup.workspace, reviewGateRewrite(rest.stepDef)),
         ...(verdicts !== undefined ? { verdicts } : {}),
       }),
     )
@@ -722,7 +772,9 @@ const decideLanding = (
       return yield* Effect.fail(new Error(outcome.message))
     }
     const to = outcome.kind === "rest" ? outcome.rest.name : rest.def.initial
-    if (clean && def.kind === "script" && to === rest.state) return { kind: "noop", settled: true }
+    if (rest.changes.length === 0 && rest.stepDef.kind === "script" && to === rest.state) {
+      return { kind: "noop", settled: true }
+    }
     return {
       kind: "commit",
       to,

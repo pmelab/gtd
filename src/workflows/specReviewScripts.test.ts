@@ -3,8 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { renderStateTemplate, type TemplateContext } from "../PatternTemplates.js"
-import { compileTemplate } from "./index.js"
+import { renderScript } from "./text.fixture.js"
 
 /**
  * Real execution, not `bash -n`: `packages.item.spec.scoping`'s script is the
@@ -46,25 +45,8 @@ const runScoping = (
   specPreJudge: string,
   varsOverride: Record<string, string> = {},
 ): void => {
-  const { definition, vars } = compileTemplate()
-  const state = definition.states["packages.item.spec.scoping"]!
-  const script = renderStateTemplate(state.script!, {
-    startCommit: "",
-    currentCommit: "",
-    previousCommit: "",
-    state: "packages.item.spec.scoping",
-    actor: "check",
-    reviewBase: "",
-    processBase: "",
-    processCost: 0,
-    processCostByModel: [],
-    read: () => "",
-    diff: () => "",
-    sections: () => [],
-    tail: () => "",
-    diffTail: () => "",
-    vars: { ...vars, specPreJudge, ...varsOverride },
-    edges: [],
+  const script = renderScript("packagesItemSpecScopingScript", {
+    vars: { specPreJudge, ...varsOverride },
   })
   // NEXT.md points at "packages/01-widget.md" (relative to `dir`, the
   // script's own cwd) rather than the real `.gtd/`-prefixed path — this test
@@ -213,38 +195,5 @@ describe("packages.item.spec.scoping's script, executed for real (round-3 review
     runScoping(dir, "0.9")
     expect(readIfExists(dir, "SPEC_SCOPE.md")).toBeUndefined()
     expect(readIfExists(dir, "SPEC_CLEARED.md")).toBeDefined()
-  })
-})
-
-describe("packages.item.spec.pre's judge template (round-3 review)", () => {
-  it("interpolates the real startCommit, never the literal `it.startCommit`", () => {
-    const { definition, vars } = compileTemplate()
-    const state = definition.states["packages.item.spec.pre"]!
-    const context: TemplateContext = {
-      startCommit: "abc1234def",
-      currentCommit: "cur",
-      previousCommit: "prev",
-      state: "packages.item.spec.pre",
-      actor: "human",
-      reviewBase: "",
-      processBase: "",
-      processCost: 0,
-      processCostByModel: [],
-      read: (path) =>
-        path === ".gtd/NEXT.md" ? ".gtd/packages/01-widget.md\n" : "## Do the thing\n- [ ] task\n",
-      diff: () => "",
-      sections: () => ["Do the thing"],
-      // A real tail bound never drops anything this small — mirrors read
-      // rather than stubbing empty, so the section survives and this test
-      // exercises the ordinary (not the truncated/structural) branch.
-      tail: (path) =>
-        path === ".gtd/NEXT.md" ? ".gtd/packages/01-widget.md\n" : "## Do the thing\n- [ ] task\n",
-      diffTail: () => "",
-      vars,
-      edges: [],
-    }
-    const rendered = renderStateTemplate(state.judge!, context)
-    expect(rendered).not.toContain("it.startCommit")
-    expect(rendered).toContain("abc1234def")
   })
 })

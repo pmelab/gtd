@@ -3,7 +3,7 @@
 // written by gtd) is skipped, not fatal — a corrupt line must never make every
 // command unusable.
 
-export const TRANSITION_SEP = " → "
+const TRANSITION_SEP = " → "
 
 export interface ParsedSubject {
   readonly actor: string

@@ -15,7 +15,7 @@ import { execSync, execFileSync } from "node:child_process"
 // loudly (`deps.alwaysBundle` in `tsdown.config.ts`), a guard alongside the
 // `TEST_DOUBLE_SENTINEL` check.
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit, Layer } from "effect"
+import { Effect, Exit } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { Narrator } from "../Commentary.js"
 import { GitService, Host, type GitOperations } from "../platform/index.js"

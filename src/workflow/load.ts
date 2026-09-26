@@ -5,7 +5,7 @@ import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../Commentary.js"
 import { analyzeWorkflow, type FlowGraph } from "../analyze/index.js"
 import type { Workflow } from "../flows/index.js"
-import builtInWorkflow from "../flows/unified.js"
+import { unified as builtInWorkflow } from "../workflows/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
@@ -139,7 +139,6 @@ export const load: Effect.Effect<
   Narrator | Workspace | Host | ConfigDiscovery
 > = Effect.gen(function* () {
   const narrator = yield* Narrator
-  const workspace = yield* Workspace
   const host = yield* Host
   const discovery = yield* ConfigDiscovery
   const levels = yield* discovery.levels(host.root, host.home)
@@ -242,7 +241,10 @@ const analyze = (entryFile: string, source: string | undefined) => {
 /** Evaluate `gtd.config.ts` (or take the bundled default) and read its step graph off the source. */
 const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule => {
   if (module === undefined) {
-    const { graph, diagnostics } = analyze(join(flowsDir(), "unified.ts"), undefined)
+    const { graph, diagnostics } = analyze(
+      join(flowsDir(), "..", "workflows", "unified.ts"),
+      undefined,
+    )
     return { workflow: builtInWorkflow, graph, origin: BUILT_IN_ORIGIN, diagnostics }
   }
   const exported = jiti().evalModule(module.source, { filename: module.filepath })

@@ -17,9 +17,19 @@ Feature: A large prompt survives its exit through a pipe
 
   Scenario: gtd next's large prompt is not truncated when piped into a slow consumer
     Given a test project
-    And the workflow
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, read, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "write .gtd/NEXT.md to start" })
+          await agent("building", `Implement:\n${read(".gtd/NEXT.md") ?? ""}`)
+        },
+      })
+      """
     And a file ".gtd/NEXT.md" padded to at least 200000 bytes with a repeating line
-    And an empty commit "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(human): idle → building"
     When I run gtd next redirected to a file and through a slow pipe
     Then it succeeds
     And the direct byte count exceeds 65536 bytes

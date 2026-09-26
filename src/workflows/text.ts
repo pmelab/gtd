@@ -1,4 +1,4 @@
-import { read, refs, vars, type SummaryContext } from "../runtime.js"
+import { read, refs, vars, type SummaryContext } from "../flows/index.js"
 
 // The bundled workflow's prompts, messages and scripts. Each is evaluated
 // when its step is reached, against the commit replay stands on.

@@ -3,9 +3,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { renderStateTemplate } from "../PatternTemplates.js"
 import { headingSections } from "../steering/index.js"
-import { compileTemplate } from "./index.js"
+import { renderScript } from "./text.fixture.js"
 
 /**
  * Real execution, not `bash -n`: this file pins a regression a syntax-only
@@ -42,28 +41,17 @@ const readIfExists = (dir: string, name: string): string | undefined => {
   }
 }
 
+const SCRIPTS: Readonly<Record<string, "buildReviewDecidingScript" | "buildReviewTriagingScript">> =
+  {
+    "build.review.deciding": "buildReviewDecidingScript",
+    "build.review.triaging": "buildReviewTriagingScript",
+  }
+
 /** Renders `stateName`'s script with a given `vars` override and runs it for real against `dir`. `.gtd/`-prefixed paths are stripped — same technique `specReviewScripts.test.ts` uses to run a bundled script standalone, outside a real `.gtd` checkout. */
 const runScript = (dir: string, stateName: string, varsOverride: Record<string, string>): void => {
-  const { definition, vars } = compileTemplate()
-  const state = definition.states[stateName]!
-  const script = renderStateTemplate(state.script!, {
-    startCommit: "",
-    currentCommit: "",
-    previousCommit: "",
-    state: stateName,
-    actor: "check",
-    reviewBase: "",
-    processBase: "",
-    processCost: 0,
-    processCostByModel: [],
-    read: () => "",
-    diff: () => "",
-    sections: () => [],
-    tail: () => "",
-    diffTail: () => "",
-    vars: { ...vars, ...varsOverride },
-    edges: [],
-  })
+  const text = SCRIPTS[stateName]
+  if (text === undefined) throw new Error(`"${stateName}" is not a script step`)
+  const script = renderScript(text, { vars: varsOverride })
   execFileSync("sh", ["-c", script.replace(/\.gtd\//g, "")], { cwd: dir, stdio: "pipe" })
 }
 

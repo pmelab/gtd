@@ -34,30 +34,26 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
     # in this file.
     Given a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          review:
-            format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' <%= it.file %> && rm -f <%= it.file %>.bak"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": reviewing
-              reviewing:
-                actor: agent
-                file: REVIEW.md
-                mode: review
-                prompt: "review"
-                on:
-                  "* **": idle
+      modes:
+        review:
+          format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' <%= it.file %> && rm -f <%= it.file %>.bak"
       """
-    And an empty commit "gtd(human): reviewing"
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "start" })
+          await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+        },
+      })
+      """
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And gtd lands "gtd(human): idle → reviewing"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "CONFIGURATION BUG"

@@ -138,8 +138,8 @@ const workflowModule = (
   })
 
 /**
- * The shipped `src/flows/` directory — `@pmelab/gtd/flows` resolves there, and
- * the analyzer reads the bundled workflow's source from it. Found by walking
+ * The shipped `src/flows/` directory — `@pmelab/gtd/flows` resolves there; the
+ * bundled workflow's source sits beside it in `src/workflows/`. Found by walking
  * up from this module to the package root, so it holds for the bundle in
  * `dist/` and for the sources alike.
  */

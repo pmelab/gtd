@@ -1,97 +1,62 @@
 import { describe, expect, it } from "vitest"
 import { planStep } from "./planStep.js"
 import { snapshot } from "./snapshot.fixture.js"
-import type { StateDef } from "../PatternMachine.js"
 
-describe("planStep — refusal", () => {
-  it("out-of-turn: invoker isn't the resting state's declared actor", () => {
-    const stateDef: StateDef = { actor: "agent", script: "echo hi" }
-    const s = snapshot({ state: "building", stateDef, actor: "human" })
-    const outcome = planStep(s)
-    expect(outcome).toEqual({
-      kind: "refusal",
-      message: 'gtd land: out of turn — "building" awaits agent',
-    })
-  })
+const commitTo = (from: string, to: string, actor = "human") =>
+  ({
+    kind: "commit",
+    to,
+    spec: { actor, from, to, step: { name: from, occurrence: 1 } },
+  }) as const
 
-  it("no-match: a dirty tree with no `on` row matching the pending changes", () => {
-    const stateDef: StateDef = {
-      actor: "human",
-      script: "echo hi",
-      on: [["C", "done"]],
-    }
+describe("planStep — refusal and no-op pass through", () => {
+  it("a refused landing becomes a refusal outcome", () => {
     const s = snapshot({
       state: "building",
-      stateDef,
-      changes: [{ status: "M", path: "src/a.ts" }],
+      stepDef: {},
+      landing: { kind: "refusal", message: "gtd land: nope" },
     })
-    const outcome = planStep(s)
-    expect(outcome).toEqual({
-      kind: "refusal",
-      message:
-        'gtd land: no declared pattern matches the pending changes at "building" — declared patterns: C',
-    })
-  })
-})
-
-describe("planStep — noop", () => {
-  it("settles at a `script` rest with a clean tree and no `C` row", () => {
-    const stateDef: StateDef = { actor: "human", script: "echo hi" }
-    const s = snapshot({ state: "building", stateDef, changes: [] })
-    const outcome = planStep(s)
-    expect(outcome).toEqual({ kind: "noop", state: "building", settled: true })
+    expect(planStep(s)).toEqual({ kind: "refusal", message: "gtd land: nope" })
   })
 
-  it("does not settle at a `message` rest", () => {
-    const stateDef: StateDef = { actor: "human", message: "hi" }
-    const s = snapshot({ state: "gate", stateDef, changes: [] })
-    const outcome = planStep(s)
-    expect(outcome).toEqual({ kind: "noop", state: "gate", settled: false })
+  it("a no-op keeps its settled flag", () => {
+    const s = snapshot({ state: "gate", stepDef: {}, landing: { kind: "noop", settled: true } })
+    expect(planStep(s)).toEqual({ kind: "noop", state: "gate", settled: true })
   })
 })
 
 describe("planStep — commit", () => {
-  it("a self-loop commit (attempt) at a `prompt` rest bypasses guards", () => {
-    const stateDef: StateDef = {
-      actor: "agent",
-      prompt: "do work",
-      answerGate: true,
-      mode: "qa",
-    }
-    const s = snapshot({ state: "await-answers", stateDef, actor: "agent", changes: [] })
-    const outcome = planStep(s)
-    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    if (outcome.decision.kind !== "commit") throw new Error("expected a commit decision")
-    expect(outcome.decision.attempt).toBe(true)
-    expect(outcome.guardVerdict).toBeUndefined()
-    expect(outcome.steps).toEqual([
-      { kind: "gitWrite", write: { kind: "commitAll", message: outcome.decision.subject } },
-      { kind: "outcome", outcome: { kind: "commit", subject: outcome.decision.subject } },
-    ])
-  })
-
-  it("a transition commit reports both states in its outcome step", () => {
-    const stateDef: StateDef = {
-      actor: "human",
-      script: "echo hi",
-      on: [["* **", "done"]],
-    }
+  it("an attempt commits the bare subject with no step trailer and bypasses guards", () => {
     const s = snapshot({
-      state: "building",
-      stateDef,
-      def: {
-        states: {
-          building: stateDef,
-          done: { actor: "human", message: "done" },
-        },
-        entries: { default: "building", manual: [] },
-      },
-      changes: [{ status: "M", path: ".gtd/FILE.md" }],
+      state: "await-answers",
+      stepDef: { actor: "agent", kind: "prompt", answerGate: true, mode: "qa" },
+      actor: "agent",
+      landing: { kind: "attempt", subject: "gtd(agent): await-answers" },
     })
     const outcome = planStep(s)
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    if (outcome.decision.kind !== "commit") throw new Error("expected a commit decision")
-    expect(outcome.decision.to).toBe("done")
+    expect(outcome.to).toBe("await-answers")
+    expect(outcome.guardVerdict).toBeUndefined()
+    expect(outcome.steps).toEqual([
+      { kind: "gitWrite", write: { kind: "commitAll", message: "gtd(agent): await-answers" } },
+      { kind: "outcome", outcome: { kind: "commit", subject: "gtd(agent): await-answers" } },
+    ])
+  })
+
+  it("a transition commit carries the step trailer and reports both steps", () => {
+    const s = snapshot({
+      state: "building",
+      stepDef: {},
+      changes: [{ status: "M", path: ".gtd/FILE.md" }],
+      landing: commitTo("building", "done"),
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    expect(outcome.subject).toBe("gtd(human): building → done")
+    expect(outcome.steps[0]).toEqual({
+      kind: "gitWrite",
+      write: { kind: "commitAll", message: "gtd(human): building → done\n\nGtd-Step: building#1" },
+    })
     expect(outcome.steps.at(-1)).toEqual({
       kind: "outcome",
       outcome: { kind: "transition", from: "building", to: "done" },
@@ -100,257 +65,59 @@ describe("planStep — commit", () => {
   })
 
   it("carries a guard's refusal as `guardVerdict` without dropping the steps", () => {
-    const stateDef: StateDef = {
-      actor: "human",
-      script: "echo hi",
-      on: [["* **", "done"]],
-      requireRevert: true,
-    }
     const s = snapshot({
       state: "await-revert",
-      stateDef,
-      def: {
-        states: { "await-revert": stateDef, done: { actor: "human", message: "done" } },
-        entries: { default: "await-revert", manual: [] },
-      },
-      file: ".gtd/FILE.md",
+      stepDef: { requireRevert: true, file: ".gtd/FILE.md" },
       reviewBase: "abc123",
       startCommit: "def456",
       changes: [{ status: "M", path: ".gtd/FILE.md" }],
       revert: { checked: true, base: "abc123~1", residue: ["src/a.ts"] },
+      landing: commitTo("await-revert", "done"),
     })
     const outcome = planStep(s)
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    expect(outcome.guardVerdict).toContain("src/a.ts still differ from abc123~1")
+    expect(outcome.guardVerdict).toMatch(/src\/a\.ts/)
     expect(outcome.steps.length).toBeGreaterThan(0)
   })
 
   it("prepends `gtd uncheck` at the human review gate", () => {
-    const stateDef: StateDef = {
-      actor: "human",
-      message: "review",
-      mode: "review",
-      on: [["* **", "done"]],
-    }
     const s = snapshot({
       state: "await-review",
-      stateDef,
-      def: {
-        states: { "await-review": stateDef, done: { actor: "human", message: "done" } },
-        entries: { default: "await-review", manual: [] },
-      },
-      file: ".gtd/REVIEW.md",
-      changes: [{ status: "M", path: ".gtd/REVIEW.md" }],
+      stepDef: { mode: "review", file: ".gtd/REVIEW.md" },
+      changes: [{ status: "M", path: "src/a.ts" }],
+      landing: commitTo("await-review", "deciding"),
     })
     const outcome = planStep(s)
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
     expect(outcome.steps[0]).toEqual({ kind: "uncheck", file: ".gtd/REVIEW.md" })
   })
 
-  it("records a `Gtd-Cost:` trailer when `opts.cost` is given", () => {
-    const stateDef: StateDef = { actor: "human", script: "echo hi", on: [["* **", "done"]] }
-    const s = snapshot({
-      state: "building",
-      stateDef,
-      def: {
-        states: { building: stateDef, done: { actor: "human", message: "done" } },
-        entries: { default: "building", manual: [] },
-      },
-      changes: [{ status: "M", path: ".gtd/FILE.md" }],
-    })
-    const outcome = planStep(s, { cost: 10, model: "opus" })
-    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    const write = outcome.steps.find((st) => st.kind === "gitWrite")
-    if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
-    expect(write.write.message).toContain("Gtd-Cost: 10 opus")
-  })
-
-  it("records one Gtd-Judge: trailer line per verdict entry when opts.judge is given", () => {
-    const stateDef: StateDef = { actor: "human", script: "echo hi", on: [["* **", "done"]] }
-    const s = snapshot({
-      state: "building",
-      stateDef,
-      def: {
-        states: { building: stateDef, done: { actor: "human", message: "done" } },
-        entries: { default: "building", manual: [] },
-      },
-      changes: [{ status: "M", path: ".gtd/FILE.md" }],
-    })
+  it("records Gtd-Cost, then one Gtd-Judge per verdict, then the truncation payload", () => {
+    const s = snapshot({ state: "a", stepDef: {}, landing: commitTo("a", "b", "judge") })
     const outcome = planStep(s, {
+      cost: 1.5,
+      model: "m",
       judge: [
-        { id: "q1", answer: true, p: 0.97 },
-        { id: "q2", answer: "escalate", p: 0.6 },
+        { id: "q1", answer: true, p: 0.9 },
+        { id: "q2", answer: "x", p: 0.4 },
       ],
-    })
-    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    const write = outcome.steps.find((st) => st.kind === "gitWrite")
-    if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
-    expect(write.write.message).toContain('Gtd-Judge: {"id":"q1","answer":true,"p":0.97}')
-    expect(write.write.message).toContain('Gtd-Judge: {"id":"q2","answer":"escalate","p":0.6}')
-  })
-
-  it("combines Gtd-Cost: and Gtd-Judge: trailers on the same commit, cost first", () => {
-    const stateDef: StateDef = { actor: "human", script: "echo hi", on: [["* **", "done"]] }
-    const s = snapshot({
-      state: "building",
-      stateDef,
-      def: {
-        states: { building: stateDef, done: { actor: "human", message: "done" } },
-        entries: { default: "building", manual: [] },
-      },
-      changes: [{ status: "M", path: ".gtd/FILE.md" }],
-    })
-    const outcome = planStep(s, {
-      cost: 10,
-      model: "opus",
-      judge: [{ id: "q1", answer: true, p: 0.97 }],
-    })
-    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    const write = outcome.steps.find((st) => st.kind === "gitWrite")
-    if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
-    const costIndex = write.write.message.indexOf("Gtd-Cost: 10 opus")
-    const judgeIndex = write.write.message.indexOf('Gtd-Judge: {"id":"q1"')
-    expect(costIndex).toBeGreaterThan(-1)
-    expect(judgeIndex).toBeGreaterThan(costIndex)
-  })
-
-  it('records a `Gtd-Payload: {"truncated":true}` trailer when `opts.truncated` is true', () => {
-    const stateDef: StateDef = { actor: "human", script: "echo hi", on: [["* **", "done"]] }
-    const s = snapshot({
-      state: "building",
-      stateDef,
-      def: {
-        states: { building: stateDef, done: { actor: "human", message: "done" } },
-        entries: { default: "building", manual: [] },
-      },
-      changes: [{ status: "M", path: ".gtd/FILE.md" }],
-    })
-    const outcome = planStep(s, {
-      judge: [{ id: "q1", answer: true, p: 0.97 }],
       truncated: true,
     })
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    const write = outcome.steps.find((st) => st.kind === "gitWrite")
-    if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
-    expect(write.write.message).toContain('Gtd-Payload: {"truncated":true}')
+    const write = outcome.steps.find((step) => step.kind === "gitWrite")
+    if (write?.kind !== "gitWrite") throw new Error("expected a git write")
+    const trailers = write.write.message.split("\n").slice(2)
+    expect(trailers[0]).toBe("Gtd-Step: a#1")
+    expect(trailers[1]).toBe("Gtd-Cost: 1.5 m")
+    expect(trailers[2]).toBe('Gtd-Judge: {"id":"q1","answer":true,"p":0.9}')
+    expect(trailers[3]).toBe('Gtd-Judge: {"id":"q2","answer":"x","p":0.4}')
+    expect(trailers[4]).toBe('Gtd-Payload: {"truncated":true}')
   })
 
-  it("emits no `Gtd-Payload:` trailer when `opts.truncated` is false or omitted", () => {
-    const stateDef: StateDef = { actor: "human", script: "echo hi", on: [["* **", "done"]] }
-    const s = snapshot({
-      state: "building",
-      stateDef,
-      def: {
-        states: { building: stateDef, done: { actor: "human", message: "done" } },
-        entries: { default: "building", manual: [] },
-      },
-      changes: [{ status: "M", path: ".gtd/FILE.md" }],
-    })
-    const opts = [
-      { judge: [{ id: "q1", answer: true, p: 0.97 }], truncated: false },
-      { judge: [{ id: "q1", answer: true, p: 0.97 }] },
-    ] as const
-    for (const opt of opts) {
-      const outcome = planStep(s, opt)
-      if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-      const write = outcome.steps.find((st) => st.kind === "gitWrite")
-      if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
-      expect(write.write.message).not.toContain("Gtd-Payload:")
-    }
-  })
-
-  it("an answered verdict routes via the state's own `routes:`, overriding what `on:` alone would decide", () => {
-    // `on:`'s only row ("C": "conservative") would land at "conservative" for
-    // a clean tree — but a verdict was supplied this call, and the state
-    // declares `routes:`, so the verdict decides instead.
-    const stateDef: StateDef = {
-      actor: "human",
-      message: "verdict needed",
-      judge: '{"questions":[{"id":"verdict"}]}',
-      routes: [{ question: "verdict", is: "identical", to: "escalate" }, { to: "fix" }],
-      on: [["C", "conservative"]],
-    }
-    const s = snapshot({
-      state: "judging",
-      stateDef,
-      def: {
-        states: {
-          judging: stateDef,
-          conservative: { actor: "human", message: "c" },
-          fix: { actor: "human", message: "f" },
-          escalate: { actor: "human", message: "e" },
-        },
-        entries: { default: "judging", manual: [] },
-      },
-      changes: [],
-    })
-    const outcome = planStep(s, { judge: [{ id: "verdict", answer: "identical", p: 0.95 }] })
+  it("emits no Gtd-Payload trailer when nothing was truncated", () => {
+    const s = snapshot({ state: "a", stepDef: {}, landing: commitTo("a", "b") })
+    const outcome = planStep(s, { truncated: false })
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    if (outcome.decision.kind !== "commit") throw new Error("expected a commit decision")
-    expect(outcome.decision.to).toBe("escalate")
-  })
-
-  it('a `noul` verdict\'s boolean answer routes against `is: "yes"`/`is: "no"` — the documented vocabulary, not `String(true)`', () => {
-    // Every doc site (StateFields.ts's RouteRow/ROUTES_JSON_SCHEMA,
-    // docs/configuration.md) tells an author a noul's `is:` is "yes"/"no".
-    // `asRouteAnswers` must normalize the verdict's own boolean to match, or
-    // a row written exactly as documented can never fire.
-    const stateDef: StateDef = {
-      actor: "human",
-      message: "verdict needed",
-      judge: '{"questions":[{"id":"confident"}]}',
-      routes: [{ question: "confident", is: "yes", to: "proceed" }, { to: "escalate" }],
-    }
-    const def = {
-      states: {
-        judging: stateDef,
-        proceed: { actor: "human", message: "p" },
-        escalate: { actor: "human", message: "e" },
-      },
-      entries: { default: "judging", manual: [] },
-    }
-    const outcomeTrue = planStep(snapshot({ state: "judging", stateDef, def, changes: [] }), {
-      judge: [{ id: "confident", answer: true, p: 0.95 }],
-    })
-    if (outcomeTrue.kind !== "commit" || outcomeTrue.decision.kind !== "commit") {
-      throw new Error(`expected commit, got ${outcomeTrue.kind}`)
-    }
-    expect(outcomeTrue.decision.to).toBe("proceed")
-
-    const outcomeFalse = planStep(snapshot({ state: "judging", stateDef, def, changes: [] }), {
-      judge: [{ id: "confident", answer: false, p: 0.95 }],
-    })
-    if (outcomeFalse.kind !== "commit" || outcomeFalse.decision.kind !== "commit") {
-      throw new Error(`expected commit, got ${outcomeFalse.kind}`)
-    }
-    expect(outcomeFalse.decision.to).toBe("escalate")
-  })
-
-  it("no `judge` opt at all (an ordinary `gtd land`) ignores `routes:` and uses the state's own `on:` — the skipped-judgment path", () => {
-    const stateDef: StateDef = {
-      actor: "human",
-      message: "verdict needed",
-      judge: '{"questions":[{"id":"verdict"}]}',
-      routes: [{ question: "verdict", is: "identical", to: "escalate" }, { to: "fix" }],
-      on: [["C", "conservative"]],
-    }
-    const s = snapshot({
-      state: "judging",
-      stateDef,
-      def: {
-        states: {
-          judging: stateDef,
-          conservative: { actor: "human", message: "c" },
-          fix: { actor: "human", message: "f" },
-          escalate: { actor: "human", message: "e" },
-        },
-        entries: { default: "judging", manual: [] },
-      },
-      changes: [],
-    })
-    const outcome = planStep(s)
-    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    if (outcome.decision.kind !== "commit") throw new Error("expected a commit decision")
-    expect(outcome.decision.to).toBe("conservative")
+    expect(JSON.stringify(outcome.steps)).not.toContain("Gtd-Payload")
   })
 })

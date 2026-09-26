@@ -9,7 +9,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   basename fallback — the bundled `idle` names that exact path as its `file:`
   but declares no `mode:`, so nothing dispatches over it). Two further
   scenarios prove the config-driven half: documentSymbol served for a
-  CUSTOM-named `qa` file mapped via a real `.gtdrc` `file:`/`mode:` pair, and
+  CUSTOM-named `qa` file mapped via a real `gtd.config.ts` `file`/`mode` pair, and
   the `gtd.openSteeringFile` executeCommand resolving a
   hand-authored current state and asking the client to show its steering
   file (`window/showDocument`). A final scenario proves go-to-definition: a
@@ -50,27 +50,16 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: documentSymbol is served for a CUSTOM-named qa file mapped via a real .gtdrc (config-driven dispatch)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        },
+      })
       """
     And an LSP server started in the test project
     When the LSP client sends an initialize request
@@ -90,32 +79,22 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: gtd.openSteeringFile resolves the current state's steering file and asks the client to show it
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        },
+      })
       """
-    And a commit "gtd(human): working" that adds ".gtd/PLAN.md" with:
+    And a file ".gtd/PLAN.md" with:
       """
       the plan under development
       """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -127,41 +106,30 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     # Before src/Edge.ts's currentRest, the LSP's own resolveSteeringFile hand-
     # rolled a byte-for-byte copy of the CLI's resolution chain that had
     # drifted three ways: it never applied `--var` overrides, never rendered
-    # `on`, and never computed a review base. This pins the fix — a state
-    # entered with `--var planFile=OTHER.md` renders `file:` against THAT
+    # `on`, and never computed a review base. This pins the fix — a step
+    # entered with `--var planFile=OTHER.md` renders its `file` against THAT
     # override, the same file `gtd next` would report.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        vars:
-          planFile: PLAN.md
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "<%= it.vars.planFile %>"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
-              review-check:
-                entry: true
-                actor: human
-                file: "<%= it.vars.planFile %>"
-                mode: qa
-                message: "reviewing"
-                on:
-                  "* **": idle
+      import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(
+        {
+          default: async () => {
+            await human("idle", { message: "go" })
+            await agent("working", "develop the plan", { file: `.gtd/${vars.planFile}`, mode: "qa" })
+          },
+          "review-check": async () => {
+            await human("review-check", {
+              file: `.gtd/${vars.planFile}`,
+              mode: "qa",
+              message: "reviewing",
+            })
+          },
+        },
+        { vars: { planFile: "PLAN.md" } },
+      )
       """
     And I run gtd with args "--entry review-check --var planFile=OTHER.md"
     And an LSP server started in the test project
@@ -214,27 +182,16 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: a code action is offered on a wrapped option's continuation line, not just its checkbox line
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        },
+      })
       """
     And an LSP server started in the test project
     When the LSP client sends an initialize request
@@ -265,28 +222,20 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          qa:
-            validate: "exit 1"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      modes:
+        qa:
+          validate: "exit 1"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        },
+      })
       """
     And an LSP server started in the test project
     When the LSP client sends an initialize request
@@ -317,28 +266,20 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          qa:
-            validate: "gtd check qa '<%= it.file %>'"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      modes:
+        qa:
+          validate: "gtd check qa '<%= it.file %>'"
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        },
+      })
       """
     And an LSP server started in the test project
     When the LSP client sends an initialize request
@@ -412,27 +353,16 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: a marker in a qa file jumps to its definition — proving qa now serves pointerAt
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        },
+      })
       """
     And an LSP server started in the test project
     When the LSP client sends an initialize request

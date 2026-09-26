@@ -3,8 +3,9 @@
   "testRunner": "vitest",
   "vitest": { "configFile": "vitest.stryker.config.ts" },
   "mutate": [
-    "src/PatternMachine.ts",
-    "src/PatternConfig.ts",
+    "src/replay/Replay.ts",
+    "src/replay/Trailers.ts",
+    "src/analyze/Builder.ts",
     "src/PatternTemplates.ts",
     "src/Edge.ts",
     "src/SteeringMode.ts",

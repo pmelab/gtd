@@ -4,6 +4,7 @@
   the minimal reference driver
 - [CLI reference](./cli.md) — every command and flag, exit codes, the error
   envelope
-- [Configuration](./configuration.md) — `.gtdrc`, the `workflow:` key, variables
+- [Configuration](./configuration.md) — `gtd.config.ts` (the workflow),
+  `.gtdrc`, variables
 - [Setup](./setup.md) — repository requirements, editor integration
 - [Development](./development.md) — building and testing gtd itself

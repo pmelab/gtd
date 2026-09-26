@@ -1,49 +1,40 @@
 @inmem
-Feature: gtd warns on a workflow state that declares no "C" row
+Feature: gtd rejects a flow the analyzer cannot follow, naming its source position
 
-  `validateDefinition` (src/PatternMachine.ts) warns — never errors — when a
-  non-`prompt`, non-initial, non-`human`-actor state declares no `C` row: a
-  clean tree there is a legitimate no-op by design (AGENTS.md's step-capture
-  default), but usually an oversight. Every command that loads workflow state
-  (`needsOf` `"state"`) prints the warning once per invocation, on stderr
-  only — stdout stays the machine path. The bundled unified template prints
-  none: every one of its script states routes its clean case.
+  A workflow is statically analysed before it is ever replayed. A construct
+  the analyzer cannot turn into a finite step graph — here a flow function
+  that calls itself instead of looping — fails the load with one diagnostic
+  per offending site, as `gtd.config.ts:<line>:<col>: <message>`, on stderr
+  only — stdout stays the machine path. The bundled workflow loads clean.
 
   Background:
     Given a test project
 
-  Scenario: a non-prompt, non-initial state with no "C" row prints exactly one warning naming it, on stderr
-    Given a gtd config file at ".gtdrc" with:
+  Scenario: a flow function that calls itself fails the load with exactly one diagnostic naming its position, on stderr
+    Given a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": building
-              building:
-                actor: check
-                script: |
-                  #!/usr/bin/env sh
-                  exit 0
-                on:
-                  "A foo.txt": idle
+      import { human, run, workflow } from "@pmelab/gtd/flows"
+
+      const building = async (): Promise<void> => {
+        await run("building", "exit 0")
+        await building()
+      }
+
+      export default workflow({
+        default: async () => {
+          await human("idle", { message: "go" })
+          await building()
+        },
+      })
       """
     When I run gtd with args "next"
-    Then it succeeds
-    And stderr contains "state \"building\" declares no \"C\" row" exactly 1 times
-    And stderr contains ".gtdrc: workflow.machines.root.states.building: state \"building\" declares no \"C\" row"
-    And stdout does not contain "\"C\" row"
+    Then it fails
+    And stderr contains "a flow function may not call itself" exactly 1 times
+    And stderr contains "gtd.config.ts:5:9: a flow function may not call itself"
+    And stdout does not contain "may not call itself"
 
-  Scenario: the bundled unified template prints no warning at all
+  Scenario: the bundled unified template prints no diagnostic at all
     Given the workflow
     When I run gtd with args "next"
     Then it succeeds
-    And stderr does not contain "\"C\" row"
-
+    And stderr does not contain "gtd.config.ts:"

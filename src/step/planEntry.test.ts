@@ -4,45 +4,36 @@ import { planEntry, type EntryOutcome } from "./planEntry.js"
 import { InMemRepo, testLayers } from "../testing/index.js"
 import { ConfigService } from "../workflow/index.js"
 
-const WORKFLOW = [
-  "workflow:",
-  "  vars:",
-  "    base: ''",
-  "  entry:",
-  "    default: root",
-  "  machines:",
-  "    root:",
-  "      entry: idle",
-  "      states:",
-  "        idle:",
-  "          actor: human",
-  "          message: hi",
-  "          on:",
-  '            "* **": working',
-  "        working:",
-  "          entry: true",
-  "          actor: agent",
-  "          prompt: work-prompt",
-  "          on:",
-  '            "* **": idle',
-  "        reviewcheck:",
-  "          entry: true",
-  "          actor: agent",
-  "          prompt: work-prompt",
-  "          reviewBase: '<%= it.vars.base %>'",
-  "          on:",
-  '            "* **": idle',
-  "",
-].join("\n")
+const WORKFLOW = `import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+export default workflow(
+  {
+    default: async () => {
+      await human("idle", { message: "hi" })
+      await agent("work", "work-prompt")
+    },
+    working: async () => {
+      await agent("work", "work-prompt")
+    },
+    reviewcheck: {
+      flow: async () => {
+        await agent("work", "work-prompt")
+      },
+      base: (vars) => vars.base ?? "",
+    },
+  },
+  { vars: { base: "" } },
+)
+`
 
 const repoAt = (): InMemRepo => {
   const repo = new InMemRepo()
-  repo.writeFile(".gtdrc.yaml", WORKFLOW)
+  repo.writeFile("gtd.config.ts", WORKFLOW)
   repo.commitAllWithPrefix("chore: add custom workflow")
   return repo
 }
 
-/** Loads the real compiled workflow (via `ConfigService`, same as `Edge.ts`'s `restAt`) so `planEntry`'s `enterableStates`/`reviewBase` checks see the actual state table, then runs `planEntry` against it. */
+/** Loads the real compiled workflow (via `ConfigService`, same as `Edge.ts`'s `restAt`) so `planEntry`'s entry and `reviewBase` checks see the loaded workflow, then runs `planEntry` against it. */
 const enter = (
   repo: InMemRepo,
   state: string,
@@ -56,7 +47,11 @@ const enter = (
   Effect.runPromise(
     Effect.gen(function* () {
       const config = yield* (yield* ConfigService).load
-      return yield* planEntry({ def: config.workflow, state }, actor, entry)
+      return yield* planEntry(
+        { def: config.workflow, state, idle: state === config.workflow.initial },
+        actor,
+        entry,
+      )
     }).pipe(Effect.provide(testLayers(repo))),
   )
 

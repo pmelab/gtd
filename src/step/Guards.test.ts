@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest"
 import { enforceStepGuards } from "./Guards.js"
 import { snapshot } from "./snapshot.fixture.js"
-import type { StateDef } from "../PatternMachine.js"
+import type { StepDef } from "../Workflow.js"
 
 describe("enforceStepGuards — review-doc", () => {
-  const reviewState: StateDef = { actor: "human", message: "review", mode: "review" }
+  const reviewState: Partial<StepDef> = {
+    actor: "human",
+    kind: "message",
+    content: "review",
+    mode: "review",
+  }
 
   it("refuses when the review file was deleted", () => {
     const s = snapshot({
       state: "await-review",
-      stateDef: reviewState,
+      stepDef: reviewState,
       file: ".gtd/REVIEW.md",
       changes: [{ status: "D", path: ".gtd/REVIEW.md" }],
     })
@@ -19,7 +24,7 @@ describe("enforceStepGuards — review-doc", () => {
   it("allows an edit that keeps the file", () => {
     const s = snapshot({
       state: "await-review",
-      stateDef: reviewState,
+      stepDef: reviewState,
       file: ".gtd/REVIEW.md",
       changes: [{ status: "M", path: ".gtd/REVIEW.md" }],
     })
@@ -30,7 +35,7 @@ describe("enforceStepGuards — review-doc", () => {
     const unticked = "## C\n- [ ] ./a.ts#1\n- [ ] ./b.ts#1\n"
     const s = snapshot({
       state: "await-review",
-      stateDef: reviewState,
+      stepDef: reviewState,
       file: ".gtd/REVIEW.md",
       headFile: unticked,
       worktreeFile: unticked,
@@ -41,12 +46,17 @@ describe("enforceStepGuards — review-doc", () => {
 })
 
 describe("enforceStepGuards — feedback-progress", () => {
-  const progressState: StateDef = { actor: "human", message: "fix it", requireProgress: true }
+  const progressState: Partial<StepDef> = {
+    actor: "human",
+    kind: "message",
+    content: "fix it",
+    requireProgress: true,
+  }
 
   it("refuses a deleted file with no code change and no sentinel", () => {
     const s = snapshot({
       state: "fix",
-      stateDef: progressState,
+      stepDef: progressState,
       file: ".gtd/FEEDBACK.md",
       headFile: "please fix the bug",
       changes: [{ status: "D", path: ".gtd/FEEDBACK.md" }],
@@ -57,7 +67,7 @@ describe("enforceStepGuards — feedback-progress", () => {
   it("allows the NOTHING ACTIONABLE sentinel", () => {
     const s = snapshot({
       state: "fix",
-      stateDef: progressState,
+      stepDef: progressState,
       file: ".gtd/FEEDBACK.md",
       headFile: "NOTHING ACTIONABLE\n",
       changes: [{ status: "D", path: ".gtd/FEEDBACK.md" }],
@@ -68,7 +78,7 @@ describe("enforceStepGuards — feedback-progress", () => {
   it("allows a deletion alongside a real code change", () => {
     const s = snapshot({
       state: "fix",
-      stateDef: progressState,
+      stepDef: progressState,
       file: ".gtd/FEEDBACK.md",
       headFile: "please fix the bug",
       changes: [
@@ -82,7 +92,7 @@ describe("enforceStepGuards — feedback-progress", () => {
   it("treats other .gtd/ churn alongside the delete as no code change (still refused)", () => {
     const s = snapshot({
       state: "fix",
-      stateDef: progressState,
+      stepDef: progressState,
       file: ".gtd/FEEDBACK.md",
       headFile: "please fix the bug",
       changes: [
@@ -95,12 +105,18 @@ describe("enforceStepGuards — feedback-progress", () => {
 })
 
 describe("enforceStepGuards — answer-completeness", () => {
-  const qaState: StateDef = { actor: "agent", prompt: "answer", answerGate: true, mode: "qa" }
+  const qaState: Partial<StepDef> = {
+    actor: "agent",
+    kind: "prompt",
+    content: "answer",
+    answerGate: true,
+    mode: "qa",
+  }
 
   it("refuses an unanswered question", () => {
     const s = snapshot({
       state: "await-answers",
-      stateDef: qaState,
+      stepDef: qaState,
       file: ".gtd/QUESTIONS.md",
       worktreeFile: "## Open Questions\n\n### Q1\nWhich?\n\n- [ ] A\n- [ ] B\n",
       changes: [{ status: "M", path: ".gtd/QUESTIONS.md" }],
@@ -111,7 +127,7 @@ describe("enforceStepGuards — answer-completeness", () => {
   it("allows every question answered", () => {
     const s = snapshot({
       state: "await-answers",
-      stateDef: qaState,
+      stepDef: qaState,
       file: ".gtd/QUESTIONS.md",
       worktreeFile: "## Open Questions\n\n### Q1\nWhich?\n\n- [x] A\n- [ ] B\n",
       changes: [{ status: "M", path: ".gtd/QUESTIONS.md" }],
@@ -122,7 +138,7 @@ describe("enforceStepGuards — answer-completeness", () => {
   it("allows a clean snapshot even with an unanswered question — the human's silence is the stop", () => {
     const s = snapshot({
       state: "await-answers",
-      stateDef: qaState,
+      stepDef: qaState,
       file: ".gtd/QUESTIONS.md",
       worktreeFile: "## Open Questions\n\n### Q1\nWhich?\n\n- [ ] A\n- [ ] B\n",
       changes: [],
@@ -133,7 +149,7 @@ describe("enforceStepGuards — answer-completeness", () => {
   it("still refuses when the qa file itself is edited with a question left unticked", () => {
     const s = snapshot({
       state: "await-answers",
-      stateDef: qaState,
+      stepDef: qaState,
       file: ".gtd/QUESTIONS.md",
       worktreeFile: "## Open Questions\n\n### Q1\nWhich?\n\n- [ ] A\n- [ ] B\n",
       changes: [{ status: "M", path: ".gtd/QUESTIONS.md" }],
@@ -146,7 +162,7 @@ describe("enforceStepGuards — answer-completeness", () => {
   it("still refuses when only unrelated code is edited and the qa file is byte-identical with a question left unticked", () => {
     const s = snapshot({
       state: "await-answers",
-      stateDef: qaState,
+      stepDef: qaState,
       file: ".gtd/QUESTIONS.md",
       worktreeFile: "## Open Questions\n\n### Q1\nWhich?\n\n- [ ] A\n- [ ] B\n",
       changes: [{ status: "M", path: "src/a.ts" }],
@@ -159,7 +175,7 @@ describe("enforceStepGuards — answer-completeness", () => {
   it("reads the CURRENT working tree as-is — no in-process formatting happens here", () => {
     const s = snapshot({
       state: "await-answers",
-      stateDef: qaState,
+      stepDef: qaState,
       file: ".gtd/QUESTIONS.md",
       // HEAD still has the question unanswered; only the (unformatted,
       // ragged-whitespace) worktree copy carries the tick — proves the
@@ -177,12 +193,17 @@ describe("enforceStepGuards — answer-completeness", () => {
 })
 
 describe("enforceStepGuards — require-revert", () => {
-  const revertState: StateDef = { actor: "human", script: "echo hi", requireRevert: true }
+  const revertState: Partial<StepDef> = {
+    actor: "human",
+    kind: "script",
+    content: "echo hi",
+    requireRevert: true,
+  }
 
   it("refuses with no identifiable review round", () => {
     const s = snapshot({
       state: "await-revert",
-      stateDef: revertState,
+      stepDef: revertState,
       file: ".gtd/FILE.md",
       reviewBase: "",
       startCommit: "",
@@ -193,7 +214,7 @@ describe("enforceStepGuards — require-revert", () => {
   it("refuses residue left over from the review round", () => {
     const s = snapshot({
       state: "await-revert",
-      stateDef: revertState,
+      stepDef: revertState,
       file: ".gtd/FILE.md",
       reviewBase: "abc",
       startCommit: "def",
@@ -207,7 +228,7 @@ describe("enforceStepGuards — require-revert", () => {
   it("allows a clean revert (no residue)", () => {
     const s = snapshot({
       state: "await-revert",
-      stateDef: revertState,
+      stepDef: revertState,
       file: ".gtd/FILE.md",
       reviewBase: "abc",
       startCommit: "def",
@@ -219,7 +240,7 @@ describe("enforceStepGuards — require-revert", () => {
   it("joins a two-path residue with a comma in the prose but a quoted pathspec in the recovery command — the pathspec quotes every path", () => {
     const s = snapshot({
       state: "await-revert",
-      stateDef: revertState,
+      stepDef: revertState,
       file: ".gtd/FILE.md",
       reviewBase: "abc",
       startCommit: "def",
@@ -235,7 +256,7 @@ describe("enforceStepGuards — require-revert", () => {
   it("quotes residue paths containing whitespace or shell metacharacters in the recovery command", () => {
     const s = snapshot({
       state: "await-revert",
-      stateDef: revertState,
+      stepDef: revertState,
       file: ".gtd/FILE.md",
       reviewBase: "abc",
       startCommit: "def",
@@ -256,9 +277,10 @@ describe("enforceStepGuards — registry order", () => {
     // all refuse — review-doc (first in the registry) wins.
     const reviewDocWins = snapshot({
       state: "s",
-      stateDef: {
+      stepDef: {
         actor: "human",
-        message: "x",
+        kind: "message",
+        content: "x",
         mode: "review",
         requireProgress: true,
         requireRevert: true,
@@ -277,7 +299,13 @@ describe("enforceStepGuards — registry order", () => {
     // feedback-progress wins.
     const feedbackProgressWins = snapshot({
       state: "s",
-      stateDef: { actor: "human", message: "x", requireProgress: true, requireRevert: true },
+      stepDef: {
+        actor: "human",
+        kind: "message",
+        content: "x",
+        requireProgress: true,
+        requireRevert: true,
+      },
       file: ".gtd/FILE.md",
       headFile: "please fix",
       changes: [{ status: "D", path: ".gtd/FILE.md" }],
@@ -292,9 +320,10 @@ describe("enforceStepGuards — registry order", () => {
     // wins over answer-completeness.
     const feedbackBeforeAnswer = snapshot({
       state: "s",
-      stateDef: {
+      stepDef: {
         actor: "agent",
-        prompt: "x",
+        kind: "prompt",
+        content: "x",
         requireProgress: true,
         answerGate: true,
         mode: "qa",
@@ -314,7 +343,14 @@ describe("enforceStepGuards — registry order", () => {
     // dropped) and both would refuse — answer-completeness wins.
     const answerCompletenessWins = snapshot({
       state: "s",
-      stateDef: { actor: "agent", prompt: "x", answerGate: true, mode: "qa", requireRevert: true },
+      stepDef: {
+        actor: "agent",
+        kind: "prompt",
+        content: "x",
+        answerGate: true,
+        mode: "qa",
+        requireRevert: true,
+      },
       file: ".gtd/FILE.md",
       worktreeFile: "## Open Questions\n\n### Q1\nWhich?\n\n- [ ] A\n- [ ] B\n",
       changes: [{ status: "M", path: ".gtd/FILE.md" }],
@@ -327,7 +363,7 @@ describe("enforceStepGuards — registry order", () => {
     // Only require-revert applies — it's the last resort.
     const requireRevertOnly = snapshot({
       state: "s",
-      stateDef: { actor: "human", script: "echo hi", requireRevert: true },
+      stepDef: { actor: "human", kind: "script", content: "echo hi", requireRevert: true },
       file: ".gtd/FILE.md",
       changes: [],
       reviewBase: "abc",
@@ -342,7 +378,7 @@ describe("enforceStepGuards — no applicable guard / no file", () => {
   it("is a no-op for a state no guard applies to", () => {
     const s = snapshot({
       state: "building",
-      stateDef: { actor: "human", script: "echo hi" },
+      stepDef: { actor: "human", kind: "script", content: "echo hi" },
       file: ".gtd/FILE.md",
       changes: [{ status: "D", path: ".gtd/FILE.md" }],
     })
@@ -352,7 +388,7 @@ describe("enforceStepGuards — no applicable guard / no file", () => {
   it("is a no-op when the resting state declares no file", () => {
     const s = snapshot({
       state: "await-review",
-      stateDef: { actor: "human", message: "review", mode: "review" },
+      stepDef: { actor: "human", kind: "message", content: "review", mode: "review" },
       file: undefined,
       changes: [],
     })

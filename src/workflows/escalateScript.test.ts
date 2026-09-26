@@ -3,8 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { renderStateTemplate } from "../PatternTemplates.js"
-import { compileTemplate } from "./index.js"
+import { renderScript } from "./text.fixture.js"
 
 /**
  * Real execution against a real git repo, not `bash -n`: `healthGate.escalate`'s
@@ -45,25 +44,8 @@ const headHash = (dir: string): string =>
  * `.gtd/FEEDBACK.md`.
  */
 const runEscalate = (dir: string, startCommit: string): void => {
-  const { definition, vars } = compileTemplate()
-  const state = definition.states["build.health.escalate"]!
-  const script = renderStateTemplate(state.script!, {
-    startCommit,
-    currentCommit: "",
-    previousCommit: "",
-    state: "build.health.escalate",
-    actor: "check",
-    reviewBase: "",
-    processBase: "",
-    processCost: 0,
-    processCostByModel: [],
-    read: () => "",
-    diff: () => "",
-    sections: () => [],
-    tail: () => "",
-    diffTail: () => "",
-    vars,
-    edges: [],
+  const script = renderScript("escalateScript", {
+    refs: { start: startCommit },
   })
   execFileSync("sh", ["-c", script.replace(/\.gtd\//g, "")], { cwd: dir, stdio: "pipe" })
 }

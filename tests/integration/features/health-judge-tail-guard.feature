@@ -7,7 +7,7 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
   round is unchanged would end the retry loop on evidence nobody saw. The
   gate instead computes a guard from the UNBOUNDED reads and, when it fires,
   replaces `current`/`previous` in `state` with a sentinel and forbids the
-  `identical` answer in `criteria` — the `routes:` table itself is untouched,
+  `identical` answer in `criteria` — the routing on the verdict is untouched,
   so escalation still depends on the model's own verdict.
 
   @inmem
@@ -15,18 +15,34 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
     Given a test project
     And the workflow
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "4"
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/marker.md" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
-      entering the health gate
+      the precheck failed
       """
-    # Both files fabricated directly, exactly as `check`'s own real script
-    # would have left them (stamped, red) — `gtd land` below only matches
-    # the `on:` table against this diff, it never re-runs the script.
-    And a file ".gtd/PRIOR_FEEDBACK.md" with:
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/attempt.ts" with:
+      """
+      export const attempt = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    # Both red rounds' reports fabricated directly, exactly as `check`'s own
+    # real script would have left them (stamped, red) — `gtd land` only
+    # replays the flow over each diff, it never re-runs the script. The first
+    # red round's report is what `build.health.judge` reads as `previous`.
+    And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 1 failed
       <!-- gtd check abc1234 -->
       """
+    And gtd lands "gtd(check): build.health.check → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/attempt.ts" with:
+      """
+      export const attempt = 2
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 2 failed
@@ -52,16 +68,31 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
     Given a test project
     And the workflow
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "90"
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/marker.md" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
-      entering the health gate
+      the precheck failed
       """
-    And a file ".gtd/PRIOR_FEEDBACK.md" with:
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/attempt.ts" with:
+      """
+      export const attempt = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       attempt one failed here
       shared tail line
       <!-- gtd check abc1234 -->
       """
+    And gtd lands "gtd(check): build.health.check → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/attempt.ts" with:
+      """
+      export const attempt = 2
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       attempt two failed here
@@ -80,15 +111,30 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
   Scenario: two genuinely identical reports still reach the identical verdict and escalate
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.health.check" that adds ".gtd/marker.md" with:
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
       """
-      entering the health gate
+      the precheck failed
       """
-    And a file ".gtd/PRIOR_FEEDBACK.md" with:
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/attempt.ts" with:
+      """
+      export const attempt = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
       """
       the same failure, restated
       <!-- gtd check abc1234 -->
       """
+    And gtd lands "gtd(check): build.health.check → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/attempt.ts" with:
+      """
+      export const attempt = 2
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       the same failure, restated

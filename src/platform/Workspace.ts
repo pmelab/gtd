@@ -269,18 +269,6 @@ export const templateReadCommitted =
   }
 
 /**
- * `it.diff`'s binding (`PatternTemplates.ts`'s `TemplateContext.diff`) —
- * thin proxy over `workspace.diffSync`, kept as its own named export so a
- * render site wires it the same "`Pick<WorkspaceOps, ...>`" way
- * `templateRead`/`templateReadCommitted` do, rather than reaching into
- * `WorkspaceOps` directly.
- */
-export const templateDiff =
-  (workspace: Pick<WorkspaceOps, "diffSync">) =>
-  (base: string): string =>
-    workspace.diffSync(base)
-
-/**
  * `it.tail`'s binding (`PatternTemplates.ts`'s `TemplateContext.tail`) —
  * bounds `read`'s content through `ledger.tail`, so a caller wires this with
  * `templateRead(workspace)` for the ordinary context or

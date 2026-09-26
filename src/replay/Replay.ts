@@ -55,7 +55,7 @@ export interface ReplayInput {
 
 export type StepKind = Exclude<StepRequest["kind"], "restart">
 
-export const actorOfKind = (kind: StepKind): Actor =>
+const actorOfKind = (kind: StepKind): Actor =>
   kind === "run" ? "check" : kind === "agent" ? "agent" : kind === "human" ? "human" : "judge"
 
 /** One step replay reached, completed or not. */
@@ -93,7 +93,7 @@ export type ReplayOutcome =
   | { readonly kind: "refused"; readonly message: string }
   | { readonly kind: "failed"; readonly message: string }
 
-export const memoryScopeOf = (name: string): string => {
+const memoryScopeOf = (name: string): string => {
   const dot = name.lastIndexOf(".")
   return dot === -1 ? "" : name.slice(0, dot)
 }

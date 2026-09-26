@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import {
@@ -8,7 +7,6 @@ import {
   varsOnlyContext,
   type TemplateContext,
 } from "./PatternTemplates.js"
-import { compileTemplate } from "./workflows/index.js"
 import { Workspace, templateRead, templateReadCommitted, templateTail } from "./platform/index.js"
 import { InMemRepo, makeInMemoryWorkspaceOps } from "./testing/index.js"
 import { headingSections } from "./steering/index.js"
@@ -224,48 +222,6 @@ describe("renderStateTemplate — no filesystem template resolution", () => {
     const out = renderStateTemplate("just <%= it.actor %> text, no includes", baseContext())
     expect(out).toBe("just agent text, no includes")
   })
-})
-
-describe("renderStateTemplate — bundled `script` states render to valid bash", () => {
-  // Regression: Eta's default autoTrim slurps the newline after every
-  // `<%~ %>` tag. A `script` line ending in an interpolation therefore glued
-  // the next line's `else`/`fi` onto it (e.g. `rm -f .gtd/FEEDBACK.mdfi`),
-  // leaving the enclosing `if` unterminated — the driver died with
-  // "syntax error: unexpected end of file" and the check turn never ran. Every
-  // bundled `script` must survive `bash -n` after rendering with real vars.
-  const { definition, vars } = compileTemplate()
-  const scriptStates = Object.entries(definition.states).filter(([, s]) => s.script)
-
-  it("covers every bundled script state (guards against a state being dropped)", () => {
-    expect(scriptStates.map(([name]) => name).sort()).toEqual([
-      "architecture-promote",
-      "architecture.gate.check",
-      "build.health.check",
-      "build.health.escalate",
-      "build.quality.picking",
-      "build.quality.seeding",
-      "build.review.deciding",
-      "build.review.triaging",
-      "design.gate.check",
-      "fix-precheck",
-      "packages.item.closing",
-      "packages.item.health.check",
-      "packages.item.health.escalate",
-      "packages.item.spec.scoping",
-      "packages.picking",
-      "re-unwind",
-      "review-gate.check",
-      "start-gate.check",
-      "unwind",
-    ])
-  })
-
-  for (const [name, state] of scriptStates) {
-    it(`\`${name}\` renders to syntactically valid bash`, () => {
-      const rendered = renderStateTemplate(state.script!, baseContext({ state: name, vars }))
-      expect(() => execFileSync("bash", ["-n"], { input: rendered })).not.toThrow()
-    })
-  }
 })
 
 describe("renderStateTemplate — it.read through a real Workspace", () => {

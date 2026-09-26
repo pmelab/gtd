@@ -26,7 +26,6 @@ import {
 } from "./index.js"
 import { type CommandRequirements } from "./Cli.js"
 import { InMemRepo, testLayers } from "../testing/index.js"
-import { renderInitConfig } from "../workflows/index.js"
 
 const FLAG_NAMES = [
   "--json",
@@ -1138,7 +1137,7 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
     // through `io.stdout` (a raw call-recording array) — a failing run must
     // produce zero calls, not merely an empty joined string.
     const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.writeFile(".gtdrc.json", "{}\n")
     repo.commitAllWithPrefix("chore: init gtd workflow")
     repo.writeFile(".gtd/TODO.md", "## Open Questions\n\n###\n\nno question text.\n")
     const stdoutCalls: string[] = []

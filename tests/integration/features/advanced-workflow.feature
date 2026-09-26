@@ -1,56 +1,47 @@
 @inmem
 Feature: A picking-arbiter example — a per-task queue loop via a custom workflow
 
-  Coverage for the deterministic queue-arbiter shape carried by the bundled
-  unified template's per-package build queue (its `packages.picking` state —
-  see STATES.md §10):
-  a `script` state (`picking`) that
-  takes the first task file under `.gtd/tasks/` into `.gtd/NEXT.md`, or
-  removes `.gtd/NEXT.md` once the queue is empty, with an order-sensitive `on`
-  map (`"D .gtd/NEXT.md"` declared before the wildcard-status
-  `"* .gtd/NEXT.md"` row — a `*` status matches every status including `D`,
-  see STATES.md §3). A minimal 4-state custom workflow stands in for the
+  Coverage for the deterministic queue-arbiter shape the bundled workflow's
+  per-package build queue uses: a `run` step (`picking`) that takes the first
+  task file under `.gtd/tasks/` into `.gtd/NEXT.md`, or removes
+  `.gtd/NEXT.md` once the queue is empty, inside a plain loop. The flow checks
+  the deletion before any change to `.gtd/NEXT.md` — a deletion is a change
+  too, so code order decides. A minimal custom workflow stands in for the
   fuller example; @inmem simulates the arbiter's script by writing/deleting
   `.gtd/NEXT.md` directly and running `gtd land`.
 
   Scenario: the arbiter feeds a two-task queue one task at a time, then closes out once it empties
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write task files under .gtd/tasks/, then run `gtd land`"
-                on:
-                  "* **": picking
-              picking:
-                actor: check
-                script: |
-                  #!/usr/bin/env bash
-                  next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
-                  if [ -n "$next" ]; then
-                    printf '%s' "$next" > .gtd/NEXT.md
-                  else
-                    rm -f .gtd/NEXT.md
-                  fi
-                on:
-                  "D .gtd/NEXT.md": done
-                  "* .gtd/NEXT.md": building
-                  "C": done
-              building:
-                actor: agent
-                prompt: "Implement the task named in .gtd/NEXT.md, then delete that task file."
-                on:
-                  "* **": picking
-              done:
-                actor: human
-                message: "tasks complete"
+      import { agent, changed, deleted, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+
+      const pick = `next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
+      if [ -n "$next" ]; then
+        printf '%s' "$next" > .gtd/NEXT.md
+      else
+        rm -f .gtd/NEXT.md
+      fi
+      `
+
+      export default workflow({
+        default: async () => {
+          await human("idle", {
+            message: "write task files under .gtd/tasks/, then run `gtd land`",
+          })
+          for (;;) {
+            await run("picking", pick)
+            // The empty-queue check comes first: a deletion is also a change to NEXT.md.
+            if (deleted(".gtd/NEXT.md").length > 0 || changed().length === 0) break
+            if (changed(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
+            await agent(
+              "building",
+              "Implement the task named in .gtd/NEXT.md, then delete that task file.",
+            )
+          }
+          await human("done", { message: "tasks complete" })
+        },
+      })
       """
     And a file ".gtd/tasks/01-a.md" with:
       """
@@ -92,52 +83,46 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     Then it succeeds
     And the last commit subject is "gtd(agent): building → picking"
 
-    # picking: the queue is now empty — deleting NEXT.md matches "D .gtd/NEXT.md"
-    # (declared before the wildcard row) and closes the process out via "done"
+    # picking: the queue is now empty — deleting NEXT.md is checked before any
+    # other change to it and closes the process out via "done"
     Given the file ".gtd/NEXT.md" is deleted
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): picking → done"
     And the git status is clean
 
-  Scenario: an empty queue on the very first entry into picking matches the clean "C" row directly
+  Scenario: an empty queue on the very first entry into picking leaves the loop on a clean tree directly
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write task files under .gtd/tasks/, then run `gtd land`"
-                on:
-                  "* **": picking
-              picking:
-                actor: check
-                script: |
-                  #!/usr/bin/env bash
-                  next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
-                  if [ -n "$next" ]; then
-                    printf '%s' "$next" > .gtd/NEXT.md
-                  else
-                    rm -f .gtd/NEXT.md
-                  fi
-                on:
-                  "D .gtd/NEXT.md": done
-                  "* .gtd/NEXT.md": building
-                  "C": done
-              building:
-                actor: agent
-                prompt: "Implement the task named in .gtd/NEXT.md, then delete that task file."
-                on:
-                  "* **": picking
-              done:
-                actor: human
-                message: "tasks complete"
+      import { agent, changed, deleted, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+
+      const pick = `next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
+      if [ -n "$next" ]; then
+        printf '%s' "$next" > .gtd/NEXT.md
+      else
+        rm -f .gtd/NEXT.md
+      fi
+      `
+
+      export default workflow({
+        default: async () => {
+          await human("idle", {
+            message: "write task files under .gtd/tasks/, then run `gtd land`",
+          })
+          for (;;) {
+            await run("picking", pick)
+            // The empty-queue check comes first: a deletion is also a change to NEXT.md.
+            if (deleted(".gtd/NEXT.md").length > 0 || changed().length === 0) break
+            if (changed(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
+            await agent(
+              "building",
+              "Implement the task named in .gtd/NEXT.md, then delete that task file.",
+            )
+          }
+          await human("done", { message: "tasks complete" })
+        },
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -147,7 +132,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     Then it succeeds
     And the last commit subject is "gtd(human): idle → picking"
 
-    # picking: .gtd/tasks/ was already empty, so a clean step matches "C" directly
+    # picking: .gtd/tasks/ was already empty, so a clean step leaves the loop directly
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): picking → done"

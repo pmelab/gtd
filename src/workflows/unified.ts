@@ -11,8 +11,6 @@ import {
   type AgentSpec,
   type EscalationTexts,
   type HealthTexts,
-} from "./fragments.js"
-import {
   added,
   agent,
   changed,
@@ -25,9 +23,9 @@ import {
   tail,
   vars,
   workflow,
-} from "./runtime.js"
-import * as t from "./unified/text.js"
-import { defaults } from "./unified/vars.js"
+} from "../flows/index.js"
+import * as t from "./text.js"
+import { defaults } from "./vars.js"
 
 // gtd's built-in default workflow. Any change to the tree starts a process:
 // `idle` → `unwind` reverts the sketch (its intent survives in history) → a
