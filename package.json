@@ -6,8 +6,12 @@
   "bin": {
     "gtd": "dist/gtd.bundle.mjs"
   },
+  "exports": {
+    "./flows": "./src/flows/index.ts"
+  },
   "files": [
     "dist/",
+    "src/flows/",
     "README.md",
     "LICENSE",
     "schema.json"

@@ -26,6 +26,7 @@ function makeHash(message: string, parent: string | null, tree: Map<string, stri
 export class InMemRepo {
   // Data-only marker read by no code path: embeds the sentinel in every
   // instance so a leaked object still carries it.
+  // fallow-ignore-next-line unused-class-member
   readonly testDouble = TEST_DOUBLE_SENTINEL
 
   private commits: Map<string, Commit> = new Map()
