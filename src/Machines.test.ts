@@ -1,5 +1,8 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { flattenMachines } from "./Machines.js"
+import { flattenMachines, resolveGlobTokens, resolveVarTokens } from "./Machines.js"
 
 const agentState = (on: Record<string, unknown>) => ({ actor: "agent", prompt: "p", on })
 const checkState = (on: Record<string, unknown>) => ({ actor: "check", script: "s", on })
@@ -630,5 +633,189 @@ describe("flattenMachines — unbound param through a chained reference entry", 
     expect(out.diagnostics.map((d) => d.message)).toContain(
       'machines.unified.build (makeGreen): references unbound param "$onGreen"',
     )
+  })
+})
+
+describe("flattenMachines — a reference's `each:` (.gtd/packages/01-each-declaration.md)", () => {
+  const withEach = (
+    each: Record<string, unknown>,
+    packageItemEntry: string | null = "building",
+  ) => ({
+    entry: { default: "unified" },
+    machines: {
+      unified: {
+        entry: "start",
+        states: {
+          start: agentState({ "* **": "loop" }),
+          loop: { machine: "packageItem", each },
+          finish: commitState(),
+        },
+      },
+      packageItem: {
+        ...(packageItemEntry !== null ? { entry: packageItemEntry } : {}),
+        states: { building: checkState({ C: "building" }) },
+      },
+    },
+  })
+
+  it("instantiates the referenced machine exactly once, at its ordinary base path — no per-item instantiation", () => {
+    const out = flattenMachines(withEach({ glob: ".gtd/packages/*.md", drained: "finish" }))
+    expect(out.diagnostics.map((d) => d.message)).toEqual([])
+    expect(Object.keys(out.states).sort()).toEqual(["finish", "loop.building", "start"])
+  })
+
+  it("records the source and resolves `drained:` against the REFERRING instance, on the instantiated node", () => {
+    const out = flattenMachines(withEach({ glob: ".gtd/packages/*.md", drained: "finish" }))
+    expect(out.diagnostics.map((d) => d.message)).toEqual([])
+    expect(out.instances.get("loop")?.each).toEqual({
+      source: { kind: "glob", value: ".gtd/packages/*.md" },
+      drained: "finish",
+      entry: "loop.building",
+    })
+  })
+
+  it("resolves a `var:` source the same way", () => {
+    const out = flattenMachines(withEach({ var: "a, b", drained: "finish" }))
+    expect(out.diagnostics.map((d) => d.message)).toEqual([])
+    expect(out.instances.get("loop")?.each?.source).toEqual({ kind: "var", value: "a, b" })
+  })
+
+  it("an unresolvable `drained:` is a fatal diagnostic whose path points at the reference site", () => {
+    const out = flattenMachines(withEach({ glob: ".gtd/packages/*.md", drained: "nowhere" }))
+    const found = out.diagnostics.find((d) => d.message.includes('"nowhere"'))
+    expect(found).toBeDefined()
+    expect(found!.path).toEqual(["machines", "unified", "states", "loop"])
+    expect(out.instances.get("loop")?.each).toBeUndefined()
+  })
+
+  it("declaring neither `glob:` nor `var:` is a fatal diagnostic", () => {
+    const out = flattenMachines(withEach({ drained: "finish" }))
+    expect(out.diagnostics.map((d) => d.message)).toContain(
+      'machines.unified.loop.each: declare exactly one of "glob" or "var"',
+    )
+  })
+
+  it("declaring BOTH `glob:` and `var:` is a fatal diagnostic", () => {
+    const out = flattenMachines(withEach({ glob: "*.md", var: "a,b", drained: "finish" }))
+    expect(out.diagnostics.map((d) => d.message)).toContain(
+      'machines.unified.loop.each: declare exactly one of "glob" or "var"',
+    )
+  })
+
+  it("a missing `drained:` is a fatal diagnostic", () => {
+    const out = flattenMachines(withEach({ glob: "*.md" }))
+    expect(out.diagnostics.map((d) => d.message)).toContain(
+      'machines.unified.loop.each: "drained" is required',
+    )
+  })
+
+  it("`each:` on a reference whose machine declares no `entry:` is a fatal diagnostic", () => {
+    const out = flattenMachines(withEach({ glob: "*.md", drained: "finish" }, null))
+    expect(out.diagnostics.map((d) => d.message)).toContain(
+      'machines.unified.loop.each: machine "packageItem" declares no "entry:" for the loop to enter',
+    )
+  })
+
+  it("an unknown key inside `each:` is a fatal diagnostic", () => {
+    const out = flattenMachines(
+      withEach({ glob: "*.md", drained: "finish", bogus: true } as Record<string, unknown>),
+    )
+    expect(out.diagnostics.map((d) => d.message)).toContain(
+      'machines.unified.loop.each: unknown key "bogus"',
+    )
+  })
+
+  it("a reference WITHOUT `each:` is unaffected — no `each` recorded", () => {
+    const out = flattenMachines({
+      entry: { default: "unified" },
+      machines: {
+        unified: {
+          entry: "loop",
+          states: { loop: { machine: "packageItem" } },
+        },
+        packageItem: { entry: "building", states: { building: checkState({ C: "building" }) } },
+      },
+    })
+    expect(out.diagnostics.map((d) => d.message)).toEqual([])
+    expect(out.instances.get("loop")?.each).toBeUndefined()
+  })
+
+  // Round-2 review finding: `qualifierIndexAt`/`qualifyAt` anchor on a BASE
+  // (unqualified) ref path, so a reference's own `each:` sitting inside
+  // ANOTHER `each:` reference's subtree silently mis-derives the inner
+  // loop's position (it never advances past item 0). Rather than teach every
+  // qualifier helper to tolerate an already-qualified ancestor segment, a
+  // nested `each:` is rejected here, at load time, so the silently-wrong
+  // runtime case can't be authored at all.
+  it("a nested `each:` — a reference's own `each:` sitting inside another each: reference's subtree — is a fatal diagnostic", () => {
+    const out = flattenMachines({
+      entry: { default: "unified" },
+      machines: {
+        unified: {
+          entry: "start",
+          states: {
+            start: agentState({ "* **": "loop" }),
+            loop: { machine: "packageItem", each: { glob: "*.md", drained: "finish" } },
+            finish: commitState(),
+          },
+        },
+        packageItem: {
+          entry: "sub",
+          states: {
+            sub: { machine: "innerItem", each: { glob: "*.md", drained: "done" } },
+            done: commitState(),
+          },
+        },
+        innerItem: {
+          entry: "building",
+          states: { building: checkState({ C: "building" }) },
+        },
+      },
+    })
+    expect(out.diagnostics.map((d) => d.message)).toContain(
+      'machines.packageItem.sub.each: nested inside each: reference "loop" — a nested each: is not supported',
+    )
+  })
+})
+
+describe("resolveVarTokens — .gtd/packages/01-each-declaration.md Task 2", () => {
+  it("splits, trims, and drops empty fields", () => {
+    expect(resolveVarTokens("a, b ,c")).toEqual(["a", "b", "c"])
+  })
+
+  it("drops empty fields from a run of commas — does not preserve them", () => {
+    expect(resolveVarTokens("a,,b")).toEqual(["a", "b"])
+  })
+
+  it("resolves an empty or whitespace-only var to an empty list, not an error", () => {
+    expect(resolveVarTokens("")).toEqual([])
+    expect(resolveVarTokens("   ")).toEqual([])
+  })
+
+  it("resolves a var containing $(...) to the literal token — no subshell runs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-each-var-"))
+    const marker = join(dir, "ran")
+    const token = `$(touch ${marker})`
+    try {
+      expect(resolveVarTokens(token)).toEqual([token])
+      expect(existsSync(marker)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("resolves a var containing a backtick to a literal token", () => {
+    const token = "`echo hi`"
+    expect(resolveVarTokens(token)).toEqual([token])
+  })
+})
+
+describe("resolveGlobTokens — .gtd/packages/01-each-declaration.md Task 3", () => {
+  it("delegates to the injected workspace's own glob, unchanged", () => {
+    const calls: string[] = []
+    const workspace = { glob: (pattern: string) => (calls.push(pattern), ["b.md", "a.md"]) }
+    const result = resolveGlobTokens(workspace)(".gtd/packages/*.md")
+    expect(calls).toEqual([".gtd/packages/*.md"])
+    expect(result).toEqual(["b.md", "a.md"])
   })
 })

@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   dedicated feature files — see refusals.feature, default-workflow.feature,
   retry.feature.
 
-  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.check -> architecture-pre -> architecture.author -> architecture.gate.check -> architecture.decompose -> packages.picking -> packages.item.building -> packages.item.health.check
+  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.check -> architecture-pre -> architecture.author -> architecture.gate.check -> architecture.decompose -> packages-sweep -> packages[0].building -> packages[0].health.check
     Given a test project
     And the workflow
     And a file "src/feature.ts" with:
@@ -66,21 +66,20 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): architecture.decompose → packages.picking"
-    Given a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-feature.md
-      """
+    And the last commit subject is "gtd(agent): architecture.decompose → packages-sweep"
+    # packages-sweep: nothing to sweep -> a clean step enters the queue,
+    # `each: { glob: '.gtd/packages/*.md' }` snapshotting the one package
+    # just written.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
+    And the last commit subject is "gtd(check): packages-sweep → packages[0].building"
     Given a file "src/feature-impl.ts" with:
       """
       export const featureImpl = 1
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
+    And the last commit subject is "gtd(agent): packages[0].building → packages[0].health.check"
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project

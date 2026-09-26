@@ -3,7 +3,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../Commentary.js"
 import type { StateName, WorkflowDefinition } from "../PatternMachine.js"
-import type { MachineNode } from "../Machines.js"
+import type { EachSource, InstancePath, MachineNode } from "../Machines.js"
 import { Host, Workspace } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
 import { compileWorkflow, type ConfigLayer } from "./compile.js"
@@ -24,6 +24,8 @@ export interface ConfigOperations {
   readonly machineTree: MachineNode
   /** Qualified state name -> owning machine-instance path, or the built-in default's map when unconfigured. */
   readonly stateScopes: Record<StateName, string>
+  /** Every `each:` reference's own source declaration, keyed by reference path — `src/Edge.ts` resolves these into item tokens (it needs the `Workspace`, which the pure engine never touches). `{}` when unconfigured or no `each:` is declared. */
+  readonly eachSources: Record<InstancePath, EachSource>
   /** The top-level `ui:` key, decoded as-is (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: UiConfig
   /**
@@ -182,6 +184,7 @@ export const load: Effect.Effect<
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
     machineTree: compiled.machineTree,
     stateScopes: compiled.stateScopes,
+    eachSources: compiled.eachSources,
     warnings: diagnostics.filter((d) => d.severity === "warning"),
   }
 })

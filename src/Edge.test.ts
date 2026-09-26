@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   currentRest,
   currentRun,
+  memoryKeyFor,
   memoryResumedFor,
   reviewBaseFor,
   resolveRestFrom,
@@ -17,7 +18,8 @@ import {
   type ResolvedRest,
   type RestRequirements,
 } from "./Edge.js"
-import type { WorkflowDefinition } from "./PatternMachine.js"
+import { stripQualifiers, type WorkflowDefinition } from "./PatternMachine.js"
+import { resolveSession } from "./Sessions.js"
 import { InMemRepo, testLayers } from "./testing/index.js"
 
 // A ref name gtd no longer writes or reads at all — kept as a literal here
@@ -122,6 +124,7 @@ describe("reviewBaseFor", () => {
     costEntries: [],
     judgeVerdicts: [],
     entryVars: {},
+    eachSnapshots: {},
     headTurn: undefined,
     closingHash: undefined,
   })
@@ -166,6 +169,7 @@ describe("memoryResumedFor", () => {
     costEntries: [],
     judgeVerdicts: [],
     entryVars: {},
+    eachSnapshots: {},
     headTurn: undefined,
     closingHash: undefined,
   })
@@ -173,7 +177,7 @@ describe("memoryResumedFor", () => {
   const restAtState = (def: WorkflowDefinition, state: string, actor = "agent"): ResolvedRest => ({
     def,
     state,
-    stateDef: def.states[state]!,
+    stateDef: def.states[stripQualifiers(state)]!,
     actor,
   })
 
@@ -296,6 +300,129 @@ describe("memoryResumedFor", () => {
     const run = runWith([{ state: "buildRetry", hash: "h1" }])
     expect(memoryResumedFor(def, scopes, rest, run)).toBe(true)
   })
+
+  // Spec-review finding: the first turn of item N+1 (an `each:` loop) must
+  // never claim `resume: true` — nothing created a conversation for it yet.
+  // Before the `memoryScopeAt` fix, item N's own rows shared item N+1's BASE
+  // scope ("item"), so the scan never broke at the item boundary and this
+  // returned `true`, telling `Sessions.ts` to resume a session id that was
+  // never minted.
+  it("the first turn of the NEXT each: item is false, even though the previous item's own rows share the same base scope", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        picking: { actor: "human", message: "pick", on: [["* **", "item.building"]] },
+        "item.building": {
+          actor: "agent",
+          prompt: "build",
+          on: [["A DONE.md", "item.review"]],
+        },
+        "item.review": { actor: "human", message: "review", on: [["* **", "drained"]] },
+        drained: { actor: "human", message: "done" },
+      },
+      entries: { default: "picking", manual: [] },
+      eachRefs: { item: { entry: "item.building", drained: "drained" } },
+    }
+    const scopes = { "item.building": "item", "item.review": "item" }
+    const rest = restAtState(def, "item[1].building")
+    const run = runWith([
+      { state: "item[0].building", hash: "h1" },
+      { state: "item[0].review", hash: "h2" },
+    ])
+    expect(memoryResumedFor(def, scopes, rest, run)).toBe(false)
+  })
+})
+
+// ── memoryKeyFor + resolveSession — actual session ids (Task 4 review finding:
+// the scope-string assertions above don't prove the SESSION ID, which also
+// depends on the commit-anchored token `memoryKeyFor` appends) ─────────────
+
+describe("memoryKeyFor + resolveSession — actual session ids for an each: item", () => {
+  const runWith = (
+    trace: ReadonlyArray<{ state: string; hash: string }>,
+    startParentHash = "p",
+  ) => ({
+    startHash: trace[0]?.hash ?? startParentHash,
+    startParentHash,
+    diffBase: startParentHash,
+    trace: trace.map((entry) => ({ ...entry, actor: "agent" as const })),
+    costEntries: [],
+    judgeVerdicts: [],
+    entryVars: {},
+    eachSnapshots: {},
+    headTurn: undefined,
+    closingHash: undefined,
+  })
+
+  const restAtState = (def: WorkflowDefinition, state: string, actor = "agent"): ResolvedRest => ({
+    def,
+    state,
+    stateDef: def.states[stripQualifiers(state)]!,
+    actor,
+  })
+
+  const def: WorkflowDefinition = {
+    states: {
+      picking: { actor: "human", message: "pick", on: [["* **", "item.building"]] },
+      "item.building": {
+        actor: "agent",
+        prompt: "build",
+        on: [
+          ["A F.md", "item.fix"],
+          ["* **", "drained"],
+        ],
+      },
+      "item.fix": { actor: "agent", prompt: "fix", on: [["* **", "item.fix"]] },
+      drained: { actor: "human", message: "done" },
+    },
+    entries: { default: "picking", manual: [] },
+    eachRefs: { item: { entry: "item.building", drained: "drained" } },
+  }
+  const scopes = { "item.building": "item", "item.fix": "item" }
+
+  const sessionIdAt = (
+    state: string,
+    trace: ReadonlyArray<{ state: string; hash: string }>,
+    startParentHash = "p",
+  ): { readonly sessionId: string; readonly resume: boolean } => {
+    const rest = restAtState(def, state)
+    const run = runWith(trace, startParentHash)
+    const key = memoryKeyFor(def, scopes, rest, run)
+    const resumed = memoryResumedFor(def, scopes, rest, run)
+    return resolveSession(key, resumed)
+  }
+
+  it("two consecutive each: items get DIFFERENT session ids", () => {
+    const item0 = sessionIdAt("item[0].building", [])
+    const item1 = sessionIdAt("item[1].building", [{ state: "item[0].building", hash: "h1" }])
+    expect(item0.sessionId).not.toBe(item1.sessionId)
+  })
+
+  it("a restart mid-item (re-resolving the same rest, no new commit) gets the IDENTICAL session id", () => {
+    const first = sessionIdAt("item[0].building", [])
+    const second = sessionIdAt("item[0].building", [])
+    expect(second.sessionId).toBe(first.sessionId)
+  })
+
+  it("an item's building -> fix -> fix retry/self-loop sequence gets ONE session id across all its turns", () => {
+    // `turn1` is the item's very first dispatch (no prior landed row at all):
+    // a fresh mint, `resume: false`. `turn2` (fix, one prior landed row —
+    // building's own entering commit) and `turn3` (fix again, two prior
+    // landed rows) both fall in the SAME unbroken "item[0]" scope run as
+    // `turn1`, so every one of the three resolves to the identical session
+    // id — only `resume` itself (an unrelated, already-covered concern —
+    // see `memoryResumedFor`'s own describe block above) varies by how many
+    // rows of that run have landed so far.
+    const turn1 = sessionIdAt("item[0].building", [])
+    const turn2 = sessionIdAt("item[0].fix", [{ state: "item[0].building", hash: "h1" }])
+    const turn3 = sessionIdAt("item[0].fix", [
+      { state: "item[0].building", hash: "h1" },
+      { state: "item[0].fix", hash: "h2" },
+    ])
+    expect(turn1.resume).toBe(false)
+    expect(turn2.sessionId).toBe(turn1.sessionId)
+    expect(turn3.sessionId).toBe(turn1.sessionId)
+    expect(turn3.resume).toBe(true)
+  })
 })
 
 // ── currentRun — the process-trace boundary walk, re-driven through the edge ─
@@ -362,6 +489,7 @@ describe("currentRun", () => {
       costEntries: [],
       judgeVerdicts: [],
       entryVars: {},
+      eachSnapshots: {},
     })
   })
 
@@ -441,6 +569,39 @@ describe("currentRun", () => {
     expect(run.judgeVerdicts).toEqual([])
   })
 
+  it("collects a Gtd-Each: snapshot, keyed by reference path, round-tripping tricky tokens (space/comma/quote/#/newline) through JSON", async () => {
+    const { repo } = seededTraceRepo()
+    const items = ["has space", "a,b", 'quote"here', "hash#tag", "line\nbreak"]
+    repo.commitAllWithPrefix(`gtd(human): picking\n\nGtd-Each: item ${JSON.stringify(items)}`)
+    const run = await provide(currentRun, repo)
+    expect(run.eachSnapshots).toEqual({ item: items })
+  })
+
+  it("scopes Gtd-Each: snapshots by reference path — two loops in one process stay apart", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix(`gtd(human): picking\n\nGtd-Each: item ${JSON.stringify(["a"])}`)
+    repo.commitAllWithPrefix(
+      `gtd(human): reviewing\n\nGtd-Each: reviewers ${JSON.stringify(["r1", "r2"])}`,
+    )
+    const run = await provide(currentRun, repo)
+    expect(run.eachSnapshots).toEqual({ item: ["a"], reviewers: ["r1", "r2"] })
+  })
+
+  it("the LAST Gtd-Each: trailer for a given ref path wins — a loop-back re-enters with a fresh snapshot", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix(`gtd(human): picking\n\nGtd-Each: item ${JSON.stringify(["a", "b"])}`)
+    repo.commitAllWithPrefix(`gtd(human): picking\n\nGtd-Each: item ${JSON.stringify(["c"])}`)
+    const run = await provide(currentRun, repo)
+    expect(run.eachSnapshots).toEqual({ item: ["c"] })
+  })
+
+  it("an empty snapshotted list still records (an empty array, not absent)", async () => {
+    const { repo } = seededTraceRepo()
+    repo.commitAllWithPrefix(`gtd(human): picking\n\nGtd-Each: item []`)
+    const run = await provide(currentRun, repo)
+    expect(run.eachSnapshots).toEqual({ item: [] })
+  })
+
   it("a Gtd-Review-Base: trailer on the process's OLDEST commit overrides diffBase, leaving startParentHash untouched", async () => {
     const { repo, boundary } = seededTraceRepo()
     repo.commitAllWithPrefix(`gtd(human): reviewing\n\nGtd-Review-Base: ${boundary}deadbeef`)
@@ -494,6 +655,168 @@ describe("currentRun", () => {
       const run = await provide(currentRun, repo)
       expect(run.headTurn).toBeUndefined()
     })
+  })
+})
+
+// ── currentRest.eachItems — the snapshot, exercised end to end through a real
+// `each: { glob: ... }` reference (.gtd/packages/02-derived-loop-position.md
+// Requirement D) ─────────────────────────────────────────────────────────────
+
+const EACH_GLOB_WORKFLOW = [
+  "workflow:",
+  "  entry:",
+  "    default: root",
+  "  machines:",
+  "    root:",
+  "      entry: start",
+  "      states:",
+  "        start:",
+  "          actor: human",
+  "          message: pick",
+  "          on:",
+  '            "* **": loop',
+  "        loop:",
+  "          machine: packageItem",
+  "          with:",
+  "            onDrained: finish",
+  "          each:",
+  "            glob: '.gtd/packages/*.md'",
+  "            drained: finish",
+  "        finish:",
+  "          actor: human",
+  "          message: done",
+  "    packageItem:",
+  "      params: [onDrained]",
+  "      entry: building",
+  "      states:",
+  "        building:",
+  "          actor: agent",
+  "          prompt: build it",
+  "          on:",
+  '            "* **": $onDrained',
+  "",
+].join("\n")
+
+// `building`'s clean-tree edge routes straight to "escalated" (OUTSIDE the
+// `item` subtree) rather than to `$onDrained`/"finish" — simulating an
+// escalation that leaves the loop's own subtree without ever reaching its
+// `drained:` target.
+const EACH_GLOB_ESCALATE_WORKFLOW = [
+  "workflow:",
+  "  entry:",
+  "    default: root",
+  "  machines:",
+  "    root:",
+  "      entry: start",
+  "      states:",
+  "        start:",
+  "          actor: human",
+  "          message: pick",
+  "          on:",
+  '            "* **": loop',
+  "        loop:",
+  "          machine: packageItem",
+  "          with:",
+  "            onDrained: escalated",
+  "          each:",
+  "            glob: '.gtd/packages/*.md'",
+  "            drained: finish",
+  "        finish:",
+  "          actor: human",
+  "          message: done",
+  "        escalated:",
+  "          actor: human",
+  "          message: stuck",
+  "          on:",
+  '            "* **": finish',
+  "    packageItem:",
+  "      params: [onDrained]",
+  "      entry: building",
+  "      states:",
+  "        building:",
+  "          actor: agent",
+  "          prompt: build it",
+  "          on:",
+  '            "* **": $onDrained',
+  "",
+].join("\n")
+
+describe("currentRest.eachItems — a loop re-entered in the same process after routing OUT of the subtree gets a FRESH snapshot (spec-review finding)", () => {
+  it("does not reuse the stale Gtd-Each: trailer once the process has left the subtree — a package written during the escalation is picked up on re-entry", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", EACH_GLOB_ESCALATE_WORKFLOW)
+    repo.writeFile(".gtd/packages/a.md", "package a")
+    repo.commitAllWithPrefix("chore: seed workflow and one package")
+
+    // Enter the loop on its single item, snapshotting just "a.md".
+    repo.commitAllWithPrefix(
+      `gtd(human): start → loop[0].building\n\nGtd-Each: loop ${JSON.stringify([
+        ".gtd/packages/a.md",
+      ])}`,
+    )
+    // The agent escalates straight OUT of the subtree instead of draining.
+    repo.commitAllWithPrefix("gtd(agent): loop[0].building → escalated")
+
+    // While resolving the escalation, a human authors a SECOND package.
+    repo.writeFile(".gtd/packages/b.md", "package b (written during escalation)")
+
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("escalated")
+    // NOT the stale one-item snapshot — a fresh glob resolution, since the
+    // process is currently resting OUTSIDE the "loop" subtree.
+    expect(rest.eachItems["loop"]).toEqual([".gtd/packages/a.md", ".gtd/packages/b.md"])
+  })
+
+  it("still uses the snapshot while resting INSIDE the subtree, even after a prior trailer exists — the fix only changes behavior OUTSIDE it", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", EACH_GLOB_WORKFLOW)
+    repo.writeFile(".gtd/packages/a.md", "package a")
+    repo.writeFile(".gtd/packages/b.md", "package b")
+    repo.commitAllWithPrefix("chore: seed workflow and two packages")
+    const snapshot = [".gtd/packages/a.md", ".gtd/packages/b.md"]
+    repo.commitAllWithPrefix(
+      `gtd(human): start → loop[0].building\n\nGtd-Each: loop ${JSON.stringify(snapshot)}`,
+    )
+    repo.writeFile(".gtd/packages/c.md", "package c (written mid-loop)")
+    repo.commitAllWithPrefix("gtd(agent): loop[0].building")
+
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("loop[0].building")
+    expect(rest.eachItems["loop"]).toEqual(snapshot)
+  })
+})
+
+describe("currentRest.eachItems — a mid-run glob write is not built by the already-entered loop", () => {
+  it("resolves the snapshot trailer's item list fresh (before the loop is entered), then freezes it — a file written into the glob's source dir DURING the loop never joins eachItems", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", EACH_GLOB_WORKFLOW)
+    repo.writeFile(".gtd/packages/a.md", "package a")
+    repo.writeFile(".gtd/packages/b.md", "package b")
+    repo.commitAllWithPrefix("chore: seed workflow and two packages")
+
+    // Before the loop is entered, `currentRest` resolves the glob FRESH —
+    // this is the value the entering commit is about to snapshot.
+    const beforeEntry = await provide(currentRest, repo)
+    expect(beforeEntry.eachItems["loop"]).toEqual([".gtd/packages/a.md", ".gtd/packages/b.md"])
+
+    // Enter the loop: the landing commit carries the `Gtd-Each:` trailer
+    // fixing the list — exactly what `src/step/planStep.ts` emits on a
+    // decision whose `enteredEachRef` is set.
+    const snapshot = [".gtd/packages/a.md", ".gtd/packages/b.md"]
+    repo.commitAllWithPrefix(
+      `gtd(human): start → loop[0].building\n\nGtd-Each: loop ${JSON.stringify(snapshot)}`,
+    )
+
+    // An agent turn inside the loop writes a THIRD package file into the
+    // very directory the glob sources from — simulating a package spec
+    // authored mid-run rather than before the loop started.
+    repo.writeFile(".gtd/packages/c.md", "package c (written mid-loop)")
+    repo.commitAllWithPrefix("gtd(agent): loop[0].building")
+
+    const duringLoop = await provide(currentRest, repo)
+    expect(duringLoop.state).toBe("loop[0].building")
+    expect(duringLoop.eachItems["loop"]).toEqual(snapshot)
+    expect(duringLoop.eachItems["loop"]).not.toContain(".gtd/packages/c.md")
   })
 })
 
@@ -1666,5 +1989,146 @@ describe("bounded primitives narrowed to judge:/message: — the aliased-call ba
     expect(failure).toMatch(
       /it\.tail is available only in a "judge:" field or a "message:" template/,
     )
+  })
+})
+
+// ── it.item / it.itemIndex — .gtd/packages/03-item-identity-in-templates.md ─
+
+describe("rest.context.item / itemIndex — a state inside an each: loop", () => {
+  const ITEM_GLOB_WORKFLOW = [
+    "workflow:",
+    "  vars:",
+    '    skillsPreamble: "Load: <%= it.skills %>"',
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: start",
+    "      states:",
+    "        start:",
+    "          actor: human",
+    "          message: pick",
+    "          on:",
+    '            "* **": loop',
+    "        loop:",
+    "          machine: packageItem",
+    "          with:",
+    "            onDrained: finish",
+    "          each:",
+    "            glob: '.gtd/packages/*.md'",
+    "            drained: finish",
+    "        finish:",
+    "          actor: human",
+    "          message: done",
+    "    packageItem:",
+    "      params: [onDrained]",
+    "      entry: building",
+    "      states:",
+    "        building:",
+    "          actor: agent",
+    "          skills: package <%= it.item %>",
+    '          prompt: "build item <%= it.item %> at index <%= it.itemIndex %>"',
+    "          file: item-<%= it.itemIndex %>.md",
+    "          on:",
+    '            "* **": $onDrained',
+    "",
+  ].join("\n")
+
+  it("a glob: source yields the repo-relative path, at the item's 0-based position", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", ITEM_GLOB_WORKFLOW)
+    repo.writeFile(".gtd/packages/a.md", "package a")
+    repo.writeFile(".gtd/packages/b.md", "package b")
+    repo.commitAllWithPrefix("chore: seed workflow and two packages")
+    const snapshot = [".gtd/packages/a.md", ".gtd/packages/b.md"]
+    repo.commitAllWithPrefix(
+      `gtd(human): start → loop[1].building\n\nGtd-Each: loop ${JSON.stringify(snapshot)}`,
+    )
+
+    const rest = await provide(currentRest, repo)
+    expect(rest.context.item).toBe(".gtd/packages/b.md")
+    expect(rest.context.itemIndex).toBe(1)
+  })
+
+  it("renders the SAME item in prompt:, skills:, AND file: in one rest resolution — skills is populated on the context before hints render, not injected during content rendering", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", ITEM_GLOB_WORKFLOW)
+    repo.writeFile(".gtd/packages/a.md", "package a")
+    repo.commitAllWithPrefix("chore: seed workflow and one package")
+    const snapshot = [".gtd/packages/a.md"]
+    repo.commitAllWithPrefix(
+      `gtd(human): start → loop[0].building\n\nGtd-Each: loop ${JSON.stringify(snapshot)}`,
+    )
+
+    const rest = await provide(currentRest, repo)
+    const rendered = await provide(renderRest(rest), repo)
+    expect(rendered.file).toBe(".gtd/item-0.md")
+    expect(rendered.skills).toBe("package .gtd/packages/a.md")
+    expect(rendered.content).toBe(
+      "Load: package .gtd/packages/a.md\n\nbuild item .gtd/packages/a.md at index 0",
+    )
+  })
+
+  it("a var: source yields the trimmed name", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(
+      ".gtdrc.yaml",
+      [
+        "workflow:",
+        "  vars:",
+        "    lenses: 'owasp-security, code-simplification'",
+        "  entry:",
+        "    default: root",
+        "  machines:",
+        "    root:",
+        "      entry: start",
+        "      states:",
+        "        start:",
+        "          actor: human",
+        "          message: pick",
+        "          on:",
+        '            "* **": loop',
+        "        loop:",
+        "          machine: lens",
+        "          with:",
+        "            onDrained: finish",
+        "          each:",
+        "            var: lenses",
+        "            drained: finish",
+        "        finish:",
+        "          actor: human",
+        "          message: done",
+        "    lens:",
+        "      params: [onDrained]",
+        "      entry: reviewing",
+        "      states:",
+        "        reviewing:",
+        "          actor: agent",
+        '          prompt: "review with <%= it.item %>"',
+        "          on:",
+        '            "* **": $onDrained',
+        "",
+      ].join("\n"),
+    )
+    repo.commitAllWithPrefix("chore: seed lens workflow")
+    const snapshot = ["owasp-security", "code-simplification"]
+    repo.commitAllWithPrefix(
+      `gtd(human): start → loop[1].reviewing\n\nGtd-Each: loop ${JSON.stringify(snapshot)}`,
+    )
+
+    const rest = await provide(currentRest, repo)
+    expect(rest.context.item).toBe("code-simplification")
+    expect(rest.context.itemIndex).toBe(1)
+  })
+
+  it("outside any loop, item is the empty string and itemIndex is -1", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", ITEM_GLOB_WORKFLOW)
+    repo.commitAllWithPrefix("chore: seed workflow, no packages yet")
+
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("start")
+    expect(rest.context.item).toBe("")
+    expect(rest.context.itemIndex).toBe(-1)
   })
 })

@@ -21,7 +21,7 @@ if [ -z "$anchor" ]; then anchor=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi
 # state — `stateSubject`'s "gtd(actor): from → to" shape means the
 # commit that lands a `describe` turn's own write always reads
 # "... build.health.describe → build.health.stop" (or the
-# packages.item.health equivalent), the same narrowing
+# packages.health equivalent), the same narrowing
 # `healthGate.check`'s own `episode_anchor` uses above — never the
 # human's own "... build.health.stop → build.fix" landing at `stop`.
 #
@@ -33,7 +33,7 @@ if [ -z "$anchor" ]; then anchor=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi
 # that commit from the count (git sees no diff on that path) and
 # the 2-round cap would never fire on a repeatedly identical
 # analysis.
-describe_source='packages.item.health.describe'
+describe_source='packages.health.describe'
 rounds=$(git log --format='%s' "$anchor"..HEAD 2>/dev/null | grep -c -F -- "$describe_source →")
 if [ "$rounds" -ge 2 ]; then
   # Preserve whatever is already in the tree — including a human's

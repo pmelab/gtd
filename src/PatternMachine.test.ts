@@ -7,15 +7,21 @@ import {
   enterableStates,
   initialStateOf,
   inScope,
+  isInEachSubtree,
+  isRequireRevertState,
   isReviewBaseState,
+  manualEntryStates,
   matchesPattern,
   matchRoute,
   memoryScopeAt,
   parsePattern,
   parseStateSubject,
+  qualifierIndexAt,
+  qualifyAt,
   resolveState,
   stateSubject,
   step,
+  stripQualifiers,
   validateDefinition,
   wouldAttempt,
   type PendingChange,
@@ -194,6 +200,42 @@ describe("isReviewBaseState", () => {
   it("is false for an unknown state name", () => {
     expect(isReviewBaseState(workflow, "ghost")).toBe(false)
   })
+
+  // Spec-review finding: `reviewBaseFor` (`Edge.ts`) walks QUALIFIED trace
+  // rows inside an `each:` loop — a bare `def.states[state]` lookup misses
+  // the map entirely for a qualified name and silently returns `false`,
+  // meaning a loop item's `reviewBase: true` state never anchors the diff
+  // base.
+  it("strips a qualified state name before the lookup", () => {
+    expect(isReviewBaseState(workflow, "idle[2]")).toBe(true)
+  })
+})
+
+describe("isRequireRevertState", () => {
+  const workflow: WorkflowDefinition = def(
+    {
+      idle: { actor: "human", message: "x", requireRevert: true, on: [["* *", "plain"]] },
+      plain: { actor: "agent", prompt: "x", on: [["* *", "idle"]] },
+    },
+    "idle",
+  )
+
+  it("reports the requireRevert flag by state name", () => {
+    expect(isRequireRevertState(workflow, "idle")).toBe(true)
+    expect(isRequireRevertState(workflow, "plain")).toBe(false)
+  })
+
+  it("is false for an unknown state name", () => {
+    expect(isRequireRevertState(workflow, "ghost")).toBe(false)
+  })
+
+  // Spec-review finding: `snapshotFromRest` (`Edge.ts`) calls this against
+  // the resolved rest, which may be QUALIFIED inside an `each:` loop — a
+  // qualified name must strip before the lookup or a loop item declaring
+  // `requireRevert: true` silently skips the revert probe entirely.
+  it("strips a qualified state name before the lookup", () => {
+    expect(isRequireRevertState(workflow, "idle[3]")).toBe(true)
+  })
 })
 
 describe("enterableStates", () => {
@@ -365,6 +407,17 @@ describe("resolveState", () => {
     // recognized actor somewhere in the workflow, so resolution lands on
     // "sink" rather than falling back to the initial state.
     expect(resolveState(workflow, "gtd(human): sink")).toBe("sink")
+  })
+
+  it("resolves a QUALIFIED state name by its stripped base — the qualifier is preserved on the returned name, not just validated away", () => {
+    const workflow: WorkflowDefinition = def(
+      {
+        picking: { actor: "human", message: "pick", on: [["* *", "item.building"]] },
+        "item.building": { actor: "agent", prompt: "build", on: [["* *", "picking"]] },
+      },
+      "picking",
+    )
+    expect(resolveState(workflow, "gtd(agent): item[2].building")).toBe("item[2].building")
   })
 
   it("is total: an arbitrary garbage subject always resolves to a defined state", () => {
@@ -1300,16 +1353,24 @@ describe("memoryScopeAt", () => {
   ]
   const scopes: Readonly<Record<string, string>> = Object.fromEntries(rows)
   const trace = rows.map(([state]) => state)
+  // `memoryScopeAt` needs a `WorkflowDefinition` only to re-apply an `each:`
+  // qualifier onto its resolved scope — none of these rows are qualified, so
+  // an `eachRefs`-free definition resolves identically to today's behavior.
+  const NO_EACH_DEF: WorkflowDefinition = { states: {}, entries: { default: "", manual: [] } }
 
   it("a parent scope's unbroken run survives an excursion into child scopes: querying row 12's state over trace 1..11, and querying row 10's state over trace 1..9, both resolve entryIndex to row 8 (index 7)", () => {
     // Rows 9 and 11 are both true dotted descendants of `packages.item`
     // (`packages.item.health`, `packages.item.spec`), so they don't break
     // the run that started at row 8 (`packages.item.building`).
-    expect(memoryScopeAt(scopes, "packages.item.fix-spec", trace.slice(0, 11))).toEqual({
+    expect(
+      memoryScopeAt(NO_EACH_DEF, scopes, "packages.item.fix-spec", trace.slice(0, 11)),
+    ).toEqual({
       scope: "packages.item",
       entryIndex: 7,
     })
-    expect(memoryScopeAt(scopes, "packages.item.fix-suite", trace.slice(0, 9))).toEqual({
+    expect(
+      memoryScopeAt(NO_EACH_DEF, scopes, "packages.item.fix-suite", trace.slice(0, 9)),
+    ).toEqual({
       scope: "packages.item",
       entryIndex: 7,
     })
@@ -1321,14 +1382,16 @@ describe("memoryScopeAt", () => {
     // false — so it breaks any run scoped at `packages.item.spec`. The only
     // trace row ever inside that subtree is row 11 itself, which therefore
     // starts (and is) its own unbroken run.
-    expect(memoryScopeAt(scopes, "packages.item.spec.review", trace.slice(0, 12))).toEqual({
+    expect(
+      memoryScopeAt(NO_EACH_DEF, scopes, "packages.item.spec.review", trace.slice(0, 12)),
+    ).toEqual({
       scope: "packages.item.spec",
       entryIndex: 10,
     })
   })
 
   it("an empty trace resolves to entryIndex: -1 (fresh), not undefined, for a state present in scopes", () => {
-    expect(memoryScopeAt(scopes, "packages.item.closing", [])).toEqual({
+    expect(memoryScopeAt(NO_EACH_DEF, scopes, "packages.item.closing", [])).toEqual({
       scope: "packages.item",
       entryIndex: -1,
     })
@@ -1336,7 +1399,7 @@ describe("memoryScopeAt", () => {
 
   it("nothing in the trace ever inside the scope's subtree also falls back to entryIndex: -1", () => {
     expect(
-      memoryScopeAt(scopes, "packages.item.building", [
+      memoryScopeAt(NO_EACH_DEF, scopes, "packages.item.building", [
         "design.product-author",
         "design.product-answer",
       ]),
@@ -1347,7 +1410,7 @@ describe("memoryScopeAt", () => {
   })
 
   it("querying a state absent from `scopes` returns undefined entirely", () => {
-    expect(memoryScopeAt(scopes, "no-such-state", trace.slice(0, 12))).toBeUndefined()
+    expect(memoryScopeAt(NO_EACH_DEF, scopes, "no-such-state", trace.slice(0, 12))).toBeUndefined()
   })
 
   it("a trace row naming a state absent from `scopes` is skipped, not thrown on, when the QUERIED state is itself present", () => {
@@ -1355,7 +1418,7 @@ describe("memoryScopeAt", () => {
     // the qualifying run, so it correctly counts as "not in scope" for
     // run-continuity purposes without crashing.
     const traceWithGap = ["ghost", "packages.item.building"]
-    expect(memoryScopeAt(scopes, "packages.item.fix-suite", traceWithGap)).toEqual({
+    expect(memoryScopeAt(NO_EACH_DEF, scopes, "packages.item.fix-suite", traceWithGap)).toEqual({
       scope: "packages.item",
       entryIndex: 1,
     })
@@ -1434,6 +1497,47 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain('entries.manual declares "b" more than once')
+  })
+
+  it("rejects entries.default naming a state inside an each: subtree", () => {
+    const { errors } = validateDefinition({
+      entries: { default: "item.building", manual: [] },
+      states: {
+        "item.building": { actor: "agent", prompt: "build", on: [["A DONE.md", "drained"]] },
+        drained: { actor: "human", message: "done" },
+      },
+      eachRefs: { item: { entry: "item.building", drained: "drained" } },
+    })
+    expect(errors).toContain(
+      'entries.default "item.building" is inside an each: reference — a process may not start inside a loop',
+    )
+  })
+
+  it("rejects entries.manual naming a state inside an each: subtree", () => {
+    const { errors } = validateDefinition({
+      entries: { default: "drained", manual: ["item.building"] },
+      states: {
+        "item.building": { actor: "agent", prompt: "build", on: [["A DONE.md", "drained"]] },
+        drained: { actor: "human", message: "done" },
+      },
+      eachRefs: { item: { entry: "item.building", drained: "drained" } },
+    })
+    expect(errors).toContain(
+      'entries.manual "item.building" is inside an each: reference — a process may not be entered inside a loop',
+    )
+  })
+
+  it("accepts entries that all sit outside every each: subtree", () => {
+    const { errors } = validateDefinition({
+      entries: { default: "picking", manual: ["drained"] },
+      states: {
+        picking: { actor: "human", message: "pick", on: [["* *", "item.building"]] },
+        "item.building": { actor: "agent", prompt: "build", on: [["A DONE.md", "drained"]] },
+        drained: { actor: "human", message: "done" },
+      },
+      eachRefs: { item: { entry: "item.building", drained: "drained" } },
+    })
+    expect(errors).toEqual([])
   })
 
   it("accepts entries with only `default` (an empty `manual`)", () => {
@@ -2721,5 +2825,515 @@ describe("δ-purity: step's decision ignores unreferenced states in the definiti
       ),
       { numRuns: 300 },
     )
+  })
+})
+
+// ── Task 1: the qualifier and its normalization ────────────────────────────
+
+describe("stripQualifiers / qualifierIndexAt / qualifyAt — round trip", () => {
+  it("stripQualifiers removes every [n] segment", () => {
+    expect(stripQualifiers("packages[2].building")).toBe("packages.building")
+    expect(stripQualifiers("packages.item[10].spec.review")).toBe("packages.item.spec.review")
+    expect(stripQualifiers("packages.building")).toBe("packages.building")
+  })
+
+  it("qualifierIndexAt reads the index at refPath's own segment, undefined elsewhere", () => {
+    expect(qualifierIndexAt("packages.item[2].building", "packages.item")).toBe(2)
+    expect(qualifierIndexAt("packages.item.building", "packages.item")).toBeUndefined()
+    expect(qualifierIndexAt("packages.building", "packages.item")).toBeUndefined()
+  })
+
+  it("qualifyAt then stripQualifiers round-trips to the original base name, for any index", () => {
+    fc.assert(
+      fc.property(fc.nat(50), (index) => {
+        const base = "packages.item.building"
+        const qualified = qualifyAt(base, "packages.item", index)
+        expect(stripQualifiers(qualified)).toBe(base)
+        expect(qualifierIndexAt(qualified, "packages.item")).toBe(index)
+      }),
+    )
+  })
+})
+
+describe("isInEachSubtree / manualEntryStates", () => {
+  const eachDef: WorkflowDefinition = {
+    entries: { default: "picking", manual: ["picking", "aborted"] },
+    states: {
+      picking: { actor: "human", message: "pick", on: [["* *", "item.building"]] },
+      "item.building": { actor: "agent", prompt: "build", on: [["A DONE.md", "drained"]] },
+      drained: { actor: "human", message: "done" },
+      aborted: { actor: "human", message: "aborted" },
+    },
+    eachRefs: { item: { entry: "item.building", drained: "drained" } },
+  }
+
+  it("a state inside the each: subtree reports in, one outside reports out", () => {
+    expect(isInEachSubtree(eachDef, "item.building")).toBe(true)
+    expect(isInEachSubtree(eachDef, "item[3].building")).toBe(true)
+    expect(isInEachSubtree(eachDef, "drained")).toBe(false)
+    expect(isInEachSubtree(eachDef, "picking")).toBe(false)
+  })
+
+  it("manualEntryStates withholds every each: subtree base name enterableStates still lists", () => {
+    expect(enterableStates(eachDef)).toContain("item.building")
+    expect(manualEntryStates(eachDef)).not.toContain("item.building")
+    expect(manualEntryStates(eachDef)).toEqual(
+      enterableStates(eachDef).filter((s) => s !== "item.building"),
+    )
+  })
+})
+
+describe("Edge.ts's resumed-memory scan does not crash on a qualified trace row", () => {
+  it("memoryScopeAt strips a qualified state/trace row before its scopes[] lookup", () => {
+    const scopes = { "packages.item.building": "packages.item" }
+    const def: WorkflowDefinition = {
+      states: {},
+      entries: { default: "", manual: [] },
+      eachRefs: { "packages.item": { entry: "packages.item.building", drained: "drained" } },
+    }
+    expect(() =>
+      memoryScopeAt(def, scopes, "packages.item[2].building", ["packages.item[1].building"]),
+    ).not.toThrow()
+    expect(memoryScopeAt(def, scopes, "packages.item[2].building", [])).toEqual({
+      scope: "packages.item[2]",
+      entryIndex: -1,
+    })
+  })
+})
+
+// ── Task 3 / Task 5: advancing a loop with no beat, per-item retry budget ──
+
+/**
+ * A one-item-machine loop: `picking` enters `item.building` (retry-capped,
+ * redirecting straight to `drained` once capped — Task 3's own ordering
+ * test); a clean `item.building` completes to `item.review`; `item.review`
+ * exits to `drained`, the reference's own `drained:` target — the only edge
+ * that ADVANCES the loop. `item.escalate` is a second, unrelated exit that is
+ * NOT `drained:`, reachable only by hand-crafting a decision in a test below.
+ */
+const eachLoopDef: WorkflowDefinition = {
+  entries: { default: "picking", manual: [] },
+  states: {
+    picking: { actor: "human", message: "pick", on: [["* *", "item.building"]] },
+    "item.building": {
+      actor: "agent",
+      prompt: "build it",
+      retry: { max: 1, otherwise: "drained" },
+      on: [["A DONE.md", "item.review"]],
+    },
+    "item.review": { actor: "human", message: "review", on: [["* *", "drained"]] },
+    drained: { actor: "human", message: "no more items" },
+  },
+  eachRefs: { item: { entry: "item.building", drained: "drained" } },
+}
+
+const eachItems = { item: ["a", "b"] }
+
+describe("step — each: loop advance", () => {
+  it("a fresh entry (from outside the subtree) qualifies the reference's entry state with index 0", () => {
+    const decision = step(eachLoopDef, "picking", "human", {
+      changes: [change("M", "x")],
+      processTrace: [],
+      eachItems,
+    })
+    expect(decision).toMatchObject({ kind: "commit", to: "item[0].building" })
+  })
+
+  it("continuing within the same item's own machine reuses the current index", () => {
+    const decision = step(eachLoopDef, "item[0].building", "agent", {
+      changes: [change("A", "DONE.md")],
+      processTrace: ["item[0].building"],
+      eachItems,
+    })
+    expect(decision).toMatchObject({ kind: "commit", to: "item[0].review" })
+  })
+
+  it("reaching the reference's drained: target with items remaining advances to the NEXT item's entry, in the same decision", () => {
+    const decision = step(eachLoopDef, "item[0].review", "human", {
+      changes: [change("M", "x")],
+      processTrace: ["item[0].building", "item[0].review"],
+      eachItems,
+    })
+    expect(decision).toMatchObject({
+      kind: "commit",
+      from: "item[0].review",
+      to: "item[1].building",
+    })
+  })
+
+  it("reaching drained: on the LAST item stands — the loop ends there", () => {
+    const decision = step(eachLoopDef, "item[1].review", "human", {
+      changes: [change("M", "x")],
+      processTrace: ["item[0].building", "item[0].review", "item[1].building", "item[1].review"],
+      eachItems,
+    })
+    expect(decision).toMatchObject({ kind: "commit", to: "drained" })
+  })
+
+  it("an empty item list routes the entering land straight to drained:, no item state ever a rest", () => {
+    const decision = step(eachLoopDef, "picking", "human", {
+      changes: [change("M", "x")],
+      processTrace: [],
+      eachItems: { item: [] },
+    })
+    expect(decision).toMatchObject({ kind: "commit", from: "picking", to: "drained" })
+  })
+
+  it("the drain-advance rewrite runs AFTER retry-cap redirection: an exhausted retry whose otherwise IS the drained: target still advances to the next item in one decision", () => {
+    // item[0].building's own cap is max:1 — one PRIOR visit already spends it.
+    const decision = step(eachLoopDef, "item[0].building", "agent", {
+      changes: [],
+      processTrace: ["item[0].building"],
+      eachItems,
+    })
+    expect(decision).toMatchObject({
+      kind: "commit",
+      from: "item[0].building",
+      to: "item[1].building",
+      attempt: true,
+    })
+  })
+
+  it("a target leaving the subtree that is NOT drained: stands verbatim and ends the loop", () => {
+    // Simulate an edge routing `item.review` to an unrelated exit instead of
+    // `drained:` — remaining items must never be built.
+    const abortDef: WorkflowDefinition = {
+      ...eachLoopDef,
+      states: {
+        ...eachLoopDef.states,
+        "item.review": { actor: "human", message: "review", on: [["* *", "aborted"]] },
+        aborted: { actor: "human", message: "aborted" },
+      },
+    }
+    const decision = step(abortDef, "item[0].review", "human", {
+      changes: [change("M", "x")],
+      processTrace: ["item[0].building", "item[0].review"],
+      eachItems,
+    })
+    expect(decision).toMatchObject({ kind: "commit", to: "aborted" })
+  })
+
+  it("a retry.otherwise on a state OUTSIDE the subtree that redirects INTO it is a fresh entry, carrying enteredEachRef (spec-review round 3)", () => {
+    // `picking` itself is capped: its own raw `on:` target ("picking", a
+    // self-loop attempt) is not in any each: subtree, so the OLD
+    // raw-pre-retry-target-only computation of `enteredEachRef` missed this
+    // case entirely — the retry redirect (not the raw target) is what
+    // freshly enters `item`'s subtree.
+    const capturingPickingDef: WorkflowDefinition = {
+      ...eachLoopDef,
+      states: {
+        ...eachLoopDef.states,
+        picking: {
+          actor: "human",
+          message: "pick",
+          retry: { max: 1, otherwise: "item.building" },
+          on: [["* *", "picking"]],
+        },
+      },
+    }
+    const decision = step(capturingPickingDef, "picking", "human", {
+      changes: [change("M", "x")],
+      processTrace: ["picking"],
+      eachItems,
+    })
+    expect(decision).toMatchObject({
+      kind: "commit",
+      from: "picking",
+      to: "item[0].building",
+      enteredEachRef: "item",
+    })
+  })
+
+  describe("two each: references chained by drained: — spec-review round 4", () => {
+    // A's own `drained:` target is literally B's entry state — the natural
+    // way to author "a process running two loops in sequence" (Task 2).
+    const twoLoopDef: WorkflowDefinition = {
+      entries: { default: "start", manual: [] },
+      states: {
+        start: { actor: "human", message: "start", on: [["* *", "A.build"]] },
+        "A.build": { actor: "agent", prompt: "build A", on: [["A DONE.md", "B.build"]] },
+        "B.build": { actor: "agent", prompt: "build B", on: [["A DONE.md", "done"]] },
+        done: { actor: "human", message: "done" },
+      },
+      eachRefs: {
+        A: { entry: "A.build", drained: "B.build" },
+        B: { entry: "B.build", drained: "done" },
+      },
+    }
+
+    it("loop A empty: the entering commit qualifies straight into loop B (not a bare state) and carries B's own snapshot, not A's", () => {
+      const decision = step(twoLoopDef, "start", "human", {
+        changes: [change("M", "x")],
+        processTrace: [],
+        eachItems: { A: [], B: ["b1", "b2"] },
+      })
+      expect(decision).toMatchObject({
+        kind: "commit",
+        from: "start",
+        to: "B[0].build",
+        enteredEachRef: "B",
+      })
+    })
+
+    it("loop A empty, loop B ALSO empty: chains straight through to the ordinary exit, carrying B's (not A's) empty-list entry", () => {
+      const decision = step(twoLoopDef, "start", "human", {
+        changes: [change("M", "x")],
+        processTrace: [],
+        eachItems: { A: [], B: [] },
+      })
+      expect(decision).toMatchObject({
+        kind: "commit",
+        from: "start",
+        to: "done",
+        enteredEachRef: "B",
+      })
+    })
+
+    it("an A-advance commit (item 0 -> item 1, still inside A) carries NO enteredEachRef, even though the pre-advance target briefly qualified as a fresh entry into B", () => {
+      const decision = step(twoLoopDef, "A[0].build", "agent", {
+        changes: [change("A", "DONE.md")],
+        processTrace: ["A[0].build"],
+        eachItems: { A: ["a1", "a2"], B: ["b1"] },
+      })
+      expect(decision).toMatchObject({
+        kind: "commit",
+        from: "A[0].build",
+        to: "A[1].build",
+      })
+      expect(decision).not.toHaveProperty("enteredEachRef")
+    })
+
+    it("loop A has items remaining and loop B's snapshotted list is empty: A still advances to its next item instead of being silently skipped", () => {
+      // B being empty makes `qualifyLoopTarget` chain A's own `drained:`
+      // ("B.build") straight through to B's `drained:` ("done") — the
+      // resolved target `applyEachDrainAdvance` sees is "done", which is
+      // neither A's nor B's OWN `drained:` string. Without threading the
+      // pre-chain target ("B.build", exactly A's `drained:`) through, A never
+      // advances and its second item is silently dropped.
+      const decision = step(twoLoopDef, "A[0].build", "agent", {
+        changes: [change("A", "DONE.md")],
+        processTrace: ["A[0].build"],
+        eachItems: { A: ["a1", "a2"], B: [] },
+      })
+      expect(decision).toMatchObject({
+        kind: "commit",
+        from: "A[0].build",
+        to: "A[1].build",
+      })
+      expect(decision).not.toHaveProperty("enteredEachRef")
+    })
+
+    it("loop A drains for real (last item done): enters loop B fresh, qualified, with B's own snapshot", () => {
+      const decision = step(twoLoopDef, "A[0].build", "agent", {
+        changes: [change("A", "DONE.md")],
+        processTrace: ["A[0].build"],
+        eachItems: { A: ["a1"], B: ["b1", "b2"] },
+      })
+      expect(decision).toMatchObject({
+        kind: "commit",
+        from: "A[0].build",
+        to: "B[0].build",
+        enteredEachRef: "B",
+      })
+    })
+  })
+
+  it("restart re-derivation: resolving the same (state, trace) twice with no intervening land yields the identical decision", () => {
+    const payload = {
+      changes: [change("M", "x")],
+      processTrace: ["item[0].building", "item[0].review"],
+      eachItems,
+    }
+    const first = step(eachLoopDef, "item[0].review", "human", payload)
+    const second = step(eachLoopDef, "item[0].review", "human", payload)
+    expect(second).toEqual(first)
+  })
+
+  it("an item passing through its own machine three times (retry/self-loop) is not counted as consumed more than once — only reaching drained: advances", () => {
+    // item[0] bounces building -> review -> (back to building, hand-authored
+    // as if a feedback edge existed) three times before finally draining;
+    // only the FINAL drained: transition should land on item[1].
+    const bouncy: WorkflowDefinition = {
+      ...eachLoopDef,
+      states: {
+        ...eachLoopDef.states,
+        "item.review": {
+          actor: "human",
+          message: "review",
+          on: [
+            ["A REDO.md", "item.building"],
+            ["* *", "drained"],
+          ],
+        },
+      },
+    }
+    const trace = [
+      "item[0].building",
+      "item[0].review",
+      "item[0].building",
+      "item[0].review",
+      "item[0].building",
+    ]
+    const decision = step(bouncy, "item[0].building", "agent", {
+      changes: [change("A", "DONE.md")],
+      processTrace: trace,
+      eachItems,
+    })
+    expect(decision).toMatchObject({ kind: "commit", to: "item[0].review" })
+    const finalDecision = step(bouncy, "item[0].review", "human", {
+      changes: [change("M", "x")],
+      processTrace: [...trace, "item[0].review"],
+      eachItems,
+    })
+    expect(finalDecision).toMatchObject({ kind: "commit", to: "item[1].building" })
+  })
+})
+
+describe("step — two each: refs sharing one drained: target (spec-review finding)", () => {
+  // `alpha` and `beta` both drain to "done" — `applyEachDrainAdvance` must
+  // match on the ref whose SUBTREE the current state sits inside, not just
+  // any ref sharing the same `drained:` string; the buggy version did
+  // `return target` on the FIRST ref in iteration order whose current-state
+  // qualifier lookup came back `undefined`, silently ending every OTHER
+  // ref's loop after its own item 0.
+  const twoRefsDef: WorkflowDefinition = {
+    entries: { default: "picking", manual: [] },
+    states: {
+      picking: { actor: "human", message: "pick", on: [["* *", "alpha.building"]] },
+      "alpha.building": { actor: "agent", prompt: "a", on: [["A DONE.md", "done"]] },
+      "beta.building": { actor: "agent", prompt: "b", on: [["A DONE.md", "done"]] },
+      done: { actor: "human", message: "done" },
+    },
+    eachRefs: {
+      alpha: { entry: "alpha.building", drained: "done" },
+      beta: { entry: "beta.building", drained: "done" },
+    },
+  }
+
+  it("beta's own drain-advance fires even though alpha (first in eachRefs) also drains to done", () => {
+    const decision = step(twoRefsDef, "beta[0].building", "agent", {
+      changes: [change("A", "DONE.md")],
+      processTrace: ["beta[0].building"],
+      eachItems: { alpha: ["a1"], beta: ["b1", "b2"] },
+    })
+    expect(decision).toMatchObject({ kind: "commit", to: "beta[1].building" })
+  })
+
+  it("beta drains for real (no items left) once alpha is exhausted too, and alpha's own drain is unaffected", () => {
+    const betaDone = step(twoRefsDef, "beta[0].building", "agent", {
+      changes: [change("A", "DONE.md")],
+      processTrace: ["beta[0].building"],
+      eachItems: { alpha: ["a1"], beta: ["b1"] },
+    })
+    expect(betaDone).toMatchObject({ kind: "commit", to: "done" })
+
+    const alphaAdvance = step(twoRefsDef, "alpha[0].building", "agent", {
+      changes: [change("A", "DONE.md")],
+      processTrace: ["alpha[0].building"],
+      eachItems: { alpha: ["a1", "a2"], beta: ["b1"] },
+    })
+    expect(alphaAdvance).toMatchObject({ kind: "commit", to: "alpha[1].building" })
+  })
+})
+
+describe("step — per-item retry budget (Task 5)", () => {
+  const budgetDef: WorkflowDefinition = {
+    entries: { default: "picking", manual: [] },
+    states: {
+      picking: { actor: "human", message: "pick", on: [["* *", "item.building"]] },
+      "item.building": {
+        actor: "agent",
+        prompt: "build it",
+        retry: { max: 2, otherwise: "item.escalate" },
+        on: [["A DONE.md", "item.review"]],
+      },
+      "item.escalate": { actor: "human", message: "stuck", on: [["* *", "aborted"]] },
+      "item.review": { actor: "human", message: "review", on: [["* *", "drained"]] },
+      drained: { actor: "human", message: "no more items" },
+      aborted: { actor: "human", message: "aborted" },
+    },
+    eachRefs: { item: { entry: "item.building", drained: "drained" } },
+  }
+
+  it("max: 2 exhausts within one item and redirects to its own otherwise:, ending the loop (escalate is not drained:)", () => {
+    const decision = step(budgetDef, "item[0].building", "agent", {
+      changes: [],
+      processTrace: ["item[0].building", "item[0].building"],
+      eachItems,
+    })
+    expect(decision).toMatchObject({ kind: "commit", to: "item[0].escalate" })
+  })
+
+  it("the NEXT item starts with a full budget of two, even though the previous item's own cap exhausted", () => {
+    // item[1] has never visited `item.building` at all — two prior visits
+    // belong to item[0]'s qualified name, which never string-matches item[1]'s.
+    const decision = step(budgetDef, "item[1].building", "agent", {
+      changes: [],
+      processTrace: ["item[0].building", "item[0].building"],
+      eachItems,
+    })
+    expect(decision).toMatchObject({ kind: "commit", to: "item[1].building", attempt: true })
+  })
+
+  it("a trace row from a sibling BASE state still resets the counter across items, as it does today", () => {
+    // `item.review` is not a source of `item.building` in this workflow, so
+    // an interleaved review breaks the episode exactly like an unrelated red.
+    const decision = step(budgetDef, "item[0].building", "agent", {
+      changes: [],
+      processTrace: ["item[0].building", "item[0].review", "item[0].building"],
+      eachItems,
+    })
+    // Only one CONSECUTIVE visit survives the reset — cap of 2 not yet hit.
+    expect(decision).toMatchObject({ kind: "commit", to: "item[0].building", attempt: true })
+  })
+})
+
+// ── Task 4: per-item memory scope (session id falls out of the scope string) ─
+
+describe("memoryScopeAt — per-item scope (Task 4)", () => {
+  const scopes = { "item.building": "item", "item.review": "item" }
+  const eachDef: WorkflowDefinition = {
+    states: {},
+    entries: { default: "", manual: [] },
+    eachRefs: { item: { entry: "item.building", drained: "drained" } },
+  }
+
+  it("two consecutive items resolve to DIFFERENT scopes (and so, different session ids)", () => {
+    const item0 = memoryScopeAt(eachDef, scopes, "item[0].building", [])
+    const item1 = memoryScopeAt(eachDef, scopes, "item[1].building", [])
+    expect(item0?.scope).toBe("item[0]")
+    expect(item1?.scope).toBe("item[1]")
+    expect(item0?.scope).not.toBe(item1?.scope)
+  })
+
+  it("an item's building -> fix -> fix sequence resolves to the SAME scope across every turn", () => {
+    const trace = ["item[0].building", "item[0].review", "item[0].building"]
+    const first = memoryScopeAt(eachDef, scopes, "item[0].review", trace.slice(0, 1))
+    const second = memoryScopeAt(eachDef, scopes, "item[0].review", trace)
+    expect(first?.scope).toBe("item[0]")
+    expect(second?.scope).toBe("item[0]")
+  })
+
+  it("a restart mid-item (same state, same trace) re-derives the identical scope — no stored pointer needed", () => {
+    const trace = ["item[0].building"]
+    const a = memoryScopeAt(eachDef, scopes, "item[0].building", trace)
+    const b = memoryScopeAt(eachDef, scopes, "item[0].building", trace)
+    expect(a).toEqual(b)
+  })
+
+  // Spec-review finding: the scan compared BASE scopes for every trace row,
+  // so item 0's own rows read as "inside item N+1's scope" too (same base
+  // scope "item"), and `entryIndex` never reset at the item boundary —
+  // `Edge.ts`'s `memoryResumedFor` would then read item N+1's very first
+  // turn as "a prior turn in this scope", claiming `resume: true` on a
+  // session id that was never created.
+  it("a prior item's rows do NOT count toward the NEXT item's entryIndex — the run resets at the item boundary", () => {
+    const trace = ["item[0].building", "item[0].review"]
+    // Nothing in `trace` is inside item[1]'s subtree, so entryIndex must
+    // fall back to -1 (fresh), not leak item 0's own entry position (0).
+    expect(memoryScopeAt(eachDef, scopes, "item[1].building", trace)).toEqual({
+      scope: "item[1]",
+      entryIndex: -1,
+    })
   })
 })

@@ -13,7 +13,7 @@
 // already-correct assertion instead of fixing `src/parseAmount.ts`.
 export default Object.freeze({
   name: "packages-item-fix-suite",
-  state: "packages.item.fix-suite",
+  state: "packages.fix-suite",
   // The grep floor must fail a turn that never actually throws — the class
   // declaration alone (`export class AmountParseError ...`) already sits in
   // `base`, unchanged by any turn, so grepping for the bare class name would

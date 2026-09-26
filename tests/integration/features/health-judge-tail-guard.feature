@@ -1,4 +1,4 @@
-Feature: build.health.judge/packages.item.health.judge never manufacture "identical" from two unusably-cut tails
+Feature: build.health.judge/packages.health.judge never manufacture "identical" from two unusably-cut tails
 
   `.gtd/packages/03-bundled-judge-gates.md` Requirement A: `it.tail`'s own
   line-boundary bound can render `""` for a document whose last cut bytes

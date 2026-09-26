@@ -30,6 +30,7 @@ export const snapshot = (
     headFile: undefined,
     worktreeFile: undefined,
     revert: NO_REVERT,
+    eachItems: {},
     ...overrides,
   }
 }

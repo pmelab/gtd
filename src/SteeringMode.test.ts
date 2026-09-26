@@ -35,6 +35,8 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
   },
   vars,
   edges: [],
+  item: "",
+  itemIndex: -1,
 })
 
 const commandsDef = (modes: NonNullable<WorkflowDefinition["modes"]>): WorkflowDefinition => ({

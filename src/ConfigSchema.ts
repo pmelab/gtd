@@ -100,6 +100,32 @@ const stateJsonSchema = {
   ),
 } as const
 
+/** An `each:` source/target — mirrors `Machines.ts`'s `validateEach`. */
+const eachJsonSchema = {
+  type: "object",
+  description:
+    "Turns this reference into a loop: the referenced machine is still instantiated exactly once, at this local's ordinary path, but its source resolves to an ordered list of item tokens the engine runs the machine over. Declare exactly one of glob/var. The referenced machine must declare its own entry: local.",
+  additionalProperties: false,
+  required: ["drained"],
+  properties: {
+    glob: {
+      type: "string",
+      description:
+        "A glob matched against the WORKING TREE (never a commit) at loop entry; matches become item tokens, as repo-relative paths ordered lexicographically. Mutually exclusive with var.",
+    },
+    var: {
+      type: "string",
+      description:
+        "The NAME of a workflow it.vars entry — not a literal list. Its VALUE is what gets comma-split into item tokens by gtd itself (trimmed, empty fields dropped); the engine parses that value, it never reaches a shell. An undeclared name resolves to an empty item list (the loop drains immediately), not a load error. Mutually exclusive with glob.",
+    },
+    drained: {
+      type: "string",
+      description:
+        "Where the loop advances once its item list is drained, resolved the same way an on: target is — against the REFERRING instance, so it resolves sideways and upward like any on: target.",
+    },
+  },
+} as const
+
 /** A reference local: instantiates a declared machine as a child, optionally binding its `params:` — mirrors `Machines.ts`'s `isRef`. */
 const machineRefJsonSchema = {
   type: "object",
@@ -114,6 +140,7 @@ const machineRefJsonSchema = {
       description:
         "Bindings for the referenced machine's `params:`. A bound value naming another of the CALLER's own bindings (a whole-value `$name`) passes it down verbatim, scope intact.",
     },
+    each: eachJsonSchema,
   },
 } as const
 

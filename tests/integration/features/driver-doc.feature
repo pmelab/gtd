@@ -1166,3 +1166,96 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the commit count increased by 2
     And the git log contains "gtd(human): fix-precheck"
     And the git log contains "gtd(check): fix-precheck → idle"
+
+  Scenario: Chains an each: loop through the real driver, resuming within an item and minting a fresh session for the next
+    # `.gtd/packages/02-derived-loop-position.md` Task 6's own criterion: no
+    # feature exercised an `each:` loop through the UNMODIFIED pasted driver
+    # before this one — `each-loop.feature` drives `gtd land`/`gtd next
+    # --json` by hand, never the driver itself. Two packages (`a.md`, `b.md`)
+    # snapshot the loop at 2 items; `packageItem`'s own `checking` state
+    # forces exactly one retry lap within item 0 (the same `.git/testcount`
+    # counter trick `driver-doc.feature`'s own "Carries session continuity"
+    # scenario uses, so item 1's later `checking` call inherits a counter
+    # already past the retry threshold and clears on its first try). The
+    # stub logs the session env the `claude` shim maps `.session.id`/
+    # `.session.resume` onto, so the log proves: item 0's first turn mints a
+    # fresh id (`RESUME=0`), item 0's retry turn resumes THAT SAME id
+    # (`RESUME=1`), and item 1's turn mints a DIFFERENT fresh id
+    # (`RESUME=0`) — chained straight through with no intervening rest.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "write NOTE.md to start a process"
+                on:
+                  "* **": loop
+              loop:
+                machine: packageItem
+                with:
+                  onDrained: finish
+                each:
+                  glob: '.gtd/packages/*.md'
+                  drained: finish
+              finish:
+                actor: human
+                message: all packages built
+          packageItem:
+            params: [onDrained]
+            entry: building
+            states:
+              building:
+                actor: agent
+                prompt: build it
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  set +e
+                  mkdir -p .gtd
+                  c=".git/testcount"
+                  n=$(cat "$c" 2>/dev/null || echo 0)
+                  n=$((n + 1))
+                  echo "$n" > "$c"
+                  if [ "$n" = "1" ]; then echo "fail" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": building
+                  "M .gtd/FEEDBACK.md": building
+                  "D .gtd/FEEDBACK.md": "$onDrained"
+                  "C": "$onDrained"
+      """
+    And a file ".gtd/packages/a.md" with:
+      """
+      package a
+      """
+    And a file ".gtd/packages/b.md" with:
+      """
+      package b
+      """
+    And the working tree is committed as "chore: seed two packages"
+    And a file "NOTE.md" with:
+      """
+      begin
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      echo "AGENT SESSION=${GTD_LOOP_SESSION_ID} RESUME=${GTD_LOOP_MEMORY_RESUME}"
+      mkdir -p out
+      echo "built" >> out/result.txt
+      """
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
+    Then it succeeds
+    And stdout contains "all packages built"
+    And the last commit subject is "gtd(check): loop[1].checking → finish"
+    And the log file matches "AGENT SESSION=[0-9a-f-]{36} RESUME=0" 2 times
+    And the log file matches "AGENT SESSION=[0-9a-f-]{36} RESUME=1" 1 times
+    And the log file matches "^AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1[\s\S]*AGENT SESSION=(?!\1)[0-9a-f-]{36} RESUME=0"

@@ -52,13 +52,63 @@ export interface JudgeVerdict {
 export type ExecutableDecision = Extract<StepDecision, { kind: "commit" }>
 
 /**
+ * The `Gtd-Each:` trailer line for a decision freshly entering an `each:`
+ * reference's subtree (see `PatternMachine.ts`'s `StepCommit.enteredEachRef`)
+ * — snapshots that reference's item list onto THIS commit. `snapshot.eachItems`
+ * was already resolved (fresh glob/var, or the running loop's own prior
+ * snapshot) by `Edge.ts`, which has the `Workspace` this pure function never
+ * touches. `undefined` for an ordinary decision (no subtree freshly entered).
+ */
+const eachTrailerLine = (
+  snapshot: RepoSnapshot,
+  decision: ExecutableDecision,
+): string | undefined =>
+  decision.enteredEachRef === undefined
+    ? undefined
+    : `Gtd-Each: ${decision.enteredEachRef} ${JSON.stringify(snapshot.eachItems[decision.enteredEachRef] ?? [])}`
+
+/** Every trailer line this decision carries — cost, one per judge verdict, the truncation stamp, and the `each:` snapshot — filtered down to the ones that actually apply. */
+const trailerLinesFor = (
+  snapshot: RepoSnapshot,
+  decision: ExecutableDecision,
+  cost: number | undefined,
+  model: string | undefined,
+  judge: readonly JudgeVerdict[] | undefined,
+  truncated: boolean | undefined,
+): readonly string[] =>
+  [
+    cost === undefined ? undefined : `Gtd-Cost: ${cost}${model !== undefined ? ` ${model}` : ""}`,
+    ...(judge ?? []).map((verdict) => `Gtd-Judge: ${JSON.stringify(verdict)}`),
+    // Emitted only when true — a missing trailer reads as not truncated, so
+    // an ordinary `gtd land` (never passes `truncated`) and a judged-but-
+    // under-budget verdict both land silent, exactly like an absent
+    // `Gtd-Judge:` reads as "no verdict recorded".
+    truncated === true ? `Gtd-Payload: ${JSON.stringify({ truncated: true })}` : undefined,
+    eachTrailerLine(snapshot, decision),
+  ].filter((line): line is string => line !== undefined)
+
+/** `subject`, plus every trailer line appended after a blank line — verbatim when there are none. */
+const withTrailerLines = (subject: string, trailerLines: readonly string[]): string =>
+  trailerLines.length === 0 ? subject : `${subject}\n\n${trailerLines.join("\n")}`
+
+/** An unconditional `gtd uncheck '<file>'` step ahead of the commit at the human review gate, resetting every checkbox before `git add -A` picks it up — a tick is read-progress, never sign-off. Empty everywhere else. */
+const uncheckStepsFor = (snapshot: RepoSnapshot): readonly LandStep[] => {
+  const file = snapshot.file
+  return isHumanReviewGate(snapshot.stateDef) && file !== undefined
+    ? [{ kind: "uncheck", file }]
+    : []
+}
+
+/** The decision's own outcome step — a self-loop reports as a plain `commit`, any other transition as `transition`. */
+const outcomeStepFor = (decision: ExecutableDecision): LandStep =>
+  decision.from === decision.to
+    ? { kind: "outcome", outcome: { kind: "commit", subject: decision.subject } }
+    : { kind: "outcome", outcome: { kind: "transition", from: decision.from, to: decision.to } }
+
+/**
  * Render a `"commit"` decision as `LandStep`s — DATA, never shell text. The
  * one place a decision becomes a git effect description; `src/GitScript.ts`
  * is the only place this data becomes runnable shell.
- *
- * At the human review gate an unconditional `gtd uncheck '<file>'` step runs
- * ahead of the commit, resetting every checkbox before `git add -A` picks it
- * up — a tick is read-progress, never sign-off.
  */
 const renderDecision = (
   snapshot: RepoSnapshot,
@@ -68,30 +118,14 @@ const renderDecision = (
   judge: readonly JudgeVerdict[] | undefined,
   truncated: boolean | undefined,
 ): readonly LandStep[] => {
-  const trailerLines = [
-    cost === undefined ? undefined : `Gtd-Cost: ${cost}${model !== undefined ? ` ${model}` : ""}`,
-    ...(judge ?? []).map((verdict) => `Gtd-Judge: ${JSON.stringify(verdict)}`),
-    // Emitted only when true — a missing trailer reads as not truncated, so
-    // an ordinary `gtd land` (never passes `truncated`) and a judged-but-
-    // under-budget verdict both land silent, exactly like an absent
-    // `Gtd-Judge:` reads as "no verdict recorded".
-    truncated === true ? `Gtd-Payload: ${JSON.stringify({ truncated: true })}` : undefined,
-  ].filter((line): line is string => line !== undefined)
-  const subjectWithTrailer =
-    trailerLines.length === 0
-      ? decision.subject
-      : `${decision.subject}\n\n${trailerLines.join("\n")}`
-  const file = snapshot.file
-  const uncheckStep: readonly LandStep[] =
-    isHumanReviewGate(snapshot.stateDef) && file !== undefined ? [{ kind: "uncheck", file }] : []
-  const outcome: LandStep =
-    decision.from === decision.to
-      ? { kind: "outcome", outcome: { kind: "commit", subject: decision.subject } }
-      : { kind: "outcome", outcome: { kind: "transition", from: decision.from, to: decision.to } }
+  const subjectWithTrailer = withTrailerLines(
+    decision.subject,
+    trailerLinesFor(snapshot, decision, cost, model, judge, truncated),
+  )
   return [
-    ...uncheckStep,
+    ...uncheckStepsFor(snapshot),
     { kind: "gitWrite", write: { kind: "commitAll", message: subjectWithTrailer } },
-    outcome,
+    outcomeStepFor(decision),
   ]
 }
 
@@ -153,6 +187,7 @@ export const planStep = (
   const decision = step(snapshot.stepDef, snapshot.state, snapshot.actor, {
     changes: snapshot.changes,
     processTrace: snapshot.processTrace,
+    eachItems: snapshot.eachItems,
     ...(judge !== undefined ? { routeAnswers: asRouteAnswers(judge) } : {}),
   })
 

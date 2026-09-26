@@ -58,4 +58,6 @@ export interface RepoSnapshot {
   /** `file`'s CURRENT working-tree contents, `undefined` when absent on disk or `file` is `undefined`. */
   readonly worktreeFile: string | undefined
   readonly revert: RevertProbe
+  /** Every declared `each:` reference's item list, keyed by ref path — see `PatternMachine.ts`'s `StepPayload.eachItems`, which this feeds verbatim. `{}` for a workflow declaring no `each:`. */
+  readonly eachItems: Readonly<Record<string, readonly string[]>>
 }

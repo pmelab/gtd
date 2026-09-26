@@ -8,7 +8,7 @@ rm -f .gtd/PRIOR_FEEDBACK.md
 rm -f .gtd/REVIEW_RAW.md
 # Bound the PRIOR_FEEDBACK.md search to the CURRENT episode, not the
 # whole process (`it.startCommit`): HEAD's own subject already reads
-# "... → packages.item.health.check" (the commit that just entered this check —
+# "... → packages.health.check" (the commit that just entered this check —
 # `PatternMachine.ts`'s `stateSubject`/`TRANSITION_SEP`), so the
 # SECOND most recent such subject is the last time this exact check
 # was entered before now. Reaching THIS check always requires
@@ -20,7 +20,7 @@ rm -f .gtd/REVIEW_RAW.md
 # round full stop (never falls back to `it.startCommit`, which would
 # reintroduce exactly the cross-episode leak this bounds against).
 episode_anchor=$(git log --format='%H %s' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..HEAD \
-  | grep -F -- ' → packages.item.health.check' | sed -n '2p' | cut -d' ' -f1)
+  | grep -F -- ' → packages.health.check' | sed -n '2p' | cut -d' ' -f1)
 if [ -n "$episode_anchor" ]; then
   prior_commit=$(git log --format=%H --diff-filter=AM "$episode_anchor"..HEAD -- .gtd/FEEDBACK.md 2>/dev/null | head -n 1)
   if [ -n "$prior_commit" ]; then

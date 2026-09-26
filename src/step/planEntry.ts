@@ -4,9 +4,9 @@ import { GitService, Host, Workspace } from "../platform/index.js"
 import { ConfigDiscovery, ConfigService } from "../workflow/index.js"
 import { renderStateTemplate, varsOnlyContext } from "../PatternTemplates.js"
 import {
-  enterableStates,
   entryBaseTemplateOf,
   initialStateOf,
+  manualEntryStates,
   stateSubject,
   type StateName,
   type WorkflowDefinition,
@@ -90,7 +90,7 @@ export const planEntry = (
       } as const
     }
 
-    const enterable = enterableStates(current.def)
+    const enterable = manualEntryStates(current.def)
     if (!enterable.includes(entryState)) {
       return {
         kind: "refusal",

@@ -326,6 +326,84 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     And stderr contains "\"on\" target \"nowhere\" is not a state or reference of machine \"root\""
     And stderr contains "declare a \"params:\" entry and bind it at the reference site"
 
+  Scenario: an entry.default resolving inside an each: reference's subtree fails naming the state
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: loop
+            states:
+              loop:
+                machine: packageItem
+                with:
+                  onDrained: finish
+                each:
+                  glob: '.gtd/packages/*.md'
+                  drained: finish
+              finish:
+                actor: human
+                message: done
+          packageItem:
+            params: [onDrained]
+            entry: building
+            states:
+              building:
+                actor: agent
+                prompt: build it
+                on:
+                  "* **": $onDrained
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "gtd config:"
+    And stderr contains "entries.default \"loop.building\" is inside an each: reference — a process may not start inside a loop"
+
+  Scenario: an entry: true state resolving inside an each: reference's subtree fails naming the state
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: pick
+                on:
+                  "* **": loop
+              loop:
+                machine: packageItem
+                with:
+                  onDrained: finish
+                each:
+                  glob: '.gtd/packages/*.md'
+                  drained: finish
+              finish:
+                actor: human
+                message: done
+          packageItem:
+            params: [onDrained]
+            entry: building
+            states:
+              building:
+                actor: agent
+                prompt: build it
+                entry: true
+                on:
+                  "* **": $onDrained
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "gtd config:"
+    And stderr contains "entries.manual \"loop.building\" is inside an each: reference — a process may not be entered inside a loop"
+
   Scenario: an unknown top-level config key fails with remediation naming the key and its file — unconditional, no --verbose needed
     Given a test project
     And a gtd config file at ".gtdrc" with:

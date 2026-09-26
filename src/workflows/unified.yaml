@@ -214,7 +214,7 @@ vars:
   # directly; each state's own "the only state file this turn touches is X"
   # sentence stays local, immediately after the tag. Some states splice a
   # role clause into this same opening sentence (`build.review.collecting`,
-  # `packages.item.spec.review`) — those hoist the clause to its own leading
+  # `packages.spec.review`) — those hoist the clause to its own leading
   # sentence ahead of the tag instead, keeping every word.
   stateFileRules: |-
     - You are an autonomous coding agent
@@ -298,7 +298,7 @@ vars:
       goal says: decide every remaining question yourself, move each to
       `## Answered Questions` with a one-line rationale, raise nothing new,
       and leave no `## Open Questions` section behind
-  # The body `packages.item.fix-suite` and `build.fix` share byte for byte —
+  # The body `packages.fix-suite` and `build.fix` share byte for byte —
   # both fix a red `.gtd/FEEDBACK.md`. `fix-suite` appends its own
   # cross-package paragraph right after this tag (before the shared
   # "Leave everything uncommitted" close, which stays local at both sites so
@@ -426,14 +426,13 @@ machines:
           # this check.
           rm -f .gtd/REVIEW_RAW.md
           # And sweep the quality lap's own leftovers. `.gtd/QUALITY_DONE.md`
-          # is a PER-EPISODE guard that `build.quality.seeding` short-circuits
-          # on; the only other sweeper is `packageLoop.picking`, which an
-          # entry never visits. Without this, the second and later
+          # is a PER-EPISODE guard that `build.quality-gate` short-circuits
+          # on; the only other sweeper is `packages-sweep`, which an entry
+          # never visits. Without this, the second and later
           # `--entry fix-precheck`/`review-gate.check` runs in a repository
           # would silently skip every configured lens. An entry IS a new
           # episode, so the whole lap state goes, not just the marker.
-          rm -f .gtd/NEXT_REVIEW.md .gtd/QUALITY.md .gtd/QUALITY_DONE.md .gtd/QUALITY_READY.md
-          rm -rf .gtd/reviews
+          rm -f .gtd/QUALITY.md .gtd/QUALITY_DONE.md
           <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
@@ -465,8 +464,6 @@ machines:
           # needs a row of its own.
           "D .gtd/REVIEW_RAW.md": $onGreen
           "D .gtd/QUALITY*.md": $onGreen
-          "D .gtd/NEXT_REVIEW.md": $onGreen
-          "D .gtd/reviews/**": $onGreen
           "D .gtd/FEEDBACK.md": $onGreen
           "C": $onGreen
       blocked:
@@ -480,7 +477,7 @@ machines:
             action: Retry check
             describe: $blockedDescribe
 
-  # Shared check/judge/escalate trio for build.health.*/packages.item.health.*
+  # Shared check/judge/escalate trio for build.health.*/packages.health.*
   # — the caller's own coder fix-state ($onRed), not this machine, handles
   # red. `check` writes `.gtd/PRIOR_FEEDBACK.md` from the last COMMITTED red
   # round (found by walking history, not HEAD — the intervening fix turn
@@ -714,7 +711,7 @@ machines:
           # state — `stateSubject`'s "gtd(actor): from → to" shape means the
           # commit that lands a `describe` turn's own write always reads
           # "... build.health.describe → build.health.stop" (or the
-          # packages.item.health equivalent), the same narrowing
+          # packages.health equivalent), the same narrowing
           # `healthGate.check`'s own `episode_anchor` uses above — never the
           # human's own "... build.health.stop → build.fix" landing at `stop`.
           #
@@ -868,7 +865,7 @@ machines:
   # The triage phase — one conversation across the whole back-and-forth (the
   # human's answer rationale survives every return lap). A review loop-back
   # lap runs the suite itself and files any breakage as its own FIRST
-  # concern, rather than spending one of packages.item.fix-suite's
+  # concern, rather than spending one of packages.fix-suite's
   # (per-episode) retries on breakage the package didn't cause.
   # ▸ planner identity.
   designPlan:
@@ -1642,7 +1639,7 @@ machines:
           "D .gtd/REVIEW_RAW.md": $onSignoff
 
   # The per-package review — a separate MIND from the implementer. ▸ planner
-  # identity; fixing findings is a coder action (packages.item.fix-spec).
+  # identity; fixing findings is a coder action (packages.fix-spec).
   specReview:
     model: <%= it.vars.plannerModel %>
     system: |-
@@ -1685,7 +1682,7 @@ machines:
           never suppresses anything).
         judge: |-
           <%
-            const pkgPath = it.read(".gtd/NEXT.md").trim()
+            const pkgPath = it.item
             const whole = it.read(pkgPath)
             const tailText = it.tail(pkgPath, 1)
             const tailStart = whole.length - tailText.length
@@ -1779,7 +1776,7 @@ machines:
         on:
           "C": scoping
           # A dirty-tree land with no verdict piped — package 01's own
-          # `build.health.judge`/`packages.item.health.judge` fix for this
+          # `build.health.judge`/`packages.health.judge` fix for this
           # same shape: the skipped-judgment fallback must not stall on a
           # dirty tree either, so it takes the same conservative target "C"
           # does — `scoping` recomputes the real decision fresh either way.
@@ -1813,7 +1810,7 @@ machines:
           #!/usr/bin/env sh
           set +e
           rm -f .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md
-          pkg=$(cat .gtd/NEXT.md 2>/dev/null)
+          pkg='<%= it.item %>'
           threshold=<%~ it.vars.specPreJudge %>; if [ -n "$pkg" ] && [ -f "$pkg" ]; then
             # A working-tree byte-length check would measure the wrong
             # document: `pre`'s judgment was made against the COMMITTED
@@ -1914,7 +1911,7 @@ machines:
 
           - The only state file this turn touches is
             `.gtd/SPEC_FEEDBACK.md` — write it only when you find problems
-          - The package spec is: <%~ it.read(".gtd/NEXT.md") %>
+          - The package spec is: <%= it.item %>
           <% let scope; try { scope = it.read(".gtd/SPEC_SCOPE.md") } catch (e) { scope = undefined } %><% if (scope) { %>
           - A pre-judge already found the other sections satisfied. Confine
             your review to only these sections: <%~ scope %>
@@ -1938,52 +1935,12 @@ machines:
           "D .gtd/SPEC_FEEDBACK.md": $onApproved
           "C": $onApproved
 
-  # The per-package build queue — identity-free; build identity lives in
-  # packageItem (below).
-  packageLoop:
-    params: [onDrained]
-    entry: picking
-    states:
-      picking:
-        actor: check
-        label: Picking the next package
-        script: |
-          #!/usr/bin/env sh
-          # Mechanics only — NEXT.md's presence/absence is interpreted by
-          # the `on` rows below, never here.
-          set +e
-          mkdir -p .gtd
-          # Sweep spent design/architecture steering files (gone by now), any
-          # REVIEW_RAW.md the review loop-back left behind, and the quality
-          # lap's own state (its queue, its picked lens, its findings and
-          # markers) — the only sweeper on that path before any of these
-          # would leak into a later `gtd summary` prompt's diff range. A
-          # feedback loop-back therefore clears `.gtd/QUALITY_DONE.md` too,
-          # re-running the whole lap.
-          rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md .gtd/NEXT_REVIEW.md .gtd/QUALITY*.md
-          rm -rf .gtd/reviews
-          # Names are gtd-authored, never containing whitespace — safe to
-          # disable SC2012.
-          # shellcheck disable=SC2012
-          next=$(ls .gtd/packages/*.md 2>/dev/null | head -n 1)
-          if [ -n "$next" ]; then
-            printf '%s' "$next" > .gtd/NEXT.md
-          else
-            rm -f .gtd/NEXT.md
-          fi
-        on:
-          "D .gtd/NEXT.md": $onDrained
-          "* .gtd/NEXT.md": item.building
-          "C": $onDrained
-
-      # Its own coder machine (below) keeps `packages` itself a single state.
-      item:
-        machine: packageItem
-        with:
-          onNext: picking
-
-  # The per-package build identity. ▸ coder identity. packages.item.closing
-  # -> picking is the one upward-resolving target in the file, hence $onNext.
+  # The per-package build identity — the machine `packages` (root wiring,
+  # below) instantiates once per `.gtd/packages/*.md` file via `each:`. No
+  # picking state: `each:` derives the next item (or that the queue is
+  # drained) itself, so `closing` targets the loop's own `drained:` target
+  # directly ($onDrained) — the engine rewrites that decision to the next
+  # item while packages remain, and lets it stand once they don't.
   packageItem:
     model: <%= it.vars.coderModel %>
     system: |-
@@ -1991,7 +1948,7 @@ machines:
 
 
       <%~ it.vars.agentConduct %>
-    params: [onNext]
+    params: [onDrained]
     entry: building
     states:
       building:
@@ -2003,8 +1960,8 @@ machines:
 
           - The only state file this turn may write is `.gtd/SATISFIED.md`;
             never delete the package file (the spec-review gate reads it
-            after you) or touch `.gtd/NEXT.md` — `picking` owns it
-          - The package to implement is: <%~ it.read(".gtd/NEXT.md") %>
+            after you)
+          - The package to implement is: <%= it.item %>
           - First check its acceptance criteria against the current tree —
             an earlier fix turn may already satisfy them. If **every**
             criterion is met, implement nothing: write `.gtd/SATISFIED.md`
@@ -2059,7 +2016,7 @@ machines:
           - The only state file this turn touches is
             `.gtd/SPEC_FEEDBACK.md` — address it, then delete it
           - Read it (the reviewer's concerns) and the package spec
-            (`<%= it.read(".gtd/NEXT.md") %>`), then fix the code to
+            (`<%= it.item %>`), then fix the code to
             resolve every concern
           - Delete `.gtd/SPEC_FEEDBACK.md` once resolved; leave everything
             else uncommitted and finish your turn
@@ -2071,19 +2028,20 @@ machines:
         label: Closing out the package
         script: |
           #!/usr/bin/env sh
-          # Removes the just-reviewed package file (path in NEXT.md) plus
-          # leftover spec feedback/evidence, so picking selects the next.
-          # Reached only on spec-review approval — that loop carries no retry
-          # cap, so there is no force-close path here.
+          # Removes the just-reviewed package file plus leftover spec
+          # feedback/evidence, so the item's own diff doesn't litter the
+          # process's final `gtd summary` range. Reached only on spec-review
+          # approval — that loop carries no retry cap, so there is no
+          # force-close path here.
           set +e
-          pkg=$(cat .gtd/NEXT.md 2>/dev/null)
+          pkg='<%= it.item %>'
           [ -n "$pkg" ] && rm -f "$pkg"
-          rm -f .gtd/SPEC_FEEDBACK.md .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md .gtd/NEXT.md .gtd/SATISFIED.md
+          rm -f .gtd/SPEC_FEEDBACK.md .gtd/SPEC_SCOPE.md .gtd/SPEC_CLEARED.md .gtd/SATISFIED.md
         on:
-          "* **": $onNext
-          # Nothing left to sweep (an already-clean NEXT.md/package) still
-          # needs to proceed to the next package, not stall here.
-          "C": $onNext
+          "* **": $onDrained
+          # Nothing left to sweep (an already-clean package) still needs to
+          # advance — to the next package, or out of the loop for good.
+          "C": $onDrained
 
       health:
         machine: healthGate
@@ -2100,11 +2058,16 @@ machines:
           onFix: fix-spec
 
   # The qualitative review lap — one dimension per turn, each its own fresh
-  # context (a gtd state invocation IS a separate context window). `seeding`
-  # and `picking` are `check` (mechanics only); `reviewing` is `prompt` (the
-  # one turn that judges). ▸ planner identity — reviewing is a planner turn,
-  # not a coder one; the fix turn lives in buildTail instead (see its
-  # `fix-quality`), so this machine stamps no coder model/system anywhere.
+  # context (a gtd state invocation IS a separate context window), collapsed
+  # to its single `reviewing` state: `each:` (the reference in `buildTail`,
+  # below) derives the next lens — or that the queue is drained — itself, one
+  # per `<%~ it.vars.qualityReviews %>` entry. ▸ planner identity — reviewing
+  # is a planner turn, not a coder one; the fix turn lives in buildTail
+  # instead (see its `fix-quality`), so this machine stamps no coder
+  # model/system anywhere. The guard against `build.health`'s green route
+  # re-entering a drained lap, and the findings/clean-exit routing once it
+  # drains, both live in `buildTail`'s `quality-gate`/`quality-check` — a
+  # single-state machine owns neither.
   qualityReview:
     model: <%= it.vars.plannerModel %>
     system: |-
@@ -2112,90 +2075,22 @@ machines:
 
 
       <%~ it.vars.agentConduct %>
-    params: [onClean, onFindings]
-    entry: seeding
+    params: [onDrained]
+    entry: reviewing
     states:
-      # Short-circuits on `.gtd/QUALITY_DONE.md` — without it, `build.health`'s
-      # green route re-enters this lap forever, since both `build.fix` and
-      # `fix-quality` hand back to `build.health.check`. The guard is per
-      # EPISODE: written once by `picking` when the queue drains, swept on
-      # the feedback loop-back path (`packageLoop.picking`'s sweep) and by
-      # every entry check (`&suiteCheck`), which is what keeps a repeat
-      # `--entry fix-precheck` from skipping the lap outright.
-      # `seeding`'s script below interpolates `<%~ it.vars.qualityReviews %>`
-      # raw into a `list="..."` shell assignment, run with `sh -c` — a value
-      # containing `$(...)` or a backtick executes. Accepted: a repository's
-      # own gtd config (`.gtdrc`, `GTD_QUALITYREVIEWS`) is TRUSTED input —
-      # `testCommand` already reaches `sh -c` raw by design (it IS a command
-      # line), so a config that could set `qualityReviews` could already set
-      # `testCommand` to anything. This reaches a shell deliberately.
-      seeding:
-        actor: check
-        label: Seeding the quality review queue
-        script: |
-          #!/usr/bin/env sh
-          set +e
-          [ -f .gtd/QUALITY_DONE.md ] && exit 0
-          mkdir -p .gtd/reviews
-          i=1
-          list="<%~ it.vars.qualityReviews %>"
-          IFS=,
-          for name in $list; do
-            trimmed=$(printf '%s' "$name" | sed 's/^ *//; s/ *$//')
-            if [ -n "$trimmed" ]; then
-              printf '%s' "$trimmed" > "$(printf '.gtd/reviews/%02d-%s.md' "$i" "$trimmed")"
-              i=$((i + 1))
-            fi
-          done
-        on:
-          "* .gtd/reviews/**": picking
-          "C": $onClean
-      # The `ls .gtd/reviews/*.md | head -n 1` idiom `packageLoop.picking`
-      # already uses — draining its own queue is what ends the loop; the
-      # reviewer never touches `.gtd/reviews/` itself.
-      picking:
-        actor: check
-        label: Picking the next quality lens
-        script: |
-          #!/usr/bin/env sh
-          set +e
-          # Names are gtd-authored, never containing whitespace — safe to
-          # disable SC2012.
-          # shellcheck disable=SC2012
-          next=$(ls .gtd/reviews/*.md 2>/dev/null | head -n 1)
-          if [ -n "$next" ]; then
-            cp "$next" .gtd/NEXT_REVIEW.md
-            rm -f "$next"
-          else
-            rm -f .gtd/NEXT_REVIEW.md
-            : > .gtd/QUALITY_DONE.md
-            if [ -s .gtd/QUALITY.md ]; then
-              : > .gtd/QUALITY_READY.md
-            fi
-          fi
-        # First-match-wins ordering is what routes a drained-with-findings
-        # turn (whose diff carries the queue deletions AND both markers) to
-        # the fix turn rather than the clean exit.
-        on:
-          "A .gtd/NEXT_REVIEW.md": reviewing
-          "M .gtd/NEXT_REVIEW.md": reviewing
-          "A .gtd/QUALITY_READY.md": $onFindings
-          "* **": $onClean
-          "C": $onClean
       reviewing:
         actor: agent
         label: Reviewing (one quality lens)
-        file: NEXT_REVIEW.md
-        skills: <%~ it.read(".gtd/NEXT_REVIEW.md").trim() %>
+        file: QUALITY.md
+        skills: <%~ it.item %>
         prompt: |
           <%~ it.vars.stateFileRules %>
 
           - The only state file this turn writes is `.gtd/QUALITY.md` — no
             other files for notes or output
           - Review the whole assembled change, from `<%= it.startCommit %>`
-            to the working tree, through this ONE quality lens only — the
-            lens is named in `.gtd/NEXT_REVIEW.md`, already loaded as this
-            turn's own skill
+            to the working tree, through this ONE quality lens only —
+            already loaded as this turn's own skill: <%~ it.item %>.
           - Where you find something blocking, APPEND a `## ` chunk to
             `.gtd/QUALITY.md` describing it — never overwrite what an
             earlier dimension already wrote there
@@ -2203,8 +2098,8 @@ machines:
             clean turn IS this dimension's approval
           - Touch no other state file, and leave everything uncommitted
         on:
-          "* **": picking
-          "C": picking
+          "* **": $onDrained
+          "C": $onDrained
 
   # The process's build identity. ▸ coder identity — model/system stamped
   # onto fix.
@@ -2240,10 +2135,33 @@ machines:
       health:
         machine: healthGate
         with:
-          onGreen: quality
+          onGreen: quality-gate
           onRed: fix
           checkLabel: Running checks
           escalateLabel: Escalating to a human
+
+      # Guards `quality`'s own `each:` loop against re-entering a lap this
+      # episode already drained: `build.health`'s green route reaches here on
+      # EVERY pass, and re-entering an `each: { var: ... }` reference always
+      # re-snapshots the FULL list (a fixed var, unlike a shrinking file
+      # glob, so there is no queue left to exhaust a second time) — without
+      # this, a green suite after `fix-quality` resolves would rerun every
+      # lens forever. Stamped with HEAD (the same technique
+      # `healthGate.check`'s own `FEEDBACK.md` write uses) so a repeat pass
+      # still registers as a real diff once `.gtd/QUALITY_DONE.md`'s content
+      # stops changing.
+      quality-gate:
+        actor: check
+        label: Checking whether the quality lap already ran
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          if [ -f .gtd/QUALITY_DONE.md ]; then
+            printf '\n<!-- gtd quality-gate %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/QUALITY_DONE.md
+          fi
+        on:
+          "M .gtd/QUALITY_DONE.md": review
+          "C": quality
 
       # Sits ahead of the whole humanReview machine, never inside it, so
       # every round reaching this point pays for the lap before a human ever
@@ -2252,8 +2170,39 @@ machines:
       quality:
         machine: qualityReview
         with:
-          onClean: review
-          onFindings: fix-quality
+          onDrained: quality-check
+        each:
+          var: qualityReviews
+          drained: quality-check
+
+      # The drain target `quality`'s own `each:` reaches once every lens has
+      # run. Owns the whole approve/scope decision: stamps `.gtd/QUALITY.md`
+      # itself (findings present) or removes it (nothing found), so ITS OWN
+      # diff is what `on:` routes on, then writes `.gtd/QUALITY_DONE.md` so
+      # `quality-gate` never reruns this episode's lap again.
+      quality-check:
+        actor: check
+        label: Checking quality findings
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          # Never created zero-byte: `quality-gate`'s own re-stamp always
+          # appends a LEADING `\n` (the same separator idiom every other
+          # stamped file here uses, all created with real content first) —
+          # on a genuinely empty file that leading blank line is not an
+          # oxfmt fixed point.
+          printf 'quality lap drained\n' > .gtd/QUALITY_DONE.md
+          if [ -s .gtd/QUALITY.md ]; then
+            printf '\n<!-- gtd quality-check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> .gtd/QUALITY.md
+          else
+            rm -f .gtd/QUALITY.md
+          fi
+        on:
+          "M .gtd/QUALITY.md": fix-quality
+          "D .gtd/QUALITY.md": review
+          "A .gtd/QUALITY_DONE.md": review
+          "* **": review
+          "C": review
 
       # A sibling of `fix`, not a state inside `qualityReview`: a machine
       # stamps one `model:`/`system:` on every state it owns, and reviewing
@@ -2271,8 +2220,9 @@ machines:
           - Read `.gtd/QUALITY.md` — one `## ` chunk per quality dimension
             that found something blocking. Merge duplicate findings across
             dimensions FIRST, then fix every chunk
-          - Delete `.gtd/QUALITY.md` and `.gtd/QUALITY_READY.md` once every
-            finding is resolved
+          - Delete `.gtd/QUALITY.md` once every finding is resolved —
+            `.gtd/QUALITY_DONE.md` stays; it is this episode's guard against
+            re-entering the lap, never this lap's own findings
           - Leave everything else uncommitted and finish your turn
         retry:
           max: 3
@@ -2340,8 +2290,6 @@ machines:
           # Same sweep rows as `entryGate.check`, whose script this aliases.
           "D .gtd/REVIEW_RAW.md": idle
           "D .gtd/QUALITY*.md": idle
-          "D .gtd/NEXT_REVIEW.md": idle
-          "D .gtd/reviews/**": idle
           "D .gtd/FEEDBACK.md": idle
           "C": idle
 
@@ -2483,7 +2431,7 @@ machines:
       review-gate:
         machine: entryGate
         with:
-          onGreen: build.quality
+          onGreen: build.quality-gate
           reviewBase: <%= it.vars.reviewBase %>
           blockedMessage: |
             The test baseline is red — gtd will not start a review on a broken suite.
@@ -2539,9 +2487,9 @@ machines:
       # SINGLE `.gtd/packages/01-<slug>.md` before the queue is entered —
       # never split, `architecture.decompose`'s own job, skipped here.
       # Without this, skipping `architecture.decompose` would leave
-      # `.gtd/packages/` empty, so `packageLoop.picking` would match its
-      # `"C"` row, route `$onDrained`, and the process would close having
-      # built nothing.
+      # `.gtd/packages/` empty, so `packages`'s own `each: { glob: ... }`
+      # would find no items, route straight to its `drained:` target, and the
+      # process would close having built nothing.
       architecture-promote:
         actor: check
         label: Promoting the plan straight to a package
@@ -2572,7 +2520,7 @@ machines:
           [ -z "$slug" ] && slug=package
           mv .gtd/REQUIREMENTS.md ".gtd/packages/01-${slug}.md"
         on:
-          "* **": packages
+          "* **": packages-sweep
           # Reachable now: a truncated payload's refusal above leaves the
           # tree clean, routing here into the full architecture pass instead
           # of a false promotion.
@@ -2581,7 +2529,29 @@ machines:
       architecture:
         machine: archPlan
         with:
-          onPackages: packages
+          onPackages: packages-sweep
+
+      # The ONE choke point both paths into the package queue route through —
+      # `architecture.decompose` and `architecture-promote` alike, so a
+      # feedback loop-back (which always re-enters through `architecture`)
+      # passes through it too. Runs once per episode, not once per package:
+      # spent design/architecture steering files (gone by now bar drift), any
+      # `REVIEW_RAW.md` the review loop-back left behind, and the quality
+      # lap's own findings/markers — the only sweeper on this path before any
+      # of these would leak into a later `gtd summary` diff range. Clearing
+      # `.gtd/QUALITY*.md` here is what makes a feedback loop-back re-run the
+      # whole quality lap.
+      packages-sweep:
+        actor: check
+        label: Sweeping steering files ahead of the package queue
+        script: |
+          #!/usr/bin/env sh
+          set +e
+          mkdir -p .gtd
+          rm -f .gtd/REQUIREMENTS.md .gtd/ARCHITECTURE.md .gtd/QUESTIONS.md .gtd/REVIEW_RAW.md .gtd/QUALITY*.md
+        on:
+          "* **": packages
+          "C": packages
 
       # Drains into the QUALITY lap, not straight into human review: each
       # package's own in-loop review (`packageItem.spec`) judges completeness
@@ -2592,9 +2562,12 @@ machines:
       # and enters `build.quality` directly rather than re-running the suite
       # for a tree no turn has touched since.
       packages:
-        machine: packageLoop
+        machine: packageItem
         with:
-          onDrained: build.quality
+          onDrained: build.quality-gate
+        each:
+          glob: ".gtd/packages/*.md"
+          drained: build.quality-gate
 
       build:
         machine: buildTail

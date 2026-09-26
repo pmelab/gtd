@@ -9,7 +9,7 @@
 
 export default Object.freeze({
   name: "packages-item-fix-spec",
-  state: "packages.item.fix-spec",
+  state: "packages.fix-spec",
   // The grep floor must fail a turn that never actually throws — the class
   // declaration alone (`export class EmptyNameError ...`) already sits in
   // `base`, unchanged by any turn, so grepping for the bare class name would

@@ -92,6 +92,15 @@ export interface TemplateContext {
   readonly vars: Record<string, string>
   /** The resting state's own `on` edges, in declaration order — lets a `message:` template surface which change routes where. */
   readonly edges: readonly TemplateEdge[]
+  /**
+   * The current `each:` item's raw token — a repo-relative PATH for a
+   * `glob:` source, the trimmed NAME for a `var:` source — or `""` outside
+   * any loop. Replaces the pointer file (`.gtd/NEXT.md`, `.gtd/NEXT_REVIEW.md`)
+   * the two hand-written loops used as their interface.
+   */
+  readonly item: string
+  /** The item's 0-based position in its `each:` snapshot, or `-1` outside any loop. */
+  readonly itemIndex: number
 }
 
 /**
@@ -137,6 +146,8 @@ export const varsOnlyContext = (vars: Record<string, string>, state = ""): Templ
   },
   vars,
   edges: [],
+  item: "",
+  itemIndex: -1,
 })
 
 /**

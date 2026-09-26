@@ -229,7 +229,7 @@ Every `script`/`prompt`/`message` value — plus a workflow's own top-level
   from PARTIAL markdown — a fence straddling the cut re-parses its own contents
   as top-level headings there (measured), an unfixable hazard for a document
   whose shape you don't fully control. DECISION: the bundled
-  `packages.item.spec.pre`/`build.review.triage` gates need to know which
+  `packages.spec.pre`/`build.review.triage` gates need to know which
   WHOLE-document sections survived a bound, so neither uses this form — each
   instead compares every whole-document title's own offset (from the unbounded
   `it.sections(path)` call) against where the bound tail begins. The
@@ -267,8 +267,8 @@ of the base hashes above) and tells the AGENT to run `git diff <base>` itself,
 keeping that render cheap and the prompt small and cacheable. A `judge:` field
 calls `it.diff(base)` instead — inlining the diff's own content into the
 rendered document — because the judge it renders for has no repository of its
-own to run that command in. See `packages.item.health.judge` in `unified.yaml`
-for the same inline-the-evidence pattern (there, over a bounded `it.tail` read
+own to run that command in. See `packages.health.judge` in `unified.yaml` for
+the same inline-the-evidence pattern (there, over a bounded `it.tail` read
 rather than `it.diff`).
 
 A content value starting with `./` or `../` is a **file reference** — read

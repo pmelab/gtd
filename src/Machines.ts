@@ -1,5 +1,6 @@
 import { MACHINE_FIELD_ENTRIES } from "./StateFields.js"
 import type { StateName } from "./PatternMachine.js"
+import type { WorkspaceOps } from "./platform/index.js"
 import type { Diagnostic } from "./workflow/index.js"
 
 /** A finding's `origin` is unknown to this module (it never sees which config layer a raw value came from) — the boundary that calls `flattenMachines` fills it in. */
@@ -51,6 +52,14 @@ export interface Instance {
   /** local name -> what it is, for target resolution. */
   readonly locals: ReadonlyMap<string, { readonly kind: "state" | "ref"; readonly refKey?: string }>
   readonly children: readonly Instance[]
+  /**
+   * Set only when THIS instance was created by a reference declaring
+   * `each:`, and only once `drained:` resolves (Pass 2 — see
+   * `resolveEachTargets`). Mutated in place rather than threaded back
+   * through `instantiate`'s return value, the same way `instancesByPath`
+   * itself is built up imperatively across the recursion.
+   */
+  each?: EachDeclaration
 }
 
 /**
@@ -74,6 +83,8 @@ export interface FlattenedWorkflow {
   readonly tree: MachineNode | undefined
   /** qualified state name -> the instance path (see `InstancePath`) that owns it. */
   readonly scopes: Record<string, InstancePath>
+  /** Every instantiated node, keyed by its own path — how a later pass reads a reference's resolved `each:` declaration (`instances.get(path)?.each`). */
+  readonly instances: ReadonlyMap<InstancePath, Instance>
   /** Findings collected across both passes — `origin` unset (`""`); the boundary calling `flattenMachines` fills it in. */
   readonly diagnostics: readonly Diagnostic[]
 }
@@ -82,8 +93,161 @@ const qualify = (path: InstancePath, local: string): string =>
   path === "" ? local : `${path}.${local}`
 
 /** A local is a REFERENCE iff its raw value carries a `machine` key. */
-const isRef = (v: unknown): v is { machine: string; with?: Record<string, unknown> } =>
+const isRef = (
+  v: unknown,
+): v is { machine: string; with?: Record<string, unknown>; each?: unknown } =>
   isPlainObject(v) && typeof v["machine"] === "string"
+
+/** Where an `each:` source's item tokens come from — mutually exclusive, see `validateEach`. */
+export type EachSource =
+  | { readonly kind: "glob"; readonly value: string }
+  | {
+      readonly kind: "var"
+      readonly value: string
+    }
+
+/**
+ * A reference's `each:` declaration, recorded on the CHILD instance it
+ * instantiates once `drained:` resolves (see `FlattenedWorkflow.instances`).
+ * Nothing in this pass turns `source` into item tokens or reads `drained` for
+ * anything but validation — a later pass does both (see
+ * .gtd/packages/01-each-declaration.md).
+ */
+export interface EachDeclaration {
+  readonly source: EachSource
+  /** The reference's `drained:` target, resolved through the same resolver an `on:` target uses, against the REFERRING (parent) instance. */
+  readonly drained: string
+  /** The reference's OWN machine's `entry:` local, resolved against the CHILD instance itself — where the loop enters each item, base name (qualification is a runtime notion, see `PatternMachine.ts`). */
+  readonly entry: string
+}
+
+/**
+ * Turns an `each: { var: ... }` source into ordered item tokens: split on
+ * `,`, trim each field, drop empty fields. Pure string splitting — the value
+ * NEVER reaches a shell (unlike `qualityReview.seeding`'s own comma-split,
+ * which interpolates the var raw into a `sh -c` script; see
+ * .gtd/packages/01-each-declaration.md Requirement B). A token containing
+ * `$(...)` or a backtick is returned as the literal string it is; nothing
+ * here ever spawns a subshell to expand it.
+ */
+export const resolveVarTokens = (value: string): readonly string[] =>
+  value
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0)
+
+/**
+ * Turns an `each: { glob: ... }` source into ordered item tokens — a thin
+ * seam over `Workspace.glob` (see its own doc comment for the working-
+ * tree/repo-relative/lexicographic contract), taken as a plain function
+ * argument rather than an injected `Workspace` tag, matching
+ * `templateRead`/`templateDiff`'s own synchronous-caller exception.
+ */
+export const resolveGlobTokens =
+  (workspace: Pick<WorkspaceOps, "glob">) =>
+  (pattern: string): readonly string[] =>
+    workspace.glob(pattern)
+
+const EACH_KEYS = new Set(["glob", "var", "drained"])
+
+/** `validateEach`'s result before `drained:` is resolved (Pass 2 needs the referring instance, not yet fully built here). */
+interface PendingEach {
+  readonly source: EachSource
+  readonly drainedRaw: string
+  readonly where: string
+  readonly path: readonly (string | number)[]
+  /** The REFERRING instance's own path — `drained:` resolves against it, not the child `each:` instantiates. */
+  readonly parentPath: InstancePath
+  /** The reference's own machine — its `entry:` resolves against the CHILD instance (see `EachDeclaration.entry`), already confirmed to be a string by `validateEach`. */
+  readonly refMachine: string
+}
+
+/**
+ * Validate one reference's `each:` shape: no unknown key, exactly one of
+ * `glob`/`var`, a required `drained:`, and a referenced machine that declares
+ * its own `entry:` (an `each:` loop has to enter its machine somewhere).
+ * `drained:`'s TARGET is left unresolved here — that happens in Pass 2,
+ * against the referring instance, through the same resolver an `on:` target
+ * uses.
+ */
+const validateEach = (
+  eachRaw: unknown,
+  machineName: string,
+  refMachine: string,
+  localName: string,
+  parentPath: InstancePath,
+  ctx: InstantiateCtx,
+): PendingEach | undefined => {
+  const path = statePath(machineName, localName)
+  const where = `machines.${machineName}.${localName}.each`
+  if (!isPlainObject(eachRaw)) {
+    ctx.diagnostics.push(err(path, `${where}: must be an object`))
+    return undefined
+  }
+  for (const key of Object.keys(eachRaw)) {
+    if (!EACH_KEYS.has(key)) {
+      ctx.diagnostics.push(err(path, `${where}: unknown key "${key}"`))
+      return undefined
+    }
+  }
+  const hasGlob = typeof eachRaw["glob"] === "string"
+  const hasVar = typeof eachRaw["var"] === "string"
+  if (hasGlob === hasVar) {
+    ctx.diagnostics.push(err(path, `${where}: declare exactly one of "glob" or "var"`))
+    return undefined
+  }
+  if (typeof eachRaw["drained"] !== "string") {
+    ctx.diagnostics.push(err(path, `${where}: "drained" is required`))
+    return undefined
+  }
+  const rawRefMachine = ctx.machinesRaw[refMachine]
+  const refEntry = isPlainObject(rawRefMachine) ? rawRefMachine["entry"] : undefined
+  if (typeof refEntry !== "string") {
+    ctx.diagnostics.push(
+      err(path, `${where}: machine "${refMachine}" declares no "entry:" for the loop to enter`),
+    )
+    return undefined
+  }
+  const source: EachSource = hasGlob
+    ? { kind: "glob", value: eachRaw["glob"] as string }
+    : { kind: "var", value: eachRaw["var"] as string }
+  return {
+    source,
+    drainedRaw: eachRaw["drained"],
+    where,
+    path,
+    parentPath,
+    refMachine,
+  }
+}
+
+/**
+ * Reject a NESTED `each:` — a reference whose own `each:` declaration sits
+ * inside another `each:` reference's subtree (its child path is a true
+ * dotted descendant of the outer reference's own child path). Runtime
+ * position derivation (`PatternMachine.ts`'s `qualifierIndexAt`/`qualifyAt`)
+ * anchors on a BASE ref path, which cannot see an already-qualified ancestor
+ * segment — an inner loop would silently never advance past item 0. Caught
+ * here, at load time, so that case can't be authored at all: an author who
+ * wants a per-item sub-loop has to flatten it into one `each:` instead.
+ */
+const validateNoNestedEach = (
+  eachPending: ReadonlyMap<InstancePath, PendingEach>,
+  diagnostics: Diagnostic[],
+): void => {
+  for (const [childPath, pending] of eachPending) {
+    for (const [otherPath] of eachPending) {
+      if (otherPath !== childPath && childPath.startsWith(`${otherPath}.`)) {
+        diagnostics.push(
+          err(
+            pending.path,
+            `${pending.where}: nested inside each: reference "${otherPath}" — a nested each: is not supported`,
+          ),
+        )
+      }
+    }
+  }
+}
 
 /**
  * Resolve one `with:` value against the CALLER's own bindings: a whole-value
@@ -120,6 +284,8 @@ interface InstantiateCtx {
   readonly referenced: Set<string>
   readonly instancesByPath: Map<InstancePath, Instance>
   readonly diagnostics: Diagnostic[]
+  /** A validated `each:` awaiting Pass 2's target resolution, keyed by the CHILD instance's own path. */
+  readonly eachPending: Map<InstancePath, PendingEach>
 }
 
 /**
@@ -167,7 +333,12 @@ const instantiateLocal = (
     ctx,
     `machines.${machineName}.${localName}`,
   )
-  if (child !== undefined) children.push(child)
+  if (child === undefined) return
+  if (def.each !== undefined) {
+    const pending = validateEach(def.each, machineName, def.machine, localName, path, ctx)
+    if (pending !== undefined) ctx.eachPending.set(child.path, pending)
+  }
+  children.push(child)
 }
 
 /**
@@ -627,6 +798,53 @@ const buildTree = (instance: Instance): MachineNode => ({
 })
 
 /**
+ * Pass 2 for `each:`: resolve every pending `drained:` target against its
+ * REFERRING (parent) instance — now that Pass 1 has finished, so every
+ * instance the parent's own locals could name is already in
+ * `instancesByPath` — and record the result on the CHILD instance `each:`
+ * instantiated. A parent missing from `instancesByPath` means it failed to
+ * instantiate itself (already reported); its pending `each:` entries are
+ * silently dropped, same as any other finding downstream of an already-
+ * reported Pass 1 failure.
+ */
+const resolveEachTargets = (
+  eachPending: ReadonlyMap<InstancePath, PendingEach>,
+  instancesByPath: ReadonlyMap<InstancePath, Instance>,
+  machinesRaw: Record<string, unknown>,
+  diagnostics: Diagnostic[],
+): void => {
+  for (const [childPath, pending] of eachPending) {
+    const parent = instancesByPath.get(pending.parentPath)
+    if (parent === undefined) continue
+    const child = instancesByPath.get(childPath)
+    if (child === undefined) continue
+    const resolved = resolveOnTarget(
+      pending.drainedRaw,
+      parent,
+      pending.where,
+      pending.path,
+      instancesByPath,
+      machinesRaw,
+      diagnostics,
+    )
+    if (resolved === undefined) continue
+    // Already confirmed a string by `validateEach` — the CHILD instance's own
+    // machine's `entry:`, resolved against the CHILD (where the loop enters
+    // each item), not the parent `drained:` resolves against.
+    const refEntry = (machinesRaw[pending.refMachine] as Record<string, unknown>)["entry"] as string
+    const entry = resolveEntry(
+      `${pending.where}.entry`,
+      refEntry,
+      child,
+      instancesByPath,
+      machinesRaw,
+      diagnostics,
+    )
+    if (entry !== undefined) child.each = { source: pending.source, drained: resolved, entry }
+  }
+}
+
+/**
  * Flatten a raw `entry:`/`machines:` config — a tree of reusable,
  * parameterized "machines" a workflow is authored with — into qualified
  * states, resolved entry points, and a visualization tree, so the rest of the
@@ -637,11 +855,13 @@ const buildTree = (instance: Instance): MachineNode => ({
  */
 export const flattenMachines = (raw: unknown): FlattenedWorkflow => {
   const diagnostics: Diagnostic[] = []
+  const instancesByPath = new Map<InstancePath, Instance>()
   const empty: FlattenedWorkflow = {
     states: {},
     entries: undefined,
     tree: undefined,
     scopes: {},
+    instances: instancesByPath,
     diagnostics,
   }
   if (!isPlainObject(raw)) {
@@ -657,11 +877,11 @@ export const flattenMachines = (raw: unknown): FlattenedWorkflow => {
     ? (raw["machines"] as Record<string, unknown>)
     : {}
 
-  const instancesByPath = new Map<InstancePath, Instance>()
   const referenced = new Set<string>()
   const rootMachineName = entryRaw["default"]
   referenced.add(rootMachineName)
-  const ctx: InstantiateCtx = { machinesRaw, referenced, instancesByPath, diagnostics }
+  const eachPending = new Map<InstancePath, PendingEach>()
+  const ctx: InstantiateCtx = { machinesRaw, referenced, instancesByPath, diagnostics, eachPending }
   const root = instantiate(rootMachineName, "", [], {}, ctx, "entry.default")
 
   for (const name of Object.keys(machinesRaw)) {
@@ -671,6 +891,9 @@ export const flattenMachines = (raw: unknown): FlattenedWorkflow => {
   }
 
   if (root === undefined) return empty
+
+  validateNoNestedEach(eachPending, diagnostics)
+  resolveEachTargets(eachPending, instancesByPath, machinesRaw, diagnostics)
 
   const states: Record<string, Record<string, unknown>> = {}
   const scopes: Record<string, InstancePath> = {}
@@ -696,7 +919,14 @@ export const flattenMachines = (raw: unknown): FlattenedWorkflow => {
   }
 
   if (defaultResolved === undefined)
-    return { states, entries: undefined, tree, scopes, diagnostics }
+    return { states, entries: undefined, tree, scopes, instances: instancesByPath, diagnostics }
 
-  return { states, entries: { default: defaultResolved }, tree, scopes, diagnostics }
+  return {
+    states,
+    entries: { default: defaultResolved },
+    tree,
+    scopes,
+    instances: instancesByPath,
+    diagnostics,
+  }
 }

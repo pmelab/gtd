@@ -67,16 +67,16 @@ identities differ only in role, never in how they're told to behave.
 
 Memory is **entry-scoped to a machine**, not a state-authored label: each
 machine instance (a node in the `machines:` tree, e.g. `build`, `build.health`,
-`packages.item`, `packages.item.health`) owns its own conversational scope, and
-a `prompt`-content state's `memory` key — surfaced in `gtd next --json`'s
-`memory` field, and as a `Memory: <key>` line in plain `gtd next` — is computed,
-never authored, as `<scope>#<hash7>`: `<scope>` is that machine instance's
-dotted path (the root instance is shown as `root`), and `<hash7>` anchors to the
-commit the CURRENT unbroken entry into that scope started FROM. Entering a
-**descendant** scope (e.g. dipping from `build` into `build.health`) does not
-break the parent's unbroken run — a full agent turn in a nested child machine,
-then back to the parent, still resumes the SAME parent conversation; entering a
-**sibling or unrelated** scope does start a fresh one. The bundled template's
+`packages`, `packages.health`) owns its own conversational scope, and a
+`prompt`-content state's `memory` key — surfaced in `gtd next --json`'s `memory`
+field, and as a `Memory: <key>` line in plain `gtd next` — is computed, never
+authored, as `<scope>#<hash7>`: `<scope>` is that machine instance's dotted path
+(the root instance is shown as `root`), and `<hash7>` anchors to the commit the
+CURRENT unbroken entry into that scope started FROM. Entering a **descendant**
+scope (e.g. dipping from `build` into `build.health`) does not break the
+parent's unbroken run — a full agent turn in a nested child machine, then back
+to the parent, still resumes the SAME parent conversation; entering a **sibling
+or unrelated** scope does start a fresh one. The bundled template's
 `build.review` (the human review tail) is a worked example: it is nested INSIDE
 `build` (the builder's own machine) so that a `gtd --entry fix-precheck` run —
 `build.fix` -> `build.health.check` -> `build.review.*` — stays inside one
@@ -86,12 +86,25 @@ scratch on every pass through the tail. (An actionable review round breaks the
 run on purpose instead — it leaves `build` entirely through a root-level
 `re-unwind` state and a full re-plan, since a hand-edit made during review is a
 sketch to reconsider, not a fix to build on.) Two instances of the same reusable
-machine (e.g. `build.health` and `packages.item.health`, both instantiating
+machine (e.g. `build.health` and `packages.health`, both instantiating
 `healthGate`) get different scopes and so never share a key, even though they're
 the "same shaped" machine. One consequence is a structural guarantee: **a
 reviewer's turn never resumes an implementer's session, and vice versa** — a
 reviewer machine and the implementer machine it reviews are always different
 instances with different scopes.
+
+A machine reference carrying an `each:` declaration (see
+[Configuration](./configuration.md#the-workflow-key)) qualifies every state name
+in its subtree with the item's own index, e.g. `packages[2].building` — the form
+`gtd next --json`'s `state` field and a turn's commit subject both carry while
+that item is current. This qualified path is what makes the item its own memory
+scope, not just its own display name: `session` changes between items, the same
+way entering an unrelated sibling machine does — item 2's
+`session.id`/`session.resume` are unrelated to item 1's, and the two never
+resume the same agent conversation. No field is added to the beat document for
+this, and no driver change is required — a driver that already maps
+`session.id`/`session.resume` onto its agent CLI's session flags (below) keeps
+working unmodified as `each:` moves from item to item.
 
 `gtd` itself stores NOTHING to make this work: `session.id` is
 `UUIDv5(<fixed gtd namespace>, <memory key>)` — a deterministic hash of the

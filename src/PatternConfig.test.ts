@@ -242,6 +242,8 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       },
       vars: {},
       edges: [],
+      item: "",
+      itemIndex: -1,
     }
     const { script } = await Effect.runPromise(
       validateScriptFor(resolved, ".gtd/TODO.md", context).pipe(

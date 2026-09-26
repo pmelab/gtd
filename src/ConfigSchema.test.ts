@@ -54,6 +54,28 @@ const machineSchemaOf = (schema: JsonObject): JsonObject => {
 const buildMachineSchema = (): JsonObject =>
   machineSchemaOf(JSONSchema.make(ConfigSchema) as unknown as JsonObject)
 
+/** Navigate from the full generated schema down to `machineRefJsonSchema`'s compiled shape (the state/ref `oneOf`'s second member). */
+const refSchemaOf = (schema: JsonObject): JsonObject => {
+  const workflow = schema["properties"]
+  if (!isJsonObject(workflow)) throw new Error("no top-level properties")
+  const workflowProp = workflow["workflow"]
+  if (!isJsonObject(workflowProp)) throw new Error("no workflow property")
+  const machines = (workflowProp["properties"] as JsonObject)["machines"]
+  if (!isJsonObject(machines)) throw new Error("no machines property")
+  const machine = machines["additionalProperties"]
+  if (!isJsonObject(machine)) throw new Error("no machine shape")
+  const states = (machine["properties"] as JsonObject)["states"]
+  if (!isJsonObject(states)) throw new Error("no states property")
+  const stateOrRef = states["additionalProperties"]
+  if (!isJsonObject(stateOrRef)) throw new Error("no state/ref oneOf")
+  const [, ref] = stateOrRef["oneOf"] as JsonObject[]
+  if (!isJsonObject(ref)) throw new Error("no ref schema")
+  return ref
+}
+
+const buildRefSchema = (): JsonObject =>
+  refSchemaOf(JSONSchema.make(ConfigSchema) as unknown as JsonObject)
+
 const AUTHORED_STATE_KEYS = STATE_FIELD_ENTRIES.filter(([, spec]) => spec.authored === "state").map(
   ([key]) => key,
 )
@@ -199,5 +221,40 @@ describe("ConfigSchema — top-level `ui:`", () => {
       expect(typeof prop["description"], `property "${key}"`).toBe("string")
       expect((prop["description"] as string).length, `property "${key}"`).toBeGreaterThan(0)
     }
+  })
+})
+
+describe("ConfigSchema — machineRefJsonSchema's `each:` (see .gtd/packages/01-each-declaration.md)", () => {
+  it("gives the reference schema an `each` property, additionalProperties: false, with glob/var/drained", () => {
+    const ref = buildRefSchema()
+    const each = (ref["properties"] as JsonObject)["each"] as JsonObject
+    expect(each["type"]).toBe("object")
+    expect(each["additionalProperties"]).toBe(false)
+    expect(each["required"]).toEqual(["drained"])
+    expect(Object.keys(each["properties"] as JsonObject)).toEqual(["glob", "var", "drained"])
+  })
+
+  it("gives every each: property a non-empty description", () => {
+    const ref = buildRefSchema()
+    const each = (ref["properties"] as JsonObject)["each"] as JsonObject
+    const properties = each["properties"] as Record<string, JsonObject>
+    for (const [key, prop] of Object.entries(properties)) {
+      expect(typeof prop["description"], `property "${key}"`).toBe("string")
+      expect((prop["description"] as string).length, `property "${key}"`).toBeGreaterThan(0)
+    }
+  })
+
+  it("states plainly, in `var`'s own description, that gtd splits the value itself and it never reaches a shell", () => {
+    const ref = buildRefSchema()
+    const each = (ref["properties"] as JsonObject)["each"] as JsonObject
+    const varDescription = ((each["properties"] as JsonObject)["var"] as JsonObject)[
+      "description"
+    ] as string
+    expect(varDescription).toContain("never reaches a shell")
+  })
+
+  it("still requires only `machine` on the reference itself — `each` stays optional", () => {
+    const ref = buildRefSchema()
+    expect(ref["required"]).toEqual(["machine"])
   })
 })

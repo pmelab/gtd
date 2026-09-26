@@ -110,7 +110,7 @@ workflow:
     <name>:
       model: <string> # optional, opaque harness hint — stamped onto every one of THIS machine's own `prompt` states; declared ONCE per machine, never per state
       params: [<param>, ...] # optional, advisory — documents which $params a caller may bind
-      entry: <local or ref key> # this machine's own default local, resolved recursively
+      entry: <local or ref key> # this machine's own default local, resolved recursively; for the ROOT machine (the one `entry.default` above names), this recursive resolution IS `entries.default` — a load error if it lands inside an `each:` reference's subtree, for the same reason a state's own `entry: true` is
       states:
         <local>:
           actor: <string> # required
@@ -136,7 +136,7 @@ workflow:
           requireProgress: true # optional, requires "file" — refuse a turn whose only change deletes this state's own `file:`
           answerGate: true # optional, requires "file" — refuse a turn that edits anything while an open question in the (qa-mode) `file:` is unanswered; a turn that changes nothing at all is accepted and advances with the questions unanswered
           requireRevert: true # optional, requires "file" — refuse a turn until the human's review-round paths actually match the review base's parent
-          entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared state is a valid target)
+          entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any state OUTSIDE an `each:` reference's subtree is a valid target, offered or not); a load error to declare on a state inside one — a loop has no unqualified item to enter, and `gtd --entry` neither accepts nor lists a looped state, `entry: true` or not
           judge: <string> # optional, requires "message" — an Eta template rendered ALONGSIDE message: (content kind stays "message"), must render to the JSON document { state, questions: [{ id, primitive, instructions, criteria }] }; `state` may only come from it.read(...)/git helpers/it.diff(...) (never an uncommitted artifact — it.diff(...) is the one deliberate exception, since it reads the working tree's own diff content, not a file); `primitive` is one of noul (yes/no), choice, score. `gtd judge`/`gtd judge answer` are the surface — see `docs/cli.md`
           shadow: true # optional, requires "judge" — records the verdict (a `Gtd-Judge:` trailer) but never consults it for routing; a repo's debugging switch for tuning a threshold, not a release stage every gate passes through
           routes: # optional, requires "judge" — an ORDERED list of judgment routing rows, first match wins, exactly like `on`; MUST end with a catch-all row carrying only `to`
@@ -147,7 +147,36 @@ workflow:
               to: <targetState>
             - to: <targetState> # the trailing catch-all row — no question/is/minP/maxP; MUST name the SAME target as this state's own "C" and "* **" on: rows — a skipped judgment (no verdict ever recorded) and a "keep going" verdict both land the conservative default, never the optimistic one
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
+        <local>: # a LOOPING reference — same as above, plus `each:`
+          machine: <name>
+          each:
+            glob: <glob> # OR var: below (exactly one required) — matched against the WORKING TREE at loop entry; matches become item tokens, repo-relative paths ordered LEXICOGRAPHICALLY
+            var: <name> # OR glob: above (exactly one required) — the NAME of a workflow `vars:` entry, not a literal list; ITS VALUE is what gets comma-split into item tokens BY GTD ITSELF — trimmed, empty fields dropped; that value is parsed by the engine and NEVER reaches a shell (a narrowing of the existing trust boundary, not a sanitiser). An undeclared name resolves to an empty item list, not a load-time error
+            drained: <targetState> # where the loop advances once its item list is exhausted, resolved like an `on:` target
 ```
+
+A reference's `each:` turns it into a loop: the referenced machine is still
+instantiated exactly once, but its item list — `glob:`'s matches, or the `vars:`
+entry `var:` names, comma-split — is snapshotted once per entry into the loop,
+and never re-read while the process stays inside it; a write into the matched
+glob or the named var's value made mid-run is not picked up until a later
+re-entry into the loop resolves a fresh snapshot — which can happen within the
+SAME process, e.g. a route that leaves the loop's subtree and later comes back
+to it. The machine's own `entry:` local runs once per item. Only reaching the
+reference's `drained:` target actually advances the loop to its next item (or,
+once the list is exhausted, out of the loop entirely); any other target that
+leaves the item's states ends that pass through the loop, with whatever items
+remained unbuilt in that snapshot — a later re-entry starts over from a fresh
+item 0, not from where the earlier pass stopped.
+
+Neither reachability root may resolve to a state inside an `each:` reference's
+subtree: `entries.default` — the ROOT machine's own `entry:` local, resolved
+recursively, NOT the top-level `entry.default` key that only names which machine
+is root — and every `entries.manual` state (a state's own `entry: true`, above)
+are both load errors there — a loop has no item selected until something enters
+it through the reference itself, so there is no unqualified state to start or
+jump to. Point the root machine's `entry:` at a local outside the loop, or drop
+the manual-entry state's `entry: true`, to fix it.
 
 There is no `memory:` key anywhere in this shape — a state's memory scope is
 never authored, only computed from its position in the machine tree (see
@@ -191,6 +220,16 @@ Besides `it.vars` (below), a `script`/`prompt`/`message` template sees:
 - **`it.processCost`** / **`it.processCostByModel`** — accumulated token cost
   over the process (every `--cost`/`--model` recorded on `gtd land`), total and
   broken down per model.
+- **`it.item`** / **`it.itemIndex`** — the current `each:` item's raw token (a
+  repo-relative path for `glob:`, the trimmed field for `var:`) and its 0-based
+  position in the snapshotted list. `""`/`-1` outside every `each:` reference.
+  Bound on every template a state can declare (`script`/`prompt`/`message`,
+  `file:`, `model:`) — the bundled workflow's quality lap uses `it.item` as its
+  entire lens-selection mechanism, `skills: <%~ it.item %>`. It is untrusted
+  text — it comes from the working tree (a filename, a matched line), not from
+  the workflow author — so a `script:` that interpolates it into a shell command
+  must quote it itself (single quotes, not double: double quotes still let
+  `$(...)`, a backtick, or `$var` run).
 - **`it.diff(base)`** — `git diff <base>` against the working tree, tracked AND
   untracked (non-ignored) content alike, as real hunks. The one field on this
   list a `judge:` render is deliberately allowed to read fresh off the working
@@ -209,7 +248,7 @@ Besides `it.vars` (below), a `script`/`prompt`/`message` template sees:
   makes this second form a genuine, unfixable hazard for a document whose shape
   a workflow author doesn't fully control (a package file, a review note —
   arbitrary prose an agent or a human wrote, fences included). DECISION: the two
-  bundled gates that need survivorship (`packages.item.spec.pre`,
+  bundled gates that need survivorship (`packages.spec.pre`,
   `build.review.triage`) do NOT use `it.sections(path, share)` for that reason —
   each instead compares every WHOLE-document title's own offset (from the
   unbounded `it.sections(path)` call above) against where `it.tail(path, share)`
@@ -272,14 +311,14 @@ itself, keeping that render cheap and the prompt small and cacheable, while a
 `judge:` template calls `it.diff(base)` instead — inlining the diff's own
 content into the rendered document — because the judge it renders for has no
 repository of its own to run that command in. No bundled `judge:` field
-currently calls it; `packages.item.health.judge` inlines its own evidence the
-same way, over a bounded `it.tail` read rather than `it.diff` (the general
-pattern this convention describes). Nothing in the engine enforces the split —
-`it.diff` shells out to `git` (`git add -N` + `git diff`) the moment any
-template calls it, so a `script:`/`prompt:` that called it would pay the same
-cost. A `judge:` field naming `it.diff(...)` renders on every ordinary rest
-resolution too (`gtd next`, `gtd status`, `gtd judge`), not just
-`gtd judge answer` — there's no separate "judging now" mode that defers it.
+currently calls it; `packages.health.judge` inlines its own evidence the same
+way, over a bounded `it.tail` read rather than `it.diff` (the general pattern
+this convention describes). Nothing in the engine enforces the split — `it.diff`
+shells out to `git` (`git add -N` + `git diff`) the moment any template calls
+it, so a `script:`/`prompt:` that called it would pay the same cost. A `judge:`
+field naming `it.diff(...)` renders on every ordinary rest resolution too
+(`gtd next`, `gtd status`, `gtd judge`), not just `gtd judge answer` — there's
+no separate "judging now" mode that defers it.
 
 Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
 is the agent-facing contract for producing a valid `workflow:` — the state
@@ -400,6 +439,24 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 > it just renders blank where the process's trace boundary used to appear.
 > Search your workflow for both names before upgrading; only the `commit:` key
 > refuses to load and tells you where.
+
+> **Upgrading a `workflow:` that still resolves at `packages.item.*`?** The
+> bundled template's per-package build queue and quality-review lap were both
+> hand-written `ls ... | head -n 1` queues, driven through a `.gtd/NEXT.md`/
+> `.gtd/NEXT_REVIEW.md` pointer file; both are now `each:` references
+> (`packages`/`build.quality`), which derive loop position from history instead
+> — no queue file, no picking state. Flattening the per-package queue's own
+> wrapper machine back out re-homes every one of its states one level up:
+> `packages.item.building` → `packages.building`, `packages.item.closing` →
+> `packages.closing`, `packages.item.health.check` → `packages.health.check`,
+> `packages.item.fix-suite` → `packages.fix-suite`,
+> `packages.item.health.escalate` → `packages.health.escalate`,
+> `packages.item.spec.review` → `packages.spec.review`, `packages.item.fix-spec`
+> → `packages.fix-spec`. `.gtd/NEXT.md` and `.gtd/NEXT_REVIEW.md` are never
+> written, read, or deleted any more. As with every rename above, an in-flight
+> process resting at one of the old `packages.item.*` names can no longer be
+> resumed after upgrading; `gtd abandon` it (or finish it on the pre-upgrade
+> workflow version) first.
 
 ### Variables
 
@@ -524,8 +581,8 @@ top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
 - **`styleBlock`** — the voice itself, injected at all six prompt states that
   generate content, not just two: the free-prose ones — the `.gtd/packages/`
   package files (`architecture.decompose`) and `.gtd/SPEC_FEEDBACK.md`
-  (`packages.item.spec.review`) — plus the four machine-parsed states named in
-  the next bullet. Blanking `GTD_STYLEBLOCK` strips the voice from all six,
+  (`packages.spec.review`) — plus the four machine-parsed states named in the
+  next bullet. Blanking `GTD_STYLEBLOCK` strips the voice from all six,
   including the machine-parsed ones, not only the free-prose two. In short: it's
   a deliverable, not a chat reply, so size follows the work; answer-first with
   no restatement; blunt and imperative; plain words; bold carries the load; ship
@@ -543,12 +600,11 @@ top-level `.gtdrc` `vars:` key, or the matching `GTD_STYLEBLOCK` /
   `build.review.reviewing`), plus `.gtd/REQUIREMENTS.md` again at
   `build.review.collecting`, which classifies a review round straight into it.
 
-Three more generated files carry no injected voice, because a script — not an
+Two more generated files carry no injected voice, because a script — not an
 agent — writes them: `.gtd/FEEDBACK.md` (verbatim test-suite output plus a HEAD
-stamp — the tool's content, not gtd's prose), `.gtd/NEXT.md` (a bare path, no
-prose to style), and `.gtd/REVIEW_RAW.md` (gtd's own prose, hand-tightened in
-the voice directly in `build.review.deciding`'s script rather than templated in
-through either variable).
+stamp — the tool's content, not gtd's prose) and `.gtd/REVIEW_RAW.md` (gtd's own
+prose, hand-tightened in the voice directly in `build.review.deciding`'s script
+rather than templated in through either variable).
 
 Three more vars exist purely to dedup wording repeated across several prompts —
 they carry no voice, just shared instructions — and, like every bundled var, are
@@ -573,37 +629,37 @@ overridable via `.gtdrc` `vars:` or a `GTD_<NAME>` environment variable:
   `architecture.author`, under its own `## Return lap` heading. Each site still
   states its own phase scope (product-only vs. TECHNICAL) locally, same as
   `questionBar`.
-- **`fixFeedbackPrompt`** — the body `packages.item.fix-suite` and `build.fix`
-  share byte for byte: read `.gtd/FEEDBACK.md`, fix the code, leave it
-  uncommitted, and — when `.gtd/ESCALATION.md` is present — treat it as the
-  primary instruction, but never edit or delete it: only a genuinely green check
-  retires it (see [Escalation](#escalation) below), so a wrong attempt still
-  leaves the next turn's instruction in place. `fix-suite` appends one extra
-  sentence about implementing a later package's work when that's the only way to
-  green the suite; `build.fix` does not.
+- **`fixFeedbackPrompt`** — the body `packages.fix-suite` and `build.fix` share
+  byte for byte: read `.gtd/FEEDBACK.md`, fix the code, leave it uncommitted,
+  and — when `.gtd/ESCALATION.md` is present — treat it as the primary
+  instruction, but never edit or delete it: only a genuinely green check retires
+  it (see [Escalation](#escalation) below), so a wrong attempt still leaves the
+  next turn's instruction in place. `fix-suite` appends one extra sentence about
+  implementing a later package's work when that's the only way to green the
+  suite; `build.fix` does not.
 
 #### Escalation
 
-`build.health.escalate`/`packages.item.health.escalate` (both instances of the
-shared `healthGate` machine) are where a check that stays red past `build.fix`'s
-or `packages.item.fix-suite`'s own `retry: {max: 3}` cap — or a
-`healthGate.judge` verdict of "identical" — ends up. Rather than resting there
-directly, `escalate` is a `check` gate that counts escalation rounds from git
-history and routes accordingly:
+`build.health.escalate`/`packages.health.escalate` (both instances of the shared
+`healthGate` machine) are where a check that stays red past `build.fix`'s or
+`packages.fix-suite`'s own `retry: {max: 3}` cap — or a `healthGate.judge`
+verdict of "identical" — ends up. Rather than resting there directly, `escalate`
+is a `check` gate that counts escalation rounds from git history and routes
+accordingly:
 
 - **Under 2 rounds** — routes to `describe`
-  (`build.health.describe`/`packages.item.health.describe`): an agent turn that
-  reads `.gtd/FEEDBACK.md`, `.gtd/PRIOR_FEEDBACK.md` when present, and the code
-  its own earlier attempts touched, then writes `.gtd/ESCALATION.md` — what's
+  (`build.health.describe`/`packages.health.describe`): an agent turn that reads
+  `.gtd/FEEDBACK.md`, `.gtd/PRIOR_FEEDBACK.md` when present, and the code its
+  own earlier attempts touched, then writes `.gtd/ESCALATION.md` — what's
   failing, why the previous attempts didn't resolve it, and concrete approaches
   to try next. That turn rests at a human gate
-  (`build.health.stop`/`packages.item.health.stop`) on that file: edit it or
-  land it untouched, either way handing it to the next fix turn as its primary
+  (`build.health.stop`/`packages.health.stop`) on that file: edit it or land it
+  untouched, either way handing it to the next fix turn as its primary
   instruction (see `fixFeedbackPrompt` above).
 - **At 2 or more rounds** — the cap: no third document is written. The script
   restores the last `.gtd/ESCALATION.md` and rests at a terminal human gate
-  (`build.health.exhausted`/`packages.item.health.exhausted`) naming both that
-  file and `.gtd/FEEDBACK.md`. Editing the document there is what gives the next
+  (`build.health.exhausted`/`packages.health.exhausted`) naming both that file
+  and `.gtd/FEEDBACK.md`. Editing the document there is what gives the next
   attempt anything new to try; landing it untouched tries the same analysis
   again.
 
@@ -622,8 +678,8 @@ lands under a different subject (`stop`/`exhausted` as the FROM state), which
 this count does not match.
 
 Both human gates release straight into the caller's own fix state
-(`build.fix`/`packages.item.fix-suite`) — no detour back through the check — so
-the fix turn that consumes the (possibly hand-edited) document is the very next
+(`build.fix`/`packages.fix-suite`) — no detour back through the check — so the
+fix turn that consumes the (possibly hand-edited) document is the very next
 turn. `.gtd/ESCALATION.md` is a steering file like any other under `.gtd/`:
 oxfmt-formatted, but with no `mode:`/`format:`/`validate:` pair of its own —
 freeform prose, not a parsed document.

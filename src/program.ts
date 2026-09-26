@@ -31,6 +31,7 @@ import { startLspServer } from "./Lsp.js"
 import {
   buildCurrentStateModel,
   buildVizModel,
+  groupForState,
   openInBrowser,
   startVizServer,
   type CurrentStateModel,
@@ -1071,7 +1072,7 @@ const computeCurrentState = (
 ): Effect.Effect<CurrentStateModel, Error, RestRequirements> =>
   Effect.gen(function* () {
     const rest = yield* restAt(undefined)
-    const group = model.states.find((s) => s.name === rest.state)?.group
+    const group = groupForState(model, rest.state)
     return buildCurrentStateModel(rest, rest.changes, rest.on, group)
   })
 

@@ -38,6 +38,8 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   },
   vars: { greeting: "hi" },
   edges: [],
+  item: "",
+  itemIndex: -1,
   ...overrides,
 })
 
@@ -54,6 +56,22 @@ describe("renderStateTemplate — the full variable set", () => {
       baseContext(),
     )
     expect(out).toBe("start=aaa111 current=ccc333 previous=bbb222 state=building actor=agent")
+  })
+
+  it("renders it.item and it.itemIndex", () => {
+    const out = renderStateTemplate(
+      "item=<%= it.item %> index=<%= it.itemIndex %>",
+      baseContext({ item: ".gtd/packages/03-item.md", itemIndex: 2 }),
+    )
+    expect(out).toBe("item=.gtd/packages/03-item.md index=2")
+  })
+
+  it("renders the empty string and -1 outside any loop", () => {
+    const out = renderStateTemplate(
+      "item=[<%= it.item %>] index=<%= it.itemIndex %>",
+      baseContext(),
+    )
+    expect(out).toBe("item=[] index=-1")
   })
 
   it("renders reviewBase and processBase verbatim — bases, never diff content", () => {
@@ -183,6 +201,8 @@ describe("varsOnlyContext", () => {
     expect(ctx.processCost).toBe(0)
     expect(ctx.processCostByModel).toEqual([])
     expect(ctx.edges).toEqual([])
+    expect(ctx.item).toBe("")
+    expect(ctx.itemIndex).toBe(-1)
   })
 
   it("accepts an optional state name", () => {
@@ -242,17 +262,17 @@ describe("renderStateTemplate — bundled `script` states render to valid bash",
       "architecture.gate.check",
       "build.health.check",
       "build.health.escalate",
-      "build.quality.picking",
-      "build.quality.seeding",
+      "build.quality-check",
+      "build.quality-gate",
       "build.review.deciding",
       "build.review.triaging",
       "design.gate.check",
       "fix-precheck",
-      "packages.item.closing",
-      "packages.item.health.check",
-      "packages.item.health.escalate",
-      "packages.item.spec.scoping",
-      "packages.picking",
+      "packages-sweep",
+      "packages.closing",
+      "packages.health.check",
+      "packages.health.escalate",
+      "packages.spec.scoping",
       "re-unwind",
       "review-gate.check",
       "start-gate.check",
@@ -314,6 +334,8 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
           },
           vars: { file: "computed.md" },
           edges: [],
+          item: "",
+          itemIndex: -1,
         })
       }),
     )
@@ -349,6 +371,8 @@ describe("renderStateTemplate — it.read through a real Workspace", () => {
           },
           vars: {},
           edges: [],
+          item: "",
+          itemIndex: -1,
         })
       }),
     )
@@ -399,6 +423,8 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
           },
           vars: {},
           edges: [],
+          item: "",
+          itemIndex: -1,
         })
       }),
     )
@@ -435,6 +461,8 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
           },
           vars: {},
           edges: [],
+          item: "",
+          itemIndex: -1,
         })
       }),
     )
@@ -474,6 +502,8 @@ describe("renderStateTemplate — it.read through templateReadCommitted (the evi
           },
           vars: {},
           edges: [],
+          item: "",
+          itemIndex: -1,
         })
       }),
     )

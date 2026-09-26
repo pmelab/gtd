@@ -69,6 +69,7 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
 
   return {
     readSync,
+    glob: (pattern) => repo.glob(pattern),
     read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),
     write: (path, content) =>
       Effect.try({

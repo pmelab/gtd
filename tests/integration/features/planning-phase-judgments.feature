@@ -9,7 +9,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
   technique) rather than walked through triage/design.gate — the states
   under test don't care how the process got there. `architecture-promote`'s
   own shell body is a workflow-authored script a real DRIVER runs (never
-  this test harness, same convention `packages.item.spec.scoping`'s own
+  this test harness, same convention `packages.spec.scoping`'s own
   script uses elsewhere in this suite) — its effect is given by hand.
 
   @inmem
@@ -46,22 +46,18 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): architecture-promote → packages.picking"
+    And the last commit subject is "gtd(check): architecture-promote → packages-sweep"
     And ".gtd/packages/01-greeting-export.md" exists
     And the git log does not contain "architecture.author"
     And the git log does not contain "architecture.decompose"
 
-    # packages.picking's own script (a real DRIVER's job) finds the
-    # promoted package and points NEXT.md at it — the queue is genuinely
-    # non-empty on the skip path, never draining straight to $onDrained on
-    # an empty .gtd/packages/.
-    Given a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-greeting-export.md
-      """
+    # packages-sweep's own clean step (nothing to sweep) enters the queue —
+    # `each: { glob: '.gtd/packages/*.md' }` snapshots the promoted package,
+    # genuinely non-empty on the skip path, never draining straight to
+    # $onDrained on an empty .gtd/packages/.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
+    And the last commit subject is "gtd(check): packages-sweep → packages[0].building"
 
   @live
   Scenario: architecture-promote's real script — executed for real — slugifies the plan's own first heading and promotes .gtd/REQUIREMENTS.md wholesale into that single package file
@@ -87,7 +83,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
     And I execute the printed check script
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): architecture-promote → packages.picking"
+    And the last commit subject is "gtd(check): architecture-promote → packages-sweep"
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/packages/01-greeting-export.md" exists
 

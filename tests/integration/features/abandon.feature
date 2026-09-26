@@ -81,10 +81,13 @@ Feature: gtd abandon — end the process underway without completing it
     Then it succeeds
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → build.quality.seeding"
+    And the last commit subject is "gtd(check): review-gate.check → build.quality-gate"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
+    And the last commit subject is "gtd(check): build.quality-gate → build.quality-check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.quality-check → build.review.reviewing"
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
