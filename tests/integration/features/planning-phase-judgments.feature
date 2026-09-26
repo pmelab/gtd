@@ -98,16 +98,11 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/packages/01-greeting-export.md" exists
 
-  # `.gtd/packages/02-judge-gate-soundness.md` Task "Refuse the architecture
-  # skip on a truncated payload" — `architecture-promote`'s own script (a
-  # real DRIVER's job, its effect given by hand here, same convention as the
-  # first scenario in this file) must do nothing at all — leaving
-  # `.gtd/REQUIREMENTS.md` in place — when the landing commit it reads
-  # carries `Gtd-Payload: {"truncated":true}`, so the clean tree routes
-  # on to the full architecture pass instead of a false promotion, however
-  # confident the judged "no" was.
+  # A plan the judge budget cut never skips the architecture pass, however
+  # confident the judged "no" was: the flow goes straight on to
+  # architecture.author, leaving `.gtd/REQUIREMENTS.md` in place.
   @inmem
-  Scenario: architecture-promote refuses to promote a plan whose architectureWarranted verdict was answered against a judgeBudgetBytes-truncated payload
+  Scenario: a plan whose architectureWarranted verdict was answered against a judgeBudgetBytes-truncated payload is never promoted
     Given a test project
     And the workflow
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "40"
@@ -131,12 +126,6 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): architecture-pre → architecture-promote"
+    And the last commit subject is "gtd(judge): architecture-pre → architecture.author"
     And the last commit body contains "Gtd-Payload: {\"truncated\":true}"
-
-    # architecture-promote's own script does nothing on this truncated
-    # landing commit — the clean tree goes on to the full architecture pass.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): architecture-promote → architecture.author"
     And ".gtd/REQUIREMENTS.md" exists

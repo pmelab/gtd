@@ -335,7 +335,7 @@ const architecture = (): Promise<void> =>
 
 /** Whether the settled plan needs its own architecture pass, or goes straight to one package. */
 const architecturePass = async (): Promise<void> => {
-  const { answers } = await judge("architecture-pre", {
+  const { answers, truncated } = await judge("architecture-pre", {
     questions: [
       {
         id: "architectureWarranted",
@@ -350,7 +350,12 @@ const architecturePass = async (): Promise<void> => {
     message: t.architecturePreMessage(),
     label: "Judging whether this plan warrants an architecture pass",
   })
-  if (answered(answers.architectureWarranted, "no", threshold(vars.architectureSkipMinP))) {
+  // A plan the budget cut can hide its structural concerns from the judge:
+  // never skip the architecture pass on it, however confident the "no".
+  const skip =
+    truncated.length === 0 &&
+    answered(answers.architectureWarranted, "no", threshold(vars.architectureSkipMinP))
+  if (skip) {
     await run("architecture-promote", t.architecturePromoteScript(), {
       label: "Promoting the plan straight to a package",
     })
