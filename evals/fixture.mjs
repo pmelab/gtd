@@ -11,7 +11,6 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import assert from "node:assert"
-import { parse as parseYaml } from "yaml"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const GTD_BIN = join(HERE, "..", "dist", "gtd.bundle.mjs")
@@ -93,11 +92,11 @@ function writeOxfmtConfig(repo) {
   writeFileSync(join(repo, ".oxfmtrc.json"), readFileSync(OXFMTRC_PATH, "utf-8"))
 }
 
+// GTD_EVAL_WORKFLOW names a gtd.config.ts to evaluate instead of the bundled workflow.
 function writeEvalWorkflowConfig(repo) {
   const workflowPath = process.env.GTD_EVAL_WORKFLOW
   if (!workflowPath) return
-  const doc = parseYaml(readFileSync(workflowPath, "utf-8"))
-  writeFileSync(join(repo, ".gtdrc.json"), JSON.stringify({ workflow: doc }, null, 2) + "\n")
+  writeFileSync(join(repo, "gtd.config.ts"), readFileSync(workflowPath, "utf-8"))
 }
 
 /**

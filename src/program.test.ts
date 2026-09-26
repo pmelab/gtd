@@ -4,7 +4,7 @@
  * e2e tier observes. Argv parsing is pinned in `src/cli/Cli.test.ts`.
  */
 
-import { Cause, Effect, Exit, Fiber } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import { PassThrough } from "node:stream"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -1192,37 +1192,6 @@ describe("gtd check <mode> <file> --open-questions", () => {
   })
 })
 
-describe("gtd visualize — flushes before blocking", () => {
-  it("flushes the URL line before Effect.never blocks, so a driver sees it without waiting for shutdown", async () => {
-    const repo = new InMemRepo()
-    const written: string[] = []
-    let flushCount = 0
-    const out = {
-      write: (chunk: string) => written.push(chunk),
-      flush: () => {
-        flushCount++
-      },
-    }
-
-    const fiber = Effect.runFork(
-      runCommand({ kind: "visualize", port: 0, open: false }, { kind: "off" }, out).pipe(
-        Effect.provide(testLayers(repo)),
-      ),
-    )
-    try {
-      // The command blocks on Effect.never next — flush-on-success (`Cli.ts`'s
-      // own, driven by the command's Effect completing) would never fire, so
-      // this proves `runVisualizeCommand` flushes the URL line itself, ahead
-      // of that block, rather than a driver having to wait for shutdown.
-      await new Promise((resolve) => setTimeout(resolve, 50))
-      expect(written.some((chunk) => chunk.includes("gtd visualize running at"))).toBe(true)
-      expect(flushCount).toBeGreaterThan(0)
-    } finally {
-      await Effect.runPromise(Fiber.interrupt(fiber))
-    }
-  })
-})
-
 describe("gtd next — Next: preview of where landing the pending turn would go", () => {
   // A human rest past the initial step: plain `gtd next` prints no header at a
   // `prompt` rest, so the plain `Next:` line needs a non-prompt one.
@@ -1255,13 +1224,10 @@ export default workflow({
     return parsed.next
   }
 
-  it("--json's `next` names the step replay reaches with the pending turn, and the edge condition leading there", async () => {
+  it("--json's `next` names the step replay reaches with the pending turn", async () => {
     const repo = await atWorking()
     repo.writeFile("PLAN.md", "the plan\n")
-    expect(await nextOf(repo)).toEqual({
-      pattern: 'added("PLAN.md").length > 0',
-      target: "accepted",
-    })
+    expect(await nextOf(repo)).toEqual({ target: "accepted" })
   })
 
   it("a turn that finishes the flow targets the initial step", async () => {
@@ -1275,14 +1241,14 @@ export default workflow({
     repo.writeFile("PLAN.md", "the plan\n")
     const { stdout, exitCode } = await run(repo, "next")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain('Next: added("PLAN.md").length > 0 → accepted')
+    expect(stdout).toContain("Next: → accepted")
   })
 
-  it("a pending turn the flow would refuse previews as present-but-null, and plain shows the no-match line", async () => {
+  it("a pending turn the flow would refuse previews as present-but-null, and plain says nothing would land", async () => {
     const repo = await atWorking()
     repo.writeFile("OTHER.md", "unrelated\n")
     expect(await nextOf(repo)).toBeNull()
-    expect((await run(repo, "next")).stdout).toContain("Next: (no match — nothing would happen)")
+    expect((await run(repo, "next")).stdout).toContain("Next: (nothing would land)")
   })
 
   it("a clean tree previews nothing", async () => {
@@ -1587,7 +1553,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const commandFor: Record<Command["kind"], Command> = {
     lsp: { kind: "lsp" },
     init: { kind: "init" },
-    visualize: { kind: "visualize", port: 4000, open: false },
     ui: { kind: "ui", selfSigned: false, dev: false },
     land: { kind: "land" },
     entry: { kind: "entry", actor: "human", state: "idle", vars: {}, label: "" },

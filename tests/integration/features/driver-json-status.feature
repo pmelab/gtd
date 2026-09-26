@@ -1,13 +1,10 @@
 @inmem
-Feature: Driver protocol — gtd next --json content kinds, edges and pending changes
+Feature: Driver protocol — gtd next --json content kinds, next and pending changes
 
   Pins the `gtd next --json` contract for the `script`, `prompt` and
   `capture` kinds — smoke.feature already pins the `message` kind at `idle`.
-  `edges` lists the resting step's out-edges in the workflow's step graph as
-  `{pattern, target}`, where `pattern` is the flow condition that leads
-  there (empty for an unconditional edge); `next` previews the step the
-  pending change would land the process at, or `null` when the flow would
-  refuse it; `changes` lists every pending change's status and path. `gtd
+  `next` previews the step the pending change would land the process at, as
+  `{target}`, or `null` when the flow would refuse it; `changes` lists every pending change's status and path. `gtd
   next --json` is the ONLY structured surface gtd has. Plain `gtd next`'s
   own output depends on the resolved rest's `kind`: at every kind except
   `prompt` it prints a header block (`State:`/`Awaits:`/etc.), then a blank
@@ -118,7 +115,7 @@ Feature: Driver protocol — gtd next --json content kinds, edges and pending ch
     And stdout does not contain "\"session\""
     And stdout does not contain "\"validate\""
 
-  Scenario: gtd next --json lists each pending change with its status, matched against no pattern — plain gtd next carries no such report at a prompt rest (header dropped)
+  Scenario: gtd next --json lists each pending change with its status and path — plain gtd next carries no such report at a prompt rest (header dropped)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -158,9 +155,9 @@ Feature: Driver protocol — gtd next --json content kinds, edges and pending ch
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"actor\":\"agent\""
     And stdout contains "\"path\":\"DONE.md\""
-    And stdout contains "{\"status\":\"A\",\"path\":\"DONE.md\",\"pattern\":null}"
+    And stdout contains "{\"status\":\"A\",\"path\":\"DONE.md\"}"
     And stdout contains "\"path\":\"scratch.txt\""
-    And stdout contains "\"pattern\":null"
+    And stdout does not contain "\"pattern\""
 
   Scenario: gtd next --json previews the step the pending change would land at — plain gtd next never shows it at a prompt rest (header dropped)
     Given a test project
@@ -487,8 +484,8 @@ Feature: Driver protocol — gtd next --json content kinds, edges and pending ch
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
-    And stdout contains "{\"status\":\"A\",\"path\":\"DONE.md\",\"pattern\":null}"
-    And stdout contains "\"pattern\":null"
+    And stdout contains "{\"status\":\"A\",\"path\":\"DONE.md\"}"
+    And stdout does not contain "\"pattern\""
 
   Scenario: gtd next --json carries the state's declared file/mode — plain gtd next shows neither at a prompt rest (header dropped)
     Given a test project
@@ -553,7 +550,7 @@ Feature: Driver protocol — gtd next --json content kinds, edges and pending ch
     And stdout contains "\"state\":\"idle\""
     And stdout contains "\"file\":\".gtd/TODO.md\""
 
-  Scenario: a human gate's message lists its routes, and gtd next --json carries the gate's out-edges labelled by their conditions
+  Scenario: a human gate's message lists its routes, and gtd next --json carries no static out-edges — a flow is code
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -584,33 +581,7 @@ Feature: Driver protocol — gtd next --json content kinds, edges and pending ch
     And stdout contains "- Change any source file to leave feedback and start another round."
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "{\"pattern\":\"changed().length === 0\",\"target\":\"accept\"}"
-    And stdout contains "\"target\":\"accept\""
-    And stdout does not contain "\"describe\""
-    And stdout contains "\"target\":\"revise\""
-
-  Scenario: an unconditional out-edge carries an empty pattern and no describe
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
-
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "go" })
-          await agent("working", "...")
-        },
-      })
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → working"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"edges\":[{\"pattern\":\"\",\"target\":\"idle\"}]"
-    And stdout does not contain "\"describe\""
+    And stdout does not contain "\"edges\""
 
   Scenario: gtd next --json reports the per-worktree loop log path by default (gtd#169)
     Given a test project

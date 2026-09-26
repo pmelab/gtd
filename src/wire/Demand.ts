@@ -43,19 +43,18 @@ export const beatKindOf = (input: {
 
 /**
  * The `stalled` beat's own content: a diagnosis naming the stuck step and
- * the three ways out. The first line is shaped so a stderr grep for
+ * the ways out. The first line is shaped so a stderr grep for
  * `stalled at "<state>"` stays a stable substring (see
  * `tests/integration/features/driver-doc.feature`).
  */
 export const stallDiagnosis = (state: StateName, actor: Actor): string =>
   `stalled at "${state}": the last gtd(${actor}): ${state} turn landed an empty ` +
   `attempt, the tree is clean, and another dispatch would repeat it.\n\n` +
-  `Three ways out:\n` +
+  `Two ways out:\n` +
   `  - sharpen the step's prompt so the turn has something concrete to author\n` +
-  `  - count the fruitless attempts in the flow, moving on to an escalation\n` +
-  `    step after N of them\n` +
-  `  - pass allowEmpty: true to the step, if it can legitimately finish with\n` +
-  `    nothing to change\n`
+  `  - pass allowEmpty: true to the step, so an empty turn completes it and the\n` +
+  `    flow decides what follows — finishing, or an escalation step after N\n` +
+  `    empty turns\n`
 
 /** One dispatch session — `resume`'s own meaning lives with `src/Sessions.ts`'s `resolveSession`, which produces it. */
 export interface DemandSession {

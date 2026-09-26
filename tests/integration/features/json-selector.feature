@@ -73,7 +73,7 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
     And stdout contains "\"path\":\"DONE.md\""
     And stdout contains "\"status\":\"A\""
     And stdout contains "\"path\":\"scratch.txt\""
-    And stdout contains "\"pattern\":null"
+    And stdout does not contain "pattern"
     And stdout matches "}\n{"
 
   Scenario: gtd next --json=idle prints true at the initial state with a clean tree

@@ -418,7 +418,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the driver pasted from docs/driver.md
     When I run the driver from the docs
     Then it succeeds
-    And the last commit subject is "gtd(reviewer): confirm → done"
+    And the last commit subject is "gtd(human): confirm → done"
     And stdout contains "all done"
 
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed

@@ -36,7 +36,6 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
     throw new Error(`unexpected diffTail of ${base}`)
   },
   vars,
-  edges: [],
 })
 
 const commandsDef = (modes: WorkflowDefinition["modes"]): ModesDef => ({ modes })

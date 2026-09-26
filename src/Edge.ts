@@ -19,15 +19,12 @@ import {
   type ReplayOutcome,
   type TreeView,
 } from "./replay/index.js"
-import {
-  renderSkillsPreamble,
-  type TemplateContext,
-  type TemplateEdge,
-} from "./PatternTemplates.js"
+import { renderSkillsPreamble, type TemplateContext } from "./PatternTemplates.js"
 import { clearTicks, steeringFormatFor } from "./steering/index.js"
 import { UNATTRIBUTED_MODEL, type ModelCost } from "./wire/index.js"
 import {
   STATE_DIR,
+  knownModes,
   type ChangeStatus,
   type PendingChange,
   type StateName,
@@ -543,7 +540,7 @@ const hintsOf = (def: StepDef): RestHints => ({
 const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw === "D" ? "D" : "M")
 
 /** The currently rested step and its description — enough for the viewer and the LSP. */
-export interface ResolvedRest {
+interface ResolvedRest {
   readonly def: WorkflowDefinition
   readonly state: StateName
   readonly stepDef: StepDef
@@ -564,15 +561,8 @@ interface Rest extends ResolvedRest {
   readonly memoryResumed: boolean
   readonly hints: RestHints
   readonly context: TemplateContext
-  /** The rest's out-edges in the step graph, labelled with their path conditions. */
-  readonly edges: readonly TemplateEdge[]
   readonly setup: ReplaySetup
 }
-
-const edgesOf = (def: WorkflowDefinition, name: StateName): readonly TemplateEdge[] =>
-  def.graph.edges
-    .filter((edge) => edge.from === name)
-    .map((edge) => ({ pattern: edge.label, target: edge.to === "$end" ? def.initial : edge.to }))
 
 const templateContext = (
   run: ProcessRun,
@@ -599,7 +589,6 @@ const templateContext = (
     tail: none,
     diffTail: none,
     vars,
-    edges: [],
   }
 }
 
@@ -643,6 +632,13 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       try: () => stepDefOf(step, vars, context),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
+    if (stepDef.mode !== undefined && def.modes[stepDef.mode] === undefined) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd config: step "${step.name}": mode "${stepDef.mode}" is not a mode this workflow knows (${knownModes(def).join(", ")})`,
+        ),
+      )
+    }
     const changes =
       ref === undefined
         ? (yield* git.changedPaths()).map((e) => ({
@@ -665,7 +661,6 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       memoryResumed: memory.resumed,
       hints: hintsOf(stepDef),
       context,
-      edges: edgesOf(def, step.name),
       setup,
     }
   })
@@ -684,7 +679,6 @@ export interface RenderedRest extends RestHints {
   readonly content: string
   readonly memory?: string
   readonly memoryResumed: boolean
-  readonly edges: readonly TemplateEdge[]
   /** Whether a bounded read dropped bytes for this rest's judge evidence. */
   readonly truncated: boolean
 }
@@ -698,7 +692,6 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
     ...rest.hints,
     ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
     memoryResumed: rest.memoryResumed,
-    edges: rest.edges,
     truncated: rest.step.truncated,
   })
 

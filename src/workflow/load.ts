@@ -3,7 +3,7 @@ import { dirname, join } from "node:path"
 import { Context, Effect, Layer, Schema } from "effect"
 import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../Commentary.js"
-import { analyzeWorkflow, type FlowGraph } from "../analyze/index.js"
+import { replay, treeFromRecord } from "../replay/index.js"
 import type { Workflow } from "../flows/index.js"
 import { unified as builtInWorkflow } from "../workflows/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
@@ -156,17 +156,12 @@ export const load: Effect.Effect<
         `gtd config:\n  - ${module?.filepath ?? BUILT_IN_ORIGIN}: ${e instanceof Error ? e.message : String(e)}`,
       ),
   })
-  const shaped = shapeWorkflow(loaded, compiled.modes)
-
   const layerOrder = [
     ...levels.map((level) => level.filepath),
     ...(module ? [module.filepath] : []),
   ]
   const diagnostics = dedupeDiagnostics(
-    sortDiagnostics(
-      [...decodeDiagnostics, ...compiled.diagnostics, ...loaded.diagnostics, ...shaped.diagnostics],
-      layerOrder,
-    ),
+    sortDiagnostics([...decodeDiagnostics, ...compiled.diagnostics], layerOrder),
   )
 
   const fatal = diagnostics.filter((d) => d.severity === "error")
@@ -179,8 +174,14 @@ export const load: Effect.Effect<
     )
   }
 
+  const initial = yield* firstStep(loaded, { ...loaded.workflow.vars, ...compiled.rcVars })
   return {
-    workflow: shaped.definition!,
+    workflow: {
+      flows: loaded.workflow,
+      modes: compiled.modes,
+      initial,
+      manual: Object.keys(loaded.workflow.entries).filter((name) => name !== "default"),
+    },
     workflowVars: { ...loaded.workflow.vars },
     rcVars: compiled.rcVars,
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
@@ -190,9 +191,7 @@ export const load: Effect.Effect<
 
 interface LoadedModule {
   readonly workflow: Workflow
-  readonly graph: FlowGraph
   readonly origin: string
-  readonly diagnostics: readonly Diagnostic[]
 }
 
 type JitiInstance = {
@@ -221,83 +220,44 @@ const isWorkflow = (value: unknown): value is Workflow =>
   value !== null &&
   (value as { kind?: unknown }).kind === "gtd-workflow"
 
-// Analysis is pure over the source it reads, so a repeat within one process
-// (the in-memory test tier loads config on every command) reuses it.
-const analyses = new Map<string, ReturnType<typeof analyzeWorkflow>>()
-const analyze = (entryFile: string, source: string | undefined) => {
-  const key = `${entryFile}\u0000${source ?? ""}`
-  let result = analyses.get(key)
-  if (result === undefined) {
-    result = analyzeWorkflow({
-      entryFile,
-      flowsDir: flowsDir(),
-      ...(source !== undefined ? { sources: { [entryFile]: source } } : {}),
-    })
-    analyses.set(key, result)
-  }
-  return result
-}
-
-/** Evaluate `gtd.config.ts` (or take the bundled default) and read its step graph off the source. */
+/** Evaluate `gtd.config.ts`, or take the bundled default. */
 const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule => {
-  if (module === undefined) {
-    const { graph, diagnostics } = analyze(
-      join(flowsDir(), "..", "workflows", "unified.ts"),
-      undefined,
-    )
-    return { workflow: builtInWorkflow, graph, origin: BUILT_IN_ORIGIN, diagnostics }
-  }
+  if (module === undefined) return { workflow: builtInWorkflow, origin: BUILT_IN_ORIGIN }
   const exported = jiti().evalModule(module.source, { filename: module.filepath })
   const workflow = (exported as { default?: unknown }).default ?? exported
   if (!isWorkflow(workflow)) {
     throw new Error('the default export is not a workflow(...) from "@pmelab/gtd/flows"')
   }
-  const { graph, diagnostics } = analyze(module.filepath, module.source)
-  return { workflow, graph, origin: module.filepath, diagnostics }
+  return { workflow, origin: module.filepath }
 }
 
-/** The loaded definition, or why it cannot be one: the default entry must begin at exactly one step. */
-const shapeWorkflow = (
+/**
+ * The default entry's first step — where a finished process waits — found the
+ * only way a flow can be read: by replaying it over an empty history.
+ */
+const firstStep = (
   loaded: LoadedModule,
-  modes: WorkflowDefinition["modes"],
-): { readonly definition?: WorkflowDefinition; readonly diagnostics: readonly Diagnostic[] } => {
-  const firsts = loaded.graph.entries.find((entry) => entry.name === "default")?.edges ?? []
-  const initial = firsts.length === 1 ? firsts[0]!.to : undefined
-  if (initial === undefined || initial === "$end") {
-    return {
-      diagnostics: [
-        {
-          severity: "error",
-          path: [],
-          origin: loaded.origin,
-          message:
-            "the default entry must begin at exactly one step — that step is where a finished process waits",
-        },
-      ],
-    }
-  }
-  const known = Object.keys(modes)
-  const unknownModes: Diagnostic[] = loaded.graph.nodes
-    .filter((node) => typeof node.options.mode === "string" && !known.includes(node.options.mode))
-    .map((node) => ({
-      severity: "error",
-      path: [],
-      origin: node.file,
-      line: node.line,
-      message: `step "${node.name}": mode "${String(node.options.mode)}" is not a mode this workflow knows (${known.join(", ")})`,
-    }))
-  if (unknownModes.length > 0) return { diagnostics: unknownModes }
-  return {
-    definition: {
-      flows: loaded.workflow,
-      graph: loaded.graph,
-      modes,
-      initial,
-      manual: Object.keys(loaded.workflow.entries).filter((name) => name !== "default"),
+  vars: Readonly<Record<string, string>>,
+): Effect.Effect<string, GtdError> =>
+  Effect.flatMap(
+    Effect.promise(() =>
+      replay({
+        workflow: loaded.workflow,
+        episode: { entry: "default", base: { hash: "", tree: treeFromRecord({}) }, commits: [] },
+        vars,
+        refs: { start: "", processBase: "" },
+        budgetBytes: Number.MAX_SAFE_INTEGER,
+      }),
+    ),
+    (outcome) => {
+      if (outcome.kind === "rest") return Effect.succeed(outcome.rest.name)
+      const problem =
+        outcome.kind === "failed" || outcome.kind === "refused"
+          ? outcome.message.replace(/^gtd: /, "")
+          : "the default entry must begin at a step — that step is where a finished process waits"
+      return Effect.fail(new GtdError(`gtd config:\n  - ${loaded.origin}: ${problem}`))
     },
-    diagnostics: [],
-  }
-}
+  )
 
 interface ConfigServiceOperations {
   readonly load: Effect.Effect<

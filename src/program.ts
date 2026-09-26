@@ -1,4 +1,4 @@
-import { Effect, Either, Option, Runtime, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import type { ArtifactOut, Command, JsonMode, Needs } from "./cli/index.js"
 import { Narrator } from "./Commentary.js"
 import {
@@ -26,19 +26,10 @@ import {
   summaryFor,
   summaryRun,
   type RenderedRest,
-  type RestRequirements,
 } from "./Edge.js"
 import { planEntry, planStep as planStepPure, type JudgeVerdict } from "./step/index.js"
 import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
-import {
-  buildCurrentStateModel,
-  buildGraphVizModel,
-  openInBrowser,
-  startVizServer,
-  type CurrentStateModel,
-  type VizModel,
-} from "./Visualize.js"
 import {
   builtInModeNames,
   checkSteering,
@@ -814,9 +805,7 @@ const runNextCommand = (
     const fields = yield* gatherBeatDocument(rest, rendered)
     const narrator = yield* Narrator
     for (const change of fields.changes) {
-      yield* narrator.narrate(
-        `pending: ${change.status} ${change.path} -> ${change.pattern ?? "(no match)"}`,
-      )
+      yield* narrator.narrate(`pending: ${change.status} ${change.path}`)
     }
     if (json.kind === "document") {
       out.write(renderBeatJson(fields))
@@ -998,19 +987,15 @@ const runUncheckCommand = (file: string): Effect.Effect<void, Error, Workspace> 
     yield* workspace.writeAtPath(file, cleared)
   })
 
-/** The pending changes, as the beat reports them — there are no patterns to match them against any more. */
+/** The pending changes, as the beat reports them. */
 const computeStatusChanges = (changes: readonly PendingChange[]): readonly StatusChange[] =>
-  changes.map((change) => ({ status: change.status, path: change.path, pattern: null }))
+  changes.map((change) => ({ status: change.status, path: change.path }))
 
-/** The step the pending change would land the process at, with the graph edge that leads there. */
+/** The step the pending change would land the process at. */
 const computeNextMatch = (rest: Rest): Effect.Effect<NextMatch | null> =>
   Effect.map(
     rest.changes.length === 0 ? Effect.succeed(undefined) : previewLanding(rest),
-    (target) => {
-      if (target === undefined) return null
-      const edge = rest.edges.find((e) => e.target === target)
-      return { action: undefined, pattern: edge?.pattern ?? "", target }
-    },
+    (target) => (target === undefined ? null : { target }),
   )
 
 /** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json` can never describe different rests for the same beat — built as `wire`'s `Demand` (what to do) and `BeatStatus` (what no driver branches on), then flattened by `beatDocument` into the one wire-shaped object plain/`--json` both render from. */
@@ -1052,73 +1037,12 @@ const gatherBeatDocument = (
   })
 
 /**
- * Best-effort resolution of the currently-rested state for the viewer's
- * `/state.json` route. Any failure is swallowed to `null` — the browser just
- * hides the panel.
- */
-const computeCurrentState = (
-  model: VizModel,
-): Effect.Effect<CurrentStateModel, Error, RestRequirements> =>
-  Effect.gen(function* () {
-    const rest = yield* restAt(undefined)
-    const group = model.states.find((s) => s.name === rest.state)?.group
-    const next = yield* previewLanding(rest)
-    return buildCurrentStateModel(rest, rest.changes, rest.edges, next, group)
-  })
-
-/**
- * `gtd visualize`: serve an interactive diagram of the active workflow on a
- * local HTTP server. `needs: "config"` skips the repo-root guard — it reads
- * config but never touches git/HEAD itself (its `/state.json` route
- * best-effort reads git state per request). The running-server line below is
- * the only way to learn which port `--port 0` picked.
- */
-const runVisualizeCommand = (
-  port: number,
-  open: boolean,
-  out: ArtifactOut,
-): Effect.Effect<void, Error, RestRequirements> =>
-  Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
-    const model = buildGraphVizModel(config.workflow.graph, {
-      ...config.workflowVars,
-      ...config.rcVars,
-    })
-
-    const runtime = yield* Effect.runtime<RestRequirements>()
-    const resolveCurrent = () =>
-      Runtime.runPromise(runtime)(computeCurrentState(model).pipe(Effect.either)).then((result) => {
-        if (Either.isLeft(result)) {
-          // This blocking command never reaches runCli's flush-on-success,
-          // so this diagnostic flushes itself, like the URL line below.
-          out.write(`gtd visualize: current-state panel unavailable — ${result.left.message}\n`)
-          out.flush()
-          return null
-        }
-        return result.right
-      })
-
-    const { server, url } = yield* Effect.tryPromise({
-      try: () => startVizServer(model, port, "127.0.0.1", resolveCurrent),
-      catch: (e) =>
-        new Error(
-          `gtd visualize: could not start server: ${e instanceof Error ? e.message : String(e)}`,
-        ),
-    })
-    out.write(`gtd visualize running at ${url} — Ctrl-C to stop\n`)
-    // Must flush before blocking on Effect.never, or runCli's flush-on-success never fires.
-    out.flush()
-    if (open) openInBrowser(url)
-    yield* Effect.never.pipe(Effect.ensuring(Effect.sync(() => server.close())))
-  })
-
-/**
  * `gtd ui`: loads `ui:` config and hands it, alongside the parsed flags, to
  * `src/ui/Server.ts`'s `runUiCommand` — the module owning the bind/TLS/HTTP(S)
  * logic. `needs: "state"` (see `needsOf` above) means this shares the
  * repo-root/at-least-one-commit guard with every other workflow-state
- * command — unlike `gtd visualize`, `gtd ui` operates on the invoking
- * directory's own worktree, never a configured list of roots.
+ * command — `gtd ui` operates on the invoking directory's own worktree,
+ * never a configured list of roots.
  */
 const runUiCliCommand = (
   command: Extract<Command, { kind: "ui" }>,
@@ -1215,18 +1139,15 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "check":
     case "uncheck":
       return "fs"
-    case "visualize":
-      return "config"
     default:
       return "state"
   }
 }
 
-/** The six kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
+/** The kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
 export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
   "init",
-  "visualize",
   "check",
   "uncheck",
   "install",
@@ -1250,8 +1171,6 @@ const dispatchVoidCommand = (
       return runLspCommand()
     case "init":
       return runInitCommand(out)
-    case "visualize":
-      return runVisualizeCommand(command.port, command.open, out)
     case "ui":
       return runUiCliCommand(command, out)
     case "land":

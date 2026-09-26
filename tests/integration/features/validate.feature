@@ -260,26 +260,3 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): design.gate.answer → design.triage"
-
-  Scenario: a state-level "model:" is rejected at load time — a machine's own model is the only way to declare one
-    # UNTRANSLATABLE AS WRITTEN: machines and state-level keys are gone — a
-    # step's `model` is an agent()/persona() option in gtd.config.ts, and no
-    # `.gtdrc` key hint for it remains. The closest config LOAD failure left is
-    # the old `machines:` block as a leftover top-level `.gtdrc` key, which is
-    # rejected as unexpected rather than as an "unknown key". Pending a
-    # decision on the Then steps (see the translation report).
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      machines:
-        root:
-          states:
-            working:
-              model: smart
-      """
-    When I run gtd with args "validate"
-    Then it fails
-    And stderr contains "gtd config:"
-    And stderr contains "unknown key"
-    And stderr contains "model"
-    And stderr contains "machine"

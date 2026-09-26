@@ -12,13 +12,13 @@ gtd reads two kinds of configuration, both optional:
 > **Trust: `gtd.config.ts` is code, and gtd runs it.** Because the workflow is a
 > TypeScript module, every gtd command that resolves workflow state evaluates
 > the repository's `gtd.config.ts` — including the read-only ones: `gtd next`,
-> `gtd visualize`, `gtd lsp`, `gtd validate`, `gtd judge`, not only `gtd land`.
-> The lookup walks up from the current directory, so a `gtd.config.ts` in a
-> parent directory counts too. Treat a repository's `gtd.config.ts` like any
-> other code you run from it — a Makefile, a `package.json` script: **do not run
-> gtd in a checkout you do not trust.** `.gtdrc` values end up on command lines
-> too (`vars:` entries like `testCommand` are interpolated into the scripts gtd
-> emits), which is the same trust decision.
+> `gtd lsp`, `gtd validate`, `gtd judge`, not only `gtd land`. The lookup walks
+> up from the current directory, so a `gtd.config.ts` in a parent directory
+> counts too. Treat a repository's `gtd.config.ts` like any other code you run
+> from it — a Makefile, a `package.json` script: **do not run gtd in a checkout
+> you do not trust.** `.gtdrc` values end up on command lines too (`vars:`
+> entries like `testCommand` are interpolated into the scripts gtd emits), which
+> is the same trust decision.
 
 ## `gtd.config.ts`
 
@@ -301,40 +301,28 @@ before changing the workflow under it.
 
 ### Rules for flow code
 
-Flow code is re-run on every gtd command, so gtd checks it when the config
-loads. A `run()` body and code at the module's top level are exempt — they may
-do anything.
+Flow code is re-run on every gtd command, replaying the process's history, so it
+must reach the same steps every time it sees the same history. A `run()` body
+and code at the module's top level are exempt — they may do anything.
 
-- **No IO or nondeterminism**: no `Date`, `process`, `fetch`, `require`, timers,
-  `performance`, `crypto`, `Math.random`, and no imports from `fs`,
-  `child_process`, `http(s)`, `net`, `os` and similar node modules. Read the
-  tree through the helpers; do IO inside a `run()` body.
+- **No IO or nondeterminism**: no clock, randomness, environment, network or
+  filesystem access in flow code. Read the tree through the helpers; do IO
+  inside a `run()` body. gtd cannot see this mistake up front: a flow that
+  branches on something other than history shows up later as a divergence.
 - **Await only steps**: a flow may `await` a step, `scope()`, `persona()`, or a
-  function that itself awaits steps — nothing else.
-- **Literal step names**: the first argument of a step and of `scope()` must be
-  a string literal.
+  function that itself awaits steps. Awaiting anything else fails the replay:
+  `the flow awaited something that is not a step`.
 - **Unique names**: one step name per call site; call a shared helper from two
-  places inside two different `scope()`s.
-- **No try/catch around a step**: a step that fails is recorded in history,
-  never caught.
-- **No recursion**: a flow function may not call itself; write the repetition as
-  a loop.
-- **Shape**: the default export must be a `workflow(...)` call with an object
-  literal of named entries, and the `default` entry must begin at exactly one
-  step.
-
-A violation is a load error reported with its source position, and every gtd
-command that loads the workflow refuses until it is fixed:
-
-```
-gtd config:
-  - /path/to/repo/gtd.config.ts:7:9: Date is IO or nondeterministic — flow code is replayed and must be pure; do it inside a run() body
-  - /path/to/repo/gtd.config.ts:8:5: try/catch around a step is not allowed — a step that fails is recorded in history, never caught
-  - /path/to/repo/gtd.config.ts:12:17: step name "a" is already used by another call site — wrap one of them in scope()
-```
-
-`gtd visualize` draws the step graph gtd reads off the source — the quickest way
-to see whether a branch goes where you meant.
+  places inside two different `scope()`s. Two call sites sharing a name read as
+  the same step to replay.
+- **No try/catch around a step**: `restart()` and a refused step travel as
+  exceptions, and a catch would swallow them.
+- **Known options only**: a step option gtd does not accept — a typo, or the
+  retired `memory` — fails the replay naming the step and the key, since
+  `gtd.config.ts` is evaluated without a type check.
+- **Shape**: the default export must be a `workflow(...)` call, and the
+  `default` entry must reach a step — that step is where a finished process
+  waits. A default entry that reaches none fails the load.
 
 ### Summary
 
@@ -422,9 +410,8 @@ none. A step names a mode with `{ file, mode }`.
 validated in-process, because `gtd lsp` needs the same parsers for live
 diagnostics), but their `validate:` is not hidden: every workflow's modes are
 seeded with `qa`/`review` entries whose `validate:` is the command
-`gtd check <mode> '<file>'`. That seeded command is visible in `gtd visualize`
-and in the editor JSON schema like any other mode, and overridable the same way
-— declare `modes: { qa: { validate: "your-own-command" } }` and your command
+`gtd check <mode> '<file>'`. That seeded command is overridable the same way —
+declare `modes: { qa: { validate: "your-own-command" } }` and your command
 displaces the seed; declaring only a `format:` for `qa`/`review` composes with
 the seeded `validate:` rather than replacing it.
 
@@ -517,17 +504,22 @@ value; see `docs/cli.md`'s `ui` row for the full flag list.
 
 ### Validation and errors
 
-Config problems — an unknown `.gtdrc` key, a wrong type, a flow-code rule broken
-in `gtd.config.ts` — are collected together. A bad config fails **once**,
-listing every finding, at load time — before anything touches the repository —
-never partially, and never deferred to land time. Each line names the file it
-came from and either the config path (for `.gtdrc`) or the line and column (for
-`gtd.config.ts`):
+Config problems — an unknown `.gtdrc` key, a wrong type, a `gtd.config.ts` that
+fails to evaluate or whose default entry reaches no step — are collected
+together. A bad config fails **once**, listing every finding, at load time —
+before anything touches the repository — never partially. Each line names the
+file it came from and, for `.gtdrc`, the config path:
 
 ```
 gtd config:
   - /path/to/repo/.gtdrc.json: vars.testCommand: "vars.testCommand" must be a string, number, or boolean, got array
-  - /path/to/repo/gtd.config.ts:7:17: the first argument of agent() must be a string literal step name
+```
+
+A step naming a mode no layer declares fails the same way, as soon as the
+process rests at it:
+
+```
+gtd config: step "idle": mode "adrs" is not a mode this workflow knows (qa, review)
 ```
 
 The same problem carried by several `.gtdrc` layers prints one line per file: a
@@ -538,9 +530,8 @@ and write to **stderr**, never stdout.
 gtd requires a repository with **at least one commit** before any state command
 (`land`, `--entry`, `next`, `abandon`, `restore`, `validate`, `summary`) will
 run — there is no workflow state to derive from an empty history. `gtd init`,
-`gtd install`, `gtd lsp`, `gtd visualize`, and `gtd check` are unaffected, since
-none of them needs a process history (`gtd lsp` and `gtd visualize` still load
-`gtd.config.ts`).
+`gtd install`, `gtd lsp`, and `gtd check` are unaffected, since none of them
+needs a process history (`gtd lsp` still loads `gtd.config.ts`).
 
 ## Variables
 

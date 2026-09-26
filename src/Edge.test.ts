@@ -402,6 +402,36 @@ describe("restAt", () => {
     )
     expect(lines).toContain("rest resolved: building (awaits agent)\n")
   })
+
+  it("refuses a rest whose step names a mode no layer declares", async () => {
+    const repo = repoWith(`import { human, workflow } from "@pmelab/gtd/flows"
+
+export default workflow({
+  default: async () => {
+    await human("idle", { file: "docs/adr.md", mode: "adr" })
+  },
+})
+`)
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit) && String(exit.cause)).toContain(
+      'step "idle": mode "adr" is not a mode this workflow knows (qa, review)',
+    )
+  })
+
+  it("refuses a step option the step does not accept, naming a retired one's replacement", async () => {
+    const repo = repoWith(`import { agent, workflow } from "@pmelab/gtd/flows"
+
+export default workflow({
+  default: async () => {
+    await agent("work", "p", { memory: "plan" })
+  },
+})
+`)
+    const exit = await provideExit(currentRest, repo)
+    expect(Exit.isFailure(exit) && String(exit.cause)).toContain(
+      'step "work": unknown key(s) memory in agent() options',
+    )
+  })
 })
 
 describe("reviewBaseFor", () => {
@@ -662,7 +692,7 @@ describe("renderRest — skills preamble", () => {
 export default workflow(
   {
     default: async () => {
-      await human("idle", { message: "hello", skills: "ignored" } as never)
+      await human("idle", { message: "hello" })
       await agent("working", "do-the-work", ${JSON.stringify(opts.skills === undefined ? {} : { skills: opts.skills })})
     },
   },
@@ -692,7 +722,7 @@ export default workflow(
     )
   })
 
-  it("never touches a message", async () => {
+  it("never touches the message of a step before the prompt", async () => {
     expect(await contentAt(SKILLS({ skills: "code-review" }), false)).toBe("hello")
   })
 })

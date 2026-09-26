@@ -159,14 +159,22 @@ export const basenameFallbackMode = (name: string): ResolvedMode | undefined => 
 /** One `buildSteeringMap` finding: a `mode:` that didn't resolve, or a path two steps both declare (first wins). */
 export type FileModeWarning = string
 
+/** A step's declared steering file and its mode, as replay reached it. */
+export interface SteeringStep {
+  readonly name: string
+  readonly file?: string | undefined
+  readonly mode?: string | undefined
+}
+
 /**
- * Every step's declared `file:`/`mode:` pair, as the analyzer read them off
- * the workflow's source, into an absolute-path → `ResolvedMode` map. A step
- * whose file or mode is not a constant carries neither in the graph and is
- * skipped; a path two steps both declare keeps the first one's mode, warning.
+ * The `file:`/`mode:` pairs of the steps the current process has reached, as
+ * an absolute-path → `ResolvedMode` map. A flow is code, so only a step replay
+ * reached is known; a path two steps both declare keeps the first one's mode,
+ * warning.
  */
 export const buildSteeringMap = (
-  def: WorkflowDefinition,
+  def: Pick<WorkflowDefinition, "modes">,
+  steps: readonly SteeringStep[],
   root: string,
 ): {
   readonly map: ReadonlyMap<string, ResolvedMode>
@@ -174,9 +182,9 @@ export const buildSteeringMap = (
 } => {
   const map = new Map<string, ResolvedMode>()
   const warnings: FileModeWarning[] = []
-  for (const node of def.graph.nodes) {
-    const { file, mode } = node.options
-    if (typeof file !== "string" || typeof mode !== "string") continue
+  for (const node of steps) {
+    const { file, mode } = node
+    if (file === undefined || mode === undefined) continue
     const absolute = resolvePath(root, file)
     const existing = map.get(absolute)
     if (existing !== undefined) {
@@ -525,15 +533,33 @@ export const resolveSteeringFile: Effect.Effect<
   RestRequirements
 > = currentRest.pipe(Effect.map((rest) => ({ state: rest.state, file: rest.hints.file })))
 
+// A repository whose process cannot be resolved (no commits yet, a diverged
+// history) still has a config: it maps nothing but keeps the basename fallback.
+const reachedSteeringSteps: Effect.Effect<
+  { readonly def: Pick<WorkflowDefinition, "modes">; readonly steps: readonly SteeringStep[] },
+  Error,
+  RestRequirements
+> = Effect.gen(function* () {
+  const config = yield* (yield* ConfigService).load
+  const rest = yield* Effect.either(currentRest)
+  const steps =
+    rest._tag === "Left"
+      ? []
+      : rest.right.trace.map((step) => ({
+          name: step.name,
+          file: step.request.options.file,
+          mode: step.request.options.mode,
+        }))
+  return { def: config.workflow, steps }
+})
+
 /** The Node adapter: the only place `LspEnv`'s Effects/layers get built and run. `startLspServer` is its production caller; most `Lsp.test.ts` coverage exercises a fake `LspEnv` instead, but this is exported so the real wiring (real git/config/repo-files layers) gets exercised against a real temp repo too. */
 export const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => ({
   cwd: liveHost.root,
 
   steeringMapFor: async (root) => {
-    const config = await runtimeFor(root).runPromise(
-      Effect.flatMap(ConfigService, (service) => service.load),
-    )
-    const { map, warnings } = buildSteeringMap(config.workflow, root)
+    const { def, steps } = await runtimeFor(root).runPromise(reachedSteeringSteps)
+    const { map, warnings } = buildSteeringMap(def, steps, root)
     for (const warning of warnings) warn(warning)
     return map
   },

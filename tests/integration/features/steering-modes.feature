@@ -737,7 +737,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "1 open question(s)"
     And stderr contains "not answered at \"answering\""
-    And the last commit subject is "gtd(agent): answering"
+    And the last commit subject is "gtd(agent): drafting → answering"
 
   @live
   Scenario: a seeded validate: command's bare "gtd" resolves to the build under test

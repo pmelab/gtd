@@ -23,8 +23,8 @@ user wants. Driving a workflow once it exists is a separate concern — that is
 what a driver does.
 
 **Trust:** gtd evaluates `gtd.config.ts` on every command that resolves workflow
-state (`gtd next`, `gtd visualize`, `gtd lsp` included). It is code the user's
-repository runs; write it with the same care as a build script.
+state (`gtd next` and `gtd lsp` included). It is code the user's repository
+runs; write it with the same care as a build script.
 
 ## Golden rule: start from the bundled default, edit incrementally
 
@@ -145,38 +145,36 @@ Keep `.gtd/` clean across processes: a steering file should be deleted by the
 step that consumes it. A workflow that accumulates files in `.gtd/` is almost
 certainly a bug.
 
-## Rules gtd enforces at load time
+## Rules for flow code
 
-Flow code is replayed on every command, so gtd analyzes it when the config
-loads. `run()` bodies and module top-level code are exempt. Each violation is
-reported as `<path>/gtd.config.ts:<line>:<col>: <message>`:
+Flow code is replayed on every command, so it must reach the same steps every
+time it sees the same history. `run()` bodies and module top-level code are
+exempt. gtd does not read the source ahead of time: breaking a rule shows up
+when replay runs, as an error or, for nondeterminism, as a divergence later.
 
-- No IO or nondeterminism in flow code: `Date`, `process`, `fetch`, `require`,
-  timers, `performance`, `crypto`, `Math.random`, and imports of `fs`,
-  `child_process`, `http(s)`, `net`, `os`, … — do IO inside a `run()` body.
-- Await only a step, `scope()`, `persona()`, or a function that steps.
-- The first argument of every step and of `scope()` is a string literal.
+- No IO or nondeterminism in flow code — no clock, randomness, environment,
+  network or filesystem. Read the tree through the helpers; do IO inside a
+  `run()` body.
+- Await only a step, `scope()`, `persona()`, or a function that steps. Anything
+  else fails with `the flow awaited something that is not a step`.
 - One call site per step name — wrap a reused helper in two different
   `scope()`s.
-- No `try`/`catch` around a step; no recursive flow functions (write a loop).
-- The default export is a `workflow(...)` call with an object literal of
-  entries; `default` must begin at exactly one step; every `mode` must exist.
+- No `try`/`catch` around a step: `restart()` and refusals travel as exceptions.
+- Only the options a step accepts; an unknown key fails naming the step.
+- The default export is a `workflow(...)` call whose `default` entry reaches a
+  step; every `mode` must exist.
 
 ## Verify (after every change)
 
-1. **`gtd next`** — loads the workflow (printing every load error at once, with
-   positions) and shows the resolved rest: step, actor, label, file. It never
-   mutates, so run it as often as you like.
-2. **`gtd visualize --no-open`** — serves the step graph gtd reads off the
-   source as a diagram and prints its URL. Check that each branch goes where you
-   meant and that no step is orphaned. It also refuses on a load error.
+1. **`gtd next`** — loads the workflow (printing every load error at once) and
+   shows the resolved rest: step, actor, label, file. It never mutates, so run
+   it as often as you like.
+2. **A scratch repository** with at least one commit — make the change a step
+   expects, run `gtd land --json=script | sh`, then `gtd next` to see where it
+   went. A flow is code, so walking it is the only way to see its branches.
 
 `gtd validate` is NOT for this — it validates a **steering file**, not the
 workflow.
-
-To check behaviour end to end, use a scratch repository with at least one
-commit: make the change a step expects, run `gtd land --json=script | sh`, then
-`gtd next` to see where it went.
 
 ## Worked example: add an approval gate before building
 
@@ -204,10 +202,9 @@ const planAndBuild = async (): Promise<void> => {
 
 `acceptClean: true` is what makes an untouched landing approve; without it the
 gate would wait for an edit. `approve-plan` sits in the `root` scope and is a
-new, unique name. Verify: `gtd next` loads without errors, and
-`gtd visualize --no-open` shows `architecture.decompose` and
-`architecture-promote` leading into `approve-plan`, and `approve-plan` into
-`packages.picking`.
+new, unique name. Verify: `gtd next` loads without errors, and in a scratch
+repository a landing at `architecture.decompose` (or `architecture-promote`) now
+leads to `approve-plan`, and an untouched landing there to `packages.picking`.
 
 ## No migration
 

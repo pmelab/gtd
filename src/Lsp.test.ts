@@ -67,32 +67,17 @@ describe("basenameFallbackMode", () => {
 })
 
 describe("buildSteeringMap", () => {
-  const node = (name: string, options: Record<string, string>) => ({
-    name,
-    kind: "agent" as const,
-    scope: "",
-    options,
-    file: "/repo/gtd.config.ts",
-    line: 1,
-  })
-  const def = (
-    nodes: readonly ReturnType<typeof node>[],
-    modes: WorkflowDefinition["modes"] = { qa: {}, review: {} },
-  ): WorkflowDefinition =>
-    ({
-      graph: { entries: [], nodes, edges: [] },
-      modes,
-      initial: nodes[0]?.name ?? "idle",
-      manual: [],
-    }) as unknown as WorkflowDefinition
+  const node = (name: string, options: { file?: string; mode?: string }) => ({ name, ...options })
+  const QA_REVIEW: WorkflowDefinition["modes"] = { qa: {}, review: {} }
 
-  it("maps each step's literal `file:` to an absolute path keyed to its resolved mode", () => {
+  it("maps each reached step's `file:` to an absolute path keyed to its resolved mode", () => {
     const { map, warnings } = buildSteeringMap(
-      def([
+      { modes: QA_REVIEW },
+      [
         node("grilling", { file: ".gtd/TODO.md", mode: "qa" }),
         node("reviewing", { file: ".gtd/REVIEW.md", mode: "review" }),
         node("idle", {}),
-      ]),
+      ],
       "/repo",
     )
     expect(warnings).toEqual([])
@@ -103,10 +88,11 @@ describe("buildSteeringMap", () => {
 
   it("keeps the FIRST declaring step's mode on a path conflict, warning about the later one", () => {
     const { map, warnings } = buildSteeringMap(
-      def([
+      { modes: QA_REVIEW },
+      [
         node("first", { file: "SHARED.md", mode: "qa" }),
         node("second", { file: "SHARED.md", mode: "review" }),
-      ]),
+      ],
       "/repo",
     )
     expect(map.get("/repo/SHARED.md")?.format).toBe(QA_FORMAT)
@@ -115,9 +101,10 @@ describe("buildSteeringMap", () => {
     expect(warnings[0]).toContain('step "second"')
   })
 
-  it("ignores a step declaring no constant `file:` and `mode:` pair", () => {
+  it("ignores a step declaring no `file:` and `mode:` pair", () => {
     const { map, warnings } = buildSteeringMap(
-      def([node("idle", {}), node("drafting", { file: "PLAN.md" })]),
+      { modes: QA_REVIEW },
+      [node("idle", {}), node("drafting", { file: "PLAN.md" })],
       "/repo",
     )
     expect(map.size).toBe(0)
@@ -126,7 +113,8 @@ describe("buildSteeringMap", () => {
 
   it("skips (with a warning) a step whose `mode:` does not resolve — an unregistered, undeclared name", () => {
     const { map, warnings } = buildSteeringMap(
-      def([node("drafting", { file: "docs/adr.md", mode: "adr" })], {}),
+      { modes: {} },
+      [node("drafting", { file: "docs/adr.md", mode: "adr" })],
       "/repo",
     )
     expect(map.size).toBe(0)

@@ -6,7 +6,6 @@ const rendered = (overrides: Partial<RenderedDemandSource> = {}): RenderedDemand
   state: "build.fixing",
   actor: "agent",
   content: "fix it",
-  edges: [],
   ...overrides,
 })
 
@@ -39,7 +38,7 @@ describe("beatKindOf", () => {
 })
 
 describe("stallDiagnosis", () => {
-  it("names the state and mentions all three escapes", () => {
+  it("names the step and mentions both escapes", () => {
     const text = stallDiagnosis("build.working", "agent")
     expect(text).toContain('stalled at "build.working"')
     expect(text).toContain("gtd(agent): build.working")

@@ -57,21 +57,18 @@ afterEach(() => {
   rmSync(projectDir, { recursive: true, force: true })
 })
 
-const minimalWorkflow = (idleMessage: string) =>
+// A one-step workflow whose only step is named `first` — the default entry's first step.
+const minimalWorkflow = (first: string) =>
   [
     `import { human, workflow } from "@pmelab/gtd/flows"`,
     ``,
     `export default workflow({`,
     `  default: async () => {`,
-    `    await human("idle", { message: "${idleMessage}" })`,
+    `    await human("${first}")`,
     `  },`,
     `})`,
     ``,
   ].join("\n")
-
-const idleMessageOf = (cfg: {
-  workflow: { graph: { nodes: readonly { name: string; content?: string }[] } }
-}) => cfg.workflow.graph.nodes.find((node) => node.name === "idle")?.content
 
 describe("ConfigService", () => {
   it("with no config anywhere: falls back to the built-in default workflow", async () => {
@@ -107,24 +104,23 @@ describe("ConfigService", () => {
   })
 
   it("reads a custom workflow from gtd.config.ts in cwd", async () => {
-    writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("custom idle"))
+    writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("custom-idle"))
 
     const cfg = await getConfig()
 
-    expect(cfg.workflow.graph.nodes.map((node) => node.name)).toEqual(["idle"])
-    expect(idleMessageOf(cfg)).toBe("custom idle")
+    expect(cfg.workflow.initial).toBe("custom-idle")
     expect(cfg.workflow.manual).toEqual([])
   })
 
   it("takes the innermost gtd.config.ts — workflows are never merged", async () => {
     const child = join(projectDir, "a", "b")
     mkdirSync(child, { recursive: true })
-    writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("ancestor idle"))
-    writeFileSync(join(child, "gtd.config.ts"), minimalWorkflow("child idle"))
+    writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("ancestor-idle"))
+    writeFileSync(join(child, "gtd.config.ts"), minimalWorkflow("child-idle"))
 
     const cfg = await getConfig(child)
 
-    expect(idleMessageOf(cfg)).toBe("child idle")
+    expect(cfg.workflow.initial).toBe("child-idle")
   })
 
   it("rejects a `workflow:` key in a .gtdrc, pointing at gtd.config.ts", async () => {
@@ -137,26 +133,6 @@ describe("ConfigService", () => {
     writeFileSync(join(projectDir, "gtd.config.ts"), `export default { nope: true }\n`)
 
     await expect(getConfig()).rejects.toThrow(/not a workflow\(\.\.\.\)/)
-  })
-
-  it("reports an analyzer finding at its file:line:col", async () => {
-    const file = join(projectDir, "gtd.config.ts")
-    writeFileSync(
-      file,
-      [
-        `import { human, workflow } from "@pmelab/gtd/flows"`,
-        ``,
-        `const name = String(Math.random())`,
-        `export default workflow({`,
-        `  default: async () => {`,
-        `    await human(name)`,
-        `  },`,
-        `})`,
-        ``,
-      ].join("\n"),
-    )
-
-    await expect(getConfig()).rejects.toThrow(new RegExp(`${file}:6:\\d+: `))
   })
 
   it("loads JSON config (gtd.config.json)", async () => {
@@ -315,22 +291,18 @@ describe("ConfigService", () => {
     expect(cfg.workflow.modes["adr"]).toEqual({ validate: "adr-lint <%= it.file %>" })
   })
 
-  it("rejects a step naming a mode no layer declares", async () => {
+  it("rejects a default entry that never reaches a step", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [
-        `import { human, workflow } from "@pmelab/gtd/flows"`,
+        `import { workflow } from "@pmelab/gtd/flows"`,
         ``,
-        `export default workflow({`,
-        `  default: async () => {`,
-        `    await human("idle", { message: "hi", file: "docs/adr.md", mode: "adr" })`,
-        `  },`,
-        `})`,
+        `export default workflow({ default: async () => {} })`,
         ``,
       ].join("\n"),
     )
 
-    await expect(getConfig()).rejects.toThrow(/mode "adr" is not a mode this workflow knows/)
+    await expect(getConfig()).rejects.toThrow(/the flow returned without reaching any step/)
   })
 
   it("rejects a malformed top-level `modes:` entry, aggregated into one error", async () => {
@@ -424,11 +396,11 @@ describe("ConfigService", () => {
   })
 
   it("`load` — the effectful half of the src/workflow/ boundary — is directly usable without going through ConfigService", async () => {
-    writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("direct load"))
+    writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("direct-load"))
 
     const result = await run(load, projectDir)
 
-    expect(idleMessageOf(result)).toBe("direct load")
+    expect(result.workflow.initial).toBe("direct-load")
   })
 })
 

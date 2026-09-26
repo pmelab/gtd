@@ -107,9 +107,9 @@ outright. See [Configuration](configuration.md) for the cost of extending it.
   scripts write before wiring gtd into a repo.
 - **Repository root invocation.** Every state subcommand must run from the git
   repository root. `--help`/`--version` (and the `help`/`version` subcommands),
-  `lsp`, `init`, `visualize`, `check`, and `install` skip this guard entirely
-  (`visualize` and `lsp` still load `gtd.config.ts`, but need no git state;
-  `init` may even run outside a repository to seed a shared parent-dir config).
+  `lsp`, `init`, `check`, and `install` skip this guard entirely (`lsp` still
+  loads `gtd.config.ts`, but needs no git state; `init` may even run outside a
+  repository to seed a shared parent-dir config).
 - **Linked worktrees are independent.** N `git worktree` worktrees of one
   repository (sharing a single `.git`) each run their own gtd process, so a
   process underway in one worktree neither blocks nor rewrites any other.

@@ -31,9 +31,9 @@ technique in the prompt itself; see
 
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
 > is a TypeScript module, and every gtd command that looks at workflow state —
-> `gtd next`, `gtd visualize` and `gtd lsp` included, not just `gtd land` —
-> evaluates it. Treat it like a Makefile or a `package.json` script: don't run
-> gtd in a checkout you don't trust.
+> `gtd next` and `gtd lsp` included, not just `gtd land` — evaluates it. Treat
+> it like a Makefile or a `package.json` script: don't run gtd in a checkout you
+> don't trust.
 
 ## Quick start
 

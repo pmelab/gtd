@@ -1033,11 +1033,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, workflow } from "@pmelab/gtd/flows"
 
       export default workflow({
         default: async () => {
-          await human("idle", { message: "start" })
           await agent("working", "go", { memory: "plan" })
         },
       })

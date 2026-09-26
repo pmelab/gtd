@@ -2,8 +2,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
 
   `gtd ui` binds a long-lived HTTPS server exposing the phone/web client for
   THIS worktree — the invoking directory, there is no fleet and no configured
-  list of roots to discover one from. Unlike `gtd visualize`, `needs: "state"`:
-  it shares the repo-root and at-least-one-commit guard with every other
+  list of roots to discover one from. It shares the repo-root and at-least-one-commit guard with every other
   state command. Before ever resolving a bind host or a certificate, it reads
   the served worktree's own beat (a real `gtd next --json` subprocess spawn)
   and refuses — exit 2, no port ever bound — unless that beat rests with a

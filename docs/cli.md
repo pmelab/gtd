@@ -70,10 +70,6 @@ Commands:
                    ready-to-send fix prompt (instruction + findings) and
                    exits with the validator's own code
   lsp              Start the LSP server for .gtd/ steering files (stdio)
-  visualize        Serve an interactive diagram of the active workflow on a
-                   local web server (--port <n>, --no-open). Prints the
-                   chosen port on its own line — with --port 0, this is the
-                   only way to learn which port was picked
   ui               Expose gtd's web/phone client for THIS worktree — the
                    invoking directory, never a configured list of roots — and
                    refuses outside a repository like every other state command.
@@ -167,11 +163,9 @@ Options:
                    <path> is itself absent/null (e.g. session.id at a
                    non-prompt rest), which never counts as unknown; an
                    unknown path is a usage error (exit 2).
-  --port=<n>       (gtd visualize/gtd ui only) port to serve on: a free port
-                   for visualize; for ui, the tailscale serve port (default:
-                   the first free of 8443, 10000, 443), or the bind port when
-                   --host opts out of serve (default: a free port)
-  --no-open        (gtd visualize only) do not open the browser
+  --port=<n>       (gtd ui only) the tailscale serve port (default: the first
+                   free of 8443, 10000, 443), or the bind port when --host
+                   opts out of serve (default: a free port)
   --host=<addr>    (gtd ui only) opt out of the default tailscale serve front
                    door and bind this address directly instead, showing it in
                    the printed URL
@@ -182,7 +176,8 @@ Options:
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land only, with --cost) tag that cost's model
   --entry <state>  (with no command at all) start a brand new process at
-                   <state> — any declared state — authenticated as human
+                   <state> — one of the workflow's declared entries —
+                   authenticated as human
   --var <name>=<value>
                    (with --entry; repeatable) supply a fixed it.vars
                    override for the new process; the name must already be
@@ -192,8 +187,7 @@ Options:
                    printing each unanswered question one per line and exiting
                    non-zero when any remain
   --verbose        enable stderr narration for this invocation: which rest
-                   resolved, which declared pattern each pending change
-                   matched, and how config resolved across layers. Aliased
+                   resolved and how config resolved across layers. Aliased
                    to -v
   --version, -V    Print version and exit
   --help, -h       Print this help and exit
@@ -256,8 +250,8 @@ The state commands (`land`, `--entry`, `abandon`, `restore`, `next`, `status`,
 `validate`, `summary`, `ui`, `judge`, `judge answer`) must run from the
 **repository root** — gtd derives the workflow, pending changes, and process
 history relative to cwd, so they refuse with a clear error from a subdirectory;
-`lsp`, `init`, `visualize`, `check`, and `uncheck` are standalone and run from
-anywhere (see each command's own help entry).
+`lsp`, `init`, `check`, and `uncheck` are standalone and run from anywhere (see
+each command's own help entry).
 
 `install` is described on its own above: it writes nothing and installs
 knowledge into the calling agent's context, not files on disk.
@@ -280,12 +274,11 @@ other than `gtd land` are all usage errors.
 
 Both plain and `--json` output include a preview of where the pending changes
 would take the process: gtd replays the workflow as if the working tree were
-landed now and reports the step it would reach, alongside the step-graph
-condition that leads there (empty when the step follows unconditionally). Plain
-output prints a `Next: <condition> → <step>` line (or
-`Next: (no match — nothing would happen)` on a clean tree); `--json`'s `next`
-key mirrors it as `{ pattern, target }`, or `null`. It is a preview, not a
-landing: a guard or a `refuse()` can still turn the real `gtd land` away.
+landed now and reports the step it would reach. Plain output prints a
+`Next: → <step>` line (or `Next: (nothing would land)` when landing would commit
+nothing); `--json`'s `next` key mirrors it as `{ target }`, or `null`. It is a
+preview, not a landing: a guard or a `refuse()` can still turn the real
+`gtd land` away.
 
 ### Error envelope
 
@@ -293,8 +286,8 @@ landing: a guard or a `refuse()` can still turn the real `gtd land` away.
 followed by an error.** Every command buffers everything it would print and
 flushes that buffer to stdout exactly once, only after it succeeds; on any
 failure the buffer is simply discarded, so stdout never carries a half-written
-prompt/script alongside a message about why it stopped. `gtd visualize` is the
-one exception worth knowing: it flushes its served-URL line immediately, before
+prompt/script alongside a message about why it stopped. `gtd ui` is the one
+exception worth knowing: it flushes its served-URL line immediately, before
 blocking on `Ctrl-C`, since a flush-on-success would never otherwise fire.
 
 Any invocation that carries `--json` (valid only for `gtd next`/`gtd land` —

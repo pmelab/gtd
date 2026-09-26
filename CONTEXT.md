@@ -70,11 +70,6 @@ so flow code must be pure too. _Avoid_: fold, resume, reconstruct
 current workflow does not reach there. gtd refuses loudly and points at
 `gtd abandon`; there is no migration. _Avoid_: drift, stale state, migration
 
-**Analyzer finding**: A load-time error against `gtd.config.ts`, reported as
-`<file>:<line>:<col>: <message>` — IO in flow code, a non-literal or duplicate
-step name, a `try`/`catch` around a step, an await on something that is not a
-step. _Avoid_: lint warning, compile error
-
 **Turn**: What an actor actually did — the work sitting in the tree, captured as
 one commit. _Avoid_: action, move
 

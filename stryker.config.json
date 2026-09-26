@@ -5,7 +5,6 @@
   "mutate": [
     "src/replay/Replay.ts",
     "src/replay/Trailers.ts",
-    "src/analyze/Builder.ts",
     "src/PatternTemplates.ts",
     "src/Edge.ts",
     "src/SteeringMode.ts",

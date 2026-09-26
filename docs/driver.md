@@ -318,13 +318,13 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 20 keys (18 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 19 keys (17 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`); a real driver reads 8 of
-the 20. The minimal driver below is the reference for exactly which: `kind`,
+the 19. The minimal driver below is the reference for exactly which: `kind`,
 `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, and `validate` — every
-`--json=<path>` selector its `case` arms touch. The remaining 12 (`state`,
-`actor`, `label`, `memory`, `file`, `mode`, `edges`, `changes`, `next`, `cost`,
+`--json=<path>` selector its `case` arms touch. The remaining 11 (`state`,
+`actor`, `label`, `memory`, `file`, `mode`, `changes`, `next`, `cost`,
 `costByModel`, `judge`) are read only by a human looking at plain output, or by
 a driver author deciding what to log or route to a judge model (see "Judge
 gates" below) — no `case` arm in THIS reference driver branches on them. This is

@@ -42,11 +42,9 @@ const GTD_VERSION: string = (_require(findPackageJson(import.meta.url)) as { ver
 export type Command =
   | { readonly kind: "lsp" }
   | { readonly kind: "init" }
-  | { readonly kind: "visualize"; readonly port: number; readonly open: boolean }
   | {
       readonly kind: "ui"
-      // `host`/`port` stay optional/undefined-when-absent (unlike
-      // `visualize`'s non-optional `port`): a resolved bind address/port is
+      // `host`/`port` stay optional/undefined-when-absent: a resolved bind address/port is
       // `ui: { host?, port? }` config-file values merged in downstream
       // (`src/ui/Server.ts`, a separate task), which this parser never
       // reads — an absent flag here must not shadow a configured value with
@@ -120,7 +118,7 @@ export type CliPlan =
  * `program.ts` (re-exported here) rather than here, since a value import the
  * other way would make the two modules circular.
  */
-export type Needs = "pure" | "removed" | "none" | "fs" | "config" | "state"
+export type Needs = "pure" | "removed" | "none" | "fs" | "state"
 export { needsOf, standaloneKinds } from "../program.js"
 
 // ---------------------------------------------------------------------------
@@ -186,31 +184,20 @@ const FLAGS: readonly FlagRow[] = [
     name: "--port",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "visualize" || kind === "ui",
+    scope: (kind) => kind === "ui",
     decode: ([raw]) => {
       const n = Number(raw)
       return raw !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535
         ? Either.right(n)
         : Either.left(`gtd: --port must be an integer 0–65535 (got '${raw ?? ""}')`)
     },
-    scopeError: "gtd: --port is only valid for `gtd visualize`/`gtd ui`",
+    scopeError: "gtd: --port is only valid for `gtd ui`",
     valueHint: "<n>",
     help: [
-      "(gtd visualize/gtd ui only) port to serve on: a free port",
-      "for visualize; for ui, the tailscale serve port (default:",
-      "the first free of 8443, 10000, 443), or the bind port when",
-      "--host opts out of serve (default: a free port)",
+      "(gtd ui only) the tailscale serve port (default: the first",
+      "free of 8443, 10000, 443), or the bind port when --host",
+      "opts out of serve (default: a free port)",
     ],
-  },
-  {
-    name: "--no-open",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "visualize",
-    decode: () => Either.right(true),
-    scopeError: "gtd: --port is only valid for `gtd visualize`",
-    valueHint: "",
-    help: ["(gtd visualize only) do not open the browser"],
   },
   {
     name: "--host",
@@ -287,7 +274,8 @@ const FLAGS: readonly FlagRow[] = [
     valueHint: "<state>",
     help: [
       "(with no command at all) start a brand new process at",
-      "<state> — any declared state — authenticated as human",
+      "<state> — one of the workflow's declared entries —",
+      "authenticated as human",
     ],
   },
   {
@@ -351,8 +339,7 @@ const FLAGS: readonly FlagRow[] = [
     valueHint: "",
     help: [
       "enable stderr narration for this invocation: which rest",
-      "resolved, which declared pattern each pending change",
-      "matched, and how config resolved across layers. Aliased",
+      "resolved and how config resolved across layers. Aliased",
       "to -v",
     ],
   },
@@ -496,17 +483,6 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     kind: "lsp",
     arity: "none",
     details: ["Start the LSP server for .gtd/ steering files (stdio)"],
-  },
-  {
-    token: "visualize",
-    kind: "visualize",
-    arity: "none",
-    details: [
-      "Serve an interactive diagram of the active workflow on a",
-      "local web server (--port <n>, --no-open). Prints the",
-      "chosen port on its own line — with --port 0, this is the",
-      "only way to learn which port was picked",
-    ],
   },
   {
     token: "ui",
@@ -1045,7 +1021,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const bag = decoded.right as {
     readonly "--json"?: string
     readonly "--port"?: number
-    readonly "--no-open"?: boolean
     readonly "--cost"?: number
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
@@ -1080,15 +1055,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return {
       kind: "command",
       command: { kind: "entry", actor: "human", state: entryRaw!, vars: bag["--var"] ?? {}, label },
-      json,
-      verbose,
-    }
-  }
-
-  if (kind === "visualize") {
-    return {
-      kind: "command",
-      command: { kind: "visualize", port: bag["--port"] ?? 0, open: !(bag["--no-open"] ?? false) },
       json,
       verbose,
     }
@@ -1221,7 +1187,7 @@ export const nodeCliIo: CliIo = {
  * through instead of `io.stdout` directly. `flush()` is called exactly once,
  * by `runCli`, after the command's Effect succeeds; on any failure `flush()`
  * is never reached, so the buffer is simply discarded and nothing reaches
- * `io.stdout`. `visualize` is the one handler that calls `flush()` itself,
+ * `io.stdout`. `ui` is the one handler that calls `flush()` itself,
  * ahead of blocking on `Effect.never` — since it blocks forever, `runCli`'s
  * own flush-on-success would otherwise never fire and its output would never
  * reach stdout.
@@ -1320,7 +1286,7 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
     Effect.sandbox,
     // `sandbox` moves EVERY failure mode — a typed error, a defect, an
     // interruption — into this handler's `cause`. An interrupt-only cause
-    // (Ctrl-C on `visualize`/`lsp`'s blocking `Effect.never`) is passed
+    // (Ctrl-C on `ui`/`lsp`'s blocking `Effect.never`) is passed
     // through untouched via `failCause` so `NodeRuntime.runMain` still sees a
     // real interruption; everything else gets the envelope.
     Effect.catchAll((cause) =>

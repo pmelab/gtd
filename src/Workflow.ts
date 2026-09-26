@@ -1,4 +1,3 @@
-import type { FlowGraph } from "./analyze/index.js"
 import type { Workflow } from "./flows/index.js"
 import type { Actor, ContentKind, StateMode, StateName } from "./wire/index.js"
 
@@ -49,10 +48,9 @@ export interface StepDef {
   readonly callback?: boolean
 }
 
-/** The loaded workflow: its entries, its step graph, and the modes its steering files use. */
+/** The loaded workflow: its entries and the modes its steering files use. */
 export interface WorkflowDefinition {
   readonly flows: Workflow
-  readonly graph: FlowGraph
   /** Every mode a step may name: the built-in registry merged with `.gtdrc` `modes:`. */
   readonly modes: Readonly<Record<StateMode, ModeDef>>
   /** The default entry's first step — where a finished episode waits. */

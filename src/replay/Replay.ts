@@ -143,6 +143,37 @@ interface ParsedCommit extends EpisodeCommit {
  * Pure over its input: the same episode always yields the same outcome, and
  * the only reads are through `TreeView`s.
  */
+const STEERING_OPTIONS = [
+  "file",
+  "mode",
+  "requireProgress",
+  "answerGate",
+  "requireRevert",
+  "reviewBase",
+  "label",
+]
+// The option keys each step accepts. A gtd.config.ts is evaluated without a
+// type check, so a misspelt or retired key would otherwise be silently ignored.
+const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
+  agent: new Set([...STEERING_OPTIONS, "model", "system", "skills", "allowEmpty"]),
+  human: new Set([...STEERING_OPTIONS, "message", "acceptClean"]),
+  run: new Set(STEERING_OPTIONS),
+  judge: new Set([...STEERING_OPTIONS, "message", "minP"]),
+}
+const RETIRED_OPTIONS: Readonly<Record<string, string>> = {
+  memory:
+    "a step's memory scope is computed from its scope() prefix, so the memory option no longer exists",
+}
+
+const unknownOptions = (step: ReachedStep): string | undefined => {
+  const unknown = Object.keys(step.request.options).filter(
+    (key) => !KNOWN_OPTIONS[step.kind].has(key),
+  )
+  if (unknown.length === 0) return undefined
+  const why = unknown.flatMap((key) => (RETIRED_OPTIONS[key] ? [RETIRED_OPTIONS[key]] : []))
+  return `gtd: step "${step.name}": unknown key(s) ${unknown.join(", ")} in ${step.kind}() options${why.length > 0 ? ` — ${why.join("; ")}` : ""}`
+}
+
 export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   const entry = input.workflow.entries[input.episode.entry]
   if (entry === undefined) {
@@ -277,8 +308,8 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         message: `gtd: commit ${short(expected.hash)} names "${expected.name}" as the next step, but replay reached "${step.name}" — ${DIVERGED}`,
       }
     }
-    const identityError = checkIdentity(step)
-    return identityError === undefined ? undefined : { kind: "failed", message: identityError }
+    const error = unknownOptions(step) ?? checkIdentity(step)
+    return error === undefined ? undefined : { kind: "failed", message: error }
   }
 
   const consumeCommit = (step: ReachedStep, commit: ParsedCommit): unknown => {

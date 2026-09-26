@@ -61,6 +61,13 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
         },
       })
       """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -193,6 +200,13 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
         },
       })
       """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -237,6 +251,13 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
         },
       })
       """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -281,6 +302,13 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
         },
       })
       """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -364,6 +392,13 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
         },
       })
       """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
