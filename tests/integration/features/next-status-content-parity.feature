@@ -22,12 +22,10 @@ Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the 
       """
       import { agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-          await run("checking", "echo hi")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+        await run("checking", "echo hi")
       })
       """
 

@@ -14,16 +14,14 @@ Feature: it.tail/it.diffTail bound a judge:'s payload, and truncation is visible
       import { human, judge, tail, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await judge(
-              "idle",
-              { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-              tail("BIG.md", 1),
-              { message: "hi" },
-            )
-            await human("done", { message: "chore: done" })
-          },
+        async () => {
+          await judge(
+            "idle",
+            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
+            tail("BIG.md", 1),
+            { message: "hi" },
+          )
+          await human("done", { message: "chore: done" })
         },
         { vars: { judgeBudgetBytes: "500" } },
       )
@@ -45,16 +43,14 @@ Feature: it.tail/it.diffTail bound a judge:'s payload, and truncation is visible
       import { human, judge, tail, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await judge(
-              "idle",
-              { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-              tail("SMALL.md", 1),
-              { message: "hi" },
-            )
-            await human("done", { message: "chore: done" })
-          },
+        async () => {
+          await judge(
+            "idle",
+            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
+            tail("SMALL.md", 1),
+            { message: "hi" },
+          )
+          await human("done", { message: "chore: done" })
         },
         { vars: { judgeBudgetBytes: "500" } },
       )

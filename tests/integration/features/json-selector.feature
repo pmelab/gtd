@@ -15,13 +15,11 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
       """
       import { added, agent, human, refuse, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md", { label: "Doing the work" })
-          if (added("DONE.md").length === 0) refuse("working must add DONE.md")
-          await run("checking", "echo hi")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md", { label: "Doing the work" })
+        if (added("DONE.md").length === 0) refuse("working must add DONE.md")
+        await run("checking", "echo hi")
       })
       """
 

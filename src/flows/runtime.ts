@@ -328,13 +328,17 @@ export const refs: Refs = {
 
 // ── The workflow ────────────────────────────────────────────────────────────
 
-export type Flow = () => Promise<void>
-
-export interface EntryDef {
-  readonly flow: Flow
-  /** Resolves to the commitish that fixes the process's diff base when this entry is entered. */
-  readonly base?: (vars: Readonly<Record<string, string>>) => string
+export interface FlowArgs {
+  /** The name `gtd --entry <name>` started the process with; `undefined` for an ordinary start. */
+  readonly entry: string | undefined
 }
+
+/**
+ * A workflow's one flow. A flow that never reads `entry` accepts no
+ * `--entry`; one that does decides for itself which names it honours,
+ * `refuse()`-ing the rest.
+ */
+export type Flow = (args: FlowArgs) => Promise<void>
 
 export interface SummaryContext {
   readonly entryCommit: string
@@ -351,27 +355,26 @@ export interface WorkflowOptions {
   readonly vars?: Readonly<Record<string, string>>
   /** `gtd summary`'s prompt. */
   readonly summary?: (context: SummaryContext) => string
+  /**
+   * The commitish that fixes the diff base of a process `gtd --entry <entry>`
+   * starts, or `undefined` for none. Runs when the process is entered, with
+   * the vars `--var` sets.
+   */
+  readonly base?: (entry: string, vars: Readonly<Record<string, string>>) => string | undefined
 }
 
 export interface Workflow {
   readonly kind: "gtd-workflow"
-  readonly entries: Readonly<Record<string, EntryDef>>
+  readonly flow: Flow
   readonly vars: Readonly<Record<string, string>>
   readonly summary?: (context: SummaryContext) => string
+  readonly base?: (entry: string, vars: Readonly<Record<string, string>>) => string | undefined
 }
 
-/** Map each `--entry` name to a flow. `default` is where a process starts when nothing else is asked for. */
-export const workflow = (
-  entries: { readonly default: Flow | EntryDef } & Readonly<Record<string, Flow | EntryDef>>,
-  options: WorkflowOptions = {},
-): Workflow => ({
+export const workflow = (flow: Flow, options: WorkflowOptions = {}): Workflow => ({
   kind: "gtd-workflow",
-  entries: Object.fromEntries(
-    Object.entries(entries).map(([name, entry]) => [
-      name,
-      typeof entry === "function" ? { flow: entry } : entry,
-    ]),
-  ),
+  flow,
   vars: options.vars ?? {},
   ...(options.summary !== undefined ? { summary: options.summary } : {}),
+  ...(options.base !== undefined ? { base: options.base } : {}),
 })

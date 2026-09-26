@@ -53,10 +53,8 @@ export interface WorkflowDefinition {
   readonly flows: Workflow
   /** Every mode a step may name: the built-in registry merged with `.gtdrc` `modes:`. */
   readonly modes: Readonly<Record<StateMode, ModeDef>>
-  /** The default entry's first step — where a finished episode waits. */
+  /** The flow's first step on an ordinary start — where a finished episode waits. */
   readonly initial: StateName
-  /** Every entry but `default`, reachable as `gtd --entry <name>`. */
-  readonly manual: readonly string[]
 }
 
 export const knownModes = (def: Pick<WorkflowDefinition, "modes">): readonly StateMode[] =>

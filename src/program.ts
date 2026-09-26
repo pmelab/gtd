@@ -14,6 +14,7 @@ import { resolveSession } from "./Sessions.js"
 import {
   callbackAt,
   currentRest,
+  entryRefusal,
   currentRun,
   renderRest,
   restAt,
@@ -561,15 +562,15 @@ const runLandCommand = (
 
 /**
  * `gtd --entry <state> [--var <name>=<value> ...]` (`actor` always `"human"`):
- * start a brand new process at `<state>` — any declared state.
+ * start a brand new process the flow opens for `<state>`.
  * Writes an ordinary turn commit carrying zero or more `Gtd-Var:` trailers,
  * plus a `Gtd-Review-Base:` trailer when `<state>` declares a `reviewBase:`.
  * Commits via `commitAllWithPrefix` — capturing whatever the working tree
  * carries at entry, like an ordinary `gtd land` capture, rather than
  * demanding a clean tree.
  *
- * Refused when: the machine isn't resting at the workflow's initial state;
- * `<state>` isn't one of `enterableStates(rest.def)`; a `--var` name isn't
+ * Refused when: a process is already underway; the flow does not open one
+ * for `<state>` (see `entryRefusal`); a `--var` name isn't
  * declared by the workflow's or `.gtdrc`'s `vars:`; or `<state>`'s
  * `reviewBase:` template doesn't render to a commitish that's an ancestor of
  * (and differs from) HEAD.
@@ -584,7 +585,12 @@ const runEntryCommand = (
   Effect.gen(function* () {
     const rest = yield* currentRest
     const plan = yield* planEntry(
-      { def: rest.def, state: rest.state, idle: noProcessUnderway(rest) },
+      {
+        def: rest.def,
+        state: rest.state,
+        idle: noProcessUnderway(rest),
+        entryRefusal: yield* entryRefusal(rest, entryState, varOverrides),
+      },
       actor,
       {
         state: entryState,

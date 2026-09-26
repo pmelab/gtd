@@ -35,11 +35,9 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("frobnicate", { message: "write NOTE.md to start" })
-          await agent("planning", "plan it")
-        },
+      export default workflow(async () => {
+        await human("frobnicate", { message: "write NOTE.md to start" })
+        await agent("planning", "plan it")
       })
       """
     And a file "NOTE.md" with:
@@ -52,11 +50,9 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await agent("planning", "plan it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await agent("planning", "plan it")
       })
       """
     When I run gtd next

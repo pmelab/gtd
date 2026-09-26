@@ -19,16 +19,14 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
       import { added, agent, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "write NOTE.md to start a process" })
-            await agent("building", "build it")
-            await human("gate", { message: "confirm before finishing" })
-            await agent("finishing", "write DONE.md")
-            if (added("DONE.md").length === 0 && modified("DONE.md").length === 0) {
-              refuse("finishing must write DONE.md")
-            }
-          },
+        async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("building", "build it")
+          await human("gate", { message: "confirm before finishing" })
+          await agent("finishing", "write DONE.md")
+          if (added("DONE.md").length === 0 && modified("DONE.md").length === 0) {
+            refuse("finishing must write DONE.md")
+          }
         },
         {
           summary: (it) =>
@@ -98,11 +96,9 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "write NOTE.md to start a process" })
-            await agent("building", "build it")
-          },
+        async () => {
+          await human("idle", { message: "write NOTE.md to start a process" })
+          await agent("building", "build it")
         },
         { summary: (it) => `Closing message for ${it.entryCommit}..${it.processTip}.` },
       )
@@ -146,11 +142,9 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("building", "build it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
       })
       """
     And a file "NOTE.md" with:

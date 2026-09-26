@@ -9,7 +9,7 @@ Feature: a state's "skills:" field prepends a preamble to its rendered prompt
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, vars, workflow, refuse } from "@pmelab/gtd/flows"
 
       const work = async () => {
         await agent("working", "do the work", { skills: vars.workingSkills })
@@ -17,12 +17,14 @@ Feature: a state's "skills:" field prepends a preamble to its rendered prompt
       }
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
+        async ({ entry }) => {
+          if (entry === "working") {
             await work()
-          },
-          working: work,
+            return
+          }
+          if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+          await human("idle", { message: "start" })
+          await work()
         },
         {
           vars: {

@@ -20,16 +20,11 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       """
       import { agent, judge, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await judge(
-            "idle",
-            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-            "idle",
-            { message: "hi" },
-          )
-          await agent("working", "go")
-        },
+      export default workflow(async () => {
+        await judge("idle", { id: "q1", primitive: "noul", instructions: "i", criteria: "c" }, "idle", {
+          message: "hi",
+        })
+        await agent("working", "go")
       })
       """
     And a gtd config file at ".gtdrc" with:
@@ -57,16 +52,11 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       """
       import { agent, judge, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await judge(
-            "idle",
-            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-            "idle",
-            { message: "hi" },
-          )
-          await agent("working", "go")
-        },
+      export default workflow(async () => {
+        await judge("idle", { id: "q1", primitive: "noul", instructions: "i", criteria: "c" }, "idle", {
+          message: "hi",
+        })
+        await agent("working", "go")
       })
       """
     When I run gtd with args "judge answer" and stdin:
@@ -82,16 +72,11 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       """
       import { agent, judge, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await judge(
-            "idle",
-            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-            "idle",
-            { message: "hi" },
-          )
-          await agent("working", "go")
-        },
+      export default workflow(async () => {
+        await judge("idle", { id: "q1", primitive: "noul", instructions: "i", criteria: "c" }, "idle", {
+          message: "hi",
+        })
+        await agent("working", "go")
       })
       """
     When I run gtd with args "judge answer" and stdin:
@@ -108,16 +93,11 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       """
       import { agent, judge, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await judge(
-            "idle",
-            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-            "idle",
-            { message: "hi" },
-          )
-          await agent("working", "go")
-        },
+      export default workflow(async () => {
+        await judge("idle", { id: "q1", primitive: "noul", instructions: "i", criteria: "c" }, "idle", {
+          message: "hi",
+        })
+        await agent("working", "go")
       })
       """
     When I run gtd with args "judge answer" and stdin:
@@ -133,21 +113,19 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       """
       import { agent, human, judge, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-          await judge(
-            "review",
-            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-            "review",
-            {
-              message:
-                "run `gtd judge answer` and paste a verdict, or land with a clean tree to accept the conservative default",
-            },
-          )
-          await agent("conservative", "the conservative path")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+        await judge(
+          "review",
+          { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
+          "review",
+          {
+            message:
+              "run `gtd judge answer` and paste a verdict, or land with a clean tree to accept the conservative default",
+          },
+        )
+        await agent("conservative", "the conservative path")
       })
       """
     And a file "NOTE.md" with:
@@ -189,42 +167,40 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
 
       const wrote = (path: string): boolean => added(path).length + modified(path).length > 0
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          let fixes = 0
-          for (;;) {
-            await run("checking", "npm test")
-            let stuck = false
-            if (wrote(".gtd/PRIOR_FEEDBACK.md")) {
-              const verdict = await judge(
-                "judge",
-                {
-                  id: "verdict",
-                  primitive: "choice",
-                  instructions: "identical, new-failure, or progress",
-                  criteria: "identical: same failure restated",
-                },
-                "compare .gtd/FEEDBACK.md against .gtd/PRIOR_FEEDBACK.md",
-                {
-                  message:
-                    "run `gtd judge answer` and paste a verdict, or land with a clean tree to retry the fix",
-                  minP: 0.5,
-                },
-              )
-              stuck = verdict === "identical"
-            } else if (!wrote(".gtd/FEEDBACK.md")) {
-              break
-            }
-            if (stuck || fixes >= 2) {
-              await human("escalate", { message: "stuck" })
-              break
-            }
-            fixes++
-            await agent("fixing", "fix it")
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        let fixes = 0
+        for (;;) {
+          await run("checking", "npm test")
+          let stuck = false
+          if (wrote(".gtd/PRIOR_FEEDBACK.md")) {
+            const verdict = await judge(
+              "judge",
+              {
+                id: "verdict",
+                primitive: "choice",
+                instructions: "identical, new-failure, or progress",
+                criteria: "identical: same failure restated",
+              },
+              "compare .gtd/FEEDBACK.md against .gtd/PRIOR_FEEDBACK.md",
+              {
+                message:
+                  "run `gtd judge answer` and paste a verdict, or land with a clean tree to retry the fix",
+                minP: 0.5,
+              },
+            )
+            stuck = verdict === "identical"
+          } else if (!wrote(".gtd/FEEDBACK.md")) {
+            break
           }
-          await human("done", { message: "done" })
-        },
+          if (stuck || fixes >= 2) {
+            await human("escalate", { message: "stuck" })
+            break
+          }
+          fixes++
+          await agent("fixing", "fix it")
+        }
+        await human("done", { message: "done" })
       })
       """
     And a file "NOTE.md" with:
@@ -289,42 +265,40 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
 
       const wrote = (path: string): boolean => added(path).length + modified(path).length > 0
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          let fixes = 0
-          for (;;) {
-            await run("checking", "npm test")
-            let stuck = false
-            if (wrote(".gtd/PRIOR_FEEDBACK.md")) {
-              const verdict = await judge(
-                "judge",
-                {
-                  id: "verdict",
-                  primitive: "choice",
-                  instructions: "identical, new-failure, or progress",
-                  criteria: "identical: same failure restated",
-                },
-                "compare .gtd/FEEDBACK.md against .gtd/PRIOR_FEEDBACK.md",
-                {
-                  message:
-                    "run `gtd judge answer` and paste a verdict, or land with a clean tree to retry the fix",
-                  minP: 0.5,
-                },
-              )
-              stuck = verdict === "identical"
-            } else if (!wrote(".gtd/FEEDBACK.md")) {
-              break
-            }
-            if (stuck || fixes >= 2) {
-              await human("escalate", { message: "stuck" })
-              break
-            }
-            fixes++
-            await agent("fixing", "fix it")
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        let fixes = 0
+        for (;;) {
+          await run("checking", "npm test")
+          let stuck = false
+          if (wrote(".gtd/PRIOR_FEEDBACK.md")) {
+            const verdict = await judge(
+              "judge",
+              {
+                id: "verdict",
+                primitive: "choice",
+                instructions: "identical, new-failure, or progress",
+                criteria: "identical: same failure restated",
+              },
+              "compare .gtd/FEEDBACK.md against .gtd/PRIOR_FEEDBACK.md",
+              {
+                message:
+                  "run `gtd judge answer` and paste a verdict, or land with a clean tree to retry the fix",
+                minP: 0.5,
+              },
+            )
+            stuck = verdict === "identical"
+          } else if (!wrote(".gtd/FEEDBACK.md")) {
+            break
           }
-          await human("done", { message: "done" })
-        },
+          if (stuck || fixes >= 2) {
+            await human("escalate", { message: "stuck" })
+            break
+          }
+          fixes++
+          await agent("fixing", "fix it")
+        }
+        await human("done", { message: "done" })
       })
       """
     And a file "NOTE.md" with:
@@ -391,19 +365,17 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       """
       import { human, judge, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await judge(
-            "verdict",
-            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-            "verdict",
-            {
-              message:
-                "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
-            },
-          )
-          await human("done", { message: "chore: done" })
-        },
+      export default workflow(async () => {
+        await judge(
+          "verdict",
+          { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
+          "verdict",
+          {
+            message:
+              "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
+          },
+        )
+        await human("done", { message: "chore: done" })
       })
       """
     When I run gtd next with "--json=actor"
@@ -417,19 +389,17 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       """
       import { human, judge, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await judge(
-            "verdict",
-            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-            "verdict",
-            {
-              message:
-                "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
-            },
-          )
-          await human("done", { message: "chore: done" })
-        },
+      export default workflow(async () => {
+        await judge(
+          "verdict",
+          { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
+          "verdict",
+          {
+            message:
+              "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
+          },
+        )
+        await human("done", { message: "chore: done" })
       })
       """
     When I run gtd judge answer with stdin:
@@ -447,19 +417,17 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
       """
       import { human, judge, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await judge(
-            "verdict",
-            { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
-            "verdict",
-            {
-              message:
-                "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
-            },
-          )
-          await human("done", { message: "chore: done" })
-        },
+      export default workflow(async () => {
+        await judge(
+          "verdict",
+          { id: "q1", primitive: "noul", instructions: "i", criteria: "c" },
+          "verdict",
+          {
+            message:
+              "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
+          },
+        )
+        await human("done", { message: "chore: done" })
       })
       """
     When I run gtd land

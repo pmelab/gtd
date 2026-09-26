@@ -287,15 +287,13 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write .gtd/FEEDBACK.md, then run `gtd land`" })
-          await agent("drafting", "address .gtd/FEEDBACK.md, then delete it", {
-            file: ".gtd/FEEDBACK.md",
-            requireProgress: true,
-          })
-          await human("done", { message: "feedback addressed" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write .gtd/FEEDBACK.md, then run `gtd land`" })
+        await agent("drafting", "address .gtd/FEEDBACK.md, then delete it", {
+          file: ".gtd/FEEDBACK.md",
+          requireProgress: true,
+        })
+        await human("done", { message: "feedback addressed" })
       })
       """
     And a file ".gtd/FEEDBACK.md" with:

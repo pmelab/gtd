@@ -175,8 +175,8 @@ Options:
                    instead of the packaged build
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land only, with --cost) tag that cost's model
-  --entry <state>  (with no command at all) start a brand new process at
-                   <state> — one of the workflow's declared entries —
+  --entry <state>  (with no command at all) start a brand new process,
+                   handing <state> to the workflow as its entry —
                    authenticated as human
   --var <name>=<value>
                    (with --entry; repeatable) supply a fixed it.vars

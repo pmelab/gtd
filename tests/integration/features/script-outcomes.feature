@@ -19,11 +19,9 @@ Feature: Emitted required/optional scripts print their own outcome lines
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start" })
-          await agent("working", "go")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("working", "go")
       })
       """
     # The process base the abandon scenario names is this last setup commit.

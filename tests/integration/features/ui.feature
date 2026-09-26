@@ -51,11 +51,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("done", { message: "all done" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("done", { message: "all done" })
       })
       """
     And a file "NOTE.md" with:
@@ -75,11 +73,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("done", { message: "all done" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("done", { message: "all done" })
       })
       """
     And a file "NOTE.md" with:
@@ -103,12 +99,10 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await agent("working", "do the work described in NOTE.md")
-          await run("checking", "echo hi")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await agent("working", "do the work described in NOTE.md")
+        await run("checking", "echo hi")
       })
       """
     And a file "NOTE.md" with:
@@ -135,11 +129,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await agent("working", "do the work described in NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await agent("working", "do the work described in NOTE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -161,15 +153,13 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("working", {
-            file: ".gtd/PLAN.md",
-            mode: "custom-mode",
-            message: "answer the plan",
-          })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("working", {
+          file: ".gtd/PLAN.md",
+          mode: "custom-mode",
+          message: "answer the plan",
+        })
       })
       """
     And a gtd config file at ".gtdrc" with:
@@ -208,15 +198,13 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("awaiting-review", {
-            file: ".gtd/REVIEW.md",
-            mode: "qa",
-            message: "awaiting your review",
-          })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("awaiting-review", {
+          file: ".gtd/REVIEW.md",
+          mode: "qa",
+          message: "awaiting your review",
+        })
       })
       """
     And a file "NOTE.md" with:
@@ -250,11 +238,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
       })
       """
     And a file "NOTE.md" with:
@@ -293,11 +279,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
       })
       """
     And a file "NOTE.md" with:
@@ -320,11 +304,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
       })
       """
     And a file "NOTE.md" with:
@@ -348,11 +330,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
       })
       """
     And a file "NOTE.md" with:
@@ -372,11 +352,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
       })
       """
     And a file "NOTE.md" with:
@@ -399,11 +377,9 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
       })
       """
     And a gtd config file at ".gtdrc" with:
@@ -443,15 +419,13 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          await human("awaiting-review", {
-            file: ".gtd/REVIEW.md",
-            mode: "qa",
-            message: "awaiting your review",
-          })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("awaiting-review", {
+          file: ".gtd/REVIEW.md",
+          mode: "qa",
+          message: "awaiting your review",
+        })
       })
       """
     And a file "NOTE.md" with:

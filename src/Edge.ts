@@ -50,36 +50,37 @@ type History = ReadonlyArray<{
 // ── Episodes ────────────────────────────────────────────────────────────────
 
 interface EpisodeLocation {
-  /** The entry the episode runs. */
-  readonly entry: string
+  /** The name `gtd --entry` opened the episode with; `undefined` for an ordinary start. */
+  readonly entry: string | undefined
   /** The commit replay starts reading from, or -1 for the empty tree before history. */
   readonly baseIndex: number
-  /** The process's first commit — a manual entry's opening commit, else the one after the base. */
+  /** The process's first commit — an entered process's opening commit, else the one after the base. */
   readonly processStart: number
 }
 
 /**
  * Where the episode HEAD belongs to begins, read off subjects alone. Walking
- * back from HEAD: a commit that is not a gtd step commit, or one entering the
- * default entry's first step (a finished episode), bounds the episode from
- * below; a trailer-less `gtd(human): <entry>` commit opens a manual entry's
- * episode and is its first commit.
+ * back from HEAD: a trailer-less bare `gtd(human): <entry>` commit is what
+ * `gtd --entry` writes — no landing ever produces one — and opens an entered
+ * episode as its first commit; a commit that is not a gtd step commit, or one
+ * entering the flow's first step (a finished episode), bounds the episode
+ * from below.
  */
 const locateEpisode = (def: WorkflowDefinition, history: History): EpisodeLocation => {
   for (let i = history.length - 1; i >= 0; i--) {
     const message = parseCommitMessage(history[i]!.message)
     const subject = message.parsed
-    if (subject === undefined || !ACTORS.has(subject.actor) || subject.to === def.initial) {
-      return { entry: "default", baseIndex: i, processStart: i + 1 }
-    }
     const opening =
+      subject !== undefined &&
       message.step === undefined &&
       subject.from === undefined &&
-      subject.actor === "human" &&
-      def.manual.includes(subject.to)
+      subject.actor === "human"
     if (opening) return { entry: subject.to, baseIndex: i, processStart: i }
+    if (subject === undefined || !ACTORS.has(subject.actor) || subject.to === def.initial) {
+      return { entry: undefined, baseIndex: i, processStart: i + 1 }
+    }
   }
-  return { entry: "default", baseIndex: -1, processStart: 0 }
+  return { entry: undefined, baseIndex: -1, processStart: 0 }
 }
 
 // ── The current process run ─────────────────────────────────────────────────
@@ -103,7 +104,7 @@ export interface TraceEntry {
 }
 
 export interface ProcessRun {
-  readonly entry: string
+  readonly entry: string | undefined
   /** The process's first commit, or HEAD when none has landed yet. */
   readonly startHash: string
   /** The parent of the process's first commit — the empty tree when that is the root commit. */
@@ -178,7 +179,7 @@ const runOf = (
     trace: processCommits.map((c, i) => traceEntryOf(c.hash, parsed[i]!)),
     costEntries: parsed.flatMap(costEntriesOf),
     judgeVerdicts: parsed.flatMap((m) => m.judge),
-    entryVars: location.entry === "default" ? {} : { ...first?.vars },
+    entryVars: location.entry === undefined ? {} : { ...first?.vars },
     headTurn: headTurnOf(head),
     closingHash,
     episode: {
@@ -667,6 +668,44 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
 
 export const currentRest: Effect.Effect<Rest, Error, RestRequirements> = restAt(undefined)
 
+/**
+ * Why `gtd --entry <name>` cannot open a process here, or `undefined` when it
+ * can: the flow, handed `name`, must read it and reach a step from the tree
+ * the opening commit would capture.
+ */
+export const entryRefusal = (
+  rest: Rest,
+  name: string,
+  entryVars: Record<string, string>,
+): Effect.Effect<string | undefined, Error, ConfigRequirements> =>
+  Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    const host = yield* Host
+    const vars = resolveVars(config.workflowVars, config.rcVars, entryVars, host.env)
+    const workspace = rest.setup.workspace
+    const outcome = yield* Effect.promise(() =>
+      replay({
+        workflow: rest.def.flows,
+        episode: {
+          entry: name,
+          base: { hash: "", tree: pendingTree(workspace, undefined) },
+          commits: [],
+        },
+        vars,
+        refs: { start: "", processBase: "" },
+        budgetBytes: rest.setup.budget,
+      }),
+    )
+    if (outcome.kind === "refused") return outcome.message
+    if (outcome.kind === "rest") {
+      return outcome.entryRead
+        ? undefined
+        : `"${name}" is not an enterable state — this workflow reads no entry`
+    }
+    const why = outcome.kind === "ended" ? "the flow reaches no step for it" : outcome.message
+    return `"${name}" is not an enterable state — ${why}`
+  })
+
 /** The review window's diff base at the rest. */
 export const reviewBaseFor = (rest: Rest): string => rest.step.reviewBase
 
@@ -710,7 +749,7 @@ export const stalledAt = (rest: Rest): boolean =>
 
 /** No process is underway: the default entry's first step, first visit — a dirty tree there is a turn not yet landed, not a process. */
 export const noProcessUnderway = (rest: Rest): boolean =>
-  rest.run.entry === "default" && rest.state === rest.def.initial && rest.step.id.occurrence === 1
+  rest.run.entry === undefined && rest.state === rest.def.initial && rest.step.id.occurrence === 1
 
 /** `idle` means exactly one thing: no process underway, clean tree. */
 export const restIsIdle = (rest: Rest): boolean =>

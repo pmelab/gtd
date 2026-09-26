@@ -18,10 +18,8 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start", file: ".gtd/docs/adr.md", mode: "adrs" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start", file: ".gtd/docs/adr.md", mode: "adrs" })
       })
       """
     When I run gtd next
@@ -42,10 +40,8 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start", file: ".gtd/docs/adr.md", mode: "adr" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start", file: ".gtd/docs/adr.md", mode: "adr" })
       })
       """
     When I run gtd next
@@ -57,10 +53,8 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start", file: ".gtd/NOTES.md", mode: "prose" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start", file: ".gtd/NOTES.md", mode: "prose" })
       })
       """
     When I run gtd next

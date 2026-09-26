@@ -15,21 +15,19 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
       """
       import { added, agent, human, modified, refuse, run, scope, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start" })
-          for (;;) {
-            await agent("working", "do the work")
-            if (added("CHECKFILE.md").length > 0 || modified("CHECKFILE.md").length > 0) {
-              await scope("checking", async () => {
-                await run("verify", "echo verify")
-                await agent("ask", "confirm before returning")
-              })
-            } else if (modified("NOTE.md").length === 0) {
-              refuse("working: modify NOTE.md or write CHECKFILE.md")
-            }
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        for (;;) {
+          await agent("working", "do the work")
+          if (added("CHECKFILE.md").length > 0 || modified("CHECKFILE.md").length > 0) {
+            await scope("checking", async () => {
+              await run("verify", "echo verify")
+              await agent("ask", "confirm before returning")
+            })
+          } else if (modified("NOTE.md").length === 0) {
+            refuse("working: modify NOTE.md or write CHECKFILE.md")
           }
-        },
+        }
       })
       """
 

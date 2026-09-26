@@ -14,14 +14,12 @@ Feature: flow branches read their paths from "vars"
       import { added, agent, human, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
-            do {
-              await agent("working", "do the work")
-            } while (added(vars.outFile ?? "").length === 0)
-            await human("captured", { message: "done" })
-          },
+        async () => {
+          await human("idle", { message: "start" })
+          do {
+            await agent("working", "do the work")
+          } while (added(vars.outFile ?? "").length === 0)
+          await human("captured", { message: "done" })
         },
         { vars: { outFile: "OUT.md" } },
       )
@@ -51,15 +49,13 @@ Feature: flow branches read their paths from "vars"
       import { added, agent, human, refuse, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
-            await agent("working", "do the work")
-            if (added(vars.outFile ?? "").length === 0) {
-              refuse(`gtd land: no declared pattern matches — declared patterns: A ${vars.outFile}`)
-            }
-            await human("captured", { message: "done" })
-          },
+        async () => {
+          await human("idle", { message: "start" })
+          await agent("working", "do the work")
+          if (added(vars.outFile ?? "").length === 0) {
+            refuse(`gtd land: no declared pattern matches — declared patterns: A ${vars.outFile}`)
+          }
+          await human("captured", { message: "done" })
         },
         { vars: { outFile: "OUT.md" } },
       )
@@ -89,14 +85,12 @@ Feature: flow branches read their paths from "vars"
       import { added, agent, human, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
-            do {
-              await agent("working", "do the work")
-            } while (added(vars.outFile ?? "").length === 0)
-            await human("captured", { message: "done" })
-          },
+        async () => {
+          await human("idle", { message: "start" })
+          do {
+            await agent("working", "do the work")
+          } while (added(vars.outFile ?? "").length === 0)
+          await human("captured", { message: "done" })
         },
         { vars: { outFile: "OUT.md" } },
       )
@@ -122,14 +116,12 @@ Feature: flow branches read their paths from "vars"
       import { added, agent, human, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
-            do {
-              await agent("working", "do the work")
-            } while (added(vars.outFile ?? "").length === 0)
-            await human("captured", { message: "done" })
-          },
+        async () => {
+          await human("idle", { message: "start" })
+          do {
+            await agent("working", "do the work")
+          } while (added(vars.outFile ?? "").length === 0)
+          await human("captured", { message: "done" })
         },
         { vars: { outFile: "OUT.md" } },
       )

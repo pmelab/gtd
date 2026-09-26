@@ -16,25 +16,23 @@ Feature: gtd base — prints the review anchor hash, writing nothing
       """
       import { added, agent, changed, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          for (;;) {
-            await agent("building", "build it")
-            await human("awaiting-review", {
-              label: "Awaiting your review",
-              message: "leave FEEDBACK.md for changes, or touch SIGNOFF.md to sign off",
-            })
-            await human("deciding", {
-              reviewBase: true,
-              acceptClean: true,
-              message: "sign off (clean tree) or send back for changes",
-            })
-            if (added("FEEDBACK.md").length > 0) continue
-            if (changed().length === 0) return
-            refuse("deciding: add FEEDBACK.md or land a clean tree")
-          }
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        for (;;) {
+          await agent("building", "build it")
+          await human("awaiting-review", {
+            label: "Awaiting your review",
+            message: "leave FEEDBACK.md for changes, or touch SIGNOFF.md to sign off",
+          })
+          await human("deciding", {
+            reviewBase: true,
+            acceptClean: true,
+            message: "sign off (clean tree) or send back for changes",
+          })
+          if (added("FEEDBACK.md").length > 0) continue
+          if (changed().length === 0) return
+          refuse("deciding: add FEEDBACK.md or land a clean tree")
+        }
       })
       """
     And I mark the current commit as "boundary"
@@ -205,11 +203,9 @@ Feature: gtd base — prints the review anchor hash, writing nothing
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("building", "build it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
       })
       """
     And a file "NOTE.md" with:
@@ -233,11 +229,9 @@ Feature: gtd base — prints the review anchor hash, writing nothing
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("building", "build it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
       })
       """
     And a file "NOTE.md" with:

@@ -273,8 +273,8 @@ const FLAGS: readonly FlagRow[] = [
       "form; landing and entering are different verbs",
     valueHint: "<state>",
     help: [
-      "(with no command at all) start a brand new process at",
-      "<state> — one of the workflow's declared entries —",
+      "(with no command at all) start a brand new process,",
+      "handing <state> to the workflow as its entry —",
       "authenticated as human",
     ],
   },

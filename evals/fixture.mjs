@@ -92,11 +92,17 @@ function writeOxfmtConfig(repo) {
   writeFileSync(join(repo, ".oxfmtrc.json"), readFileSync(OXFMTRC_PATH, "utf-8"))
 }
 
-// GTD_EVAL_WORKFLOW names a gtd.config.ts to evaluate instead of the bundled workflow.
+// The bundled workflow enters only its own review/fix entries, so a case's
+// step is reached through the evals' own workflow; GTD_EVAL_WORKFLOW names a
+// different gtd.config.ts to use instead.
+const EVAL_WORKFLOW = join(HERE, "gtd.config.ts")
 function writeEvalWorkflowConfig(repo) {
-  const workflowPath = process.env.GTD_EVAL_WORKFLOW
-  if (!workflowPath) return
-  writeFileSync(join(repo, "gtd.config.ts"), readFileSync(workflowPath, "utf-8"))
+  const source = readFileSync(process.env.GTD_EVAL_WORKFLOW || EVAL_WORKFLOW, "utf-8")
+  const workflows = join(HERE, "..", "src", "workflows", "index.ts")
+  writeFileSync(
+    join(repo, "gtd.config.ts"),
+    source.replace('"../src/workflows/index.js"', JSON.stringify(workflows)),
+  )
 }
 
 /**

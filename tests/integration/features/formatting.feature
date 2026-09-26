@@ -29,20 +29,18 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       import { agent, changed, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start" })
-          for (;;) {
-            await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
-            await human("grilling-answer", {
-              file: ".gtd/TODO.md",
-              mode: "qa",
-              message: "answer",
-              acceptClean: true,
-            })
-            if (changed().length === 0) return
-          }
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        for (;;) {
+          await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
+          await human("grilling-answer", {
+            file: ".gtd/TODO.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changed().length === 0) return
+        }
       })
       """
     And a file ".gtd/TODO.md" with:
@@ -68,20 +66,18 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       import { agent, changed, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start" })
-          for (;;) {
-            await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
-            await human("grilling-answer", {
-              file: ".gtd/TODO.md",
-              mode: "qa",
-              message: "answer",
-              acceptClean: true,
-            })
-            if (changed().length === 0) return
-          }
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        for (;;) {
+          await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
+          await human("grilling-answer", {
+            file: ".gtd/TODO.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changed().length === 0) return
+        }
       })
       """
     And a file "NOTES.md" with:

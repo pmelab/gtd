@@ -49,11 +49,9 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start" })
-          await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
       })
       """
     And a file "src/a.ts" with:

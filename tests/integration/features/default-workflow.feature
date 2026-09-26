@@ -248,6 +248,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Given the file ".gtd/NEXT_REVIEW.md" is deleted
     And a file ".gtd/QUALITY_DONE.md" with:
       """
+
       """
     When I run gtd land
     Then it succeeds
@@ -2209,12 +2210,10 @@ Feature: The bundled unified workflow — one flow, end to end
         await leaf()
       }
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start" })
-          await scope("nested", mid)
-          await human("done", { message: "done" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await scope("nested", mid)
+        await human("done", { message: "done" })
       })
       """
     And a file "NOTE.md" with:

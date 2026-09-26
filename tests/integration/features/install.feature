@@ -41,17 +41,15 @@ Feature: gtd install — the driver-building briefing
       """
       import { agent, human, persona, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await persona({ model: "smart" }, () =>
-            agent("working", "do the work described in NOTE.md", {
-              label: "Doing the work",
-              file: ".gtd/PLAN.md",
-              mode: "qa",
-            }),
-          )
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await persona({ model: "smart" }, () =>
+          agent("working", "do the work described in NOTE.md", {
+            label: "Doing the work",
+            file: ".gtd/PLAN.md",
+            mode: "qa",
+          }),
+        )
       })
       """
     And a file "NOTE.md" with:

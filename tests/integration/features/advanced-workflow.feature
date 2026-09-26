@@ -24,23 +24,18 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
       fi
       `
 
-      export default workflow({
-        default: async () => {
-          await human("idle", {
-            message: "write task files under .gtd/tasks/, then run `gtd land`",
-          })
-          for (;;) {
-            await run("picking", pick)
-            // The empty-queue check comes first: a deletion is also a change to NEXT.md.
-            if (deleted(".gtd/NEXT.md").length > 0 || changed().length === 0) break
-            if (changed(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
-            await agent(
-              "building",
-              "Implement the task named in .gtd/NEXT.md, then delete that task file.",
-            )
-          }
-          await human("done", { message: "tasks complete" })
-        },
+      export default workflow(async () => {
+        await human("idle", {
+          message: "write task files under .gtd/tasks/, then run `gtd land`",
+        })
+        for (;;) {
+          await run("picking", pick)
+          // The empty-queue check comes first: a deletion is also a change to NEXT.md.
+          if (deleted(".gtd/NEXT.md").length > 0 || changed().length === 0) break
+          if (changed(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
+          await agent("building", "Implement the task named in .gtd/NEXT.md, then delete that task file.")
+        }
+        await human("done", { message: "tasks complete" })
       })
       """
     And a file ".gtd/tasks/01-a.md" with:
@@ -105,23 +100,18 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
       fi
       `
 
-      export default workflow({
-        default: async () => {
-          await human("idle", {
-            message: "write task files under .gtd/tasks/, then run `gtd land`",
-          })
-          for (;;) {
-            await run("picking", pick)
-            // The empty-queue check comes first: a deletion is also a change to NEXT.md.
-            if (deleted(".gtd/NEXT.md").length > 0 || changed().length === 0) break
-            if (changed(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
-            await agent(
-              "building",
-              "Implement the task named in .gtd/NEXT.md, then delete that task file.",
-            )
-          }
-          await human("done", { message: "tasks complete" })
-        },
+      export default workflow(async () => {
+        await human("idle", {
+          message: "write task files under .gtd/tasks/, then run `gtd land`",
+        })
+        for (;;) {
+          await run("picking", pick)
+          // The empty-queue check comes first: a deletion is also a change to NEXT.md.
+          if (deleted(".gtd/NEXT.md").length > 0 || changed().length === 0) break
+          if (changed(".gtd/NEXT.md").length === 0) refuse("picking must write .gtd/NEXT.md")
+          await agent("building", "Implement the task named in .gtd/NEXT.md, then delete that task file.")
+        }
+        await human("done", { message: "tasks complete" })
       })
       """
     And a file "NOTE.md" with:

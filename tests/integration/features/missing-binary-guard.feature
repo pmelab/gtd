@@ -28,11 +28,9 @@ Feature: A declared mode command guards its own missing binary
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start a decision record" })
-          await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
       })
       """
     And a file ".gtd/docs/adr.md" with:
@@ -57,11 +55,9 @@ Feature: A declared mode command guards its own missing binary
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start a decision record" })
-          await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
       })
       """
     And a file ".gtd/docs/adr.md" with:
@@ -94,11 +90,9 @@ Feature: A declared mode command guards its own missing binary
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start a decision record" })
-          await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
       })
       """
     And a file ".gtd/docs/adr.md" with:
@@ -122,11 +116,9 @@ Feature: A declared mode command guards its own missing binary
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start a decision record" })
-          await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start a decision record" })
+        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
       })
       """
     And a file ".gtd/docs/adr.md" with:

@@ -17,14 +17,15 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       import { added, deleted, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          if (added("NOTE.md").length > 0) await human("added", { message: "added" })
-          else if (modified("NOTE.md").length > 0) await human("modified", { message: "modified" })
-          else if (deleted("NOTE.md").length > 0) await human("deleted", { message: "deleted" })
-          else refuse("gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (added("NOTE.md").length > 0) await human("added", { message: "added" })
+        else if (modified("NOTE.md").length > 0) await human("modified", { message: "modified" })
+        else if (deleted("NOTE.md").length > 0) await human("deleted", { message: "deleted" })
+        else
+          refuse(
+            "gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md",
+          )
       })
       """
     And a file "NOTE.md" with:
@@ -41,14 +42,15 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       import { added, deleted, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          if (added("NOTE.md").length > 0) await human("added", { message: "added" })
-          else if (modified("NOTE.md").length > 0) await human("modified", { message: "modified" })
-          else if (deleted("NOTE.md").length > 0) await human("deleted", { message: "deleted" })
-          else refuse("gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (added("NOTE.md").length > 0) await human("added", { message: "added" })
+        else if (modified("NOTE.md").length > 0) await human("modified", { message: "modified" })
+        else if (deleted("NOTE.md").length > 0) await human("deleted", { message: "deleted" })
+        else
+          refuse(
+            "gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md",
+          )
       })
       """
     And a commit "chore: seed" that adds "NOTE.md" with:
@@ -69,14 +71,15 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       import { added, deleted, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          if (added("NOTE.md").length > 0) await human("added", { message: "added" })
-          else if (modified("NOTE.md").length > 0) await human("modified", { message: "modified" })
-          else if (deleted("NOTE.md").length > 0) await human("deleted", { message: "deleted" })
-          else refuse("gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (added("NOTE.md").length > 0) await human("added", { message: "added" })
+        else if (modified("NOTE.md").length > 0) await human("modified", { message: "modified" })
+        else if (deleted("NOTE.md").length > 0) await human("deleted", { message: "deleted" })
+        else
+          refuse(
+            "gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md",
+          )
       })
       """
     And a commit "chore: seed" that adds "NOTE.md" with:
@@ -94,14 +97,12 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       import { changed, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          if (changed("NOTE.md").length === 0) {
-            refuse("gtd land: no declared pattern matches — declared patterns: * NOTE.md")
-          }
-          await human("any-change", { message: "matched" })
-        },
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changed("NOTE.md").length === 0) {
+          refuse("gtd land: no declared pattern matches — declared patterns: * NOTE.md")
+        }
+        await human("any-change", { message: "matched" })
       })
       """
     And a file "NOTE.md" with:
@@ -118,14 +119,12 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       import { changed, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          if (changed(".gtd/*").length === 0) {
-            refuse("gtd land: no declared pattern matches — declared patterns: * .gtd/*")
-          }
-          await human("shallow", { message: "matched" })
-        },
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changed(".gtd/*").length === 0) {
+          refuse("gtd land: no declared pattern matches — declared patterns: * .gtd/*")
+        }
+        await human("shallow", { message: "matched" })
       })
       """
     And a file ".gtd/sub/DEEP.md" with:
@@ -143,14 +142,12 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       import { changed, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          if (changed(".gtd/**").length === 0) {
-            refuse("gtd land: no declared pattern matches — declared patterns: * .gtd/**")
-          }
-          await human("deep", { message: "matched" })
-        },
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changed(".gtd/**").length === 0) {
+          refuse("gtd land: no declared pattern matches — declared patterns: * .gtd/**")
+        }
+        await human("deep", { message: "matched" })
       })
       """
     And a file ".gtd/sub/DEEP.md" with:
@@ -167,13 +164,11 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       import { added, changed, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          if (changed("NOTE.md").length > 0) await human("first-match", { message: "matched first" })
-          else if (added("NOTE.md").length > 0) await human("second-match", { message: "matched second" })
-          else refuse("gtd land: no declared pattern matches — declared patterns: * NOTE.md, A NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        if (changed("NOTE.md").length > 0) await human("first-match", { message: "matched first" })
+        else if (added("NOTE.md").length > 0) await human("second-match", { message: "matched second" })
+        else refuse("gtd land: no declared pattern matches — declared patterns: * NOTE.md, A NOTE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -190,12 +185,10 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       import { changed, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          // acceptClean: a landing that changes nothing completes the gate.
-          await human("start", { message: "go", acceptClean: true })
-          if (changed().length === 0) await human("settled", { message: "clean" })
-        },
+      export default workflow(async () => {
+        // acceptClean: a landing that changes nothing completes the gate.
+        await human("start", { message: "go", acceptClean: true })
+        if (changed().length === 0) await human("settled", { message: "clean" })
       })
       """
     When I run gtd land
@@ -208,12 +201,10 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          // No acceptClean: a clean landing leaves the gate waiting for a change.
-          await human("start", { message: "go" })
-          await agent("working", "...")
-        },
+      export default workflow(async () => {
+        // No acceptClean: a clean landing leaves the gate waiting for a change.
+        await human("start", { message: "go" })
+        await agent("working", "...")
       })
       """
     And I record the commit count

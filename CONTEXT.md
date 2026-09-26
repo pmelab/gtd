@@ -57,10 +57,9 @@ state, position
 abandonment. It does not return to where it started. _Avoid_: cycle, run,
 session
 
-**Episode**: The commits one run of an entry's flow answers — first-parent
-history since the episode began. It ends when the flow returns or calls
-`restart()`; the next begins at the default entry's first step. _Avoid_:
-session, run
+**Episode**: The commits one run of the flow answers — first-parent history
+since the episode began. It ends when the flow returns or calls `restart()`; the
+next begins at the flow's first step on an ordinary start. _Avoid_: session, run
 
 **Replay**: How gtd finds the rest: run the flow again, answering each step from
 the episode's next commit, until a step has no commit left. Pure over history,
@@ -144,9 +143,10 @@ with ordinary commits, keeping every turn; a squash (or an amend, or a PR body)
 is something a human or a driver may still do afterward, outside gtd, using
 `gtd summary`'s prompt to write the message.
 
-**Entry**: A named flow a process may start at — `default`, plus every other key
-of the workflow, reachable as `gtd --entry <name>` and optionally fixing the
-process's diff base. _Avoid_: initial state, entry state
+**Entry**: The name `gtd --entry <name>` hands the flow as its `entry` argument
+to start a process somewhere other than an ordinary start; the flow decides
+which names it accepts, and the workflow's `base` may fix the process's diff
+base. _Avoid_: initial state, entry state
 
 **Memory scope**: The span of a process over which one agent conversation
 persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`

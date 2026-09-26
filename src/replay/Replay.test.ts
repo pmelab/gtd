@@ -119,20 +119,18 @@ const restName = (outcome: ReplayOutcome): string => {
 
 // Plain loops, a counter cap, and helper-driven branches: the shape every
 // bundled fragment has.
-const fixLoop = workflow({
-  default: async () => {
-    await human("idle", { file: "TODO.md" })
-    for (let attempt = 1; ; attempt++) {
-      await run("check", "npm test")
-      if (!exists(".gtd/FEEDBACK.md")) break
-      if (attempt > 2) {
-        await human("stuck")
-        continue
-      }
-      await agent("fix", "fix it")
+const fixLoop = workflow(async () => {
+  await human("idle", { file: "TODO.md" })
+  for (let attempt = 1; ; attempt++) {
+    await run("check", "npm test")
+    if (!exists(".gtd/FEEDBACK.md")) break
+    if (attempt > 2) {
+      await human("stuck")
+      continue
     }
-    await human("done")
-  },
+    await agent("fix", "fix it")
+  }
+  await human("done")
 })
 
 describe("replay", () => {
@@ -218,7 +216,7 @@ describe("replay", () => {
     })
 
     it("is reported when history continues past the end of the flow", async () => {
-      const short = workflow({ default: async () => void (await human("only")) })
+      const short = workflow(async () => void (await human("only")))
       const h = new History().land("human", "only", 1, "only").land("human", "only", 2, "only")
       expect((await replayOf(short, h)).kind).toBe("divergence")
     })
@@ -240,12 +238,10 @@ describe("replay", () => {
   })
 
   it("reads helpers against the replay position, not the working tree", async () => {
-    const wf = workflow({
-      default: async () => {
-        await human("write")
-        if (added(".gtd/*.md").length > 0) await agent("saw", read(".gtd/NOTE.md") ?? "")
-        else await agent("missed", "nothing")
-      },
+    const wf = workflow(async () => {
+      await human("write")
+      if (added(".gtd/*.md").length > 0) await agent("saw", read(".gtd/NOTE.md") ?? "")
+      else await agent("missed", "nothing")
     })
     const h = new History().land("human", "write", 1, "saw", { ".gtd/NOTE.md": "hello" })
     const outcome = await replayOf(wf, h)
@@ -259,14 +255,12 @@ describe("replay", () => {
 
   it("resolves history.previous to what the previous completion of a step left", async () => {
     let seen: string | undefined = "unset"
-    const wf = workflow({
-      default: async () => {
-        for (;;) {
-          await run("check", "true")
-          seen = history.previous("OUT", { since: "check" })
-          await human("look")
-        }
-      },
+    const wf = workflow(async () => {
+      for (;;) {
+        await run("check", "true")
+        seen = history.previous("OUT", { since: "check" })
+        await human("look")
+      }
     })
     const h = new History()
       .land("check", "check", 1, "look", { OUT: "first" })
@@ -278,12 +272,10 @@ describe("replay", () => {
 
   it("answers a judge step from its Gtd-Judge trailer, honouring minP", async () => {
     const question = { id: "verdict", primitive: "choice", instructions: "", criteria: "" } as const
-    const wf = workflow({
-      default: async () => {
-        const verdict = await judge("same", question, {}, { minP: 0.7 })
-        if (verdict === "identical") await human("escalate")
-        else await human("retry")
-      },
+    const wf = workflow(async () => {
+      const verdict = await judge("same", question, {}, { minP: 0.7 })
+      if (verdict === "identical") await human("escalate")
+      else await human("retry")
     })
     const confident = new History().land("judge", "same", 1, "escalate", {}, [
       { id: "verdict", answer: "identical", p: 0.9 },
@@ -298,20 +290,16 @@ describe("replay", () => {
   })
 
   it("prefixes names inside scope() and derives the memory scope from the name", async () => {
-    const wf = workflow({
-      default: () => scope("build", () => scope("health", () => agent("fix", "x"))),
-    })
+    const wf = workflow(() => scope("build", () => scope("health", () => agent("fix", "x"))))
     const outcome = await replayOf(wf, new History())
     expect(restName(outcome)).toBe("build.health.fix#1")
     expect(outcome.kind === "rest" && outcome.rest.memoryScope).toBe("build.health")
   })
 
   it("applies persona() to agent steps and refuses two identities in one scope", async () => {
-    const wf = workflow({
-      default: async () => {
-        await persona({ model: "smart" }, () => agent("plan.one", "a"))
-        await persona({ model: "base" }, () => agent("plan.two", "b"))
-      },
+    const wf = workflow(async () => {
+      await persona({ model: "smart" }, () => agent("plan.one", "a"))
+      await persona({ model: "base" }, () => agent("plan.two", "b"))
     })
     const first = await replayOf(wf, new History())
     expect(
@@ -325,46 +313,38 @@ describe("replay", () => {
   })
 
   it("ends the episode on return and on restart", async () => {
-    const returning = workflow({ default: async () => void (await human("only")) })
+    const returning = workflow(async () => void (await human("only")))
     const h = new History().land("human", "only", 1, "only")
     expect(await replayOf(returning, h)).toMatchObject({ kind: "ended", via: "return" })
 
-    const restarting = workflow({
-      default: async () => {
-        await human("first")
-        await restart("again")
-        await human("never")
-      },
+    const restarting = workflow(async () => {
+      await human("first")
+      await restart("again")
+      await human("never")
     })
     const r = new History().land("human", "first", 1, "first")
     expect(await replayOf(restarting, r)).toMatchObject({ kind: "ended", via: "restart" })
   })
 
   it("reports refuse() as a refusal and a throw as a failure", async () => {
-    const refusing = workflow({
-      default: async () => {
-        await human("gate")
-        if (exists("bad")) refuse("no bad files")
-        await human("next")
-      },
+    const refusing = workflow(async () => {
+      await human("gate")
+      if (exists("bad")) refuse("no bad files")
+      await human("next")
     })
     const outcome = await replayOf(refusing, new History(), { pending: { bad: "x" } })
     expect(outcome).toEqual({ kind: "refused", message: "no bad files" })
 
-    const throwing = workflow({
-      default: async () => {
-        throw new Error("boom")
-      },
+    const throwing = workflow(async () => {
+      throw new Error("boom")
     })
     expect(await replayOf(throwing, new History())).toMatchObject({ kind: "failed" })
   })
 
   it("fails a flow that awaits something other than a step", async () => {
-    const waiting = workflow({
-      default: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        await human("late")
-      },
+    const waiting = workflow(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      await human("late")
     })
     const outcome = await replayOf(waiting, new History())
     expect(outcome.kind === "failed" && outcome.message).toContain("not a step")

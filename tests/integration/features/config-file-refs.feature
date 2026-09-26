@@ -16,11 +16,9 @@ Feature: gtd.config.ts reads a sibling prompt file at load time
 
       const prompt = readFileSync(new URL("./prompt.md", import.meta.url), "utf8")
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "go" })
-          await agent("working", prompt)
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("working", prompt)
       })
       """
     And a file "prompt.md" with:
@@ -48,10 +46,8 @@ Feature: gtd.config.ts reads a sibling prompt file at load time
 
       const message = readFileSync(new URL("./missing-message.md", import.meta.url), "utf8")
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message })
-        },
+      export default workflow(async () => {
+        await human("idle", { message })
       })
       """
     And "gtd.config.ts" is staged

@@ -14,7 +14,7 @@ Feature: "--var" persistence across a whole process, overridden by the environme
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, vars, workflow, refuse } from "@pmelab/gtd/flows"
 
       const announce = () => agent("announcing", `Greeting: ${vars.greeting}`)
 
@@ -24,13 +24,18 @@ Feature: "--var" persistence across a whole process, overridden by the environme
       }
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
+        async ({ entry }) => {
+          if (entry === "working") {
             await work()
-          },
-          working: work,
-          announcing: announce,
+            return
+          }
+          if (entry === "announcing") {
+            await announce()
+            return
+          }
+          if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+          await human("idle", { message: "start" })
+          await work()
         },
         { vars: { greeting: "hi" } },
       )

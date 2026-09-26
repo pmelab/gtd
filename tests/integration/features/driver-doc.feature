@@ -28,14 +28,18 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       const red = (): boolean =>
         added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await agent("working", "Build the package described below: write src/calc.ts exporting add(a, b).")
-            await run("checking", `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`)
-          } while (red())
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run(
+            "checking",
+            `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
+          )
+        } while (red())
       })
       """
     And a file "NOTE.md" with:
@@ -74,22 +78,20 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       const red = (): boolean =>
         added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await agent(
-              "working",
-              "Build the package described below: write src/calc.ts exporting add(a, b), and also leave a leaked.md scratch file behind.",
-            )
-            await run(
-              "checking",
-              `rm -f leaked.md
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b), and also leave a leaked.md scratch file behind.",
+          )
+          await run(
+            "checking",
+            `rm -f leaked.md
       if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
-            )
-          } while (red())
-          await human("reviewing", { message: "sign off to finish" })
-        },
+          )
+        } while (red())
+        await human("reviewing", { message: "sign off to finish" })
       })
       """
     And a file "NOTE.md" with:
@@ -136,14 +138,18 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       const red = (): boolean =>
         added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await agent("working", "Build the package described below: write src/calc.ts exporting add(a, b).")
-            await run("checking", `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`)
-          } while (red())
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run(
+            "checking",
+            `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
+          )
+        } while (red())
       })
       """
     And a file "NOTE.md" with:
@@ -182,11 +188,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await human("announcing", { message: "heads up: work is starting" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await human("announcing", { message: "heads up: work is starting" })
       })
       """
     And a file "NOTE.md" with:
@@ -211,18 +215,16 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { agent, changed, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          for (;;) {
-            await agent("planning", "Write PLAN.md describing the build.")
-            await human("await", {
-              message: "read PLAN.md — accept it by changing nothing, or edit it to revise",
-              acceptClean: true,
-            })
-            if (changed().length === 0) return
-          }
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        for (;;) {
+          await agent("planning", "Write PLAN.md describing the build.")
+          await human("await", {
+            message: "read PLAN.md — accept it by changing nothing, or edit it to revise",
+            acceptClean: true,
+          })
+          if (changed().length === 0) return
+        }
       })
       """
     And a file "NOTE.md" with:
@@ -253,18 +255,16 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { agent, changed, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          for (;;) {
-            await agent("planning", "Write PLAN.md describing the build.")
-            await human("await", {
-              message: "read PLAN.md — accept it by changing nothing, or edit it to revise",
-              acceptClean: true,
-            })
-            if (changed().length === 0) return
-          }
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        for (;;) {
+          await agent("planning", "Write PLAN.md describing the build.")
+          await human("await", {
+            message: "read PLAN.md — accept it by changing nothing, or edit it to revise",
+            acceptClean: true,
+          })
+          if (changed().length === 0) return
+        }
       })
       """
     And a file "NOTE.md" with:
@@ -295,13 +295,11 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { added, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await run("watching", "true")
-          } while (added(".gtd/FEEDBACK.md").length === 0)
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await run("watching", "true")
+        } while (added(".gtd/FEEDBACK.md").length === 0)
       })
       """
     And a file "NOTE.md" with:
@@ -320,14 +318,15 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await agent("working", "Build the package described below: write src/calc.ts exporting add(a, b).")
-            await run("checking", "true")
-          } while (added(".gtd/FEEDBACK.md").length > 0)
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run("checking", "true")
+        } while (added(".gtd/FEEDBACK.md").length > 0)
       })
       """
     And a file "NOTE.md" with:
@@ -356,24 +355,26 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { added, agent, changed, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          let emptyTurns = 0
-          for (;;) {
-            await agent("working", "Build the package described below: write src/calc.ts exporting add(a, b).", { allowEmpty: true })
-            if (changed().length === 0) {
-              emptyTurns++
-              if (emptyTurns >= 1) {
-                await human("blocked", { message: "stuck — the agent made no progress" })
-                return
-              }
-              continue
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        let emptyTurns = 0
+        for (;;) {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+            { allowEmpty: true },
+          )
+          if (changed().length === 0) {
+            emptyTurns++
+            if (emptyTurns >= 1) {
+              await human("blocked", { message: "stuck — the agent made no progress" })
+              return
             }
-            await run("checking", "true")
-            if (added(".gtd/FEEDBACK.md").length === 0) return
+            continue
           }
-        },
+          await run("checking", "true")
+          if (added(".gtd/FEEDBACK.md").length === 0) return
+        }
       })
       """
     And a file "NOTE.md" with:
@@ -403,12 +404,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { added, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("confirm", { message: "confirm before continuing" })
-          if (added("REVIEW.md").length === 0) refuse("confirm expects REVIEW.md to be added")
-          await human("done", { message: "all done" })
-        },
+      export default workflow(async () => {
+        await human("confirm", { message: "confirm before continuing" })
+        if (added("REVIEW.md").length === 0) refuse("confirm expects REVIEW.md to be added")
+        await human("done", { message: "all done" })
       })
       """
     And a file "REVIEW.md" with:
@@ -439,14 +438,12 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("planning", "Write .gtd/PLAN.md with the plan.", {
-            file: ".gtd/PLAN.md",
-            mode: "qa",
-          })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("planning", "Write .gtd/PLAN.md with the plan.", {
+          file: ".gtd/PLAN.md",
+          mode: "qa",
+        })
       })
       """
     And a file "NOTE.md" with:
@@ -499,14 +496,12 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("planning", "Write .gtd/PLAN.md with the plan.", {
-            file: ".gtd/PLAN.md",
-            mode: "qa",
-          })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("planning", "Write .gtd/PLAN.md with the plan.", {
+          file: ".gtd/PLAN.md",
+          mode: "qa",
+        })
       })
       """
     And a file "NOTE.md" with:
@@ -546,17 +541,15 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { added, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await run(
-              "watching",
-              `echo "CHECK: verifying the tree"
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await run(
+            "watching",
+            `echo "CHECK: verifying the tree"
       true`,
-            )
-          } while (added(".gtd/FEEDBACK.md").length === 0)
-        },
+          )
+        } while (added(".gtd/FEEDBACK.md").length === 0)
       })
       """
     And a file "NOTE.md" with:
@@ -576,19 +569,18 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { added, human, refuse, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await run(
-            "checking",
-            `echo "CHECK BOOM" >&2
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run(
+          "checking",
+          `echo "CHECK BOOM" >&2
       mkdir -p .gtd
       echo x > .gtd/FEEDBACK.md
       exit 1`,
-          )
-          if (added(".gtd/FEEDBACK.md").length === 0) refuse("checking expects .gtd/FEEDBACK.md to be added")
-          await human("reviewing", { message: "sign off" })
-        },
+        )
+        if (added(".gtd/FEEDBACK.md").length === 0)
+          refuse("checking expects .gtd/FEEDBACK.md to be added")
+        await human("reviewing", { message: "sign off" })
       })
       """
     And a file "NOTE.md" with:
@@ -608,14 +600,15 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await agent("working", "Build the package described below: write src/calc.ts exporting add(a, b).")
-            await run("checking", "true")
-          } while (added(".gtd/FEEDBACK.md").length > 0)
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run("checking", "true")
+        } while (added(".gtd/FEEDBACK.md").length > 0)
       })
       """
     And a file "NOTE.md" with:
@@ -653,27 +646,25 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       const red = (): boolean =>
         added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "Create src/fix.ts for the initial build.")
-          await scope("fix", async () => {
-            for (;;) {
-              await run(
-                "checking",
-                `set +e
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "Create src/fix.ts for the initial build.")
+        await scope("fix", async () => {
+          for (;;) {
+            await run(
+              "checking",
+              `set +e
       mkdir -p .gtd
       c=".git/testcount"
       n=$(cat "$c" 2>/dev/null || echo 0)
       n=$((n + 1))
       echo "$n" > "$c"
       if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi`,
-              )
-              if (!red()) return
-              await agent("fixing", "Fix the failing check.")
-            }
-          })
-        },
+            )
+            if (!red()) return
+            await agent("fixing", "Fix the failing check.")
+          }
+        })
       })
       """
     And a file "NOTE.md" with:
@@ -722,15 +713,13 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       """
       import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await scope("build", async () => {
-            await agent("building", "first build turn")
-            await scope("review", () => agent("reviewing", "review turn, a nested child scope"))
-            await agent("building2", "second build turn, revisits the build scope")
-          })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await scope("build", async () => {
+          await agent("building", "first build turn")
+          await scope("review", () => agent("reviewing", "review turn, a nested child scope"))
+          await agent("building2", "second build turn, revisits the build scope")
+        })
       })
       """
     And a file "NOTE.md" with:
@@ -785,14 +774,18 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       const red = (): boolean =>
         added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await agent("working", "Build the package described below: write src/calc.ts exporting add(a, b).")
-            await run("checking", `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`)
-          } while (red())
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run(
+            "checking",
+            `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
+          )
+        } while (red())
       })
       """
     And a file "NOTE.md" with:
@@ -837,14 +830,18 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       const red = (): boolean =>
         added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await agent("working", "Build the package described below: write src/calc.ts exporting add(a, b).")
-            await run("checking", `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`)
-          } while (red())
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          await run(
+            "checking",
+            `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
+          )
+        } while (red())
       })
       """
     And a file "NOTE.md" with:

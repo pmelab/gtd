@@ -22,7 +22,9 @@
 
     // evals/ is a plain-.mjs promptfoo config, not imported by anything —
     // its own files are entry points, not dead code.
-    "evals/*.mjs"
+    "evals/*.mjs",
+    // Copied into each eval fixture repo as its gtd.config.ts.
+    "evals/gtd.config.ts"
   ],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste worth refactoring.

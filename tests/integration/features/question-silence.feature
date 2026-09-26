@@ -15,19 +15,17 @@ Feature: the return-lap stop is the human's silence, not a round cap
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          for (;;) {
-            await agent("drafting", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
-            await human("answering", {
-              message: "Answer the open questions.",
-              file: ".gtd/TODO.md",
-              mode: "qa",
-              answerGate: true,
-              acceptClean: true,
-            })
-          }
-        },
+      export default workflow(async () => {
+        for (;;) {
+          await agent("drafting", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
+          await human("answering", {
+            message: "Answer the open questions.",
+            file: ".gtd/TODO.md",
+            mode: "qa",
+            answerGate: true,
+            acceptClean: true,
+          })
+        }
       })
       """
     And a file ".gtd/TODO.md" with:

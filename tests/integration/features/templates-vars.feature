@@ -14,11 +14,9 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
-            await agent("working", `Assigned reviewer: ${vars.reviewer}`)
-          },
+        async () => {
+          await human("idle", { message: "start" })
+          await agent("working", `Assigned reviewer: ${vars.reviewer}`)
         },
         { vars: { reviewer: "alice" } },
       )
@@ -39,11 +37,9 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
-            await agent("working", `Assigned reviewer: ${vars.reviewer}`)
-          },
+        async () => {
+          await human("idle", { message: "start" })
+          await agent("working", `Assigned reviewer: ${vars.reviewer}`)
         },
         { vars: { reviewer: "alice" } },
       )
@@ -70,11 +66,9 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
-            await agent("working", `Assigned reviewer: ${vars.reviewer}`)
-          },
+        async () => {
+          await human("idle", { message: "start" })
+          await agent("working", `Assigned reviewer: ${vars.reviewer}`)
         },
         { vars: { reviewer: "alice" } },
       )
@@ -102,11 +96,9 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       """
       import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start" })
-          await agent("working", `Brand new: ${vars.brandNew}`)
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("working", `Brand new: ${vars.brandNew}`)
       })
       """
     And a file "NOTE.md" with:
@@ -144,12 +136,10 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       import { agent, human, run, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
-            await agent("building", "build")
-            await run("checking", `${vars.testCommand} > .gtd/.check-output 2>&1`)
-          },
+        async () => {
+          await human("idle", { message: "start" })
+          await agent("building", "build")
+          await run("checking", `${vars.testCommand} > .gtd/.check-output 2>&1`)
         },
         { vars: { testCommand: "npm test" } },
       )
@@ -201,11 +191,9 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       import { agent, human, persona, vars, workflow } from "@pmelab/gtd/flows"
 
       export default workflow(
-        {
-          default: async () => {
-            await human("idle", { message: "start" })
-            await persona({ model: vars.reviewModel }, () => agent("working", "do the work"))
-          },
+        async () => {
+          await human("idle", { message: "start" })
+          await persona({ model: vars.reviewModel }, () => agent("working", "do the work"))
         },
         { vars: { reviewModel: "opus" } },
       )
@@ -229,11 +217,9 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       """
       import { agent, vars, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          const nope = vars.nope as unknown as { deeper: string }
-          await agent("working", "do the work", { model: nope.deeper })
-        },
+      export default workflow(async () => {
+        const nope = vars.nope as unknown as { deeper: string }
+        await agent("working", "do the work", { model: nope.deeper })
       })
       """
     When I run gtd next

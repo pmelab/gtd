@@ -1003,12 +1003,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "start" })
-          await agent("draft", "draft it", { model: "smart" })
-          await agent("refine", "refine it", { model: "fast" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "start" })
+        await agent("draft", "draft it", { model: "smart" })
+        await agent("refine", "refine it", { model: "fast" })
       })
       """
     And a file "NOTE.md" with:
@@ -1035,10 +1033,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       import { agent, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await agent("working", "go", { memory: "plan" })
-        },
+      export default workflow(async () => {
+        await agent("working", "go", { memory: "plan" })
       })
       """
     When I run gtd next

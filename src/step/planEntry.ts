@@ -27,8 +27,10 @@ export interface EntryCurrent {
   readonly def: WorkflowDefinition
   /** The step the process rests at. */
   readonly state: string
-  /** Whether no process is underway: the default entry's first step, first visit. */
+  /** Whether no process is underway: the flow's first step, first visit. */
   readonly idle: boolean
+  /** Why the flow will not open a process at this entry, or `undefined` when it will. */
+  readonly entryRefusal: string | undefined
 }
 
 export type EntryOutcome =
@@ -73,14 +75,8 @@ export const planEntry = (
       )
     }
 
-    const entries = current.def.manual
-    const definition = current.def.flows.entries[name]
-    if (!entries.includes(name) || definition === undefined) {
-      return refusal(
-        `${commandLabel}: "${name}" is not an enterable state — enterable states:\n${entries
-          .map((s) => `  ${s}`)
-          .join("\n")}`,
-      )
+    if (current.entryRefusal !== undefined) {
+      return refusal(`${commandLabel}: ${current.entryRefusal}`)
     }
 
     const config = yield* (yield* ConfigService).load
@@ -95,9 +91,14 @@ export const planEntry = (
     }
 
     let base: string | undefined
-    if (definition.base !== undefined) {
-      const vars = resolveVars(config.workflowVars, config.rcVars, varOverrides, (yield* Host).env)
-      const resolved = yield* resolveBase(name, commandLabel, definition.base, vars)
+    const baseOf = current.def.flows.base
+    const vars = resolveVars(config.workflowVars, config.rcVars, varOverrides, (yield* Host).env)
+    const template = yield* Effect.try({
+      try: () => baseOf?.(name, vars),
+      catch: (e) => new Error(`${commandLabel}: ${e instanceof Error ? e.message : String(e)}`),
+    })
+    if (baseOf !== undefined && template !== undefined) {
+      const resolved = yield* resolveBase(name, commandLabel, baseOf, template)
       if (typeof resolved !== "string") return resolved
       base = resolved
     }
@@ -120,14 +121,11 @@ export const planEntry = (
 const resolveBase = (
   name: string,
   commandLabel: string,
-  base: (vars: Readonly<Record<string, string>>) => string,
-  vars: Record<string, string>,
+  base: (entry: string, vars: Readonly<Record<string, string>>) => string | undefined,
+  value: string,
 ): Effect.Effect<string | Refused, Error, GitService> =>
   Effect.gen(function* () {
-    const rendered = yield* Effect.try({
-      try: () => base(vars).trim(),
-      catch: (e) => new Error(`${commandLabel}: ${e instanceof Error ? e.message : String(e)}`),
-    })
+    const rendered = value.trim()
     if (rendered === "") {
       return refusal(
         `${commandLabel}: "${name}"'s reviewBase template rendered blank — template: ${base.toString()}; pass the base with --var`,

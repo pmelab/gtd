@@ -5,6 +5,7 @@ import {
   type JudgeAnswer,
   type JudgeQuestion,
   type PersonaOptions,
+  type FlowArgs,
   type RunTools,
   type StepRequest,
   type Workflow,
@@ -29,11 +30,12 @@ export interface EpisodeCommit {
 
 /**
  * The commits one episode consists of. `base` is where the first step starts
- * reading from: the commit before the episode, or a manual entry's opening
- * commit — which completes no step and so is never in `commits`.
+ * reading from: the commit before the episode, or an entered process's opening
+ * commit — which completes no step and so is never in `commits`. `entry` is the
+ * name `gtd --entry` opened it with, `undefined` for an ordinary start.
  */
 export interface Episode {
-  readonly entry: string
+  readonly entry: string | undefined
   readonly base: { readonly hash: string; readonly tree: TreeView }
   readonly commits: readonly EpisodeCommit[]
 }
@@ -82,6 +84,8 @@ export type ReplayOutcome =
       readonly trace: readonly ReachedStep[]
       /** The step the pending turn completed, when one was supplied. */
       readonly landed: ReachedStep | undefined
+      /** Whether the flow looked at its `entry` argument on the way here. */
+      readonly entryRead: boolean
     }
   | {
       readonly kind: "ended"
@@ -175,12 +179,12 @@ const unknownOptions = (step: ReachedStep): string | undefined => {
 }
 
 export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
-  const entry = input.workflow.entries[input.episode.entry]
-  if (entry === undefined) {
-    return {
-      kind: "failed",
-      message: `gtd: the workflow declares no entry "${input.episode.entry}"`,
-    }
+  let entryRead = false
+  const args: FlowArgs = {
+    get entry() {
+      entryRead = true
+      return input.episode.entry
+    },
   }
   const commits: readonly ParsedCommit[] = input.episode.commits.map((c) => ({
     ...c,
@@ -335,7 +339,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     const commit = commits[cursor]
     if (commit !== undefined) return consumeCommit(step, commit)
     if (input.pending === undefined || pendingUsed) {
-      return finish({ kind: "rest", rest: step, trace, landed })
+      return finish({ kind: "rest", rest: step, trace, landed, entryRead })
     }
     pendingUsed = true
     landed = step
@@ -411,7 +415,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
 
   installContext(context)
   try {
-    const flowDone = entry.flow().then(
+    const flowDone = input.workflow.flow(args).then(
       () => {
         if (outcome === undefined && trace.length === 0) {
           outcome = { kind: "failed", message: "gtd: the flow returned without reaching any step" }

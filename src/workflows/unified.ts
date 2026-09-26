@@ -18,6 +18,7 @@ import {
   human,
   judge,
   modified,
+  refuse,
   run,
   scope,
   tail,
@@ -130,15 +131,7 @@ const fixQualityFindings = async (): Promise<boolean> => {
 
 const review = (): Promise<"signoff" | "feedback"> =>
   reviewTail({
-    reviewing: {
-      prompt: t.buildReviewReviewingPrompt,
-      label: "Reviewing",
-      file: ".gtd/REVIEW.md",
-      mode: "review",
-      skills: () => vars.reviewSkills ?? "",
-      model: planner.model,
-      system: t.reviewerSystem,
-    },
+    reviewing,
     awaitReview: {
       message: t.buildReviewAwaitReviewMessage,
       label: "Awaiting your review",
@@ -153,14 +146,118 @@ const review = (): Promise<"signoff" | "feedback"> =>
     },
     triage: { message: t.buildReviewTriageMessage, label: "Judging feedback actionability" },
     triaging: { script: t.buildReviewTriagingScript, label: "Filtering non-actionable feedback" },
-    collecting: {
-      prompt: t.buildReviewCollectingPrompt,
-      label: "Collecting your feedback",
-      file: ".gtd/REQUIREMENTS.md",
-      mode: "qa",
-      model: planner.model,
-      system: t.reviewerSystem,
-    },
+    collecting,
+  })
+
+const reviewing: AgentSpec = {
+  prompt: t.buildReviewReviewingPrompt,
+  label: "Reviewing",
+  file: ".gtd/REVIEW.md",
+  mode: "review",
+  skills: () => vars.reviewSkills ?? "",
+  model: planner.model,
+  system: t.reviewerSystem,
+}
+
+const collecting: AgentSpec = {
+  prompt: t.buildReviewCollectingPrompt,
+  label: "Collecting your feedback",
+  file: ".gtd/REQUIREMENTS.md",
+  mode: "qa",
+  model: planner.model,
+  system: t.reviewerSystem,
+}
+
+const designTriage: AgentSpec = {
+  prompt: t.designTriagePrompt,
+  label: "Triaging the change",
+  file: ".gtd/REQUIREMENTS.md",
+  mode: "qa",
+  requireProgress: true,
+  skills: () => vars.triageSkills ?? "",
+  model: planner.model,
+  system: t.designSystem,
+}
+
+const architectureAuthor: AgentSpec = {
+  prompt: t.architectureAuthorPrompt,
+  label: "Refining the technical plan",
+  file: ".gtd/ARCHITECTURE.md",
+  mode: "qa",
+  skills: () => vars.architectureSkills ?? "",
+  model: planner.model,
+  system: t.architectSystem,
+}
+
+const building: AgentSpec = {
+  prompt: t.packagesItemBuildingPrompt,
+  label: "Building",
+  skills: () => vars.buildSkills ?? "",
+  model: coder.model,
+  system: t.builderSystem,
+}
+
+const fixSuite: AgentSpec = {
+  prompt: t.packagesItemFixSuitePrompt,
+  label: "Fixing the check",
+  file: ".gtd/FEEDBACK.md",
+  skills: () => vars.fixSkills ?? "",
+  model: coder.model,
+  system: t.builderSystem,
+}
+
+const fixSpec: AgentSpec = {
+  prompt: t.packagesItemFixSpecPrompt,
+  label: "Fixing review feedback",
+  file: ".gtd/SPEC_FEEDBACK.md",
+  skills: () => vars.reviewFixSkills ?? "",
+  model: coder.model,
+  system: t.builderSystem,
+}
+
+const specReview: AgentSpec = {
+  prompt: t.packagesItemSpecReviewPrompt,
+  label: "Reviewing the package",
+  skills: () => vars.specReviewSkills ?? "",
+  model: planner.model,
+  system: t.specReviewerSystem,
+}
+
+const decompose: AgentSpec = {
+  prompt: t.architectureDecomposePrompt,
+  label: "Decomposing into packages",
+  skills: () => vars.decomposeSkills ?? "",
+  model: planner.model,
+  system: t.architectSystem,
+}
+
+/**
+ * The bundled agent steps by full step name — what the prompt evals enter one
+ * at a time, with the same prompt and persona the workflow gives them.
+ */
+export const agentSpecs: Readonly<Record<string, AgentSpec>> = {
+  "build.review.reviewing": reviewing,
+  "build.review.collecting": collecting,
+  "design.triage": designTriage,
+  "architecture.author": architectureAuthor,
+  "packages.item.building": building,
+  "packages.item.fix-suite": fixSuite,
+  "packages.item.fix-spec": fixSpec,
+  "packages.item.spec.review": specReview,
+  "architecture.decompose": decompose,
+  "build.fix": buildFix,
+}
+
+/** Run one of `agentSpecs` as a step of its own name. */
+export const runAgentSpec = (name: string, spec: AgentSpec): Promise<void> =>
+  agent(name, spec.prompt(), {
+    label: spec.label,
+    file: spec.file,
+    mode: spec.mode,
+    requireProgress: spec.requireProgress,
+    skills: spec.skills?.(),
+    model: spec.model?.(),
+    system: spec.system?.(),
   })
 
 /** The build tail: fix (when entered red), keep green, the quality lap, then human review. */
@@ -193,60 +290,35 @@ const buildTail = (fixFirst: boolean): Promise<"signoff" | "feedback"> =>
 
 const design = (): Promise<void> =>
   scope("design", () =>
-    designLoop(
-      "triage",
-      {
-        prompt: t.designTriagePrompt,
-        label: "Triaging the change",
+    designLoop("triage", designTriage, {
+      check: { script: t.questionCheckScript, label: "Checking for open questions" },
+      answer: {
+        message: t.designGateAnswerMessage,
+        label: "Awaiting your product answers",
         file: ".gtd/REQUIREMENTS.md",
         mode: "qa",
-        requireProgress: true,
-        skills: () => vars.triageSkills ?? "",
-        model: planner.model,
-        system: t.designSystem,
+        answerGate: true,
       },
-      {
-        check: { script: t.questionCheckScript, label: "Checking for open questions" },
-        answer: {
-          message: t.designGateAnswerMessage,
-          label: "Awaiting your product answers",
-          file: ".gtd/REQUIREMENTS.md",
-          mode: "qa",
-          answerGate: true,
-        },
-      },
-    ),
+    }),
   )
 
 const architecture = (): Promise<void> =>
   scope("architecture", async () => {
-    await designLoop(
-      "author",
-      {
-        prompt: t.architectureAuthorPrompt,
-        label: "Refining the technical plan",
+    await designLoop("author", architectureAuthor, {
+      check: { script: t.questionCheckScript, label: "Checking for open questions" },
+      answer: {
+        message: t.architectureGateAnswerMessage,
+        label: "Awaiting your technical answers",
         file: ".gtd/ARCHITECTURE.md",
         mode: "qa",
-        skills: () => vars.architectureSkills ?? "",
-        model: planner.model,
-        system: t.architectSystem,
+        answerGate: true,
       },
-      {
-        check: { script: t.questionCheckScript, label: "Checking for open questions" },
-        answer: {
-          message: t.architectureGateAnswerMessage,
-          label: "Awaiting your technical answers",
-          file: ".gtd/ARCHITECTURE.md",
-          mode: "qa",
-          answerGate: true,
-        },
-      },
-    )
-    await agent("decompose", t.architectureDecomposePrompt(), {
-      label: "Decomposing into packages",
-      skills: vars.decomposeSkills,
-      model: vars.plannerModel,
-      system: t.architectSystem(),
+    })
+    await agent("decompose", decompose.prompt(), {
+      label: decompose.label,
+      skills: decompose.skills?.(),
+      model: decompose.model?.(),
+      system: decompose.system?.(),
     })
     if (changed(".gtd/packages/**").length === 0) noMatch("decompose", ["* .gtd/packages/**"])
   })
@@ -284,29 +356,9 @@ const packages = (): Promise<void> =>
     packageQueue(
       {
         picking: { script: t.packagesPickingScript, label: "Picking the next package" },
-        building: {
-          prompt: t.packagesItemBuildingPrompt,
-          label: "Building",
-          skills: () => vars.buildSkills ?? "",
-          model: coder.model,
-          system: t.builderSystem,
-        },
-        fixSuite: {
-          prompt: t.packagesItemFixSuitePrompt,
-          label: "Fixing the check",
-          file: ".gtd/FEEDBACK.md",
-          skills: () => vars.fixSkills ?? "",
-          model: coder.model,
-          system: t.builderSystem,
-        },
-        fixSpec: {
-          prompt: t.packagesItemFixSpecPrompt,
-          label: "Fixing review feedback",
-          file: ".gtd/SPEC_FEEDBACK.md",
-          skills: () => vars.reviewFixSkills ?? "",
-          model: coder.model,
-          system: t.builderSystem,
-        },
+        building,
+        fixSuite,
+        fixSpec,
         closing: { script: t.packagesItemClosingScript, label: "Closing out the package" },
         health: healthTexts,
         spec: {
@@ -315,13 +367,7 @@ const packages = (): Promise<void> =>
             script: t.packagesItemSpecScopingScript,
             label: "Scoping the review to the failing sections",
           },
-          review: {
-            prompt: t.packagesItemSpecReviewPrompt,
-            label: "Reviewing the package",
-            skills: () => vars.specReviewSkills ?? "",
-            model: planner.model,
-            system: t.specReviewerSystem,
-          },
+          review: specReview,
         },
       },
       { fixCap: FIX_CAP, identicalMinP: threshold(vars.judgeIdenticalMinP) },
@@ -365,45 +411,59 @@ const afterTail = async (verdict: "signoff" | "feedback"): Promise<void> => {
   await planAndBuild()
 }
 
-export default workflow(
-  {
-    default: async () => {
-      await human("idle", { message: t.idleMessage(), label: "Idle", file: ".gtd/TODO.md" })
-      await run("unwind", t.unwindScript(), { label: "Unwinding your input" })
-      if (added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0) {
-        await human("unwind-failed", {
-          message: t.unwindFailedMessage(),
-          label: "Could not unwind your input",
-          file: ".gtd/FEEDBACK.md",
-        })
-      }
-      await startGate()
-      await planAndBuild()
-    },
-    "fix-precheck": async () => {
-      if (await green("fix-precheck", suiteCheck)) return
-      await afterTail(await buildTail(true))
-    },
-    "review-gate.check": {
-      flow: async () => {
-        await scope("review-gate", () =>
-          entryGate({
-            check: suiteCheck,
-            blocked: {
-              message: t.reviewGateBlockedMessage,
-              label: "Baseline is red",
-              file: ".gtd/FEEDBACK.md",
-            },
-          }),
-        )
-        await afterTail(await buildTail(false))
+const ordinaryStart = async (): Promise<void> => {
+  await human("idle", { message: t.idleMessage(), label: "Idle", file: ".gtd/TODO.md" })
+  await run("unwind", t.unwindScript(), { label: "Unwinding your input" })
+  if (added(".gtd/FEEDBACK.md").length > 0 || modified(".gtd/FEEDBACK.md").length > 0) {
+    await human("unwind-failed", {
+      message: t.unwindFailedMessage(),
+      label: "Could not unwind your input",
+      file: ".gtd/FEEDBACK.md",
+    })
+  }
+  await startGate()
+  await planAndBuild()
+}
+
+/** `--entry fix-precheck`: repair failing tests, then the review tail. */
+const fixEntry = async (): Promise<void> => {
+  if (await green("fix-precheck", suiteCheck)) return
+  await afterTail(await buildTail(true))
+}
+
+/** `--entry review-gate.check --var reviewBase=<commitish>`: review a branch's work. */
+const reviewEntry = async (): Promise<void> => {
+  await scope("review-gate", () =>
+    entryGate({
+      check: suiteCheck,
+      blocked: {
+        message: t.reviewGateBlockedMessage,
+        label: "Baseline is red",
+        file: ".gtd/FEEDBACK.md",
       },
-      base: (v) => v.reviewBase ?? "",
-    },
-    "start-gate.check": async () => {
+    }),
+  )
+  await afterTail(await buildTail(false))
+}
+
+const ENTRIES = ["fix-precheck", "review-gate.check", "start-gate.check"]
+
+export default workflow(
+  async ({ entry }) => {
+    if (entry === undefined) return ordinaryStart()
+    if (entry === "fix-precheck") return fixEntry()
+    if (entry === "review-gate.check") return reviewEntry()
+    if (entry === "start-gate.check") {
       await startGate()
-      await planAndBuild()
-    },
+      return planAndBuild()
+    }
+    refuse(
+      `"${entry}" is not an enterable state — enterable states:\n${ENTRIES.map((name) => `  ${name}`).join("\n")}`,
+    )
   },
-  { vars: defaults, summary: t.summaryPrompt },
+  {
+    vars: defaults,
+    summary: t.summaryPrompt,
+    base: (entry, vars) => (entry === "review-gate.check" ? (vars.reviewBase ?? "") : undefined),
+  },
 )

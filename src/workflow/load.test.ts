@@ -57,15 +57,13 @@ afterEach(() => {
   rmSync(projectDir, { recursive: true, force: true })
 })
 
-// A one-step workflow whose only step is named `first` — the default entry's first step.
+// A one-step workflow whose only step is named `first`.
 const minimalWorkflow = (first: string) =>
   [
     `import { human, workflow } from "@pmelab/gtd/flows"`,
     ``,
-    `export default workflow({`,
-    `  default: async () => {`,
-    `    await human("${first}")`,
-    `  },`,
+    `export default workflow(async () => {`,
+    `  await human("${first}")`,
     `})`,
     ``,
   ].join("\n")
@@ -75,7 +73,6 @@ describe("ConfigService", () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.initial).toBe("idle")
-    expect(cfg.workflow.manual).toEqual(["fix-precheck", "review-gate.check", "start-gate.check"])
     expect(cfg.workflowVars["testCommand"]).toBe("npm test")
     expect(cfg.rcVars).toEqual({})
   })
@@ -85,7 +82,7 @@ describe("ConfigService", () => {
 
     const cfg = await getConfig()
 
-    expect(cfg.workflow.manual).toContain("review-gate.check")
+    expect(cfg.workflow.initial).toBe("idle")
     expect(cfg.rcVars).toEqual({ testCommand: "custom-test" })
   })
 
@@ -109,7 +106,6 @@ describe("ConfigService", () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.initial).toBe("custom-idle")
-    expect(cfg.workflow.manual).toEqual([])
   })
 
   it("takes the innermost gtd.config.ts — workflows are never merged", async () => {
@@ -277,10 +273,8 @@ describe("ConfigService", () => {
       [
         `import { human, workflow } from "@pmelab/gtd/flows"`,
         ``,
-        `export default workflow({`,
-        `  default: async () => {`,
-        `    await human("idle", { message: "hi", file: "docs/adr.md", mode: "adr" })`,
-        `  },`,
+        `export default workflow(async () => {`,
+        `  await human("idle", { message: "hi", file: "docs/adr.md", mode: "adr" })`,
         `})`,
         ``,
       ].join("\n"),
@@ -297,7 +291,7 @@ describe("ConfigService", () => {
       [
         `import { workflow } from "@pmelab/gtd/flows"`,
         ``,
-        `export default workflow({ default: async () => {} })`,
+        `export default workflow(async () => {})`,
         ``,
       ].join("\n"),
     )

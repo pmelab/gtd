@@ -41,35 +41,30 @@ The module default-exports one `workflow(...)` call from `@pmelab/gtd/flows`:
 import { agent, human, run, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(
-  {
-    default: async () => {
-      await human("idle", {
-        message: "Sketch the change in .gtd/TODO.md.",
-        file: ".gtd/TODO.md",
-      })
-      await agent(
-        "plan",
-        "Read the sketch in history and write .gtd/PLAN.md.",
-        {
-          file: ".gtd/PLAN.md",
-        },
-      )
-      await run(
-        "check",
-        "npm test > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md",
-      )
-    },
+  async () => {
+    await human("idle", {
+      message: "Sketch the change in .gtd/TODO.md.",
+      file: ".gtd/TODO.md",
+    })
+    await agent("plan", "Read the sketch in history and write .gtd/PLAN.md.", {
+      file: ".gtd/PLAN.md",
+    })
+    await run(
+      "check",
+      "npm test > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md",
+    )
   },
   { vars: { testCommand: "npm test" } },
 )
 ```
 
-The first argument maps **entry names** to **flows**. A flow is an `async`
-function that awaits steps. `default` is required: it is where a process starts
-when nothing else is asked for, and its first step is where a finished process
-waits (the bundled workflow calls it `idle`). The second argument is optional:
-`vars` (the workflow's own variable defaults, see [Variables](#variables)) and
-`summary` (the prompt `gtd summary` prints, see [Summary](#summary)).
+The first argument is the workflow's one **flow**: an `async` function that
+awaits steps. Its first step on an ordinary start is where a finished process
+waits (the bundled workflow calls it `idle`). The flow receives `{ entry }`, the
+name a process was started with by `gtd --entry` (see [Entries](#entries)). The
+second argument is optional: `vars` (the workflow's own variable defaults, see
+[Variables](#variables)), `summary` (the prompt `gtd summary` prints, see
+[Summary](#summary)) and `base` (see [Entries](#entries)).
 
 gtd resolves `@pmelab/gtd/flows` itself, so a `gtd.config.ts` needs no
 `package.json` or install. Add `@pmelab/gtd` as a dev dependency only if you
@@ -251,31 +246,44 @@ What a `gtd land` does depends on the step and on whether the tree changed:
 
 ### Entries
 
-Every key other than `default` in the entries object is an **entry** a person
-starts with `gtd --entry <name>`; `default` itself cannot be entered by name. An
-entry is a flow, or `{ flow, base }`, where `base(vars)` returns a commitish
-that fixes the new process's diff base (`refs.start`):
+`gtd --entry <name>` starts a process with the flow's `entry` argument set to
+`<name>`; an ordinary start passes `undefined`. The flow decides what each name
+means, and calls `refuse()` for a name it does not accept. A flow that never
+reads `entry` accepts none: `gtd --entry` refuses it. The name is recorded on
+the process's opening commit, so every later command replays the flow with the
+same `entry`.
+
+`base(entry, vars)` in the options may return a commitish that fixes the new
+process's diff base (`refs.start`), or `undefined` for none. It runs when the
+process is entered, with the `--var` values:
 
 ```ts
-export default workflow({
-  default: mainFlow,
-  "review-only": {
-    flow: reviewFlow,
-    base: (vars) => vars.reviewBase ?? "",
+import { refuse, workflow } from "@pmelab/gtd/flows"
+
+export default workflow(
+  async ({ entry }) => {
+    if (entry === "review-only") return reviewFlow()
+    if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+    await mainFlow()
   },
-})
+  {
+    base: (entry, vars) =>
+      entry === "review-only" ? (vars.reviewBase ?? "") : undefined,
+  },
+)
 ```
 
 ```bash
 gtd --entry review-only --var reviewBase=main
 ```
 
-`--var <name>=<value>` is repeatable and only valid with `--entry`; the name
-must already be declared by the workflow's `vars` or a `.gtdrc` `vars:`. The
-values are recorded as `Gtd-Var:` trailers on the process's first commit and
+A blank `base` is refused, and so is one that does not resolve to an ancestor of
+`HEAD`. `--var <name>=<value>` is repeatable and only valid with `--entry`; the
+name must already be declared by the workflow's `vars` or a `.gtdrc` `vars:`.
+The values are recorded as `Gtd-Var:` trailers on the process's first commit and
 stay in force for the whole process.
 
-The bundled workflow declares three entries: `fix-precheck` (repair a red
+The bundled workflow accepts three entries: `fix-precheck` (repair a red
 baseline through the build tail), `review-gate.check` (a pure review of
 everything since `--var reviewBase=<commitish>`), and `start-gate.check` (skip
 the unwind and start at the baseline check).
@@ -289,8 +297,8 @@ commit left — that step is the rest. Replaying the same history always reaches
 the same rest, which is why flow code has to be pure (below).
 
 An episode ends when its flow returns or calls `restart()`. The next episode
-starts over at the `default` entry's first step — for the bundled workflow,
-`idle`.
+starts over at the flow's first step on an ordinary start — for the bundled
+workflow, `idle`.
 
 **There is no migration.** A process's commits are only meaningful to the
 workflow that made them. If you change `gtd.config.ts` (or upgrade gtd, and the
@@ -320,14 +328,14 @@ and code at the module's top level are exempt — they may do anything.
 - **Known options only**: a step option gtd does not accept — a typo, or the
   retired `memory` — fails the replay naming the step and the key, since
   `gtd.config.ts` is evaluated without a type check.
-- **Shape**: the default export must be a `workflow(...)` call, and the
-  `default` entry must reach a step — that step is where a finished process
-  waits. A default entry that reaches none fails the load.
+- **Shape**: the default export must be a `workflow(...)` call, and the flow
+  must reach a step on an ordinary start — that step is where a finished process
+  waits. A flow that reaches none fails the load.
 
 ### Summary
 
-`workflow(entries, { summary })` sets the prompt `gtd summary` prints: a
-function receiving
+`workflow(flow, { summary })` sets the prompt `gtd summary` prints: a function
+receiving
 `{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, vars }`
 and returning a string. `humanCommits` lists every human-authored commit of the
 process as `{ hash, state }`. Without `summary`, `gtd summary` refuses.
@@ -538,7 +546,7 @@ needs a process history (`gtd lsp` still loads `gtd.config.ts`).
 Flow code reads `vars` — a flat `Record<string, string>` assembled from four
 layers, **later wins**:
 
-1. **The workflow's own `vars`** (`workflow(entries, { vars })`) — the author's
+1. **The workflow's own `vars`** (`workflow(flow, { vars })`) — the author's
    declared defaults.
 2. **A `.gtdrc` `vars:` key** — per-repository tuning without touching the
    workflow.

@@ -17,11 +17,9 @@ Feature: gtd land — the one landing verb, actorless
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
       })
       """
     And a file "NOTE.md" with:
@@ -39,11 +37,9 @@ Feature: gtd land — the one landing verb, actorless
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
       })
       """
     When I run gtd land
@@ -57,13 +53,12 @@ Feature: gtd land — the one landing verb, actorless
       """
       import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do it")
-          if (added("DONE.md").length === 0) refuse("gtd land: no declared pattern matches — expected A DONE.md")
-          await human("waiting", { message: "confirm before continuing" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
+        if (added("DONE.md").length === 0)
+          refuse("gtd land: no declared pattern matches — expected A DONE.md")
+        await human("waiting", { message: "confirm before continuing" })
       })
       """
     And a file "NOTE.md" with:
@@ -86,13 +81,11 @@ Feature: gtd land — the one landing verb, actorless
       """
       import { added, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await run("checking", "true")
-          } while (added("OUT.txt").length === 0)
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await run("checking", "true")
+        } while (added("OUT.txt").length === 0)
       })
       """
     And a file "NOTE.md" with:
@@ -124,12 +117,11 @@ Feature: gtd land — the one landing verb, actorless
       """
       import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          if (added("NOTE.md").length === 0) refuse("gtd land: no declared pattern matches — expected A NOTE.md")
-          await agent("working", "do it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        if (added("NOTE.md").length === 0)
+          refuse("gtd land: no declared pattern matches — expected A NOTE.md")
+        await agent("working", "do it")
       })
       """
     And a file "scratch.txt" with:
@@ -165,11 +157,9 @@ Feature: gtd land — the one landing verb, actorless
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
       })
       """
     And a file "NOTE.md" with:
@@ -204,11 +194,9 @@ Feature: gtd land — the one landing verb, actorless
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
       })
       """
     And a file "NOTE.md" with:
@@ -241,11 +229,9 @@ Feature: gtd land — the one landing verb, actorless
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do it")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
       })
       """
     And a file "NOTE.md" with:

@@ -16,15 +16,13 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       import { agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent(
-            "working",
-            "Build the package described below: write src/calc.ts exporting add(a, b).",
-          )
-          await run("checking", "true")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent(
+          "working",
+          "Build the package described below: write src/calc.ts exporting add(a, b).",
+        )
+        await run("checking", "true")
       })
       """
     And a gtd config file at ".gtdrc" with:
@@ -67,17 +65,12 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       import { agent, human, persona, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await persona({ system: "You are a careful senior engineer." }, () =>
-            agent(
-              "working",
-              "Build the package described below: write src/calc.ts exporting add(a, b).",
-            ),
-          )
-          await run("checking", "true")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await persona({ system: "You are a careful senior engineer." }, () =>
+          agent("working", "Build the package described below: write src/calc.ts exporting add(a, b)."),
+        )
+        await run("checking", "true")
       })
       """
     And a file "NOTE.md" with:
@@ -112,16 +105,14 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       import { agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent(
-            "working",
-            "Build the package described below: write src/calc.ts exporting add(a, b).",
-            { allowEmpty: true },
-          )
-          await run("checking", "true")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent(
+          "working",
+          "Build the package described below: write src/calc.ts exporting add(a, b).",
+          { allowEmpty: true },
+        )
+        await run("checking", "true")
       })
       """
     And a file "NOTE.md" with:
@@ -141,25 +132,23 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          let fruitless = 0
-          for (;;) {
-            await agent(
-              "working",
-              "Build the package described below: write src/calc.ts exporting add(a, b).",
-              { allowEmpty: true },
-            )
-            if (added("DONE.md").length > 0) break
-            fruitless++
-            if (fruitless >= 2) {
-              await human("escalate", { message: "stuck — the agent made no progress" })
-              break
-            }
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        let fruitless = 0
+        for (;;) {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+            { allowEmpty: true },
+          )
+          if (added("DONE.md").length > 0) break
+          fruitless++
+          if (fruitless >= 2) {
+            await human("escalate", { message: "stuck — the agent made no progress" })
+            break
           }
-          await run("checking", "true")
-        },
+        }
+        await run("checking", "true")
       })
       """
     And a file "NOTE.md" with:
@@ -200,19 +189,17 @@ Feature: gtd next --json — attempt commits and the derived stall
       """
       import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          for (;;) {
-            await agent(
-              "working",
-              "Build the package described below: write src/calc.ts exporting add(a, b).",
-            )
-            do {
-              await run("checking", "true")
-            } while (added("FEEDBACK.md").length === 0)
-          }
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        for (;;) {
+          await agent(
+            "working",
+            "Build the package described below: write src/calc.ts exporting add(a, b).",
+          )
+          do {
+            await run("checking", "true")
+          } while (added("FEEDBACK.md").length === 0)
+        }
       })
       """
     And a file "NOTE.md" with:

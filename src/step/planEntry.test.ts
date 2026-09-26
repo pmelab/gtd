@@ -4,25 +4,26 @@ import { planEntry, type EntryOutcome } from "./planEntry.js"
 import { InMemRepo, testLayers } from "../testing/index.js"
 import { ConfigService } from "../workflow/index.js"
 
-const WORKFLOW = `import { agent, human, workflow } from "@pmelab/gtd/flows"
+const WORKFLOW = `import { agent, human, workflow, refuse } from "@pmelab/gtd/flows"
 
 export default workflow(
-  {
-    default: async () => {
-      await human("idle", { message: "hi" })
+  async ({ entry }) => {
+    if (entry === "working") {
       await agent("work", "work-prompt")
-    },
-    working: async () => {
+      return
+    }
+    if (entry === "reviewcheck") {
       await agent("work", "work-prompt")
-    },
-    reviewcheck: {
-      flow: async () => {
-        await agent("work", "work-prompt")
-      },
-      base: (vars) => vars.base ?? "",
-    },
+      return
+    }
+    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
+    await human("idle", { message: "hi" })
+    await agent("work", "work-prompt")
   },
-  { vars: { base: "" } },
+  {
+    vars: { base: "" },
+    base: (entry, vars) => (entry === "reviewcheck" ? (vars.base ?? "") : undefined),
+  },
 )
 `
 
@@ -43,12 +44,13 @@ const enter = (
     readonly commandLabel: string
     readonly vars: Record<string, string>
   },
+  entryRefusal?: string,
 ): Promise<EntryOutcome> =>
   Effect.runPromise(
     Effect.gen(function* () {
       const config = yield* (yield* ConfigService).load
       return yield* planEntry(
-        { def: config.workflow, state, idle: state === config.workflow.initial },
+        { def: config.workflow, state, idle: state === config.workflow.initial, entryRefusal },
         actor,
         entry,
       )
@@ -67,15 +69,19 @@ describe("planEntry", () => {
     expect(plan.kind === "refusal" && plan.message).toContain("already underway")
   })
 
-  it("refuses an entry naming a state the workflow doesn't declare at all", async () => {
+  it("refuses, under the command's label, an entry the flow will not open", async () => {
     const repo = repoAt()
-    const plan = await enter(repo, "idle", "human", {
-      state: "nonexistent",
-      commandLabel: "gtd test",
-      vars: {},
+    const plan = await enter(
+      repo,
+      "idle",
+      "human",
+      { state: "nonexistent", commandLabel: "gtd test", vars: {} },
+      '"nonexistent" is not an enterable state',
+    )
+    expect(plan).toEqual({
+      kind: "refusal",
+      message: 'gtd test: "nonexistent" is not an enterable state',
     })
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("not an enterable state")
   })
 
   it("refuses an undeclared --var name", async () => {

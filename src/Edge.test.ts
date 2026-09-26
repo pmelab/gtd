@@ -82,27 +82,28 @@ const commit = (repo: InMemRepo, spec: CommitSpec, files: Files = {}): string =>
   return headOf(repo)
 }
 
-const LINEAR = `import { agent, human, workflow } from "@pmelab/gtd/flows"
+const LINEAR = `import { agent, human, workflow, refuse } from "@pmelab/gtd/flows"
 
 export default workflow(
-  {
-    default: async () => {
-      await human("idle", { message: "idle-message" })
-      await agent("building", "build-prompt")
-      await agent("checking", "check-prompt")
-    },
-    side: async () => {
+  async ({ entry }) => {
+    if (entry === "side") {
       await agent("fixing", "fix-prompt")
       await agent("tidying", "tidy-prompt", { allowEmpty: true })
-    },
-    review: {
-      flow: async () => {
-        await agent("fixing", "fix-prompt")
-      },
-      base: (vars) => vars.base ?? "",
-    },
+      return
+    }
+    if (entry === "review") {
+      await agent("fixing", "fix-prompt")
+      return
+    }
+    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
+    await human("idle", { message: "idle-message" })
+    await agent("building", "build-prompt")
+    await agent("checking", "check-prompt")
   },
-  { vars: { base: "", reviewer: "nobody" } },
+  {
+    vars: { base: "", reviewer: "nobody" },
+    base: (entry, vars) => (entry === "review" ? (vars.base ?? "") : undefined),
+  },
 )
 `
 
@@ -112,7 +113,7 @@ describe("currentRun", () => {
     const boundary = headOf(repo)
     const run = await provide(currentRun, repo)
     expect(run).toMatchObject({
-      entry: "default",
+      entry: undefined,
       startHash: boundary,
       startParentHash: boundary,
       diffBase: boundary,
@@ -406,10 +407,8 @@ describe("restAt", () => {
   it("refuses a rest whose step names a mode no layer declares", async () => {
     const repo = repoWith(`import { human, workflow } from "@pmelab/gtd/flows"
 
-export default workflow({
-  default: async () => {
-    await human("idle", { file: "docs/adr.md", mode: "adr" })
-  },
+export default workflow(async () => {
+  await human("idle", { file: "docs/adr.md", mode: "adr" })
 })
 `)
     const exit = await provideExit(currentRest, repo)
@@ -421,10 +420,8 @@ export default workflow({
   it("refuses a step option the step does not accept, naming a retired one's replacement", async () => {
     const repo = repoWith(`import { agent, workflow } from "@pmelab/gtd/flows"
 
-export default workflow({
-  default: async () => {
-    await agent("work", "p", { memory: "plan" })
-  },
+export default workflow(async () => {
+  await agent("work", "p", { memory: "plan" })
 })
 `)
     const exit = await provideExit(currentRest, repo)
@@ -435,23 +432,26 @@ export default workflow({
 })
 
 describe("reviewBaseFor", () => {
-  const LOOP = `import { agent, exists, human, workflow } from "@pmelab/gtd/flows"
+  const LOOP = `import { agent, exists, human, workflow, refuse } from "@pmelab/gtd/flows"
 
-export default workflow({
-  default: async () => {
+export default workflow(
+  async ({ entry }) => {
+    if (entry === "review") {
+      await agent("fixing", "fix-prompt")
+      return
+    }
+    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
     await human("idle")
     while (!exists("DONE")) {
       await human("checkpoint", { reviewBase: true })
       await agent("building", "build-prompt")
     }
   },
-  review: {
-    flow: async () => {
-      await agent("fixing", "fix-prompt")
-    },
-    base: (vars) => vars.base ?? "",
+  {
+    vars: { base: "" },
+    base: (entry, vars) => (entry === "review" ? (vars.base ?? "") : undefined),
   },
-}, { vars: { base: "" } })
+)
 `
 
   it("is the process's diff base before any reviewBase step is reached", async () => {
@@ -487,22 +487,20 @@ export default workflow({
 describe("memory", () => {
   const SCOPED = `import { agent, exists, human, scope, workflow } from "@pmelab/gtd/flows"
 
-export default workflow({
-  default: async () => {
-    await human("idle")
-    do await agent("build", "b")
-    while (!exists("ROOT_DONE"))
-    for (const round of [1, 2]) {
-      await scope("a", async () => {
-        await agent("work", "a")
-        if (round === 2) {
-          await scope("child", () => agent("work", "c"))
-          await agent("again", "a-again")
-        }
-      })
-      if (round === 1) await scope("b", () => agent("work", "b"))
-    }
-  },
+export default workflow(async () => {
+  await human("idle")
+  do await agent("build", "b")
+  while (!exists("ROOT_DONE"))
+  for (const round of [1, 2]) {
+    await scope("a", async () => {
+      await agent("work", "a")
+      if (round === 2) {
+        await scope("child", () => agent("work", "c"))
+        await agent("again", "a-again")
+      }
+    })
+    if (round === 1) await scope("b", () => agent("work", "b"))
+  }
 })
 `
 
@@ -556,12 +554,10 @@ export default workflow({
   it("never resumes a session only a child scope's turn created", async () => {
     const repo = repoWith(`import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
 
-export default workflow({
-  default: async () => {
-    await human("idle")
-    await scope("child", () => agent("work", "c"))
-    await agent("build", "b")
-  },
+export default workflow(async () => {
+  await human("idle")
+  await scope("child", () => agent("work", "c"))
+  await agent("build", "b")
 })
 `)
     await land(repo, { "start.txt": "x\n" })
@@ -571,16 +567,16 @@ export default workflow({
 })
 
 describe("vars", () => {
-  const VARS = `import { agent, human, workflow } from "@pmelab/gtd/flows"
+  const VARS = `import { agent, human, workflow, refuse } from "@pmelab/gtd/flows"
 
 export default workflow(
-  {
-    default: async () => {
-      await human("idle")
-    },
-    side: async () => {
+  async ({ entry }) => {
+    if (entry === "side") {
       await agent("working", "w")
-    },
+      return
+    }
+    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
+    await human("idle")
   },
   { vars: { testCommand: "npm test", reviewer: "nobody" } },
 )
@@ -690,11 +686,9 @@ describe("renderRest — skills preamble", () => {
     `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(
-  {
-    default: async () => {
-      await human("idle", { message: "hello" })
-      await agent("working", "do-the-work", ${JSON.stringify(opts.skills === undefined ? {} : { skills: opts.skills })})
-    },
+  async () => {
+    await human("idle", { message: "hello" })
+    await agent("working", "do-the-work", ${JSON.stringify(opts.skills === undefined ? {} : { skills: opts.skills })})
   },
   { vars: { skillsPreamble: ${JSON.stringify(opts.preamble ?? "Load: <%= it.skills %>")} } },
 )
@@ -733,16 +727,14 @@ describe("judge rests", () => {
   ) => `import { human, judge, tail, workflow } from "@pmelab/gtd/flows"
 
 export default workflow(
-  {
-    default: async () => {
-      await human("idle")
-      await judge(
-        "verdict",
-        { id: "q", primitive: "noul", instructions: "i", criteria: "c" },
-        { log: tail("LOG.md", 1) },
-        { message: "judge-message" },
-      )
-    },
+  async () => {
+    await human("idle")
+    await judge(
+      "verdict",
+      { id: "q", primitive: "noul", instructions: "i", criteria: "c" },
+      { log: tail("LOG.md", 1) },
+      { message: "judge-message" },
+    )
   },
   { vars: { judgeBudgetBytes: ${JSON.stringify(budget)} } },
 )
@@ -785,12 +777,10 @@ export default workflow(
 describe("snapshotFromRest", () => {
   const REVERT = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-export default workflow({
-  default: async () => {
-    await human("idle")
-    await human("reviewed", { reviewBase: true })
-    await agent("awaitRevert", "revert-it", { requireRevert: true, file: ".gtd/AWAIT.md" })
-  },
+export default workflow(async () => {
+  await human("idle")
+  await human("reviewed", { reviewBase: true })
+  await agent("awaitRevert", "revert-it", { requireRevert: true, file: ".gtd/AWAIT.md" })
 })
 `
 

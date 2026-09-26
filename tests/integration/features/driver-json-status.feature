@@ -25,11 +25,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await run("checking", "echo hi")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run("checking", "echo hi")
       })
       """
     And a file "NOTE.md" with:
@@ -50,11 +48,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -75,11 +71,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -97,11 +91,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await run("checking", "echo hi")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run("checking", "echo hi")
       })
       """
     And a file "NOTE.md" with:
@@ -121,17 +113,16 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { added, agent, human, modified, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "go" })
-          for (;;) {
-            await agent("working", "...")
-            if (added("DONE.md").length > 0) break
-            if (modified(".gtd/FEEDBACK.md").length === 0) refuse("working must add DONE.md or edit .gtd/FEEDBACK.md")
-            await agent("fixing", "...")
-          }
-          await human("done", { message: "done" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        for (;;) {
+          await agent("working", "...")
+          if (added("DONE.md").length > 0) break
+          if (modified(".gtd/FEEDBACK.md").length === 0)
+            refuse("working must add DONE.md or edit .gtd/FEEDBACK.md")
+          await agent("fixing", "...")
+        }
+        await human("done", { message: "done" })
       })
       """
     And a file "NOTE.md" with:
@@ -165,13 +156,11 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "go" })
-          await agent("working", "...")
-          if (added("DONE.md").length === 0) refuse("working must add DONE.md")
-          await human("done", { message: "done" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "...")
+        if (added("DONE.md").length === 0) refuse("working must add DONE.md")
+        await human("done", { message: "done" })
       })
       """
     And a file "NOTE.md" with:
@@ -196,13 +185,11 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "go" })
-          await agent("working", "...")
-          if (added("DONE.md").length === 0) refuse("working must add DONE.md")
-          await human("done", { message: "done" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "...")
+        if (added("DONE.md").length === 0) refuse("working must add DONE.md")
+        await human("done", { message: "done" })
       })
       """
     And a file "NOTE.md" with:
@@ -227,11 +214,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, persona, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await persona({ model: "smart" }, () => agent("working", "do the work described in NOTE.md"))
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await persona({ model: "smart" }, () => agent("working", "do the work described in NOTE.md"))
       })
       """
     And a file "NOTE.md" with:
@@ -253,11 +238,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -279,13 +262,11 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, persona, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await persona({ system: "You are a careful senior engineer." }, () =>
-            agent("working", "do the work described in NOTE.md"),
-          )
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await persona({ system: "You are a careful senior engineer." }, () =>
+          agent("working", "do the work described in NOTE.md"),
+        )
       })
       """
     And a file "NOTE.md" with:
@@ -310,11 +291,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -336,13 +315,11 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, persona, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await persona({ system: "You are a careful senior engineer." }, () =>
-            agent("working", "do the work described in NOTE.md"),
-          )
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await persona({ system: "You are a careful senior engineer." }, () =>
+          agent("working", "do the work described in NOTE.md"),
+        )
       })
       """
     And a file "NOTE.md" with:
@@ -360,11 +337,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -386,11 +361,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
       })
       """
     When I run gtd next
@@ -407,11 +380,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md", { label: "Doing the work" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md", { label: "Doing the work" })
       })
       """
     And a file "NOTE.md" with:
@@ -433,11 +404,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -459,13 +428,11 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "go" })
-          await agent("working", "...")
-          if (added("DONE.md").length === 0) refuse("working must add DONE.md")
-          await human("done", { message: "done" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "...")
+        if (added("DONE.md").length === 0) refuse("working must add DONE.md")
+        await human("done", { message: "done" })
       })
       """
     And a file "NOTE.md" with:
@@ -493,11 +460,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md", { file: ".gtd/PLAN.md", mode: "qa" })
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md", { file: ".gtd/PLAN.md", mode: "qa" })
       })
       """
     And a file "NOTE.md" with:
@@ -521,11 +486,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -563,15 +526,13 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       - Change any source file to leave feedback and start another round.
       `
 
-      export default workflow({
-        default: async () => {
-          for (;;) {
-            await human("gate", { message: routes, acceptClean: true })
-            if (changed().length === 0) break
-            await agent("revise", "revise")
-          }
-          await human("accept", { message: "accept" })
-        },
+      export default workflow(async () => {
+        for (;;) {
+          await human("gate", { message: routes, acceptClean: true })
+          if (changed().length === 0) break
+          await agent("revise", "revise")
+        }
+        await human("accept", { message: "accept" })
       })
       """
     When I run gtd next
@@ -602,13 +563,11 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { added, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          do {
-            await run("checking", "echo hi")
-          } while (added("OUT.txt").length === 0)
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        do {
+          await run("checking", "echo hi")
+        } while (added("OUT.txt").length === 0)
       })
       """
     And a file "NOTE.md" with:
@@ -627,12 +586,10 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { added, agent, human, refuse, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("working", "do the work described in NOTE.md")
-          if (added("DONE.md").length === 0) refuse("working must add DONE.md")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+        if (added("DONE.md").length === 0) refuse("working must add DONE.md")
       })
       """
     And a file "NOTE.md" with:
@@ -650,11 +607,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       """
       import { human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await run("checking", "echo hi")
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run("checking", "echo hi")
       })
       """
     And I record the commit count

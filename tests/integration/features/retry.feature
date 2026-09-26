@@ -12,22 +12,20 @@ Feature: Retry redirection — a state's entry cap redirects at write time
       """
       import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          let fixes = 0
-          for (;;) {
-            await run("checking", "npm test")
-            if (added("FEEDBACK.md").length === 0) break
-            if (fixes >= 1) {
-              await human("escalate", { message: "stuck" })
-              break
-            }
-            fixes++
-            await agent("fixing", "fix it")
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        let fixes = 0
+        for (;;) {
+          await run("checking", "npm test")
+          if (added("FEEDBACK.md").length === 0) break
+          if (fixes >= 1) {
+            await human("escalate", { message: "stuck" })
+            break
           }
-          await human("done", { message: "done" })
-        },
+          fixes++
+          await agent("fixing", "fix it")
+        }
+        await human("done", { message: "done" })
       })
       """
     And a file "NOTE.md" with:
@@ -62,22 +60,20 @@ Feature: Retry redirection — a state's entry cap redirects at write time
       """
       import { added, agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("start", { message: "go" })
-          let fixes = 0
-          for (;;) {
-            await run("checking", "npm test")
-            if (added("FEEDBACK.md").length === 0) break
-            if (fixes >= 0) {
-              await human("escalate", { message: "stuck" })
-              break
-            }
-            fixes++
-            await agent("fixing", "fix it")
+      export default workflow(async () => {
+        await human("start", { message: "go" })
+        let fixes = 0
+        for (;;) {
+          await run("checking", "npm test")
+          if (added("FEEDBACK.md").length === 0) break
+          if (fixes >= 0) {
+            await human("escalate", { message: "stuck" })
+            break
           }
-          await human("done", { message: "done" })
-        },
+          fixes++
+          await agent("fixing", "fix it")
+        }
+        await human("done", { message: "done" })
       })
       """
     And a file "NOTE.md" with:

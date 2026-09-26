@@ -21,11 +21,9 @@ Feature: A large prompt survives its exit through a pipe
       """
       import { agent, human, read, workflow } from "@pmelab/gtd/flows"
 
-      export default workflow({
-        default: async () => {
-          await human("idle", { message: "write .gtd/NEXT.md to start" })
-          await agent("building", `Implement:\n${read(".gtd/NEXT.md") ?? ""}`)
-        },
+      export default workflow(async () => {
+        await human("idle", { message: "write .gtd/NEXT.md to start" })
+        await agent("building", `Implement:\n${read(".gtd/NEXT.md") ?? ""}`)
       })
       """
     And a file ".gtd/NEXT.md" padded to at least 200000 bytes with a repeating line

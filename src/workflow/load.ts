@@ -180,7 +180,6 @@ export const load: Effect.Effect<
       flows: loaded.workflow,
       modes: compiled.modes,
       initial,
-      manual: Object.keys(loaded.workflow.entries).filter((name) => name !== "default"),
     },
     workflowVars: { ...loaded.workflow.vars },
     rcVars: compiled.rcVars,
@@ -243,7 +242,7 @@ const firstStep = (
     Effect.promise(() =>
       replay({
         workflow: loaded.workflow,
-        episode: { entry: "default", base: { hash: "", tree: treeFromRecord({}) }, commits: [] },
+        episode: { entry: undefined, base: { hash: "", tree: treeFromRecord({}) }, commits: [] },
         vars,
         refs: { start: "", processBase: "" },
         budgetBytes: Number.MAX_SAFE_INTEGER,
