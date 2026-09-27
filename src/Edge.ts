@@ -446,15 +446,28 @@ const inScope = (name: string, scope: string): boolean =>
 
 /**
  * Where the current unbroken run of rests inside `scope`'s subtree began —
- * a dip into a descendant scope does not break it, a sibling or ancestor does.
+ * a dip into a descendant scope does not break it, a sibling or ancestor
+ * does, and so does a fresh `scope()` call of the same scope.
  */
 const scopeRunStart = (trace: readonly ReachedStep[], scope: string): number => {
   let start = -1
   for (let k = 0; k < trace.length; k++) {
     if (!inScope(trace[k]!.memoryScope, scope)) continue
-    if (k === 0 || !inScope(trace[k - 1]!.memoryScope, scope)) start = k
+    const previous = trace[k - 1]
+    const unbroken =
+      previous !== undefined &&
+      inScope(previous.memoryScope, scope) &&
+      scopeCallOf(previous, scope) === scopeCallOf(trace[k]!, scope)
+    if (!unbroken) start = k
   }
   return start
+}
+
+/** The innermost `scope()` call enclosing `scope` at `step` — a new call is a new conversation. */
+const scopeCallOf = (step: ReachedStep, scope: string): number | undefined => {
+  let call: number | undefined
+  for (const entry of step.scopeCalls) if (inScope(scope, entry.prefix)) call = entry.call
+  return call
 }
 
 // Shown for the root scope, which has no name of its own.

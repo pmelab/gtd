@@ -41,7 +41,7 @@ export const checkScript = (command: string, options: CheckScriptOptions): strin
     `    mv ${output} ${report}`,
     "  else",
     `    rm -f ${output}`,
-    `    printf 'the command failed with exit code %s and produced no output.' "$code" > ${report}`,
+    `    printf 'the test command failed with exit code %s and produced no output.' "$code" > ${report}`,
     "  fi",
     `  printf '\\n<!-- gtd check %s -->\\n' ${quote(options.stamp)} >> ${report}`,
     "else",

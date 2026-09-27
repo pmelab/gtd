@@ -76,6 +76,8 @@ export interface ReachedStep {
   readonly enteredAt: string
   /** Whether the judge budget cut this step's evidence. */
   readonly truncated: boolean
+  /** The named `scope()` calls enclosing the step, outermost first: each call's prefix and its own id. */
+  readonly scopeCalls: readonly { readonly prefix: string; readonly call: number }[]
 }
 
 export type ReplayOutcome =
@@ -245,6 +247,9 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   const occurrences = new Map<string, number>()
   const personas = new Map<string, Identity>()
   const scopes: ScopeOptions[] = []
+  // Numbers each scope() call in replay order, so two calls in a row are two conversations.
+  const scopeCallIds: number[] = []
+  let scopeCallCount = 0
   const trace: ReachedStep[] = []
   let landed: ReachedStep | undefined
   let outcome: ReplayOutcome | undefined
@@ -257,6 +262,17 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     outcome ??= result
     signal?.()
     throw new Stop()
+  }
+
+  const namedScopeCalls = (): { prefix: string; call: number }[] => {
+    const calls: { prefix: string; call: number }[] = []
+    const names: string[] = []
+    scopes.forEach((s, i) => {
+      if (s.name === undefined) return
+      names.push(s.name)
+      calls.push({ prefix: names.join("."), call: scopeCallIds[i]! })
+    })
+    return calls
   }
 
   const scoped = (name: string): string =>
@@ -337,6 +353,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       memoryScope: memoryScopeOf(name),
       enteredAt: position.hash,
       truncated: (judgeCuts.get(resolved) ?? []).length > 0,
+      scopeCalls: namedScopeCalls(),
     }
     trace.push(reached)
     return reached
@@ -432,8 +449,14 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       signal?.()
       throw new Stop()
     },
-    pushScope: (scope) => scopes.push(scope),
-    popScope: () => void scopes.pop(),
+    pushScope: (scope) => {
+      scopes.push(scope)
+      scopeCallIds.push(scopeCallCount++)
+    },
+    popScope: () => {
+      scopes.pop()
+      scopeCallIds.pop()
+    },
     read: (path) => position.tree.read(path),
     glob: (pattern) => position.tree.paths().filter((path) => globMatches(path, pattern)),
     changes: () => changesBetween(previousPosition.tree, position.tree),

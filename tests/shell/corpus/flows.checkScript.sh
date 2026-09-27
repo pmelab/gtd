@@ -11,7 +11,7 @@ if [ "$code" -ne 0 ]; then
     mv '.gtd/FEEDBACK.md.output' '.gtd/FEEDBACK.md'
   else
     rm -f '.gtd/FEEDBACK.md.output'
-    printf 'the command failed with exit code %s and produced no output.' "$code" > '.gtd/FEEDBACK.md'
+    printf 'the test command failed with exit code %s and produced no output.' "$code" > '.gtd/FEEDBACK.md'
   fi
   printf '\n<!-- gtd check %s -->\n' 'abc1234' >> '.gtd/FEEDBACK.md'
 else

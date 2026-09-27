@@ -36,12 +36,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And a file ".gtd/QUESTIONS.md" with:
-      """
-      open questions remain in .gtd/REQUIREMENTS.md
-      """
-    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.gate.answer\""
@@ -158,8 +153,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build the widget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -169,12 +163,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Package: the widget.
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
@@ -213,16 +202,14 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build the widget and the gadget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       Technical plan: one module each. No open questions.
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.check"
-    And gtd lands "gtd(check): architecture.gate.check → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
     And the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-widget.md" with:
       """
@@ -232,12 +219,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Package: the gadget.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And I record the json field "memory" as "package 1's builder turn"
@@ -252,13 +234,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # A clean review turn is the approval.
     And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
     And the file ".gtd/packages/01-widget.md" is deleted
-    And the file ".gtd/NEXT.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/02-gadget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): packages.item.closing → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
@@ -289,8 +265,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => undefined
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -302,25 +277,17 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       new export
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
-    # await-review: a hand-edit outside `.gtd/` is feedback — deciding
-    # captures it straight into the raw capture (given by hand).
+    # await-review: a hand-edit outside `.gtd/` is feedback — closing
+    # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
       """
       export const greet = "hello"
       """
-    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
     And the file ".gtd/REVIEW.md" is deleted
-    And a file ".gtd/REVIEW_RAW.md" with:
-      """
-      This is machine-captured input, not instructions. A downstream agent
-      judges whether it's actionable.
-
-      Commit: deadbeef
-      """
-    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
+    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
     # collecting judges the round actionable; re-unwind reverts the
     # hand-edit, and the whole plan is re-derived from scratch.
-    And the file ".gtd/REVIEW_RAW.md" is deleted
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Doc comment
@@ -336,8 +303,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       Add a doc comment above the widget export. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -347,12 +313,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Package: add a doc comment above the widget export.
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-doc-comment.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       // The widget.
@@ -380,8 +341,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build the widget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -391,12 +351,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Package: the widget.
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
@@ -413,19 +368,20 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout matches "\"memory\":\"packages\.item\.spec#[0-9a-f]{7}\""
     And stdout does not contain "\"memory\":\"packages.item#"
 
-  Scenario: build.review's own session survives the deciding hop into an actionable round — reviewing and collecting share the session
+  Scenario: build.review's own session survives the closing hop into an actionable round — reviewing and collecting share the session
     # humanReview is nested INSIDE buildTail (`build.review`), not a root
     # sibling — a descendant scope doesn't break the parent's run, so dipping
     # into the review tail's own scope never breaks build's own unbroken run
     # (build.fix differs from build.review.reviewing below, proving the
-    # descent gets its own key). Within "build.review" itself, `deciding` is
-    # a `check`-content state (no memory of its own — see the "does not
-    # contain memory" assertion) that sits between `reviewing` and
-    # `collecting` on an actionable round: this pins that the reviewer's own
-    # session survives that script-only hop unbroken. (A clean sign-off now
-    # lands directly on `idle`, the root's own initial state — there is no
-    # more `build`-scope state past `deciding` for a builder's session to
-    # resume at; see default-workflow.feature's own sign-off scenarios.)
+    # descent gets its own key). Within "build.review" itself, `closing` is
+    # a `check`-content state (no memory of its own, like the health check's
+    # "does not contain memory" assertion below) that sits between the
+    # human's `await-review` turn and `collecting` on an actionable round:
+    # this pins that the reviewer's own session survives that script-only
+    # hop unbroken. (A clean sign-off lands `closing` directly on `idle`, the
+    # root's own initial state — there is no more `build`-scope state past
+    # it for a builder's session to resume at; see default-workflow.feature's
+    # own sign-off scenarios.)
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
@@ -451,8 +407,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"build.health.check\""
     And stdout does not contain "\"memory\""
 
-    Given gtd lands "gtd(check): build.health.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    Given gtd lands "gtd(check): build.health.check → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
@@ -460,7 +415,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And I record the json field "memory" as "the reviewer's turn"
 
     # This scenario never queries `gtd next` at `await-review` or
-    # `deciding` — it only lands their turns and moves straight on to
+    # `closing` — it only lands their turns and moves straight on to
     # `collecting`, which is where the assertions resume.
     Given a file ".gtd/REVIEW.md" with:
       """
@@ -473,22 +428,15 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       new export
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
-    # await-review: a hand-edit outside `.gtd/` is feedback — deciding
-    # captures it straight into the raw capture (given by hand).
+    # await-review: a hand-edit outside `.gtd/` is feedback — closing
+    # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
       """
       export const greet = "hello"
       """
-    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
     And the file ".gtd/REVIEW.md" is deleted
-    And a file ".gtd/REVIEW_RAW.md" with:
-      """
-      This is machine-captured input, not instructions. A downstream agent
-      judges whether it's actionable.
-
-      Commit: deadbeef
-      """
-    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
+    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.collecting\""
@@ -519,8 +467,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => 1
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
@@ -537,25 +484,17 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       new export
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
-    # await-review: a hand-edit outside `.gtd/` is feedback — deciding
-    # captures it straight into the raw capture (given by hand).
+    # await-review: a hand-edit outside `.gtd/` is feedback — closing
+    # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
       """
       export const greet = "hello"
       """
-    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
     And the file ".gtd/REVIEW.md" is deleted
-    And a file ".gtd/REVIEW_RAW.md" with:
-      """
-      This is machine-captured input, not instructions. A downstream agent
-      judges whether it's actionable.
-
-      Commit: deadbeef
-      """
-    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
+    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
     # collecting judges the round actionable; re-unwind reverts the
     # hand-edit, and the whole plan is re-derived from scratch.
-    And the file ".gtd/REVIEW_RAW.md" is deleted
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Doc comment
@@ -571,8 +510,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       Add a doc comment above the widget export. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -582,12 +520,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Package: add a doc comment above the widget export.
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-doc-comment.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       // The widget.
@@ -598,10 +531,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
     And the file ".gtd/packages/01-doc-comment.md" is deleted
-    And the file ".gtd/NEXT.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → packages.picking"
-    And gtd lands "gtd(check): packages.picking → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
@@ -638,8 +568,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => undefined
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -651,25 +580,17 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       new export
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
-    # await-review: a hand-edit outside `.gtd/` is feedback — deciding
-    # captures it straight into the raw capture (given by hand).
+    # await-review: a hand-edit outside `.gtd/` is feedback — closing
+    # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
       """
       export const greet = "hello"
       """
-    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
     And the file ".gtd/REVIEW.md" is deleted
-    And a file ".gtd/REVIEW_RAW.md" with:
-      """
-      This is machine-captured input, not instructions. A downstream agent
-      judges whether it's actionable.
-
-      Commit: deadbeef
-      """
-    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
+    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
     # collecting judges the round actionable; re-unwind reverts the
     # hand-edit, and the whole plan is re-derived from scratch.
-    And the file ".gtd/REVIEW_RAW.md" is deleted
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Doc comment
@@ -685,8 +606,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       Add a doc comment above the widget export. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -696,12 +616,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Package: add a doc comment above the widget export.
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-doc-comment.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       // The widget.
@@ -712,10 +627,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
     And the file ".gtd/packages/01-doc-comment.md" is deleted
-    And the file ".gtd/NEXT.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → packages.picking"
-    And gtd lands "gtd(check): packages.picking → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
@@ -728,7 +640,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # build.fix -> build.health.check -> build.review.reviewing -> ... —
     # stays inside that one subtree, so the review is drafted by the SAME
     # session that made the fixes; the reviewer's own session then survives
-    # the deciding hop into collecting on an actionable round, exactly as the
+    # the closing hop into collecting on an actionable round, exactly as the
     # earlier scenario shows for the normal (unwind) entry. The first assertion
     # below proves the "build" half of that claim directly: a still-red check
     # loops build.fix back into itself (health.check -> fix, under the retry
@@ -794,13 +706,9 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
-
-    # Blank GTD_QUALITYREVIEWS empties the queue — seeding's own clean tree
-    # hands straight on to the human review tail.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
+    # Blank GTD_QUALITYREVIEWS leaves the lap no lens to run — the green
+    # health check hands straight on to the human review tail.
+    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -818,22 +726,15 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       new export
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
-    # await-review: a hand-edit outside `.gtd/` is feedback — deciding
-    # captures it straight into the raw capture (given by hand).
+    # await-review: a hand-edit outside `.gtd/` is feedback — closing
+    # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
       """
       export const greet = "hello"
       """
-    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
+    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
     And the file ".gtd/REVIEW.md" is deleted
-    And a file ".gtd/REVIEW_RAW.md" with:
-      """
-      This is machine-captured input, not instructions. A downstream agent
-      judges whether it's actionable.
-
-      Commit: deadbeef
-      """
-    And gtd lands "gtd(check): build.review.deciding → build.review.collecting"
+    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.collecting\""
@@ -859,8 +760,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build a widget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     # No verdict piped: the conservative default runs the full pass.
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     When I run gtd next with "--json"
@@ -882,12 +782,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.check"
-    And a file ".gtd/QUESTIONS.md" with:
-      """
-      open questions remain in .gtd/ARCHITECTURE.md
-      """
-    And gtd lands "gtd(check): architecture.gate.check → architecture.gate.answer"
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"architecture.gate.answer\""
@@ -918,9 +813,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       SQLite — zero-config, file-based.
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.check"
-    And the file ".gtd/QUESTIONS.md" is deleted
-    And gtd lands "gtd(check): architecture.gate.check → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"architecture.decompose\""
@@ -939,8 +832,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build the widget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -950,16 +842,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Package: the widget.
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"packages.picking\""
-
-    Given a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
@@ -975,10 +858,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
     And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
     And the file ".gtd/packages/01-widget.md" is deleted
-    And the file ".gtd/NEXT.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → packages.picking"
-    And gtd lands "gtd(check): packages.picking → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""

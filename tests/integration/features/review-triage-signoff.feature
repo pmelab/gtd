@@ -11,8 +11,8 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
   Both scenarios reach `build.review.await-review` by the shortest real
   history — `--entry review-gate.check` with the quality lap disabled, then
   one reviewer turn writing `.gtd/REVIEW.md`. `closing`'s own shell body is
-  a workflow-authored script a real DRIVER runs (never this test harness,
-  @inmem's own convention) — its effect is given by hand here.
+  a script a real driver runs, never this in-memory harness — its effect is
+  given by hand here.
 
   @inmem
   Scenario: a purely approving remark signs off with no planner turn spent
