@@ -5,11 +5,10 @@ import { ConfigSchema } from "./ConfigSchema.js"
 type JsonObject = Record<string, unknown>
 
 describe("ConfigSchema — the published shape", () => {
-  it("publishes vars, modes and ui, and rejects any workflow: value", () => {
+  it("publishes vars, modes and ui", () => {
     const schema = JSONSchema.make(ConfigSchema) as unknown as JsonObject
     const properties = schema["properties"] as JsonObject
-    expect(Object.keys(properties)).toEqual(["workflow", "vars", "modes", "ui"])
-    expect(properties["workflow"]).toMatchObject({ not: {} })
+    expect(Object.keys(properties)).toEqual(["vars", "modes", "ui"])
   })
 })
 

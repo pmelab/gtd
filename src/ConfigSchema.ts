@@ -93,9 +93,6 @@ const UiSchema = Schema.Struct({
 }).annotations({ jsonSchema: uiJsonSchema })
 
 export const ConfigSchema = Schema.Struct({
-  // Decoded only so its compile step can name gtd.config.ts; the published
-  // schema rejects it.
-  workflow: Schema.optional(Schema.Unknown.annotations({ jsonSchema: { not: {} } })),
   vars: Schema.optional(Schema.Unknown.annotations({ jsonSchema: varsJsonSchema })),
   modes: Schema.optional(Schema.Unknown.annotations({ jsonSchema: modesJsonSchema })),
   ui: Schema.optional(UiSchema),

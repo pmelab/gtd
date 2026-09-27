@@ -15,7 +15,7 @@ describe("landFields / renderLandJson", () => {
     script: "printf '%s %s\\n' '[commit]' 'gtd(agent): build.fixing'\ngit commit ...\n",
     settled: false,
     idle: false,
-    state: "build.review.deciding",
+    state: "build.review.closing",
     subject: "gtd(agent): build.fixing",
     cost: 0.42,
     model: "smart",
@@ -101,7 +101,7 @@ describe("landFields / renderLandJson", () => {
     // `LandFields`' script/settled/idle/state/subject/cost/model, so this
     // test would fail if `landFields` stopped reordering.
     const resultShaped: LandResultSource = {
-      state: "build.review.deciding",
+      state: "build.review.closing",
       subject: "gtd(agent): build.fixing",
       cost: 0.42,
       model: "smart",
@@ -143,7 +143,7 @@ describe("renderLandPlain", () => {
     script: "printf '%s %s\\n' '[commit]' 'gtd(agent): build.fixing'\ngit commit ...\n",
     settled: false,
     idle: false,
-    state: "build.review.deciding",
+    state: "build.review.closing",
     subject: "gtd(agent): build.fixing",
     cost: 0.42,
     model: "smart",

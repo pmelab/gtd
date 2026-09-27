@@ -402,11 +402,10 @@ export const buildFormatCommand = (
 /**
  * `true` only for the one rest the phone client can actually render: a
  * rest whose ACTOR is human, carrying a `file`. An idle rest is renderable
- * too (package 02) — the client opens free-form on `.gtd/TODO.md` and the
+ * too — the client opens free-form on `.gtd/TODO.md` and the
  * human's own write is what eventually moves the state, not this axis.
- * `mode` is no longer part of this axis either — an absent or unregistered
- * `mode` falls back to free-form rendering (Tasks 3/4/7), so it can no
- * longer be a reason to refuse. `kind` is never read either — a `message`
+ * `mode` is not part of this axis — an absent or unregistered `mode` falls
+ * back to free-form rendering, so it is never a reason to refuse. `kind` is never read either — a `message`
  * rest whose beat reports a human actor is just as renderable as a `prompt`
  * rest with the same shape, and content kind shifts under the human's own
  * editing (a `message` rest turns `capture` the moment the tree is

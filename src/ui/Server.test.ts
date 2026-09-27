@@ -2530,7 +2530,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
           idle: false,
           actor: "human",
           label: "a different rest",
-          state: "build.review.deciding",
+          state: "build.review.closing",
           file: "NOTES.md",
           mode: "qa",
         }),

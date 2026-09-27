@@ -1,7 +1,7 @@
 @live
 Feature: Reads are safe to poll — a settled rest answers identically and mutates nothing
 
-  `gtd next` and `gtd status` must be safe to poll: nothing may move between
+  `gtd next` must be safe to poll: nothing may move between
   the run that reports a rest and any following call. Session id and resume
   are a pure derivation of history and write nothing, and no command records
   that a beat was dispatched — largely guaranteed already, but a gap in

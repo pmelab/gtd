@@ -206,15 +206,6 @@ describe("gtd --entry <name> — the bundled workflow", () => {
 })
 
 describe("config loading", () => {
-  it("a .gtdrc `workflow:` key is a load error — the workflow lives in gtd.config.ts", async () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.yaml", "workflow:\n  entry:\n    default: root\n")
-    repo.commitAllWithPrefix("chore: add a stale config")
-    const { exitCode, stderr } = await run(repo, "next")
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain('"workflow" is no longer read from a .gtdrc file')
-  })
-
   it('gtd next --verbose narrates "config: layer" exactly once — the extra load that surfaces warnings is silent', async () => {
     const repo = new InMemRepo()
     repo.writeFile(".gtdrc.json", "{}\n")

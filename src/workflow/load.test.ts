@@ -149,12 +149,6 @@ describe("ConfigService", () => {
     expect(cfg.workflow.initial).toBe("child-idle")
   })
 
-  it("rejects a `workflow:` key in a .gtdrc, pointing at gtd.config.ts", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `workflow:\n  entry: {}\n`)
-
-    await expect(getConfig()).rejects.toThrow(/define the workflow in gtd\.config\.ts/)
-  })
-
   it("rejects a gtd.config.ts whose default export is not a flow", async () => {
     writeFileSync(join(projectDir, "gtd.config.ts"), `export default { nope: true }\n`)
 

@@ -7,8 +7,7 @@ Feature: gtd land — the one landing verb, actorless
   `stalled` included — 1 for a refusal, 2 for a usage error (nothing emitted
   either way). Whose turn is next lives entirely in the FOLLOWING
   `gtd next --json`'s own `kind` field, never in `gtd land`'s exit code.
-  `gtd step <actor>` is removed outright; `--entry` is only the bare
-  `gtd --entry <state>` form.
+  `--entry` is only the bare `gtd --entry <state>` form.
 
   @inmem
   Scenario: a capture landing into a prompt state succeeds and lands
@@ -142,15 +141,6 @@ Feature: gtd land — the one landing verb, actorless
     And stderr contains "too many arguments"
 
   @inmem
-  Scenario: gtd step human prints the REMOVED pointer instead of an unknown-command error — exit 2
-    Given a test project
-    When I run gtd with args "step human"
-    Then the exit code is 2
-    And stderr contains "gtd step <actor>"
-    And stderr contains "gtd land"
-    And stderr contains "gone"
-
-  @inmem
   Scenario: gtd land --json=<path> and --json now exist, carrying script/settled/idle/state/subject/cost/model
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -241,4 +231,3 @@ Feature: gtd land — the one landing verb, actorless
     When I run gtd land --json=script piped to sh
     Then the exit code is 0
     And the last commit subject is "gtd(human): idle → working"
-

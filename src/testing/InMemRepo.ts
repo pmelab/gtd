@@ -157,7 +157,6 @@ export class InMemRepo {
   ): Array<{
     hash: string
     message: string
-    removedErrors: boolean
     touched: ReadonlyArray<string>
   }> {
     const headHash = head !== undefined ? this.resolveRef(head) : this.head
@@ -189,13 +188,8 @@ export class InMemRepo {
 
     return filtered.map((c) => {
       const parentTree = c.parent ? (this.getCommit(c.parent)?.files ?? new Map()) : new Map()
-      // Legacy root-level ERRORS.md kept so pre-namespaced history still
-      // classifies (mirrors src/platform/Git.ts).
-      const removedErrors = [".gtd/ERRORS.md", "ERRORS.md"].some(
-        (p) => parentTree.has(p) && !c.files.has(p),
-      )
       const touched = diffTrees(parentTree, c.files).map((e) => e.path)
-      return { hash: c.hash, message: c.message, removedErrors, touched }
+      return { hash: c.hash, message: c.message, touched }
     })
   }
 

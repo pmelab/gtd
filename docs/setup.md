@@ -6,11 +6,10 @@ Install [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills)
 — the bundled workflow's build/fix/review steps name skills from this set in
 their prompts instead of spelling out their technique in prose. This is a real
 prerequisite, not an optional boost: without it installed, your harness has
-nothing to load at those steps, and the prompt no longer carries the prose that
-used to stand in for it. gtd itself never installs, resolves, or verifies this —
-a repo can also repoint any of the bundled `*Skills` config vars to name a
-different set its own harness has instead. Blanking the `skillsPreamble` var
-turns the skill names off but does not restore the deleted prose.
+nothing to load at those steps, and the prompt carries no prose standing in for
+it. gtd itself never installs, resolves, or verifies this — a repo can also
+repoint any of the bundled `*Skills` config vars to name a different set its own
+harness has instead, or blank one to drop the skill names from that step.
 
 ### Using a different skill set
 

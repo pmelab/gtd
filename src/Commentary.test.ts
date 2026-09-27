@@ -20,14 +20,11 @@ describe("Narrator", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const narrator = yield* Narrator
-        yield* narrator.narrate("rest resolved: build.review.deciding")
+        yield* narrator.narrate("rest resolved: build.review.closing")
         yield* narrator.narrate("config: layer /repo/.gtdrc")
       }).pipe(Effect.provide(Narrator.layer((chunk) => lines.push(chunk), true))),
     )
-    expect(lines).toEqual([
-      "rest resolved: build.review.deciding\n",
-      "config: layer /repo/.gtdrc\n",
-    ])
+    expect(lines).toEqual(["rest resolved: build.review.closing\n", "config: layer /repo/.gtdrc\n"])
   })
 
   it("warn writes to the sink even when verbose: false", async () => {

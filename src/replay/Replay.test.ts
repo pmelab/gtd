@@ -113,8 +113,8 @@ const restName = (outcome: ReplayOutcome): string => {
   return `${outcome.rest.name}#${outcome.rest.id.occurrence}`
 }
 
-// Plain loops, a counter cap, and helper-driven branches: the shape every
-// bundled fragment has.
+// Plain loops, a counter cap, and helper-driven branches: the shape the
+// bundled workflow has.
 const fixLoop = async () => {
   await human("idle", { file: "TODO.md" })
   for (let attempt = 1; ; attempt++) {

@@ -30,9 +30,8 @@ export interface GitReaderOperations {
    * First-parent history from `base..head` (or through `head` if no base),
    * oldest→newest; `head` defaults to `"HEAD"`. Pass a resolved hash to walk a
    * head other than the literal `HEAD`.
-   * `removedErrors` is true iff the commit's name-status diff deletes
-   * `.gtd/ERRORS.md` (or the legacy root-level path); `touched` lists the
-   * paths that diff mentions, from the same git invocation.
+   * `touched` lists the paths the commit's name-status diff mentions, from
+   * the same git invocation.
    */
   readonly commitHistory: (
     base?: string,
@@ -41,7 +40,6 @@ export interface GitReaderOperations {
     ReadonlyArray<{
       readonly hash: string
       readonly message: string
-      readonly removedErrors: boolean
       readonly touched: ReadonlyArray<string>
     }>,
     Error
@@ -147,9 +145,6 @@ const stripCommitSeam = (tail: string): string => {
   const afterNul = tail.startsWith("\x00") ? tail.slice(1) : tail
   return afterNul.startsWith("\n") ? afterNul.slice(1) : afterNul
 }
-
-/** The two spellings of the errors file a commit's deletion of it may carry — the namespaced state-dir path, and the legacy root-level one from pre-`.gtd/` history. */
-const ERRORS_MD_PATHS: ReadonlySet<string> = new Set([".gtd/ERRORS.md", "ERRORS.md"])
 
 type GitExec = (...args: [string, ...Array<string>]) => Effect.Effect<string, Error>
 
@@ -412,11 +407,8 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
               // before, without pretending to fix it.
               const tail = parts.slice(2).join("")
               const entries = parseNameStatus(splitNul(stripCommitSeam(tail)))
-              const removedErrors = entries.some(
-                (e) => e.status === "D" && ERRORS_MD_PATHS.has(e.path),
-              )
               const touched = entries.map((e) => e.path)
-              return { hash, message, removedErrors, touched }
+              return { hash, message, touched }
             }),
         ),
         // Empty repo (no HEAD) makes `git log` fail; treat as no commits.
@@ -425,7 +417,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
             [] as ReadonlyArray<{
               readonly hash: string
               readonly message: string
-              readonly removedErrors: boolean
               readonly touched: ReadonlyArray<string>
             }>,
           ),

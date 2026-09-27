@@ -93,13 +93,13 @@ the agent CLI's own session flags — the minimal driver below passes them as
 `--session-id <id>`/`--resume <id>` to `claude -p`, but treats `resume` as a
 HINT rather than a contract: it tries the flag `resume` points at first and
 falls back to the other on failure. That fallback is what recovers BOTH
-mismatches that used to need manual intervention — a crashed prior turn that
-minted an id but landed no commit (so the next lap re-derives the SAME id with
-`resume: false`, and `--session-id` on an already-used id fails, so the driver
-falls back to `--resume`), and the inverse (`resume: true`, but the remembered
-session is gone — retention expired, `~/.claude/projects` wiped — so `--resume`
-fails and the driver falls back to `--session-id`). There is no file to delete
-and nothing to restart.
+mismatches that would otherwise need manual intervention — a crashed prior turn
+that minted an id but landed no commit (so the next lap re-derives the SAME id
+with `resume: false`, and `--session-id` on an already-used id fails, so the
+driver falls back to `--resume`), and the inverse (`resume: true`, but the
+remembered session is gone — retention expired, `~/.claude/projects` wiped — so
+`--resume` fails and the driver falls back to `--session-id`). There is no file
+to delete and nothing to restart.
 
 ### Terminal-multiplexer status: a herdr wrapper
 

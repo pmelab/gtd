@@ -203,22 +203,12 @@ interface ParsedCommit extends EpisodeCommit {
  */
 const STEERING_OPTIONS = ["file", "mode", "label", "base"]
 // The option keys each step accepts. A gtd.config.ts is evaluated without a
-// type check, so a misspelt or retired key would otherwise be silently ignored.
+// type check, so a misspelt key would otherwise be silently ignored.
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
   agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty"]),
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean"]),
   run: new Set(STEERING_OPTIONS),
   judge: new Set([...STEERING_OPTIONS, "message"]),
-}
-const RETIRED_OPTIONS: Readonly<Record<string, string>> = {
-  memory:
-    "a step's memory scope is computed from its scope() prefix, so the memory option no longer exists",
-  requireProgress: "check the step's changes() in the flow and refuse() instead",
-  answerGate: "check openQuestions() in the flow and refuse() instead",
-  requireRevert: "compare the files against the changes() you kept and refuse() instead",
-  reviewBase: "record head() in the flow and pass it as the reviewing step's base",
-  minP: "compare the answer's p in the flow instead",
-  skills: "put the skills preamble into the prompt yourself",
 }
 
 const unknownOptions = (step: ReachedStep): string | undefined => {
@@ -226,8 +216,7 @@ const unknownOptions = (step: ReachedStep): string | undefined => {
     (key) => !KNOWN_OPTIONS[step.kind].has(key),
   )
   if (unknown.length === 0) return undefined
-  const why = unknown.flatMap((key) => (RETIRED_OPTIONS[key] ? [RETIRED_OPTIONS[key]] : []))
-  return `gtd: step "${step.name}": unknown key(s) ${unknown.join(", ")} in ${step.kind}() options${why.length > 0 ? ` — ${why.join("; ")}` : ""}`
+  return `gtd: step "${step.name}": unknown key(s) ${unknown.join(", ")} in ${step.kind}() options`
 }
 
 export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {

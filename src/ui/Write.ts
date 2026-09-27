@@ -21,11 +21,11 @@ export const contentHashOf = (content: string): string =>
  * parses) — never a shared message string, so the phone can render a
  * different sentence for each. One more, reachable but not among T8's four,
  * gets its OWN distinct value rather than being folded into
- * `anchor-unresolved` (the bug a previous round of this package shipped):
+ * `anchor-unresolved`:
  * `note-collision` (the anchor resolved fine, but `annotate` refused because
  * the derived note id already names an existing definition — `SteeringFormat`
  * `id-collision`, T2's own "two attaches at the same anchor are rejected").
- * An unregistered/absent `request.mode` is no longer a refusal at all — it
+ * An unregistered/absent `request.mode` is never a refusal — it
  * resolves to the free-form format (`steering/index.ts#steeringFormatOrFreeForm`),
  * which only ever resolves a `paragraph` anchor, so a non-paragraph anchor
  * against it surfaces as `anchor-unresolved` like any other stale anchor.

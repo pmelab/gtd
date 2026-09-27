@@ -419,9 +419,8 @@ Supported filenames (searched in this order):
   `@pmelab/gtd@8/schema.json`, or point at your own install
   (`./node_modules/@pmelab/gtd/schema.json`) to work offline.
 
-Any other top-level key is **rejected**. A `workflow:` key in particular is a
-load error pointing at `gtd.config.ts` — workflows are no longer read from a
-`.gtdrc`.
+Any other top-level key is **rejected** — the workflow itself lives in
+`gtd.config.ts`, never in a `.gtdrc`.
 
 `gtd init` writes a minimal `.gtdrc.json`: the `$schema` line, the one variable
 most projects change (`vars.testCommand`, defaulting to `npm test`), and a

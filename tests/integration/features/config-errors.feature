@@ -77,20 +77,6 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     And stderr contains "gtd config:"
     And stderr contains "mode \"adr\": unknown key(s) lint"
 
-  Scenario: a mode command still written as an Eta template fails naming "$GTD_FILE"
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          format: "npx prettier --write <%= it.file %>"
-      """
-    When I run gtd next
-    Then it fails
-    And stderr contains "gtd config:"
-    And stderr contains "mode \"qa\": \"format\": Eta templates are gone"
-    And stderr contains "$GTD_FILE"
-
   Scenario: a malformed top-level "modes:" key fails the same way as a workflow-level one
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -103,20 +89,6 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     Then it fails
     And stderr contains "gtd config:"
     And stderr contains "mode \"qa\": unknown key(s) formatt"
-
-  Scenario: a leftover ".gtdrc" "workflow:" key fails with the migration message, not downstream noise
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      workflow:
-        entry:
-          default: root
-      """
-    When I run gtd next
-    Then it fails
-    And stderr contains "gtd config:"
-    And stderr contains "\"workflow\" is no longer read from a .gtdrc file"
-    And stderr contains "define the workflow in gtd.config.ts"
 
   Scenario: an unknown top-level config key fails with remediation naming the key and its file — unconditional, no --verbose needed
     Given a test project

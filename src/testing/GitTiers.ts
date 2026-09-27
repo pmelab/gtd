@@ -398,31 +398,6 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       expect(result[2]?.message).toBe("feat: third")
     })
 
-    it("sets removedErrors=true only for the commit that deleted ERRORS.md", async () => {
-      t.seed.commit("gtd: test-failed", { "ERRORS.md": "some errors" })
-      t.seed.commitDeletion("ERRORS.md", "gtd: building")
-      t.seed.commit("feat: after", { "after.txt": "after" })
-      const result = await runGit(t, (g) => g.commitHistory())
-      expect(result[0]?.removedErrors).toBe(false)
-      expect(result[1]?.removedErrors).toBe(false)
-      expect(result[2]?.removedErrors).toBe(true)
-      expect(result[3]?.removedErrors).toBe(false)
-    })
-
-    it("sets removedErrors=true for a deletion of the namespaced state-dir ERRORS.md", async () => {
-      t.seed.commit("gtd: test-failed", { ".gtd/ERRORS.md": "some errors" })
-      t.seed.commitDeletion(".gtd/ERRORS.md", "gtd: building")
-      const result = await runGit(t, (g) => g.commitHistory())
-      expect(result[result.length - 1]?.removedErrors).toBe(true)
-    })
-
-    it("leaves removedErrors=false for a deletion of a path merely ending in ERRORS.md", async () => {
-      t.seed.commit("chore: seed", { "sub/ERRORS.md": "some errors" })
-      t.seed.commitDeletion("sub/ERRORS.md", "chore: remove")
-      const result = await runGit(t, (g) => g.commitHistory())
-      expect(result[result.length - 1]?.removedErrors).toBe(false)
-    })
-
     it("limits to base..HEAD range when base is provided", async () => {
       t.seed.commit("feat: second", { "b.txt": "b" })
       const base = t.observe.resolveRef("HEAD")

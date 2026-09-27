@@ -616,32 +616,6 @@ const COMMAND_ROWS: readonly CommandRow[] = [
 const commandByToken = (token: string): CommandRow | undefined =>
   COMMAND_ROWS.find((r) => r.token === token)
 
-/**
- * Named commands the generic `--entry` mechanism replaced. No fallback: they
- * fail with a message pointing at the replacement rather than the generic
- * "unknown command".
- */
-const REMOVED: Readonly<Record<string, string>> = {
-  step:
-    "gtd: `gtd step <actor>` is gone — landing is actorless; run `gtd land` " +
-    "instead (`gtd --entry <state>` for entries)",
-  review:
-    "gtd: `gtd review <commitish>` is gone — this workflow's own state names " +
-    "aren't known to gtd; run `gtd --entry <review-state> " +
-    "--var <name>=<value> ...` instead — run it with an unknown <review-state> " +
-    "to see this workflow's own enterable states",
-  fix:
-    "gtd: `gtd fix` is gone — this workflow's own state names aren't known to " +
-    "gtd; run `gtd --entry <fix-state>` instead — run it with an " +
-    "unknown <fix-state> to see this workflow's own enterable states",
-  loop:
-    "gtd: `gtd loop` is gone — gtd decides and prints, a driver executes. " +
-    "Run `gtd install`, or copy the reference driver from " +
-    "https://github.com/pmelab/gtd/blob/main/docs/driver.md's " +
-    '"A complete minimal driver" section and run that instead',
-  status: "gtd: `gtd status` is gone — run `gtd next` instead; --json moved with it",
-}
-
 // ---------------------------------------------------------------------------
 // Help rendering
 // ---------------------------------------------------------------------------
@@ -924,7 +898,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   if (first === "help") return { kind: "output", stdout: renderHelp() }
 
   const row = first === undefined ? undefined : commandByToken(first)
-  const removedMessage = first === undefined ? undefined : REMOVED[first]
 
   // `gtd judge answer` — the CLI's one two-level verb. The NORMAL path is
   // "answer" arriving as `positionals[1]`, a second token after "judge" —
@@ -951,7 +924,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       ? "judgeAnswer"
       : row?.kind
 
-  if (row === undefined && removedMessage === undefined && !selectsEntry) {
+  if (row === undefined && !selectsEntry) {
     // No dispatchable row resolved (missing/unknown command) — a scoped flag
     // used here (e.g. `--var` with no `--entry`) is a more specific error
     // than "missing command"/"unknown command", so it takes priority (mirrors
@@ -971,11 +944,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       )
     }
     return usagePlan(`unknown command '${first}'`, jsonSeen)
-  }
-
-  if (removedMessage !== undefined && !selectsEntry) {
-    const violation = scopeViolation(undefined, present)
-    return usagePlan(violation ?? removedMessage, jsonSeen)
   }
 
   // From here, `kind` is a genuine `Command["kind"]`. `judgeAnswer` consumes

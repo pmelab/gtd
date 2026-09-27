@@ -41,12 +41,6 @@ export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file
 export const withFileVar = (command: string, file: string): string =>
   `export GTD_FILE=${shellQuote(file)}\n${command}`
 
-/** Eta's `<%` — the templating mode commands no longer have. */
-export const legacyTemplateHint = (command: string): string | undefined =>
-  command.includes("<%")
-    ? `Eta templates are gone — name the file as "$GTD_FILE" instead (e.g. prettier --write "$GTD_FILE")`
-    : undefined
-
 /**
  * The leading word of a rendered `format:`/`validate:` command, when — and
  * only when — the command has exactly one unambiguous binary to probe: a

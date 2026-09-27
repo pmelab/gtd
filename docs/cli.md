@@ -213,16 +213,10 @@ that signal — a parent's `wait` sees a real signal death (`WIFSIGNALED`), not 
 chosen exit code that merely reuses the same number. No command's exit code
 carries a second meaning.
 
-**Migration — read this even if you already migrated for a prior release.** This
-is the second inversion in as many releases, folded into one note rather than
-two to compose in your head: `10`/`20` (whose turn was next) are gone — every
-command exits `0`/`1`/`2` uniformly now; `gtd status` is gone (folded into
-`gtd next`); and plain `gtd next` now prints a status header at every kind
-EXCEPT `prompt` — agent input is untouched, since plain `gtd next` at a `prompt`
-rest is byte-identical to before. A driver must read whose turn is next off
-`gtd next --json`'s own `kind` field
-(`capture`/`message`/`script`/`prompt`/`stalled`) — never off gtd's exit code,
-which no longer carries that signal at all.
+A driver reads whose turn is next off `gtd next --json`'s own `kind` field
+(`capture`/`message`/`script`/`prompt`/`stalled`), never off gtd's exit code.
+Plain `gtd next` prints a status header at every kind except `prompt`, whose
+output is exactly the agent's input.
 
 Every usage mistake — an unknown option or command, missing/extra arguments, a
 scope violation (e.g. `--cost` on a command other than `gtd land`), a bad flag

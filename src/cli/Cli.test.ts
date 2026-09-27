@@ -97,8 +97,8 @@ describe("parseArgv — arity", () => {
 })
 
 describe("parseArgv — scope", () => {
-  it("--cost on the removed `status` token still reports the flag's own scope error, not the removal message", () => {
-    const plan = parseArgv(["node", "gtd.js", "status", "--cost=5"])
+  it("--cost on an unknown command reports the flag's own scope error, not the unknown command", () => {
+    const plan = parseArgv(["node", "gtd.js", "frobnicate", "--cost=5"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
   })
@@ -123,7 +123,6 @@ describe("parseArgv — scope", () => {
       ["install", "--json"],
       ["abandon", "--json"],
       ["restore", "--json"],
-      ["status", "--json"],
       ["--entry", "some-state", "--json"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
@@ -186,7 +185,7 @@ describe("parseArgv — scope", () => {
 
   it("--entry on `gtd land` (or any other command) is rejected — landing and entering are different verbs", () => {
     for (const args of [
-      ["status", "--entry", "e"],
+      ["validate", "--entry", "e"],
       ["land", "--entry", "e"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
@@ -209,7 +208,6 @@ describe("parseArgv — scope", () => {
   it("--dispatch is gone: an unknown-option usage error everywhere, `gtd next` included", () => {
     for (const args of [
       ["land", "--dispatch"],
-      ["status", "--dispatch"],
       ["validate", "--dispatch"],
       ["next", "--json", "--dispatch"],
     ]) {
@@ -651,69 +649,6 @@ describe("parseArgv — --verbose / -v (the -v/-V swap)", () => {
   })
 })
 
-describe("parseArgv — removed subcommands", () => {
-  it("`gtd step <actor>` points at the land replacement", () => {
-    const plan = parseArgv(["node", "gtd.js", "step", "human"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("gtd step <actor>")
-      expect(plan.message).toContain("gone")
-      expect(plan.message).toContain("gtd land")
-      expect(plan.message).not.toContain("unknown command")
-    }
-  })
-
-  it("`gtd review <commitish>` points at the --entry replacement", () => {
-    const plan = parseArgv(["node", "gtd.js", "review", "abc123"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("gtd review <commitish>")
-      expect(plan.message).toContain("gone")
-      expect(plan.message).toContain("--entry")
-      expect(plan.message).not.toContain("unknown command")
-    }
-  })
-
-  it("`gtd fix` points at the --entry replacement", () => {
-    const plan = parseArgv(["node", "gtd.js", "fix"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("gtd fix")
-      expect(plan.message).toContain("gone")
-      expect(plan.message).toContain("--entry")
-    }
-  })
-
-  it("`gtd loop` points at gtd install — not the old bash loop", () => {
-    const plan = parseArgv(["node", "gtd.js", "loop"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("gtd loop")
-      expect(plan.message).toContain("gone")
-      expect(plan.message).toContain("gtd install")
-      expect(plan.message).toContain("A complete minimal driver")
-      expect(plan.message).not.toContain("unknown command")
-    }
-  })
-
-  it("`gtd status` points at the `gtd next` replacement — no alias, not even for one major", () => {
-    const plan = parseArgv(["node", "gtd.js", "status"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("gtd status")
-      expect(plan.message).toContain("gone")
-      expect(plan.message).toContain("gtd next")
-      expect(plan.message).not.toContain("unknown command")
-    }
-  })
-
-  it("`gtd status --json` is also usage-error territory — --json's own scope no longer covers it", () => {
-    const plan = parseArgv(["node", "gtd.js", "status", "--json"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd next`")
-  })
-})
-
 describe("parseArgv — gtd install", () => {
   it("parses to an install command", () => {
     const plan = parseArgv(["node", "gtd.js", "install"])
@@ -910,8 +845,6 @@ describe("renderHelp", () => {
     expect(help).not.toContain("(no command), loop")
     expect(help).not.toContain("--dispatch")
     expect(help).not.toContain("--if-resting")
-    expect(help).not.toContain("step <actor>")
-    expect(help).not.toMatch(/^ {2}status\b/m)
     expect(help).not.toMatch(/^ {2}serve\b/m)
     expect(help).toMatch(/\n$/)
   })

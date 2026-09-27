@@ -891,10 +891,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stderr contains "one scope is one conversation"
 
   Scenario: a step-level "memory:" option is rejected at load time — the scope is computed, so there is no authored label to honour or ignore
-    # `memory:` is gone OUTRIGHT, with no replacement key, so a config that
-    # still declares one is a load error pointing at the new rule — never a
-    # silently ignored key that reads as if the authored scope were still in
-    # effect.
+    # An unknown step option is never silently ignored: it would read as if
+    # the authored scope were in effect.
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -909,4 +907,3 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stderr contains "gtd config:"
     And stderr contains "unknown key"
     And stderr contains "memory"
-    And stderr contains "no longer exists"

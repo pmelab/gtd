@@ -5,7 +5,7 @@ Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the 
   `gatherBeatDocument` assembles the ONE `BeatDocument` object that
   `renderBeatPlain`/`renderBeatJson`/`selectPath` (`src/wire/`/`src/Select.ts`)
   each render from — so the three encodings can never independently describe a
-  different rest (there is only one command now; `gtd status` is gone). Plain
+  different rest. Plain
   `gtd next` wraps the step in a status-summary header at every kind except
   `prompt` (`renderBeatPlain`'s header-suppression rule) — those bytes are the
   agent's own input, so no header is prefixed there, and plain `gtd next`'s

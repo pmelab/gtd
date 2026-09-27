@@ -1,4 +1,3 @@
-import { legacyTemplateHint } from "../Emit.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 import { builtInModeNames } from "../steering/index.js"
 import type { ModeDef } from "../Workflow.js"
@@ -115,10 +114,6 @@ const compileMode = (
     } else if (command.trim() === "") {
       diagnostics.push(
         err(["modes", name, key], `mode "${name}": "${key}" must be a non-empty shell command`),
-      )
-    } else if (legacyTemplateHint(command) !== undefined) {
-      diagnostics.push(
-        err(["modes", name, key], `mode "${name}": "${key}": ${legacyTemplateHint(command)}`),
       )
     } else {
       commands[key] = command
@@ -250,15 +245,6 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
   let originTree: OriginNode = { self: BUILT_IN_ORIGIN }
   for (const layer of layers) {
     const value = isPlainObject(layer.value) ? layer.value : {}
-    if (value["workflow"] !== undefined) {
-      diagnostics.push({
-        ...err(
-          ["workflow"],
-          '"workflow" is no longer read from a .gtdrc file — define the workflow in gtd.config.ts (a TypeScript module whose default export is the flow); a .gtdrc keeps only vars, modes and ui',
-        ),
-        origin: layer.origin,
-      })
-    }
     const step = mergeWithOrigin(merged, originTree, value, layer.origin)
     merged = step.value
     originTree = step.origin
@@ -267,13 +253,6 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
   const lookupIn = (path: readonly (string | number)[]): string => originAt(originTree, path)
 
   const ui = mergedConfig["ui"] as UiConfig | undefined
-  const uiFormatHint = typeof ui?.format === "string" ? legacyTemplateHint(ui.format) : undefined
-  if (uiFormatHint !== undefined) {
-    diagnostics.push({
-      ...err(["ui", "format"], `"ui.format": ${uiFormatHint}`),
-      origin: lookupIn(["ui", "format"]),
-    })
-  }
   const { vars: rcVars, diagnostics: varsDiagnostics } = compileVarsMap(mergedConfig["vars"])
   diagnostics.push(...withOrigin(varsDiagnostics, lookupIn))
   const { modes: rcModes, diagnostics: modesDiagnostics } = compileModesMap(mergedConfig["modes"])

@@ -118,9 +118,7 @@ export const clearTicks = (format: SteeringFormat, content: string): string => {
  * (each node/link carries its own range — see `SteeringOutlineNode`/
  * `SteeringLink`), while `pointerAt`/`actionsAt` stay closures over `content`
  * because they need a cursor position/selection range the caller supplies
- * per request. This is the one value that replaces a third hand-rolled
- * `spanRange` (`Lsp.ts` no longer needs its own copy — it reads ranges
- * straight off `outline`/`documentLinks`).
+ * per request. `Lsp.ts` reads its ranges straight off `outline`/`documentLinks`.
  */
 export interface SteeringEditorView {
   readonly outline: readonly SteeringOutlineNode[]

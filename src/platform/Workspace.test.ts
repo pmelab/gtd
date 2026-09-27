@@ -152,7 +152,7 @@ for (const { name, make } of tiers) {
       expect(missing).toBeUndefined()
     })
 
-    it("readCommittedSync reads a file's contents at a given ref, undefined when absent there — committed's synchronous twin, for judge:'s Eta render", async () => {
+    it("readCommittedSync reads a file's contents at a given ref, undefined when absent there — committed's synchronous twin, for replay", async () => {
       t = make()
       t.commit("a.txt", "committed\n")
       const [atHead, missing] = await t.provide(
