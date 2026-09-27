@@ -16,6 +16,7 @@ import {
   type JudgeAnswer,
   type JudgeQuestion,
 } from "./runtime.js"
+import { checkScript } from "./scripts.js"
 
 // Reusable pieces of the bundled workflow. Each takes its texts, caps and
 // thresholds as arguments and never reads `vars`. The step names a fragment
@@ -27,7 +28,7 @@ export type Text = () => string
 
 export interface AgentSpec {
   readonly prompt: Text
-  readonly label?: string
+  readonly label?: string | undefined
   readonly file?: string
   readonly mode?: string
   readonly model?: Text
@@ -36,7 +37,7 @@ export interface AgentSpec {
 
 export interface HumanSpec {
   readonly message: Text
-  readonly label?: string
+  readonly label?: string | undefined
   readonly file?: string
   readonly mode?: string
 }
@@ -44,21 +45,21 @@ export interface HumanSpec {
 /** A run of the test suite: red leaves the output in `.gtd/FEEDBACK.md`. */
 export interface CheckSpec {
   readonly command: Text
-  readonly label?: string
+  readonly label?: string | undefined
   /** Paths removed before the suite runs. */
-  readonly sweep?: readonly string[]
+  readonly sweep?: readonly string[] | undefined
   /** Paths removed once it is green. */
-  readonly sweepOnGreen?: readonly string[]
+  readonly sweepOnGreen?: readonly string[] | undefined
 }
 
 /** A bookkeeping step: only its label is text. */
 export interface StepLabel {
-  readonly label?: string
+  readonly label?: string | undefined
 }
 
 export interface JudgeTexts {
   readonly message: Text
-  readonly label?: string
+  readonly label?: string | undefined
 }
 
 const FEEDBACK = ".gtd/FEEDBACK.md"
@@ -109,32 +110,45 @@ export const answered = (
 const stamped = (text: string, commit: string): string =>
   `${text}\n<!-- gtd check ${commit.slice(0, 7)} -->\n`
 
+export interface CheckOptions {
+  /** Where a failing run leaves its output. */
+  readonly report: string
+  readonly label?: string | undefined
+  /** Paths removed before the command runs. */
+  readonly sweep?: readonly string[] | undefined
+  /** Paths removed once it passes. */
+  readonly sweepOnGreen?: readonly string[] | undefined
+}
+
 /**
- * Run the suite as step `name`. Red means the run added or rewrote
- * `.gtd/FEEDBACK.md`; resolves `true` when it did not.
+ * A step that runs `command` through the driver and keeps its outcome in the
+ * tree: a failure writes `report`, a pass removes it. Resolves `true` when the
+ * command passed.
  */
-export const green = async (name: string, check: CheckSpec): Promise<boolean> => {
-  const command = check.command()
-  const commit = head()
+export const check = async (
+  name: string,
+  command: string,
+  options: CheckOptions,
+): Promise<boolean> => {
+  const { report, label, sweep, sweepOnGreen } = options
   await run(
     name,
-    async ({ sh, fs }) => {
-      fs.rm(...(check.sweep ?? []))
-      const { ok, code, output } = await sh(command)
-      if (ok) {
-        fs.rm(FEEDBACK, ...(check.sweepOnGreen ?? []))
-        return
-      }
-      const report =
-        output.length > 0
-          ? output
-          : `the test command failed with exit code ${code} and produced no output.`
-      fs.write(FEEDBACK, stamped(report, commit))
+    checkScript(command, { report, stamp: head().slice(0, 7), sweep, sweepOnGreen }),
+    {
+      label,
     },
-    { label: check.label },
   )
-  return !wrote(FEEDBACK)
+  return !wrote(report)
 }
+
+/** Run the suite as step `name`; resolves `true` when it passed. A failure is in `.gtd/FEEDBACK.md`. */
+export const green = (name: string, spec: CheckSpec): Promise<boolean> =>
+  check(name, spec.command(), {
+    report: FEEDBACK,
+    label: spec.label,
+    sweep: spec.sweep,
+    sweepOnGreen: spec.sweepOnGreen,
+  })
 
 // ── Guards ──────────────────────────────────────────────────────────────────
 

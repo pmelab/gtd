@@ -8,6 +8,8 @@ import {
   packageQueue,
   qualityLap,
   requireRevert,
+  restoreScript,
+  revertScript,
   reviewTail,
   type AgentSpec,
   type EscalationCount,
@@ -462,28 +464,20 @@ const packages = (): Promise<void> =>
 
 /** Undo the human's review-round code edit, so planning reads it from history. */
 /**
- * Undo the human's review-round code edits. Only a path still exactly as the
- * human left it is reverted; one changed since is left for requireRevert to
- * name, never overwritten.
+ * Undo the human's review-round code edits. A path changed since the human
+ * left it is not overwritten; requireRevert names it instead.
  */
 const reUnwind = async (feedback: Extract<ReviewOutcome, { verdict: "feedback" }>) => {
   const { base, edited } = feedback
-  await run(
-    "re-unwind",
-    async ({ sh, fs }) => {
-      const untouched = edited.filter((c) => fs.read(c.path) === c.after)
-      fs.rm(...untouched.filter((c) => c.status === "added").map((c) => c.path))
-      const restored = untouched.filter((c) => c.status !== "added").map((c) => shellQuote(c.path))
-      if (restored.length > 0) {
-        await sh(`git restore --source=${base}~1 --worktree -- ${restored.join(" ")}`)
-      }
-    },
-    { label: "Re-unwinding your review edit", file: ".gtd/REVIEW.md", base },
-  )
+  const restore = edited.filter((c) => c.status !== "added").map((c) => c.path)
+  const remove = edited.filter((c) => c.status === "added").map((c) => c.path)
+  await run("re-unwind", restoreScript(base, { restore, remove }), {
+    label: "Re-unwinding your review edit",
+    file: ".gtd/REVIEW.md",
+    base,
+  })
   requireRevert(edited, base)
 }
-
-const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
 
 /** Plan, build and review until a review round signs off; feedback re-plans from scratch. */
 const planAndBuild = async (firstBase: string): Promise<void> => {
@@ -514,26 +508,12 @@ const gate = (name: string, message: () => string): Promise<void> =>
     }),
   )
 
-/**
- * Revert the sketch that started the process out of the working tree; its
- * intent survives in history. The reverse patch touches the working tree
- * only, never the index. A failed revert is written to FEEDBACK.md, since a
- * failure and a genuine no-op can both leave the tree clean.
- */
+/** Revert the sketch that started the process out of the working tree; its intent survives in history. */
 const unwind = (): Promise<void> => {
   const commit = head()
-  const range = `${commit}^ ${commit}`
-  return run(
-    "unwind",
-    async ({ sh, fs }) => {
-      const { ok, code, output } = await sh(
-        `git diff --quiet ${range} || git diff --binary ${range} | git apply -R`,
-      )
-      if (ok) return
-      fs.write(".gtd/FEEDBACK.md", t.unwindFailure(commit, code, output))
-    },
-    { label: "Unwinding your input" },
-  )
+  return run("unwind", revertScript(commit, ".gtd/FEEDBACK.md", t.unwindFailure(commit)), {
+    label: "Unwinding your input",
+  })
 }
 
 const ordinaryStart = async (): Promise<void> => {

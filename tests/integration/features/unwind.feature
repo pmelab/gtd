@@ -1,8 +1,8 @@
 @live
 Feature: unwind reverts the sketch in the working tree, never the index
 
-  `unwind` is a callback step: `gtd exec` reverse-applies the commit that
-  started the process to the working tree. The index is left alone, so the
+  `unwind` prints a script that reverse-applies the commit that started the
+  process to the working tree. The index is left alone, so the
   revert shows as an unstaged change until the driver's landing script
   commits it — gtd itself never writes git.
 

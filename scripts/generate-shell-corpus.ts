@@ -19,6 +19,7 @@ import {
   restoredOutcome,
   transitionOutcome,
 } from "../src/OutcomeScript.js"
+import { checkScript, restoreScript, revertScript } from "../src/flows/index.js"
 
 const CORPUS_DIR = join(import.meta.dirname, "..", "tests", "shell", "corpus")
 
@@ -80,6 +81,27 @@ const combinedOptional = emitScripts(
   [{ kind: "gitWrite", command: combinedOptionalBare }],
 ).optional
 add("combined.with-optional.sh", combinedScript(combinedRequired, combinedOptional))
+
+// ── 2. The scripts a workflow step renders from flow values.
+
+add(
+  "flows.checkScript.sh",
+  checkScript("npm test -- --reporter dot", {
+    report: ".gtd/FEEDBACK.md",
+    stamp: "abc1234",
+    sweep: [".gtd/REVIEW_RAW.md", ".gtd/reviews"],
+    sweepOnGreen: [".gtd/ESCALATION.md"],
+  }),
+)
+
+add(
+  "flows.revertScript.sh",
+  revertScript(SAMPLE_HEAD, ".gtd/FEEDBACK.md", "gtd could not unwind it's sketch."),
+)
+add(
+  "flows.restoreScript.sh",
+  restoreScript(SAMPLE_HEAD, { restore: ["src/a.ts", "it's here.ts"], remove: ["src/new.ts"] }),
+)
 
 const writeInto = (dir: string): void => {
   mkdirSync(dir, { recursive: true })
