@@ -32,7 +32,6 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): architecture-pre → architecture-promote"
-    And the last commit body does not contain "Gtd-Payload:"
 
     # architecture-promote's own script (a real DRIVER's job) promotes
     # .gtd/REQUIREMENTS.md wholesale into a single package file — never
@@ -111,5 +110,4 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): architecture-pre → architecture.author"
-    And the last commit body contains "Gtd-Payload: {\"truncated\":true}"
     And ".gtd/REQUIREMENTS.md" exists

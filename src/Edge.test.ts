@@ -713,14 +713,12 @@ export default workflow(
     expect(rest.state).toBe("verdict")
     expect(rendered.kind).toBe("message")
     expect(rendered.content).toBe(`judge-message\n\n${TRUNCATION_NOTICE}`)
-    expect(rendered.truncated).toBe(true)
     expect(rendered.judge).not.toContain("line 0 of the log")
   })
 
   it("leaves the message alone when nothing was cut", async () => {
     const { rendered } = await judgedAt("32768")
     expect(rendered.content).toBe("judge-message")
-    expect(rendered.truncated).toBe(false)
     expect(rendered.judge).toContain("line 0 of the log")
   })
 

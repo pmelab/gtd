@@ -74,7 +74,7 @@ describe("planStep — commit", () => {
     expect(outcome.steps[0]).toEqual({ kind: "uncheck", file: ".gtd/REVIEW.md" })
   })
 
-  it("records Gtd-Cost, then one Gtd-Judge per verdict, then the truncation payload", () => {
+  it("records Gtd-Cost, then one Gtd-Judge per verdict", () => {
     const s = snapshot({ state: "a", stepDef: {}, landing: commitTo("a", "b", "judge") })
     const outcome = planStep(s, {
       cost: 1.5,
@@ -83,7 +83,6 @@ describe("planStep — commit", () => {
         { id: "q1", answer: true, p: 0.9 },
         { id: "q2", answer: "x", p: 0.4 },
       ],
-      truncated: true,
     })
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
     const write = outcome.steps.find((step) => step.kind === "gitWrite")
@@ -93,13 +92,6 @@ describe("planStep — commit", () => {
     expect(trailers[1]).toBe("Gtd-Cost: 1.5 m")
     expect(trailers[2]).toBe('Gtd-Judge: {"id":"q1","answer":true,"p":0.9}')
     expect(trailers[3]).toBe('Gtd-Judge: {"id":"q2","answer":"x","p":0.4}')
-    expect(trailers[4]).toBe('Gtd-Payload: {"truncated":true}')
-  })
-
-  it("emits no Gtd-Payload trailer when nothing was truncated", () => {
-    const s = snapshot({ state: "a", stepDef: {}, landing: commitTo("a", "b") })
-    const outcome = planStep(s, { truncated: false })
-    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    expect(JSON.stringify(outcome.steps)).not.toContain("Gtd-Payload")
+    expect(trailers).toHaveLength(4)
   })
 })

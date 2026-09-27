@@ -661,8 +661,6 @@ export interface RenderedRest extends RestHints {
   readonly content: string
   readonly memory?: string
   readonly memoryResumed: boolean
-  /** Whether a bounded read dropped bytes for this rest's judge evidence. */
-  readonly truncated: boolean
 }
 
 export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
@@ -674,7 +672,6 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
     ...rest.hints,
     ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
     memoryResumed: rest.memoryResumed,
-    truncated: rest.step.truncated,
   })
 
 /**

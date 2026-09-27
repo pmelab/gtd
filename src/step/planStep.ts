@@ -41,7 +41,6 @@ export const planStep = (
     readonly cost?: number
     readonly model?: string
     readonly judge?: readonly JudgeVerdict[]
-    readonly truncated?: boolean
   } = {},
 ): StepOutcome => {
   const landing = snapshot.landing
@@ -70,7 +69,6 @@ export const planStep = (
     ...landing.spec,
     ...cost,
     ...(opts.judge !== undefined && opts.judge.length > 0 ? { judge: opts.judge } : {}),
-    ...(opts.truncated === true ? { truncated: true } : {}),
   })
   const subject = message.split("\n")[0]!
   const outcome: LandStep =

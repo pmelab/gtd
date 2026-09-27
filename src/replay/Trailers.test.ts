@@ -10,7 +10,6 @@ describe("the commit-message codec", () => {
       step: { name: "health.judge", occurrence: 2 },
       cost: { cost: 1450, model: "smart" },
       judge: [{ id: "verdict", answer: "identical", p: 0.9 }],
-      truncated: true,
     })
     expect(message.split("\n")[0]).toBe("gtd(judge): health.judge → health.escalate")
     const parsed = parseCommitMessage(message)
@@ -18,7 +17,6 @@ describe("the commit-message codec", () => {
     expect(parsed.step).toEqual({ name: "health.judge", occurrence: 2 })
     expect(parsed.cost).toEqual([{ cost: 1450, model: "smart" }])
     expect(parsed.judge).toEqual([{ id: "verdict", answer: "identical", p: 0.9 }])
-    expect(parsed.truncated).toBe(true)
   })
 
   it("collapses a self-loop to the bare subject and keeps entry trailers", () => {

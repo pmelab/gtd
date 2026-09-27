@@ -93,8 +93,7 @@ The step name is the `<to>` in the commit subject the landing writes,
 `gtd(<actor>): <from> → <to>`, and every step landing carries a
 `Gtd-Step: <name>#<n>` trailer (`<n>` counts how often that name was reached in
 the episode). Other trailers a landing may carry: `Gtd-Judge:` (one per answered
-judge question), `Gtd-Payload:` (the judge's evidence was cut to fit its
-budget), `Gtd-Var:` (an `--entry --var` value), `Gtd-Cost:` (a
+judge question), `Gtd-Var:` (an `--entry --var` value), `Gtd-Cost:` (a
 `gtd land --cost`), and `Gtd-Review-Base:` (an entry's fixed diff base).
 
 ### Step options

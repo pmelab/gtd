@@ -233,14 +233,6 @@ interface LandOptions {
   readonly cost?: number
   readonly model?: string
   readonly judge?: readonly JudgeVerdict[]
-  /**
-   * The render that produced the judged document's own `rest.ledger.truncated()`
-   * — `runJudgeAnswerCommand` supplies it from the SAME `renderRest` call that
-   * rendered the questions being answered; plain `gtd land` never does. `true`
-   * stamps a `Gtd-Payload: {"truncated":true}` trailer (`planStep.ts`'s
-   * `renderDecision`); `false`/`undefined` stamps nothing.
-   */
-  readonly truncated?: boolean
 }
 
 /**
@@ -482,7 +474,7 @@ const runJudgeAnswerCommand = (
       ),
     )
 
-    const result = yield* planLanding({ judge: verdict, truncated: rendered.truncated })
+    const result = yield* planLanding({ judge: verdict })
     const built = landFields(result)
     if (json.kind === "document") {
       out.write(renderLandJson(built))

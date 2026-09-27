@@ -59,7 +59,6 @@ Feature: A section the judge budget cuts fails open (package 02)
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
-    And the last commit body contains "Gtd-Payload: {\"truncated\":true}"
     When I run gtd next
     Then it succeeds
     And stdout contains "Confine"
@@ -122,4 +121,3 @@ Feature: A section the judge budget cuts fails open (package 02)
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): build.review.triage → build.review.collecting"
-    And the last commit body contains "Gtd-Payload: {\"truncated\":true}"

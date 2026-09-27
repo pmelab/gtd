@@ -66,7 +66,6 @@ export interface CommitMessage {
   readonly vars: Readonly<Record<string, string>>
   readonly reviewBase: string | undefined
   readonly cost: readonly CostEntry[]
-  readonly truncated: boolean
 }
 
 const isVerdict = (value: unknown): value is JudgeVerdict => {
@@ -94,7 +93,6 @@ const VAR_RE = /^([^=\s]+)=(.*)$/
 interface Trailers {
   step: StepId | undefined
   reviewBase: string | undefined
-  truncated: boolean
   readonly judge: JudgeVerdict[]
   readonly vars: Record<string, string>
   readonly cost: CostEntry[]
@@ -119,12 +117,6 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
     const c = COST_RE.exec(value)
     if (c !== null) into.cost.push({ cost: Number(c[1]), model: c[2]?.trim() || undefined })
   },
-  "Gtd-Payload": (value, into) => {
-    const parsed = parseJson(value)
-    if (typeof parsed === "object" && parsed !== null && "truncated" in parsed) {
-      into.truncated = (parsed as { truncated: unknown }).truncated === true
-    }
-  },
 }
 
 export const parseCommitMessage = (message: string): CommitMessage => {
@@ -133,7 +125,6 @@ export const parseCommitMessage = (message: string): CommitMessage => {
   const trailers: Trailers = {
     step: undefined,
     reviewBase: undefined,
-    truncated: false,
     judge: [],
     vars: {},
     cost: [],
@@ -155,7 +146,6 @@ export interface CommitSpec {
   readonly vars?: Readonly<Record<string, string>>
   readonly cost?: { readonly cost: number; readonly model?: string }
   readonly judge?: readonly JudgeVerdict[]
-  readonly truncated?: boolean
 }
 
 /** Trailer order is fixed so the same spec always yields the same bytes. */
@@ -171,7 +161,6 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     )
   }
   for (const verdict of spec.judge ?? []) lines.push(`Gtd-Judge: ${JSON.stringify(verdict)}`)
-  if (spec.truncated === true) lines.push(`Gtd-Payload: ${JSON.stringify({ truncated: true })}`)
   const subject = formatSubject(spec.actor, spec.to, spec.from)
   return lines.length === 0 ? subject : `${subject}\n\n${lines.join("\n")}`
 }

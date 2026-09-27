@@ -2108,18 +2108,8 @@ export default workflow(
       { ".gtd/BIG.md": bigContent },
     )
 
-  it('gtd judge answer stamps Gtd-Payload: {"truncated":true} on the landing commit when the evidence was cut to fit the budget', async () => {
+  it("gtd judge answer records no truncation on the landing commit — replay recomputes the cut from the budget", async () => {
     const repo = seededTruncatingLandingRepo("20", "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\n")
-    const { stdout, exitCode } = await withStdin(VERDICT, () =>
-      run(repo, "judge", "answer", "--json=script"),
-    )
-    expect(exitCode).toBe(0)
-    expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
-    expect(repo.lastCommitMessage()).toContain('Gtd-Payload: {"truncated":true}')
-  })
-
-  it("gtd judge answer stamps no Gtd-Payload: trailer when the evidence fit the budget", async () => {
-    const repo = seededTruncatingLandingRepo("500", "short\n")
     const { stdout, exitCode } = await withStdin(VERDICT, () =>
       run(repo, "judge", "answer", "--json=script"),
     )
