@@ -4,8 +4,8 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   package the current build is judged against. Each scenario reaches it
   by the shortest real history: `--entry start-gate.check`, a one-line
   triage, `architecture-pre` judged "no" so `architecture-promote` turns
-  the plan straight into the one package under test, then picking,
-  building and a green health check. The flow itself reads the answers: a
+  the plan straight into the one package under test, then building and
+  a green health check. The flow itself reads the answers: a
   package whose every section is confidently satisfied closes without a
   review turn, and otherwise the reviewer is confined to the sections that
   were not.
@@ -25,8 +25,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -37,12 +36,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1
@@ -64,8 +58,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -84,12 +77,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ## Section C
       - [ ] add src/c.ts
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1
@@ -118,8 +106,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -138,12 +125,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ## Section C
       - [ ] add src/c.ts
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1
@@ -176,8 +158,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -196,21 +177,15 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ## Section C
       - [ ] add src/c.ts
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    # Dereferences the pointer: the judge's own evidence is the package
-    # markdown itself, never the literal ".gtd/packages/01-widget.md" text
-    # `.gtd/NEXT.md` holds.
+    # The judge's own evidence is the package markdown itself, never the
+    # bare ".gtd/packages/01-widget.md" path.
     When I run gtd with args "judge"
     Then it succeeds
     And stdout contains "Section A"
@@ -244,8 +219,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -258,12 +232,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ## Section A
       - [ ] add src/a.ts
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1
@@ -297,8 +266,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -311,12 +279,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       ## Section A
       - [ ] add src/a.ts
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1

@@ -6,10 +6,9 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
   package file, skipping `architecture.author`/`architecture.decompose`
   entirely) and everything else to the full architecture pass. Each
   scenario reaches it by the shortest real history — `--entry
-  start-gate.check`, a triage turn writing the plan, a question-free
-  `design.gate.check`. `architecture-promote`'s
-  own shell body is a workflow-authored script a real DRIVER runs (never
-  this test harness) — its effect is given by hand.
+  start-gate.check` and a triage turn writing a question-free plan.
+  `architecture-promote`'s own shell body is a workflow-authored script a
+  real DRIVER runs (never this test harness) — its effect is given by hand.
 
   @inmem
   Scenario: a trivial, one-concern plan judged not to warrant an architecture pass reaches the package queue without an architecture turn
@@ -24,8 +23,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       Add a `greet()` export returning a friendly string. No open questions,
       no structural decisions, one file touched.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     When I run gtd judge answer with stdin:
       """
       [
@@ -49,22 +47,10 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): architecture-promote → packages.picking"
+    And the last commit subject is "gtd(check): architecture-promote → packages.item.building"
     And ".gtd/packages/01-greeting-export.md" exists
     And the git log does not contain "architecture.author"
     And the git log does not contain "architecture.decompose"
-
-    # packages.picking's own script (a real DRIVER's job) finds the
-    # promoted package and points NEXT.md at it — the queue is genuinely
-    # non-empty on the skip path, never draining straight to $onDrained on
-    # an empty .gtd/packages/.
-    Given a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-greeting-export.md
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
 
   @live
   Scenario: architecture-promote's real script — executed for real — slugifies the plan's own first heading and promotes .gtd/REQUIREMENTS.md wholesale into that single package file
@@ -78,8 +64,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       Add a `greet()` export returning a friendly string. No open questions,
       no structural decisions, one file touched.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     When I run gtd judge answer with stdin:
       """
       [
@@ -94,7 +79,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
     And I execute the printed check script
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): architecture-promote → packages.picking"
+    And the last commit subject is "gtd(check): architecture-promote → packages.item.building"
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/packages/01-greeting-export.md" exists
 
@@ -117,8 +102,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ever sees this paragraph — the structural concern living right here,
       near the top, is exactly what a truncated "no" could miss.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     When I run gtd judge answer with stdin:
       """
       [

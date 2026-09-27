@@ -56,7 +56,7 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
     And stdout contains ".gtd/REQUIREMENTS.md: valid"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → design.gate.check"
+    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
 
   Scenario: a styled REVIEW.md passes gtd check review and build.review.reviewing advances
     Given a test project
@@ -68,8 +68,7 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       export const add = (a: number, b: number) => a + b
       """
     And gtd enters "review-gate.check" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     # The styled file itself — bold claim, imperative, no padding — with the
     # "# Review: <hash>" header, the base marker, and "## <chunk>" / "- [ ]
     # ./path#line" rows `gtd check review` requires still intact.

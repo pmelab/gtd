@@ -71,8 +71,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       export const thing = 1
       """
     And gtd enters "review-gate.check" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -97,8 +96,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       export const thing = 1
       """
     And gtd enters "review-gate.check" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -212,13 +210,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       - [ ] REST
       - [ ] GraphQL
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    # the question check finds the open question; its capture, given by hand
-    And a file ".gtd/QUESTIONS.md" with:
-      """
-      open
-      """
-    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a thing. Plan: do it.
@@ -259,13 +251,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       - [ ] REST
       - [ ] GraphQL
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    # the question check finds the open question; its capture, given by hand
-    And a file ".gtd/QUESTIONS.md" with:
-      """
-      open
-      """
-    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`, with a named

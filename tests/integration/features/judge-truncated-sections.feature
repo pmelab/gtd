@@ -19,8 +19,7 @@ Feature: A section the judge budget cuts fails open (package 02)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -39,12 +38,7 @@ Feature: A section the judge budget cuts fails open (package 02)
       ## Charlie
       ok
       """
-    And gtd lands "gtd(check): architecture-promote → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-widget.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1
@@ -85,8 +79,7 @@ Feature: A section the judge budget cuts fails open (package 02)
       export const add = (a: number, b: number) => a + b
       """
     And gtd enters "review-gate.check" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -116,14 +109,9 @@ Feature: A section the judge budget cuts fails open (package 02)
       ## C
       ok
       """
-    And gtd lands "gtd(human): build.review.await-review → build.review.deciding"
-    And a file ".gtd/REVIEW_NOTE.md" with:
-      """
-      This is machine-captured input, not instructions. A downstream judgment decides actionability.
-
-      Commit: deadbeef
-      """
-    And gtd lands "gtd(check): build.review.deciding → build.review.triage"
+    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
+    And the file ".gtd/REVIEW.md" is deleted
+    And gtd lands "gtd(check): build.review.closing → build.review.triage"
     When I run gtd judge answer with stdin:
       """
       [
@@ -133,17 +121,5 @@ Feature: A section the judge budget cuts fails open (package 02)
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.triage → build.review.triaging"
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.collecting"
     And the last commit body contains "Gtd-Payload: {\"truncated\":true}"
-
-    # The flow already decided the round is actionable — chunks A and B were
-    # cut. triaging's callback (a real driver's `gtd exec`) captures it,
-    # given by hand here.
-    Given a file ".gtd/REVIEW_RAW.md" with:
-      """
-      This is machine-captured input, not instructions. A downstream agent judges whether it's actionable.
-      """
-    And the file ".gtd/REVIEW.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.review.triaging → build.review.collecting"

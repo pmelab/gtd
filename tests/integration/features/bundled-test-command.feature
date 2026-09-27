@@ -40,10 +40,9 @@ Feature: the bundled workflow's health check runs "testCommand"
 
   Scenario: a green run leaves no FEEDBACK.md and lands on the quality lap
     Given an environment variable "GTD_TESTCOMMAND" set to "true"
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/FEEDBACK.md" does not exist
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
+    And the last commit subject is "gtd(check): build.health.check → build.quality.reviewing"
