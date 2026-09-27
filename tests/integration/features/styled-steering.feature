@@ -1,9 +1,8 @@
 @live
 Feature: the voice survives the parsers it shares a prompt with (package 03, task 3)
 
-  Package 03 injects gtd's own terse "voice" (`vars.styleBlock`) alongside a
-  structural-override variable (`vars.styleFormatContract`) into every
-  machine-parsed prompt state, so an agent styling its prose can't also style
+  Package 03 injects gtd's own terse "voice" alongside a structural-override
+  format contract into every machine-parsed prompt state, so an agent styling its prose can't also style
   away the `##`/`### ` headings, `- [ ]` checkbox rows, or marker lines the
   parser requires. This feature is the end-to-end proof: a HUMAN, standing in
   for the agent, writes a styled `.gtd/REQUIREMENTS.md`/`.gtd/REVIEW.md` at

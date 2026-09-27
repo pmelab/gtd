@@ -1,13 +1,31 @@
 import { head, start, vars, type SummaryContext } from "../flows/index.js"
+import {
+  skillsPreamble,
+  styleBlock,
+  styleFormatContract,
+  agentConduct,
+  designPersona,
+  architectPersona,
+  reviewerPersona,
+  specReviewerPersona,
+  builderPersona,
+  finisherPersona,
+  escalationPersona,
+  stateFileRules,
+  questionBar,
+  questionBarReturn,
+  fixFeedbackPrompt,
+  footnoteRules,
+  footnoteFoldIn,
+} from "./prose.js"
 
 // The bundled workflow's prompts, messages and scripts. Each is evaluated
 // when its step is reached, against the commit replay stands on.
 
-/** `prompt` behind the `skillsPreamble` var naming `skills`; blank skills or a blank preamble leave it bare. */
+/** `prompt` behind the skills preamble naming `skills`; blank skills leave it bare. */
 export const withSkills = (skills: string | undefined, prompt: string): string => {
-  const preamble = vars.skillsPreamble ?? ""
-  if (skills === undefined || skills.trim() === "" || preamble.trim() === "") return prompt
-  return `${preamble.replaceAll("{skills}", skills)}\n\n${prompt}`
+  if (skills === undefined || skills.trim() === "") return prompt
+  return `${skillsPreamble.replaceAll("{skills}", skills)}\n\n${prompt}`
 }
 
 export const unwindFailure = (commit: string): string =>
@@ -69,12 +87,12 @@ What each change does next (then run \`gtd land\`):
 `
 
 export const designTriagePrompt = (base: string): string =>
-  `${vars.styleBlock}
+  `${styleBlock}
 
-${vars.styleFormatContract}
+${styleFormatContract}
 
-${vars.stateFileRules}
-${vars.footnoteFoldIn}
+${stateFileRules}
+${footnoteFoldIn}
 - The only state file this turn touches is \`.gtd/REQUIREMENTS.md\`
   — no other files for notes or output
 - \`.gtd/TODO.md\` is the likely home of the sketch that started
@@ -103,7 +121,7 @@ ordered list of concerns, each classified below.
 Classify each as PRODUCT (user-facing/requirements) or TECHNICAL
 (implementation).
 
-${vars.questionBar}
+${questionBar}
 
 Raise questions only for product concerns here — technical ones
 wait for the next phase. When every concern is TECHNICAL, write
@@ -120,7 +138,7 @@ whole rebuild lap.
 
 ## Return lap
 
-${vars.questionBarReturn}
+${questionBarReturn}
 ## Review loop-back
 
 - \`.gtd/REQUIREMENTS.md\` already holds concerns with no
@@ -146,9 +164,9 @@ ${vars.questionBarReturn}
 `
 
 export const designSystem = (): string =>
-  `${vars.designPersona}
+  `${designPersona}
 
-${vars.agentConduct}`
+${agentConduct}`
 
 export const designGateAnswerMessage = (): string =>
   `Answering here closes a gap between what you want the product to
@@ -168,19 +186,19 @@ You can also leave a footnote alongside an answer — it never
 substitutes for ticking a box, which is still required before
 stepping is allowed:
 
-${vars.footnoteRules}
+${footnoteRules}
 What each change does next (then run \`gtd land\`):
 - **Accept as-is** — change nothing and re-run to advance with the questions unanswered — the plan stands as written.
 - **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it. To accept the plan as-is instead, revert everything and re-run — a clean tree is the only accept gesture.
 `
 
 export const architectureAuthorPrompt = (): string =>
-  `${vars.styleBlock}
+  `${styleBlock}
 
-${vars.styleFormatContract}
+${styleFormatContract}
 
-${vars.stateFileRules}
-${vars.footnoteFoldIn}
+${stateFileRules}
+${footnoteFoldIn}
 - The only state files this turn touches are
   \`.gtd/ARCHITECTURE.md\` (write it) and \`.gtd/REQUIREMENTS.md\`
   (delete once folded in) — no other files for notes or output
@@ -224,20 +242,20 @@ ${vars.footnoteFoldIn}
   yourself unless you genuinely cannot defend a default; a wrong
   technical call is still caught at spec review
 
-${vars.questionBar}
+${questionBar}
 ## Return lap
 
-${vars.questionBarReturn}`
+${questionBarReturn}`
 
 export const architectSystem = (): string =>
-  `${vars.architectPersona}
+  `${architectPersona}
 
-${vars.agentConduct}`
+${agentConduct}`
 
 export const architectureDecomposePrompt = (): string =>
-  `${vars.styleBlock}
+  `${styleBlock}
 
-${vars.stateFileRules}
+${stateFileRules}
 - The only state files this turn touches are the package files
   under \`.gtd/packages/\` and \`.gtd/ARCHITECTURE.md\` (deleted) —
   no other files for notes or output
@@ -279,14 +297,14 @@ You can also leave a footnote alongside an answer — it never
 substitutes for ticking a box, which is still required before
 stepping is allowed:
 
-${vars.footnoteRules}
+${footnoteRules}
 What each change does next (then run \`gtd land\`):
 - **Accept as-is** — change nothing and re-run to advance with the questions unanswered — the plan stands as written.
 - **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it. To accept the plan as-is instead, revert everything and re-run — a clean tree is the only accept gesture.
 `
 
 export const packagesItemBuildingPrompt = (pkg: string): string =>
-  `${vars.stateFileRules}
+  `${stateFileRules}
 - The only state file this turn may write is \`.gtd/SATISFIED.md\`;
   never delete the package file (the spec-review gate reads it
   after you)
@@ -305,13 +323,13 @@ export const packagesItemBuildingPrompt = (pkg: string): string =>
 `
 
 export const builderSystem = (): string =>
-  `${vars.builderPersona}
+  `${builderPersona}
 
-${vars.agentConduct}`
+${agentConduct}`
 
 export const packagesItemFixSuitePrompt = (): string =>
-  `${vars.stateFileRules}
-${vars.fixFeedbackPrompt}
+  `${stateFileRules}
+${fixFeedbackPrompt}
 - If the only way to green the suite is another package's work,
   make the smallest change that gets there — that package can
   then legitimately report itself already satisfied later
@@ -319,7 +337,7 @@ ${vars.fixFeedbackPrompt}
 `
 
 export const packagesItemFixSpecPrompt = (pkg: string): string =>
-  `${vars.stateFileRules}
+  `${stateFileRules}
 - The only state file this turn touches is
   \`.gtd/SPEC_FEEDBACK.md\` — address it, then delete it
 - Read it (the reviewer's concerns) and the package spec
@@ -339,7 +357,7 @@ without an edit of your own) to accept the conservative default
 `
 
 export const healthDescribePrompt = (): string =>
-  `${vars.stateFileRules}
+  `${stateFileRules}
 - The only state file this turn writes is \`.gtd/ESCALATION.md\`
 - Read \`.gtd/FEEDBACK.md\` (this round's failing check output),
   earlier rounds' from history (\`git log -p -- .gtd/FEEDBACK.md\` —
@@ -352,9 +370,9 @@ export const healthDescribePrompt = (): string =>
 `
 
 export const escalationSystem = (): string =>
-  `${vars.escalationPersona}
+  `${escalationPersona}
 
-${vars.agentConduct}`
+${agentConduct}`
 
 export const healthStopMessage = (): string =>
   `The agent could not get the check to pass after repeated attempts,
@@ -396,12 +414,12 @@ export const packagesItemSpecReviewPrompt = (
   pkg: string,
   failing: readonly string[] = [],
 ): string =>
-  `${vars.styleBlock}
+  `${styleBlock}
 
 You are reviewing a freshly-built work package against its own
 spec.
 
-${vars.stateFileRules}
+${stateFileRules}
 - The only state file this turn touches is
   \`.gtd/SPEC_FEEDBACK.md\` — write it only when you find problems
 - The package spec is \`${pkg}\`
@@ -421,23 +439,23 @@ ${specScope(failing)}- Verify the implementation against it: tasks done, criteri
 `
 
 export const specReviewerSystem = (): string =>
-  `${vars.specReviewerPersona}
+  `${specReviewerPersona}
 
-${vars.agentConduct}`
+${agentConduct}`
 
 export const buildFixPrompt = (): string =>
-  `${vars.stateFileRules}
-${vars.fixFeedbackPrompt}
+  `${stateFileRules}
+${fixFeedbackPrompt}
 - Leave everything uncommitted — do not commit
 `
 
 export const finisherSystem = (): string =>
-  `${vars.finisherPersona}
+  `${finisherPersona}
 
-${vars.agentConduct}`
+${agentConduct}`
 
 export const buildFixQualityPrompt = (): string =>
-  `${vars.stateFileRules}
+  `${stateFileRules}
 - Read \`.gtd/QUALITY.md\` — one \`## \` chunk per quality dimension
   that found something blocking. Merge duplicate findings across
   dimensions FIRST, then fix every chunk
@@ -446,7 +464,7 @@ export const buildFixQualityPrompt = (): string =>
 `
 
 export const buildQualityReviewingPrompt = (lens: string): string =>
-  `${vars.stateFileRules}
+  `${stateFileRules}
 - The only state file this turn writes is \`.gtd/QUALITY.md\` — no
   other files for notes or output
 - Review the whole assembled change, from \`${start()}\`
@@ -461,9 +479,9 @@ export const buildQualityReviewingPrompt = (lens: string): string =>
 `
 
 export const reviewerSystem = (): string =>
-  `${vars.reviewerPersona}
+  `${reviewerPersona}
 
-${vars.agentConduct}`
+${agentConduct}`
 
 export const buildReviewAwaitReviewMessage = (base: string): string =>
   `\`.gtd/REVIEW.md\` holds the review record for the process — one
@@ -502,7 +520,7 @@ When you've been through the whole diff, run \`gtd land\`:
 
 A footnote works the same way here as a line note:
 
-${vars.footnoteRules}
+${footnoteRules}
 Deleting \`.gtd/REVIEW.md\` is refused.
 `
 
@@ -541,14 +559,14 @@ conservative default; a skipped judgment never signs off).
 `
 
 export const buildReviewCollectingPrompt = (capture: string): string =>
-  `${vars.styleBlock}
+  `${styleBlock}
 
-${vars.styleFormatContract}
+${styleFormatContract}
 
 You are judging and classifying a round of review feedback.
 
-${vars.stateFileRules}
-${vars.footnoteFoldIn}
+${stateFileRules}
+${footnoteFoldIn}
 - The only state file this turn touches is \`.gtd/REQUIREMENTS.md\` —
   you classify, you do not build
 
@@ -587,11 +605,11 @@ actionability, and never dismiss a real note or edit as approval.
 `
 
 export const buildReviewReviewingPrompt = (base: string): string =>
-  `${vars.styleBlock}
+  `${styleBlock}
 
-${vars.styleFormatContract}
+${styleFormatContract}
 
-${vars.stateFileRules}
+${stateFileRules}
 - The only state file this turn touches is \`.gtd/REVIEW.md\` —
   no other files for notes or output
 
@@ -638,7 +656,7 @@ ${it.humanCommits.map((c) => `- \`${c.hash}\` (entering \`${c.state}\`)\n`).join
       : `The human left no comment or edit this process —
 every commit is machine-authored.
 `
-  return `${it.vars.styleBlock}
+  return `${styleBlock}
 
 - Write the closing message for the process HEAD closes or sits inside —
   for a squash, an amend, or a PR body. Starting cold: read every

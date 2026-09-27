@@ -48,14 +48,12 @@ info, memory-path information, git status. A workflow author reaching for
 prompt, not a tweak on top of the harness's own. Every agent step in one memory
 scope (below) must run with the same `model` and `system` — one scope is one
 conversation, and a conversation has one identity. The bundled workflow ships
-seven such personas — `designPersona`, `architectPersona`, `reviewerPersona`,
-`specReviewerPersona`, `builderPersona`, `finisherPersona`, `escalationPersona`
-— each an ordinary variable, overridable through a `.gtdrc` `vars:` key or a
-`GTD_<NAME>` environment variable (e.g. `GTD_DESIGNPERSONA`). Each carries only
-its role paragraph; a shared `agentConduct` var (tool-use conduct, orienting
-with git since there is no injected status block, and inspecting what the turn's
-own message names) is appended after it everywhere, so the identities differ
-only in role, never in how they're told to behave.
+seven such personas — design, architect, reviewer, spec reviewer, builder,
+finisher and escalation. Each carries only its role paragraph; a shared block of
+agent conduct (tool-use conduct, orienting with git since there is no injected
+status block, and inspecting what the turn's own message names) is appended
+after it everywhere, so the identities differ only in role, never in how they're
+told to behave.
 
 Memory follows the step name. A step's **memory scope** is its name up to the
 last dot — the `scope()` prefixes around it — so `build.fix` and

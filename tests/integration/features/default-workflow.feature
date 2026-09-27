@@ -1272,7 +1272,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(human): build.health.stop → build.fix"
     When I run gtd next
     Then it succeeds
-    # fixFeedbackPrompt names .gtd/ESCALATION.md as the primary instruction
+    # The fix prompt names .gtd/ESCALATION.md as the primary instruction
     # whenever it is present.
     And stdout contains ".gtd/ESCALATION.md"
     Given a file "src/thing.ts" with:
@@ -1492,7 +1492,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(human): build.health.stop → build.fix"
 
     # A real fix turn between round 1 and round 2: it believes it resolved
-    # the check and deletes `.gtd/FEEDBACK.md` (fixFeedbackPrompt's own
+    # the check and deletes `.gtd/FEEDBACK.md` (the fix prompt's own
     # instruction), but `.gtd/ESCALATION.md` survives untouched — the SAME
     # prompt tells the turn to never edit or delete it, only a genuinely
     # green check does that. The next check is still red and rewrites

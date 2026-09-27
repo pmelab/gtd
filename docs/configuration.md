@@ -612,17 +612,15 @@ vars:
 GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
 
-**`skillsPreamble`** is the bundled workflow's introduction to the skills an
-agent step loads (its `*Skills` var), put ahead of that step's prompt with
-`{skills}` replaced by the step's skill names. Blanking it
-(`GTD_SKILLSPREAMBLE=""` or `vars: { skillsPreamble: "" }`) switches the
-preamble off for every step; blanking one `*Skills` var switches it off for that
-step. A preamble you write must carry three clauses, or the field is unsafe:
-load only what your harness has and skip the rest silently; THE STEP'S OWN FILE
-FORMAT AND COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn the
-turn interactive, because no one is at a keyboard. The precedence clause is
-load-bearing — the preamble sits above the step's own format prose, so a skill
-that reflows the steering file changes which branch the flow takes next.
+The bundled workflow puts a preamble naming the skills an agent step loads (its
+`*Skills` var) ahead of that step's prompt; blanking one `*Skills` var switches
+it off for that step. A preamble in a workflow of your own must carry three
+clauses, or it is unsafe: load only what your harness has and skip the rest
+silently; THE STEP'S OWN FILE FORMAT AND COMPLETION CONDITION OUTRANK ANYTHING A
+SKILL SAYS; never turn the turn interactive, because no one is at a keyboard.
+The precedence clause is load-bearing — the preamble sits above the step's own
+format prose, so a skill that reflows the steering file changes which branch the
+flow takes next.
 
 ### The bundled workflow's variables
 
@@ -660,15 +658,10 @@ or `GTD_<NAME>`:
 - **`reviewBase`** (empty) — the commitish `--entry review-gate.check` reviews
   from.
 
-Several more exist only to dedup wording shared by several prompts, and can be
-overridden or blanked like any other: `styleBlock` and `styleFormatContract`
-(the voice, below), `agentConduct` (tool-use conduct shared by every agent
-step), the six role paragraphs `designPersona`, `architectPersona`,
-`reviewerPersona`, `specReviewerPersona`, `builderPersona`, `finisherPersona`
-plus `escalationPersona` (each step's `system` prompt), `stateFileRules`,
-`questionBar`/`questionBarReturn` (how the planners raise and fold in open
-questions), `fixFeedbackPrompt` (the shared body of the fix turns),
-`footnoteRules`/`footnoteFoldIn`.
+The prompts' wording — the voice below, the personas, the shared rules — is not
+a variable: a workflow that wants different words writes its own prompts,
+reusing the bundled workflow's steps and phases where it can (see
+[Reusing the bundled workflow](#reusing-the-bundled-workflow)).
 
 #### The voice
 
@@ -681,15 +674,14 @@ that run as long as the work needs) rather than chat replies. No upstream text
 ships in gtd's bundle. This is a point-in-time derivation with no refresh
 mechanism — it will silently go stale as upstream moves on.
 
-- **`styleBlock`** — the voice itself, injected into every agent step that
-  writes a deliverable: the package files, `.gtd/SPEC_FEEDBACK.md`,
-  `.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md` and `.gtd/REVIEW.md`. Blanking
-  it strips the voice from all of them.
-- **`styleFormatContract`** — the structural override for machine-read files:
-  the format contract (headings, checkbox rows, marker lines) outranks the
-  voice, and a violation refuses the turn. Injected right after `styleBlock` at
-  the steps whose output a parser reads (`design.triage`, `architecture.author`,
-  `build.review.reviewing`, `build.review.collecting`).
+- **The voice itself** is injected into every agent step that writes a
+  deliverable: the package files, `.gtd/SPEC_FEEDBACK.md`,
+  `.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md` and `.gtd/REVIEW.md`.
+- **A format contract** follows it for machine-read files: the format contract
+  (headings, checkbox rows, marker lines) outranks the voice, and a violation
+  refuses the turn. It is injected at the steps whose output a parser reads
+  (`design.triage`, `architecture.author`, `build.review.reviewing`,
+  `build.review.collecting`).
 
 Files a script writes carry no injected voice: `.gtd/FEEDBACK.md` holds verbatim
 test output plus a HEAD stamp.
