@@ -7,7 +7,7 @@ import {
   type GitOperations,
   type WorkspaceOps,
 } from "./platform/index.js"
-import { ConfigDiscovery, ConfigService } from "./workflow/index.js"
+import { ConfigDiscovery, ConfigService, resolveVars } from "./workflow/index.js"
 import {
   formatSubject,
   parseCommitMessage,
@@ -271,27 +271,6 @@ const pendingTree = (workspace: WorkspaceOps, rewrite: Rewrite | undefined): Tre
 }
 
 // ── Variables ───────────────────────────────────────────────────────────────
-
-const PREFIX = "GTD_"
-
-/**
- * The merged vars, later wins: the workflow's own defaults, `.gtdrc` `vars:`,
- * the opening commit's `Gtd-Var` trailers, then `GTD_<NAME>` for any name an
- * earlier layer declared (an env var never introduces a name).
- */
-const resolveVars = (
-  workflowVars: Readonly<Record<string, string>>,
-  rcVars: Readonly<Record<string, string>>,
-  entryVars: Readonly<Record<string, string>>,
-  env: Readonly<Record<string, string | undefined>>,
-): Record<string, string> => {
-  const merged = { ...workflowVars, ...rcVars, ...entryVars }
-  for (const name of Object.keys(merged)) {
-    const value = env[PREFIX + name.toUpperCase()]
-    if (value !== undefined) merged[name] = value
-  }
-  return merged
-}
 
 /**
  * `judgeBudgetBytes` is the one var that refuses rather than disabling its

@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process"
 import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { homedir, tmpdir } from "node:os"
@@ -13,8 +14,10 @@ import { seededValidateCommand } from "../SteeringFormats.js"
 // the REAL `homedir()` so `walkUp`'s stop condition matches production
 // exactly (a test dir under the system tmpdir sits below it, same as a real
 // repo would).
-const baseLayer = (dir: string) => {
-  const hostLayer = Host.layer({ root: dir, home: homedir(), env: {} })
+type Env = Readonly<Record<string, string>>
+
+const baseLayer = (dir: string, env: Env = {}) => {
+  const hostLayer = Host.layer({ root: dir, home: homedir(), env })
   const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeContext.layer)))
   const workspaceLayer = Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayer, gitLayer)))
   return Layer.mergeAll(hostLayer, gitLayer, workspaceLayer)
@@ -23,28 +26,30 @@ const baseLayer = (dir: string) => {
 // ConfigService.Live only loads/validates the config — it never writes.
 // Narrator is a no-op here, MERGED (not just provided) so it stays in the
 // output — these tests assert on the loaded config/failure, not on narration.
-const layer = (dir: string) =>
+const layer = (dir: string, env: Env = {}) =>
   Layer.mergeAll(
     ConfigService.Live,
     ConfigDiscovery.Live,
-    baseLayer(dir),
+    baseLayer(dir, env),
     Narrator.layer(() => {}, false),
   )
 
 const run = <A>(
   eff: Effect.Effect<A, Error, ConfigService | ConfigDiscovery | Narrator | Workspace | Host>,
   dir: string = projectDir,
-) => Effect.runPromise(eff.pipe(Effect.provide(layer(dir))))
+  env: Env = {},
+) => Effect.runPromise(eff.pipe(Effect.provide(layer(dir, env))))
 
 const runExit = <A>(
   eff: Effect.Effect<A, Error, ConfigService | ConfigDiscovery | Narrator | Workspace | Host>,
   dir: string = projectDir,
 ) => Effect.runPromiseExit(eff.pipe(Effect.provide(layer(dir))))
 
-const getConfig = (dir?: string) =>
+const getConfig = (dir?: string, env: Env = {}) =>
   run(
     Effect.flatMap(ConfigService, (c) => c.load),
     dir,
+    env,
   )
 
 let projectDir: string
@@ -142,6 +147,46 @@ describe("ConfigService", () => {
     writeFileSync(join(projectDir, "gtd.config.ts"), `${minimalWorkflow("first")}${line}\n`)
 
     await expect(getConfig()).rejects.toThrow(message)
+  })
+
+  it("finds the first step with the GTD_<NAME> overrides every command sees", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { human, vars } from "@pmelab/gtd/flows"`,
+        `export const defaults = { first: "from-default" }`,
+        `export default async () => {`,
+        `  await human(vars.first)`,
+        `}`,
+        ``,
+      ].join("\n"),
+    )
+
+    const cfg = await getConfig(undefined, { GTD_FIRST: "from-env" })
+
+    expect(cfg.workflow.initial).toBe("from-env")
+  })
+
+  it("finds the first step against HEAD's tree, the one an ordinary start replays over", async () => {
+    execSync("git init -q && git config user.email t@t && git config user.name T", {
+      cwd: projectDir,
+    })
+    writeFileSync(join(projectDir, "FIRST.md"), "from-head")
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { human, read } from "@pmelab/gtd/flows"`,
+        `export default async () => {`,
+        `  await human(read("FIRST.md") ?? "no-file")`,
+        `}`,
+        ``,
+      ].join("\n"),
+    )
+    execSync("git add -A && git commit -q -m init", { cwd: projectDir })
+
+    const cfg = await getConfig()
+
+    expect(cfg.workflow.initial).toBe("from-head")
   })
 
   it("takes the innermost gtd.config.ts — workflows are never merged", async () => {

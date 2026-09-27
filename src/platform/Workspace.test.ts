@@ -307,6 +307,7 @@ describe("Workspace [Live] worktreeSync", () => {
     write("keep.txt", "changed\n")
     write("notes.crlf", "one\ntwo\nthree\n")
     write("new/added.txt", "added\n")
+    write("new/line\nbreak.txt", "a newline in its name\n")
     rmSync(join(root, "gone.txt"))
     symlinkSync("big.txt", join(root, "link2"))
     const sub = join(root, "sub")

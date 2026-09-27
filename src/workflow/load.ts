@@ -3,13 +3,14 @@ import { dirname, join } from "node:path"
 import { Context, Effect, Layer, Schema } from "effect"
 import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../Commentary.js"
-import { replay, treeFromRecord } from "../replay/index.js"
+import { replay, type TreeView } from "../replay/index.js"
 import * as flows from "../flows/index.js"
 import { unified as builtInWorkflow } from "../workflows/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
-import { Host, Workspace } from "../platform/index.js"
+import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
 import { compileConfig, type ConfigLayer } from "./compile.js"
+import { resolveVars } from "./vars.js"
 import { ConfigDiscovery, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
@@ -174,7 +175,11 @@ export const load: Effect.Effect<
     )
   }
 
-  const initial = yield* firstStep(loaded, { ...loaded.defaults, ...compiled.rcVars })
+  const initial = yield* firstStep(
+    loaded,
+    resolveVars(loaded.defaults, compiled.rcVars, {}, host.env),
+    headTree(yield* Workspace),
+  )
   return {
     workflow: {
       flow: loaded.flow,
@@ -299,6 +304,17 @@ const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule =>
     ? fromModule(builtInWorkflow, BUILT_IN_ORIGIN)
     : fromModule(jiti().evalModule(module.source, { filename: module.filepath }), module.filepath)
 
+// The repository's HEAD, read lazily: what the flow sees on an ordinary start.
+const headTree = (workspace: WorkspaceOps): TreeView => {
+  let entries: ReadonlyMap<string, string> | undefined
+  const list = () => (entries ??= workspace.treeSync("HEAD"))
+  return {
+    paths: () => [...list().keys()].sort(),
+    read: (path) => (list().has(path) ? workspace.readCommittedSync(path, "HEAD") : undefined),
+    id: (path) => list().get(path),
+  }
+}
+
 /**
  * The default entry's first step — where a finished process waits — found the
  * only way a flow can be read: by replaying it over an empty history.
@@ -306,12 +322,13 @@ const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule =>
 const firstStep = (
   loaded: LoadedModule,
   vars: Readonly<Record<string, string>>,
+  tree: TreeView,
 ): Effect.Effect<string, GtdError> =>
   Effect.flatMap(
     Effect.promise(() =>
       replay({
         flow: loaded.flow,
-        episode: { entry: undefined, base: { hash: "", tree: treeFromRecord({}) }, commits: [] },
+        episode: { entry: undefined, base: { hash: "", tree }, commits: [] },
         vars,
         start: "",
         budgetBytes: Number.MAX_SAFE_INTEGER,

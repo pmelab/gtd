@@ -1,26 +1,10 @@
 import { Effect } from "effect"
 import { Narrator } from "../Commentary.js"
 import { GitService, Host, Workspace } from "../platform/index.js"
-import { ConfigDiscovery, ConfigService } from "../workflow/index.js"
+import { ConfigDiscovery, ConfigService, resolveVars } from "../workflow/index.js"
 import { formatCommitMessage, formatSubject } from "../replay/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
 import type { LandStep } from "./LandStep.js"
-
-/** Merge the four vars layers — same discipline as `Edge.ts`'s `resolveVars`, duplicated so `src/step/` stays a leaf `Edge.ts` depends on. */
-const PREFIX = "GTD_"
-const resolveVars = (
-  workflowVars: Readonly<Record<string, string>>,
-  rcVars: Record<string, string>,
-  entryVars: Record<string, string>,
-  env: Readonly<Record<string, string | undefined>>,
-): Record<string, string> => {
-  const merged = { ...workflowVars, ...rcVars, ...entryVars }
-  for (const name of Object.keys(merged)) {
-    const value = env[PREFIX + name.toUpperCase()]
-    if (value !== undefined) merged[name] = value
-  }
-  return merged
-}
 
 /** Just enough of the current rest for `planEntry`'s checks. */
 export interface EntryCurrent {

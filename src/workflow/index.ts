@@ -3,4 +3,5 @@
 export { load, ConfigService, configPresentAt } from "./load.js"
 export { ConfigDiscovery, SEARCH_PLACES, WORKFLOW_MODULE, walkUp } from "./discovery.js"
 export { formatDiagnostic } from "./Diagnostic.js"
+export { resolveVars } from "./vars.js"
 export { renderInitScaffold } from "./init.js"

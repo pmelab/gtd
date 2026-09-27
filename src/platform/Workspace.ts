@@ -10,6 +10,7 @@ const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(Strin
 
 // A tree listing, or one committed file, can overflow execFileSync's 1 MB default.
 const MAX_BUFFER = 256 * 1024 * 1024
+const HASH_CHUNK = 500
 
 /**
  * The one port onto repo file content, in four REPO-RELATIVE read shapes:
@@ -173,9 +174,12 @@ const makeWorkspaceOps = (root: string, git: GitOperations): WorkspaceOps => {
         else entries.set(path, gitlinkOf(path))
       } else files.push(path)
     }
-    if (files.length > 0) {
-      const ids = gitSync(["hash-object", "--stdin-paths"], `${files.join("\n")}\n`).split("\n")
-      files.forEach((path, i) => entries.set(path, ids[i] || undefined))
+    // Paths go as arguments, never newline-separated on stdin: a path may
+    // hold a newline. Chunked to stay under the argument-list limit.
+    for (let i = 0; i < files.length; i += HASH_CHUNK) {
+      const chunk = files.slice(i, i + HASH_CHUNK)
+      const ids = gitSync(["hash-object", "--", ...chunk]).split("\n")
+      chunk.forEach((path, j) => entries.set(path, ids[j] || undefined))
     }
     return new Map([...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
   }
