@@ -210,27 +210,20 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       """
       a sketch
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And gtd lands "gtd(check): design.gate.check → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       the technical plan
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.check"
-    And gtd lands "gtd(check): architecture.gate.check → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
     And the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-plan.md" with:
       """
       the plan
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.picking"
-    And a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-plan.md
-      """
-    And gtd lands "gtd(check): packages.picking → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""

@@ -160,8 +160,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
       export const untouched = () => true
       """
     And gtd enters "review-gate.check" with "--var reviewBase=boundary"
-    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     # The reviewing prompt makes the agent write this marker verbatim as
     # `refs.reviewBase` (src/workflows/text.ts). BASE here is
     # substituted for the real hash "boundary" resolves to — not typed by

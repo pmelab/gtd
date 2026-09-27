@@ -18,8 +18,8 @@ Feature: A review sign-off lands even when its mode declares a format: command t
   `gtd uncheck` resets every tick ahead of the human's own commit, so no
   `[x]` can reach a commit through gtd's own landing path — this scenario
   lands the human turn through `gtd land` itself, rather than hand-committing
-  a ticked `.gtd/REVIEW.md`, so the tick is genuinely gone by the time
-  `deciding`'s script runs its diff comparison.
+  a ticked `.gtd/REVIEW.md`, so the tick is genuinely gone by the time the
+  flow compares the review commit's `.gtd/REVIEW.md`.
 
   Scenario: the sign-off still lands when the review mode declares a format command that fails on a missing file
     Given a test project
@@ -41,8 +41,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       export const add = (a: number, b: number) => a + b
       """
     And gtd enters "review-gate.check" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.quality.seeding"
-    And gtd lands "gtd(check): build.quality.seeding → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -66,10 +65,10 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
     When I run gtd next with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → idle"
+    And the last commit subject is "gtd(check): build.review.closing → idle"
     And ".gtd/REVIEW.md" does not exist

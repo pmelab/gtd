@@ -50,12 +50,7 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
       - [ ] Search
       - [ ] Export
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.check"
-    And a file ".gtd/QUESTIONS.md" with:
-      """
-      open questions remain in .gtd/REQUIREMENTS.md
-      """
-    And gtd lands "gtd(check): design.gate.check → design.gate.answer"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And the git index has settled
     And I snapshot the repository
     When I run gtd next with "--json"
