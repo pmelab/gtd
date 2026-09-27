@@ -200,6 +200,38 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     And the file ".gtd/PLAN.md" contains "Paragraph zero here."
 
   @live
+  Scenario: a review step hands off with no note (the review screen's Done control) and exits
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("working", { file: ".gtd/REVIEW.md", mode: "review", message: "review it" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1
+      new add function
+      """
+    When I hand off with no note to a spawned gtd ui
+    Then the reported exit status is 0
+    And the file ".gtd/REVIEW.md" contains "new add function"
+
+  @live
   Scenario: no --host given, gtd ui publishes through tailscale serve and tears the mapping down on handoff
     # Package 01's serve-first front door: no --host/--self-signed given, so
     # `runUiCommand` probes and publishes through `tailscale serve` instead of
