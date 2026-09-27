@@ -18,7 +18,7 @@ export default Object.freeze({
   plantedIdentifier: "throw new EmptyNameError",
   artifact: "src/greet.ts",
   base: {
-    ".gtd/NEXT.md": `# Package: greet
+    ".gtd/packages/01-greet.md": `# Package: greet
 
 ## Requirements
 

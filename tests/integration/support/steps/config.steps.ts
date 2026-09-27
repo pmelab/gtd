@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process"
 import { writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
-import { renderInitConfig } from "../../../../src/workflows/index.js"
 import {
   createPlainDirectory,
   createTestProjectUnderConfiguredAncestor,
@@ -74,16 +73,11 @@ Given(
   },
 )
 
-// Materializes the bundled unified workflow into `.gtdrc.json` (via
-// `renderInitConfig`) and commits it. The workflow is gtd's BUILT-IN default,
-// so a scenario need not configure it — but pinning it explicitly (and
-// committing to keep the tree clean, resting at the template's initial state)
-// keeps a scenario's assertions stable against the exact shape it was written
-// for. `renderInitConfig` is modes-free, so the steering-file gates stay
-// hermetic (no shelling out to Prettier). This is NOT what `gtd init` writes
-// (init seeds only vars/modes — see init.feature).
+// The bundled workflow is gtd's default, so this only commits an empty
+// `.gtdrc.json`: the scenario starts from one clean commit at the default
+// entry's first step, and no mode shells out to a formatter.
 const scaffoldUnifiedWorkflow = (world: GtdWorld): void => {
-  const content = renderInitConfig()
+  const content = "{}\n"
   if (world.tier === "inmem") {
     world.repo!.writeFile(".gtdrc.json", content)
     world.repo!.commitAllWithPrefix("chore: init gtd workflow")

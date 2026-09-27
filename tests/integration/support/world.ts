@@ -460,6 +460,7 @@ export class GtdWorld extends QuickPickleWorld {
       ...pathEnv,
       ...optionalEnv("GTD_TESTCOMMAND", this.gtdTestCommandOverride),
       ...optionalEnv("GTD_TEST_TAILSCALE_DIR", this.tailscaleStateDir),
+      ...this.envVars,
       ...this.liveEnvOverrides,
       NODE_OPTIONS: undefined,
     }

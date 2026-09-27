@@ -9,10 +9,6 @@ Feature: gtd in a repository with no commits yet
   the `{"state":"error","prompt":…}` envelope on stderr (stdout stays
   byte-empty), still exiting `1`.
 
-  `gtd status` is gone — it always usage-errors (exit `2`) before any
-  precondition check runs at all, even in a commitless repository (see
-  below), so it is no longer one of the state-deriving commands above.
-
   `gtd init` is exempt — it writes only config and derives no workflow state
   — so it still succeeds in a commitless repository, and its own next-steps
   message ("review and commit it") is exactly how a fresh project satisfies
@@ -45,17 +41,6 @@ Feature: gtd in a repository with no commits yet
     Then it fails
     And the exit code is 1
     And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
-
-  @inmem
-  Scenario: gtd status is a removed-command usage error even in a repository with no commits
-    # The removed-command check runs at parse time, ahead of any repository
-    # precondition — so this is the same usage error command-surface.feature
-    # asserts on everywhere else, not the commitless refusal above.
-    Given a git repository with no commits
-    When I run gtd status
-    Then it fails
-    And the exit code is 2
-    And stderr contains "gtd: `gtd status` is gone — run `gtd next` instead"
 
   @inmem
   Scenario: gtd validate refuses in a repository with no commits

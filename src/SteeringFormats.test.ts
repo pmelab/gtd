@@ -13,7 +13,7 @@ describe("seededValidateCommand / isSeededValidateCommand", () => {
   })
 
   it("rejects a hand-written command", () => {
-    expect(isSeededValidateCommand("qa", "npx prettier --check <%= it.file %>")).toBe(false)
+    expect(isSeededValidateCommand("qa", "npx prettier --check $GTD_FILE")).toBe(false)
   })
 
   it("rejects another mode's seeded command", () => {
@@ -21,7 +21,7 @@ describe("seededValidateCommand / isSeededValidateCommand", () => {
   })
 
   it("rejects near-miss whitespace/quoting variants", () => {
-    expect(isSeededValidateCommand("qa", "gtd check qa  '<%= it.file %>'")).toBe(false)
-    expect(isSeededValidateCommand("qa", `gtd check qa "<%= it.file %>"`)).toBe(false)
+    expect(isSeededValidateCommand("qa", "gtd check qa  '$GTD_FILE'")).toBe(false)
+    expect(isSeededValidateCommand("qa", "gtd check qa $GTD_FILE")).toBe(false)
   })
 })

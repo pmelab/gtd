@@ -14,8 +14,8 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
   usage error naming the modes that do exist.
 
   `--open-questions` (mode "qa" only) replaces that structural check with
-  src/steering/index.ts's `unansweredQuestions` predicate — the SAME one
-  src/step/Guards.ts's answer-completeness guard enforces at land — printing each
+  src/steering/index.ts's `unansweredQuestions` predicate — the SAME one a
+  flow's `openQuestions()` reads — printing each
   unanswered question's heading and exiting non-zero when any remain. Unlike
   the structural path, a missing (or unreadable) file is itself a non-zero
   exit naming the path, not "nothing to check": a workflow's gate script must

@@ -6,14 +6,13 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
   `.gtd/REVIEW.md` back to `- [ ]` (via `gtd uncheck`) BEFORE it commits — a
   tick means "I read this hunk", never sign-off, and no record of which
   hunks were read survives the land, in history or on disk. This lets
-  `build.review.deciding`'s own sign-off-vs-feedback check compare
-  `.gtd/REVIEW.md` byte-for-byte across the human's commit with no
+  the flow's own sign-off-vs-feedback check compare `.gtd/REVIEW.md`
+  byte-for-byte across the human's commit with no
   `[ ]`/`[x]` normalization at all — no `[x]` can ever reach it.
 
   `qa`-mode's `- [ ]` boxes are a different format entirely: they ARE the
   answer, so `gtd uncheck` is never emitted at a `qa`-mode gate — only at the
-  human `mode: review` gate (see `src/step/Guards.ts`'s `isHumanReviewGate`,
-  shared by the guard and the emitted step).
+  human `mode: review` gate.
 
   These scenarios actually EXECUTE the rendered scripts (`I execute the
   printed check script`) rather than simulating their outcome by hand — the
@@ -22,7 +21,15 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   Scenario: ticking boxes and changing nothing else is a clean sign-off — the ticks are gone from disk and the round reaches idle
     Given a test project
-    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -32,6 +39,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -44,18 +52,26 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
     And ".gtd/REVIEW.md" contains "- [ ] ./src/calc.ts#1"
     And ".gtd/REVIEW.md" does not contain "[x]"
     When I run gtd next with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → idle"
+    And the last commit subject is "gtd(check): build.review.closing → idle"
 
   Scenario: ticking boxes and leaving a note is feedback — the commit carries the note, no tick, and routes to triage
     Given a test project
-    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -65,6 +81,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -77,19 +94,29 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
     And ".gtd/REVIEW.md" does not contain "[x]"
     And ".gtd/REVIEW.md" contains "needs error handling too"
     When I run gtd next with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.review.triage"
-    And ".gtd/REVIEW_NOTE.md" exists
+    And the last commit subject is "gtd(check): build.review.closing → build.review.triage"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "needs error handling too"
 
   Scenario: ticking a two-space-indented (nested) hunk is cleared at the review gate too — the live bug this rewrite fixes
     Given a test project
-    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -99,6 +126,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] ./src/calc.ts#1
         - [ ] ./src/calc.ts#2
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -111,18 +139,26 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
     And ".gtd/REVIEW.md" contains "  - [ ] ./src/calc.ts#2"
     And ".gtd/REVIEW.md" does not contain "[x]"
     When I run gtd next with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → idle"
+    And the last commit subject is "gtd(check): build.review.closing → idle"
 
   Scenario: a '- [x]' line inside a fenced code block in a chunk description is never a hunk pointer, and ticking the chunk never touches it
     Given a test project
-    And a commit "gtd(agent): build.health.check → build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -139,6 +175,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -158,14 +195,16 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
     And ".gtd/REVIEW.md" contains "- [ ] ./src/calc.ts#1"
     And ".gtd/REVIEW.md" contains "- [x] ./src/legacy.ts#1"
 
   Scenario: a ticked answer at a qa-mode gate survives the land — gtd uncheck never runs there
     Given a test project
     And the workflow
-    And a commit "gtd(agent): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
 
@@ -177,6 +216,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
       """
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a widget.

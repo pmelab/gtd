@@ -18,8 +18,8 @@ while :; do
 
   # \`idle\` (true iff the initial state, clean tree) is the one shape that
   # means the process is genuinely done — EXCEPT on the run's opening beat:
-  # land it anyway, so a workflow whose initial state declares its own
-  # clean-tree "C" pattern still gets a chance to fire.
+  # land it anyway, so a workflow whose first step accepts a clean landing
+  # (acceptClean) still gets a chance to fire.
   if [ "$beat" -gt 1 ] && [ "\${idle:-}" = true ]; then
     gtd next
     exit 0
@@ -260,7 +260,7 @@ const DRIVER_OBLIGATIONS = `
    opening move: a human's pending edit arrives as a \`kind: "capture"\` beat,
    which you land immediately without executing anything. EXCEPT: don't
    trust \`idle\` on the run's very first iteration — land that beat first, so
-   a workflow whose initial state declares its own clean-tree \`"C"\` pattern
+   a workflow whose first step accepts a clean landing (\`acceptClean\`)
    still gets one chance to advance before you conclude nothing is owed.
 2. Read the content to run/show off \`--json=content\` — never off plain
    \`gtd next\`, which is not a parsing surface (it wraps \`content\` in a

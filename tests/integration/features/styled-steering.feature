@@ -1,9 +1,8 @@
 @live
 Feature: the voice survives the parsers it shares a prompt with (package 03, task 3)
 
-  Package 03 injects gtd's own terse "voice" (`vars.styleBlock`) alongside a
-  structural-override variable (`vars.styleFormatContract`) into every
-  machine-parsed prompt state, so an agent styling its prose can't also style
+  Package 03 injects gtd's own terse "voice" alongside a structural-override
+  format contract into every machine-parsed prompt state, so an agent styling its prose can't also style
   away the `##`/`### ` headings, `- [ ]` checkbox rows, or marker lines the
   parser requires. This feature is the end-to-end proof: a HUMAN, standing in
   for the agent, writes a styled `.gtd/REQUIREMENTS.md`/`.gtd/REVIEW.md` at
@@ -28,10 +27,12 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
   Scenario: a styled REQUIREMENTS.md passes gtd check qa and design.triage advances
     Given a test project
     And the workflow
-    And a commit "gtd(check): start-gate.check → design.triage" that adds "src/calc.ts" with:
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     # The styled file itself — bold claim up front, flat imperative sentences,
     # no padding — with the "## Open Questions" / "### <question>" / "- [ ]"
     # grammar `gtd check qa` requires still intact.
@@ -54,15 +55,19 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
     And stdout contains ".gtd/REQUIREMENTS.md: valid"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → design.gate.check"
+    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
 
   Scenario: a styled REVIEW.md passes gtd check review and build.review.reviewing advances
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.health.check → build.review.reviewing" that adds "src/calc.ts" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     # The styled file itself — bold claim, imperative, no padding — with the
     # "# Review: <hash>" header, the base marker, and "## <chunk>" / "- [ ]
     # ./path#line" rows `gtd check review` requires still intact.

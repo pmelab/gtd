@@ -3,14 +3,14 @@ import { Effect } from "effect"
 import { Host } from "./platform/index.js"
 import { isSeededValidateCommand } from "./SteeringFormats.js"
 import { steeringFormatFor, type SteeringFinding, type SteeringFormat } from "./steering/index.js"
-import { knownModes, type StateMode, type WorkflowDefinition } from "./PatternMachine.js"
-import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
+import { knownModes, type StateMode, type WorkflowDefinition } from "./Workflow.js"
 import { buildModeContradictionCheck, modeContradictionSkipNotice } from "./ModeContradiction.js"
 import {
   binaryGuard,
   emitScripts,
   extractLeadingBinary,
   fileExistsGuard,
+  withFileVar,
   type EmitStep,
 } from "./Emit.js"
 
@@ -100,7 +100,7 @@ const capabilitiesFor = (
  * can never drift from what actually resolved.
  */
 export const resolveMode = (
-  def: WorkflowDefinition | undefined,
+  def: Pick<WorkflowDefinition, "modes"> | undefined,
   state: string,
   mode: StateMode,
 ): ModeResolution => {
@@ -131,21 +131,6 @@ export const resolveMode = (
   }
 }
 
-const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
-
-/** Render one command template, turning an Eta failure into a named error rather than executing anything. */
-const renderCommand = (
-  mode: StateMode,
-  key: "format" | "validate",
-  command: string,
-  file: string,
-  context: TemplateContext,
-): Effect.Effect<string, Error> =>
-  Effect.try({
-    try: () => renderModeCommand(command, { ...context, file }),
-    catch: (e) => new Error(`mode "${mode}": "${key}" command failed to render — ${errorText(e)}`),
-  })
-
 /** `gtd next`'s fix-retry instruction, printed ahead of the failing command's captured output. */
 const fixPromptInstruction = (file: string): string =>
   `Your last turn does not pass its own validation script. Fix these format violations in ${file}, then finish:`
@@ -162,51 +147,44 @@ const pushGuardedCommand = (
   mode: StateMode,
   key: "format" | "validate",
   command: string,
+  file: string,
   onFailure: string | undefined,
 ): void => {
   const binary = extractLeadingBinary(command)
   if (binary !== undefined) {
     steps.push({ kind: "command", command: binaryGuard(binary, mode, key) })
   }
-  steps.push({ kind: "command", command, ...(onFailure !== undefined ? { onFailure } : {}) })
+  steps.push({
+    kind: "command",
+    command: withFileVar(command, file),
+    ...(onFailure !== undefined ? { onFailure } : {}),
+  })
 }
 
 /**
- * `resolved`'s `format:`/`validate:` rendered as `EmitStep[]` — format first,
+ * `resolved`'s `format:`/`validate:` as `EmitStep[]` — format first,
  * validate last, the last one wrapped with `onFailure` when the validator is
  * a command (a built-in's own in-process parser has no shell step to wrap:
  * `gtd check`'s seeded command carries that instead). Each command gets its
  * own `binaryGuard` immediately ahead of it.
  */
-const renderModeCommandSteps = (
-  resolved: ResolvedMode,
-  file: string,
-  context: TemplateContext,
-): Effect.Effect<readonly EmitStep[], Error> =>
-  Effect.gen(function* () {
-    const steps: EmitStep[] = []
-    if (resolved.formatCommand !== undefined) {
-      const command = yield* renderCommand(
-        resolved.mode,
-        "format",
-        resolved.formatCommand,
-        file,
-        context,
-      )
-      pushGuardedCommand(steps, resolved.mode, "format", command, undefined)
-    }
-    if (resolved.validate?.kind === "command") {
-      const command = yield* renderCommand(
-        resolved.mode,
-        "validate",
-        resolved.validate.command,
-        file,
-        context,
-      )
-      pushGuardedCommand(steps, resolved.mode, "validate", command, fixPromptInstruction(file))
-    }
-    return steps
-  })
+const modeCommandSteps = (resolved: ResolvedMode, file: string): readonly EmitStep[] => {
+  const steps: EmitStep[] = []
+  if (resolved.formatCommand !== undefined) {
+    pushGuardedCommand(steps, resolved.mode, "format", resolved.formatCommand, file, undefined)
+  }
+  if (resolved.validate?.kind === "command") {
+    pushGuardedCommand(
+      steps,
+      resolved.mode,
+      "validate",
+      resolved.validate.command,
+      file,
+      fixPromptInstruction(file),
+    )
+  }
+  return steps
+}
 
 /** `<Host.scratchDir>/gtd-mode-sample-<mode>-<pid>.md` — an absolute literal baked in at emit time, never a shell variable. `<pid>` avoids collisions between concurrent `gtd` processes. Never a `/tmp` literal or `mktemp` (`tests/tooling/no-tmp-assumption.test.ts` scans for both). */
 const scratchSamplePath = (scratchDir: string, mode: StateMode): string =>
@@ -222,7 +200,6 @@ const scratchSamplePath = (scratchDir: string, mode: StateMode): string =>
  */
 const modeContradictionSteps = (
   resolved: ResolvedMode,
-  context: TemplateContext,
 ): Effect.Effect<readonly EmitStep[], Error, Host> =>
   Effect.gen(function* () {
     if (resolved.formatCommand === undefined) return []
@@ -230,13 +207,7 @@ const modeContradictionSteps = (
     if (capabilities.format !== undefined && capabilities.liveValidate !== undefined) {
       const { scratchDir } = yield* Host
       const samplePath = scratchSamplePath(scratchDir, resolved.mode)
-      const formatCommand = yield* renderCommand(
-        resolved.mode,
-        "format",
-        resolved.formatCommand,
-        samplePath,
-        context,
-      )
+      const formatCommand = withFileVar(resolved.formatCommand, samplePath)
       return [
         {
           kind: "command",
@@ -270,13 +241,12 @@ export interface ValidateScript {
 export const validateScriptFor = (
   resolved: ResolvedMode,
   file: string,
-  context: TemplateContext,
 ): Effect.Effect<ValidateScript, Error, Host> =>
   Effect.gen(function* () {
     const steps: EmitStep[] = [
-      ...(yield* modeContradictionSteps(resolved, context)),
+      ...(yield* modeContradictionSteps(resolved)),
       { kind: "command", command: fileExistsGuard(file) },
-      ...(yield* renderModeCommandSteps(resolved, file, context)),
+      ...modeCommandSteps(resolved, file),
     ]
     return { script: emitScripts(steps).required }
   })

@@ -3,6 +3,7 @@ import fc from "fast-check"
 import {
   blockNodeAt,
   getParseCount,
+  headingSectionBodies,
   headingSections,
   parseMarkdown,
   sourceText,
@@ -190,5 +191,37 @@ describe("headingSections", () => {
   it("takes an explicit depth", () => {
     const content = "## Two\n\n### Three\n"
     expect(headingSections(content, 3)).toEqual(["Three"])
+  })
+})
+
+describe("headingSectionBodies", () => {
+  it("finds headings the way the parser does — doubled spaces, a closing run, indentation", () => {
+    const content =
+      "##  Spaced  Title\nspaced body\n\n## Closed ##\nclosed body\n\n   ## Indented\nindented body\n"
+    expect(headingSectionBodies(content)).toEqual([
+      { title: "Spaced Title", body: "##  Spaced  Title\nspaced body" },
+      { title: "Closed", body: "## Closed ##\nclosed body" },
+      { title: "Indented", body: "   ## Indented\nindented body" },
+    ])
+  })
+
+  it("never ends a section at a plain line that happens to equal a title", () => {
+    const content = "## Plan\nPlan\nstill the plan\n\n## Next\nnext body\n"
+    expect(headingSectionBodies(content)[0]!.body).toBe("## Plan\nPlan\nstill the plan")
+  })
+
+  it("keeps two same-titled sections apart", () => {
+    const content = "## Note\nfirst\n\n## Note\nsecond\n"
+    expect(headingSectionBodies(content).map((s) => s.body)).toEqual([
+      "## Note\nfirst",
+      "## Note\nsecond",
+    ])
+  })
+
+  it("ends a section at a higher-level heading, and ignores a heading inside a code fence", () => {
+    const content = "## One\n```\n## not a heading\n```\n# Top\ntop body\n"
+    expect(headingSectionBodies(content)).toEqual([
+      { title: "One", body: "## One\n```\n## not a heading\n```" },
+    ])
   })
 })

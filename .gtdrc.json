@@ -5,15 +5,15 @@
   },
   "modes": {
     "qa": {
-      "format": "npx oxfmt --no-error-on-unmatched-pattern --write '<%= it.file %>'",
-      "validate": "node ./dist/gtd.bundle.mjs check qa '<%= it.file %>'"
+      "format": "npx oxfmt --no-error-on-unmatched-pattern --write \"$GTD_FILE\"",
+      "validate": "node ./dist/gtd.bundle.mjs check qa \"$GTD_FILE\""
     },
     "review": {
-      "format": "npx oxfmt --no-error-on-unmatched-pattern --write '<%= it.file %>'",
-      "validate": "node ./dist/gtd.bundle.mjs check review '<%= it.file %>'"
+      "format": "npx oxfmt --no-error-on-unmatched-pattern --write \"$GTD_FILE\"",
+      "validate": "node ./dist/gtd.bundle.mjs check review \"$GTD_FILE\""
     }
   },
   "ui": {
-    "format": "npx oxfmt --no-error-on-unmatched-pattern --write '<%= it.file %>'"
+    "format": "npx oxfmt --no-error-on-unmatched-pattern --write \"$GTD_FILE\""
   }
 }

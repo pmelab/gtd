@@ -10,7 +10,7 @@ Commands:
                    default variables you are most likely to change (the test
                    command) and a Prettier formatting suggestion. gtd runs its
                    built-in workflow by default, so no workflow is written —
-                   add a workflow: key only to customize the machine itself.
+                   write a gtd.config.ts only to customize the workflow itself.
                    Takes no argument. Run once per repo; refuses if a gtd
                    config already exists. Leaves the file uncommitted for you
                    to review and commit
@@ -70,10 +70,6 @@ Commands:
                    ready-to-send fix prompt (instruction + findings) and
                    exits with the validator's own code
   lsp              Start the LSP server for .gtd/ steering files (stdio)
-  visualize        Serve an interactive diagram of the active workflow on a
-                   local web server (--port <n>, --no-open). Prints the
-                   chosen port on its own line — with --port 0, this is the
-                   only way to learn which port was picked
   ui               Expose gtd's web/phone client for THIS worktree — the
                    invoking directory, never a configured list of roots — and
                    refuses outside a repository like every other state command.
@@ -161,11 +157,9 @@ Options:
                    <path> is itself absent/null (e.g. session.id at a
                    non-prompt rest), which never counts as unknown; an
                    unknown path is a usage error (exit 2).
-  --port=<n>       (gtd visualize/gtd ui only) port to serve on: a free port
-                   for visualize; for ui, the tailscale serve port (default:
-                   the first free of 8443, 10000, 443), or the bind port when
-                   --host opts out of serve (default: a free port)
-  --no-open        (gtd visualize only) do not open the browser
+  --port=<n>       (gtd ui only) the tailscale serve port (default: the first
+                   free of 8443, 10000, 443), or the bind port when --host
+                   opts out of serve (default: a free port)
   --host=<addr>    (gtd ui only) opt out of the default tailscale serve front
                    door and bind this address directly instead, showing it in
                    the printed URL
@@ -175,19 +169,19 @@ Options:
                    instead of the packaged build
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land only, with --cost) tag that cost's model
-  --entry <state>  (with no command at all) start a brand new process at
-                   <state> — any declared state — authenticated as human
+  --entry <state>  (with no command at all) start a brand new process,
+                   handing <state> to the workflow as its entry —
+                   authenticated as human
   --var <name>=<value>
-                   (with --entry; repeatable) supply a fixed it.vars
+                   (with --entry; repeatable) supply a fixed variable
                    override for the new process; the name must already be
-                   declared by the workflow's own vars: or the .gtdrc vars:
+                   declared by the workflow's defaults or the .gtdrc vars:
   --open-questions (gtd check only) ignore <mode>'s structural findings and
                    instead run the qa open-questions predicate over <file>,
                    printing each unanswered question one per line and exiting
                    non-zero when any remain
   --verbose        enable stderr narration for this invocation: which rest
-                   resolved, which declared pattern each pending change
-                   matched, and how config resolved across layers. Aliased
+                   resolved and how config resolved across layers. Aliased
                    to -v
   --version, -V    Print version and exit
   --help, -h       Print this help and exit
@@ -219,16 +213,10 @@ that signal — a parent's `wait` sees a real signal death (`WIFSIGNALED`), not 
 chosen exit code that merely reuses the same number. No command's exit code
 carries a second meaning.
 
-**Migration — read this even if you already migrated for a prior release.** This
-is the second inversion in as many releases, folded into one note rather than
-two to compose in your head: `10`/`20` (whose turn was next) are gone — every
-command exits `0`/`1`/`2` uniformly now; `gtd status` is gone (folded into
-`gtd next`); and plain `gtd next` now prints a status header at every kind
-EXCEPT `prompt` — agent input is untouched, since plain `gtd next` at a `prompt`
-rest is byte-identical to before. A driver must read whose turn is next off
-`gtd next --json`'s own `kind` field
-(`capture`/`message`/`script`/`prompt`/`stalled`) — never off gtd's exit code,
-which no longer carries that signal at all.
+A driver reads whose turn is next off `gtd next --json`'s own `kind` field
+(`capture`/`message`/`script`/`prompt`/`stalled`), never off gtd's exit code.
+Plain `gtd next` prints a status header at every kind except `prompt`, whose
+output is exactly the agent's input.
 
 Every usage mistake — an unknown option or command, missing/extra arguments, a
 scope violation (e.g. `--cost` on a command other than `gtd land`), a bad flag
@@ -250,8 +238,8 @@ The state commands (`land`, `--entry`, `abandon`, `restore`, `next`, `status`,
 `validate`, `summary`, `ui`, `judge`, `judge answer`) must run from the
 **repository root** — gtd derives the workflow, pending changes, and process
 history relative to cwd, so they refuse with a clear error from a subdirectory;
-`lsp`, `init`, `visualize`, `check`, and `uncheck` are standalone and run from
-anywhere (see each command's own help entry).
+`lsp`, `init`, `check`, and `uncheck` are standalone and run from anywhere (see
+each command's own help entry).
 
 `install` is described on its own above: it writes nothing and installs
 knowledge into the calling agent's context, not files on disk.
@@ -272,18 +260,13 @@ other than `gtd land` are all usage errors.
 
 ### `gtd next`'s `Next:`/`next`
 
-Both plain and `--json` output include a headline preview of what would happen
-next: the first declared `on` edge whose pattern matches the pending changes AS
-A WHOLE (the same first-match-wins semantics `gtd land` itself uses), using its
-`action` when the edge declares one, else its raw pattern, alongside its target
-state. Plain output prints a `Next: <action-or-pattern> → <target>` line (or
-`Next: (no match — nothing would happen)`); `--json`'s `next` key mirrors it as
-`{ action?, pattern, target }`, or `null` on no match.
-
-This reports the **declared** route only: a capped `retry` may redirect
-elsewhere when the land is decided, which `Next:`/`next` does not apply — it
-previews what the declared `on` patterns would match, not a guarantee of where a
-real `gtd land` lands.
+Both plain and `--json` output include a preview of where the pending changes
+would take the process: gtd replays the workflow as if the working tree were
+landed now and reports the step it would reach. Plain output prints a
+`Next: → <step>` line (or `Next: (nothing would land)` when landing would commit
+nothing); `--json`'s `next` key mirrors it as `{ target }`, or `null`. It is a
+preview, not a landing: a guard or a `refuse()` can still turn the real
+`gtd land` away.
 
 ### Error envelope
 
@@ -291,8 +274,8 @@ real `gtd land` lands.
 followed by an error.** Every command buffers everything it would print and
 flushes that buffer to stdout exactly once, only after it succeeds; on any
 failure the buffer is simply discarded, so stdout never carries a half-written
-prompt/script alongside a message about why it stopped. `gtd visualize` is the
-one exception worth knowing: it flushes its served-URL line immediately, before
+prompt/script alongside a message about why it stopped. `gtd ui` is the one
+exception worth knowing: it flushes its served-URL line immediately, before
 blocking on `Ctrl-C`, since a flush-on-success would never otherwise fire.
 
 Any invocation that carries `--json` (valid only for `gtd next`/`gtd land` —
@@ -324,10 +307,10 @@ Stderr carries two things beyond the `gtd: ` message line above: NARRATION,
 gated by `--verbose`/`-v`, and REMEDIATION, unconditional.
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
-command's dispatch already computes — which rest resolved, which declared
-pattern each pending change matched, and how config resolved across `.gtdrc`
-layers. Without it, none of this is printed; stdout is never touched either way
-— narration is a stderr-only concern, exactly like the error envelope above.
+command's dispatch already computes — which rest resolved, and how config
+resolved across `.gtdrc` layers. Without it, none of this is printed; stdout is
+never touched either way — narration is a stderr-only concern, exactly like the
+error envelope above.
 
 A failure's remediation detail is unconditional — it prints at every verbosity,
 on the line(s) right after the `gtd: `-prefixed message, each indented two

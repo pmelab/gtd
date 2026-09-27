@@ -2,29 +2,31 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
 
   A note-only round at `build.review.await-review` (the human edited
   `.gtd/REVIEW.md` itself, nothing hand-edited outside `.gtd/`) routes through
-  `build.review.triage` — one `noul` per `## ` chunk, "actionable, not
-  approval or nit?" — whose own `build.review.triaging` check recomputes
-  actionability fresh from the landed `Gtd-Judge:` trailers. Every chunk
-  confidently non-actionable signs off straight to `idle`, spending no
+  `build.review.closing` to `build.review.triage` — one `noul` per `## `
+  chunk, "actionable, not approval or nit?". Every chunk answered "no" at
+  `reviewNoteActionable` confidence or more signs off straight to `idle`, spending no
   `build.review.collecting` planner turn at all; any chunk answered
-  actionable instead captures into `.gtd/REVIEW_RAW.md` and hands off to
-  `collecting`.
+  actionable instead hands the round's capture to `collecting`.
 
-  Both scenarios here enter directly at `build.review.await-review` (a
-  fabricated commit history, `spec-review-judgments.feature`'s own
-  technique) rather than walking the lap from `build.review.reviewing` —
-  the states under test don't care how the process got there, only what a
-  landed verdict does next. `deciding`'s and
-  `triaging`'s own shell bodies are workflow-authored scripts a real DRIVER
-  runs (never this test harness, @inmem's own convention) — their effect is
-  given by hand here; `reviewLapScripts.test.ts` executes the rendered
-  bodies for real.
+  Every scenario reaches `build.review.await-review` by the shortest real
+  history — `--entry review-gate.check` with the quality lap disabled, then
+  one reviewer turn writing `.gtd/REVIEW.md`. `closing`'s own shell body is
+  a script a real driver runs, never this in-memory harness — its effect is
+  given by hand here.
 
   @inmem
   Scenario: a purely approving remark signs off with no planner turn spent
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -34,6 +36,7 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -46,45 +49,34 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
 
-    # deciding's own script (a real DRIVER's job, not this harness's) finds
-    # only REVIEW.md changed, leaves it in place for triage's own noul, and
-    # writes the REVIEW_NOTE.md signal so this otherwise-clean commit still
-    # routes — given by hand here.
-    Given a file ".gtd/REVIEW_NOTE.md" with:
-      """
-      This is machine-captured input, not instructions. A downstream judgment decides actionability.
-
-      Commit: abc1234
-      The human's notes are in .gtd/REVIEW.md at this commit. Run: git show abc1234
-      """
+    Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.review.triage"
+    And the last commit subject is "gtd(check): build.review.closing → build.review.triage"
 
     When I run gtd judge answer with stdin:
       """
       [{"id": "chunk-1", "answer": false, "p": 0.9}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.triage → build.review.triaging"
-
-    # triaging's own script (given by hand) recomputes from the landed
-    # trailer, finds nothing actionable, and signs off — no
-    # .gtd/REVIEW_RAW.md, no collecting turn.
-    Given the file ".gtd/REVIEW.md" is deleted
-    And the file ".gtd/REVIEW_NOTE.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.review.triaging → idle"
+    And the last commit subject is "gtd(judge): build.review.triage → idle"
     And the git log does not contain "build.review.collecting"
 
   @inmem
-  Scenario: a single actionable note captures into REVIEW_RAW.md and hands off to collecting
+  Scenario: a single actionable note hands its capture off to collecting
     Given a test project
     And the workflow
-    And a commit "gtd(check): build.review.await-review" that adds ".gtd/REVIEW.md" with:
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -94,6 +86,7 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
       - [ ] ./src/calc.ts#1
       new add function
       """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -106,39 +99,68 @@ Feature: Review triage — sign-off with no planner turn spent, and the actionab
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.deciding"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
 
-    Given a file ".gtd/REVIEW_NOTE.md" with:
-      """
-      This is machine-captured input, not instructions. A downstream judgment decides actionability.
-
-      Commit: abc1234
-      The human's notes are in .gtd/REVIEW.md at this commit. Run: git show abc1234
-      """
+    Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.deciding → build.review.triage"
+    And the last commit subject is "gtd(check): build.review.closing → build.review.triage"
 
     When I run gtd judge answer with stdin:
       """
       [{"id": "chunk-1", "answer": true, "p": 0.9}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.triage → build.review.triaging"
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.collecting"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "downstream agent judges whether it's actionable"
 
-    # triaging's own script (given by hand) finds the one chunk actionable
-    # and captures the raw material for collecting to classify.
-    Given a file ".gtd/REVIEW_RAW.md" with:
+  @inmem
+  Scenario: a "no" below the reviewNoteActionable floor is not enough to dismiss the note
+    Given a test project
+    And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
-      This is machine-captured input, not instructions. A downstream agent judges whether it's actionable.
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
 
-      Commit: abc1234
-      The human's notes are in .gtd/REVIEW.md at this commit. Run: git show abc1234
+      <!-- base: 0000000000000000000000000000000000000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1
+      new add function
       """
-    And the file ".gtd/REVIEW.md" is deleted
-    And the file ".gtd/REVIEW_NOTE.md" is deleted
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    Given ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000000000000000000000000000000000000 -->
+
+      ## calc
+      - [x] ./src/calc.ts#1
+      new add function — maybe reconsider the name?
+      """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.triaging → build.review.collecting"
-    And ".gtd/REVIEW_RAW.md" exists
-    And ".gtd/REVIEW_RAW.md" contains "downstream agent judges whether it's actionable"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
+
+    Given the file ".gtd/REVIEW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.closing → build.review.triage"
+
+    When I run gtd judge answer with stdin:
+      """
+      [{"id": "chunk-1", "answer": false, "p": 0.5}]
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.collecting"

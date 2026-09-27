@@ -54,9 +54,8 @@ export { parseFootnotes } from "./Footnotes.js"
 // document" is assertable from outside `MarkdownTree.ts` — timing is not.
 export { getParseCount } from "./MarkdownTree.js"
 
-// A dynamic-count `judge:` template's own section/finding list — `it.sections`
-// (`PatternTemplates.ts`) is the one caller outside this package.
-export { headingSections } from "./MarkdownTree.js"
+// A flow's `sections()` is the one caller outside this package.
+export { headingSectionBodies, headingSections } from "./MarkdownTree.js"
 
 /** The built-in `SteeringFormat` registered under `mode`'s name, or `undefined` when it isn't a built-in mode at all. The one place a bare mode-name string is ever looked up — `checkSteering`/`viewOf`/`clearTicks` all take the RESOLVED value this returns, never a name, so "mode is required, never inferred from a file's basename" is a type, not a rule to remember. */
 export const steeringFormatFor = (mode: string): SteeringFormat | undefined => REGISTRY.get(mode)
@@ -119,9 +118,7 @@ export const clearTicks = (format: SteeringFormat, content: string): string => {
  * (each node/link carries its own range — see `SteeringOutlineNode`/
  * `SteeringLink`), while `pointerAt`/`actionsAt` stay closures over `content`
  * because they need a cursor position/selection range the caller supplies
- * per request. This is the one value that replaces a third hand-rolled
- * `spanRange` (`Lsp.ts` no longer needs its own copy — it reads ranges
- * straight off `outline`/`documentLinks`).
+ * per request. `Lsp.ts` reads its ranges straight off `outline`/`documentLinks`.
  */
 export interface SteeringEditorView {
   readonly outline: readonly SteeringOutlineNode[]

@@ -65,12 +65,9 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     And the last commit subject is "gtd(agent): build.fix → build.health.check"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.seeding"
-    # Blank GTD_QUALITYREVIEWS empties the queue — seeding's own clean tree
-    # hands straight on to the human review tail.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.quality.seeding → build.review.reviewing"
+    # Blank GTD_QUALITYREVIEWS leaves the lap no lens to run — the green
+    # health check hands straight on to the human review tail.
+    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
 
   Scenario: a dirty working tree is captured into the entry commit, not refused
     Given a file "scratch.txt" with:

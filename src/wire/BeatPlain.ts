@@ -25,15 +25,10 @@ const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] 
 const pendingStatusLines = (statusChanges: readonly StatusChange[]): string[] =>
   statusChanges.length === 0
     ? ["Pending: (clean)"]
-    : [
-        "Pending:",
-        ...statusChanges.map((c) => `  ${c.status} ${c.path} -> ${c.pattern ?? "(no match)"}`),
-      ]
+    : ["Pending:", ...statusChanges.map((c) => `  ${c.status} ${c.path}`)]
 
 const nextStatusLine = (next: BeatDocument["next"]): string =>
-  next === null
-    ? "Next: (no match — nothing would happen)"
-    : `Next: ${next.action ?? next.pattern} → ${next.target}`
+  next === null ? "Next: (nothing would land)" : `Next: → ${next.target}`
 
 /** Builds `{[key]: value}` for each entry whose value isn't `undefined` — the shared "omit absent optional fields" shape the header uses. */
 const definedFields = (

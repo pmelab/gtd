@@ -280,6 +280,28 @@ const recognizeOutcome = (block: string): BlockOutcome | undefined =>
  * fake's stand-in for what the real wrapper prints to stdout before exiting
  * non-zero.
  */
+const FILE_VAR_PREFIX_RE = /^export GTD_FILE=('(?:[^']|'\\'')*')\n/
+
+/** The command after `withFileVar`'s `export GTD_FILE=…` line, `$GTD_FILE` expanded the way the shell would. */
+const expandFileVar = (text: string): string | undefined => {
+  const match = FILE_VAR_PREFIX_RE.exec(text)
+  if (match === null) return undefined
+  const [file] = extractQuotedTokens(match[1]!)
+  if (file === undefined) return undefined
+  return text
+    .slice(match[0].length)
+    .replace(/"\$GTD_FILE"|"\$\{GTD_FILE\}"/g, shellQuote(file))
+    .replace(/\$\{GTD_FILE\}|\$GTD_FILE\b/g, file)
+}
+
+/** A mode's `format:`/`validate:` command: `gtd check`, or a scripted command. */
+const recognizeModeCommand = (
+  repo: InMemRepo,
+  commands: ReadonlyMap<string, ScriptedCommand>,
+  command: string,
+): BlockOutcome | undefined =>
+  recognizeGtdCheck(repo, command) ?? recognizeScriptedCommand(repo, commands, command)
+
 const FAILURE_PROMPT_HEADER = 'gtd_validate_status=0\ngtd_validate_out="$( {\n'
 const FAILURE_PROMPT_MIDDLE =
   '\n} 2>&1 )" || gtd_validate_status=$?\n' +
@@ -306,8 +328,7 @@ const recognizeFailurePromptWrapper = (
   const [prompt] = extractQuotedTokens(promptQuoted)
   if (prompt === undefined || failurePromptWrapper(inner, prompt) !== block) return undefined
 
-  const innerOutcome =
-    recognizeGtdCheck(repo, inner) ?? recognizeScriptedCommand(repo, commands, inner)
+  const innerOutcome = recognizeModeCommand(repo, commands, expandFileVar(inner) ?? inner)
   if (innerOutcome === undefined) return undefined
   if (innerOutcome.kind === "failed") {
     return { kind: "failed", error: `${prompt}\n\n${innerOutcome.error}` }
@@ -425,12 +446,13 @@ const simulateModeContradictionCheck = (
 ): BlockOutcome => {
   const { mode, samplePath, sample, formatCommand, format } = parsed
   repo.writeFile(samplePath, sample)
-  const formatOutcome = recognizeScriptedCommand(repo, commands, formatCommand)
+  const command = expandFileVar(formatCommand) ?? formatCommand
+  const formatOutcome = recognizeScriptedCommand(repo, commands, command)
   if (formatOutcome === undefined) {
     repo.deleteFile(samplePath)
     return {
       kind: "failed",
-      error: `unscripted command "${formatCommand}" — declare it with a Given step`,
+      error: `unscripted command "${command}" — declare it with a Given step`,
     }
   }
   if (formatOutcome.kind === "failed") {
@@ -659,6 +681,10 @@ const recognizersFor = (
   (block) => recognizeModeContradictionCheck(repo, commands, block),
   (block) => recognizeGtdCheck(repo, block),
   (block) => recognizeGtdUncheck(repo, block),
+  (block) => {
+    const command = expandFileVar(block)
+    return command === undefined ? undefined : recognizeModeCommand(repo, commands, command)
+  },
   (block) => recognizeOutcome(block),
   (block) => recognizeScriptedCommand(repo, commands, block),
 ]

@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   dedicated feature files — see refusals.feature, default-workflow.feature,
   retry.feature.
 
-  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.check -> architecture-pre -> architecture.author -> architecture.gate.check -> architecture.decompose -> packages.picking -> packages.item.building -> packages.item.health.check
+  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> architecture-pre -> architecture.author -> architecture.decompose -> packages.item.building -> packages.item.health.check
     Given a test project
     And the workflow
     And a file "src/feature.ts" with:
@@ -21,7 +21,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
-    # unwind: simulate the `git revert --no-commit` — @inmem never executes
+    # unwind: simulate the revert — @inmem never executes
     # scripts — by reverting the working tree to the start commit ourselves.
     Given the file "src/feature.ts" is deleted
     When I run gtd land
@@ -37,11 +37,8 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → design.gate.check"
     # No open questions recorded -> the human gate is skipped entirely.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): design.gate.check → architecture-pre"
+    And the last commit subject is "gtd(agent): design.triage → architecture-pre"
     # architecture-pre: no verdict piped -> the conservative default runs
     # the full architecture pass.
     When I run gtd land
@@ -54,11 +51,8 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): architecture.author → architecture.gate.check"
     # No open questions recorded -> the human gate is skipped entirely.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): architecture.gate.check → architecture.decompose"
+    And the last commit subject is "gtd(agent): architecture.author → architecture.decompose"
     Given the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-feature.md" with:
       """
@@ -66,14 +60,8 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): architecture.decompose → packages.picking"
-    Given a file ".gtd/NEXT.md" with:
-      """
-      .gtd/packages/01-feature.md
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.picking → packages.item.building"
+    # The flow picks the lexically first package itself.
+    And the last commit subject is "gtd(agent): architecture.decompose → packages.item.building"
     Given a file "src/feature-impl.ts" with:
       """
       export const featureImpl = 1
@@ -94,25 +82,14 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
 
   Scenario: a custom workflow's sign-off lands an ordinary commit into idle, retaining every turn commit
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "write NOTE.md to start a process"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                prompt: "develop the note, then sign off"
-                on:
-                  "* **": idle
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "develop the note, then sign off")
+      }
       """
     And I record the commit count
     And a file "NOTE.md" with:

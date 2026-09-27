@@ -155,20 +155,18 @@ describe("buildFormatCommand", () => {
     expect(buildFormatCommand(undefined, "/repo")).toBeUndefined()
   })
 
-  it("renders it.file to the absolute path it's called with, and runs the rendered command in the worktree root", async () => {
+  it("runs the command in the worktree root with $GTD_FILE set to the absolute path it's called with", async () => {
     const calls: [string, string][] = []
     const run: RunInWorktree = async (cwd, command) => {
       calls.push([cwd, command])
       return { status: 0, stdout: "", stderr: "" }
     }
-    const formatCommand = buildFormatCommand("npx oxfmt --write <%= it.file %>", "/repo", run)
+    const formatCommand = buildFormatCommand('npx oxfmt --write "$GTD_FILE"', "/repo", run)
     const outcome = await formatCommand!("/repo/.gtd/NOTES.md")
-    expect(calls).toEqual([["/repo", "npx oxfmt --write /repo/.gtd/NOTES.md"]])
-    expect(outcome).toEqual({
-      ok: true,
-      command: "npx oxfmt --write /repo/.gtd/NOTES.md",
-      exitCode: 0,
-    })
+    expect(calls).toEqual([
+      ["/repo", "export GTD_FILE='/repo/.gtd/NOTES.md'\nnpx oxfmt --write \"$GTD_FILE\""],
+    ])
+    expect(outcome).toEqual({ ok: true, command: 'npx oxfmt --write "$GTD_FILE"', exitCode: 0 })
   })
 
   it("a non-zero exit reports ok: false with the exit code — never thrown", async () => {
@@ -188,26 +186,6 @@ describe("buildFormatCommand", () => {
     const formatCommand = buildFormatCommand("nonexistent-binary", "/repo", run)
     const outcome = await formatCommand!("/repo/x.md")
     expect(outcome).toEqual({ ok: false, command: "nonexistent-binary", exitCode: null })
-  })
-
-  it("a template that throws on render (a variable other than it.file) reports ok: false with a null exit code — never rejects", async () => {
-    const run: RunInWorktree = async () => {
-      throw new Error("must never spawn a command that never rendered")
-    }
-    const formatCommand = buildFormatCommand("npx run <%= it.vars.testCommand %>", "/repo", run)
-    const outcome = await formatCommand!("/repo/x.md")
-    expect(outcome).toEqual({
-      ok: false,
-      command: "npx run <%= it.vars.testCommand %>",
-      exitCode: null,
-    })
-  })
-
-  it("a malformed template (an unclosed Eta tag) reports ok: false with a null exit code — never rejects", async () => {
-    const run: RunInWorktree = async () => ({ status: 0, stdout: "", stderr: "" })
-    const formatCommand = buildFormatCommand("npx run <%= it.file", "/repo", run)
-    const outcome = await formatCommand!("/repo/x.md")
-    expect(outcome).toEqual({ ok: false, command: "npx run <%= it.file", exitCode: null })
   })
 })
 
@@ -2552,7 +2530,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
           idle: false,
           actor: "human",
           label: "a different rest",
-          state: "build.review.deciding",
+          state: "build.review.closing",
           file: "NOTES.md",
           mode: "qa",
         }),
@@ -2624,12 +2602,11 @@ describe("handoff exits the process", () => {
   it("Task 5/6: a configured ui.format runs after the write lands, and the resolved contentHash reflects the FORMATTED bytes on disk", async () => {
     const filePath = "NOTES.md"
     const content = "Paragraph zero here.\n\nParagraph two here.\n"
-    // `it.file` renders to the note's absolute path — appends a marker
-    // in place, exactly the shape a real `oxfmt --write <%= it.file %>`
-    // rewrites a file through.
+    // `$GTD_FILE` is the note's absolute path — appends a marker in place,
+    // the shape a real `oxfmt --write "$GTD_FILE"` rewrites a file through.
     const { boundUrl, fiber } = await startRealServer(
       tmpDir,
-      "printf -- '<!-- formatted -->\\n' >> <%= it.file %>",
+      "printf -- '<!-- formatted -->\\n' >> \"$GTD_FILE\"",
     )
     const absPath = join(tmpDir, filePath)
     writeFileSync(absPath, content)

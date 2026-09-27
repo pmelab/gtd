@@ -1,7 +1,7 @@
 @live
 Feature: Reads are safe to poll — a settled rest answers identically and mutates nothing
 
-  `gtd next` and `gtd status` must be safe to poll: nothing may move between
+  `gtd next` must be safe to poll: nothing may move between
   the run that reports a rest and any following call. Session id and resume
   are a pure derivation of history and write nothing, and no command records
   that a beat was dispatched — largely guaranteed already, but a gap in
@@ -18,8 +18,8 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
   Scenario: repeated reads at a resting prompt turn change nothing — session, memory, and model all stay put
     Given a test project
     And the workflow
-    When I run gtd with args "--entry design.triage"
-    Then it succeeds
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     And the git index has settled
     And I snapshot the repository
     When I run gtd next with "--json"
@@ -37,8 +37,20 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
   Scenario: repeated reads at a settled gate change nothing
     Given a test project
     And the workflow
-    When I run gtd with args "--entry design.gate.answer"
-    Then it succeeds
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Add a feature.
+
+      ## Open Questions
+
+      ### Which feature?
+
+      - [ ] Search
+      - [ ] Export
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And the git index has settled
     And I snapshot the repository
     When I run gtd next with "--json"

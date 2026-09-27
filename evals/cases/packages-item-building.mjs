@@ -18,7 +18,7 @@ export default Object.freeze({
   state: "packages.item.building",
   artifact: "src/formatName.ts",
   base: {
-    ".gtd/NEXT.md": `# Package: format-name
+    ".gtd/packages/01-format-name.md": `# Package: format-name
 
 ## Requirements
 

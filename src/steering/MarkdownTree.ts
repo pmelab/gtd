@@ -214,6 +214,32 @@ export const headingText = (
  * inside a list or blockquote), matching how a package/feedback file's own
  * `## ` headings are always written at the document's own top level.
  */
+export interface HeadingSection {
+  readonly title: string
+  /** The section's source, heading line included, up to the next heading of the same or a higher level. */
+  readonly body: string
+}
+
+/** Every top-level depth-`depth` section of `content`, with its source text, in document order. */
+export const headingSectionBodies = (content: string, depth = 2): readonly HeadingSection[] => {
+  const lineStart = (offset: number): number => content.lastIndexOf("\n", offset - 1) + 1
+  const tree = parseMarkdown(content)
+  const boundaries = tree.children.filter(
+    (node): node is Heading => node.type === "heading" && node.depth <= depth,
+  )
+  return boundaries.flatMap((heading, i) => {
+    if (heading.depth !== depth || heading.position === undefined) return []
+    const next = boundaries[i + 1]?.position?.start.offset
+    const end = next === undefined ? content.length : lineStart(next)
+    return [
+      {
+        title: headingText(content, heading),
+        body: content.slice(lineStart(heading.position.start.offset ?? 0), end).trimEnd(),
+      },
+    ]
+  })
+}
+
 export const headingSections = (content: string, depth = 2): readonly string[] => {
   const tree = parseMarkdown(content)
   return tree.children

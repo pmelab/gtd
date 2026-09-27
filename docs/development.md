@@ -32,13 +32,12 @@ builds the bundle, tags it, and publishes.
 ## Prompt evals
 
 `npm run eval` grades the bundled workflow's own prompts against one
-configuration, using [promptfoo](https://www.promptfoo.dev/). Every
-`actor: agent` prompt state the workflow can rest at gets a two-sided case — all
-ten today. It is not part of `npm test`: each case drives real, multi-minute
-agent turns and costs real model calls, and `npm run eval` runs every case every
-time — hours, real tokens, no default subset. To re-run one case after changing
-its grader or its prompt, filter by the `<case>:<variant>` description each test
-carries:
+configuration, using [promptfoo](https://www.promptfoo.dev/). Every agent step
+the workflow can rest at gets a two-sided case — all ten today. It is not part
+of `npm test`: each case drives real, multi-minute agent turns and costs real
+model calls, and `npm run eval` runs every case every time — hours, real tokens,
+no default subset. To re-run one case after changing its grader or its prompt,
+filter by the `<case>:<variant>` description each test carries:
 
 ```bash
 npm run eval -- --filter-pattern '^(design-triage|architecture-author):'
@@ -68,7 +67,6 @@ always runs through that gateway, independent of what drove the turn.
 
 ```bash
 npm run eval                              # build, then run every case under every model configuration
-GTD_EVAL_WORKFLOW=./my-workflow.yaml npm run eval  # grade a scratch workflow instead of the bundled default
 EVAL_CLEAN=1 npm run eval                 # delete each fixture repo after grading (kept by default, for post-mortem)
 ```
 
@@ -77,8 +75,8 @@ itself — the four-tool surface is a flag this repo passes rather than either
 agent's current default (`--tools read,write,edit,bash` for `pi`, pinned to
 0.84.4; `--tools Read,Write,Edit,Bash` for `claude`). The Claude turn also
 passes `--system-prompt` (a REPLACEMENT, never `--append-system-prompt` — the
-state's prompt is what is under test, not gtd's prompt stacked on Claude
-Code's), `--permission-mode bypassPermissions`, `--no-session-persistence`, and
+step's prompt is what is under test, not gtd's prompt stacked on Claude Code's),
+`--permission-mode bypassPermissions`, `--no-session-persistence`, and
 `--setting-sources ""`, which loads no user, project or local settings, so a
 machine's own hooks and output style never reach a graded turn. Auth is
 untouched by that flag; the local login still applies. A reader comparing two

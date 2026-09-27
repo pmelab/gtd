@@ -1,29 +1,13 @@
-import type {
-  Actor,
-  ModelCost,
-  RenderedDemandSource,
-  StateMode,
-  StateName,
-  TemplateEdge,
-} from "./types.js"
+import type { Actor, ModelCost, RenderedDemandSource, StateMode, StateName } from "./types.js"
 
-/** One pending change's status/path plus whichever declared `on` pattern (if any) matches it — `gtd next --json`'s `changes` entries. */
+/** One pending change — `gtd next --json`'s `changes` entries. */
 export interface StatusChange {
   readonly status: string
   readonly path: string
-  readonly pattern: string | null
 }
 
-/**
- * The first declared `on` edge that would fire right now. `action` is
- * `string | undefined` rather than optional (`action?:`) because
- * `exactOptionalPropertyTypes` forbids assigning an explicit `undefined` to
- * an optional property, and `computeNextMatch`'s destructured `action` needs
- * to spread straight in.
- */
+/** The step landing the pending change would leave the process at. */
 export interface NextMatch {
-  readonly action: string | undefined
-  readonly pattern: string
   readonly target: string
 }
 
@@ -46,7 +30,6 @@ export interface BeatStatus {
   readonly memory: string | undefined
   readonly file: string | undefined
   readonly mode: StateMode | undefined
-  readonly edges: readonly TemplateEdge[] | undefined
   readonly changes: readonly StatusChange[]
   readonly next: NextMatch | null
   readonly cost: number
@@ -58,7 +41,7 @@ export interface BeatStatus {
  * Assemble one `BeatStatus`. `system` is omitted (not just falsy) when its
  * rendered value is the empty string, unlike `model`: an empty
  * `--system-prompt ""` would silently delete the harness's own default
- * instead of failing loudly. `edges` is omitted when the rest declares none.
+ * instead of failing loudly.
  */
 export const statusOf = (input: {
   readonly rendered: RenderedDemandSource
@@ -81,7 +64,6 @@ export const statusOf = (input: {
     memory: rendered.memory,
     file: rendered.file,
     mode: rendered.mode,
-    edges: rendered.edges.length > 0 ? rendered.edges : undefined,
     changes,
     next,
     cost,

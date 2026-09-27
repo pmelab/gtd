@@ -1,11 +1,10 @@
 // `build.review.collecting`: judges whether a review round is actionable.
-// `.gtd/REVIEW_RAW.md`'s content is inlined verbatim into the prompt (see
-// `it.read` in `unified.yaml`), so this fixture authors that narrative
-// directly rather than any real git history. Three variants: `violation`'s
-// round carries a hand-edit note that MUST become a classified concern in
-// `.gtd/REQUIREMENTS.md`; `clean`'s round is a bare approving remark that
-// MUST NOT produce one — consuming the capture with no other change IS the
-// sign-off; `footnote`'s round carries a footnote anchored to one named
+// The round's capture is inlined verbatim into the prompt; the eval entry
+// point reads it from `.gtd/REVIEW_RAW.md`, so this fixture authors that
+// narrative directly rather than any real git history. Three variants:
+// `violation`'s round carries a hand-edit note that MUST become a classified
+// concern in `.gtd/REQUIREMENTS.md`; `clean`'s round is a bare approving
+// remark that MUST NOT produce one — changing nothing IS the sign-off; `footnote`'s round carries a footnote anchored to one named
 // hunk, which MUST become a concern grounded in that hunk, not a whole-file
 // remark.
 export default Object.freeze({
@@ -73,14 +72,8 @@ The human read through src/retry.ts with no comment, then reached
     },
   },
   expect: {
-    violation: {
-      gtdFiles: [".gtd/REQUIREMENTS.md", ".gtd/REVIEW_RAW.md"],
-      otherFiles: "none",
-    },
-    clean: { gtdFiles: [".gtd/REVIEW_RAW.md"], otherFiles: "none" },
-    footnote: {
-      gtdFiles: [".gtd/REQUIREMENTS.md", ".gtd/REVIEW_RAW.md"],
-      otherFiles: "none",
-    },
+    violation: { gtdFiles: [".gtd/REQUIREMENTS.md"], otherFiles: "none" },
+    clean: { gtdFiles: [], otherFiles: "none" },
+    footnote: { gtdFiles: [".gtd/REQUIREMENTS.md"], otherFiles: "none" },
   },
 })

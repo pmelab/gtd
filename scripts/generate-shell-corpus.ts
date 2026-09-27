@@ -1,13 +1,5 @@
-/**
- * Runs via `jiti`, which can't load `../src/workflows/templates.js` (it
- * transitively imports `unified.yaml` as raw text through a loader jiti has
- * no equivalent for) — so this script reads the yaml directly instead.
- */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { parse as parseYaml } from "yaml"
-import { compileWorkflowConfig } from "../src/PatternConfig.js"
-import { renderStateTemplate, type TemplateContext } from "../src/PatternTemplates.js"
 import {
   commitAll,
   commitAsIs,
@@ -27,9 +19,9 @@ import {
   restoredOutcome,
   transitionOutcome,
 } from "../src/OutcomeScript.js"
+import { checkScript, restoreScript, revertScript } from "../src/flows/index.js"
 
 const CORPUS_DIR = join(import.meta.dirname, "..", "tests", "shell", "corpus")
-const UNIFIED_YAML_PATH = join(import.meta.dirname, "..", "src", "workflows", "unified.yaml")
 
 const SAMPLE_HEAD = "a".repeat(40)
 const SAMPLE_HEAD_2 = "b".repeat(40)
@@ -90,37 +82,26 @@ const combinedOptional = emitScripts(
 ).optional
 add("combined.with-optional.sh", combinedScript(combinedRequired, combinedOptional))
 
-// ── 2. Every `script` state of the bundled workflow, rendered against a
-// fixture context. Qualified state names only use [a-z0-9.-], already safe as
-// a filename component, so no sanitizing is needed — `tests/tooling/
-// shell-corpus.test.ts` relies on this exact "workflow.<qualified-name>.sh"
-// naming to cross-check corpus coverage.
+// ── 2. The scripts a workflow step renders from flow values.
 
-const unifiedYamlText = readFileSync(UNIFIED_YAML_PATH, "utf8")
-const compiled = compileWorkflowConfig(parseYaml(unifiedYamlText))
+add(
+  "flows.checkScript.sh",
+  checkScript("npm test -- --reporter dot", {
+    report: ".gtd/FEEDBACK.md",
+    stamp: "abc1234",
+    sweep: [".gtd/REVIEW_RAW.md", ".gtd/reviews"],
+    sweepOnGreen: [".gtd/ESCALATION.md"],
+  }),
+)
 
-for (const [name, state] of Object.entries(compiled.definition.states)) {
-  if (state.script === undefined) continue
-  const context: TemplateContext = {
-    startCommit: SAMPLE_HEAD,
-    currentCommit: SAMPLE_HEAD_2,
-    previousCommit: SAMPLE_HEAD,
-    state: name,
-    actor: state.actor,
-    reviewBase: SAMPLE_HEAD,
-    retainedBase: SAMPLE_HEAD,
-    processCost: 0,
-    processCostByModel: [],
-    read: (path: string) => {
-      throw new Error(
-        `generate-shell-corpus: unexpected it.read(${path}) while rendering "${name}"`,
-      )
-    },
-    vars: compiled.vars,
-    edges: [],
-  }
-  add(`workflow.${name}.sh`, renderStateTemplate(state.script, context))
-}
+add(
+  "flows.revertScript.sh",
+  revertScript(SAMPLE_HEAD, ".gtd/FEEDBACK.md", "gtd could not unwind it's sketch."),
+)
+add(
+  "flows.restoreScript.sh",
+  restoreScript(SAMPLE_HEAD, { restore: ["src/a.ts", "it's here.ts"], remove: ["src/new.ts"] }),
+)
 
 const writeInto = (dir: string): void => {
   mkdirSync(dir, { recursive: true })

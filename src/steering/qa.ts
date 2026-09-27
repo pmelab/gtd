@@ -684,7 +684,7 @@ export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   return { questions, findings }
 }
 
-/** Every OPEN question that is not answered — the answer-completeness guard (`src/step/Guards.ts`) refuses a step while this is non-empty. */
+/** Every OPEN question that is not answered — what a flow's `openQuestions()` reads. */
 const unansweredQuestions = (content: string): readonly OpenQuestion[] =>
   parseOpenQuestions(content).questions.filter((q) => q.status === "open" && !q.answered)
 

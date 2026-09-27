@@ -2,7 +2,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
 
   The bundled unified template gates EVERY entry on a green test baseline
   (STATES.md §10): `idle` has a single edge into `unwind`, which reverts the
-  entry commit's diff — via `git revert --no-commit` — before `start-gate.check`
+  entry commit's diff out of the working tree before `start-gate.check`
   ever runs. By the time the gate's own suite run happens, the working tree
   already IS the baseline, so all three entries (`start-gate`, `review-gate`,
   `gtd --entry fix-precheck`) now share the exact same plain rule: block on
@@ -11,7 +11,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   same shape as `escalate`.
 
   `@inmem` scenarios never execute the unwind/check scripts; they simulate
-  their outcome directly — the unwind's `git revert` by deleting whatever the
+  their outcome directly — the unwind's revert by deleting whatever the
   entry commit added, the check's suite run by writing (red) or not writing
   (green) `.gtd/FEEDBACK.md` — exactly as the shared `checking` state is
   tested elsewhere. `@live` scenarios prove the real scripts (`I execute the
@@ -30,7 +30,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
 
-    # Simulate the unwind's `git revert --no-commit` — @inmem never executes
+    # Simulate the unwind's revert — @inmem never executes
     # scripts — by reverting the tree to the start commit ourselves.
     Given the file "NOTE.md" is deleted
     When I run gtd land

@@ -23,39 +23,31 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": grilling
-              grilling:
-                actor: agent
-                file: TODO.md
-                mode: qa
-                prompt: "plan"
-                on:
-                  "* **": grilling-answer
-              grilling-answer:
-                actor: human
-                file: TODO.md
-                mode: qa
-                message: "answer"
-                on:
-                  "C": idle
-                  "* **": grilling
+          format: "npx prettier --write $GTD_FILE"
       """
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+        for (;;) {
+          await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
+          await human("grilling-answer", {
+            file: ".gtd/TODO.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
+    And a file ".gtd/TODO.md" with:
       """
       This is a very long line that exceeds eighty characters and should be wrapped by prettier when gtd validates it.
       """
+    And gtd lands "gtd(human): idle → grilling"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/TODO.md: valid"
@@ -68,39 +60,36 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": grilling
-              grilling:
-                actor: agent
-                file: TODO.md
-                mode: qa
-                prompt: "plan"
-                on:
-                  "* **": grilling-answer
-              grilling-answer:
-                actor: human
-                file: TODO.md
-                mode: qa
-                message: "answer"
-                on:
-                  "C": idle
-                  "* **": grilling
+          format: "npx prettier --write $GTD_FILE"
       """
-    And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+        for (;;) {
+          await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
+          await human("grilling-answer", {
+            file: ".gtd/TODO.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
+    And a file "NOTES.md" with:
+      """
+      start
+      """
+    And gtd lands "gtd(human): idle → grilling"
+    And a file ".gtd/TODO.md" with:
       """
       A plan.
       """
+    And gtd lands "gtd(agent): grilling → grilling-answer"
     And ".gtd/TODO.md" is modified to:
       """
       A plan. This answer line is deliberately far longer than eighty characters so that the formatter has to rewrap it before the turn is captured.
@@ -160,7 +149,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
 
   Scenario: prettier plugged into the bundled default's qa mode via a top-level modes: key formats the agent-authored requirements at design.triage, when gtd validate runs it first
     # No `workflow:` re-declaration: the bundled default already gives
-    # `design.triage` `mode: qa` (see unified.yaml); a top-level `modes:` key
+    # `design.triage` `mode: qa` (see src/workflows/unified.ts); a top-level `modes:` key
     # alone is enough to plug a formatter into it. `gtd land` itself no
     # longer runs the format command (package 2, Requirement A) — a driver
     # wanting the file wrapped first runs `gtd validate` ahead of `gtd land`.
@@ -170,18 +159,20 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
+          format: "npx prettier --write $GTD_FILE"
       """
-    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       This is a deliberately long single prose line for the requirements file that clearly exceeds the eighty character print width.
       """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd with args "validate"
     Then it succeeds
     And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → design.gate.check"
+    And the last commit subject is "gtd(agent): design.triage → architecture-pre"
 
   Scenario: prettier plugged into the bundled default's qa mode formats the human-edited requirements at design.gate.answer, when gtd validate runs it first
     Given a test project
@@ -190,12 +181,23 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
+          format: "npx prettier --write $GTD_FILE"
       """
-    And a commit "gtd(agent): design.gate.answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
       """
       A plan.
+
+      ## Open Questions
+
+      ### Which API?
+
+      - [ ] REST
+      - [ ] GraphQL
       """
+    # the open question sends the flow to the human answer gate
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And ".gtd/REQUIREMENTS.md" is modified to:
       """
       A plan. This edited line is deliberately far longer than eighty characters so the formatter has to rewrap it before the turn is captured.
@@ -214,12 +216,14 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       modes:
         qa:
-          format: "npx prettier --write <%= it.file %>"
+          format: "npx prettier --write $GTD_FILE"
       """
-    And a commit "gtd(human): design.triage" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       This is a deliberately long single prose line for the requirements file that clearly exceeds the eighty character print width.
       """
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/REQUIREMENTS.md: valid"

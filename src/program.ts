@@ -1,4 +1,4 @@
-import { Effect, Either, Option, Runtime, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import type { ArtifactOut, Command, JsonMode, Needs } from "./cli/index.js"
 import { Narrator } from "./Commentary.js"
 import {
@@ -13,29 +13,23 @@ import { runUiCommand, type UiRequirements } from "./ui/index.js"
 import { resolveSession } from "./Sessions.js"
 import {
   currentRest,
+  entryRefusal,
   currentRun,
   renderRest,
   restAt,
+  previewLanding,
+  noProcessUnderway,
+  restIsIdle,
   reviewBaseFor,
   snapshotFromRest,
   stalledAt,
+  summaryFor,
   summaryRun,
-  summaryTemplateContext,
   type RenderedRest,
-  type RestRequirements,
 } from "./Edge.js"
 import { planEntry, planStep as planStepPure, type JudgeVerdict } from "./step/index.js"
-import { buildSummary } from "./Summary.js"
 import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
-import {
-  buildCurrentStateModel,
-  buildVizModel,
-  openInBrowser,
-  startVizServer,
-  type CurrentStateModel,
-  type VizModel,
-} from "./Visualize.js"
 import {
   builtInModeNames,
   checkSteering,
@@ -47,18 +41,7 @@ import {
 } from "./steering/index.js"
 import { seededValidateCommand } from "./SteeringFormats.js"
 import { resolveMode, validateScriptFor } from "./SteeringMode.js"
-import {
-  contentKindOf,
-  initialStateOf,
-  matchesPattern,
-  parsePattern,
-  type ContentKind,
-  type OnEdge,
-  type PendingChange,
-  type StateMode,
-  type StateName,
-  type WorkflowDefinition,
-} from "./PatternMachine.js"
+import type { PendingChange, StateMode, StateName, WorkflowDefinition } from "./Workflow.js"
 import {
   beatDocument,
   beatKindOf,
@@ -76,7 +59,6 @@ import {
   type NextMatch,
   type StatusChange,
 } from "./wire/index.js"
-import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
 import {
   deleteRef,
   hardResetTo,
@@ -85,7 +67,7 @@ import {
   updateRef,
   type RunnableScript,
 } from "./GitScript.js"
-import { combinedScript, emitScripts, type EmitStep } from "./Emit.js"
+import { combinedScript, commandForFile, emitScripts, type EmitStep } from "./Emit.js"
 import { abandonedOutcome, abandonNoopOutcome, restoredOutcome } from "./OutcomeScript.js"
 import { loopLogPath } from "./WorktreeState.js"
 import { renderBriefing } from "./Install.js"
@@ -251,14 +233,6 @@ interface LandOptions {
   readonly cost?: number
   readonly model?: string
   readonly judge?: readonly JudgeVerdict[]
-  /**
-   * The render that produced the judged document's own `rest.ledger.truncated()`
-   * — `runJudgeAnswerCommand` supplies it from the SAME `renderRest` call that
-   * rendered the questions being answered; plain `gtd land` never does. `true`
-   * stamps a `Gtd-Payload: {"truncated":true}` trailer (`planStep.ts`'s
-   * `renderDecision`); `false`/`undefined` stamps nothing.
-   */
-  readonly truncated?: boolean
 }
 
 /**
@@ -269,27 +243,23 @@ interface LandOptions {
  *
  * `snapshotFromRest` + `src/step/`'s pure `planStep` do the actual deciding
  * (`.gtd/packages/05-step-core.md`) — this wraps that outcome into the
- * `--json`-shaped `LandResult`, and is the one place a guard's refusal
- * (`outcome.guardVerdict`) becomes an Effect failure rather than
- * `ScriptSurface.render`'s thrown error, so `gtd land`'s exit code stays a
- * normal Effect failure, not an uncaught throw.
+ * `--json`-shaped `LandResult`.
  */
 const planLanding = (
   opts: LandOptions = {},
 ): Effect.Effect<LandResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const snapshot = yield* snapshotFromRest(rest)
+    const snapshot = yield* snapshotFromRest(rest, opts.judge)
     const outcome = planStepPure(snapshot, opts)
 
     if (outcome.kind === "refusal") {
       return yield* Effect.fail(new Error(outcome.message))
     }
     if (outcome.kind === "noop") {
-      const required = ScriptSurface.render(
-        [{ kind: "outcome", outcome: { kind: "note", text: noopText(outcome.state) } }],
-        undefined,
-      )
+      const required = ScriptSurface.render([
+        { kind: "outcome", outcome: { kind: "note", text: noopText(outcome.state) } },
+      ])
       return {
         state: outcome.state,
         subject: null,
@@ -297,33 +267,19 @@ const planLanding = (
         model: null,
         script: normalizeScriptNewline(landingScript(required)),
         settled: outcome.settled,
-        idle: outcome.state === initialStateOf(rest.def),
+        idle: outcome.state === rest.def.initial,
       }
     }
 
-    if (outcome.guardVerdict !== undefined) {
-      return yield* Effect.fail(new Error(outcome.guardVerdict))
-    }
-
-    const decision = outcome.decision
-    if (decision.kind !== "commit") {
-      return yield* Effect.fail(
-        new Error(
-          `gtd: internal error — plan kind "${outcome.kind}" but decision kind "${decision.kind}"`,
-        ),
-      )
-    }
-
-    const restingState = decision.to
-    const required = ScriptSurface.render(outcome.steps, outcome.guardVerdict)
+    const required = ScriptSurface.render(outcome.steps)
     return {
-      state: restingState,
-      subject: decision.subject,
+      state: outcome.to,
+      subject: outcome.subject,
       cost: opts.cost ?? null,
       model: opts.model ?? null,
       script: normalizeScriptNewline(landingScript(required)),
       settled: false,
-      idle: restingState === initialStateOf(rest.def),
+      idle: outcome.to === rest.def.initial,
     }
   })
 
@@ -331,16 +287,13 @@ const planLanding = (
  * `gtd summary`: print the prompt for an agent to write the process HEAD
  * closes or sits inside its own closing message. Writes nothing — no git, no
  * state transition, no file. Refuses (throws, mapped to the runtime-error
- * exit code) on either of the two conditions `src/Summary.ts`'s
- * `buildSummary` folds into one `undefined`: the workflow declares no
- * `summary:` template, or the resolved run has no commits to name.
+ * exit code) when the workflow declares no `summary` prompt, or the resolved
+ * run has no commits to name.
  */
 const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
     const run = yield* summaryRun
-    const context = yield* summaryTemplateContext(run)
-    const rendered = buildSummary(config.workflow, run, context)
+    const rendered = yield* summaryFor(run)
     if (rendered === undefined) {
       return yield* Effect.fail(
         new Error(
@@ -353,8 +306,7 @@ const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
   })
 
 /**
- * `gtd base`: print the review anchor hash — `reviewBaseFor(rest.def,
- * rest.run)` — bare and newline-terminated, so an external tool (a diff, a
+ * `gtd base`: print the review anchor hash — `reviewBaseFor(rest)` — bare and newline-terminated, so an external tool (a diff, a
  * PR tool, another agent) can be pointed at the range under review. Shaped
  * exactly like `runSummaryCommand`: one `Rest` resolved, nothing written — no
  * git, no state transition, no session identity. Refuses (mapped to the
@@ -368,16 +320,16 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
     if (rest.run.trace.length === 0) {
       return yield* Effect.fail(new Error("gtd base: refused — no process is underway at HEAD"))
     }
-    const base = reviewBaseFor(rest.def, rest.run)
+    const base = reviewBaseFor(rest)
     out.write(`${base}\n`)
   })
 
 /**
  * `gtd judge`: read-only peek at the resolved rest's pending judgment — the
  * same `judge` field `gtd next --json` already carries (`renderRest`'s
- * `RenderedRest.judge`, rendered by `judge:`'s Eta template into the JSON
- * document `{ state, questions: [...] }`). Refuses (mapped to the
- * runtime-error exit code) when the resolved rest declares no `judge:` — a
+ * `RenderedRest.judge`, the JSON document `{ state, questions: [...] }`).
+ * Refuses (mapped to the runtime-error exit code) when the resolved rest is
+ * not a judge step — a
  * state may legitimately have none. `--json`'s three shapes match `gtd
  * next`/`gtd land`: bare prints the whole document (`rendered.judge`
  * itself), `--json=<path>` selects a dotted key out of it via the same
@@ -522,7 +474,7 @@ const runJudgeAnswerCommand = (
       ),
     )
 
-    const result = yield* planLanding({ judge: verdict, truncated: rendered.truncated })
+    const result = yield* planLanding({ judge: verdict })
     const built = landFields(result)
     if (json.kind === "document") {
       out.write(renderLandJson(built))
@@ -563,15 +515,15 @@ const runLandCommand = (
 
 /**
  * `gtd --entry <state> [--var <name>=<value> ...]` (`actor` always `"human"`):
- * start a brand new process at `<state>` — any declared state.
+ * start a brand new process the flow opens for `<state>`.
  * Writes an ordinary turn commit carrying zero or more `Gtd-Var:` trailers,
  * plus a `Gtd-Review-Base:` trailer when `<state>` declares a `reviewBase:`.
  * Commits via `commitAllWithPrefix` — capturing whatever the working tree
  * carries at entry, like an ordinary `gtd land` capture, rather than
  * demanding a clean tree.
  *
- * Refused when: the machine isn't resting at the workflow's initial state;
- * `<state>` isn't one of `enterableStates(rest.def)`; a `--var` name isn't
+ * Refused when: a process is already underway; the flow does not open one
+ * for `<state>` (see `entryRefusal`); a `--var` name isn't
  * declared by the workflow's or `.gtdrc`'s `vars:`; or `<state>`'s
  * `reviewBase:` template doesn't render to a commitish that's an ancestor of
  * (and differs from) HEAD.
@@ -585,19 +537,24 @@ const runEntryCommand = (
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
-    const plan = yield* planEntry({ def: rest.def, state: rest.state }, actor, {
-      state: entryState,
-      commandLabel,
-      vars: varOverrides,
-    })
+    const plan = yield* planEntry(
+      {
+        def: rest.def,
+        state: rest.state,
+        idle: noProcessUnderway(rest),
+        entryRefusal: yield* entryRefusal(rest, entryState, varOverrides),
+      },
+      actor,
+      {
+        state: entryState,
+        commandLabel,
+        vars: varOverrides,
+      },
+    )
     if (plan.kind === "refusal") {
       return yield* Effect.fail(new Error(plan.message))
     }
-    // Safe to reuse plan.steps verbatim here (unlike planLanding): an entry
-    // always lands fresh at a brand-new process's first state, which never
-    // has a file:/mode: of its own to validate ahead of the commit — no guard
-    // applies, so the verdict is always `undefined`.
-    out.write(landingScript(ScriptSurface.render(plan.steps, undefined)))
+    out.write(landingScript(ScriptSurface.render(plan.steps)))
   })
 
 /**
@@ -627,7 +584,7 @@ const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
     const def = config.workflow
-    const initial = initialStateOf(def)
+    const initial = def.initial
     const run = yield* currentRun
     if (run.trace.length === 0) {
       const required = emitScripts([
@@ -711,33 +668,22 @@ const runRestoreCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
   })
 
 /**
- * The mode's own resolved validate command, rendered against `file`: a
- * declared `validate:` command renders verbatim; a `"builtin"` validator or
- * no mode at all names the leaf `gtd check <mode> '<file>'` invocation
- * instead, so there's always something concrete to name.
+ * The mode's own validate command for `file`: a declared `validate:` command
+ * verbatim; a `"builtin"` validator or no mode at all names the leaf
+ * `gtd check <mode>` invocation instead, so there's always something concrete
+ * to name.
  */
-const resolveSelfValidateCommand = (
+const selfValidateCommand = (
   def: WorkflowDefinition,
   state: string,
   mode: StateMode,
   file: string,
-  context: TemplateContext,
-): Effect.Effect<string, Error> =>
-  Effect.gen(function* () {
-    const resolved = resolveMode(def, state, mode)
-    const validate = resolved.kind === "resolved" ? resolved.validate : undefined
-    if (validate?.kind === "command") {
-      const command = validate.command
-      return yield* Effect.try({
-        try: () => renderModeCommand(command, { ...context, file }),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      })
-    }
-    return yield* Effect.try({
-      try: () => renderModeCommand(seededValidateCommand(mode), { ...context, file }),
-      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-    })
-  })
+): string => {
+  const resolved = resolveMode(def, state, mode)
+  const validate = resolved.kind === "resolved" ? resolved.validate : undefined
+  const command = validate?.kind === "command" ? validate.command : seededValidateCommand(mode)
+  return commandForFile(command, file)
+}
 
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
@@ -766,7 +712,7 @@ const resolveValidateScript = (
 > =>
   Effect.gen(function* () {
     const file = rest.hints.file
-    const mode = rest.stateDef.mode
+    const mode = rest.stepDef.mode
     if (file === undefined || mode === undefined) return undefined
 
     const resolved = resolveMode(rest.def, rest.state, mode)
@@ -774,21 +720,17 @@ const resolveValidateScript = (
       return yield* Effect.fail(new Error(resolved.message))
     }
 
-    const { script } = yield* validateScriptFor(resolved, file, rest.context)
+    const { script } = yield* validateScriptFor(resolved, file)
     return { file, mode, script }
   })
 
 /** The driver-facing `BeatKind` for a currently-resolved rest, the one computation `gatherBeatDocument` reads — so a driver's `kind` field can never drift from what it assembled. */
 const restBeatKind = (rest: Rest): BeatKind =>
   beatKindOf({
-    contentKind: contentKindOf(rest.stateDef) as Exclude<ContentKind, "commit">,
+    contentKind: rest.stepDef.kind,
     dirty: rest.changes.length > 0,
     stalled: stalledAt(rest),
   })
-
-/** `idle` means exactly one thing: the machine rests at the workflow's initial state with a clean tree — the process is genuinely done. */
-const restIsIdle = (rest: Rest): boolean =>
-  rest.state === initialStateOf(rest.def) && rest.changes.length === 0
 
 /**
  * `gtd next`: pure emitter of the resolved rest's beat, in two encodings —
@@ -807,35 +749,24 @@ const runNextCommand = (
     const fields = yield* gatherBeatDocument(rest, rendered)
     const narrator = yield* Narrator
     for (const change of fields.changes) {
-      yield* narrator.narrate(
-        `pending: ${change.status} ${change.path} -> ${change.pattern ?? "(no match)"}`,
-      )
+      yield* narrator.narrate(`pending: ${change.status} ${change.path}`)
     }
     if (json.kind === "document") {
       out.write(renderBeatJson(fields))
     } else if (json.kind === "select") {
       yield* writeSelection(out, fields, json.path)
     } else {
-      // Advisory only — a render failure here must not fail gtd next
-      // itself, so it degrades to omitting the instruction.
-      const selfValidateCommand = emitsValidatablePrompt(rendered)
-        ? yield* resolveSelfValidateCommand(
-            rest.def,
-            rest.state,
-            rendered.mode!,
-            rendered.file!,
-            rest.context,
-          ).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      const validateCommand = emitsValidatablePrompt(rendered)
+        ? selfValidateCommand(rest.def, rest.state, rendered.mode!, rendered.file!)
         : undefined
-      out.write(renderBeatPlain(fields, selfValidateCommand))
+      out.write(renderBeatPlain(fields, validateCommand))
     }
   })
 
 /**
  * `gtd validate`: emit the script that would format then validate the
- * resolved rest's declared steering file — the same commands `gtd land`'s
- * capture guard embeds ahead of its own commit, rendered here to run
- * directly. gtd itself reads no file and executes nothing: a state with no
+ * resolved rest's declared steering file, for the driver to run. The command
+ * itself reads no file and executes nothing: a state with no
  * `file:`/`mode:`, or a file absent from the working tree, has nothing to
  * validate (exit 0 either way) — the verdict lives in the emitted script's
  * own future exit code. When the validator is a command, the last rendered
@@ -929,10 +860,10 @@ const runCheckCommand = (
 
 /**
  * `gtd check <mode> <file> --open-questions`: read `<file>` and run
- * `src/steering/index.ts`'s `unansweredQuestions` — the same predicate
- * `src/step/Guards.ts`'s answer-completeness guard enforces at land — printing one
- * unanswered question per line and exiting non-zero when any remain. Sharing
- * the one function keeps the gate script and the land-time guard in sync.
+ * `src/steering/index.ts`'s `unansweredQuestions` — the same predicate a
+ * flow's `openQuestions()` reads — printing one unanswered question per line
+ * and exiting non-zero when any remain. Sharing the one function keeps the
+ * gate script and the flow's own check in sync.
  *
  * A missing or unreadable file is a non-zero exit, unlike the structural
  * path above, which treats an absent file as "nothing to report".
@@ -991,37 +922,16 @@ const runUncheckCommand = (file: string): Effect.Effect<void, Error, Workspace> 
     yield* workspace.writeAtPath(file, cleared)
   })
 
-/** Which declared `on` pattern (if any) each pending change matches. `onEdges` must already be rendered against `it.vars`, so the reported pattern is the one a real `gtd land` would match against. */
-const computeStatusChanges = (
-  onEdges: readonly OnEdge[],
-  changes: readonly PendingChange[],
-): readonly StatusChange[] =>
-  changes.map((change) => {
-    const matchedRow = onEdges.find(([patternStr]) => {
-      const parsed = parsePattern(patternStr)
-      return parsed !== undefined && matchesPattern(parsed, [change])
-    })
-    return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
-  })
+/** The pending changes, as the beat reports them. */
+const computeStatusChanges = (changes: readonly PendingChange[]): readonly StatusChange[] =>
+  changes.map((change) => ({ status: change.status, path: change.path }))
 
-/**
- * First declared `on` edge whose pattern matches the whole pending change
- * list, mirroring `PatternMachine.step`'s first-match-wins semantics —
- * unlike `computeStatusChanges` above, which matches each change
- * independently. `null` when no edge matches. Reports the declared route
- * only: a capped `retry` target may redirect elsewhere at real step time,
- * which this doesn't apply.
- */
-export const computeNextMatch = (
-  onEdges: readonly OnEdge[],
-  changes: readonly PendingChange[],
-): NextMatch | null => {
-  for (const [pattern, target, , action] of onEdges) {
-    const parsed = parsePattern(pattern)
-    if (parsed !== undefined && matchesPattern(parsed, changes)) return { action, pattern, target }
-  }
-  return null
-}
+/** The step the pending change would land the process at. */
+const computeNextMatch = (rest: Rest): Effect.Effect<NextMatch | null> =>
+  Effect.map(
+    rest.changes.length === 0 ? Effect.succeed(undefined) : previewLanding(rest),
+    (target) => (target === undefined ? null : { target }),
+  )
 
 /** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json` can never describe different rests for the same beat — built as `wire`'s `Demand` (what to do) and `BeatStatus` (what no driver branches on), then flattened by `beatDocument` into the one wire-shaped object plain/`--json` both render from. */
 const gatherBeatDocument = (
@@ -1053,77 +963,12 @@ const gatherBeatDocument = (
       rendered,
       idle: restIsIdle(rest),
       log,
-      changes: computeStatusChanges(rest.on, rest.changes),
-      next: computeNextMatch(rest.on, rest.changes),
-      cost: rest.context.processCost,
-      costByModel: rest.context.processCostByModel,
+      changes: computeStatusChanges(rest.changes),
+      next: yield* computeNextMatch(rest),
+      cost: rest.cost.total,
+      costByModel: rest.cost.byModel,
     })
     return beatDocument(demand, status)
-  })
-
-/**
- * Best-effort resolution of the currently-rested state for the viewer's
- * `/state.json` route. Any failure is swallowed to `null` — the browser just
- * hides the panel.
- */
-const computeCurrentState = (
-  model: VizModel,
-): Effect.Effect<CurrentStateModel, Error, RestRequirements> =>
-  Effect.gen(function* () {
-    const rest = yield* restAt(undefined)
-    const group = model.states.find((s) => s.name === rest.state)?.group
-    return buildCurrentStateModel(rest, rest.changes, rest.on, group)
-  })
-
-/**
- * `gtd visualize`: serve an interactive diagram of the active workflow on a
- * local HTTP server. `needs: "config"` skips the repo-root guard — it reads
- * config but never touches git/HEAD itself (its `/state.json` route
- * best-effort reads git state per request). The running-server line below is
- * the only way to learn which port `--port 0` picked.
- */
-const runVisualizeCommand = (
-  port: number,
-  open: boolean,
-  out: ArtifactOut,
-): Effect.Effect<void, Error, RestRequirements> =>
-  Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
-    const model = buildVizModel(
-      config.workflow,
-      config.machineTree,
-      {
-        ...config.workflowVars,
-        ...config.rcVars,
-      },
-      config.stateScopes,
-    )
-
-    const runtime = yield* Effect.runtime<RestRequirements>()
-    const resolveCurrent = () =>
-      Runtime.runPromise(runtime)(computeCurrentState(model).pipe(Effect.either)).then((result) => {
-        if (Either.isLeft(result)) {
-          // This blocking command never reaches runCli's flush-on-success,
-          // so this diagnostic flushes itself, like the URL line below.
-          out.write(`gtd visualize: current-state panel unavailable — ${result.left.message}\n`)
-          out.flush()
-          return null
-        }
-        return result.right
-      })
-
-    const { server, url } = yield* Effect.tryPromise({
-      try: () => startVizServer(model, port, "127.0.0.1", resolveCurrent),
-      catch: (e) =>
-        new Error(
-          `gtd visualize: could not start server: ${e instanceof Error ? e.message : String(e)}`,
-        ),
-    })
-    out.write(`gtd visualize running at ${url} — Ctrl-C to stop\n`)
-    // Must flush before blocking on Effect.never, or runCli's flush-on-success never fires.
-    out.flush()
-    if (open) openInBrowser(url)
-    yield* Effect.never.pipe(Effect.ensuring(Effect.sync(() => server.close())))
   })
 
 /**
@@ -1131,8 +976,8 @@ const runVisualizeCommand = (
  * `src/ui/Server.ts`'s `runUiCommand` — the module owning the bind/TLS/HTTP(S)
  * logic. `needs: "state"` (see `needsOf` above) means this shares the
  * repo-root/at-least-one-commit guard with every other workflow-state
- * command — unlike `gtd visualize`, `gtd ui` operates on the invoking
- * directory's own worktree, never a configured list of roots.
+ * command — `gtd ui` operates on the invoking directory's own worktree,
+ * never a configured list of roots.
  */
 const runUiCliCommand = (
   command: Extract<Command, { kind: "ui" }>,
@@ -1229,18 +1074,15 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "check":
     case "uncheck":
       return "fs"
-    case "visualize":
-      return "config"
     default:
       return "state"
   }
 }
 
-/** The six kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
+/** The kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
 export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
   "init",
-  "visualize",
   "check",
   "uncheck",
   "install",
@@ -1264,8 +1106,6 @@ const dispatchVoidCommand = (
       return runLspCommand()
     case "init":
       return runInitCommand(out)
-    case "visualize":
-      return runVisualizeCommand(command.port, command.open, out)
     case "ui":
       return runUiCliCommand(command, out)
     case "land":

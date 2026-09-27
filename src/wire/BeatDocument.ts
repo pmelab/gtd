@@ -1,18 +1,10 @@
 import type { BeatKind, Demand, DemandSession } from "./Demand.js"
 import type { BeatStatus, NextMatch, StatusChange } from "./BeatStatus.js"
-import type { Actor, ModelCost, StateMode, StateName, TemplateEdge } from "./types.js"
+import type { Actor, ModelCost, StateMode, StateName } from "./types.js"
 
-/** `gtd next --json`'s `next` key — `null` on no match, else the matched edge's fields (`action` omitted, never an explicit `undefined`, when unset). */
-const nextField = (
-  next: NextMatch | null,
-): { action?: string; pattern: string; target: string } | null =>
-  next === null
-    ? null
-    : {
-        ...(next.action !== undefined ? { action: next.action } : {}),
-        pattern: next.pattern,
-        target: next.target,
-      }
+/** `gtd next --json`'s `next` key — `null` when landing would commit nothing. */
+const nextField = (next: NextMatch | null): { target: string } | null =>
+  next === null ? null : { target: next.target }
 
 /** Unreachable in a well-typed call — used as the `default` arm of an exhaustive switch over `Demand["kind"]`, so a future `BeatKind` member that isn't handled fails `tsc`, not just review. */
 const assertNeverDemand = (demand: never): never => {
@@ -58,13 +50,8 @@ export interface BeatDocument {
   readonly memory: string | undefined
   readonly file: string | undefined
   readonly mode: StateMode | undefined
-  readonly edges: readonly TemplateEdge[] | undefined
   readonly changes: readonly StatusChange[]
-  readonly next: {
-    readonly action?: string
-    readonly pattern: string
-    readonly target: string
-  } | null
+  readonly next: { readonly target: string } | null
   readonly cost: number | undefined
   readonly costByModel: readonly ModelCost[] | undefined
   readonly judge: string | undefined
@@ -94,7 +81,6 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     memory: status.memory,
     file: status.file,
     mode: status.mode,
-    edges: status.edges,
     changes: status.changes,
     next: nextField(status.next),
     cost: hasCost ? status.cost : undefined,

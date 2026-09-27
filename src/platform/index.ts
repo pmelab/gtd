@@ -5,19 +5,10 @@
  * `committed` IS `git.readFileAtRef` — one module owns every read.
  *
  * Seam rule, stated once: a seam is a `Context.Tag` unless the consuming
- * code is synchronous, non-Effect code that cannot `yield*` — Eta's template
- * rendering and `PatternConfig`'s pure compilers are that exception, and take
- * `Workspace.readSync` as a plain function argument instead of injecting the
- * tag. Everything else goes through `Workspace`/`Host` via `yield*`.
+ * code is synchronous, non-Effect code that cannot `yield*` — replay's flow
+ * reads are that exception, and use the `*Sync` members.
  */
-export {
-  Workspace,
-  templateDiff,
-  templateRead,
-  templateReadCommitted,
-  templateTail,
-  type WorkspaceOps,
-} from "./Workspace.js"
+export { Workspace, type WorkspaceOps } from "./Workspace.js"
 export { Host, type HostOps } from "./Host.js"
 export {
   GitService,

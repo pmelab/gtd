@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import { NodeContext } from "@effect/platform-node"
 import { Effect } from "effect"
 import { GitService, Host, Workspace } from "../platform/index.js"
-import type { Actor } from "../StateFields.js"
+import type { Actor } from "../Workflow.js"
 import { worktreeGitDir } from "../WorktreeState.js"
 
 /**

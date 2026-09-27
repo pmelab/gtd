@@ -9,7 +9,9 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   basename fallback — the bundled `idle` names that exact path as its `file:`
   but declares no `mode:`, so nothing dispatches over it). Two further
   scenarios prove the config-driven half: documentSymbol served for a
-  CUSTOM-named `qa` file mapped via a real `.gtdrc` `file:`/`mode:` pair, and
+  CUSTOM-named `qa` file mapped via a real `gtd.config.ts` `file`/`mode` pair
+  (once its step is reached, or up front through the workflow's `steering`
+  export), and
   the `gtd.openSteeringFile` executeCommand resolving a
   hand-authored current state and asking the client to show its steering
   file (`window/showDocument`). A final scenario proves go-to-definition: a
@@ -50,27 +52,50 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: documentSymbol is served for a CUSTOM-named qa file mapped via a real .gtdrc (config-driven dispatch)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[unanswered] Which operations?"
+
+  Scenario: a file the workflow's steering export declares is served before any step reaches it
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export const steering = { ".gtd/PLAN.md": "qa" }
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
       """
     And an LSP server started in the test project
     When the LSP client sends an initialize request
@@ -90,32 +115,20 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: gtd.openSteeringFile resolves the current state's steering file and asks the client to show it
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
       """
-    And a commit "gtd(human): working" that adds ".gtd/PLAN.md" with:
+    And a file ".gtd/PLAN.md" with:
       """
       the plan under development
       """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -127,41 +140,29 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     # Before src/Edge.ts's currentRest, the LSP's own resolveSteeringFile hand-
     # rolled a byte-for-byte copy of the CLI's resolution chain that had
     # drifted three ways: it never applied `--var` overrides, never rendered
-    # `on`, and never computed a review base. This pins the fix — a state
-    # entered with `--var planFile=OTHER.md` renders `file:` against THAT
+    # `on`, and never computed a review base. This pins the fix — a step
+    # entered with `--var planFile=OTHER.md` renders its `file` against THAT
     # override, the same file `gtd next` would report.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        vars:
-          planFile: PLAN.md
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "<%= it.vars.planFile %>"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
-              review-check:
-                entry: true
-                actor: human
-                file: "<%= it.vars.planFile %>"
-                mode: qa
-                message: "reviewing"
-                on:
-                  "* **": idle
+      import { agent, human, vars, refuse } from "@pmelab/gtd/flows"
+
+      export default async ({ entry }) => {
+        if (entry === "review-check") {
+          await human("review-check", {
+            file: `.gtd/${vars.planFile}`,
+            mode: "qa",
+            message: "reviewing",
+          })
+          return
+        }
+        if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: `.gtd/${vars.planFile}`, mode: "qa" })
+      }
+
+      export const defaults = { planFile: "PLAN.md" }
       """
     And I run gtd with args "--entry review-check --var planFile=OTHER.md"
     And an LSP server started in the test project
@@ -214,28 +215,22 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: a code action is offered on a wrapped option's continuation line, not just its checkbox line
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
       """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -265,29 +260,26 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          qa:
-            validate: "exit 1"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      modes:
+        qa:
+          validate: "exit 1"
       """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -307,7 +299,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: a modes: qa validate: entry carrying gtd's own SEEDED command keeps live diagnostics, not the external notice
     # A later package's workflow compiler will seed `qa`/`review`'s own
-    # `validate:` with the literal string `gtd check <mode> '<%= it.file %>'`
+    # `validate:` with the literal string `gtd check <mode> "$GTD_FILE"`
     # (src/SteeringFormats.ts's seededValidateCommand) — a shell-out that just
     # calls back into gtd's own parser, changing nothing about how the file is
     # actually validated. `resolveMode`'s `capabilities` field must recognize
@@ -317,29 +309,26 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
-      workflow:
-        modes:
-          qa:
-            validate: "gtd check qa '<%= it.file %>'"
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      modes:
+        qa:
+          validate: 'gtd check qa "$GTD_FILE"'
       """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -412,28 +401,22 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Scenario: a marker in a qa file jumps to its definition — proving qa now serves pointerAt
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      workflow:
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "go"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                file: "PLAN.md"
-                mode: qa
-                prompt: "develop the plan"
-                on:
-                  "* **": idle
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
       """
+    # The LSP knows a steering file's mode from the steps the process has
+    # reached, so the process first moves on to the step that declares it.
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error

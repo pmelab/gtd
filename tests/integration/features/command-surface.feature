@@ -3,7 +3,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
   gtd v3 exposes `init`, `land` (with `--cost=<n>`/`--model=<name>`),
   `abandon`, `restore`, `next`, `validate`, `check <mode> <file>`,
-  `uncheck <file>`, `lsp`, `visualize`, `version`, and `help` as its
+  `uncheck <file>`, `lsp`, `version`, and `help` as its
   subcommands. `--entry
   <state>` is only the bare form (no command at all) — landing and entering
   are different verbs. Bare `gtd` (no subcommand) is a usage error unless
@@ -30,22 +30,6 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with args "run"
     Then it fails
 
-  Scenario: the removed `gtd review <commitish>` points at the --entry replacement
-    Given a test project
-    When I run gtd with args "review HEAD"
-    Then it fails
-    And stderr contains "gtd review <commitish>"
-    And stderr contains "gone"
-    And stderr contains "--entry"
-
-  Scenario: the removed `gtd fix` points at the --entry replacement
-    Given a test project
-    When I run gtd with args "fix"
-    Then it fails
-    And stderr contains "gtd fix"
-    And stderr contains "gone"
-    And stderr contains "--entry"
-
   Scenario: --help prints the command list
     Given a test project
     When I run gtd with "--help"
@@ -56,12 +40,10 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout contains "--var"
     And stdout contains "abandon"
     And stdout contains "next"
-    And stdout contains "visualize"
     And stdout contains "check <mode> <file>"
     And stdout contains "--open-questions"
     And stdout contains "uncheck <file>"
     And stdout contains "base "
-    And stdout does not contain "review <commitish>"
 
   Scenario: --version prints the version and exits 0
     Given a test project
@@ -121,7 +103,6 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
       | check qa TODO.md --json  |
       | uncheck REVIEW.md --json |
       | init --json              |
-      | visualize --json         |
       | install --json           |
       | abandon --json           |
       | restore --json           |

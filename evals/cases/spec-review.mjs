@@ -8,7 +8,7 @@ export default Object.freeze({
   plantedIdentifier: "DivisionByZeroError",
   artifact: ".gtd/SPEC_FEEDBACK.md",
   base: {
-    ".gtd/NEXT.md": `# Package: safe-divide
+    ".gtd/packages/01-safe-divide.md": `# Package: safe-divide
 
 ## Requirements
 

@@ -3,8 +3,7 @@ import { defineConfig } from "tsdown"
 // Two configs, browser-first: the phone/web client bundles for the browser
 // platform, then `scripts/inline-web-client.mjs` folds its output into
 // src/web/generated.html (gitignored), which the node config below imports
-// through the ".html" text loader — the same mechanism src/Visualize.ts
-// already uses for its hand-written visualize.html. tsdown builds array
+// through the ".html" text loader. tsdown builds array
 // entries in PARALLEL (see its `buildWithConfigs`), so this ordering is not
 // self-enforcing — `npm run build`'s script runs `tsdown --filter web`,
 // the inline step, then `tsdown --filter gtd` as three separate sequential
@@ -35,7 +34,7 @@ export default defineConfig([
     target: "node20",
     outDir: "dist",
     outExtensions: () => ({ js: ".mjs" }),
-    loader: { ".md": "text", ".yaml": "text", ".html": "text" },
+    loader: { ".html": "text" },
     banner: {
       js: `#!/usr/bin/env node
 import { createRequire as __createRequire } from 'module';
