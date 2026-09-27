@@ -167,7 +167,7 @@ describe("ConfigService", () => {
     expect(cfg.workflow.initial).toBe("from-env")
   })
 
-  it("finds the first step against HEAD's tree, the one an ordinary start replays over", async () => {
+  it("refuses a flow whose first step depends on the repository's files", async () => {
     execSync("git init -q && git config user.email t@t && git config user.name T", {
       cwd: projectDir,
     })
@@ -184,9 +184,29 @@ describe("ConfigService", () => {
     )
     execSync("git add -A && git commit -q -m init", { cwd: projectDir })
 
-    const cfg = await getConfig()
+    await expect(getConfig()).rejects.toThrow(
+      /first step on an ordinary start depends on the repository's files \("no-file" without them, "from-head" at HEAD\)/,
+    )
+  })
 
-    expect(cfg.workflow.initial).toBe("from-head")
+  it("accepts a first step that reads the repository for its content only", async () => {
+    execSync("git init -q && git config user.email t@t && git config user.name T", {
+      cwd: projectDir,
+    })
+    writeFileSync(join(projectDir, "NOTE.md"), "a note")
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { human, read } from "@pmelab/gtd/flows"`,
+        `export default async () => {`,
+        `  await human("idle", { message: read("NOTE.md") ?? "" })`,
+        `}`,
+        ``,
+      ].join("\n"),
+    )
+    execSync("git add -A && git commit -q -m init", { cwd: projectDir })
+
+    expect((await getConfig()).workflow.initial).toBe("idle")
   })
 
   it("takes the innermost gtd.config.ts — workflows are never merged", async () => {

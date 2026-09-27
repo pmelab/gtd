@@ -175,8 +175,8 @@ when replay runs, as an error or, for nondeterminism, as a divergence later.
   `scope()`s.
 - No `try`/`catch` around a step: `restart()` and refusals travel as exceptions.
 - Only the options a step accepts; an unknown key fails naming the step.
-- The default export is a flow that reaches a step on an ordinary start; every
-  `mode` must exist.
+- The default export is a flow that reaches a step on an ordinary start — the
+  same step whatever the repository's files hold; every `mode` must exist.
 
 ## Verify (after every change)
 

@@ -304,7 +304,7 @@ const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule =>
     ? fromModule(builtInWorkflow, BUILT_IN_ORIGIN)
     : fromModule(jiti().evalModule(module.source, { filename: module.filepath }), module.filepath)
 
-// The repository's HEAD, read lazily: what the flow sees on an ordinary start.
+// The repository's HEAD, read lazily.
 const headTree = (workspace: WorkspaceOps): TreeView => {
   let entries: ReadonlyMap<string, string> | undefined
   const list = () => (entries ??= workspace.treeSync("HEAD"))
@@ -315,11 +315,19 @@ const headTree = (workspace: WorkspaceOps): TreeView => {
   }
 }
 
-/**
- * The default entry's first step — where a finished process waits — found the
- * only way a flow can be read: by replaying it over an empty history.
- */
-const firstStep = (
+/** An empty tree that records whether the flow looked at it. */
+const watchedEmptyTree = (): { readonly tree: TreeView; readonly read: () => boolean } => {
+  let read = false
+  return {
+    tree: {
+      paths: () => ((read = true), []),
+      read: () => ((read = true), undefined),
+    },
+    read: () => read,
+  }
+}
+
+const replayToFirstStep = (
   loaded: LoadedModule,
   vars: Readonly<Record<string, string>>,
   tree: TreeView,
@@ -343,6 +351,31 @@ const firstStep = (
       return Effect.fail(new GtdError(`gtd config:\n  - ${loaded.origin}: ${problem}`))
     },
   )
+
+/**
+ * The default entry's first step — where a finished process waits — found the
+ * only way a flow can be read: by replaying it over an empty history. Episode
+ * boundaries are that step's commits, so it must not move with the tree: a
+ * flow that reads the repository before reaching it is replayed again over
+ * HEAD, and must reach the same step there.
+ */
+const firstStep = (
+  loaded: LoadedModule,
+  vars: Readonly<Record<string, string>>,
+  head: TreeView,
+): Effect.Effect<string, GtdError> =>
+  Effect.gen(function* () {
+    const empty = watchedEmptyTree()
+    const name = yield* replayToFirstStep(loaded, vars, empty.tree)
+    if (!empty.read()) return name
+    const atHead = yield* replayToFirstStep(loaded, vars, head)
+    if (atHead === name) return name
+    return yield* Effect.fail(
+      new GtdError(
+        `gtd config:\n  - ${loaded.origin}: the flow's first step on an ordinary start depends on the repository's files ("${name}" without them, "${atHead}" at HEAD) — that step is where a finished process waits, so it must not change as files do`,
+      ),
+    )
+  })
 
 interface ConfigServiceOperations {
   readonly load: Effect.Effect<

@@ -369,7 +369,9 @@ and code at the module's top level are exempt — they may do anything.
   `gtd.config.ts` is evaluated without a type check.
 - **Shape**: the default export must be the flow, and it must reach a step on an
   ordinary start — that step is where a finished process waits. A flow that
-  reaches none fails the load.
+  reaches none fails the load, and so does one whose first step changes with the
+  repository's files: vars, `GTD_<NAME>` overrides included, may pick it, and
+  the step may read files for its content.
 
 ### Summary
 
