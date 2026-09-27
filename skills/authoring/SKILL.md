@@ -30,30 +30,35 @@ runs; write it with the same care as a build script.
 
 Do **not** write a workflow from a blank page unless the user wants something
 tiny. gtd ships one known-good workflow and runs it when no `gtd.config.ts` is
-found. Its source ships in the npm package:
+found, and publishes it as `@pmelab/gtd/workflow`: its default export is that
+flow, and every phase and single step it is built from is a named export. Start
+by importing what you keep and writing only what changes:
 
-```bash
-# local install: node_modules/@pmelab/gtd/src/workflows/
-# global install:
-ls "$(npm root -g)/@pmelab/gtd/src/workflows/"
-# unified.ts — the flow; text.ts — its prompts, messages and scripts; vars.ts — its variable defaults
+```ts
+import { start } from "@pmelab/gtd/flows"
+import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
+
+export { defaults, summary, base } from "@pmelab/gtd/workflow"
+
+export default async ({ entry }) =>
+  entry === "hotfix"
+    ? afterTail(await buildTail(true, start()))
+    : bundled({ entry })
 ```
 
-To customize it, copy those three files into the repository — `unified.ts` as
-`gtd.config.ts`, the other two beside it (e.g. under `gtd/`) — and rewrite the
-imports: `"../flows/index.js"` becomes `"@pmelab/gtd/flows"`, and the relative
-imports point at the copied files with a `.ts` extension
-(`import * as t from "./gtd/text.ts"`). Then edit.
+To change a phase itself, read its source in the npm package
+(`node_modules/@pmelab/gtd/src/workflows/`, or under `$(npm root -g)` for a
+global install) and write your own version in `gtd.config.ts`, reusing its
+single steps.
 
 There is no `extends`/merge: the innermost `gtd.config.ts` walking up from the
 current directory is the whole workflow. If one already exists, read it and edit
 it in place.
 
-Prefer the **fragments** `@pmelab/gtd/flows` exports over re-implementing them —
-`green`, `healthy`, `escalation`, `entryGate`, `questionGate`, `designLoop`,
-`specReview`, `packageQueue`, `qualityLap`, `reviewTail`. Each takes its texts,
-caps and callbacks as arguments and never reads `vars`. Their step names are
-versioned API; `docs/configuration.md` lists them.
+Prefer the bundled workflow's own parts over re-implementing them — `healthy`,
+`escalation`, `gate`, `design`, `architecturePass`, `packages`, `specReview`,
+`qualityLap`, `review`, `buildTail`, and single steps like `triage` or `fix`.
+Their full step names are versioned API.
 
 Make one small change, **verify it loads** (see "Verify"), then make the next. A
 workflow that fails to load breaks every gtd command in the repository.
@@ -104,8 +109,8 @@ Composition: `scope(name, fn)` prefixes step names (`build.fix`) and sets their
 **memory scope** (one scope = one agent conversation = one model/system — mixing
 them inside a scope fails the process); `scope({ name?, model, system }, fn)`
 also sets defaults for agent steps inside. `refuse(message)` refuses the pending
-landing — call it right after the step whose turn you reject. The fragments
-export `requireProgress(file)`, `requireAnswers(file)` and
+landing — call it right after the step whose turn you reject.
+`@pmelab/gtd/flows` exports `requireProgress(file)`, `requireAnswers(file)` and
 `requireRevert(edited, base)`, three such checks ready-made.
 
 ## Names, commits and history

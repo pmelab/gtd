@@ -29,9 +29,11 @@ _Avoid_: machine, state table, graph
 subject that lands it and, up to its last dot, its
 [memory scope](#memory-scope). _Avoid_: state, node, phase
 
-**Fragment**: A reusable function of steps exported alongside the step API — a
-health loop, a question gate, a review tail. The step names it declares are
-public, versioned API. _Avoid_: machine, sub-workflow, module
+**Workflow module**: A TypeScript module whose default export is a flow; its
+`defaults`, `summary` and `base` exports configure it, and any other export is a
+helper — a single step or a phase such as a health loop or a review round —
+another workflow may import. The full step names its helpers declare are public,
+versioned API. _Avoid_: machine, sub-workflow, fragment
 
 **Actor**: Who is expected to act at a step — `agent`, `human`, `check` (a `run`
 step, executed by the driver) or `judge`. gtd itself executes nothing. _Avoid_:

@@ -9,7 +9,7 @@ import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
 import { compileConfig, type ConfigLayer } from "./compile.js"
-import { ConfigDiscovery, flowsDir, type ConfigLevel, type WorkflowModule } from "./discovery.js"
+import { ConfigDiscovery, sourceDir, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
   BUILT_IN_ORIGIN,
@@ -206,7 +206,10 @@ let jitiModule: JitiModule | undefined
 const jiti = (): JitiInstance => {
   jitiModule ??= createRequire(import.meta.url)("jiti") as JitiModule
   return jitiModule.createJiti(import.meta.url, {
-    alias: { "@pmelab/gtd/flows": join(flowsDir(), "index.ts") },
+    alias: {
+      "@pmelab/gtd/flows": join(sourceDir(), "flows", "index.ts"),
+      "@pmelab/gtd/workflow": join(sourceDir(), "workflows", "unified.ts"),
+    },
     // No transpile cache on disk, and a fresh module every load — nothing a
     // later command could read back instead of the source.
     fsCache: false,

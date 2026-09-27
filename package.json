@@ -7,7 +7,8 @@
     "gtd": "dist/gtd.bundle.mjs"
   },
   "exports": {
-    "./flows": "./src/flows/index.ts"
+    "./flows": "./src/flows/index.ts",
+    "./workflow": "./src/workflows/unified.ts"
   },
   "files": [
     "dist/",

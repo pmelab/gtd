@@ -109,13 +109,13 @@ the decision and its reason — never a summary of the module.
 ## Changing the workflow
 
 A workflow is CODE, not data: the bundled default is plain TypeScript under
-`src/workflows/`, built from the fragments `src/flows/` exports, and a user's
-own lives in a `gtd.config.ts`. There is no engine-side wiring to trace when its
-shape changes — edit the flow. The tests that pin it are the unit tests beside
-it in `src/workflows/` and the e2e features that set a workflow up with a
+`src/workflows/`, published as `@pmelab/gtd/workflow` so a user's own
+`gtd.config.ts` can import its parts. There is no engine-side wiring to trace
+when its shape changes — edit the flow. The tests that pin it are the unit tests
+beside it in `src/workflows/` and the e2e features that set a workflow up with a
 `gtd config file at "gtd.config.ts"` step; they tell you what you broke. A
-fragment's step names are public API: renaming one strands every process resting
-on it, so it is a breaking change.
+step's full name is public API: renaming one strands every process resting on
+it, so it is a breaking change.
 
 The one thing those tests cannot tell you: every step a process can rest at must
 resolve to exactly one content kind a driver already handles

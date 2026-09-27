@@ -73,7 +73,7 @@ it sits inside `build` (as `build.review.*`) so that a
 `build.review.*` — stays inside one subtree. (An actionable review round breaks
 the run on purpose instead: it leaves `build` through the root-level `re-unwind`
 step and a full re-plan, since a hand-edit made during review is a sketch to
-reconsider, not a fix to build on.) The same fragment placed under two different
+reconsider, not a fix to build on.) The same steps placed under two different
 prefixes (`build.health` and `packages.item.health`) gets two different scopes,
 so a reviewer's turn never resumes an implementer's session as long as the two
 live in different scopes.

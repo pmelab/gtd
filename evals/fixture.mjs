@@ -98,11 +98,7 @@ function writeOxfmtConfig(repo) {
 const EVAL_WORKFLOW = join(HERE, "gtd.config.ts")
 function writeEvalWorkflowConfig(repo) {
   const source = readFileSync(process.env.GTD_EVAL_WORKFLOW || EVAL_WORKFLOW, "utf-8")
-  const workflows = join(HERE, "..", "src", "workflows", "index.ts")
-  writeFileSync(
-    join(repo, "gtd.config.ts"),
-    source.replace('"../src/workflows/index.js"', JSON.stringify(workflows)),
-  )
+  writeFileSync(join(repo, "gtd.config.ts"), source)
 }
 
 /**

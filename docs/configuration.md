@@ -85,9 +85,9 @@ A step is one position a process can rest at. Each step function takes a
 
 Flow code decides; a `run` body only carries the decision out. Render it from
 the values the flow computed — `check()` and the exported script renderers cover
-the common cases (see [Fragments](#fragments)). **The outcome of a run is what
-it leaves in the tree**: flow code reads it back through `changes()` and
-`read()`, never through a return value.
+the common cases (see [Helpers](#helpers)). **The outcome of a run is what it
+leaves in the tree**: flow code reads it back through `changes()` and `read()`,
+never through a return value.
 
 The step name is the `<to>` in the commit subject the landing writes,
 `gtd(<actor>): <from> → <to>`, and every step landing carries a
@@ -172,29 +172,24 @@ while (true) {
   after a step whose turn left something the flow does not accept.
 
 Plain TypeScript functions that await steps compose like any other code — this
-is how the reusable fragments below are written.
+is how the bundled workflow is written.
 
-### Fragments
+### Helpers
 
-`@pmelab/gtd/flows` also exports the building blocks the bundled workflow is
-made of. Each takes its texts, caps and callbacks as arguments and never reads
-`vars` itself. The step names a fragment declares are part of gtd's versioned
-API: a fragment never renames them outside a major release, because a rename
-strands every process resting on the old name.
+`@pmelab/gtd/flows` also exports a few helpers:
 
-| Fragment                              | Steps it declares                                                                                                          | Resolves to                                    |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `check(name, command, { report, … })` | `name`                                                                                                                     | `true` unless the run wrote `report`           |
-| `green(name, check)`                  | `name`                                                                                                                     | `true` unless the run wrote `.gtd/FEEDBACK.md` |
-| `healthy({ texts, fix, cap, … })`     | `health.check`, `health.judge`, plus `escalation`'s                                                                        | once the suite is green                        |
-| `escalation(texts, count)`            | `health.describe`, `health.stop`, `health.exhausted`                                                                       | once a person has handled the escalation       |
-| `entryGate(texts)`                    | `check`, `blocked`                                                                                                         | once the suite is green                        |
-| `questionGate(texts)`                 | `gate.answer`                                                                                                              | `true` when a person answered open questions   |
-| `designLoop(name, author, gate)`      | `name`, plus `questionGate`'s                                                                                              | once no open question is left                  |
-| `specReview(texts, pkg)`              | `spec.pre`, `spec.review`                                                                                                  | `true` when the package is approved            |
-| `packageQueue(texts, options)`        | `item.building`, `item.fix-suite`, `item.fix-spec`, `item.closing`, …                                                      | once `.gtd/packages/` is drained               |
-| `qualityLap(texts)`                   | `quality.reviewing`, once per lens                                                                                         | `"clean"` or `"findings"`                      |
-| `reviewTail(texts, base)`             | `review.reviewing`, `review.await-review`, `review.review-missing`, `review.closing`, `review.triage`, `review.collecting` | `{ verdict: "signoff" }` or the feedback round |
+- `check(name, command, { report, label?, sweep?, sweepOnGreen? })` — a `run`
+  step gtd renders for the driver: it removes `sweep`, runs `command` in a
+  subshell and, on failure, writes its output (stamped with the commit) to
+  `report`; on success it removes `report` and `sweepOnGreen`. Resolves `true`
+  unless the run wrote `report`
+- `answered(answer, expected, minP)` — whether a judge answer is `expected` at a
+  probability of at least `minP`
+- `numeric(value, fallback)` — a numeric var, or `fallback` when it is blank or
+  not a number
+- `wrote(path)`, `codeChanges()` and `sectionBodies(text, titles)` — whether the
+  last step wrote `path`, its changes outside `.gtd/`, and each `## ` section's
+  text
 
 Three checks refuse a turn from flow code, called right after the step whose
 turn they check:
@@ -207,18 +202,35 @@ turn they check:
 - `requireRevert(edited, base)` — refuses a turn that left any of the `edited`
   changes differing from their content before them
 
-The fragments pass what they decided — the package to build, the lens to review
-with, what a review round captured — straight into the next prompt. The only
-steps they run themselves are scripts gtd renders for the driver: a `check`
-removes `sweep`, runs the command in a subshell and, on failure, writes its
-output (stamped with the commit) to `report`; on success it removes `report` and
-`sweepOnGreen`. A suite check (`green`, `healthy`, `entryGate`) is a `check` of
-`command()` against `.gtd/FEEDBACK.md`. The renderers (`checkScript`,
-`revertScript`, `restoreScript`, `removeScript`, `moveScript`, and `quote`) are
-exported for a workflow's own `run` steps.
+The script renderers (`checkScript`, `revertScript`, `restoreScript`,
+`removeScript`, `moveScript`, and `quote`) are exported for a workflow's own
+`run` steps.
 
-Call a fragment inside `scope()` to place it: the bundled workflow's
-`scope("build", …)` around `healthy` is what makes `build.health.check`.
+### Reusing the bundled workflow
+
+`@pmelab/gtd/workflow` is the bundled workflow itself: its default export is the
+flow gtd runs without a `gtd.config.ts`, and every part of it is a named export
+another workflow can import — its `defaults`, `summary` and `base`, the phases
+(`ordinaryStart`, `unwind`, `planAndBuild`, `design`, `architecturePass`,
+`architecture`, `packages`, `buildTail`, `review`, `qualityLap`, `healthy`,
+`gate`, …) and every single step (`triage`, `build`, `fix`, `reviewing`,
+`collecting`, …). A step's name is relative to the `scope()` it runs in — the
+bundled workflow's `scope("build", …)` around `healthy` is what makes
+`build.health.check` — and the full names are part of gtd's versioned API: they
+never change outside a major release, because a rename strands every process
+resting on the old name.
+
+```ts
+import { start } from "@pmelab/gtd/flows"
+import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
+
+export { defaults, summary, base } from "@pmelab/gtd/workflow"
+
+export default async ({ entry }) =>
+  entry === "hotfix"
+    ? afterTail(await buildTail(true, start()))
+    : bundled({ entry })
+```
 
 ### Judges
 

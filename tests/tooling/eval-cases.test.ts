@@ -1,9 +1,9 @@
 import { readdirSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { agentSpecs } from "../../src/workflows/index.js"
+import { evalSteps } from "../../evals/gtd.config.js"
 
 // Each eval case enters its step through evals/gtd.config.ts, which only knows
-// the bundled agent steps `agentSpecs` publishes.
+// the bundled agent steps its `evalSteps` names.
 const CASES_DIR = new URL("../../evals/cases/", import.meta.url)
 
 describe("evals/cases", () => {
@@ -14,7 +14,7 @@ describe("evals/cases", () => {
       const { default: caseDef } = (await import(new URL(file, CASES_DIR).href)) as {
         default: { state: string }
       }
-      expect(Object.keys(agentSpecs), file).toContain(caseDef.state)
+      expect(Object.keys(evalSteps), file).toContain(caseDef.state)
     }
   })
 })

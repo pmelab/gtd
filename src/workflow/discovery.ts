@@ -138,18 +138,18 @@ const workflowModule = (
   })
 
 /**
- * The shipped `src/flows/` directory — `@pmelab/gtd/flows` resolves there when
- * a `gtd.config.ts` is evaluated. Found by walking
- * up from this module to the package root, so it holds for the bundle in
- * `dist/` and for the sources alike.
+ * The shipped `src/` directory — `@pmelab/gtd/flows` and `@pmelab/gtd/workflow`
+ * resolve into it when a `gtd.config.ts` is evaluated. Found by walking up
+ * from this module to the package root, so it holds for the bundle in `dist/`
+ * and for the sources alike.
  */
-export const flowsDir = (): string => {
+export const sourceDir = (): string => {
   let dir = dirname(fileURLToPath(import.meta.url))
   for (;;) {
-    const candidate = join(dir, "src", "flows")
-    if (existsSync(join(candidate, "runtime.ts"))) return candidate
+    const candidate = join(dir, "src")
+    if (existsSync(join(candidate, "flows", "runtime.ts"))) return candidate
     const parent = dirname(dir)
-    if (parent === dir) throw new Error("gtd: cannot locate the shipped src/flows directory")
+    if (parent === dir) throw new Error("gtd: cannot locate the shipped src directory")
     dir = parent
   }
 }
