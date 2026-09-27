@@ -70,6 +70,8 @@ export interface ReviewViewProps {
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
   /** The done action (T2): saves the SAME note `onSaveNote` would, then hands the turn back — mirrors `Plan.tsx#PlanViewProps.onDoneNote`'s identical doc comment. Absent in `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`. */
   readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
+  /** Ends the turn with no note — mirrors `Plan.tsx#PlanViewProps.onDone`: drives both the chunk list's `review-done` footer and the hunk deck's own Done control. */
+  readonly onDone?: () => Promise<unknown>
   /**
    * Write-through for a hunk/chunk tick (package 03): the real `Review`
    * container wires this to `trpc.setValue.mutateAsync` (invalidating
@@ -315,10 +317,12 @@ const HunkDeck = ({
   chunk,
   live,
   state,
+  onDone,
 }: {
   readonly chunk: SteeringViewNode
   readonly live: boolean
   readonly state: ReviewState
+  readonly onDone: (() => Promise<unknown>) | undefined
 }) => {
   const hunks = hunksOf(chunk)
   return (
@@ -333,6 +337,14 @@ const HunkDeck = ({
         index={state.deckIndex}
         onIndexChange={state.setDeckIndex}
         onExit={state.exitToChunkList}
+        {...(onDone !== undefined
+          ? {
+              onDone: () => {
+                onDone()
+              },
+              doneLabel: "Done",
+            }
+          : {})}
         renderItem={(hunk, i) => {
           const props = hunkPropsFor(hunk, i, hunks, state)
           if (live) {
@@ -436,10 +448,12 @@ const ChunkList = ({
   nodes,
   state,
   scrollRef,
+  onDone,
 }: {
   readonly nodes: SteeringView["nodes"]
   readonly state: ReviewState
   readonly scrollRef: RefObject<HTMLDivElement | null>
+  readonly onDone: (() => Promise<unknown>) | undefined
 }) => (
   <div data-testid="review-screen" className="flex h-full min-h-0 flex-1 flex-col">
     {/* The one place the round's own size is visible: a chunk list is
@@ -465,6 +479,22 @@ const ChunkList = ({
         ))}
       </CardList>
     </div>
+    {onDone !== undefined && (
+      <div
+        data-testid="review-done-row"
+        className="flex shrink-0 items-center justify-end border-t border-border p-3"
+      >
+        <Button
+          variant="primary"
+          data-testid="review-done"
+          onClick={() => {
+            onDone()
+          }}
+        >
+          Done
+        </Button>
+      </div>
+    )}
   </div>
 )
 
@@ -484,6 +514,7 @@ export const ReviewView = ({
   live,
   onSaveNote,
   onDoneNote,
+  onDone,
   onSetValue,
   onRefusal,
 }: ReviewViewProps) => {
@@ -529,7 +560,7 @@ export const ReviewView = ({
   if (openChunk !== undefined && hunksOf(openChunk).length > 0) {
     return (
       <>
-        <HunkDeck chunk={openChunk} live={live === true} state={state} />
+        <HunkDeck chunk={openChunk} live={live === true} state={state} onDone={onDone} />
         {noteSheet}
       </>
     )
@@ -537,7 +568,7 @@ export const ReviewView = ({
 
   return (
     <>
-      <ChunkList nodes={view.nodes} state={state} scrollRef={scrollRef} />
+      <ChunkList nodes={view.nodes} state={state} scrollRef={scrollRef} onDone={onDone} />
       {noteSheet}
     </>
   )
@@ -657,6 +688,12 @@ export const Review = ({ filePath }: ReviewProps) => {
     })
   }
 
+  // Fire-and-forget, caught never rethrown — mirrors `Plan.tsx#usePlanMutations`'s `onDone`.
+  const onDone = (): Promise<unknown> =>
+    done.mutateAsync({}).catch((error: unknown) => {
+      showRefusal(error)
+    })
+
   // Task 3's "Saving…"/"Saved" affordance — mirrors `Plan.tsx#Plan`'s
   // identical split: wraps only the two write paths a human sits waiting on
   // (a tick, a note save), excluding `onDoneNote` since a successful `done`
@@ -691,6 +728,7 @@ export const Review = ({ filePath }: ReviewProps) => {
           live={true}
           onSaveNote={onSaveNoteTracked}
           onDoneNote={onDoneNote}
+          onDone={onDone}
           onSetValue={onSetValueTracked}
           onRefusal={showRefusal}
         />

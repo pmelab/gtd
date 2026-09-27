@@ -1423,3 +1423,57 @@ export const AChunksNoteReplacesItsNoteControlAndReopensForEditing: Story = {
     )
   },
 }
+
+/** The review screen's own Done control — present on the chunk list and inside the hunk deck, ending the turn with no note, exactly like `Plan`'s. */
+export const RealContainerTapsReviewDoneFromTheListRendersHandedBackPanel: StoryObj<typeof Review> =
+  {
+    render: (args) => {
+      let record: (input: unknown) => void = () => {}
+      return (
+        <TrpcTestProvider
+          resolvers={{
+            readSteeringFile: () => ({
+              ok: true,
+              content: REVIEW_CONTENT,
+              headSha: "abc123",
+              contentHash: "deadbeef",
+              view: SAMPLE_REVIEW_VIEW,
+            }),
+            diff: () => ({ kind: "binary" }),
+            done: (input) => {
+              record(input)
+              return { ok: true }
+            },
+          }}
+        >
+          <DoneCallRecorder args={args} onRegisterDone={(fn) => (record = fn)} />
+        </TrpcTestProvider>
+      )
+    },
+    args: REAL_REVIEW_ARGS,
+    play: async ({ canvasElement }) => {
+      const canvas = within(canvasElement)
+      await waitFor(() => expect(canvas.getByTestId("review-done")).toBeInTheDocument())
+      await fireEvent.click(canvas.getByTestId("review-done"))
+      await waitFor(() => expect(canvas.getByTestId("handed-back-panel")).toBeInTheDocument())
+      await expect(canvas.getByTestId("done-calls")).toHaveTextContent(JSON.stringify([{}]))
+    },
+  }
+
+export const ReviewDoneRendersInsideTheHunkDeck: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false, onDone: () => Promise.resolve() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await expect(canvas.getByTestId("deck-done")).toHaveTextContent("Done")
+    await expect(canvas.queryByTestId("review-done")).not.toBeInTheDocument()
+  },
+}
+
+export const NoOnDonePropRendersNoReviewDoneControl: Story = {
+  args: { view: SAMPLE_VIEW, isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.queryByTestId("review-done")).not.toBeInTheDocument()
+  },
+}
