@@ -9,7 +9,12 @@ import {
   type StepRequest,
   type Flow,
 } from "../flows/index.js"
-import { headingSections, steeringFormatFor, unansweredQuestions } from "../steering/index.js"
+import {
+  headingSectionBodies,
+  headingSections,
+  steeringFormatFor,
+  unansweredQuestions,
+} from "../steering/index.js"
 import { globMatches } from "./Glob.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
 import {
@@ -452,6 +457,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     changes: () => changesBetween(previousPosition.tree, position.tree),
     matches: globMatches,
     sections: (text) => headingSections(text),
+    sectionBodies: (text) => headingSectionBodies(text),
     openQuestions: (text) => {
       const qa = steeringFormatFor("qa")
       return qa === undefined

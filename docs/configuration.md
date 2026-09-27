@@ -128,6 +128,8 @@ landed step left — never the live working tree:
   The list also has `paths` and `get(path)`. A landing that changed nothing
   yields an empty list
 - `sections(text)` — the top-level `## ` headings of markdown `text`
+- `sectionBodies(text)` — the same sections as `{ title, body }`, `body` being
+  the section's own markdown, its heading line included
 - `openQuestions(text)` — the unanswered questions of a `qa` document, each
   `{ question, line }`
 - `vars` — the merged variables (see [Variables](#variables))
@@ -187,9 +189,8 @@ is how the bundled workflow is written.
   probability of at least `minP`
 - `numeric(value, fallback)` — a numeric var, or `fallback` when it is blank or
   not a number
-- `wrote(path)`, `codeChanges()` and `sectionBodies(text, titles)` — whether the
-  last step wrote `path`, its changes outside `.gtd/`, and each `## ` section's
-  text
+- `wrote(path)` and `codeChanges()` — whether the last step wrote `path`, and
+  its changes outside `.gtd/`
 
 Three checks refuse a turn from flow code, called right after the step whose
 turn they check:

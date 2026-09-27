@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { execSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -233,3 +233,91 @@ for (const { name, make } of tiers) {
     })
   })
 }
+
+describe("Workspace [Live] worktreeSync", () => {
+  let root: string
+  const git = (...args: string[]) => gitExecIn(root, ...args)
+  const write = (path: string, content: string) => {
+    mkdirSync(join(root, path, ".."), { recursive: true })
+    writeFileSync(join(root, path), content)
+  }
+  const ops = () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        return yield* Workspace
+      }).pipe(
+        Effect.provide(
+          Workspace.Live.pipe(
+            Layer.provide(
+              Layer.merge(
+                Host.layer({ root, home: root, env: {} }),
+                GitService.Live.pipe(
+                  Layer.provide(
+                    Layer.merge(Host.layer({ root, home: root, env: {} }), NodeContext.layer),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+  /** The tree `git add -A` would commit, read back through git itself. */
+  const stagedTree = async (): Promise<ReadonlyMap<string, string>> => {
+    git("add", "-A")
+    const tree = git("write-tree")
+    git("reset", "-q")
+    return (await ops()).treeSync(tree)
+  }
+
+  afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+  const seed = () => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-worktree-")))
+    git("init", "-q")
+    git("config", "user.email", "test@test.com")
+    git("config", "user.name", "Test")
+    git("config", "commit.gpgsign", "false")
+    write(".gitattributes", "*.crlf text eol=crlf\n")
+    write("notes.crlf", "one\ntwo\n")
+    write("big.txt", "x".repeat(2 * 1024 * 1024))
+    write("keep.txt", "keep\n")
+    write("gone.txt", "gone\n")
+    symlinkSync("keep.txt", join(root, "link"))
+    const sub = join(root, "sub")
+    mkdirSync(sub)
+    gitExecIn(sub, "init", "-q")
+    writeFileSync(join(sub, "s.txt"), "s\n")
+    gitExecIn(sub, "add", "-A")
+    gitExecIn(sub, "-c", "user.email=t@t", "-c", "user.name=T", "commit", "-q", "-m", "s")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
+  }
+
+  it("a clean working tree maps every committed path to HEAD's blob id — eol, symlink, large file and submodule alike", async () => {
+    seed()
+    rmSync(join(root, "notes.crlf"))
+    git("checkout", "--", "notes.crlf")
+    const workspace = await ops()
+    expect(workspace.worktreeSync()).toEqual(workspace.treeSync("HEAD"))
+  })
+
+  it("a dirty working tree maps to exactly the tree `git add -A` would commit", async () => {
+    seed()
+    write("keep.txt", "changed\n")
+    write("notes.crlf", "one\ntwo\nthree\n")
+    write("new/added.txt", "added\n")
+    rmSync(join(root, "gone.txt"))
+    symlinkSync("big.txt", join(root, "link2"))
+    const sub = join(root, "sub")
+    writeFileSync(join(sub, "s.txt"), "s2\n")
+    gitExecIn(sub, "-c", "user.email=t@t", "-c", "user.name=T", "commit", "-q", "-am", "s2")
+    const actual = (await ops()).worktreeSync()
+    expect(actual).toEqual(await stagedTree())
+  })
+
+  it("readCommittedSync reads a committed file larger than execFileSync's default buffer", async () => {
+    seed()
+    expect((await ops()).readCommittedSync("big.txt")?.length).toBe(2 * 1024 * 1024)
+  })
+})

@@ -1,8 +1,8 @@
 /**
  * One committed (or about-to-be-committed) tree, read synchronously: flow code
  * calls helpers between two awaits and cannot wait on IO. A git-backed view
- * reads objects on demand; `id` is optional and lets `diffTrees` compare blob
- * ids instead of contents.
+ * reads objects on demand; `id` lets `diffTrees` compare blob ids instead of
+ * contents, and a path whose id is `undefined` is compared by contents.
  */
 export interface TreeView {
   readonly paths: () => readonly string[]
@@ -23,9 +23,11 @@ export interface TreeDiff {
 
 export const diffTrees = (before: TreeView, after: TreeView): TreeDiff => {
   // Blob ids only compare against blob ids; otherwise fall back to contents.
-  const byId = before.id !== undefined && after.id !== undefined
-  const fingerprint = (tree: TreeView, path: string): string | undefined =>
-    byId ? tree.id!(path) : tree.read(path)
+  const same = (path: string): boolean => {
+    const a = before.id?.(path)
+    const b = after.id?.(path)
+    return a !== undefined && b !== undefined ? a === b : before.read(path) === after.read(path)
+  }
   const beforePaths = new Set(before.paths())
   const afterPaths = new Set(after.paths())
   const added: string[] = []
@@ -33,7 +35,7 @@ export const diffTrees = (before: TreeView, after: TreeView): TreeDiff => {
   const deleted: string[] = []
   for (const path of afterPaths) {
     if (!beforePaths.has(path)) added.push(path)
-    else if (fingerprint(before, path) !== fingerprint(after, path)) modified.push(path)
+    else if (!same(path)) modified.push(path)
   }
   for (const path of beforePaths) if (!afterPaths.has(path)) deleted.push(path)
   return { added: added.sort(), modified: modified.sort(), deleted: deleted.sort() }

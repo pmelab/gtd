@@ -10,7 +10,6 @@ import {
   run,
   scope,
   sectionBodies,
-  sections,
   vars,
   wrote,
   type Change,
@@ -81,9 +80,9 @@ const triageQuestions = (chunks: readonly string[]): JudgeQuestion[] =>
 
 /** A note-only round: judge whether any chunk of `review` asks for something. */
 const actionable = async (review: string): Promise<boolean> => {
-  const chunks = sections(review)
-  const bodies = sectionBodies(review, chunks)
-  const evidence = Object.fromEntries(chunks.map((_, i) => [`chunk-${i + 1}`, bodies[i]!]))
+  const found = sectionBodies(review)
+  const chunks = found.map((section) => section.title)
+  const evidence = Object.fromEntries(found.map(({ body }, i) => [`chunk-${i + 1}`, body]))
   const { answers, truncated } = await judge("review.triage", {
     questions: triageQuestions(chunks),
     evidence,

@@ -99,7 +99,13 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
     },
     treeSync: (ref) =>
       new Map(repo.pathsAtRef(ref).map((path) => [path, repo.fileAtRef(ref, path) ?? ""])),
-    worktreePathsSync: () => repo.pathsUnder("").filter((path) => !isGitDirKey(path)),
+    worktreeSync: () =>
+      new Map(
+        repo
+          .pathsUnder("")
+          .filter((path) => !isGitDirKey(path))
+          .map((path) => [path, repo.readFile(path)]),
+      ),
     atPath: (path) => readAt(toKey(path)),
     writeAtPath: (path, content) =>
       Effect.try({

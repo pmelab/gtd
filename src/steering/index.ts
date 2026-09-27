@@ -55,7 +55,7 @@ export { parseFootnotes } from "./Footnotes.js"
 export { getParseCount } from "./MarkdownTree.js"
 
 // A flow's `sections()` is the one caller outside this package.
-export { headingSections } from "./MarkdownTree.js"
+export { headingSectionBodies, headingSections } from "./MarkdownTree.js"
 
 /** The built-in `SteeringFormat` registered under `mode`'s name, or `undefined` when it isn't a built-in mode at all. The one place a bare mode-name string is ever looked up — `checkSteering`/`viewOf`/`clearTicks` all take the RESOLVED value this returns, never a name, so "mode is required, never inferred from a file's basename" is a type, not a rule to remember. */
 export const steeringFormatFor = (mode: string): SteeringFormat | undefined => REGISTRY.get(mode)

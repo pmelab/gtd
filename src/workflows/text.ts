@@ -675,7 +675,8 @@ The process's entry commit is \`${it.entryCommit}\`. ${human}Inspect the range: 
 and \`git diff ${it.processBase} ${it.processTip}\` — exactly what
 a squash or PR body should describe.
 
-Token cost: ${it.processCost}${it.processCostByModel.map((m) => `- ${m.model}: ${m.cost}`).join("")}
+Token cost: ${it.processCost}
+${it.processCostByModel.map((m) => `- ${m.model}: ${m.cost}\n`).join("")}
 Print the closing message and stop — this writes nothing itself.
 `
 }

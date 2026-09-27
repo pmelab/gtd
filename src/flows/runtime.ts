@@ -127,6 +127,7 @@ export interface FlowContext {
   readonly changes: () => readonly Change[]
   readonly matches: (path: string, pattern: string) => boolean
   readonly sections: (text: string) => readonly string[]
+  readonly sectionBodies: (text: string) => readonly Section[]
   readonly openQuestions: (text: string) => readonly OpenQuestion[]
   readonly vars: Readonly<Record<string, string>>
   readonly head: () => string
@@ -237,6 +238,15 @@ export const vars: Readonly<Record<string, string>> = new Proxy(
 
 /** The top-level `## ` heading texts of markdown `text`. */
 export const sections = (text: string): readonly string[] => ctx().sections(text)
+
+export interface Section {
+  readonly title: string
+  /** The section's own markdown, its heading line included. */
+  readonly body: string
+}
+
+/** The top-level `## ` sections of markdown `text`, each with its own markdown. */
+export const sectionBodies = (text: string): readonly Section[] => ctx().sectionBodies(text)
 
 export interface OpenQuestion {
   readonly question: string

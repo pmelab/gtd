@@ -24,6 +24,7 @@ export const renderText = <T>(text: () => T, context: TextContext = {}): T => {
     changes: () => [],
     matches: () => false,
     sections: () => [],
+    sectionBodies: () => [],
     openQuestions: () => [],
     vars: { ...defaults, ...context.vars },
     head: () => context.head ?? "",

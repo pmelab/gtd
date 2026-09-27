@@ -240,19 +240,33 @@ const commitTree = (workspace: WorkspaceOps, hash: string): TreeView => {
   }
 }
 
-/** The tree a landing would commit: the working tree, with any content rewrite the landing script applies first. */
-const pendingTree = (
-  workspace: WorkspaceOps,
-  rewrite: ((path: string, content: string) => string) | undefined,
-): TreeView => {
-  const paths = workspace.worktreePathsSync()
+/** A content rewrite the landing script applies to one path before it commits. */
+interface Rewrite {
+  readonly path: string
+  readonly apply: (content: string) => string
+}
+
+/** The tree a landing would commit: the working tree, with any rewrite the landing script applies first. */
+const pendingTree = (workspace: WorkspaceOps, rewrite: Rewrite | undefined): TreeView => {
+  const entries = workspace.worktreeSync()
+  const paths = [...entries.keys()]
+  const readWorktree = (path: string): string | undefined => {
+    try {
+      return workspace.readSync(path)
+    } catch {
+      // A submodule or another non-file entry has no content to read.
+      return undefined
+    }
+  }
   return {
     paths: () => paths,
     read: (path) => {
-      if (!paths.includes(path)) return undefined
-      const content = workspace.readSync(path)
-      return content === undefined || rewrite === undefined ? content : rewrite(path, content)
+      if (!entries.has(path)) return undefined
+      const content = readWorktree(path)
+      return content === undefined || rewrite?.path !== path ? content : rewrite.apply(content)
     },
+    // The rewritten path's blob id is not the working tree's: compare its contents.
+    id: (path) => (rewrite?.path === path ? undefined : entries.get(path)),
   }
 }
 
@@ -711,14 +725,12 @@ const cleanLanding = (rest: Rest): Landing | undefined => {
 }
 
 /** At the human review gate the pending tree lands with every tick cleared, as the landing script will. */
-const reviewGateRewrite = (
-  def: StepDef,
-): ((path: string, content: string) => string) | undefined => {
+const reviewGateRewrite = (def: StepDef): Rewrite | undefined => {
   const reviewFormat = steeringFormatFor("review")
   if (!isHumanReviewGate(def) || def.file === undefined || reviewFormat === undefined) {
     return undefined
   }
-  return (path, content) => (path === def.file ? clearTicks(reviewFormat, content) : content)
+  return { path: def.file, apply: (content) => clearTicks(reviewFormat, content) }
 }
 
 /**

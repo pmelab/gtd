@@ -91,16 +91,3 @@ export const requireRevert = (edited: readonly Change[], base: string): void => 
     `gtd land: require-revert: ${residue.join(", ")} still differ from ${base}~1 — the revert did not take. Run \`git checkout ${base}~1 -- ${quoted}\`, then \`gtd land\` again.`,
   )
 }
-
-/** Each `## ` section's own text in markdown `text`, by title — `""` for a title not found. */
-export const sectionBodies = (text: string, titles: readonly string[]): string[] => {
-  const lines = text.split("\n")
-  const starts = titles.map((title) =>
-    lines.findIndex((l) => l.replace(/^#+\s*/, "").trim() === title),
-  )
-  return starts.map((from, i) => {
-    if (from === -1) return ""
-    const next = starts.slice(i + 1).find((n) => n > from) ?? lines.length
-    return lines.slice(from, next).join("\n")
-  })
-}

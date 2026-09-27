@@ -10,7 +10,6 @@ import {
   run,
   scope,
   sectionBodies,
-  sections,
   start,
   vars,
   wrote,
@@ -36,15 +35,14 @@ const sectionQuestion = (id: string, title: string): JudgeQuestion => ({
  * clear. Resolves `true` when approved.
  */
 export const specReview = async (pkg: string): Promise<boolean> => {
-  const whole = read(pkg) ?? ""
-  const titles = sections(whole)
+  const found = sectionBodies(read(pkg) ?? "")
+  const titles = found.map((section) => section.title)
   const judged = titles.length > 0 && titles.length <= MAX_SECTIONS
-  const bodies = sectionBodies(whole, titles)
   const evidence: Record<string, string> = {}
   const questions: JudgeQuestion[] = []
   if (judged) {
-    titles.forEach((title, i) => {
-      evidence[`section-${i + 1}`] = bodies[i]!
+    found.forEach(({ title, body }, i) => {
+      evidence[`section-${i + 1}`] = body
       questions.push(sectionQuestion(`section-${i + 1}`, title))
     })
   }

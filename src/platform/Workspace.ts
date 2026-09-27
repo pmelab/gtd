@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process"
-import { readFileSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { lstatSync, readFileSync, readlinkSync, writeFileSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
 import { Context, Effect, Layer } from "effect"
 import { GitService, type GitOperations } from "./Git.js"
@@ -7,8 +8,8 @@ import { Host } from "./Host.js"
 
 const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
 
-// A tree listing of a large repository overflows execFileSync's 1 MB default.
-const LIST_MAX_BUFFER = 64 * 1024 * 1024
+// A tree listing, or one committed file, can overflow execFileSync's 1 MB default.
+const MAX_BUFFER = 256 * 1024 * 1024
 
 /**
  * The one port onto repo file content, in four REPO-RELATIVE read shapes:
@@ -46,8 +47,12 @@ export interface WorkspaceOps {
    * two awaits and cannot wait on IO.
    */
   readonly treeSync: (ref: string) => ReadonlyMap<string, string>
-  /** Every path in the working tree git would commit (tracked or untracked, never ignored), sorted. */
-  readonly worktreePathsSync: () => readonly string[]
+  /**
+   * Every path `git add -A` would commit from the working tree, with the blob
+   * id it would get — `undefined` where no id could be worked out, so a
+   * reader compares contents instead.
+   */
+  readonly worktreeSync: () => ReadonlyMap<string, string | undefined>
   /**
    * Reads an ARBITRARY path — repo-relative or already-absolute, inside the
    * repo, above it, or anywhere else on disk — with the same absence-is-a-
@@ -77,6 +82,15 @@ const readFileOrAbsent = (path: string): string | undefined => {
   }
 }
 
+const lstatOrAbsent = (path: string): ReturnType<typeof lstatSync> | undefined => {
+  try {
+    return lstatSync(path)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    throw e
+  }
+}
+
 const makeWorkspaceOps = (root: string, git: GitOperations): WorkspaceOps => {
   const resolveAny = (path: string): string => (isAbsolute(path) ? path : join(root, path))
 
@@ -92,7 +106,11 @@ const makeWorkspaceOps = (root: string, git: GitOperations): WorkspaceOps => {
   const readCommittedSync = (path: string, ref = "HEAD"): string | undefined => {
     const relPath = assertRepoRelative(path)
     try {
-      return execFileSync("git", ["show", `${ref}:${relPath}`], { cwd: root, encoding: "utf8" })
+      return execFileSync("git", ["show", `${ref}:${relPath}`], {
+        cwd: root,
+        encoding: "utf8",
+        maxBuffer: MAX_BUFFER,
+      })
     } catch {
       return undefined
     }
@@ -105,7 +123,7 @@ const makeWorkspaceOps = (root: string, git: GitOperations): WorkspaceOps => {
       out = execFileSync("git", ["ls-tree", "-r", "-z", "--full-tree", ref], {
         cwd: root,
         encoding: "utf8",
-        maxBuffer: LIST_MAX_BUFFER,
+        maxBuffer: MAX_BUFFER,
       })
     } catch {
       return entries
@@ -119,19 +137,74 @@ const makeWorkspaceOps = (root: string, git: GitOperations): WorkspaceOps => {
     return entries
   }
 
-  const worktreePathsSync = (): readonly string[] => {
-    const out = execFileSync(
-      "git",
-      ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-      { cwd: root, encoding: "utf8", maxBuffer: LIST_MAX_BUFFER },
-    )
-    const paths = new Set(out.split("\0").filter((p) => p !== ""))
-    return [...paths].filter((p) => readFileOrAbsent(join(root, p)) !== undefined).sort()
+  const gitSync = (args: readonly string[], input?: string): string =>
+    execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: MAX_BUFFER,
+      ...(input !== undefined ? { input } : {}),
+    })
+
+  // A path git status reports is re-hashed the way `git add` would store it;
+  // every other path keeps HEAD's blob id, so an untouched file is never
+  // read, and never compared by working-tree bytes that eol or smudge
+  // filters, or a symlink, make differ from the blob.
+  const worktreeSync = (): ReadonlyMap<string, string | undefined> => {
+    const entries = new Map<string, string | undefined>(treeSync("HEAD"))
+    const status = gitSync([
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--no-renames",
+      "--ignore-submodules=none",
+    ])
+    const files: string[] = []
+    for (const record of status.split("\0")) {
+      if (record.length < 4) continue
+      const path = record.slice(3).replace(/\/$/, "")
+      const stat = lstatOrAbsent(join(root, path))
+      if (stat === undefined) entries.delete(path)
+      else if (stat.isSymbolicLink()) {
+        entries.set(path, blobId(readlinkSync(join(root, path), "utf8")))
+      } else if (stat.isDirectory()) {
+        // Only a directory holding its own repository is committed, as a gitlink.
+        if (lstatOrAbsent(join(root, path, ".git")) === undefined) entries.delete(path)
+        else entries.set(path, gitlinkOf(path))
+      } else files.push(path)
+    }
+    if (files.length > 0) {
+      const ids = gitSync(["hash-object", "--stdin-paths"], `${files.join("\n")}\n`).split("\n")
+      files.forEach((path, i) => entries.set(path, ids[i] || undefined))
+    }
+    return new Map([...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+  }
+
+  /** A submodule's (or embedded repository's) checked-out commit — what `git add` records for it. */
+  const gitlinkOf = (path: string): string | undefined => {
+    try {
+      return execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: join(root, path),
+        encoding: "utf8",
+      }).trim()
+    } catch {
+      return undefined
+    }
+  }
+
+  let objectFormat: string | undefined
+  const blobId = (content: string): string => {
+    objectFormat ??= gitSync(["rev-parse", "--show-object-format"]).trim()
+    const bytes = Buffer.from(content, "utf8")
+    return createHash(objectFormat === "sha256" ? "sha256" : "sha1")
+      .update(`blob ${bytes.length}\0`)
+      .update(bytes)
+      .digest("hex")
   }
 
   return {
     treeSync,
-    worktreePathsSync,
+    worktreeSync,
     readSync,
     read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),
     write: (path, content) =>
