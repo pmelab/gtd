@@ -47,7 +47,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
 
-    # unwind: simulate the `git revert --no-commit` — @inmem never executes
+    # unwind: simulate the revert — @inmem never executes
     # scripts — by reverting the working tree to the start commit ourselves.
     Given the file "src/greeter.ts" is deleted
     When I run gtd land
@@ -1037,7 +1037,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
 
-    # Simulate the unwind's `git revert --no-commit` — @inmem never executes
+    # Simulate the unwind's revert — @inmem never executes
     # scripts — by reverting the working tree to the start commit ourselves:
     # BOTH the scratch note and the hand-edited real code change go, alike.
     Given the file "src/real.ts" is deleted

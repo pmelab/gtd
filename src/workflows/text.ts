@@ -20,7 +20,7 @@ export const withSkills = (skills: string | undefined, prompt: string): string =
 export const unwindFailure = (commit: string, code: number, output: string): string =>
   `gtd could not unwind ${commit} out of your working tree.
 
-${output.length > 0 ? output : `\`git revert --no-commit\` exited ${code} and produced no output.\n`}`
+${output.length > 0 ? output : `Reverting it exited ${code} and produced no output.\n`}`
 
 export const idleMessage = (): string =>
   `No active gtd process.

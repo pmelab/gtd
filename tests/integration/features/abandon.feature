@@ -50,7 +50,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
     When I run gtd land
     Then it succeeds
-    # unwind: simulate the `git revert --no-commit` — @inmem never executes
+    # unwind: simulate the revert — @inmem never executes
     # scripts — by reverting the working tree to the start commit ourselves.
     Given the file "NOTE.md" is deleted
     When I run gtd land

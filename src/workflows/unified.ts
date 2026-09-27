@@ -474,7 +474,9 @@ const reUnwind = async (feedback: Extract<ReviewOutcome, { verdict: "feedback" }
       const untouched = edited.filter((c) => fs.read(c.path) === c.after)
       fs.rm(...untouched.filter((c) => c.status === "added").map((c) => c.path))
       const restored = untouched.filter((c) => c.status !== "added").map((c) => shellQuote(c.path))
-      if (restored.length > 0) await sh(`git checkout ${base}~1 -- ${restored.join(" ")}`)
+      if (restored.length > 0) {
+        await sh(`git restore --source=${base}~1 --worktree -- ${restored.join(" ")}`)
+      }
     },
     { label: "Re-unwinding your review edit", file: ".gtd/REVIEW.md", base },
   )
@@ -513,16 +515,20 @@ const gate = (name: string, message: () => string): Promise<void> =>
   )
 
 /**
- * Revert the sketch that started the process out of the tree; its intent
- * survives in history. A failed revert is written to FEEDBACK.md, since a
+ * Revert the sketch that started the process out of the working tree; its
+ * intent survives in history. The reverse patch touches the working tree
+ * only, never the index. A failed revert is written to FEEDBACK.md, since a
  * failure and a genuine no-op can both leave the tree clean.
  */
 const unwind = (): Promise<void> => {
   const commit = head()
+  const range = `${commit}^ ${commit}`
   return run(
     "unwind",
     async ({ sh, fs }) => {
-      const { ok, code, output } = await sh(`git revert --no-commit ${commit}`)
+      const { ok, code, output } = await sh(
+        `git diff --quiet ${range} || git diff --binary ${range} | git apply -R`,
+      )
       if (ok) return
       fs.write(".gtd/FEEDBACK.md", t.unwindFailure(commit, code, output))
     },

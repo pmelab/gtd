@@ -154,12 +154,13 @@ Awaits: check
 Label: Unwinding your input
 
 #!/usr/bin/env sh
-...
-git revert --no-commit "$commit" 2> .gtd/.unwind-error
+# This step's body is a callback: gtd runs it, the driver lands what it leaves.
+exec gtd exec
 ```
 
-`Awaits: check` means this beat is not yours: it is a script. gtd never runs
-anything itself, so run it and land it exactly as before:
+`Awaits: check` means this beat is not yours: it is a script. Nothing runs until
+you run it — here `gtd exec`, which reverts your sketch out of the working tree.
+gtd never commits and never touches the index, so land it exactly as before:
 
 ```bash
 sh -c "$(gtd next --json=content)"

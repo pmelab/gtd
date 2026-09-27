@@ -803,9 +803,8 @@ const runNextCommand = (
 
 /**
  * `gtd validate`: emit the script that would format then validate the
- * resolved rest's declared steering file — the same commands `gtd land`'s
- * capture guard embeds ahead of its own commit, rendered here to run
- * directly. gtd itself reads no file and executes nothing: a state with no
+ * resolved rest's declared steering file, for the driver to run. The command
+ * itself reads no file and executes nothing: a state with no
  * `file:`/`mode:`, or a file absent from the working tree, has nothing to
  * validate (exit 0 either way) — the verdict lives in the emitted script's
  * own future exit code. When the validator is a command, the last rendered

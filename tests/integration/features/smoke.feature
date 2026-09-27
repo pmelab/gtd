@@ -21,7 +21,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
-    # unwind: simulate the `git revert --no-commit` — @inmem never executes
+    # unwind: simulate the revert — @inmem never executes
     # scripts — by reverting the working tree to the start commit ourselves.
     Given the file "src/feature.ts" is deleted
     When I run gtd land

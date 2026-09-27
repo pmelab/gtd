@@ -205,8 +205,9 @@ as the `gtd` that printed it.
 
 The minimal driver below is gtd's own reference driver, not a privileged one —
 the engine itself is a supported public surface, and anything below holds for
-any driver you write against it. gtd decides and prints; it never touches git
-itself. The five commands that change anything — `gtd land`,
+any driver you write against it. gtd decides and prints; it never commits, never
+moves HEAD or a ref, and never writes the git index — every git write is in a
+script the driver runs. The five commands that change anything — `gtd land`,
 `gtd --entry <state>`, `gtd abandon`, `gtd restore`, and `gtd judge answer` —
 perform no git write when run: each one's `--json=script` form carries ONE POSIX
 sh script for YOU to execute — a leading comment ("gtd emitted this and did NOT
@@ -226,11 +227,20 @@ Every script gtd emits — `gtd land --json=script`, `gtd --entry <state>`,
 format/validate script `gtd validate` prints — is POSIX `sh`, portable to
 `dash`: a driver may run any of them with any POSIX-compliant shell, not
 specifically bash. The same convention extends to the bundled workflow's
-`testCommand` variable (what its `run` steps actually execute): it is expected
-to be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION only — gtd
-never inspects or validates `testCommand`'s shell dialect itself, it only
-renders the value into a script and hands it to whatever shell the driver
-invokes that script with.
+`testCommand` variable (what its checks run through `sh -c`): it is expected to
+be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION only — gtd never
+inspects or validates `testCommand`'s shell dialect itself.
+
+A `script` beat whose step body is a callback prints a one-line script,
+`exec gtd exec`. Running it is what runs the callback: `gtd exec` replays to the
+same rest and runs its body in the repository root, where it may write and
+delete working-tree files and run commands (the bundled workflow's checks run
+`testCommand`; its `unwind` and `re-unwind` reverse-apply patches to the working
+tree). Those are the only files gtd itself writes, besides `gtd uncheck`'s and
+`gtd ui`'s steering-file edits — and only when the driver runs the beat. What
+the callback leaves is landed like any other check turn, by `gtd land`'s script.
+A throwing callback makes `gtd exec` exit 1; land the tree anyway, as for any
+other failing check script.
 
 - **The required half** is everything that decides what lands in git — the
   commit itself (`gtd land`, `gtd --entry <state>`, and `gtd judge answer`, the
