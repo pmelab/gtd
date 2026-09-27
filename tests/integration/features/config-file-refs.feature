@@ -12,14 +12,14 @@ Feature: gtd.config.ts reads a sibling prompt file at load time
     And a file "gtd.config.ts" with:
       """
       import { readFileSync } from "node:fs"
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
       const prompt = readFileSync(new URL("./prompt.md", import.meta.url), "utf8")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", prompt)
-      })
+      }
       """
     And a file "prompt.md" with:
       """
@@ -42,13 +42,13 @@ Feature: gtd.config.ts reads a sibling prompt file at load time
     And a file "gtd.config.ts" with:
       """
       import { readFileSync } from "node:fs"
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
       const message = readFileSync(new URL("./missing-message.md", import.meta.url), "utf8")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message })
-      })
+      }
       """
     And "gtd.config.ts" is staged
     When I commit with message "chore: add config"

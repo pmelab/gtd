@@ -254,7 +254,7 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
       diagnostics.push({
         ...err(
           ["workflow"],
-          '"workflow" is no longer read from a .gtdrc file — define the workflow in gtd.config.ts (a TypeScript module default-exporting workflow(...) from "@pmelab/gtd/flows"); a .gtdrc keeps only vars, modes and ui',
+          '"workflow" is no longer read from a .gtdrc file — define the workflow in gtd.config.ts (a TypeScript module whose default export is the flow); a .gtdrc keeps only vars, modes and ui',
         ),
         origin: layer.origin,
       })

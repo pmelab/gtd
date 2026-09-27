@@ -39,9 +39,9 @@ Feature: gtd install — the driver-building briefing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, scope } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await scope({ model: "smart" }, () =>
           agent("working", "do the work described in NOTE.md", {
@@ -50,7 +50,7 @@ Feature: gtd install — the driver-building briefing
             mode: "qa",
           }),
         )
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

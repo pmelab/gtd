@@ -33,12 +33,12 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("frobnicate", { message: "write NOTE.md to start" })
         await agent("planning", "plan it")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -48,12 +48,12 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
     # The workflow renames the step out from under the in-flight process.
     And "gtd.config.ts" is modified to:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await agent("planning", "plan it")
-      })
+      }
       """
     When I run gtd next
     Then it fails

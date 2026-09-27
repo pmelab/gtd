@@ -52,12 +52,12 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      })
+      }
       """
     # The LSP knows a steering file's mode from the steps the process has
     # reached, so the process first moves on to the step that declares it.
@@ -86,12 +86,12 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      })
+      }
       """
     And a file ".gtd/PLAN.md" with:
       """
@@ -115,24 +115,23 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars, workflow, refuse } from "@pmelab/gtd/flows"
+      import { agent, human, vars, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async ({ entry }) => {
-          if (entry === "review-check") {
-            await human("review-check", {
-              file: `.gtd/${vars.planFile}`,
-              mode: "qa",
-              message: "reviewing",
-            })
-            return
-          }
-          if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
-          await human("idle", { message: "go" })
-          await agent("working", "develop the plan", { file: `.gtd/${vars.planFile}`, mode: "qa" })
-        },
-        { vars: { planFile: "PLAN.md" } },
-      )
+      export default async ({ entry }) => {
+        if (entry === "review-check") {
+          await human("review-check", {
+            file: `.gtd/${vars.planFile}`,
+            mode: "qa",
+            message: "reviewing",
+          })
+          return
+        }
+        if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: `.gtd/${vars.planFile}`, mode: "qa" })
+      }
+
+      export const defaults = { planFile: "PLAN.md" }
       """
     And I run gtd with args "--entry review-check --var planFile=OTHER.md"
     And an LSP server started in the test project
@@ -187,12 +186,12 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      })
+      }
       """
     # The LSP knows a steering file's mode from the steps the process has
     # reached, so the process first moves on to the step that declares it.
@@ -236,12 +235,12 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      })
+      }
       """
     # The LSP knows a steering file's mode from the steps the process has
     # reached, so the process first moves on to the step that declares it.
@@ -285,12 +284,12 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      })
+      }
       """
     # The LSP knows a steering file's mode from the steps the process has
     # reached, so the process first moves on to the step that declares it.
@@ -373,12 +372,12 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      })
+      }
       """
     # The LSP knows a steering file's mode from the steps the process has
     # reached, so the process first moves on to the step that declares it.

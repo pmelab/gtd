@@ -14,9 +14,9 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, head, human, refuse, start, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, head, human, refuse, start } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         let base = start()
         for (;;) {
@@ -36,7 +36,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
           if (changes().length === 0) return
           refuse("deciding: add FEEDBACK.md or land a clean tree")
         }
-      })
+      }
       """
     And I mark the current commit as "boundary"
     And a file "NOTE.md" with:
@@ -203,12 +203,12 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("building", "build it")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -229,12 +229,12 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("building", "build it")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

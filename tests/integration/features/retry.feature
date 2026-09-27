@@ -10,9 +10,9 @@ Feature: Retry redirection — a state's entry cap redirects at write time
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
         let fixes = 0
         for (;;) {
@@ -26,7 +26,7 @@ Feature: Retry redirection — a state's entry cap redirects at write time
           await agent("fixing", "fix it")
         }
         await human("done", { message: "done" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -58,9 +58,9 @@ Feature: Retry redirection — a state's entry cap redirects at write time
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
         let fixes = 0
         for (;;) {
@@ -74,7 +74,7 @@ Feature: Retry redirection — a state's entry cap redirects at write time
           await agent("fixing", "fix it")
         }
         await human("done", { message: "done" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

@@ -16,11 +16,11 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start", file: ".gtd/docs/adr.md", mode: "adrs" })
-      })
+      }
       """
     When I run gtd next
     Then it fails
@@ -38,11 +38,11 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start", file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     When I run gtd next
     Then it succeeds
@@ -51,11 +51,11 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start", file: ".gtd/NOTES.md", mode: "prose" })
-      })
+      }
       """
     When I run gtd next
     Then it fails

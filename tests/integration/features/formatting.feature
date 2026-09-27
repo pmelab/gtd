@@ -27,9 +27,9 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         for (;;) {
           await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
@@ -41,7 +41,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
           })
           if (changes().length === 0) return
         }
-      })
+      }
       """
     And a file ".gtd/TODO.md" with:
       """
@@ -64,9 +64,9 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         for (;;) {
           await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
@@ -78,7 +78,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
           })
           if (changes().length === 0) return
         }
-      })
+      }
       """
     And a file "NOTES.md" with:
       """

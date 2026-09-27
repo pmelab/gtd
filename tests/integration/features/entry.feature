@@ -7,7 +7,7 @@ Feature: gtd --entry <name> — start a brand new process the workflow opens for
   it does not accept; a flow that never reads `entry` accepts none. The name is
   recorded on the opening commit, so every later command replays the flow with
   the same entry. Repeatable `--var <name>=<value>` supplies that process's
-  fixed vars, which must already be declared by the workflow's own `vars` (or
+  fixed vars, which must already be declared by the workflow's `defaults` (or
   `.gtdrc` `vars:`).
 
   The bundled workflow accepts `review-gate.check`, `fix-precheck` and
@@ -81,12 +81,12 @@ Feature: gtd --entry <name> — start a brand new process the workflow opens for
   Scenario: fails with a clear usage error when the state name is not declared
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "do it")
-      })
+      }
       """
     When I run gtd with args "--entry review-gate.check"
     Then it fails
@@ -148,9 +148,9 @@ Feature: gtd --entry <name> — start a brand new process the workflow opens for
   Scenario: the flow receives the entry name as its argument, and every later command replays with it
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async ({ entry }) => {
+      export default async ({ entry }) => {
         if (entry === undefined) {
           await human("idle", { message: "go" })
           return
@@ -158,7 +158,7 @@ Feature: gtd --entry <name> — start a brand new process the workflow opens for
         if (!entry.startsWith("hotfix-")) refuse(`"${entry}" is not an enterable state`)
         await agent("patch", `Patch ${entry.slice("hotfix-".length)}.`)
         await agent("verify", `Verify the ${entry} patch.`)
-      })
+      }
       """
     When I run gtd with args "--entry hotfix-login"
     Then it succeeds
@@ -180,13 +180,13 @@ Feature: gtd --entry <name> — start a brand new process the workflow opens for
   Scenario: a name the flow refuses is refused with the flow's own message, and nothing is committed
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async ({ entry }) => {
+      export default async ({ entry }) => {
         if (entry !== undefined && entry !== "hotfix") refuse(`"${entry}" is not an enterable state`)
         if (entry === undefined) await human("idle", { message: "go" })
         await agent("patch", "Patch it.")
-      })
+      }
       """
     And I record the commit count
     When I run gtd with args "--entry release"
@@ -197,12 +197,12 @@ Feature: gtd --entry <name> — start a brand new process the workflow opens for
   Scenario: a workflow whose flow never reads its entry accepts no --entry
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "do it")
-      })
+      }
       """
     And I record the commit count
     When I run gtd with args "--entry working"

@@ -14,7 +14,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, run } from "@pmelab/gtd/flows"
 
       const pick = `next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
       if [ -n "$next" ]; then
@@ -24,7 +24,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
       fi
       `
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", {
           message: "write task files under .gtd/tasks/, then run `gtd land`",
         })
@@ -36,7 +36,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
           await agent("building", "Implement the task named in .gtd/NEXT.md, then delete that task file.")
         }
         await human("done", { message: "tasks complete" })
-      })
+      }
       """
     And a file ".gtd/tasks/01-a.md" with:
       """
@@ -90,7 +90,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, run } from "@pmelab/gtd/flows"
 
       const pick = `next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
       if [ -n "$next" ]; then
@@ -100,7 +100,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
       fi
       `
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", {
           message: "write task files under .gtd/tasks/, then run `gtd land`",
         })
@@ -112,7 +112,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
           await agent("building", "Implement the task named in .gtd/NEXT.md, then delete that task file.")
         }
         await human("done", { message: "tasks complete" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

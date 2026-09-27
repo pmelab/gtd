@@ -175,7 +175,7 @@ Options:
   --var <name>=<value>
                    (with --entry; repeatable) supply a fixed variable
                    override for the new process; the name must already be
-                   declared by the workflow's own vars: or the .gtdrc vars:
+                   declared by the workflow's defaults or the .gtdrc vars:
   --open-questions (gtd check only) ignore <mode>'s structural findings and
                    instead run the qa open-questions predicate over <file>,
                    printing each unanswered question one per line and exiting

@@ -11,18 +11,17 @@ Feature: flow branches read their paths from "vars"
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "start" })
-          do {
-            await agent("working", "do the work")
-          } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
-          await human("captured", { message: "done" })
-        },
-        { vars: { outFile: "OUT.md" } },
-      )
+      export default async () => {
+        await human("idle", { message: "start" })
+        do {
+          await agent("working", "do the work")
+        } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
+        await human("captured", { message: "done" })
+      }
+
+      export const defaults = { outFile: "OUT.md" }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -46,19 +45,18 @@ Feature: flow branches read their paths from "vars"
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, refuse, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "start" })
-          await agent("working", "do the work")
-          if (!changes(vars.outFile ?? "").some((c) => c.status === "added")) {
-            refuse(`gtd land: no declared pattern matches — declared patterns: A ${vars.outFile}`)
-          }
-          await human("captured", { message: "done" })
-        },
-        { vars: { outFile: "OUT.md" } },
-      )
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("working", "do the work")
+        if (!changes(vars.outFile ?? "").some((c) => c.status === "added")) {
+          refuse(`gtd land: no declared pattern matches — declared patterns: A ${vars.outFile}`)
+        }
+        await human("captured", { message: "done" })
+      }
+
+      export const defaults = { outFile: "OUT.md" }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -82,18 +80,17 @@ Feature: flow branches read their paths from "vars"
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "start" })
-          do {
-            await agent("working", "do the work")
-          } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
-          await human("captured", { message: "done" })
-        },
-        { vars: { outFile: "OUT.md" } },
-      )
+      export default async () => {
+        await human("idle", { message: "start" })
+        do {
+          await agent("working", "do the work")
+        } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
+        await human("captured", { message: "done" })
+      }
+
+      export const defaults = { outFile: "OUT.md" }
       """
     And a file "NOTE.md" with:
       """
@@ -113,18 +110,17 @@ Feature: flow branches read their paths from "vars"
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "start" })
-          do {
-            await agent("working", "do the work")
-          } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
-          await human("captured", { message: "done" })
-        },
-        { vars: { outFile: "OUT.md" } },
-      )
+      export default async () => {
+        await human("idle", { message: "start" })
+        do {
+          await agent("working", "do the work")
+        } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
+        await human("captured", { message: "done" })
+      }
+
+      export const defaults = { outFile: "OUT.md" }
       """
     And a gtd config file at ".gtdrc" with:
       """

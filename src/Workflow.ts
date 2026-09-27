@@ -1,4 +1,4 @@
-import type { Workflow } from "./flows/index.js"
+import type { EntryBase, Flow, Summary } from "./flows/index.js"
 import type { Actor, ContentKind, StateMode, StateName } from "./wire/index.js"
 
 export type { Actor, ContentKind, StateMode, StateName }
@@ -42,9 +42,15 @@ export interface StepDef {
   readonly acceptClean?: boolean
 }
 
-/** The loaded workflow: its entries and the modes its steering files use. */
+/**
+ * The loaded workflow module: its default export is the flow, and `summary`
+ * and `base` are the optional named exports the engine reads. Every other
+ * export is the module's own business — helpers other workflows import.
+ */
 export interface WorkflowDefinition {
-  readonly flows: Workflow
+  readonly flow: Flow
+  readonly summary?: Summary | undefined
+  readonly base?: EntryBase | undefined
   /** Every mode a step may name: the built-in registry merged with `.gtdrc` `modes:`. */
   readonly modes: Readonly<Record<StateMode, ModeDef>>
   /** The flow's first step on an ordinary start — where a finished episode waits. */

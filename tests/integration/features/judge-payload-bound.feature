@@ -12,19 +12,18 @@ Feature: judgeBudgetBytes bounds a judge's evidence, and truncation is visible a
     And a file "BIG.md" padded to at least 2000 bytes with a repeating line
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, judge, read, workflow } from "@pmelab/gtd/flows"
+      import { human, judge, read } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await judge("idle", {
-            questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
-            evidence: { doc: read("BIG.md") ?? "" },
-            message: "hi",
-          })
-          await human("done", { message: "chore: done" })
-        },
-        { vars: { judgeBudgetBytes: "500" } },
-      )
+      export default async () => {
+        await judge("idle", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { doc: read("BIG.md") ?? "" },
+          message: "hi",
+        })
+        await human("done", { message: "chore: done" })
+      }
+
+      export const defaults = { judgeBudgetBytes: "500" }
       """
     When I run gtd next
     Then it succeeds
@@ -40,19 +39,18 @@ Feature: judgeBudgetBytes bounds a judge's evidence, and truncation is visible a
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, judge, read, workflow } from "@pmelab/gtd/flows"
+      import { human, judge, read } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await judge("idle", {
-            questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
-            evidence: { doc: read("SMALL.md") ?? "" },
-            message: "hi",
-          })
-          await human("done", { message: "chore: done" })
-        },
-        { vars: { judgeBudgetBytes: "500" } },
-      )
+      export default async () => {
+        await judge("idle", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { doc: read("SMALL.md") ?? "" },
+          message: "hi",
+        })
+        await human("done", { message: "chore: done" })
+      }
+
+      export const defaults = { judgeBudgetBytes: "500" }
       """
     When I run gtd next
     Then it succeeds
@@ -69,20 +67,19 @@ Feature: judgeBudgetBytes bounds a judge's evidence, and truncation is visible a
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, judge, read, workflow } from "@pmelab/gtd/flows"
+      import { human, judge, read } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          const { truncated } = await judge("idle", {
-            questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
-            evidence: { big: read("BIG.md") ?? "", small: read("SMALL.md") ?? "" },
-            message: "hi",
-          })
-          if (truncated.join(",") === "big") await human("big-cut", { message: "only big was cut" })
-          else await human("other", { message: truncated.join(",") })
-        },
-        { vars: { judgeBudgetBytes: "500" } },
-      )
+      export default async () => {
+        const { truncated } = await judge("idle", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { big: read("BIG.md") ?? "", small: read("SMALL.md") ?? "" },
+          message: "hi",
+        })
+        if (truncated.join(",") === "big") await human("big-cut", { message: "only big was cut" })
+        else await human("other", { message: truncated.join(",") })
+      }
+
+      export const defaults = { judgeBudgetBytes: "500" }
       """
     When I run gtd land
     Then it succeeds

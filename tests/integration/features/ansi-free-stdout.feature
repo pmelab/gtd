@@ -29,13 +29,13 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "do the work described in NOTE.md", { allowEmpty: true })
         await run("checking", "echo hi")
-      })
+      }
       """
 
   @inmem

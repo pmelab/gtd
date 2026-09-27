@@ -18,16 +18,16 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, judge, workflow } from "@pmelab/gtd/flows"
+      import { agent, judge } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await judge("idle", {
           questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
           evidence: { note: "idle" },
           message: "hi",
         })
         await agent("working", "go")
-      })
+      }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -52,16 +52,16 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, judge, workflow } from "@pmelab/gtd/flows"
+      import { agent, judge } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await judge("idle", {
           questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
           evidence: { note: "idle" },
           message: "hi",
         })
         await agent("working", "go")
-      })
+      }
       """
     When I run gtd with args "judge answer" and stdin:
       """
@@ -74,16 +74,16 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, judge, workflow } from "@pmelab/gtd/flows"
+      import { agent, judge } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await judge("idle", {
           questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
           evidence: { note: "idle" },
           message: "hi",
         })
         await agent("working", "go")
-      })
+      }
       """
     When I run gtd with args "judge answer" and stdin:
       """
@@ -97,16 +97,16 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, judge, workflow } from "@pmelab/gtd/flows"
+      import { agent, judge } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await judge("idle", {
           questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
           evidence: { note: "idle" },
           message: "hi",
         })
         await agent("working", "go")
-      })
+      }
       """
     When I run gtd with args "judge answer" and stdin:
       """
@@ -119,9 +119,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, judge, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, judge } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "do the work described in NOTE.md")
         await judge("review", {
@@ -131,7 +131,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
             "run `gtd judge answer` and paste a verdict, or land with a clean tree to accept the conservative default",
         })
         await agent("conservative", "the conservative path")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -168,11 +168,11 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, judge, read, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, judge, read, run } from "@pmelab/gtd/flows"
 
       const wrote = (path: string): boolean => changes(path).some((c) => c.status !== "deleted")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
         let fixes = 0
         for (;;) {
@@ -208,7 +208,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
           await agent("fixing", "fix it")
         }
         await human("done", { message: "done" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -268,11 +268,11 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, judge, read, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, judge, read, run } from "@pmelab/gtd/flows"
 
       const wrote = (path: string): boolean => changes(path).some((c) => c.status !== "deleted")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
         let fixes = 0
         for (;;) {
@@ -308,7 +308,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
           await agent("fixing", "fix it")
         }
         await human("done", { message: "done" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -372,9 +372,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, judge, workflow } from "@pmelab/gtd/flows"
+      import { human, judge } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await judge("verdict", {
           questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
           evidence: { note: "verdict" },
@@ -382,7 +382,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
             "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
         })
         await human("done", { message: "chore: done" })
-      })
+      }
       """
     When I run gtd next with "--json=actor"
     Then it succeeds
@@ -393,9 +393,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, judge, workflow } from "@pmelab/gtd/flows"
+      import { human, judge } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await judge("verdict", {
           questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
           evidence: { note: "verdict" },
@@ -403,7 +403,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
             "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
         })
         await human("done", { message: "chore: done" })
-      })
+      }
       """
     When I run gtd judge answer with stdin:
       """
@@ -418,9 +418,9 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, judge, workflow } from "@pmelab/gtd/flows"
+      import { human, judge } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await judge("verdict", {
           questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
           evidence: { note: "verdict" },
@@ -428,7 +428,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
             "run `gtd judge answer` and paste a verdict, or land to accept the conservative default",
         })
         await human("done", { message: "chore: done" })
-      })
+      }
       """
     When I run gtd land
     Then it succeeds

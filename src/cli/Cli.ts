@@ -310,7 +310,7 @@ const FLAGS: readonly FlagRow[] = [
     help: [
       "(with --entry; repeatable) supply a fixed variable",
       "override for the new process; the name must already be",
-      "declared by the workflow's own vars: or the .gtdrc vars:",
+      "declared by the workflow's defaults or the .gtdrc vars:",
     ],
   },
   {

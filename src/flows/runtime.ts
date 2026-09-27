@@ -271,31 +271,15 @@ export interface SummaryContext {
   readonly vars: Readonly<Record<string, string>>
 }
 
-export interface WorkflowOptions {
-  /** Variable defaults; `.gtdrc` `vars:`, `--var` and `GTD_<NAME>` override them. */
-  readonly vars?: Readonly<Record<string, string>>
-  /** `gtd summary`'s prompt. */
-  readonly summary?: (context: SummaryContext) => string
-  /**
-   * The commitish that fixes the diff base of a process `gtd --entry <entry>`
-   * starts, or `undefined` for none. Runs when the process is entered, with
-   * the vars `--var` sets.
-   */
-  readonly base?: (entry: string, vars: Readonly<Record<string, string>>) => string | undefined
-}
+/** `gtd summary`'s prompt — a workflow module's optional `summary` export. */
+export type Summary = (context: SummaryContext) => string
 
-export interface Workflow {
-  readonly kind: "gtd-workflow"
-  readonly flow: Flow
-  readonly vars: Readonly<Record<string, string>>
-  readonly summary?: (context: SummaryContext) => string
-  readonly base?: (entry: string, vars: Readonly<Record<string, string>>) => string | undefined
-}
-
-export const workflow = (flow: Flow, options: WorkflowOptions = {}): Workflow => ({
-  kind: "gtd-workflow",
-  flow,
-  vars: options.vars ?? {},
-  ...(options.summary !== undefined ? { summary: options.summary } : {}),
-  ...(options.base !== undefined ? { base: options.base } : {}),
-})
+/**
+ * A workflow module's optional `base` export: the commitish that fixes the
+ * diff base of a process `gtd --entry <entry>` starts, or `undefined` for
+ * none. Runs when the process is entered, with the vars `--var` sets.
+ */
+export type EntryBase = (
+  entry: string,
+  vars: Readonly<Record<string, string>>,
+) => string | undefined

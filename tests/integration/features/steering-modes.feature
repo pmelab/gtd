@@ -44,12 +44,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -80,12 +80,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And the shell command "adr-validate .gtd/docs/adr.md" exits 1 with:
       """
@@ -113,12 +113,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -144,12 +144,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And the shell command "adr-validate .gtd/docs/adr.md" exits 0 with:
       """
@@ -180,12 +180,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
       # Validation therefore passes only because formatting ran FIRST, in place.
     And a file ".gtd/docs/adr.md" with:
@@ -212,12 +212,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And the shell command "adr-format .gtd/docs/adr.md" rewrites ".gtd/docs/adr.md" to:
       """
@@ -257,12 +257,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -297,12 +297,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And the shell command "adr-validate .gtd/docs/adr.md" exits 1 with:
       """
@@ -341,12 +341,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -379,12 +379,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -414,12 +414,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And the shell command "adr-format-broken .gtd/docs/adr.md" exits 3 with:
       """
@@ -456,12 +456,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("grilling", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
-      })
+      }
       """
       # gtd's own open-questions parser accepts this file (no "## Open
       # Questions" section at all is trivially valid to it) — the workflow's
@@ -487,12 +487,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("grilling", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
-      })
+      }
       """
       # The mode declares a formatter and no validator, so gtd's open-questions
       # parser still runs — and still rejects an `### ` question heading with
@@ -527,12 +527,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
-      })
+      }
       """
     And a file ".gtd/TODO.md" with:
       """
@@ -559,12 +559,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
       # Validation passes only because both halves survived the merge and ran in order.
     And a file ".gtd/docs/adr.md" with:
@@ -587,12 +587,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -620,12 +620,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file "NOTES.md" with:
       """
@@ -659,9 +659,9 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, requireAnswers, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, requireAnswers } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await agent("drafting", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
         await human("answering", {
           message: "Answer the open questions.",
@@ -669,7 +669,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
           mode: "qa",
         })
         requireAnswers(".gtd/TODO.md")
-      })
+      }
       """
     And the shell command "true" exits 0 with:
       """
@@ -724,12 +724,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -757,12 +757,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("drafting", "Write the plan.", { file: ".gtd/docs/PLAN.md", mode: "qa" })
-      })
+      }
       """
     And a file ".gtd/docs/PLAN.md" with:
       """
@@ -809,12 +809,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
-      })
+      }
       """
     And a file "NOTES.md" with:
       """
@@ -837,12 +837,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
-      })
+      }
       """
     And a file "NOTES.md" with:
       """
@@ -873,12 +873,12 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
-      })
+      }
       """
     And a file "NOTES.md" with:
       """

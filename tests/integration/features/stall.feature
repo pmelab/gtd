@@ -14,16 +14,16 @@ Feature: gtd next --json — attempt commits and the derived stall
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent(
           "working",
           "Build the package described below: write src/calc.ts exporting add(a, b).",
         )
         await run("checking", "true")
-      })
+      }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -63,15 +63,15 @@ Feature: gtd next --json — attempt commits and the derived stall
   Scenario: a stalled beat at a prompt state whose machine declares system: prints its stall diagnosis with no system text and no System: line
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, run, scope, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, run, scope } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await scope({ system: "You are a careful senior engineer." }, () =>
           agent("working", "Build the package described below: write src/calc.ts exporting add(a, b)."),
         )
         await run("checking", "true")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -103,9 +103,9 @@ Feature: gtd next --json — attempt commits and the derived stall
   Scenario: a prompt state declaring "C" commits its C target instead — never an attempt, never stalled
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent(
           "working",
@@ -113,7 +113,7 @@ Feature: gtd next --json — attempt commits and the derived stall
           { allowEmpty: true },
         )
         await run("checking", "true")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -130,9 +130,9 @@ Feature: gtd next --json — attempt commits and the derived stall
   Scenario: retry redirects the escalating attempt once its cap is reached, clearing the stall
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         let fruitless = 0
         for (;;) {
@@ -149,7 +149,7 @@ Feature: gtd next --json — attempt commits and the derived stall
           }
         }
         await run("checking", "true")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -187,9 +187,9 @@ Feature: gtd next --json — attempt commits and the derived stall
   Scenario: a script rest's clean step is still a plain no-op — never an attempt, never stalled
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         for (;;) {
           await agent(
@@ -200,7 +200,7 @@ Feature: gtd next --json — attempt commits and the derived stall
             await run("checking", "true")
           } while (!changes("FEEDBACK.md").some((c) => c.status === "added"))
         }
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

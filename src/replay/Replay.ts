@@ -7,7 +7,7 @@ import {
   type FlowArgs,
   type ScopeOptions,
   type StepRequest,
-  type Workflow,
+  type Flow,
 } from "../flows/index.js"
 import { headingSections, steeringFormatFor, unansweredQuestions } from "../steering/index.js"
 import { globMatches } from "./Glob.js"
@@ -45,7 +45,7 @@ export interface PendingTurn {
 }
 
 export interface ReplayInput {
-  readonly workflow: Workflow
+  readonly flow: Flow
   readonly episode: Episode
   readonly vars: Readonly<Record<string, string>>
   /** The process's diff base — what `start()` returns. */
@@ -475,7 +475,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
 
   installContext(context)
   try {
-    const flowDone = input.workflow.flow(args).then(
+    const flowDone = input.flow(args).then(
       () => {
         if (outcome === undefined && trace.length === 0) {
           outcome = { kind: "failed", message: "gtd: the flow returned without reaching any step" }

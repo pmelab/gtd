@@ -17,12 +17,12 @@ Feature: Emitted required/optional scripts print their own outcome lines
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("working", "go")
-      })
+      }
       """
     # The process base the abandon scenario names is this last setup commit.
     And a gtd config file at ".gtdrc" with:

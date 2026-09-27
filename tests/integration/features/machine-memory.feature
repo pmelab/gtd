@@ -868,13 +868,13 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("draft", "draft it", { model: "smart" })
         await agent("refine", "refine it", { model: "fast" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -898,11 +898,11 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, workflow } from "@pmelab/gtd/flows"
+      import { agent } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await agent("working", "go", { memory: "plan" })
-      })
+      }
       """
     When I run gtd next
     Then it fails

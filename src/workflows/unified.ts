@@ -31,10 +31,12 @@ import {
   sections,
   start,
   vars,
-  workflow,
+  type EntryBase,
+  type FlowArgs,
+  type Summary,
 } from "../flows/index.js"
 import * as t from "./text.js"
-import { defaults } from "./vars.js"
+export { defaults } from "./vars.js"
 
 // gtd's built-in default workflow. Any change to the tree starts a process:
 // `idle` → `unwind` reverts the sketch (its intent survives in history) → a
@@ -493,28 +495,26 @@ const ordinaryStart = async (): Promise<void> => {
 
 const ENTRIES = ["fix-precheck", "review-gate.check", "start-gate.check"]
 
-export default workflow(
-  async ({ entry }) => {
-    if (entry === undefined) return ordinaryStart()
-    if (entry === "fix-precheck") {
-      if (await green("fix-precheck", suiteCheck)) return
-      return afterTail(await buildTail(true, start()))
-    }
-    if (entry === "review-gate.check") {
-      await gate("review-gate", t.reviewGateBlockedMessage)
-      return afterTail(await buildTail(false, start()))
-    }
-    if (entry === "start-gate.check") {
-      await gate("start-gate", t.startGateBlockedMessage)
-      return planAndBuild(start())
-    }
-    refuse(
-      `"${entry}" is not an enterable state — enterable states:\n${ENTRIES.map((name) => `  ${name}`).join("\n")}`,
-    )
-  },
-  {
-    vars: defaults,
-    summary: t.summaryPrompt,
-    base: (entry, vars) => (entry === "review-gate.check" ? (vars.reviewBase ?? "") : undefined),
-  },
-)
+export default async function unified({ entry }: FlowArgs): Promise<void> {
+  if (entry === undefined) return ordinaryStart()
+  if (entry === "fix-precheck") {
+    if (await green("fix-precheck", suiteCheck)) return
+    return afterTail(await buildTail(true, start()))
+  }
+  if (entry === "review-gate.check") {
+    await gate("review-gate", t.reviewGateBlockedMessage)
+    return afterTail(await buildTail(false, start()))
+  }
+  if (entry === "start-gate.check") {
+    await gate("start-gate", t.startGateBlockedMessage)
+    return planAndBuild(start())
+  }
+  refuse(
+    `"${entry}" is not an enterable state — enterable states:\n${ENTRIES.map((name) => `  ${name}`).join("\n")}`,
+  )
+}
+
+export const summary: Summary = t.summaryPrompt
+
+export const base: EntryBase = (entry, vars) =>
+  entry === "review-gate.check" ? (vars.reviewBase ?? "") : undefined

@@ -24,7 +24,10 @@
     // its own files are entry points, not dead code.
     "evals/*.mjs",
     // Copied into each eval fixture repo as its gtd.config.ts.
-    "evals/gtd.config.ts"
+    "evals/gtd.config.ts",
+    // A workflow module: the loader reads its default and named exports off
+    // the module namespace, and other workflows import its helpers.
+    "src/workflows/unified.ts"
   ],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste worth refactoring.

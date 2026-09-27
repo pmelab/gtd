@@ -60,11 +60,11 @@ afterEach(() => {
 // A one-step workflow whose only step is named `first`.
 const minimalWorkflow = (first: string) =>
   [
-    `import { human, workflow } from "@pmelab/gtd/flows"`,
+    `import { human } from "@pmelab/gtd/flows"`,
     ``,
-    `export default workflow(async () => {`,
+    `export default async () => {`,
     `  await human("${first}")`,
-    `})`,
+    `}`,
     ``,
   ].join("\n")
 
@@ -108,6 +108,36 @@ describe("ConfigService", () => {
     expect(cfg.workflow.initial).toBe("custom-idle")
   })
 
+  it("reads `defaults`, `summary` and `base` off the module and ignores its other exports", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        minimalWorkflow("first"),
+        `export const defaults = { greeting: "hi" }`,
+        `export const summary = () => "sum"`,
+        `export const base = () => undefined`,
+        `export const helper = 42`,
+        ``,
+      ].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.workflow.initial).toBe("first")
+    expect(cfg.workflowVars).toEqual({ greeting: "hi" })
+    expect(typeof cfg.workflow.summary).toBe("function")
+    expect(typeof cfg.workflow.base).toBe("function")
+  })
+
+  it.each([
+    [`export const defaults = { n: 1 }`, /"defaults" export is not a record of strings/],
+    [`export const summary = "text"`, /"summary" export is not a function/],
+  ])("rejects a malformed named export: %s", async (line, message) => {
+    writeFileSync(join(projectDir, "gtd.config.ts"), `${minimalWorkflow("first")}${line}\n`)
+
+    await expect(getConfig()).rejects.toThrow(message)
+  })
+
   it("takes the innermost gtd.config.ts — workflows are never merged", async () => {
     const child = join(projectDir, "a", "b")
     mkdirSync(child, { recursive: true })
@@ -125,10 +155,10 @@ describe("ConfigService", () => {
     await expect(getConfig()).rejects.toThrow(/define the workflow in gtd\.config\.ts/)
   })
 
-  it("rejects a gtd.config.ts whose default export is not a workflow", async () => {
+  it("rejects a gtd.config.ts whose default export is not a flow", async () => {
     writeFileSync(join(projectDir, "gtd.config.ts"), `export default { nope: true }\n`)
 
-    await expect(getConfig()).rejects.toThrow(/not a workflow\(\.\.\.\)/)
+    await expect(getConfig()).rejects.toThrow(/the default export is not a flow/)
   })
 
   it("loads JSON config (gtd.config.json)", async () => {
@@ -271,11 +301,11 @@ describe("ConfigService", () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [
-        `import { human, workflow } from "@pmelab/gtd/flows"`,
+        `import { human } from "@pmelab/gtd/flows"`,
         ``,
-        `export default workflow(async () => {`,
+        `export default async () => {`,
         `  await human("idle", { message: "hi", file: "docs/adr.md", mode: "adr" })`,
-        `})`,
+        `}`,
         ``,
       ].join("\n"),
     )
@@ -286,15 +316,7 @@ describe("ConfigService", () => {
   })
 
   it("rejects a default entry that never reaches a step", async () => {
-    writeFileSync(
-      join(projectDir, "gtd.config.ts"),
-      [
-        `import { workflow } from "@pmelab/gtd/flows"`,
-        ``,
-        `export default workflow(async () => {})`,
-        ``,
-      ].join("\n"),
-    )
+    writeFileSync(join(projectDir, "gtd.config.ts"), `export default async () => {}\n`)
 
     await expect(getConfig()).rejects.toThrow(/the flow returned without reaching any step/)
   })

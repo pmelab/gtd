@@ -13,9 +13,9 @@ Feature: the return-lap stop is the human's silence, not a round cap
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, requireAnswers, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, requireAnswers } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         for (;;) {
           await agent("drafting", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
           await human("answering", {
@@ -26,7 +26,7 @@ Feature: the return-lap stop is the human's silence, not a round cap
           })
           requireAnswers(".gtd/TODO.md")
         }
-      })
+      }
       """
     And a file ".gtd/TODO.md" with:
       """

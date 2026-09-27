@@ -243,16 +243,16 @@ Feature: Review feedback — capture, classification, and the loop-back guards
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, requireProgress, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, requireProgress } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write .gtd/FEEDBACK.md, then run `gtd land`" })
         await agent("drafting", "address .gtd/FEEDBACK.md, then delete it", {
           file: ".gtd/FEEDBACK.md",
         })
         requireProgress(".gtd/FEEDBACK.md")
         await human("done", { message: "feedback addressed" })
-      })
+      }
       """
     And a file ".gtd/FEEDBACK.md" with:
       """

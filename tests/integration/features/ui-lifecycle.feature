@@ -18,12 +18,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -45,12 +45,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -82,12 +82,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -110,12 +110,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -138,12 +138,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -171,12 +171,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -215,12 +215,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -256,12 +256,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -297,12 +297,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -329,12 +329,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -371,12 +371,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

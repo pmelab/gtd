@@ -49,12 +49,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("done", { message: "all done" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -71,12 +71,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("done", { message: "all done" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -97,13 +97,13 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await agent("working", "do the work described in NOTE.md")
         await run("checking", "echo hi")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -127,12 +127,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await agent("working", "do the work described in NOTE.md")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -151,16 +151,16 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", {
           file: ".gtd/PLAN.md",
           mode: "custom-mode",
           message: "answer the plan",
         })
-      })
+      }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -196,16 +196,16 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("awaiting-review", {
           file: ".gtd/REVIEW.md",
           mode: "qa",
           message: "awaiting your review",
         })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -236,12 +236,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -277,12 +277,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -302,12 +302,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -328,12 +328,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -350,12 +350,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -375,12 +375,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-      })
+      }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -417,16 +417,16 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         await human("awaiting-review", {
           file: ".gtd/REVIEW.md",
           mode: "qa",
           message: "awaiting your review",
         })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

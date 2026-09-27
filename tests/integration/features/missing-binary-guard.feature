@@ -26,12 +26,12 @@ Feature: A declared mode command guards its own missing binary
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -53,12 +53,12 @@ Feature: A declared mode command guards its own missing binary
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -88,12 +88,12 @@ Feature: A declared mode command guards its own missing binary
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -114,12 +114,12 @@ Feature: A declared mode command guards its own missing binary
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      })
+      }
       """
     And a file ".gtd/docs/adr.md" with:
       """

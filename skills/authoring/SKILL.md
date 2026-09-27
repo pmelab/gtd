@@ -11,8 +11,9 @@ description: >-
 # Authoring a gtd workflow
 
 A gtd workflow is **plain async TypeScript**: a `gtd.config.ts` at the
-repository root default-exports `workflow(flow, { vars, summary, base })` from
-`@pmelab/gtd/flows`. The **flow** is one async function that awaits **steps**.
+repository root default-exports the **flow**, one async function that awaits
+**steps** built from `@pmelab/gtd/flows`; optional `defaults`, `summary` and
+`base` exports sit beside it, and any other export is a helper gtd ignores.
 Every step is a commit; gtd finds where a process rests by **replaying** the
 flow over the episode's commits, so the git history IS the state and nothing is
 stored anywhere else.
@@ -117,10 +118,10 @@ export `requireProgress(file)`, `requireAnswers(file)` and
   process waits (the bundled one is `human("idle", …)`).
 - `gtd --entry <name>` starts a process with the flow's `{ entry }` argument set
   to `<name>` (`undefined` on an ordinary start). Branch on it, and `refuse()`
-  names you don't accept; a flow that never reads `entry` accepts none.
-  `base: (entry, vars) => commitish | undefined` in the options fixes an entered
+  names you don't accept; a flow that never reads `entry` accepts none. An
+  `export const base = (entry, vars) => commitish | undefined` fixes an entered
   process's diff base. `--var <name>=<value>` only overrides names the
-  workflow's `vars` or `.gtdrc` `vars:` declare.
+  workflow's `defaults` or `.gtdrc` `vars:` declare.
 
 ## Landing rules you are designing for
 
@@ -169,8 +170,8 @@ when replay runs, as an error or, for nondeterminism, as a divergence later.
   `scope()`s.
 - No `try`/`catch` around a step: `restart()` and refusals travel as exceptions.
 - Only the options a step accepts; an unknown key fails naming the step.
-- The default export is a `workflow(...)` call whose flow reaches a step on an
-  ordinary start; every `mode` must exist.
+- The default export is a flow that reaches a step on an ordinary start; every
+  `mode` must exist.
 
 ## Verify (after every change)
 

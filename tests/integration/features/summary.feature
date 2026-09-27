@@ -16,29 +16,26 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("building", "build it")
-          await human("gate", { message: "confirm before finishing" })
-          await agent("finishing", "write DONE.md")
-          if (!changes("DONE.md").some((c) => c.status !== "deleted")) {
-            refuse("finishing must write DONE.md")
-          }
-        },
-        {
-          summary: (it) =>
-            [
-              "The process is closed. Write its closing message.",
-              "",
-              `Entry: ${it.entryCommit}`,
-              ...it.humanCommits.map((c) => `Human: ${c.hash} entering ${c.state}`),
-              `Range: ${it.processBase}..${it.processTip}`,
-            ].join("\n"),
-        },
-      )
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
+        await human("gate", { message: "confirm before finishing" })
+        await agent("finishing", "write DONE.md")
+        if (!changes("DONE.md").some((c) => c.status !== "deleted")) {
+          refuse("finishing must write DONE.md")
+        }
+      }
+
+      export const summary = (it) =>
+        [
+          "The process is closed. Write its closing message.",
+          "",
+          `Entry: ${it.entryCommit}`,
+          ...it.humanCommits.map((c) => `Human: ${c.hash} entering ${c.state}`),
+          `Range: ${it.processBase}..${it.processTip}`,
+        ].join("\n")
       """
     And a file "NOTE.md" with:
       """
@@ -93,15 +90,14 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "write NOTE.md to start a process" })
-          await agent("building", "build it")
-        },
-        { summary: (it) => `Closing message for ${it.entryCommit}..${it.processTip}.` },
-      )
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
+      }
+
+      export const summary = (it) => `Closing message for ${it.entryCommit}..${it.processTip}.`
       """
     And a file "NOTE.md" with:
       """
@@ -140,12 +136,12 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("building", "build it")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

@@ -64,19 +64,18 @@ const seedBundled = (): InMemRepo => {
   return repo
 }
 
-const IDLE_THEN_WORKING = `import { agent, human, workflow } from "@pmelab/gtd/flows"
+const IDLE_THEN_WORKING = `import { agent, human } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await agent("working", "do the work described in NOTE.md")
-})
+}
 `
 
 describe("gtd --entry <name> — a custom workflow's manual entry", () => {
-  const WORKFLOW = `import { agent, human, workflow, refuse } from "@pmelab/gtd/flows"
+  const WORKFLOW = `import { agent, human, refuse } from "@pmelab/gtd/flows"
 
-export default workflow(
-  async ({ entry }) => {
+export default async ({ entry }) => {
     if (entry === "side-entry") {
       await agent("working", "go")
       return
@@ -84,9 +83,9 @@ export default workflow(
     if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
     await human("idle", { message: "hi" })
     await agent("working", "go")
-  },
-  { vars: { greeting: "hello" } },
-)
+  }
+
+export const defaults = { greeting: "hello" }
 `
 
   it("the happy path emits the opening commit's script — gtd itself writes nothing", async () => {
@@ -108,11 +107,11 @@ export default workflow(
   })
 
   it("--entry on a flow that never reads its entry refuses", async () => {
-    const repo = seed(`import { human, workflow } from "@pmelab/gtd/flows"
+    const repo = seed(`import { human } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "hi" })
-})
+}
 `)
     const { exitCode, stderr } = await run(repo, "--entry", "anything")
     expect(exitCode).toBe(1)
@@ -229,23 +228,23 @@ describe("config loading", () => {
 describe("gtd next --json — label emission", () => {
   const workflowWith = (
     options: string,
-  ): string => `import { agent, human, workflow } from "@pmelab/gtd/flows"
+  ): string => `import { agent, human } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await agent("working", "do the work described in NOTE.md"${options})
-})
+}
 `
 
   // Plain `gtd next` prints no header at a `prompt` rest, so the plain
   // `Label:` line needs a message rest.
   it("gtd next shows the step's declared label as a plain-text Label: line at a non-prompt rest", async () => {
-    const repo = seed(`import { human, workflow } from "@pmelab/gtd/flows"
+    const repo = seed(`import { human } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await human("reviewing", { label: "planning", message: "check the note" })
-})
+}
 `)
     await landTurn(repo, { "NOTE.md": "a note\n" })
     const { stdout, exitCode } = await run(repo, "next")
@@ -302,25 +301,25 @@ describe("gtd next --json — log path emission", () => {
 })
 
 describe("gtd next --json — memory key emission", () => {
-  const CHECKING = `import { human, run, workflow } from "@pmelab/gtd/flows"
+  const CHECKING = `import { human, run } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await run("checking", "echo hi")
-})
+}
 `
 
   // Loops through a script step without touching the initial step, so the
   // agent's scope-run is never broken by a new process.
-  const PROMPT_THEN_CHECK = `import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+  const PROMPT_THEN_CHECK = `import { agent, human, run } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   for (;;) {
     await agent("working", "do the work described in NOTE.md")
     await run("check", "echo hi")
   }
-})
+}
 `
 
   const atWorking = async (source = IDLE_THEN_WORKING): Promise<InMemRepo> => {
@@ -399,14 +398,14 @@ export default workflow(async () => {
 })
 
 describe("gtd next --json — stall detection (attempt commits)", () => {
-  const WORKFLOW = `import { agent, human, run, workflow, refuse } from "@pmelab/gtd/flows"
+  const WORKFLOW = `import { agent, human, run, refuse } from "@pmelab/gtd/flows"
 
 const work = async () => {
   await agent("working", "do the work described in NOTE.md")
   await run("checking", "echo hi")
 }
 
-export default workflow(async ({ entry }) => {
+export default async ({ entry }) => {
   if (entry === "resume") {
     await work()
     return
@@ -414,7 +413,7 @@ export default workflow(async ({ entry }) => {
   if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
   await human("idle", { message: "write NOTE.md to start a process" })
   await work()
-})
+}
 `
 
   const atWorking = async (): Promise<InMemRepo> => {
@@ -511,13 +510,13 @@ describe("gtd next --json — capture/message kinds at a human gate", () => {
 })
 
 describe("gtd next — exit code is uniformly 0 across every rest shape", () => {
-  const WORKFLOW = `import { agent, human, workflow } from "@pmelab/gtd/flows"
+  const WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await agent("working", "do the work described in NOTE.md")
   await human("waiting", { message: "confirm before continuing" })
-})
+}
 `
 
   it("a clean tree at the initial step is 0 (idle)", async () => {
@@ -555,12 +554,12 @@ export default workflow(async () => {
 
 const WITH_STEERING_FILE = (
   mode: string,
-): string => `import { agent, human, workflow } from "@pmelab/gtd/flows"
+): string => `import { agent, human } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await agent("working", "do the work", { file: ".gtd/PLAN.md", mode: "${mode}" })
-})
+}
 `
 
 describe("gtd next --json — embedded validate script", () => {
@@ -1193,9 +1192,9 @@ describe("gtd check <mode> <file> --open-questions", () => {
 describe("gtd next — Next: preview of where landing the pending turn would go", () => {
   // A human rest past the initial step: plain `gtd next` prints no header at a
   // `prompt` rest, so the plain `Next:` line needs a non-prompt one.
-  const WORKFLOW = `import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+  const WORKFLOW = `import { changes, human, refuse } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await human("working", { message: "do the work described in NOTE.md" })
   if (changes("PLAN.md").some((c) => c.status === "added")) {
@@ -1203,7 +1202,7 @@ export default workflow(async () => {
   } else if (!changes("REVIEW.md").some((c) => c.status === "modified")) {
     refuse("expected a new PLAN.md or an edited REVIEW.md")
   }
-})
+}
 `
 
   const atWorking = async (): Promise<InMemRepo> => {
@@ -1256,25 +1255,25 @@ export default workflow(async () => {
 describe("gtd land — the settled signal (exit code, script content, and the --json settled field)", () => {
   // `checking` re-runs until a run leaves OUT.txt behind: a clean run there
   // replays to the same step, which is the settled no-op.
-  const SETTLED_WORKFLOW = `import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+  const SETTLED_WORKFLOW = `import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "hi" })
   await agent("working", "go")
   do {
     await run("checking", "run-checks")
   } while (!changes("OUT.txt").some((c) => c.status === "added"))
-})
+}
 `
 
   // `checking` runs once, so a clean run finishes the flow.
-  const REENTRY_WORKFLOW = `import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+  const REENTRY_WORKFLOW = `import { agent, human, run } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "hi" })
   await agent("working", "go")
   await run("checking", "run-checks")
-})
+}
 `
 
   const atWorking = async (source: string): Promise<InMemRepo> => {
@@ -1413,9 +1412,9 @@ export default workflow(async () => {
 })
 
 describe("gtd land — exit code does not name the post-land rest's owner", () => {
-  const WORKFLOW = `import { agent, changes, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+  const WORKFLOW = `import { agent, changes, human, refuse, run } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await agent("working", "do the work described in NOTE.md")
   if (changes("DONE.md").some((c) => c.status === "added")) {
@@ -1424,7 +1423,7 @@ export default workflow(async () => {
     await run("checking", "run-checks")
     refuse("checking accepts no turn")
   }
-})
+}
 `
 
   const atWorking = async (): Promise<InMemRepo> => {
@@ -1483,14 +1482,14 @@ export default workflow(async () => {
 describe("gtd land — the landing script is only the commit", () => {
   // A step's mode `format:`/`validate:` pair runs in the driver, off
   // `gtd next --json`'s `validate` field — never inside the landing script.
-  const NOTES_WORKFLOW = `import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
+  const NOTES_WORKFLOW = `import { agent, changes, human } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "hi" })
   do {
     await agent("drafting", "write the notes", { file: ".gtd/NOTES.md", mode: "notes" })
   } while (!changes(".gtd/NOTES.md").some((c) => c.status === "deleted"))
-})
+}
 `
 
   const atDrafting = async (): Promise<InMemRepo> => {
@@ -1637,19 +1636,16 @@ describe("runCommand — refuses in a repository with no commits", () => {
 })
 
 describe("gtd summary", () => {
-  const SUMMARY_WORKFLOW = `import { agent, human, workflow } from "@pmelab/gtd/flows"
+  const SUMMARY_WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
 
-export default workflow(
-  async () => {
+export default async () => {
     await human("idle", { message: "hi" })
     await agent("working", "go")
     await human("reviewing", { message: "check it" })
     await agent("polishing", "polish")
-  },
-  {
-    summary: (c) => \`entry=\${c.entryCommit} tip=\${c.processTip} humans=\${c.humanCommits.length}\`,
-  },
-)
+  }
+
+export const summary = (c) => \`entry=\${c.entryCommit} tip=\${c.processTip} humans=\${c.humanCommits.length}\`
 `
 
   const reviewed = async (): Promise<InMemRepo> => {
@@ -1710,9 +1706,9 @@ export default workflow(
 describe("gtd base — prints the review anchor hash", () => {
   // Each round's review window starts at the commit that entered `deciding`;
   // FEEDBACK.md sends the process round again, a clean accept finishes it.
-  const BASE_WORKFLOW = `import { agent, changes, head, human, start, workflow } from "@pmelab/gtd/flows"
+  const BASE_WORKFLOW = `import { agent, changes, head, human, start } from "@pmelab/gtd/flows"
 
-export default workflow(async () => {
+export default async () => {
   await human("idle", { message: "hi" })
   let base = start()
   for (;;) {
@@ -1721,7 +1717,7 @@ export default workflow(async () => {
     await human("deciding", { message: "decide", base, acceptClean: true })
     if (!changes("FEEDBACK.md").some((c) => c.status === "added")) return
   }
-})
+}
 `
 
   const atWorking = async (): Promise<InMemRepo> => {
@@ -1941,15 +1937,14 @@ describe("gtd judge / gtd judge answer", () => {
   const QUESTION = `{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }`
 
   const judgeWorkflow = (evidence: string, then: string, vars = "{}"): string =>
-    `import { agent, human, judge, read, workflow } from "@pmelab/gtd/flows"
+    `import { agent, human, judge, read } from "@pmelab/gtd/flows"
 
-export default workflow(
-  async () => {
+export default async () => {
     await judge("idle", { questions: [${QUESTION}], evidence: ${evidence} })
     await ${then}
-  },
-  { vars: ${vars} },
-)
+  }
+
+export const defaults = ${vars}
 `
 
   const seededRepo = (): InMemRepo =>

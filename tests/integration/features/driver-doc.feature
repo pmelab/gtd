@@ -23,12 +23,11 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      const red = (): boolean =>
-        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+      const red = (): boolean => changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await agent(
@@ -40,7 +39,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
           )
         } while (red())
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -73,12 +72,11 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      const red = (): boolean =>
-        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+      const red = (): boolean => changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await agent(
@@ -92,7 +90,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           )
         } while (red())
         await human("reviewing", { message: "sign off to finish" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -133,12 +131,11 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      const red = (): boolean =>
-        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+      const red = (): boolean => changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await agent(
@@ -150,7 +147,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
           )
         } while (red())
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -186,12 +183,12 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { human, workflow } from "@pmelab/gtd/flows"
+      import { human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await human("announcing", { message: "heads up: work is starting" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -213,9 +210,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         for (;;) {
           await agent("planning", "Write PLAN.md describing the build.")
@@ -225,7 +222,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           })
           if (changes().length === 0) return
         }
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -253,9 +250,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         for (;;) {
           await agent("planning", "Write PLAN.md describing the build.")
@@ -265,7 +262,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           })
           if (changes().length === 0) return
         }
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -293,14 +290,14 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await run("watching", "true")
         } while (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -316,9 +313,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await agent(
@@ -327,7 +324,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           )
           await run("checking", "true")
         } while (changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -353,9 +350,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         let emptyTurns = 0
         for (;;) {
@@ -375,7 +372,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           await run("checking", "true")
           if (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added")) return
         }
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -402,13 +399,14 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("confirm", { message: "confirm before continuing" })
-        if (!changes("REVIEW.md").some((c) => c.status === "added")) refuse("confirm expects REVIEW.md to be added")
+        if (!changes("REVIEW.md").some((c) => c.status === "added"))
+          refuse("confirm expects REVIEW.md to be added")
         await human("done", { message: "all done" })
-      })
+      }
       """
     And a file "REVIEW.md" with:
       """
@@ -436,15 +434,15 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("planning", "Write .gtd/PLAN.md with the plan.", {
           file: ".gtd/PLAN.md",
           mode: "qa",
         })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -494,15 +492,15 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("planning", "Write .gtd/PLAN.md with the plan.", {
           file: ".gtd/PLAN.md",
           mode: "qa",
         })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -539,9 +537,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await run(
@@ -550,7 +548,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       true`,
           )
         } while (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -567,9 +565,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, refuse, run, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await run(
           "checking",
@@ -581,7 +579,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
         if (!changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
           refuse("checking expects .gtd/FEEDBACK.md to be added")
         await human("reviewing", { message: "sign off" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -598,9 +596,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await agent(
@@ -609,7 +607,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           )
           await run("checking", "true")
         } while (changes(".gtd/FEEDBACK.md").some((c) => c.status === "added"))
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -641,12 +639,11 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, scope, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run, scope } from "@pmelab/gtd/flows"
 
-      const red = (): boolean =>
-        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+      const red = (): boolean => changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "Create src/fix.ts for the initial build.")
         await scope("fix", async () => {
@@ -665,7 +662,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             await agent("fixing", "Fix the failing check.")
           }
         })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -711,16 +708,16 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, scope } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await scope("build", async () => {
           await agent("building", "first build turn")
           await scope("review", () => agent("reviewing", "review turn, a nested child scope"))
           await agent("building2", "second build turn, revisits the build scope")
         })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -769,12 +766,11 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      const red = (): boolean =>
-        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+      const red = (): boolean => changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await agent(
@@ -786,7 +782,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
           )
         } while (red())
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -825,12 +821,11 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, run } from "@pmelab/gtd/flows"
 
-      const red = (): boolean =>
-        changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
+      const red = (): boolean => changes(".gtd/FEEDBACK.md").some((c) => c.status !== "deleted")
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         do {
           await agent(
@@ -842,7 +837,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
             `if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi`,
           )
         } while (red())
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

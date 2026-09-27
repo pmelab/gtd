@@ -9,9 +9,9 @@ Feature: Refusals — no-match steps commit nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "develop the note, then write COMMIT_MSG.md with the final message")
         if (!changes("COMMIT_MSG.md").some((c) => c.status !== "deleted")) {
@@ -20,7 +20,7 @@ Feature: Refusals — no-match steps commit nothing
           )
         }
         await human("done", { message: "done" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

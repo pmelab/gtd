@@ -15,18 +15,21 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
-        if (changes("NOTE.md").some((c) => c.status === "added")) await human("added", { message: "added" })
-        else if (changes("NOTE.md").some((c) => c.status === "modified")) await human("modified", { message: "modified" })
-        else if (changes("NOTE.md").some((c) => c.status === "deleted")) await human("deleted", { message: "deleted" })
+        if (changes("NOTE.md").some((c) => c.status === "added"))
+          await human("added", { message: "added" })
+        else if (changes("NOTE.md").some((c) => c.status === "modified"))
+          await human("modified", { message: "modified" })
+        else if (changes("NOTE.md").some((c) => c.status === "deleted"))
+          await human("deleted", { message: "deleted" })
         else
           refuse(
             "gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md",
           )
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -40,18 +43,21 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
-        if (changes("NOTE.md").some((c) => c.status === "added")) await human("added", { message: "added" })
-        else if (changes("NOTE.md").some((c) => c.status === "modified")) await human("modified", { message: "modified" })
-        else if (changes("NOTE.md").some((c) => c.status === "deleted")) await human("deleted", { message: "deleted" })
+        if (changes("NOTE.md").some((c) => c.status === "added"))
+          await human("added", { message: "added" })
+        else if (changes("NOTE.md").some((c) => c.status === "modified"))
+          await human("modified", { message: "modified" })
+        else if (changes("NOTE.md").some((c) => c.status === "deleted"))
+          await human("deleted", { message: "deleted" })
         else
           refuse(
             "gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md",
           )
-      })
+      }
       """
     And a commit "chore: seed" that adds "NOTE.md" with:
       """
@@ -69,18 +75,21 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
-        if (changes("NOTE.md").some((c) => c.status === "added")) await human("added", { message: "added" })
-        else if (changes("NOTE.md").some((c) => c.status === "modified")) await human("modified", { message: "modified" })
-        else if (changes("NOTE.md").some((c) => c.status === "deleted")) await human("deleted", { message: "deleted" })
+        if (changes("NOTE.md").some((c) => c.status === "added"))
+          await human("added", { message: "added" })
+        else if (changes("NOTE.md").some((c) => c.status === "modified"))
+          await human("modified", { message: "modified" })
+        else if (changes("NOTE.md").some((c) => c.status === "deleted"))
+          await human("deleted", { message: "deleted" })
         else
           refuse(
             "gtd land: no declared pattern matches — declared patterns: A NOTE.md, M NOTE.md, D NOTE.md",
           )
-      })
+      }
       """
     And a commit "chore: seed" that adds "NOTE.md" with:
       """
@@ -95,15 +104,15 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
         if (changes("NOTE.md").length === 0) {
           refuse("gtd land: no declared pattern matches — declared patterns: * NOTE.md")
         }
         await human("any-change", { message: "matched" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -117,15 +126,15 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
         if (changes(".gtd/*").length === 0) {
           refuse("gtd land: no declared pattern matches — declared patterns: * .gtd/*")
         }
         await human("shallow", { message: "matched" })
-      })
+      }
       """
     And a file ".gtd/sub/DEEP.md" with:
       """
@@ -140,15 +149,15 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
         if (changes(".gtd/**").length === 0) {
           refuse("gtd land: no declared pattern matches — declared patterns: * .gtd/**")
         }
         await human("deep", { message: "matched" })
-      })
+      }
       """
     And a file ".gtd/sub/DEEP.md" with:
       """
@@ -162,14 +171,15 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, refuse, workflow } from "@pmelab/gtd/flows"
+      import { changes, human, refuse } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
         if (changes("NOTE.md").length > 0) await human("first-match", { message: "matched first" })
-        else if (changes("NOTE.md").some((c) => c.status === "added")) await human("second-match", { message: "matched second" })
+        else if (changes("NOTE.md").some((c) => c.status === "added"))
+          await human("second-match", { message: "matched second" })
         else refuse("gtd land: no declared pattern matches — declared patterns: * NOTE.md, A NOTE.md")
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -183,13 +193,13 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, workflow } from "@pmelab/gtd/flows"
+      import { changes, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         // acceptClean: a landing that changes nothing completes the gate.
         await human("start", { message: "go", acceptClean: true })
         if (changes().length === 0) await human("settled", { message: "clean" })
-      })
+      }
       """
     When I run gtd land
     Then it succeeds
@@ -199,13 +209,13 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         // No acceptClean: a clean landing leaves the gate waiting for a change.
         await human("start", { message: "go" })
         await agent("working", "...")
-      })
+      }
       """
     And I record the commit count
     When I run gtd land
@@ -220,15 +230,15 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { changes, human, workflow } from "@pmelab/gtd/flows"
+      import { changes, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("start", { message: "go" })
         const note = changes().get("NOTE.md")
         if (note?.before?.includes("draft") && note.after?.includes("final"))
           await human("promoted", { message: "promoted" })
         else await human("other", { message: "other" })
-      })
+      }
       """
     And "NOTE.md" is modified to:
       """

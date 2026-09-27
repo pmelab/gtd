@@ -13,9 +13,9 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, changes, human, refuse, run, scope, workflow } from "@pmelab/gtd/flows"
+      import { agent, changes, human, refuse, run, scope } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         for (;;) {
           await agent("working", "do the work")
@@ -28,7 +28,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
             refuse("working: modify NOTE.md or write CHECKFILE.md")
           }
         }
-      })
+      }
       """
 
   Scenario: the same scope-run derives the same id across laps; resume flips false → true once a turn commit lands

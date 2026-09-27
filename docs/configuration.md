@@ -35,36 +35,36 @@ workflow itself.
 
 ### Shape
 
-The module default-exports one `workflow(...)` call from `@pmelab/gtd/flows`:
+The module's default export is the workflow's flow:
 
 ```ts
-import { agent, human, run, workflow } from "@pmelab/gtd/flows"
+import { agent, human, run } from "@pmelab/gtd/flows"
 
-export default workflow(
-  async () => {
-    await human("idle", {
-      message: "Sketch the change in .gtd/TODO.md.",
-      file: ".gtd/TODO.md",
-    })
-    await agent("plan", "Read the sketch in history and write .gtd/PLAN.md.", {
-      file: ".gtd/PLAN.md",
-    })
-    await run(
-      "check",
-      "npm test > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md",
-    )
-  },
-  { vars: { testCommand: "npm test" } },
-)
+export default async () => {
+  await human("idle", {
+    message: "Sketch the change in .gtd/TODO.md.",
+    file: ".gtd/TODO.md",
+  })
+  await agent("plan", "Read the sketch in history and write .gtd/PLAN.md.", {
+    file: ".gtd/PLAN.md",
+  })
+  await run(
+    "check",
+    "npm test > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md",
+  )
+}
+
+export const defaults = { testCommand: "npm test" }
 ```
 
-The first argument is the workflow's one **flow**: an `async` function that
-awaits steps. Its first step on an ordinary start is where a finished process
-waits (the bundled workflow calls it `idle`). The flow receives `{ entry }`, the
-name a process was started with by `gtd --entry` (see [Entries](#entries)). The
-second argument is optional: `vars` (the workflow's own variable defaults, see
-[Variables](#variables)), `summary` (the prompt `gtd summary` prints, see
-[Summary](#summary)) and `base` (see [Entries](#entries)).
+The **flow** is an `async` function that awaits steps. Its first step on an
+ordinary start is where a finished process waits (the bundled workflow calls it
+`idle`). The flow receives `{ entry }`, the name a process was started with by
+`gtd --entry` (see [Entries](#entries)). Three named exports are optional:
+`defaults` (the workflow's own variable defaults, see [Variables](#variables)),
+`summary` (the prompt `gtd summary` prints, see [Summary](#summary)) and `base`
+(see [Entries](#entries)). gtd ignores every other export, so a module can
+export helpers for other workflows to import.
 
 gtd resolves `@pmelab/gtd/flows` itself, so a `gtd.config.ts` needs no
 `package.json` or install. Add `@pmelab/gtd` as a dev dependency only if you
@@ -280,24 +280,21 @@ reads `entry` accepts none: `gtd --entry` refuses it. The name is recorded on
 the process's opening commit, so every later command replays the flow with the
 same `entry`.
 
-`base(entry, vars)` in the options may return a commitish that fixes the new
-process's diff base (`start()`), or `undefined` for none. It runs when the
-process is entered, with the `--var` values:
+A `base(entry, vars)` export may return a commitish that fixes the new process's
+diff base (`start()`), or `undefined` for none. It runs when the process is
+entered, with the `--var` values:
 
 ```ts
-import { refuse, workflow } from "@pmelab/gtd/flows"
+import { refuse } from "@pmelab/gtd/flows"
 
-export default workflow(
-  async ({ entry }) => {
-    if (entry === "review-only") return reviewFlow()
-    if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
-    await mainFlow()
-  },
-  {
-    base: (entry, vars) =>
-      entry === "review-only" ? (vars.reviewBase ?? "") : undefined,
-  },
-)
+export default async ({ entry }) => {
+  if (entry === "review-only") return reviewFlow()
+  if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+  await mainFlow()
+}
+
+export const base = (entry, vars) =>
+  entry === "review-only" ? (vars.reviewBase ?? "") : undefined
 ```
 
 ```bash
@@ -306,9 +303,9 @@ gtd --entry review-only --var reviewBase=main
 
 A blank `base` is refused, and so is one that does not resolve to an ancestor of
 `HEAD`. `--var <name>=<value>` is repeatable and only valid with `--entry`; the
-name must already be declared by the workflow's `vars` or a `.gtdrc` `vars:`.
-The values are recorded as `Gtd-Var:` trailers on the process's first commit and
-stay in force for the whole process.
+name must already be declared by the workflow's `defaults` or a `.gtdrc`
+`vars:`. The values are recorded as `Gtd-Var:` trailers on the process's first
+commit and stay in force for the whole process.
 
 The bundled workflow accepts three entries: `fix-precheck` (repair a red
 baseline through the build tail), `review-gate.check` (a pure review of
@@ -355,14 +352,13 @@ and code at the module's top level are exempt — they may do anything.
 - **Known options only**: a step option gtd does not accept — a typo, or the
   retired `memory` — fails the replay naming the step and the key, since
   `gtd.config.ts` is evaluated without a type check.
-- **Shape**: the default export must be a `workflow(...)` call, and the flow
-  must reach a step on an ordinary start — that step is where a finished process
-  waits. A flow that reaches none fails the load.
+- **Shape**: the default export must be the flow, and it must reach a step on an
+  ordinary start — that step is where a finished process waits. A flow that
+  reaches none fails the load.
 
 ### Summary
 
-`workflow(flow, { summary })` sets the prompt `gtd summary` prints: a function
-receiving
+A `summary` export sets the prompt `gtd summary` prints: a function receiving
 `{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, vars }`
 and returning a string. `humanCommits` lists every human-authored commit of the
 process as `{ hash, state }`. Without `summary`, `gtd summary` refuses.
@@ -576,8 +572,7 @@ needs a process history (`gtd lsp` still loads `gtd.config.ts`).
 Flow code reads `vars` — a flat `Record<string, string>` assembled from four
 layers, **later wins**:
 
-1. **The workflow's own `vars`** (`workflow(flow, { vars })`) — the author's
-   declared defaults.
+1. **The workflow's own `defaults` export** — the author's declared defaults.
 2. **A `.gtdrc` `vars:` key** — per-repository tuning without touching the
    workflow.
 3. **The current process's entry `--var` overrides**, if it was started with

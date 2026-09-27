@@ -1,8 +1,7 @@
 @inmem
 Feature: "vars" — the three-layer merged variable map every workflow sees
 
-  Pins the merged `vars` map: a workflow's own declared `vars` defaults
-  (`workflow(entries, { vars })`), overridden by a top-level `.gtdrc` `vars:`
+  Pins the merged `vars` map: a workflow's own `defaults` export, overridden by a top-level `.gtdrc` `vars:`
   key, overridden by a `GTD_<NAME>` environment variable — later wins. Flow
   code reads the result through `vars`, for prompt text and for a step's
   `model` alike.
@@ -11,15 +10,14 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "start" })
-          await agent("working", `Assigned reviewer: ${vars.reviewer}`)
-        },
-        { vars: { reviewer: "alice" } },
-      )
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("working", `Assigned reviewer: ${vars.reviewer}`)
+      }
+
+      export const defaults = { reviewer: "alice" }
       """
     And a file "NOTE.md" with:
       """
@@ -34,15 +32,14 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "start" })
-          await agent("working", `Assigned reviewer: ${vars.reviewer}`)
-        },
-        { vars: { reviewer: "alice" } },
-      )
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("working", `Assigned reviewer: ${vars.reviewer}`)
+      }
+
+      export const defaults = { reviewer: "alice" }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -63,15 +60,14 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "start" })
-          await agent("working", `Assigned reviewer: ${vars.reviewer}`)
-        },
-        { vars: { reviewer: "alice" } },
-      )
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("working", `Assigned reviewer: ${vars.reviewer}`)
+      }
+
+      export const defaults = { reviewer: "alice" }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -94,12 +90,12 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("working", `Brand new: ${vars.brandNew}`)
-      })
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -115,16 +111,15 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, run, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, run, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "start" })
-          await agent("building", "build")
-          await run("checking", `${vars.testCommand} > .gtd/.check-output 2>&1`)
-        },
-        { vars: { testCommand: "npm test" } },
-      )
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("building", "build")
+        await run("checking", `${vars.testCommand} > .gtd/.check-output 2>&1`)
+      }
+
+      export const defaults = { testCommand: "npm test" }
       """
     And a gtd config file at ".gtdrc" with:
       """
@@ -150,15 +145,14 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, scope, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, scope, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(
-        async () => {
-          await human("idle", { message: "start" })
-          await scope({ model: vars.reviewModel }, () => agent("working", "do the work"))
-        },
-        { vars: { reviewModel: "opus" } },
-      )
+      export default async () => {
+        await human("idle", { message: "start" })
+        await scope({ model: vars.reviewModel }, () => agent("working", "do the work"))
+      }
+
+      export const defaults = { reviewModel: "opus" }
       """
     And a file "NOTE.md" with:
       """
@@ -177,12 +171,12 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, vars, workflow } from "@pmelab/gtd/flows"
+      import { agent, vars } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         const nope = vars.nope as unknown as { deeper: string }
         await agent("working", "do the work", { model: nope.deeper })
-      })
+      }
       """
     When I run gtd next
     Then it fails

@@ -4,10 +4,9 @@ import { planEntry, type EntryOutcome } from "./planEntry.js"
 import { InMemRepo, testLayers } from "../testing/index.js"
 import { ConfigService } from "../workflow/index.js"
 
-const WORKFLOW = `import { agent, human, workflow, refuse } from "@pmelab/gtd/flows"
+const WORKFLOW = `import { agent, human, refuse } from "@pmelab/gtd/flows"
 
-export default workflow(
-  async ({ entry }) => {
+export default async ({ entry }) => {
     if (entry === "working") {
       await agent("work", "work-prompt")
       return
@@ -19,12 +18,11 @@ export default workflow(
     if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
     await human("idle", { message: "hi" })
     await agent("work", "work-prompt")
-  },
-  {
-    vars: { base: "" },
-    base: (entry, vars) => (entry === "reviewcheck" ? (vars.base ?? "") : undefined),
-  },
-)
+  }
+
+export const defaults = { base: "" }
+
+export const base = (entry, vars) => (entry === "reviewcheck" ? (vars.base ?? "") : undefined)
 `
 
 const repoAt = (): InMemRepo => {

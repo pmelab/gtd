@@ -84,12 +84,12 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "develop the note, then sign off")
-      })
+      }
       """
     And I record the commit count
     And a file "NOTE.md" with:

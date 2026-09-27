@@ -1941,7 +1941,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # a flow fragment's "where to go when done" is just the code after it.
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, scope, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, scope } from "@pmelab/gtd/flows"
 
       const leaf = () => scope("inner", () => agent("work", "do the work"))
 
@@ -1950,11 +1950,11 @@ Feature: The bundled unified workflow — one flow, end to end
         await leaf()
       }
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await scope("nested", mid)
         await human("done", { message: "done" })
-      })
+      }
       """
     And a file "NOTE.md" with:
       """

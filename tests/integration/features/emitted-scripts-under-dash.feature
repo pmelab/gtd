@@ -40,12 +40,12 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, workflow } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
-      })
+      }
       """
     And a file "src/a.ts" with:
       """

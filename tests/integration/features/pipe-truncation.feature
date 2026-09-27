@@ -19,12 +19,12 @@ Feature: A large prompt survives its exit through a pipe
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, read, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, read } from "@pmelab/gtd/flows"
 
-      export default workflow(async () => {
+      export default async () => {
         await human("idle", { message: "write .gtd/NEXT.md to start" })
         await agent("building", `Implement:\n${read(".gtd/NEXT.md") ?? ""}`)
-      })
+      }
       """
     And a file ".gtd/NEXT.md" padded to at least 200000 bytes with a repeating line
     And gtd lands "gtd(human): idle → building"

@@ -4,7 +4,6 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../Commentary.js"
 import { replay, treeFromRecord } from "../replay/index.js"
-import type { Workflow } from "../flows/index.js"
 import { unified as builtInWorkflow } from "../workflows/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace } from "../platform/index.js"
@@ -174,22 +173,24 @@ export const load: Effect.Effect<
     )
   }
 
-  const initial = yield* firstStep(loaded, { ...loaded.workflow.vars, ...compiled.rcVars })
+  const initial = yield* firstStep(loaded, { ...loaded.defaults, ...compiled.rcVars })
   return {
     workflow: {
-      flows: loaded.workflow,
+      flow: loaded.flow,
+      summary: loaded.summary,
+      base: loaded.base,
       modes: compiled.modes,
       initial,
     },
-    workflowVars: { ...loaded.workflow.vars },
+    workflowVars: { ...loaded.defaults },
     rcVars: compiled.rcVars,
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
     warnings: diagnostics.filter((d) => d.severity === "warning"),
   }
 })
 
-interface LoadedModule {
-  readonly workflow: Workflow
+interface LoadedModule extends Pick<WorkflowDefinition, "flow" | "summary" | "base"> {
+  readonly defaults: Readonly<Record<string, string>>
   readonly origin: string
 }
 
@@ -210,25 +211,53 @@ const jiti = (): JitiInstance => {
     // later command could read back instead of the source.
     fsCache: false,
     moduleCache: false,
-    interopDefault: true,
+    // The whole module, not just its default: the named exports are read too.
+    interopDefault: false,
   })
 }
 
-const isWorkflow = (value: unknown): value is Workflow =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as { kind?: unknown }).kind === "gtd-workflow"
+const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T | undefined => {
+  const value = exports[name]
+  if (value === undefined) return undefined
+  if (typeof value !== "function") throw new Error(`the "${name}" export is not a function`)
+  return value as T
+}
+
+/**
+ * Read a workflow module: the default export is the flow; `defaults`,
+ * `summary` and `base` are optional; any other export is ignored.
+ */
+const fromModule = (exported: unknown, origin: string): LoadedModule => {
+  const exports = (typeof exported === "object" && exported !== null ? exported : {}) as Record<
+    string,
+    unknown
+  >
+  const flow = exports.default
+  if (typeof flow !== "function") {
+    throw new Error("the default export is not a flow — export default an async function")
+  }
+  const defaults = exports.defaults ?? {}
+  if (
+    typeof defaults !== "object" ||
+    defaults === null ||
+    Object.values(defaults).some((value) => typeof value !== "string")
+  ) {
+    throw new Error('the "defaults" export is not a record of strings')
+  }
+  return {
+    flow: flow as WorkflowDefinition["flow"],
+    defaults: defaults as Readonly<Record<string, string>>,
+    summary: optionalFunction(exports, "summary"),
+    base: optionalFunction(exports, "base"),
+    origin,
+  }
+}
 
 /** Evaluate `gtd.config.ts`, or take the bundled default. */
-const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule => {
-  if (module === undefined) return { workflow: builtInWorkflow, origin: BUILT_IN_ORIGIN }
-  const exported = jiti().evalModule(module.source, { filename: module.filepath })
-  const workflow = (exported as { default?: unknown }).default ?? exported
-  if (!isWorkflow(workflow)) {
-    throw new Error('the default export is not a workflow(...) from "@pmelab/gtd/flows"')
-  }
-  return { workflow, origin: module.filepath }
-}
+const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule =>
+  module === undefined
+    ? fromModule(builtInWorkflow, BUILT_IN_ORIGIN)
+    : fromModule(jiti().evalModule(module.source, { filename: module.filepath }), module.filepath)
 
 /**
  * The default entry's first step — where a finished process waits — found the
@@ -241,7 +270,7 @@ const firstStep = (
   Effect.flatMap(
     Effect.promise(() =>
       replay({
-        workflow: loaded.workflow,
+        flow: loaded.flow,
         episode: { entry: undefined, base: { hash: "", tree: treeFromRecord({}) }, commits: [] },
         vars,
         start: "",

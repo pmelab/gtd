@@ -320,7 +320,7 @@ const replayFor = (
 ): Promise<ReplayOutcome> => {
   const base = setup.run.episode.base
   return replay({
-    workflow: setup.def.flows,
+    flow: setup.def.flow,
     episode: {
       entry: setup.run.entry,
       base:
@@ -627,7 +627,7 @@ export const entryRefusal = (
     const workspace = rest.setup.workspace
     const outcome = yield* Effect.promise(() =>
       replay({
-        workflow: rest.def.flows,
+        flow: rest.def.flow,
         episode: {
           entry: name,
           base: { hash: "", tree: pendingTree(workspace, undefined) },
@@ -787,7 +787,7 @@ export const summaryFor = (
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
     const host = yield* Host
-    const summary = config.workflow.flows.summary
+    const summary = config.workflow.summary
     if (summary === undefined || run.trace.length === 0) return undefined
     const entryCommit = run.trace[0]!.hash
     return summary({

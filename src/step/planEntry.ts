@@ -91,7 +91,7 @@ export const planEntry = (
     }
 
     let base: string | undefined
-    const baseOf = current.def.flows.base
+    const baseOf = current.def.base
     const vars = resolveVars(config.workflowVars, config.rcVars, varOverrides, (yield* Host).env)
     const template = yield* Effect.try({
       try: () => baseOf?.(name, vars),
