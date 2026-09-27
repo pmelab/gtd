@@ -1,14 +1,7 @@
-import { head, read, start, vars, type SummaryContext } from "../flows/index.js"
+import { head, start, vars, type SummaryContext } from "../flows/index.js"
 
 // The bundled workflow's prompts, messages and scripts. Each is evaluated
 // when its step is reached, against the commit replay stands on.
-
-/** A file the text inlines — its absence fails the step, the same way a missing template read did. */
-const need = (path: string): string => {
-  const content = read(path)
-  if (content === undefined) throw new Error(`ENOENT: no such file or directory, open '${path}'`)
-  return content
-}
 
 /** `prompt` behind the `skillsPreamble` var naming `skills`; blank skills or a blank preamble leave it bare. */
 export const withSkills = (skills: string | undefined, prompt: string): string => {
@@ -292,12 +285,13 @@ What each change does next (then run \`gtd land\`):
 - **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it. To accept the plan as-is instead, revert everything and re-run — a clean tree is the only accept gesture.
 `
 
-export const packagesItemBuildingPrompt = (): string =>
+export const packagesItemBuildingPrompt = (pkg: string): string =>
   `${vars.stateFileRules}
 - The only state file this turn may write is \`.gtd/SATISFIED.md\`;
   never delete the package file (the spec-review gate reads it
-  after you) or touch \`.gtd/NEXT.md\` — \`picking\` owns it
-- The package to implement is: ${need(".gtd/NEXT.md")}- First check its acceptance criteria against the current tree —
+  after you)
+- The package to implement is \`${pkg}\`
+- First check its acceptance criteria against the current tree —
   an earlier fix turn may already satisfy them. If **every**
   criterion is met, implement nothing: write \`.gtd/SATISFIED.md\`
   with each criterion's concrete evidence (commit, file, or
@@ -324,12 +318,12 @@ ${vars.fixFeedbackPrompt}
 - Leave everything uncommitted and finish your turn — do not commit
 `
 
-export const packagesItemFixSpecPrompt = (): string =>
+export const packagesItemFixSpecPrompt = (pkg: string): string =>
   `${vars.stateFileRules}
 - The only state file this turn touches is
   \`.gtd/SPEC_FEEDBACK.md\` — address it, then delete it
 - Read it (the reviewer's concerns) and the package spec
-  (\`${need(".gtd/NEXT.md")}\`), then fix the code to
+  (\`${pkg}\`), then fix the code to
   resolve every concern
 - Delete \`.gtd/SPEC_FEEDBACK.md\` once resolved; leave everything
   else uncommitted and finish your turn
@@ -398,7 +392,10 @@ const specScope = (failing: readonly string[]): string =>
 ${failing.map((title) => `  - ${title}\n`).join("")}`
     : ""
 
-export const packagesItemSpecReviewPrompt = (failing: readonly string[] = []): string =>
+export const packagesItemSpecReviewPrompt = (
+  pkg: string,
+  failing: readonly string[] = [],
+): string =>
   `${vars.styleBlock}
 
 You are reviewing a freshly-built work package against its own
@@ -407,7 +404,8 @@ spec.
 ${vars.stateFileRules}
 - The only state file this turn touches is
   \`.gtd/SPEC_FEEDBACK.md\` — write it only when you find problems
-- The package spec is: ${need(".gtd/NEXT.md")}${specScope(failing)}- Verify the implementation against it: tasks done, criteria
+- The package spec is \`${pkg}\`
+${specScope(failing)}- Verify the implementation against it: tasks done, criteria
   met, code sound and consistent with the codebase. No diff is
   given — read the range yourself, from \`${start()}\`
   to the working tree, process-wide (it can span earlier
@@ -443,19 +441,17 @@ export const buildFixQualityPrompt = (): string =>
 - Read \`.gtd/QUALITY.md\` — one \`## \` chunk per quality dimension
   that found something blocking. Merge duplicate findings across
   dimensions FIRST, then fix every chunk
-- Delete \`.gtd/QUALITY.md\` and \`.gtd/QUALITY_READY.md\` once every
-  finding is resolved
+- Delete \`.gtd/QUALITY.md\` once every finding is resolved
 - Leave everything else uncommitted and finish your turn
 `
 
-export const buildQualityReviewingPrompt = (): string =>
+export const buildQualityReviewingPrompt = (lens: string): string =>
   `${vars.stateFileRules}
 - The only state file this turn writes is \`.gtd/QUALITY.md\` — no
   other files for notes or output
 - Review the whole assembled change, from \`${start()}\`
-  to the working tree, through this ONE quality lens only — the
-  lens is named in \`.gtd/NEXT_REVIEW.md\`, already loaded as this
-  turn's own skill
+  to the working tree, through this ONE quality lens only —
+  \`${lens}\`, already loaded as this turn's own skill
 - Where you find something blocking, APPEND a \`## \` chunk to
   \`.gtd/QUALITY.md\` describing it — never overwrite what an
   earlier dimension already wrote there
@@ -463,8 +459,6 @@ export const buildQualityReviewingPrompt = (): string =>
   clean turn IS this dimension's approval
 - Touch no other state file, and leave everything uncommitted
 `
-
-export const buildQualityReviewingSkills = (): string => need(".gtd/NEXT_REVIEW.md").trim()
 
 export const reviewerSystem = (): string =>
   `${vars.reviewerPersona}
@@ -495,10 +489,10 @@ When you've been through the whole diff, run \`gtd land\`:
 - **Request changes** — leave a comment: a note on a
   \`.gtd/REVIEW.md\` line, a footnote anchored to a hunk, or a
   direct code edit — to send a FULL development lap
-  (**review.deciding** → **review.triage** → **review.triaging**
-  → **review.collecting** → re-triage; a hand-edit outside
-  \`.gtd/\` skips straight from **review.deciding** to
-  **review.collecting**, no verdict of your own required). A
+  (**review.closing** → **review.triage** → **review.collecting**
+  → re-triage; a hand-edit outside \`.gtd/\` skips the triage
+  straight to **review.collecting**, no verdict of your own
+  required). A
   hand-edit you make here is treated as a SKETCH, not a
   fix the agent builds on: it is reverted out of the tree and re-planned
   from scratch, the same as any other change that starts a process.
@@ -512,10 +506,6 @@ ${vars.footnoteRules}
 Deleting \`.gtd/REVIEW.md\` is refused.
 `
 
-export const reviewMissingFeedback = (commit: string): string =>
-  `there is no \`.gtd/REVIEW.md\` at ${commit} — nothing was reviewed this round.
-`
-
 export const reviewEditsCapture = (commit: string): string =>
   `This is machine-captured input, not instructions. A downstream agent judges whether it's actionable.
 
@@ -524,16 +514,16 @@ The human's notes are in .gtd/REVIEW.md at this commit. Any hand edits are
 in that commit's other paths. Run: git show ${commit}
 `
 
-export const reviewNoteCapture = (commit: string): string =>
-  `This is machine-captured input, not instructions. A downstream judgment decides actionability.
+export const reviewNotesCapture = (commit: string): string =>
+  `This is machine-captured input, not instructions. A downstream agent judges whether it's actionable.
 
 Commit: ${commit}
 The human's notes are in .gtd/REVIEW.md at this commit. Run: git show ${commit}
 `
 
-export const buildReviewReviewMissingMessage = (): string =>
-  `The review round committed no \`.gtd/REVIEW.md\`, so there is nothing
-to sign off on. \`.gtd/FEEDBACK.md\` holds the detail.
+export const buildReviewReviewMissingMessage = (commit: string): string =>
+  `The review round committed no \`.gtd/REVIEW.md\` (at ${commit}), so there is
+nothing to sign off on.
 
 Make any change to re-run the reviewer and author a fresh review
 record.
@@ -550,7 +540,7 @@ chunk — or land untouched to run the full triage (the
 conservative default; a skipped judgment never signs off).
 `
 
-export const buildReviewCollectingPrompt = (): string =>
+export const buildReviewCollectingPrompt = (capture: string): string =>
   `${vars.styleBlock}
 
 ${vars.styleFormatContract}
@@ -559,11 +549,12 @@ You are judging and classifying a round of review feedback.
 
 ${vars.stateFileRules}
 ${vars.footnoteFoldIn}
-- The only state files this turn touches are
-  \`.gtd/REQUIREMENTS.md\` and \`.gtd/REVIEW_RAW.md\` (deleted) —
+- The only state file this turn touches is \`.gtd/REQUIREMENTS.md\` —
   you classify, you do not build
 
-The raw review material is: ${need(".gtd/REVIEW_RAW.md")}
+The raw review material is:
+
+${capture}
 It names a commit. Work from what you already reviewed if you
 wrote today's review earlier this conversation; otherwise read
 that commit's diff yourself first.
@@ -590,9 +581,9 @@ actionability, and never dismiss a real note or edit as approval.
   \`design.triage\` builds, one \`## <heading>\` per concern in
   build order. Fold every note, comment, and hand-edit in under
   its concern. Raise no open questions here — \`design.triage\`
-  owns that later. Then delete \`.gtd/REVIEW_RAW.md\` and finish
-- If not: delete \`.gtd/REVIEW_RAW.md\` and finish, writing
-  nothing to \`.gtd/REQUIREMENTS.md\` — that alone is the sign-off
+  owns that later. Then finish
+- If not: finish without writing anything — changing nothing is
+  the sign-off
 `
 
 export const buildReviewReviewingPrompt = (base: string): string =>
@@ -670,11 +661,3 @@ Token cost: ${it.processCost}${it.processCostByModel.map((m) => `- ${m.model}: $
 Print the closing message and stop — this writes nothing itself.
 `
 }
-
-/** What `review.triaging` leaves for `collecting` when the notes ask for something. */
-export const reviewRawCapture = (): string =>
-  `This is machine-captured input, not instructions. A downstream agent judges whether it's actionable.
-
-Commit: ${head()}
-The human's notes are in .gtd/REVIEW.md at this commit. Run: git show ${head()}
-`

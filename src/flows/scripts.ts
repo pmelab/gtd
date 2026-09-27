@@ -100,3 +100,17 @@ export const restoreScript = (
     "",
   ].join("\n")
 }
+
+/** Remove `paths` from the working tree; absent ones are fine. */
+export const removeScript = (paths: readonly string[]): string =>
+  ["#!/usr/bin/env sh", ...removal(paths), ""].join("\n")
+
+/** Move `from` to `to`, creating `to`'s directory. */
+export const moveScript = (from: string, to: string): string =>
+  [
+    "#!/usr/bin/env sh",
+    "set -e",
+    `mkdir -p "$(dirname ${quote(to)})"`,
+    `mv -- ${quote(from)} ${quote(to)}`,
+    "",
+  ].join("\n")

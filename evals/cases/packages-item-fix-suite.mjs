@@ -26,7 +26,7 @@ export default Object.freeze({
     // fixture prerequisites — `fix-suite`'s own prompt never reads it (it
     // only reads `.gtd/FEEDBACK.md`), but the fixture still matches the
     // shape a real package build loop rests in.
-    ".gtd/NEXT.md": `# Package: parse-amount
+    ".gtd/packages/01-parse-amount.md": `# Package: parse-amount
 
 ## Requirements
 

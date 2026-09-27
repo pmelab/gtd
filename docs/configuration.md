@@ -186,18 +186,19 @@ made of. Each takes its texts, caps and callbacks as arguments and never reads
 API: a fragment never renames them outside a major release, because a rename
 strands every process resting on the old name.
 
-| Fragment                          | Steps it declares                                                                                                                              | Resolves to                                    |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `green(name, check)`              | `name`                                                                                                                                         | `true` unless the run wrote `.gtd/FEEDBACK.md` |
-| `healthy({ texts, fix, cap, … })` | `health.check`, `health.judge`, plus `escalation`'s                                                                                            | once the suite is green                        |
-| `escalation(texts, count)`        | `health.describe`, `health.stop`, `health.exhausted`                                                                                           | once a person has handled the escalation       |
-| `entryGate(texts)`                | `check`, `blocked`                                                                                                                             | once the suite is green                        |
-| `questionGate(texts)`             | `gate.check`, `gate.answer`                                                                                                                    | `true` when a person answered open questions   |
-| `designLoop(name, author, gate)`  | `name`, plus `questionGate`'s                                                                                                                  | once no open question is left                  |
-| `specReview(texts)`               | `spec.pre`, `spec.review`                                                                                                                      | `true` when the package is approved            |
-| `packageQueue(texts, options)`    | `picking`, `item.building`, `item.fix-suite`, `item.fix-spec`, `item.closing`, …                                                               | once `.gtd/packages/` is drained               |
-| `qualityLap(texts)`               | `quality.seeding`, `quality.picking`, `quality.reviewing`                                                                                      | `"clean"` or `"findings"`                      |
-| `reviewTail(texts, base)`         | `review.reviewing`, `review.await-review`, `review.deciding`, `review.review-missing`, `review.triage`, `review.triaging`, `review.collecting` | `{ verdict: "signoff" }` or the feedback round |
+| Fragment                              | Steps it declares                                                                                                          | Resolves to                                    |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `check(name, command, { report, … })` | `name`                                                                                                                     | `true` unless the run wrote `report`           |
+| `green(name, check)`                  | `name`                                                                                                                     | `true` unless the run wrote `.gtd/FEEDBACK.md` |
+| `healthy({ texts, fix, cap, … })`     | `health.check`, `health.judge`, plus `escalation`'s                                                                        | once the suite is green                        |
+| `escalation(texts, count)`            | `health.describe`, `health.stop`, `health.exhausted`                                                                       | once a person has handled the escalation       |
+| `entryGate(texts)`                    | `check`, `blocked`                                                                                                         | once the suite is green                        |
+| `questionGate(texts)`                 | `gate.answer`                                                                                                              | `true` when a person answered open questions   |
+| `designLoop(name, author, gate)`      | `name`, plus `questionGate`'s                                                                                              | once no open question is left                  |
+| `specReview(texts, pkg)`              | `spec.pre`, `spec.review`                                                                                                  | `true` when the package is approved            |
+| `packageQueue(texts, options)`        | `item.building`, `item.fix-suite`, `item.fix-spec`, `item.closing`, …                                                      | once `.gtd/packages/` is drained               |
+| `qualityLap(texts)`                   | `quality.reviewing`, once per lens                                                                                         | `"clean"` or `"findings"`                      |
+| `reviewTail(texts, base)`             | `review.reviewing`, `review.await-review`, `review.review-missing`, `review.closing`, `review.triage`, `review.collecting` | `{ verdict: "signoff" }` or the feedback round |
 
 Three checks refuse a turn from flow code, called right after the step whose
 turn they check:
@@ -210,11 +211,15 @@ turn they check:
 - `requireRevert(edited, base)` — refuses a turn that left any of the `edited`
   changes differing from their content before them
 
-Every step a fragment runs itself is a callback `run`, so a driver needs
-`gtd exec` for it. A suite check (`green`, `healthy`, `entryGate`) takes
-`{ command, label?, sweep?, sweepOnGreen? }`: it removes `sweep`, runs
-`command()` in `sh`, and on failure writes its output to `.gtd/FEEDBACK.md`; on
-success it removes `.gtd/FEEDBACK.md` and `sweepOnGreen`.
+The fragments pass what they decided — the package to build, the lens to review
+with, what a review round captured — straight into the next prompt. The only
+steps they run themselves are scripts gtd renders for the driver: a `check`
+removes `sweep`, runs the command in a subshell and, on failure, writes its
+output (stamped with the commit) to `report`; on success it removes `report` and
+`sweepOnGreen`. A suite check (`green`, `healthy`, `entryGate`) is a `check` of
+`command()` against `.gtd/FEEDBACK.md`. The renderers (`checkScript`,
+`revertScript`, `restoreScript`, `removeScript`, `moveScript`, and `quote`) are
+exported for a workflow's own `run` steps.
 
 Call a fragment inside `scope()` to place it: the bundled workflow's
 `scope("build", …)` around `healthy` is what makes `build.health.check`.
@@ -683,9 +688,8 @@ mechanism — it will silently go stale as upstream moves on.
   the steps whose output a parser reads (`design.triage`, `architecture.author`,
   `build.review.reviewing`, `build.review.collecting`).
 
-Files a script writes carry no injected voice: `.gtd/FEEDBACK.md` (verbatim test
-output plus a HEAD stamp), `.gtd/NEXT.md` (a bare path), and
-`.gtd/REVIEW_RAW.md`.
+Files a script writes carry no injected voice: `.gtd/FEEDBACK.md` holds verbatim
+test output plus a HEAD stamp.
 
 ### Escalation
 

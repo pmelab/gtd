@@ -198,12 +198,10 @@ decision, raised by `architecture.author`.
 process (never rendered into its prompt) and grouping/classifying it into
 concerns.
 
-**Question gate**: The shared check/answer pair (`design.gate`/
-`architecture.gate`) that rests the process at a human answer gate only while
-its phase's steering file (`.gtd/REQUIREMENTS.md` or `.gtd/ARCHITECTURE.md`) has
-an unanswered open question — a question-free phase skips the human stop
-entirely. Its presence is signaled by the `.gtd/QUESTIONS.md` marker file,
-stamped or removed by the gate's own check step and never read for content.
+**Question gate**: The human answer gate (`design.gate.answer`/
+`architecture.gate.answer`) the process rests at only while its phase's steering
+file (`.gtd/REQUIREMENTS.md` or `.gtd/ARCHITECTURE.md`) has an unanswered open
+question — a question-free phase skips the human stop entirely.
 
 **Green baseline**: The test run every entry opens with, proving the suite was
 already green before gtd changed anything — so a later red run is attributable.

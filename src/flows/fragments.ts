@@ -16,7 +16,7 @@ import {
   type JudgeAnswer,
   type JudgeQuestion,
 } from "./runtime.js"
-import { checkScript } from "./scripts.js"
+import { checkScript, removeScript } from "./scripts.js"
 
 // Reusable pieces of the bundled workflow. Each takes its texts, caps and
 // thresholds as arguments and never reads `vars`. The step names a fragment
@@ -64,8 +64,6 @@ export interface JudgeTexts {
 
 const FEEDBACK = ".gtd/FEEDBACK.md"
 const REVIEW = ".gtd/REVIEW.md"
-const QUESTIONS = ".gtd/QUESTIONS.md"
-const NEXT = ".gtd/NEXT.md"
 
 /** Whether the last step added or rewrote `path`. */
 const wrote = (path: string): boolean => changes(path).some((c) => c.status !== "deleted")
@@ -105,10 +103,6 @@ export const answered = (
   expected: string,
   minP: number,
 ): boolean => answer !== undefined && answer.answer === expected && answer.p >= minP
-
-/** `.gtd/<name>` stamped with the commit it was written at, so a repeat of the same report still changes the file. */
-const stamped = (text: string, commit: string): string =>
-  `${text}\n<!-- gtd check ${commit.slice(0, 7)} -->\n`
 
 export interface CheckOptions {
   /** Where a failing run leaves its output. */
@@ -318,30 +312,19 @@ export const entryGate = async (texts: EntryGateTexts): Promise<void> => {
 }
 
 export interface QuestionGateTexts {
-  /** `file`: the steering file whose open questions stop the process. */
-  readonly check: StepLabel & { readonly file: Text }
+  /** The steering file whose open questions stop the process. */
+  readonly file: Text
   readonly answer: HumanSpec & { readonly file: string }
 }
 
 /**
  * Stop for a human only while the steering file still has open questions.
  * Resolves `true` when the human answered (the author revises), `false` when
- * no question was left. Steps: `gate.check`, `gate.answer`.
+ * no question was left. Steps: `gate.answer`.
  */
 export const questionGate = async (texts: QuestionGateTexts): Promise<boolean> => {
-  const file = texts.check.file()
-  const content = read(file)
-  const open = content === undefined || openQuestions(content).length > 0
-  const commit = head()
-  await run(
-    "gate.check",
-    ({ fs }) => {
-      if (open) fs.write(QUESTIONS, stamped(`open questions remain in ${file}\n`, commit))
-      else fs.rm(QUESTIONS)
-    },
-    { label: texts.check.label },
-  )
-  if (!open) return false
+  const content = read(texts.file())
+  if (content !== undefined && openQuestions(content).length === 0) return false
   await humanStep("gate.answer", texts.answer, { acceptClean: true })
   requireAnswers(texts.answer.file)
   return true
@@ -368,9 +351,9 @@ export const designLoop = async (
 
 export interface SpecReviewTexts {
   readonly pre: JudgeTexts
-  /** The review prompt, given the sections the pre-judge could not clear. */
+  /** The review prompt, given the package and the sections the pre-judge could not clear. */
   readonly review: Omit<AgentSpec, "prompt"> & {
-    readonly prompt: (failing: readonly string[]) => string
+    readonly prompt: (pkg: string, failing: readonly string[]) => string
   }
   /** The confidence a "yes" needs to clear a section without review. */
   readonly clearMinP: number
@@ -404,8 +387,7 @@ const sectionQuestion = (id: string, title: string): JudgeQuestion => ({
  * section, then an agent review of the sections it did not confidently
  * clear. Resolves `true` when approved. Steps: `spec.pre`, `spec.review`.
  */
-export const specReview = async (texts: SpecReviewTexts): Promise<boolean> => {
-  const pkg = (read(".gtd/NEXT.md") ?? "").trim()
+export const specReview = async (texts: SpecReviewTexts, pkg: string): Promise<boolean> => {
   const whole = read(pkg) ?? ""
   const titles = sections(whole)
   const judged = titles.length > 0 && titles.length <= MAX_SECTIONS
@@ -430,7 +412,7 @@ export const specReview = async (texts: SpecReviewTexts): Promise<boolean> => {
     return !judged || truncated.includes(id) || !answered(answers[id], "yes", texts.clearMinP)
   })
   if (titles.length > 0 && failing.length === 0) return true
-  await agent("spec.review", texts.review.prompt(failing), {
+  await agent("spec.review", texts.review.prompt(pkg, failing), {
     label: texts.review.label,
     file: texts.review.file,
     mode: texts.review.mode,
@@ -445,13 +427,16 @@ export const specReview = async (texts: SpecReviewTexts): Promise<boolean> => {
   )
 }
 
+/** An agent step working on one package: its prompt names the package file. */
+export type PackageAgentSpec = Omit<AgentSpec, "prompt"> & {
+  readonly prompt: (pkg: string) => string
+}
+
 export interface PackageTexts {
-  /** `sweep`: spent steering files picking removes ahead of every package. */
-  readonly picking: StepLabel & { readonly sweep: readonly string[] }
-  readonly building: AgentSpec
+  readonly building: PackageAgentSpec
   readonly fixSuite: AgentSpec
-  readonly fixSpec: AgentSpec
-  /** `sweep`: the package's leftovers closing removes with it. */
+  readonly fixSpec: PackageAgentSpec
+  /** `sweep`: the package's leftovers closing removes with the package file. */
   readonly closing: StepLabel & { readonly sweep: readonly string[] }
   readonly health: HealthTexts
   readonly spec: SpecReviewTexts
@@ -462,31 +447,29 @@ export interface PackageOptions {
   readonly identicalMinP: number
 }
 
+const packageStep = (name: string, spec: PackageAgentSpec, pkg: string): Promise<void> =>
+  agentStep(name, { ...spec, prompt: () => spec.prompt(pkg) })
+
 /**
- * Build every package file under `.gtd/packages/` in turn: pick one into
- * `.gtd/NEXT.md`, build it, keep the suite green, review it against its spec,
- * close it out. Steps: `picking`, `item.building`, `item.fix-suite`,
- * `item.fix-spec`, `item.closing`, and `item.`-prefixed `healthy`/`specReview`.
+ * Build every package file under `.gtd/packages/` in name order: build it,
+ * keep the suite green, review it against its spec, and close it out, which
+ * removes it. Steps: `item.building`, `item.fix-suite`, `item.fix-spec`,
+ * `item.closing`, and `item.`-prefixed `healthy`/`specReview`.
  */
 export const packageQueue = async (texts: PackageTexts, options: PackageOptions): Promise<void> => {
   for (;;) {
-    const next = [...glob(".gtd/packages/*.md")].sort()[0]
-    await run(
-      "picking",
-      ({ fs }) => {
-        fs.rm(...texts.picking.sweep)
-        if (next === undefined) fs.rm(NEXT)
-        else fs.write(NEXT, next)
-      },
-      { label: texts.picking.label },
-    )
-    if (next === undefined) return
-    await scope("item", () => packageItem(texts, options))
+    const pkg = [...glob(".gtd/packages/*.md")].sort()[0]
+    if (pkg === undefined) return
+    await scope("item", () => packageItem(texts, options, pkg))
   }
 }
 
-const packageItem = async (texts: PackageTexts, options: PackageOptions): Promise<void> => {
-  await agentStep("building", texts.building)
+const packageItem = async (
+  texts: PackageTexts,
+  options: PackageOptions,
+  pkg: string,
+): Promise<void> => {
+  await packageStep("building", texts.building, pkg)
   for (;;) {
     await healthy({
       texts: texts.health,
@@ -494,74 +477,39 @@ const packageItem = async (texts: PackageTexts, options: PackageOptions): Promis
       cap: options.fixCap,
       identicalMinP: options.identicalMinP,
     })
-    if (await specReview(texts.spec)) break
-    await agentStep("fix-spec", texts.fixSpec)
+    if (await specReview(texts.spec, pkg)) break
+    await packageStep("fix-spec", texts.fixSpec, pkg)
   }
-  const pkg = (read(NEXT) ?? "").trimEnd()
-  await run(
-    "closing",
-    ({ fs }) => {
-      if (pkg !== "") fs.rm(pkg)
-      fs.rm(NEXT, ...texts.closing.sweep)
-    },
-    { label: texts.closing.label },
-  )
+  await run("closing", removeScript([pkg, ...texts.closing.sweep]), {
+    label: texts.closing.label,
+  })
 }
 
 // ── Quality lap ─────────────────────────────────────────────────────────────
 
 export interface QualityTexts {
-  /** `lenses`: the skills the lap reviews with, one turn each. */
-  readonly seeding: StepLabel & { readonly lenses: () => readonly string[] }
-  readonly picking: StepLabel
-  readonly reviewing: AgentSpec
+  /** The skills the lap reviews with, one turn each. */
+  readonly lenses: () => readonly string[]
+  readonly reviewing: Omit<AgentSpec, "prompt"> & { readonly prompt: (lens: string) => string }
 }
 
-const QUALITY = ".gtd/QUALITY.md"
-const QUALITY_DONE = ".gtd/QUALITY_DONE.md"
-const NEXT_REVIEW = ".gtd/NEXT_REVIEW.md"
-
-/** One queue file per lens, numbered in list order. */
-const lensQueue = (lenses: readonly string[]): [string, string][] =>
-  lenses.map((lens, i) => [`.gtd/reviews/${String(i + 1).padStart(2, "0")}-${lens}.md`, lens])
-
 /**
- * One review turn per configured lens over the whole change. Resolves
- * `"findings"` when a lens wrote `.gtd/QUALITY.md`. Steps: `quality.seeding`,
- * `quality.picking`, `quality.reviewing`.
+ * One review turn per lens over the whole change, each appending what it
+ * finds blocking to `.gtd/QUALITY.md`. Resolves `"findings"` when that file
+ * has any. Steps: `quality.reviewing`.
  */
 export const qualityLap = async (texts: QualityTexts): Promise<"clean" | "findings"> => {
-  // The lap runs once an episode: QUALITY_DONE.md marks it spent.
-  const queue = read(QUALITY_DONE) === undefined ? lensQueue(texts.seeding.lenses()) : []
-  await run(
-    "quality.seeding",
-    ({ fs }) => {
-      for (const [path, lens] of queue) fs.write(path, lens)
-    },
-    { label: texts.seeding.label },
-  )
-  if (queue.length === 0) return "clean"
-  for (;;) {
-    const next = [...glob(".gtd/reviews/*.md")].sort()[0]
-    const lens = next === undefined ? undefined : (read(next) ?? "")
-    const findings = (read(QUALITY) ?? "").length > 0
-    await run(
-      "quality.picking",
-      ({ fs }) => {
-        if (next !== undefined && lens !== undefined) {
-          fs.write(NEXT_REVIEW, lens)
-          fs.rm(next)
-          return
-        }
-        fs.rm(NEXT_REVIEW)
-        fs.write(QUALITY_DONE, "")
-        if (findings) fs.write(".gtd/QUALITY_READY.md", "")
+  for (const lens of texts.lenses()) {
+    const { reviewing } = texts
+    await agentStep(
+      "quality.reviewing",
+      { ...reviewing, prompt: () => reviewing.prompt(lens) },
+      {
+        allowEmpty: true,
       },
-      { label: texts.picking.label },
     )
-    if (next === undefined) return findings ? "findings" : "clean"
-    await agentStep("quality.reviewing", texts.reviewing, { allowEmpty: true })
   }
+  return (read(".gtd/QUALITY.md") ?? "").length > 0 ? "findings" : "clean"
 }
 
 // ── Human review ────────────────────────────────────────────────────────────
@@ -570,23 +518,21 @@ export interface ReviewTexts {
   /** The reviewer's prompt and the review gate's message take the round's base. */
   readonly reviewing: Omit<AgentSpec, "prompt"> & { readonly prompt: (base: string) => string }
   readonly awaitReview: Omit<HumanSpec, "message"> & { readonly message: (base: string) => string }
-  /** What `review.deciding` writes for a round, each naming the round's commit. */
-  readonly deciding: {
-    readonly label?: string
-    /** `.gtd/FEEDBACK.md` when the round left no `.gtd/REVIEW.md`. */
-    readonly missing: (commit: string) => string
-    /** `.gtd/REVIEW_RAW.md` when the human edited code. */
-    readonly edits: (commit: string) => string
-    /** `.gtd/REVIEW_NOTE.md` when the human only left notes. */
-    readonly note: (commit: string) => string
-  }
-  readonly missing: HumanSpec
+  /** The gate for a round that left no `.gtd/REVIEW.md`, naming the round's commit. */
+  readonly missing: Omit<HumanSpec, "message"> & { readonly message: (commit: string) => string }
+  /** Removing the spent `.gtd/REVIEW.md`. */
+  readonly closing: StepLabel
   readonly triage: JudgeTexts
-  /** What `review.triaging` writes to `.gtd/REVIEW_RAW.md` for an actionable round. */
-  readonly rawCapture: Text
+  /** What collecting is told about a round, naming its commit. */
+  readonly capture: {
+    /** The human edited code. */
+    readonly edits: (commit: string) => string
+    /** The human left notes a judge found actionable. */
+    readonly notes: (commit: string) => string
+  }
   /** The confidence a "yes, actionable" needs; a less confident yes counts as no. */
   readonly actionableMinP: number
-  readonly collecting: AgentSpec
+  readonly collecting: Omit<AgentSpec, "prompt"> & { readonly prompt: (capture: string) => string }
 }
 
 /** How a review round ended. `feedback` carries what the human edited, for the re-unwind to undo. */
@@ -610,9 +556,8 @@ const triageQuestions = (chunks: readonly string[]): JudgeQuestion[] =>
       "A concrete request, a question, a code comment, or a hand-edit under this chunk answers yes. No note, or a purely approving remark, answers no.",
   }))
 
-/** A note-only round: judge whether any chunk asks for something; a round nothing asks for signs off. */
-const triage = async (texts: ReviewTexts): Promise<boolean> => {
-  const review = read(".gtd/REVIEW.md") ?? ""
+/** A note-only round: judge whether any chunk of `review` asks for something. */
+const actionable = async (texts: ReviewTexts, review: string): Promise<boolean> => {
   const chunks = sections(review)
   const bodies = sectionTexts(review, chunks)
   const evidence = Object.fromEntries(chunks.map((_, i) => [`chunk-${i + 1}`, bodies[i]!]))
@@ -624,7 +569,7 @@ const triage = async (texts: ReviewTexts): Promise<boolean> => {
   })
   // A chunk counts as actionable unless the judge confidently said no, or
   // said yes without enough confidence; a cut or unanswered chunk is actionable.
-  const actionable =
+  return (
     chunks.length === 0 ||
     chunks.some((_, i) => {
       const id = `chunk-${i + 1}`
@@ -633,23 +578,22 @@ const triage = async (texts: ReviewTexts): Promise<boolean> => {
       if (answer.answer === "no") return false
       return answer.p >= texts.actionableMinP
     })
-  await run(
-    "review.triaging",
-    ({ fs }) => {
-      if (actionable) fs.write(".gtd/REVIEW_RAW.md", texts.rawCapture())
-      fs.rm(".gtd/REVIEW.md", ".gtd/REVIEW_NOTE.md")
-    },
-    { label: "Filtering non-actionable feedback" },
   )
-  return actionable
 }
 
-const collect = async (texts: ReviewTexts): Promise<"signoff" | "feedback"> => {
-  await agentStep("review.collecting", texts.collecting)
+const collect = async (texts: ReviewTexts, capture: string): Promise<"signoff" | "feedback"> => {
+  const { collecting } = texts
+  await agentStep(
+    "review.collecting",
+    { ...collecting, prompt: () => collecting.prompt(capture) },
+    {
+      allowEmpty: true,
+    },
+  )
   if (wrote(".gtd/REQUIREMENTS.md")) return "feedback"
-  if (changes(".gtd/REVIEW_RAW.md").some((c) => c.status === "deleted")) return "signoff"
+  if (changes().length === 0) return "signoff"
   return refuse(
-    "gtd land: no declared pattern matches the pending changes — write .gtd/REQUIREMENTS.md from the feedback, or delete .gtd/REVIEW_RAW.md when it asks for nothing",
+    "gtd land: no declared pattern matches the pending changes — write .gtd/REQUIREMENTS.md from the feedback, or change nothing when it asks for nothing",
   )
 }
 
@@ -657,8 +601,8 @@ const collect = async (texts: ReviewTexts): Promise<"signoff" | "feedback"> => {
  * A reviewer writes `.gtd/REVIEW.md` over everything since `base`, a human
  * reviews and signs off or comments, and a comment is classified into
  * requirements for another lap. Steps: `review.reviewing`,
- * `review.await-review`, `review.deciding`, `review.review-missing`,
- * `review.triage`, `review.triaging`, `review.collecting`.
+ * `review.await-review`, `review.review-missing`, `review.closing`,
+ * `review.triage`, `review.collecting`.
  */
 export const reviewTail = async (texts: ReviewTexts, base: string): Promise<ReviewOutcome> => {
   for (;;) {
@@ -677,57 +621,29 @@ export const reviewTail = async (texts: ReviewTexts, base: string): Promise<Revi
       mode: texts.awaitReview.mode,
       base,
     })
-    if (changes(".gtd/REVIEW.md").some((c) => c.status === "deleted")) {
+    if (changes(REVIEW).some((c) => c.status === "deleted")) {
       refuse(
         "gtd land: review-doc: .gtd/REVIEW.md was deleted — restore it, or leave a note (or edit code) to request changes.",
       )
     }
     const edited = changes().filter((c) => isCode(c.path))
     const round = head()
-    const kind = roundKind(edited)
-    await deciding(texts, kind, round)
-    const verdict = await decided(texts, kind)
-    if (verdict === "signoff") return { verdict }
-    if (verdict === "feedback") return { verdict, base: round, edited }
-    await humanStep("review.review-missing", texts.missing)
+    const review = read(REVIEW)
+    if (review === undefined) {
+      await human("review.review-missing", {
+        message: texts.missing.message(round),
+        label: texts.missing.label,
+      })
+      continue
+    }
+    // The review gate clears every tick before its commit, so a changed
+    // REVIEW.md is a note, never a tick.
+    const noted = changes(REVIEW).length > 0
+    const outcome = (verdict: "signoff" | "feedback"): ReviewOutcome =>
+      verdict === "signoff" ? { verdict } : { verdict, base: round, edited }
+    await run("review.closing", removeScript([REVIEW]), { label: texts.closing.label, base: round })
+    if (edited.length > 0) return outcome(await collect(texts, texts.capture.edits(round)))
+    if (!noted || !(await actionable(texts, review))) return { verdict: "signoff" }
+    return outcome(await collect(texts, texts.capture.notes(round)))
   }
-}
-
-/**
- * What the human's review round was. The review gate clears every tick
- * before its commit, so a changed `.gtd/REVIEW.md` is a note, never a tick.
- */
-type RoundKind = "missing" | "edits" | "note" | "signoff"
-
-const roundKind = (edited: readonly Change[]): RoundKind => {
-  if (read(REVIEW) === undefined) return "missing"
-  if (edited.length > 0) return "edits"
-  if (changes(REVIEW).length > 0) return "note"
-  return "signoff"
-}
-
-/** Capture the round for the steps after it: a hand edit for collecting, a note for triage. */
-const deciding = (texts: ReviewTexts, kind: RoundKind, commit: string): Promise<void> => {
-  const { missing, edits, note } = texts.deciding
-  return run(
-    "review.deciding",
-    ({ fs }) => {
-      if (kind === "missing") fs.write(FEEDBACK, missing(commit))
-      if (kind === "edits") fs.write(".gtd/REVIEW_RAW.md", edits(commit))
-      if (kind === "note") fs.write(".gtd/REVIEW_NOTE.md", note(commit))
-      if (kind === "edits" || kind === "signoff") fs.rm(REVIEW)
-    },
-    { label: texts.deciding.label, file: REVIEW, mode: "review", base: commit },
-  )
-}
-
-/** `undefined` when there was no review to act on. */
-const decided = async (
-  texts: ReviewTexts,
-  kind: RoundKind,
-): Promise<"signoff" | "feedback" | undefined> => {
-  if (kind === "missing") return undefined
-  if (kind === "edits") return collect(texts)
-  if (kind === "note") return (await triage(texts)) ? collect(texts) : "signoff"
-  return "signoff"
 }

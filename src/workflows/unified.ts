@@ -8,16 +8,19 @@ import {
   packageQueue,
   qualityLap,
   requireRevert,
+  moveScript,
   restoreScript,
   revertScript,
   reviewTail,
   type AgentSpec,
+  type PackageAgentSpec,
   type EscalationCount,
   type EscalationTexts,
   type HealthTexts,
   type ReviewOutcome,
   agent,
   changes,
+  glob,
   head,
   human,
   judge,
@@ -93,8 +96,7 @@ const reviewing = {
   system: t.reviewerSystem,
 }
 
-const collecting: AgentSpec = {
-  prompt: t.buildReviewCollectingPrompt,
+const collecting = {
   label: "Collecting your feedback",
   file: ".gtd/REQUIREMENTS.md",
   mode: "qa",
@@ -127,8 +129,8 @@ const decompose: AgentSpec = {
   system: t.architectSystem,
 }
 
-const building: AgentSpec = {
-  prompt: () => t.withSkills(vars.buildSkills, t.packagesItemBuildingPrompt()),
+const building: PackageAgentSpec = {
+  prompt: (pkg) => t.withSkills(vars.buildSkills, t.packagesItemBuildingPrompt(pkg)),
   label: "Building",
   model: coder.model,
   system: t.builderSystem,
@@ -142,8 +144,8 @@ const fixSuite: AgentSpec = {
   system: t.builderSystem,
 }
 
-const fixSpec: AgentSpec = {
-  prompt: () => t.withSkills(vars.reviewFixSkills, t.packagesItemFixSpecPrompt()),
+const fixSpec: PackageAgentSpec = {
+  prompt: (pkg) => t.withSkills(vars.reviewFixSkills, t.packagesItemFixSpecPrompt(pkg)),
   label: "Fixing review feedback",
   file: ".gtd/SPEC_FEEDBACK.md",
   model: coder.model,
@@ -156,25 +158,37 @@ const specReviewer = {
   system: t.specReviewerSystem,
 }
 
+const collectingPrompt = (capture: string): string =>
+  t.withSkills(vars.reviewSkills, t.buildReviewCollectingPrompt(capture))
+
+/** The first queued package — the one a package step works on. */
+const firstPackage = (): string => [...glob(".gtd/packages/*.md")].sort()[0] ?? ""
+
 /**
  * The bundled agent steps by full step name — what the prompt evals enter one
  * at a time, with the same prompt and persona the workflow gives them. Steps
- * that review since a base see the process's own diff base here.
+ * that review since a base see the process's own diff base; package steps
+ * work on the first queued package; collecting reads its capture from
+ * `.gtd/REVIEW_RAW.md`, where an eval fixture puts it.
  */
 export const agentSpecs: Readonly<Record<string, AgentSpec>> = {
   "build.review.reviewing": {
     ...reviewing,
     prompt: () => t.withSkills(vars.reviewSkills, t.buildReviewReviewingPrompt(start())),
   },
-  "build.review.collecting": collecting,
+  "build.review.collecting": {
+    ...collecting,
+    prompt: () => collectingPrompt(read(".gtd/REVIEW_RAW.md") ?? ""),
+  },
   "design.triage": designTriage(start),
   "architecture.author": architectureAuthor,
-  "packages.item.building": building,
+  "packages.item.building": { ...building, prompt: () => building.prompt(firstPackage()) },
   "packages.item.fix-suite": fixSuite,
-  "packages.item.fix-spec": fixSpec,
+  "packages.item.fix-spec": { ...fixSpec, prompt: () => fixSpec.prompt(firstPackage()) },
   "packages.item.spec.review": {
     ...specReviewer,
-    prompt: () => t.withSkills(vars.specReviewSkills, t.packagesItemSpecReviewPrompt()),
+    prompt: () =>
+      t.withSkills(vars.specReviewSkills, t.packagesItemSpecReviewPrompt(firstPackage())),
   },
   "architecture.decompose": decompose,
   "build.fix": buildFix,
@@ -204,13 +218,10 @@ const escalationTexts: EscalationTexts = {
 
 const testCommand = (): string => vars.testCommand ?? ""
 
-// A raw review capture an abandoned process left behind is swept by every
-// check: no ordinary path from deciding or collecting reaches one.
 const healthTexts: HealthTexts = {
   check: {
     command: testCommand,
     label: "Running checks",
-    sweep: [".gtd/REVIEW_RAW.md"],
     // Swept only on green: an unresolved analysis survives every retry.
     sweepOnGreen: [".gtd/ESCALATION.md"],
   },
@@ -218,22 +229,7 @@ const healthTexts: HealthTexts = {
   escalation: escalationTexts,
 }
 
-/** The quality lap's own state: its queue, the picked lens, its findings and markers. */
-const QUALITY_STATE = [
-  ".gtd/NEXT_REVIEW.md",
-  ".gtd/QUALITY.md",
-  ".gtd/QUALITY_DONE.md",
-  ".gtd/QUALITY_READY.md",
-  ".gtd/reviews",
-]
-
-// An entry is a new episode: the whole quality lap state goes, or a later
-// entry would skip every lens.
-const suiteCheck = {
-  command: testCommand,
-  label: "Checking the baseline",
-  sweep: [".gtd/REVIEW_RAW.md", ...QUALITY_STATE],
-}
+const suiteCheck = { command: testCommand, label: "Checking the baseline" }
 
 const buildHealth = (fixesSoFar: number, escalations: EscalationCount): Promise<void> =>
   healthy({
@@ -276,55 +272,46 @@ const review = (base: string): Promise<ReviewOutcome> =>
         file: ".gtd/REVIEW.md",
         mode: "review",
       },
-      deciding: {
-        label: "Reviewing",
-        missing: t.reviewMissingFeedback,
-        edits: t.reviewEditsCapture,
-        note: t.reviewNoteCapture,
-      },
-      missing: {
-        message: t.buildReviewReviewMissingMessage,
-        label: "Nothing to review",
-        file: ".gtd/FEEDBACK.md",
-      },
+      missing: { message: t.buildReviewReviewMissingMessage, label: "Nothing to review" },
+      closing: { label: "Closing the review" },
       triage: { message: t.buildReviewTriageMessage, label: "Judging feedback actionability" },
-      rawCapture: t.reviewRawCapture,
+      capture: { edits: t.reviewEditsCapture, notes: t.reviewNotesCapture },
       actionableMinP: floor(vars.reviewNoteActionable),
-      collecting,
+      collecting: { ...collecting, prompt: collectingPrompt },
     },
     base,
   )
+
+const quality = {
+  lenses: () =>
+    (vars.qualityReviews ?? "")
+      .split(",")
+      .map((lens) => lens.trim())
+      .filter((lens) => lens !== ""),
+  reviewing: {
+    prompt: (lens: string) => t.withSkills(lens, t.buildQualityReviewingPrompt(lens)),
+    label: "Reviewing (one quality lens)",
+    file: ".gtd/QUALITY.md",
+    model: planner.model,
+    system: t.reviewerSystem,
+  },
+}
 
 /** The build tail: fix (when entered red), keep green, the quality lap, then human review since `base`. */
 const buildTail = (fixFirst: boolean, base: string): Promise<ReviewOutcome> =>
   scope("build", async () => {
     const escalations: EscalationCount = { rounds: 0 }
     let redFirst = fixFirst
+    // The lap runs once a tail: after its findings are fixed, review follows.
+    let lapped = false
     for (;;) {
       if (redFirst) {
         await runAgentSpec("fix", buildFix)
         await buildHealth(1, escalations)
         redFirst = false
       }
-      const lap = await qualityLap({
-        seeding: {
-          label: "Seeding the quality review queue",
-          lenses: () =>
-            (vars.qualityReviews ?? "")
-              .split(",")
-              .map((lens) => lens.trim())
-              .filter((lens) => lens !== ""),
-        },
-        picking: { label: "Picking the next quality lens" },
-        reviewing: {
-          prompt: () =>
-            t.withSkills(t.buildQualityReviewingSkills(), t.buildQualityReviewingPrompt()),
-          label: "Reviewing (one quality lens)",
-          file: ".gtd/NEXT_REVIEW.md",
-          model: planner.model,
-          system: t.reviewerSystem,
-        },
-      })
+      const lap = lapped ? "clean" : await qualityLap(quality)
+      lapped = true
       if (lap === "clean") return review(base)
       if (await fixQualityFindings(escalations)) await buildHealth(0, escalations)
       else redFirst = true
@@ -339,7 +326,7 @@ const design = (base: string): Promise<void> =>
       "triage",
       designTriage(() => base),
       {
-        check: questionCheck,
+        file: () => ".gtd/REQUIREMENTS.md",
         answer: {
           message: t.designGateAnswerMessage,
           label: "Awaiting your product answers",
@@ -351,18 +338,10 @@ const design = (base: string): Promise<void> =>
     ),
   )
 
-// architecture.author deletes REQUIREMENTS.md in the turn it writes
-// ARCHITECTURE.md, so exactly one of them is there to check.
-const questionCheck = {
-  label: "Checking for open questions",
-  file: () =>
-    read(".gtd/REQUIREMENTS.md") !== undefined ? ".gtd/REQUIREMENTS.md" : ".gtd/ARCHITECTURE.md",
-}
-
 const architecture = (): Promise<void> =>
   scope("architecture", async () => {
     await designLoop("author", architectureAuthor, {
-      check: questionCheck,
+      file: () => ".gtd/ARCHITECTURE.md",
       answer: {
         message: t.architectureGateAnswerMessage,
         label: "Awaiting your technical answers",
@@ -405,19 +384,13 @@ const architecturePass = async (): Promise<void> => {
   const skip =
     truncated.length === 0 &&
     answered(answers.architectureWarranted, "no", threshold(vars.architectureSkipMinP))
-  if (skip) {
-    const plan = read(".gtd/REQUIREMENTS.md")
-    const target = `.gtd/packages/01-${slug(sections(plan ?? "")[0] ?? "")}.md`
-    await run(
-      "architecture-promote",
-      ({ fs }) => {
-        if (plan === undefined) return
-        fs.write(target, plan)
-        fs.rm(".gtd/REQUIREMENTS.md")
-      },
-      { label: "Promoting the plan straight to a package" },
-    )
-    if (plan !== undefined) return
+  const plan = read(".gtd/REQUIREMENTS.md")
+  if (skip && plan !== undefined) {
+    const target = `.gtd/packages/01-${slug(sections(plan)[0] ?? "")}.md`
+    await run("architecture-promote", moveScript(".gtd/REQUIREMENTS.md", target), {
+      label: "Promoting the plan straight to a package",
+    })
+    return
   }
   await architecture()
 }
@@ -426,32 +399,21 @@ const packages = (): Promise<void> =>
   scope("packages", () =>
     packageQueue(
       {
-        picking: {
-          label: "Picking the next package",
-          // The spent design/architecture files, a loop-back's raw capture,
-          // and the quality lap's state, so a loop-back re-runs the lap.
-          sweep: [
-            ".gtd/REQUIREMENTS.md",
-            ".gtd/ARCHITECTURE.md",
-            ".gtd/QUESTIONS.md",
-            ".gtd/REVIEW_RAW.md",
-            ...QUALITY_STATE,
-          ],
-        },
         building,
         fixSuite,
         fixSpec,
         closing: {
           label: "Closing out the package",
-          sweep: [".gtd/SPEC_FEEDBACK.md", ".gtd/SATISFIED.md"],
+          // The spent technical plan goes with the first package built from it.
+          sweep: [".gtd/SPEC_FEEDBACK.md", ".gtd/SATISFIED.md", ".gtd/ARCHITECTURE.md"],
         },
         health: healthTexts,
         spec: {
           pre: { message: t.packagesItemSpecPreMessage, label: "Judging spec coverage" },
           review: {
             ...specReviewer,
-            prompt: (failing) =>
-              t.withSkills(vars.specReviewSkills, t.packagesItemSpecReviewPrompt(failing)),
+            prompt: (pkg, failing) =>
+              t.withSkills(vars.specReviewSkills, t.packagesItemSpecReviewPrompt(pkg, failing)),
           },
           clearMinP: threshold(vars.specPreJudge),
         },
@@ -462,7 +424,6 @@ const packages = (): Promise<void> =>
 
 // ── The flow ────────────────────────────────────────────────────────────────
 
-/** Undo the human's review-round code edit, so planning reads it from history. */
 /**
  * Undo the human's review-round code edits. A path changed since the human
  * left it is not overwritten; requireRevert names it instead.

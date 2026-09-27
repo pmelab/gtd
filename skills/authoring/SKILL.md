@@ -212,7 +212,8 @@ const planAndBuild = async (): Promise<void> => {
 gate would wait for an edit. `approve-plan` sits in the `root` scope and is a
 new, unique name. Verify: `gtd next` loads without errors, and in a scratch
 repository a landing at `architecture.decompose` (or `architecture-promote`) now
-leads to `approve-plan`, and an untouched landing there to `packages.picking`.
+leads to `approve-plan`, and an untouched landing there to
+`packages.item.building`.
 
 ## No migration
 
