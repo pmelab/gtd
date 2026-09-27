@@ -35,25 +35,6 @@ export interface HumanOptions extends SteeringOptions {
   readonly acceptClean?: boolean | undefined
 }
 
-export interface RunTools {
-  readonly sh: (
-    command: string,
-  ) => Promise<{ readonly ok: boolean; readonly code: number; readonly output: string }>
-  readonly fs: {
-    readonly read: (path: string) => string | undefined
-    readonly write: (path: string, content: string) => void
-    readonly rm: (...paths: string[]) => void
-    readonly exists: (path: string) => boolean
-  }
-}
-
-/**
- * A `run` body: a POSIX sh script the driver executes verbatim, or a callback
- * `gtd exec` executes. Either way the outcome is whatever it leaves in the
- * tree — flow code reads it back through `changes()` and `read()`.
- */
-export type RunBody = string | ((tools: RunTools) => Promise<void> | void)
-
 export interface RunOptions extends SteeringOptions {}
 
 export type JudgePrimitive = "noul" | "choice" | "score"
@@ -122,7 +103,7 @@ export type StepRequest =
   | {
       readonly kind: "run"
       readonly name: string
-      readonly body: RunBody
+      readonly body: string
       readonly options: RunOptions
     }
   | {
@@ -180,7 +161,7 @@ export const human = (name: string, options: HumanOptions = {}): Promise<void> =
   ctx().step({ kind: "human", name, options }) as Promise<void>
 
 /** A check: `body` runs at the edge and its effect on the tree is committed. */
-export const run = (name: string, body: RunBody, options: RunOptions = {}): Promise<void> =>
+export const run = (name: string, body: string, options: RunOptions = {}): Promise<void> =>
   ctx().step({ kind: "run", name, body, options }) as Promise<void>
 
 /** A judge gate: resolves to what the judge answered, for the flow to decide on. */

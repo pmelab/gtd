@@ -12,7 +12,6 @@ import { GitService, Host, Workspace, type GitOperations, type HostOps } from ".
 import { runUiCommand, type UiRequirements } from "./ui/index.js"
 import { resolveSession } from "./Sessions.js"
 import {
-  callbackAt,
   currentRest,
   entryRefusal,
   currentRun,
@@ -73,7 +72,6 @@ import { abandonedOutcome, abandonNoopOutcome, restoredOutcome } from "./Outcome
 import { loopLogPath } from "./WorktreeState.js"
 import { renderBriefing } from "./Install.js"
 import { selectPath } from "./Select.js"
-import { runTools } from "./Exec.js"
 
 /**
  * `Edge.ts`'s `Rest` is module-private (`.gtd/packages/05-step-core.md`
@@ -332,34 +330,6 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
     }
     const base = reviewBaseFor(rest)
     out.write(`${base}\n`)
-  })
-
-/**
- * `gtd exec`: run the resolved rest's `run` callback in the repository. A
- * throw fails the command; whatever the callback left in the tree lands
- * either way, exactly as a script body's would.
- */
-const runExecCommand = (): Effect.Effect<void, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const rest = yield* currentRest
-    const callback = callbackAt(rest)
-    if (callback === undefined) {
-      return yield* Effect.fail(
-        new Error(`gtd exec: refused — "${rest.state}" is not a step with a run callback`),
-      )
-    }
-    const host = yield* Host
-    const narrator = yield* Narrator
-    const tools = runTools(host.root, host.env, (chunk) =>
-      Effect.runSync(narrator.warn(chunk.replace(/\n$/, ""))),
-    )
-    yield* Effect.tryPromise({
-      try: async () => callback(tools as never),
-      catch: (e) =>
-        new Error(
-          `gtd exec: "${rest.state}" failed: ${e instanceof Error ? e.message : String(e)}`,
-        ),
-    })
   })
 
 /**
@@ -1175,8 +1145,6 @@ const dispatchVoidCommand = (
       return runSummaryCommand(out)
     case "base":
       return runBaseCommand(out)
-    case "exec":
-      return runExecCommand()
     case "judge":
       return runJudgeCommand(json, out)
     case "judgeAnswer":

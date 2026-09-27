@@ -120,7 +120,6 @@ describe("parseArgv — scope", () => {
       ["validate", "--json"],
       ["check", "qa", "TODO.md", "--json"],
       ["init", "--json"],
-      ["exec", "--json"],
       ["install", "--json"],
       ["abandon", "--json"],
       ["restore", "--json"],
@@ -644,7 +643,6 @@ describe("parseArgv — --verbose / -v (the -v/-V swap)", () => {
       ["next", "--verbose", "--json"],
       ["check", "qa", "TODO.md", "--verbose"],
       ["--entry", "some-state", "--verbose"],
-      ["exec", "--verbose"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("command")

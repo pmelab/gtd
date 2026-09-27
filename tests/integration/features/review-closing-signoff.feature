@@ -9,8 +9,8 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
   carrying no `.gtd/REVIEW.md` at all is never a sign-off: it rests at the
   `build.review.review-missing` human gate instead.
 
-  These scenarios actually EXECUTE the printed check script (`gtd exec`)
-  rather than simulating its outcome by hand, which `@inmem` scenarios never
+  These scenarios actually EXECUTE the printed check script rather than
+  simulating its outcome by hand, which `@inmem` scenarios never
   do.
 
   `gtd uncheck` resets every tick ahead of the human's own commit, so no

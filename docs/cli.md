@@ -131,12 +131,6 @@ Commands:
                    the first review round it's the process's diff base;
                    afterward it's the most-recent review round's boundary.
                    Refuses (exit 1) when no process is underway.
-  exec             Run the resolved rest's run callback — the step body a
-                   workflow wrote as a function rather than a shell string —
-                   in the repository root. This is what such a step's script
-                   invokes; the driver lands whatever it leaves in the tree.
-                   Command output goes to stderr. Exits 1 when the callback
-                   throws, or when the resolved rest has no run callback
   judge            Print the resolved rest's pending judgment — the prepared
                    state, its typed questions, and their criteria — the same
                    judge field `gtd next --json` already carries. Read-only:

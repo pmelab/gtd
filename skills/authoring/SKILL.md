@@ -67,11 +67,11 @@ workflow that fails to load breaks every gtd command in the repository.
 | `judge(name, spec)`          | `judge` | `message`    | `{ answers, truncated }`               |
 | `restart()`                  | —       | —            | never: ends the episode from any depth |
 
-- `run` body: a POSIX `sh` string the driver runs verbatim, or a callback
-  `async ({ sh, fs }) => …` that `gtd exec` runs (the beat is a one-line script
-  calling `gtd exec`). A throwing callback makes `gtd exec` exit 1; the tree it
-  left still lands. **A run's outcome is what it leaves in the tree** — read it
-  back with `changes()` and `read()`.
+- `run` body: a POSIX `sh` string the driver runs verbatim. Decide in flow code,
+  then render the script from those values — `check(name, command, …)` and the
+  exported `checkScript`, `revertScript`, `restoreScript`, `removeScript`,
+  `moveScript` and `quote` do that for the common cases. **A run's outcome is
+  what it leaves in the tree** — read it back with `changes()` and `read()`.
 - `judge` takes `{ questions, evidence, message?, label? }`. Questions are
   `{ id, primitive: "noul" | "choice" | "score", instructions, criteria }`;
   `evidence` is an object of strings, the `judgeBudgetBytes` var split evenly

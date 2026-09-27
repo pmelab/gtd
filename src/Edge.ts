@@ -365,11 +365,6 @@ export const TRUNCATION_NOTICE =
 const DEFAULT_JUDGE_MESSAGE =
   "A judgment is pending. Run `gtd judge answer` and pipe a verdict, or land to take the conservative default with no verdict recorded."
 
-const CALLBACK_SCRIPT = `#!/usr/bin/env sh
-# This step's body is a callback: gtd runs it, the driver lands what it leaves.
-exec gtd exec
-`
-
 const optional = <K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } =>
   (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
 
@@ -399,10 +394,11 @@ const promptDef = (common: StepCommon, request: RequestOf<"agent">): StepDef => 
   ...optional("allowEmpty", request.options.allowEmpty),
 })
 
-const scriptDef = (common: StepCommon, request: RequestOf<"run">): StepDef =>
-  typeof request.body === "function"
-    ? { ...common, kind: "script", content: CALLBACK_SCRIPT, callback: true }
-    : { ...common, kind: "script", content: request.body }
+const scriptDef = (common: StepCommon, request: RequestOf<"run">): StepDef => ({
+  ...common,
+  kind: "script",
+  content: request.body,
+})
 
 const judgeDef = (common: StepCommon, request: RequestOf<"judge">, step: ReachedStep): StepDef => {
   const message = request.options.message ?? DEFAULT_JUDGE_MESSAGE
@@ -809,9 +805,3 @@ export const summaryFor = (
       vars: resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env),
     })
   })
-
-/** The rest's body, when it is a `run` callback `gtd exec` executes. */
-export const callbackAt = (rest: Rest): ((tools: never) => Promise<void> | void) | undefined =>
-  rest.step.request.kind === "run" && typeof rest.step.request.body === "function"
-    ? (rest.step.request.body as (tools: never) => Promise<void> | void)
-    : undefined

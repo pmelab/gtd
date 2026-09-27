@@ -34,8 +34,8 @@ health loop, a question gate, a review tail. The step names it declares are
 public, versioned API. _Avoid_: machine, sub-workflow, module
 
 **Actor**: Who is expected to act at a step — `agent`, `human`, `check` (a `run`
-step, executed when the driver runs its script — for a callback, through
-`gtd exec`) or `judge`. _Avoid_: role, party, runner
+step, executed by the driver) or `judge`. gtd itself executes nothing. _Avoid_:
+role, party, runner
 
 **Driver**: Whatever executes what gtd prints — a driver (the README's minimal
 driver, or your own), a loop harness, a CI job, or a person reading it aloud.

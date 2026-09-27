@@ -79,18 +79,15 @@ A step is one position a process can rest at. Each step function takes a
 | ---------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `agent(name, prompt, opts?)` | `agent` | An agent turn. `prompt` is printed as the beat's content; the driver hands it to an agent and lands whatever the agent left in the tree. |
 | `human(name, opts?)`         | `human` | A person. The process waits until someone edits and lands. `opts.message` is what gtd shows.                                             |
-| `run(name, body, opts?)`     | `check` | A script. `body` is a POSIX `sh` string the driver runs verbatim, or a callback (below).                                                 |
+| `run(name, body, opts?)`     | `check` | A script. `body` is a POSIX `sh` string the driver runs verbatim.                                                                        |
 | `judge(name, spec)`          | `judge` | A judgment. A `message` rest carrying typed questions; `gtd judge answer` records the verdict. See [Judges](#judges).                    |
 | `restart()`                  | —       | Ends the episode from any depth (see [Episodes](#episodes-replay-and-divergence)). Never rests.                                          |
 
-A `run` body written as a callback receives `{ sh, fs }`: `sh(command)` runs a
-shell command and resolves to `{ ok, code, output }`; `fs.read`, `fs.write`,
-`fs.rm` and `fs.exists` work on repository paths. The beat for such a step is a
-one-line script that runs `gtd exec`, which runs the callback in the repository
-root. A callback that throws makes `gtd exec` exit 1 — the tree it leaves still
-lands like any other run. Either way, **the outcome of a run is what it leaves
-in the tree**: flow code reads it back through `changes()` and `read()`, never
-through a return value.
+Flow code decides; a `run` body only carries the decision out. Render it from
+the values the flow computed — `check()` and the exported script renderers cover
+the common cases (see [Fragments](#fragments)). **The outcome of a run is what
+it leaves in the tree**: flow code reads it back through `changes()` and
+`read()`, never through a return value.
 
 The step name is the `<to>` in the commit subject the landing writes,
 `gtd(<actor>): <from> → <to>`, and every step landing carries a

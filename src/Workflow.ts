@@ -40,8 +40,6 @@ export interface StepDef {
   readonly requireRevert?: boolean
   readonly allowEmpty?: boolean
   readonly acceptClean?: boolean
-  /** The step's `run` body, when it is a callback `gtd exec` runs rather than a script. */
-  readonly callback?: boolean
 }
 
 /** The loaded workflow: its entries and the modes its steering files use. */

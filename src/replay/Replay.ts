@@ -6,7 +6,6 @@ import {
   type JudgeQuestion,
   type FlowArgs,
   type ScopeOptions,
-  type RunTools,
   type StepRequest,
   type Workflow,
 } from "../flows/index.js"
@@ -301,19 +300,6 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         }
       : undefined
 
-  // A callback runs after replay returns (under `gtd exec`), yet reads vars
-  // and head()/start() like the flow around it: it gets the replay's context back.
-  const withContext =
-    (body: (tools: RunTools) => Promise<void> | void) =>
-    async (tools: RunTools): Promise<void> => {
-      installContext(context)
-      try {
-        await body(tools)
-      } finally {
-        installContext(undefined)
-      }
-    }
-
   const judgeCuts = new WeakMap<object, readonly string[]>()
 
   const resolve = (
@@ -326,9 +312,6 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         if (s.system !== undefined) persona.system = s.system
       }
       return { ...request, options: { ...persona, ...request.options } }
-    }
-    if (request.kind === "run" && typeof request.body === "function") {
-      return { ...request, body: withContext(request.body) }
     }
     if (request.kind === "judge") {
       const { evidence, truncated } = budgeted(request.evidence, input.budgetBytes)
@@ -428,6 +411,13 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     if (request.kind === "restart") return finish(endOfFlow("restart"))
     if (typeof request.name !== "string" || request.name === "") {
       return finish({ kind: "failed", message: "gtd: a step was called without a name" })
+    }
+    // gtd.config.ts is loaded without a type check.
+    if (request.kind === "run" && typeof request.body !== "string") {
+      return finish({
+        kind: "failed",
+        message: `gtd: step "${scoped(request.name)}": a run() body is a shell script string — decide in flow code, then render the script (see checkScript and friends)`,
+      })
     }
     const step = reach(request)
     const blocker = blockerAt(step)

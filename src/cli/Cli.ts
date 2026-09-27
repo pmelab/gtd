@@ -80,7 +80,6 @@ export type Command =
   | { readonly kind: "install" }
   | { readonly kind: "summary" }
   | { readonly kind: "base" }
-  | { readonly kind: "exec" }
   | { readonly kind: "judge" }
   | { readonly kind: "judgeAnswer" }
 
@@ -584,19 +583,6 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "the first review round it's the process's diff base;",
       "afterward it's the most-recent review round's boundary.",
       "Refuses (exit 1) when no process is underway.",
-    ],
-  },
-  {
-    token: "exec",
-    kind: "exec",
-    arity: "none",
-    details: [
-      "Run the resolved rest's run callback — the step body a",
-      "workflow wrote as a function rather than a shell string —",
-      "in the repository root. This is what such a step's script",
-      "invokes; the driver lands whatever it leaves in the tree.",
-      "Command output goes to stderr. Exits 1 when the callback",
-      "throws, or when the resolved rest has no run callback",
     ],
   },
   {
@@ -1112,7 +1098,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "install"
       | "summary"
       | "base"
-      | "exec"
       | "judge"
       | "judgeAnswer",
   }

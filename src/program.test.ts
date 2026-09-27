@@ -1551,7 +1551,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
     install: { kind: "install" },
     summary: { kind: "summary" },
     base: { kind: "base" },
-    exec: { kind: "exec" },
     judge: { kind: "judge" },
     judgeAnswer: { kind: "judgeAnswer" },
   }
@@ -1563,13 +1562,12 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the twelve non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the eleven non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
         "base",
         "entry",
-        "exec",
         "land",
         "next",
         "restore",

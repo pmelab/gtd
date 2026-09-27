@@ -154,13 +154,17 @@ Awaits: check
 Label: Unwinding your input
 
 #!/usr/bin/env sh
-# This step's body is a callback: gtd runs it, the driver lands what it leaves.
-exec gtd exec
+set +e
+if ! git diff --quiet '<sketch commit>^' '<sketch commit>' --; then
+  mkdir -p "$(dirname '.gtd/FEEDBACK.md')"
+  git diff --binary '<sketch commit>^' '<sketch commit>' -- | git apply -R 2> …
+  …
 ```
 
-`Awaits: check` means this beat is not yours: it is a script. Nothing runs until
-you run it — here `gtd exec`, which reverts your sketch out of the working tree.
-gtd never commits and never touches the index, so land it exactly as before:
+`Awaits: check` means this beat is not yours: it is a script, here one that
+reverts your sketch out of the working tree. gtd never runs anything itself,
+never commits and never touches the index, so run it and land it exactly as
+before:
 
 ```bash
 sh -c "$(gtd next --json=content)"

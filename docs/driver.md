@@ -231,16 +231,13 @@ specifically bash. The same convention extends to the bundled workflow's
 be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION only — gtd never
 inspects or validates `testCommand`'s shell dialect itself.
 
-A `script` beat whose step body is a callback prints a one-line script,
-`exec gtd exec`. Running it is what runs the callback: `gtd exec` replays to the
-same rest and runs its body in the repository root, where it may write and
-delete working-tree files and run commands (the bundled workflow's checks run
-`testCommand`; its `unwind` and `re-unwind` reverse-apply patches to the working
-tree). Those are the only files gtd itself writes, besides `gtd uncheck`'s and
-`gtd ui`'s steering-file edits — and only when the driver runs the beat. What
-the callback leaves is landed like any other check turn, by `gtd land`'s script.
-A throwing callback makes `gtd exec` exit 1; land the tree anyway, as for any
-other failing check script.
+A `script` beat's content is the whole script, rendered from values the flow
+already decided — for the bundled workflow, its checks (which run
+`testCommand`), `unwind` and `re-unwind` (which reverse-apply patches to the
+working tree), and a few `rm`/`mv` bookkeeping steps. gtd itself runs none of
+them and writes nothing but `gtd uncheck`'s and `gtd ui`'s steering-file edits;
+what a script leaves is landed like any other check turn, by `gtd land`'s
+script, whatever its exit code.
 
 - **The required half** is everything that decides what lands in git — the
   commit itself (`gtd land`, `gtd --entry <state>`, and `gtd judge answer`, the

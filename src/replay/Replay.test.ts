@@ -364,6 +364,15 @@ describe("replay", () => {
     expect(await replayOf(throwing, new History())).toMatchObject({ kind: "failed" })
   })
 
+  it("fails a run step whose body is not a shell script", async () => {
+    const wf = workflow(async () => {
+      await run("check", (() => undefined) as unknown as string)
+    })
+    const outcome = await replayOf(wf, new History())
+    expect(outcome).toMatchObject({ kind: "failed" })
+    expect(outcome.kind === "failed" && outcome.message).toContain("shell script string")
+  })
+
   it("fails a flow that awaits something other than a step", async () => {
     const waiting = workflow(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
