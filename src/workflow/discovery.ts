@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { cosmiconfigSync, defaultLoadersSync, type LoaderSync } from "cosmiconfig"
 import { Context, Effect, Layer } from "effect"
 
@@ -136,23 +135,6 @@ const workflowModule = (
     },
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
-
-/**
- * The shipped `src/` directory — `@pmelab/gtd/flows` and `@pmelab/gtd/workflow`
- * resolve into it when a `gtd.config.ts` is evaluated. Found by walking up
- * from this module to the package root, so it holds for the bundle in `dist/`
- * and for the sources alike.
- */
-export const sourceDir = (): string => {
-  let dir = dirname(fileURLToPath(import.meta.url))
-  for (;;) {
-    const candidate = join(dir, "src")
-    if (existsSync(join(candidate, "flows", "runtime.ts"))) return candidate
-    const parent = dirname(dir)
-    if (parent === dir) throw new Error("gtd: cannot locate the shipped src directory")
-    dir = parent
-  }
-}
 
 const presentAt = (dir: string): Effect.Effect<boolean, Error> =>
   Effect.try({

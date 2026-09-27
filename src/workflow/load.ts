@@ -4,12 +4,13 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../Commentary.js"
 import { replay, treeFromRecord } from "../replay/index.js"
+import * as flows from "../flows/index.js"
 import { unified as builtInWorkflow } from "../workflows/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
 import { compileConfig, type ConfigLayer } from "./compile.js"
-import { ConfigDiscovery, sourceDir, type ConfigLevel, type WorkflowModule } from "./discovery.js"
+import { ConfigDiscovery, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
   BUILT_IN_ORIGIN,
@@ -202,19 +203,46 @@ type JitiModule = {
   createJiti: (id: string, options: Record<string, unknown>) => JitiInstance
 }
 
+type Transform = (options: { readonly source: string }) => { code: string; error?: unknown }
+
+// Transpiling is most of a load's cost, and a load re-transpiles
+// gtd.config.ts and every shipped module it imports. The same options (the
+// source included) always transpile to the same code, so an in-process memo
+// is safe; evaluation stays fresh on every load.
+const TRANSFORM_MEMO_SIZE = 512
+const memoized = (transform: Transform): Transform => {
+  const memo = new Map<string, ReturnType<Transform>>()
+  return (options) => {
+    const key = JSON.stringify(options)
+    const hit = memo.get(key)
+    if (hit !== undefined) return hit
+    const result = transform(options)
+    if (result.error !== undefined) return result
+    if (memo.size >= TRANSFORM_MEMO_SIZE) memo.delete(memo.keys().next().value!)
+    memo.set(key, result)
+    return result
+  }
+}
+
 // Loaded on first use: only a repository with its own gtd.config.ts needs it.
 let jitiModule: JitiModule | undefined
+let transform: Transform | undefined
 const jiti = (): JitiInstance => {
-  jitiModule ??= createRequire(import.meta.url)("jiti") as JitiModule
+  const require = createRequire(import.meta.url)
+  jitiModule ??= require("jiti") as JitiModule
+  // jiti's own Babel transform, which its package exports don't name.
+  transform ??= memoized(
+    require(join(dirname(require.resolve("jiti/package.json")), "dist", "babel.cjs")) as Transform,
+  )
   return jitiModule.createJiti(import.meta.url, {
-    alias: {
-      "@pmelab/gtd/flows": join(sourceDir(), "flows", "index.ts"),
-      "@pmelab/gtd/workflow": join(sourceDir(), "workflows", "unified.ts"),
-    },
+    // gtd's own modules, already loaded: a config runs against the very
+    // runtime replay installs its context for, never a second copy of it.
+    virtualModules: { "@pmelab/gtd/flows": flows, "@pmelab/gtd/workflow": builtInWorkflow },
     // No transpile cache on disk, and a fresh module every load — nothing a
     // later command could read back instead of the source.
     fsCache: false,
     moduleCache: false,
+    transform,
     // The whole module, not just its default: the named exports are read too.
     interopDefault: false,
   })
