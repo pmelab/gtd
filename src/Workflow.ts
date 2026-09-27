@@ -51,6 +51,8 @@ export interface WorkflowDefinition {
   readonly flow: Flow
   readonly summary?: Summary | undefined
   readonly base?: EntryBase | undefined
+  /** Steering files by path, with their mode — what the LSP knows before a step declaring one is reached. */
+  readonly steering: Readonly<Record<string, StateMode>>
   /** Every mode a step may name: the built-in registry merged with `.gtdrc` `modes:`. */
   readonly modes: Readonly<Record<StateMode, ModeDef>>
   /** The flow's first step on an ordinary start — where a finished episode waits. */

@@ -9,7 +9,9 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   basename fallback — the bundled `idle` names that exact path as its `file:`
   but declares no `mode:`, so nothing dispatches over it). Two further
   scenarios prove the config-driven half: documentSymbol served for a
-  CUSTOM-named `qa` file mapped via a real `gtd.config.ts` `file`/`mode` pair, and
+  CUSTOM-named `qa` file mapped via a real `gtd.config.ts` `file`/`mode` pair
+  (once its step is reached, or up front through the workflow's `steering`
+  export), and
   the `gtd.openSteeringFile` executeCommand resolving a
   hand-authored current state and asking the client to show its steering
   file (`window/showDocument`). A final scenario proves go-to-definition: a
@@ -66,6 +68,35 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[unanswered] Which operations?"
+
+  Scenario: a file the workflow's steering export declares is served before any step reaches it
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export const steering = { ".gtd/PLAN.md": "qa" }
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error

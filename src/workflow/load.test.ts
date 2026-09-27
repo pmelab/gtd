@@ -108,7 +108,7 @@ describe("ConfigService", () => {
     expect(cfg.workflow.initial).toBe("custom-idle")
   })
 
-  it("reads `defaults`, `summary` and `base` off the module and ignores its other exports", async () => {
+  it("reads `defaults`, `summary`, `base` and `steering` off the module and ignores its other exports", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [
@@ -116,6 +116,7 @@ describe("ConfigService", () => {
         `export const defaults = { greeting: "hi" }`,
         `export const summary = () => "sum"`,
         `export const base = () => undefined`,
+        `export const steering = { ".gtd/PLAN.md": "qa" }`,
         `export const helper = 42`,
         ``,
       ].join("\n"),
@@ -127,11 +128,16 @@ describe("ConfigService", () => {
     expect(cfg.workflowVars).toEqual({ greeting: "hi" })
     expect(typeof cfg.workflow.summary).toBe("function")
     expect(typeof cfg.workflow.base).toBe("function")
+    expect(cfg.workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
   })
 
   it.each([
     [`export const defaults = { n: 1 }`, /"defaults" export is not a record of strings/],
     [`export const summary = "text"`, /"summary" export is not a function/],
+    [
+      `export const steering = { ".gtd/PLAN.md": 1 }`,
+      /"steering" export is not a record of strings/,
+    ],
   ])("rejects a malformed named export: %s", async (line, message) => {
     writeFileSync(join(projectDir, "gtd.config.ts"), `${minimalWorkflow("first")}${line}\n`)
 

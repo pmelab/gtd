@@ -542,7 +542,7 @@ const reachedSteeringSteps: Effect.Effect<
 > = Effect.gen(function* () {
   const config = yield* (yield* ConfigService).load
   const rest = yield* Effect.either(currentRest)
-  const steps =
+  const reached =
     rest._tag === "Left"
       ? []
       : rest.right.trace.map((step) => ({
@@ -550,7 +550,13 @@ const reachedSteeringSteps: Effect.Effect<
           file: step.request.options.file,
           mode: step.request.options.mode,
         }))
-  return { def: config.workflow, steps }
+  // A step the process has reached wins; the `steering` export covers the rest.
+  const declared = Object.entries(config.workflow.steering).map(([file, mode]) => ({
+    name: "the steering export",
+    file,
+    mode,
+  }))
+  return { def: config.workflow, steps: [...reached, ...declared] }
 })
 
 /** The Node adapter: the only place `LspEnv`'s Effects/layers get built and run. `startLspServer` is its production caller; most `Lsp.test.ts` coverage exercises a fake `LspEnv` instead, but this is exported so the real wiring (real git/config/repo-files layers) gets exercised against a real temp repo too. */

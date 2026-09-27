@@ -1,4 +1,5 @@
 import {
+  answered,
   changes,
   codeChanges,
   head,
@@ -89,17 +90,14 @@ const actionable = async (review: string): Promise<boolean> => {
     message: t.buildReviewTriageMessage(),
     label: "Judging feedback actionability",
   })
-  const minP = numeric(vars.reviewNoteActionable, 0)
-  // A chunk counts as actionable unless the judge confidently said no, or
-  // said yes without enough confidence; a cut or unanswered chunk is actionable.
+  // Dismissing a note is the risky direction, so only a confident "no" on
+  // uncut evidence dismisses a chunk; a blank floor dismisses nothing.
+  const minP = numeric(vars.reviewNoteActionable, Infinity)
   return (
     chunks.length === 0 ||
     chunks.some((_, i) => {
       const id = `chunk-${i + 1}`
-      const answer = answers[id]
-      if (truncated.includes(id) || answer === undefined) return true
-      if (answer.answer === "no") return false
-      return answer.p >= minP
+      return truncated.includes(id) || !answered(answers[id], "no", minP)
     })
   )
 }

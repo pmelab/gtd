@@ -113,7 +113,9 @@ outright. See [Configuration](configuration.md) for the cost of extending it.
 
 ## Editor integration
 
-`gtd lsp` starts an LSP server over stdio for `.gtd/` steering files:
+`gtd lsp` starts an LSP server over stdio for `.gtd/` steering files — the files
+the steps a process has reached declare, plus those the workflow's `steering`
+export lists:
 
 - a symbol per `review`-mode chunk that still has an unchecked hunk (an outline
   of what is left to review), plus check/uncheck actions over those chunks

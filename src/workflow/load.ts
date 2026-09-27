@@ -179,6 +179,7 @@ export const load: Effect.Effect<
       flow: loaded.flow,
       summary: loaded.summary,
       base: loaded.base,
+      steering: loaded.steering,
       modes: compiled.modes,
       initial,
     },
@@ -189,7 +190,7 @@ export const load: Effect.Effect<
   }
 })
 
-interface LoadedModule extends Pick<WorkflowDefinition, "flow" | "summary" | "base"> {
+interface LoadedModule extends Pick<WorkflowDefinition, "flow" | "summary" | "base" | "steering"> {
   readonly defaults: Readonly<Record<string, string>>
   readonly origin: string
 }
@@ -219,6 +220,21 @@ const jiti = (): JitiInstance => {
   })
 }
 
+const stringRecord = (
+  exports: Record<string, unknown>,
+  name: string,
+): Readonly<Record<string, string>> => {
+  const value = exports[name] ?? {}
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Object.values(value).some((entry) => typeof entry !== "string")
+  ) {
+    throw new Error(`the "${name}" export is not a record of strings`)
+  }
+  return value as Readonly<Record<string, string>>
+}
+
 const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T | undefined => {
   const value = exports[name]
   if (value === undefined) return undefined
@@ -228,7 +244,7 @@ const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T 
 
 /**
  * Read a workflow module: the default export is the flow; `defaults`,
- * `summary` and `base` are optional; any other export is ignored.
+ * `summary`, `base` and `steering` are optional; any other export is ignored.
  */
 const fromModule = (exported: unknown, origin: string): LoadedModule => {
   const exports = (typeof exported === "object" && exported !== null ? exported : {}) as Record<
@@ -239,17 +255,10 @@ const fromModule = (exported: unknown, origin: string): LoadedModule => {
   if (typeof flow !== "function") {
     throw new Error("the default export is not a flow — export default an async function")
   }
-  const defaults = exports.defaults ?? {}
-  if (
-    typeof defaults !== "object" ||
-    defaults === null ||
-    Object.values(defaults).some((value) => typeof value !== "string")
-  ) {
-    throw new Error('the "defaults" export is not a record of strings')
-  }
   return {
     flow: flow as WorkflowDefinition["flow"],
-    defaults: defaults as Readonly<Record<string, string>>,
+    defaults: stringRecord(exports, "defaults"),
+    steering: stringRecord(exports, "steering"),
     summary: optionalFunction(exports, "summary"),
     base: optionalFunction(exports, "base"),
     origin,

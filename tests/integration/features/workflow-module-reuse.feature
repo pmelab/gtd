@@ -3,7 +3,7 @@ Feature: a gtd.config.ts builds on the bundled workflow through @pmelab/gtd/work
 
   `@pmelab/gtd/workflow` is the bundled workflow as a module: its default export
   is the flow gtd runs without a `gtd.config.ts`, and its phases, steps,
-  `defaults`, `summary` and `base` are named exports. A workflow of its own can
+  `defaults`, `summary`, `base` and `steering` are named exports. A workflow of its own can
   re-export what it keeps and compose the rest, and the steps it reuses keep
   their full names.
 
@@ -14,7 +14,7 @@ Feature: a gtd.config.ts builds on the bundled workflow through @pmelab/gtd/work
       import { start } from "@pmelab/gtd/flows"
       import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
 
-      export { defaults, summary, base } from "@pmelab/gtd/workflow"
+      export { defaults, summary, base, steering } from "@pmelab/gtd/workflow"
 
       export default async ({ entry }) =>
         entry === "hotfix" ? afterTail(await buildTail(true, start())) : bundled({ entry })

@@ -60,10 +60,12 @@ export const defaults = { testCommand: "npm test" }
 The **flow** is an `async` function that awaits steps. Its first step on an
 ordinary start is where a finished process waits (the bundled workflow calls it
 `idle`). The flow receives `{ entry }`, the name a process was started with by
-`gtd --entry` (see [Entries](#entries)). Three named exports are optional:
+`gtd --entry` (see [Entries](#entries)). Four named exports are optional:
 `defaults` (the workflow's own variable defaults, see [Variables](#variables)),
-`summary` (the prompt `gtd summary` prints, see [Summary](#summary)) and `base`
-(see [Entries](#entries)). gtd ignores every other export, so a module can
+`summary` (the prompt `gtd summary` prints, see [Summary](#summary)), `base`
+(see [Entries](#entries)) and `steering` — steering file paths with their mode,
+e.g. `{ ".gtd/docs/adr.md": "adr" }`, which `gtd lsp` serves even before a step
+declaring them is reached. gtd ignores every other export, so a module can
 export helpers for other workflows to import.
 
 gtd resolves `@pmelab/gtd/flows` itself, so a `gtd.config.ts` needs no
@@ -225,7 +227,7 @@ resting on the old name.
 import { start } from "@pmelab/gtd/flows"
 import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
 
-export { defaults, summary, base } from "@pmelab/gtd/workflow"
+export { defaults, summary, base, steering } from "@pmelab/gtd/workflow"
 
 export default async ({ entry }) =>
   entry === "hotfix"

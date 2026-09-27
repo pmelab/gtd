@@ -16,7 +16,7 @@ import { baseline, gate } from "./health.js"
 import { packages } from "./packages.js"
 import { architecturePass, design } from "./planning.js"
 import { buildTail, type ReviewOutcome } from "./review.js"
-import { FEEDBACK, REVIEW } from "./steps.js"
+import { ARCHITECTURE, FEEDBACK, REQUIREMENTS, REVIEW } from "./steps.js"
 import * as t from "./text.js"
 
 // gtd's built-in default workflow. Any change to the tree starts a process:
@@ -121,6 +121,8 @@ export default async function unified({ entry }: FlowArgs): Promise<void> {
 }
 
 export const summary: Summary = t.summaryPrompt
+
+export const steering = { [REQUIREMENTS]: "qa", [ARCHITECTURE]: "qa", [REVIEW]: "review" }
 
 export const base: EntryBase = (entry, vars) =>
   entry === "review-gate.check" ? (vars.reviewBase ?? "") : undefined

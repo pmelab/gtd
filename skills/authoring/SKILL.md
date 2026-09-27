@@ -12,11 +12,11 @@ description: >-
 
 A gtd workflow is **plain async TypeScript**: a `gtd.config.ts` at the
 repository root default-exports the **flow**, one async function that awaits
-**steps** built from `@pmelab/gtd/flows`; optional `defaults`, `summary` and
-`base` exports sit beside it, and any other export is a helper gtd ignores.
-Every step is a commit; gtd finds where a process rests by **replaying** the
-flow over the episode's commits, so the git history IS the state and nothing is
-stored anywhere else.
+**steps** built from `@pmelab/gtd/flows`; optional `defaults`, `summary`, `base`
+and `steering` (steering file → mode, for the LSP) exports sit beside it, and
+any other export is a helper gtd ignores. Every step is a commit; gtd finds
+where a process rests by **replaying** the flow over the episode's commits, so
+the git history IS the state and nothing is stored anywhere else.
 
 Your job is to produce or edit that module so it loads cleanly and does what the
 user wants. Driving a workflow once it exists is a separate concern — that is
@@ -38,7 +38,7 @@ by importing what you keep and writing only what changes:
 import { start } from "@pmelab/gtd/flows"
 import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
 
-export { defaults, summary, base } from "@pmelab/gtd/workflow"
+export { defaults, summary, base, steering } from "@pmelab/gtd/workflow"
 
 export default async ({ entry }) =>
   entry === "hotfix"
