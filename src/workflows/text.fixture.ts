@@ -22,6 +22,7 @@ export const renderText = <T>(text: () => T, context: TextContext = {}): T => {
     read: context.read ?? (() => undefined),
     glob: () => [],
     changes: () => [],
+    changesSince: unavailable,
     matches: () => false,
     sections: () => [],
     sectionBodies: () => [],

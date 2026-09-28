@@ -232,6 +232,16 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     parsed: parseCommitMessage(c.message),
   }))
 
+  // Every replay re-derives base, commits and head() from whatever history
+  // exists right now, so a hash a flow reads this same run (head()/start())
+  // always names a commit `treeAt` can find here. Only a hash a flow gets from
+  // somewhere else — stored state, another branch, a fabricated value — can
+  // miss.
+  const treeAt = (hash: string): TreeView | undefined =>
+    hash === input.episode.base.hash
+      ? input.episode.base.tree
+      : commits.find((c) => c.hash === hash)?.tree
+
   let cursor = 0
   let pendingUsed = false
   let position: Position = input.episode.base
@@ -444,6 +454,15 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     read: (path) => position.tree.read(path),
     glob: (pattern) => position.tree.paths().filter((path) => globMatches(path, pattern)),
     changes: () => changesBetween(previousPosition.tree, position.tree),
+    changesSince: (hash) => {
+      const tree = treeAt(hash)
+      if (tree === undefined) {
+        throw new Error(
+          `gtd: changesSince(${hash}): ${hash} is not the episode base or one of its commits — pass a hash this run read from head() or start(), not one captured earlier, read from state, or from another branch`,
+        )
+      }
+      return changesBetween(tree, position.tree)
+    },
     matches: globMatches,
     sections: (text) => headingSections(text),
     sectionBodies: (text) => headingSectionBodies(text),

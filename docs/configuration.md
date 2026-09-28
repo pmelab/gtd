@@ -129,6 +129,9 @@ landed step left — never the live working tree:
   the content on either side (`undefined` on the side where the path is absent).
   The list also has `paths` and `get(path)`. A landing that changed nothing
   yields an empty list
+- `changesSince(hash, glob?)` — the same shape as `changes()`, but over every
+  commit from `hash` to where replay stands. `hash` must be a commit this run
+  read from `head()` or `start()`; any other hash fails the step
 - `sections(text)` — the top-level `## ` headings of markdown `text`
 - `sectionBodies(text)` — the same sections as `{ title, body }`, `body` being
   the section's own markdown, its heading line included

@@ -1,7 +1,9 @@
 import {
   answered,
   changes,
+  changesSince,
   glob,
+  head,
   judge,
   numeric,
   read,
@@ -10,31 +12,34 @@ import {
   run,
   scope,
   sectionBodies,
-  start,
   vars,
   wrote,
   type JudgeQuestion,
 } from "../flows/index.js"
+import { packageDiff } from "./diff.js"
 import { healthy } from "./health.js"
 import { ARCHITECTURE, build, fixSpec, fixSuite, reviewPackage, SPEC_FEEDBACK } from "./steps.js"
 import * as t from "./text.js"
 
 const MAX_SECTIONS = 8
+const DIFF_KEY = "diff"
 
 const sectionQuestion = (id: string, title: string): JudgeQuestion => ({
   id,
   primitive: "noul",
-  instructions: `Is the requirement "${title}" already fully satisfied by the code on the range from ${start()} to the working tree?`,
+  instructions: `Is the requirement "${title}" — the "${id}" evidence — already fully satisfied by the code in the "${DIFF_KEY}" evidence?`,
   criteria:
-    "Judge from the package markdown plus that range, read yourself. Only answer yes at a probability clearing the threshold below if genuinely confident nothing in this section is missing.",
+    "Judge from the requirement text and the diff evidence alone. Only answer yes at a probability clearing the threshold below if genuinely confident nothing in this section is missing.",
 })
 
 /**
  * Review one freshly built package against its spec: a pre-judge per
  * section, then an agent review of the sections it did not confidently
- * clear. Resolves `true` when approved.
+ * clear. `since` is the commit the package's own build started from — the
+ * pre-judge's evidence is a diff over exactly that range, never an earlier
+ * package's commits. Resolves `true` when approved.
  */
-export const specReview = async (pkg: string): Promise<boolean> => {
+export const specReview = async (pkg: string, since: string): Promise<boolean> => {
   const found = sectionBodies(read(pkg) ?? "")
   const titles = found.map((section) => section.title)
   const judged = titles.length > 0 && titles.length <= MAX_SECTIONS
@@ -45,6 +50,10 @@ export const specReview = async (pkg: string): Promise<boolean> => {
       evidence[`section-${i + 1}`] = body
       questions.push(sectionQuestion(`section-${i + 1}`, title))
     })
+    // The diff's own even share of the budget: one key per section plus
+    // `diff` itself, so this cap equals what `budgeted` gives it below.
+    const capBytes = Math.floor(numeric(vars.judgeBudgetBytes, 32768) / (found.length + 1))
+    evidence[DIFF_KEY] = packageDiff(changesSince(since), capBytes)
   }
   const { answers, truncated } = await judge("spec.pre", {
     questions,
@@ -52,11 +61,17 @@ export const specReview = async (pkg: string): Promise<boolean> => {
     message: t.packagesItemSpecPreMessage(),
     label: "Judging spec coverage",
   })
-  // A section is cleared only by a confident yes on evidence that was not cut.
+  // A section is cleared only by a confident yes on evidence that was not
+  // cut — its own body, or the diff every question is judged against.
   const clearMinP = numeric(vars.specPreJudge, Infinity)
   const failing = titles.filter((_, i) => {
     const id = `section-${i + 1}`
-    return !judged || truncated.includes(id) || !answered(answers[id], "yes", clearMinP)
+    return (
+      !judged ||
+      truncated.includes(id) ||
+      truncated.includes(DIFF_KEY) ||
+      !answered(answers[id], "yes", clearMinP)
+    )
   })
   if (titles.length > 0 && failing.length === 0) return true
   await reviewPackage(pkg, failing)
@@ -69,10 +84,11 @@ export const specReview = async (pkg: string): Promise<boolean> => {
 
 /** Build `pkg`, keep the suite green, review it against its spec, and close it out, which removes it. */
 export const packageItem = async (pkg: string): Promise<void> => {
+  const since = head()
   await build(pkg)
   for (;;) {
     await healthy(fixSuite)
-    if (await specReview(pkg)) break
+    if (await specReview(pkg, since)) break
     await fixSpec(pkg)
   }
   // The spent technical plan goes with the first package built from it.
