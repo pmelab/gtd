@@ -44,6 +44,33 @@ const contrastRatio = (a: string, b: string): number => {
   return (bright + 0.05) / (dark + 0.05)
 }
 
+/** `.diff-dimmed`'s own `opacity` — the ONE number `Hunk.tsx`'s dimmed-context rows are painted at — parsed from the real stylesheet, never a duplicated JS constant. */
+const readDimmedOpacity = (): number => {
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8")
+  const match = css.match(/\.diff-dimmed\s*{\s*opacity:\s*([\d.]+);/)
+  if (match?.[1] === undefined) throw new Error("tokens.test.ts: no .diff-dimmed opacity found")
+  return Number(match[1])
+}
+
+/**
+ * What a browser actually paints for `opacity: N` on a foreground-only
+ * element: the foreground colour composited at `opacity` over whatever sits
+ * behind it — never a literal CSS `color`, since the dimmed rows never get
+ * one of their own (T3: opacity on the foreground, not a new colour token).
+ */
+const blendOverBackground = (foreground: string, background: string, opacity: number): string => {
+  const fg = foreground.replace("#", "")
+  const bg = background.replace("#", "")
+  const mix = (i: number) => {
+    const f = parseInt(fg.slice(i, i + 2), 16)
+    const b = parseInt(bg.slice(i, i + 2), 16)
+    return Math.round(opacity * f + (1 - opacity) * b)
+      .toString(16)
+      .padStart(2, "0")
+  }
+  return `#${mix(0)}${mix(2)}${mix(4)}`
+}
+
 describe("styles.css contrast", () => {
   const tokens = readColorTokens()
 
@@ -155,6 +182,47 @@ describe("styles.css contrast", () => {
     expect(contrastRatio(tokens.divider!, tokens.page!)).toBeGreaterThan(1.2)
     expect(contrastRatio(tokens.divider!, tokens.page!)).toBeLessThan(
       contrastRatio(tokens.border!, tokens.page!),
+    )
+  })
+
+  /**
+   * T3's own opacity-only rule, pinned on the actual blended colour a
+   * browser paints. `.diff-dimmed` (`Hunk.tsx#DiffLines`) wraps a dimmed
+   * row's WHOLE text — every `TOKEN_COLOR` span inside it, not just plain
+   * `text` — and a dimmed row keeps its own kind's `LINE_BACKGROUND` (T3:
+   * opacity is foreground-only), which for the pad band around a NEW-FILE
+   * range is `add` throughout
+   * (`Hunk.stories.tsx#RangeInANewFileShowsTwelveInRangeRowsWithThreeDimmedOnEachSide`).
+   * So the real claim is fifteen pairs — `text` plus the five `TOKEN_COLOR`
+   * entries, each across `page` (also what a dimmed `context` row's
+   * `bg-transparent` sits on), `diff-add` and `diff-del` — never `text` on
+   * `page` alone, which a syntax token blended over an add/del fill can
+   * silently miss (a real regression this file's own history caught: at
+   * `opacity: 0.6`, `syntax-kw` on `diff-add` landed at 3.11:1). This app
+   * ships one theme — this whole file's `@theme` block IS that theme,
+   * labelled "Dark-only palette" at its own top — so "both light and dark"
+   * holds vacuously today: there is no second palette for a future light
+   * theme to regress without this file gaining a second `readColorTokens`
+   * source.
+   */
+  describe("dimmed diff context (.diff-dimmed)", () => {
+    const opacity = readDimmedOpacity()
+    const dimmedForegrounds = [
+      "text",
+      "syntax-kw",
+      "syntax-str",
+      "syntax-num",
+      "syntax-typ",
+      "syntax-com",
+    ]
+    const dimmedBackgrounds = ["page", "diff-add", "diff-del"]
+
+    it.each(dimmedForegrounds.flatMap((fg) => dimmedBackgrounds.map((bg) => [fg, bg] as const)))(
+      "%s clears AA on %s once blended at the shipped dimmed opacity",
+      (fg, bg) => {
+        const blended = blendOverBackground(tokens[fg]!, tokens[bg]!, opacity)
+        expect(contrastRatio(blended, tokens[bg]!)).toBeGreaterThanOrEqual(4.5)
+      },
     )
   })
 })

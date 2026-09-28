@@ -751,7 +751,7 @@ export const RealContainerFetchesTheCurrentHunksDiffLive: StoryObj<typeof Review
           return {
             kind: "hunk",
             diff: { path: "./src/calc.ts", hunks: [] },
-            hunk: { header: "@@ -0,0 +1 @@", newStart: 1, newLines: 1, lines: ["+const x = 1"] },
+            hunks: [{ header: "@@ -0,0 +1 @@", newStart: 1, newLines: 1, lines: ["+const x = 1"] }],
           }
         },
       }}
@@ -764,7 +764,10 @@ export const RealContainerFetchesTheCurrentHunksDiffLive: StoryObj<typeof Review
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
     await fireEvent.click(canvas.getByTestId("chunk-open-0"))
-    await waitFor(() => expect(canvas.getByTestId("diff-line-0")).toHaveTextContent("const x = 1"))
+    // Line 0 is now the hunk's own `@@` header (package 03 T1: every
+    // resolved hunk renders one, not just the whole-file fallback); the
+    // body starts at line 1.
+    await waitFor(() => expect(canvas.getByTestId("diff-line-1")).toHaveTextContent("const x = 1"))
     await expect(canvas.queryByTestId("hunk-diff-loading")).not.toBeInTheDocument()
   },
 }

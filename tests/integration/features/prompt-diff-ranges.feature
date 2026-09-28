@@ -68,7 +68,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1
+      - [ ] ./src/calc.ts#1-1
       new add function
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
@@ -79,7 +79,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1
+      - [x] ./src/calc.ts#1-1
       new add function — also handle negatives
       """
     And gtd lands "gtd(human): build.review.await-review → build.review.closing"

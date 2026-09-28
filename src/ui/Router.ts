@@ -14,7 +14,11 @@ export interface RouterContext {
   readonly readStep: () => Promise<StepRead>
   readonly writeNote: (request: NoWorktreePath<WriteNoteRequest>) => Promise<WriteResult>
   readonly writeValue: (request: NoWorktreePath<WriteValueRequest>) => Promise<WriteResult>
-  readonly resolveDiff: (path: string, line: number | undefined) => Promise<DiffResult>
+  readonly resolveDiff: (
+    path: string,
+    line: number | undefined,
+    endLine: number | undefined,
+  ) => Promise<DiffResult>
   readonly readSteeringFile: (
     request: NoWorktreePath<ReadSteeringFileRequest>,
   ) => Promise<ReadSteeringFileResult>
@@ -223,15 +227,24 @@ const viewInput = (
   return { content: value.content, mode: parseOptionalMode(value.mode) }
 }
 
-/** `resolveDiff`'s own input validator — `{ path: string, line?: number }`, no `worktreePath`. `line` is optional: a bare pointer with no line number is a real, valid case (`resolveDiff`'s own "no line number"), not a validation failure. */
-const diffInput = (value: unknown): { readonly path: string; readonly line?: number } => {
+/** `resolveDiff`'s own input validator — `{ path: string, line?: number, endLine?: number }`, no `worktreePath`. `line`/`endLine` are each optional: a bare pointer with no line number (or a line pointer with no end) is a real, valid case, not a validation failure — the same "number when present" check applies to both. */
+const diffInput = (
+  value: unknown,
+): { readonly path: string; readonly line?: number; readonly endLine?: number } => {
   if (!isRecord(value) || typeof value.path !== "string") {
-    throw new Error("expected { path: string, line?: number }")
+    throw new Error("expected { path: string, line?: number, endLine?: number }")
   }
   if (value.line !== undefined && typeof value.line !== "number") {
     throw new Error("expected line to be a number when present")
   }
-  return { path: value.path, ...(value.line !== undefined ? { line: value.line } : {}) }
+  if (value.endLine !== undefined && typeof value.endLine !== "number") {
+    throw new Error("expected endLine to be a number when present")
+  }
+  return {
+    path: value.path,
+    ...(value.line !== undefined ? { line: value.line } : {}),
+    ...(value.endLine !== undefined ? { endLine: value.endLine } : {}),
+  }
 }
 
 /** `readSteeringFile`'s own input validator — `{ filePath: string, mode?: string }`, no `worktreePath`. */
@@ -342,17 +355,18 @@ export const appRouter = t.router({
 
   /**
    * A hunk screen's one read: `Diff.ts#resolveDiff`'s pure dispatch (`gtd
-   * base` plus a `git diff` of that base against `HEAD` — never the working
-   * tree, see `Diff.ts#resolveDiff`'s own doc comment for why — sliced to
-   * the pointed-at hunk when one resolves) — never re-implemented here.
-   * `DiffResult` is already a closed, JSON-serializable union (`hunk` /
-   * `whole-file` / `binary` / `refused`), so unlike `writeNote`/`view` there
-   * is nothing to lift into a `TRPCError`'s `cause`: a `refused` result IS
-   * the typed refusal, returned as plain data for the client to switch on.
+   * base` plus a `git diff` of that base against the WORKING TREE — never
+   * `HEAD`, see `Diff.ts#resolveDiff`'s own doc comment for why — sliced to
+   * every hunk the `[line, endLine]` range overlaps) — never re-implemented
+   * here. `DiffResult` is already a closed, JSON-serializable union (`hunk`
+   * / `whole-file` / `binary` / `refused`), so unlike `writeNote`/`view`
+   * there is nothing to lift into a `TRPCError`'s `cause`: a `refused`
+   * result IS the typed refusal, returned as plain data for the client to
+   * switch on.
    */
   diff: t.procedure
     .input(diffInput)
-    .query(({ input, ctx }) => ctx.resolveDiff(input.path, input.line)),
+    .query(({ input, ctx }) => ctx.resolveDiff(input.path, input.line, input.endLine)),
 
   /**
    * A screen's one entry point before it can render OR write back:

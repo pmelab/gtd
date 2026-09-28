@@ -288,6 +288,7 @@ const HunkWithDiff = ({ node, ...rest }: Omit<HunkProps, "diff">) => {
     {
       path: node.path ?? "",
       ...(node.line !== undefined ? { line: node.line } : {}),
+      ...(node.endLine !== undefined ? { endLine: node.endLine } : {}),
     },
     { enabled: node.path !== undefined },
   )

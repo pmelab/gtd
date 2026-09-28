@@ -51,7 +51,13 @@ const TOKEN_COLOR: Readonly<Record<string, string>> = {
   typ: "text-syntax-typ",
 }
 
-const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
+/** One rendered row: `dimmed` is opacity-only (T3) — never a distinct `LineKind`, and never folded into `LINE_BACKGROUND`, so a dimmed add/del/context row keeps its own kind's background exactly as painted today. */
+interface DiffRow {
+  readonly line: string
+  readonly dimmed: boolean
+}
+
+const DiffLines = ({ lines }: { readonly lines: readonly DiffRow[] }) => (
   <div className="overflow-x-auto border-y border-divider py-1 font-mono text-small leading-6">
     {/* `min-w-max`: a block-level line sizes to the SCROLL PORT, not to the
         scrollable content, so without a content-width wrapper every line's
@@ -60,24 +66,49 @@ const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
         its own text. Sizing the wrapper to the widest line also paints every
         row to the SAME width, so the add/del bands stay flush. */}
     <div className="min-w-max">
-      {lines.map((line, i) => {
-        const { kind, tokens } = highlightDiffLine(line)
+      {lines.map((row, i) => {
+        const { kind, tokens } = highlightDiffLine(row.line)
         return (
           <div
             key={i}
             data-testid={`diff-line-${i}`}
             data-kind={kind}
-            className={`${LINE_BACKGROUND[kind]} whitespace-pre px-2`}
+            data-dimmed={row.dimmed ? true : undefined}
+            // `border-l-2` on EVERY row, not just dimmed ones, so the 2px
+            // never shifts content between the two states — only its colour
+            // does. `border-border` (never `border-divider`, which is
+            // deliberately sub-3:1 — see `tokens.test.ts`'s own comment on
+            // it) is the actual "see at a glance" cue: a reviewer spots the
+            // rule at a glance the way `opacity` alone cannot (spec
+            // feedback — two greys 1.37:1 apart read as one colour scanned
+            // quickly), and it costs nothing from the AA budget `.diff-dimmed`
+            // already spends, since a border isn't `LINE_BACKGROUND` or a
+            // foreground colour (T3 rules out only those two).
+            className={`${LINE_BACKGROUND[kind]} whitespace-pre px-2 border-l-2 ${
+              row.dimmed ? "border-border" : "border-transparent"
+            }`}
           >
-            {tokens.map((token, j) => (
-              <span
-                key={j}
-                data-token-kind={token.className}
-                className={token.className !== undefined ? TOKEN_COLOR[token.className] : undefined}
-              >
-                {token.text}
-              </span>
-            ))}
+            {/* The opacity wrapper, never the row above: `opacity` on the row
+                itself would also fade `LINE_BACKGROUND`, which T3 forbids —
+                this span has no background of its own, so it only fades the
+                painted TEXT toward whatever the row already renders behind
+                it. `.diff-dimmed`'s exact value is pinned by `tokens.test.ts`
+                against the page and the (transparent) context background;
+                the left border above is the PRIMARY glanceable cue, opacity
+                the secondary one. */}
+            <span className={row.dimmed ? "diff-dimmed" : undefined}>
+              {tokens.map((token, j) => (
+                <span
+                  key={j}
+                  data-token-kind={token.className}
+                  className={
+                    token.className !== undefined ? TOKEN_COLOR[token.className] : undefined
+                  }
+                >
+                  {token.text}
+                </span>
+              ))}
+            </span>
           </div>
         )
       })}
@@ -85,9 +116,22 @@ const DiffLines = ({ lines }: { readonly lines: readonly string[] }) => (
   </div>
 )
 
-/** The whole-file fallback's own lines: each hunk's `@@ ... @@` header FIRST, then its body — never bare bodies concatenated with nothing between them. Without the header, non-contiguous regions of the file render as one continuous block with no visible gap marker; `highlightDiffLine` already renders a `@@` line unhighlighted (T8), but only when one actually reaches it. */
-const flattenLines = (diff: FileDiff): readonly string[] =>
-  diff.hunks.flatMap((h) => [h.header, ...h.lines])
+type Hunk = FileDiff["hunks"][number]
+
+/**
+ * One code path for both the whole-file fallback and a resolved `"hunk"`
+ * range (T1): each hunk's `@@` header first, then its (sliced) body — never
+ * bare bodies concatenated with nothing between them, which would read two
+ * non-contiguous regions as one continuous block. Each line's `dimmed` flag
+ * comes straight off the hunk itself (`Diff.ts#sliceHunk`'s own `dimmed`
+ * array) — absent (so every line reads `false`) for the whole-file fallback,
+ * whose hunks were never sliced to a range.
+ */
+const flattenHunks = (hunks: readonly Hunk[]): readonly DiffRow[] =>
+  hunks.flatMap((h) => [
+    { line: h.header, dimmed: false },
+    ...h.lines.map((line, i) => ({ line, dimmed: h.dimmed?.[i] ?? false })),
+  ])
 
 /** The diff area's own six-way branch (loading / binary / no-changes / refused / whole-file-fallback-with-banner / a single resolved hunk) — split out so `Hunk` itself stays a plain layout shell around it. */
 // fallow-ignore-next-line complexity
@@ -126,11 +170,11 @@ const DiffBody = ({ diff }: { readonly diff: DiffResult | undefined }) => {
         <Notice tone="error" data-testid="hunk-diff-banner">
           This pointer did not resolve to a specific hunk — showing the whole file's diff instead.
         </Notice>
-        <DiffLines lines={flattenLines(diff.diff)} />
+        <DiffLines lines={flattenHunks(diff.diff.hunks)} />
       </>
     )
   }
-  return <DiffLines lines={diff.hunk.lines} />
+  return <DiffLines lines={flattenHunks(diff.hunks)} />
 }
 
 /**

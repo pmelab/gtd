@@ -222,16 +222,16 @@ describe("appRouter.view", () => {
 
 describe("appRouter.diff", () => {
   it("delegates straight to the context's resolveDiff, forwarding path/line", async () => {
-    let received: readonly [string, number | undefined] | undefined
+    let received: readonly [string, number | undefined, number | undefined] | undefined
     const caller = appRouter.createCaller(
-      contextFor(undefined, undefined, (path, line) => {
-        received = [path, line]
+      contextFor(undefined, undefined, (path, line, endLine) => {
+        received = [path, line, endLine]
         return Promise.resolve({ kind: "binary" })
       }),
     )
     const result = await caller.diff({ path: "./src/a.ts", line: 3 })
     expect(result).toEqual({ kind: "binary" })
-    expect(received).toEqual(["./src/a.ts", 3])
+    expect(received).toEqual(["./src/a.ts", 3, undefined])
   })
 
   it("forwards an absent line as undefined, not zero or a validation error", async () => {
@@ -248,6 +248,31 @@ describe("appRouter.diff", () => {
     )
     await caller.diff({ path: "./src/a.ts" })
     expect(received).toBeUndefined()
+  })
+
+  it("forwards path, line, and endLine together when all three are given", async () => {
+    let received: readonly [string, number | undefined, number | undefined] | undefined
+    const caller = appRouter.createCaller(
+      contextFor(undefined, undefined, (path, line, endLine) => {
+        received = [path, line, endLine]
+        return Promise.resolve({ kind: "binary" })
+      }),
+    )
+    await caller.diff({ path: "./src/a.ts", line: 42, endLine: 70 })
+    expect(received).toEqual(["./src/a.ts", 42, 70])
+  })
+
+  it("a missing endLine is not a validation failure — { path } and { path, line } still validate", async () => {
+    const caller = appRouter.createCaller(
+      contextFor(undefined, undefined, () => Promise.resolve({ kind: "binary" })),
+    )
+    await expect(caller.diff({ path: "./src/a.ts" })).resolves.toEqual({ kind: "binary" })
+    await expect(caller.diff({ path: "./src/a.ts", line: 3 })).resolves.toEqual({ kind: "binary" })
+  })
+
+  it("rejects a non-number endLine with the same 'number when present' error shape line already produces", async () => {
+    const caller = appRouter.createCaller(contextFor())
+    await expect(caller.diff({ path: "./src/a.ts", endLine: "70" } as never)).rejects.toThrow()
   })
 
   it("returns a `refused` result as plain data, never a thrown TRPCError — DiffResult is already the typed refusal", async () => {

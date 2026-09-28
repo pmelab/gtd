@@ -31,7 +31,7 @@ import {
   InMemRepo,
   applyEmittedScript,
 } from "../../../src/testing/index.js"
-import type { AppRouter } from "../../../src/ui/index.js"
+import type { AppRouter, DiffResult } from "../../../src/ui/index.js"
 import type { SteeringAnchor, SteeringView } from "../../../src/steering/index.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
@@ -294,6 +294,8 @@ export class GtdWorld extends QuickPickleWorld {
   lastServePort: number | undefined = undefined
   /** Package 01 Task 10's own `view` result — `spawnGtdUiAndReadView`'s real `readSteeringFile` query response, stashed for a later `Then` step to assert the rendered node shapes against. */
   lastSteeringView: SteeringView | undefined = undefined
+  /** Package 04's own `diff` proof: a real `gtd ui` subprocess, a real `diff` query against it — stashed for a later `Then` step to assert a range's resolved shape (hunk lines, the whole-file banner, or a pure-deletion fallback) against. */
+  lastDiffResult: DiffResult | undefined = undefined
   /** Package 01 Task 10's own stale-write proof: the typed refusal `spawnGtdUiAndSetValueWithStaleHash` reads off a real rejected `setValue` mutation, or `undefined` if the write unexpectedly succeeded. */
   lastWriteRefusal: { readonly reason: string; readonly moved?: string } | undefined = undefined
   /** Package 01 Task 10's own `ui.format` proof: the first write's own post-format `contentHash`, and whether a second write issued against it succeeded — `spawnGtdUiAndWriteTwiceReusingHash`'s result. */
@@ -806,6 +808,12 @@ export class GtdWorld extends QuickPickleWorld {
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8")
     })
+    // Without stderr in the failure message, a `gtd ui` that exits on a config
+    // error is indistinguishable from one that merely bound slowly.
+    let stderr = ""
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8")
+    })
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
       (resolve) => {
         child.once("exit", (code, sig) => resolve({ code, signal: sig }))
@@ -815,7 +823,7 @@ export class GtdWorld extends QuickPickleWorld {
     for (let i = 0; i < UI_BOUND_URL_POLL_ATTEMPTS && !stdout.includes("https://"); i += 1) {
       await delay(UI_BOUND_URL_POLL_INTERVAL_MS)
     }
-    assert.ok(stdout.includes("https://"), `gtd ui never printed its bound URL: ${stdout}`)
+    assert.ok(stdout.includes("https://"), `gtd ui never printed its bound URL: ${stdout}${stderr}`)
     const boundUrl = stdout.split("\n")[0]!.trim()
     return { child, boundUrl, exited }
   }
@@ -1332,6 +1340,42 @@ export class GtdWorld extends QuickPickleWorld {
       const result = await client.readSteeringFile.query({ filePath, mode })
       assert.ok(result.ok, `expected readSteeringFile to succeed, got: ${JSON.stringify(result)}`)
       this.lastSteeringView = result.view
+    } finally {
+      this.restoreTlsReject(previousTlsReject)
+    }
+
+    child.kill("SIGTERM")
+    await exited
+  }
+
+  /**
+   * Package 04's own range-resolution proof: a REAL `gtd ui` subprocess, a
+   * REAL `diff` tRPC query against it — the same round trip a review hunk's
+   * screen drives to fetch what it renders — stashing the returned
+   * `DiffResult` on `lastDiffResult` for a later `Then` step to assert
+   * against. Mirrors `spawnGtdUiAndReadView`'s own teardown: `diff` never
+   * ends the turn, so this kills the process (SIGTERM) once the query has
+   * resolved.
+   */
+  async spawnGtdUiAndResolveDiff(
+    path: string,
+    line: number | undefined,
+    endLine: number | undefined,
+  ): Promise<void> {
+    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
+
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    try {
+      const { createTRPCClient, httpBatchLink } = await import("@trpc/client")
+      const client = createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+      })
+      this.lastDiffResult = await client.diff.query({
+        path,
+        ...(line !== undefined ? { line } : {}),
+        ...(endLine !== undefined ? { endLine } : {}),
+      })
     } finally {
       this.restoreTlsReject(previousTlsReject)
     }

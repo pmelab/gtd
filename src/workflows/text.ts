@@ -621,17 +621,19 @@ review the changes:
 - At least one \`## <Chunk Title>\` heading grouping hunks
   semantically (same feature/refactor/fix, across files), each
   with a short explanation of what changed and why, then one
-  pointer per hunk (\`./\`-relative path, optional \`#line\`;
-  checkboxes are for the human, not you). Put the note's
-  opening line right on the pointer's line:
+  pointer per hunk (\`./\`-relative path, mandatory \`#start-end\`;
+  checkboxes are for the human, not you). A pointer into a NEW file
+  gets a range covering only the region the note is about — never
+  the whole file. Put the note's opening line right on the
+  pointer's line:
 
-      - [ ] ./path/to/file.ts#42 — what this hunk does
+      - [ ] ./path/to/file.ts#42-70 — what this hunk does
 
   Continue a longer note below the pointer, indented exactly two spaces
   — never four or more, which reads as a code block and never
   reflows:
 
-      - [ ] ./path/to/file.ts#42 — what this hunk does
+      - [ ] ./path/to/file.ts#42-70 — what this hunk does
         and here is more detail, continued below it
 
   A note sitting entirely on the line(s) beneath the pointer is

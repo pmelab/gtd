@@ -289,14 +289,14 @@ describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", 
       "",
       "## Chunk",
       "",
-      "- [ ] ./src/a.ts#1 some trailing prose",
+      "- [ ] ./src/a.ts#1-1 some trailing prose",
       "",
     ].join("\n")
     // The fixture itself must already be an oxfmt fixed point, or the
     // assertion below would fail on unrelated reflow, not the regression
     // this test targets.
     expect(formatWithOxfmt(content)).toBe(content)
-    const cursor = { line: 6, character: "- [ ] ./src/a.ts#1 some trailing prose".length } // end of blockEndLine
+    const cursor = { line: 6, character: "- [ ] ./src/a.ts#1-1 some trailing prose".length } // end of blockEndLine
     const action = REVIEW_FORMAT.actions(content, { start: cursor, end: cursor }).find(
       (a) => a.title === "gtd: add a footnote",
     )!
