@@ -864,7 +864,7 @@ export const runUiCommand = (
           isServedFile(request.filePath)
             ? writeValue({ ...request, worktreePath: cwd.root }, writeDeps)
             : Promise.resolve({ ok: false, reason: "file-vanished" }),
-        resolveDiff: (path, line) => resolveDiff(cwd.root, path, line, diffDeps),
+        resolveDiff: (path, line, endLine) => resolveDiff(cwd.root, path, line, endLine, diffDeps),
         readSteeringFile: (request) =>
           isServedFile(request.filePath)
             ? readSteeringFile({ ...request, worktreePath: cwd.root }, readDeps)

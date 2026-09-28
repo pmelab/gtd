@@ -14,8 +14,8 @@ describe("parseReviewDoc", () => {
       "",
       "New add function for the calculator.",
       "",
-      "- [ ] ./src/calc.ts#1",
-      "- [ ] ./src/calc.ts#5",
+      "- [ ] ./src/calc.ts#1-1",
+      "- [ ] ./src/calc.ts#5-9",
       "",
     ].join("\n")
 
@@ -35,13 +35,71 @@ describe("parseReviewDoc", () => {
             },
           ],
           files: [
-            { path: "./src/calc.ts", line: 1, checked: false, sourceLine: 8, endLine: 8 },
-            { path: "./src/calc.ts", line: 5, checked: false, sourceLine: 9, endLine: 9 },
+            {
+              path: "./src/calc.ts",
+              line: 1,
+              rangeEnd: 1,
+              checked: false,
+              sourceLine: 8,
+              endLine: 8,
+            },
+            {
+              path: "./src/calc.ts",
+              line: 5,
+              rangeEnd: 9,
+              checked: false,
+              sourceLine: 9,
+              endLine: 9,
+            },
           ],
         },
       ],
       findings: [],
     })
+  })
+})
+
+describe("parseReviewDoc — pointer range grammar", () => {
+  const pointerLine = (line: string) =>
+    [
+      "# Review: abc1234",
+      "",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      `- [ ] ${line}`,
+      "",
+    ].join("\n")
+
+  const fileOf = (content: string) => parseReviewDoc(content).changesets[0]!.files[0]!
+
+  it("parses '#42-70' to path, start 42, end 70", () => {
+    const file = fileOf(pointerLine("./path/to/file.ts#42-70 does a thing"))
+    expect(file.path).toBe("./path/to/file.ts")
+    expect(file.rangeEnd).toBe(70)
+    expect(file.line).toBe(42)
+  })
+
+  it("takes the LAST '#' as the range separator — a '#' or '-' earlier in the path is never read as one", () => {
+    const file = fileOf(pointerLine("./a-b/c#d#1-9 note"))
+    expect(file.path).toBe("./a-b/c#d")
+    expect(file.line).toBe(1)
+    expect(file.rangeEnd).toBe(9)
+  })
+
+  it("a token with no '#' at all parses as the whole path, no range and no line", () => {
+    const file = fileOf(pointerLine("./some-file.ts note"))
+    expect(file.path).toBe("./some-file.ts")
+    expect(file.rangeEnd).toBeUndefined()
+    expect(file.line).toBeUndefined()
+  })
+
+  it("a bare '#42' parses as path './x.ts' with line 42 — never a path literally named 'x.ts#42'", () => {
+    const file = fileOf(pointerLine("./x.ts#42 note"))
+    expect(file.path).toBe("./x.ts")
+    expect(file.line).toBe(42)
+    expect(file.rangeEnd).toBeUndefined()
   })
 })
 
@@ -54,7 +112,7 @@ const BASE = "<!-- base: 0000000000000000000000000000000000000000 -->"
 
 describe("review — structure (checkSteering)", () => {
   it("parses a well-formed review with one chunk, no explanations, cleanly", () => {
-    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 does a thing", ""])
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1-1 does a thing", ""])
     expect(checkSteering(review, content)).toEqual([])
   })
 
@@ -87,7 +145,7 @@ describe("review — structure (checkSteering)", () => {
   })
 
   it("keeps a hyphenated path whole and its #line, instead of splitting at the first hyphen", () => {
-    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./my-file.ts#42 note", ""])
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./my-file.ts#42-70 note", ""])
     expect(checkSteering(review, content)).toEqual([])
   })
 
@@ -307,7 +365,7 @@ describe("review — same-line note", () => {
       "",
       "## Chunk",
       "",
-      "- [ ] ./a.ts#1 explains the change",
+      "- [ ] ./a.ts#1-1 explains the change",
       "",
     ])
     expect(checkSteering(review, content)).toEqual([])
@@ -328,7 +386,7 @@ describe("review — same-line note", () => {
       "",
       "## Chunk",
       "",
-      "- [ ] ./my-file.ts#1 — dash note",
+      "- [ ] ./my-file.ts#1-1 — dash note",
       "",
     ])
     expect(checkSteering(review, content)).toEqual([])
@@ -344,7 +402,7 @@ describe("review — same-line note", () => {
         "",
         "## Chunk",
         "",
-        `- [ ] ./a.ts#1 ${dash} note text`,
+        `- [ ] ./a.ts#1-1 ${dash} note text`,
         "",
       ])
       expect(checkSteering(review, content)).toEqual([])
@@ -359,7 +417,7 @@ describe("review — same-line note", () => {
       "",
       "## Chunk",
       "",
-      "- [ ] ./a.ts#1 same-line note",
+      "- [ ] ./a.ts#1-1 same-line note",
       "  more detail below",
       "",
     ])
@@ -431,6 +489,52 @@ describe("review — a note starting with a second pointer is a positioned findi
       ),
     ).toBe(true)
   })
+
+  it("renders the target as path#start-end when the first pointer carries a range", () => {
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1-9 ./b.ts#2", ""])
+    expect(
+      checkSteering(review, content).some((f) => f.message.includes("./a.ts#1-9's note")),
+    ).toBe(true)
+  })
+})
+
+describe("review — the line-without-a-range finding", () => {
+  it("a bare '#42' pointer produces exactly one finding, naming the pointer and its chunk", () => {
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./src/calc.ts#42 — note", ""])
+    const findings = checkSteering(review, content)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toContain("./src/calc.ts#42")
+    expect(findings[0]!.message).toContain('Chunk "Chunk"')
+  })
+
+  it("the finding's line is the pointer's own 0-based sourceLine, and its range covers exactly the token", () => {
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./src/calc.ts#42 — note", ""])
+    const findings = checkSteering(review, content)
+    expect(findings[0]!.line).toBe(6)
+    expect(findings[0]!.range).toEqual({
+      start: { line: 6, character: 6 },
+      end: { line: 6, character: 22 },
+    })
+  })
+
+  it("a '#42-70' range pointer produces zero findings", () => {
+    const content = doc([
+      HEADER,
+      "",
+      BASE,
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/calc.ts#42-70 — note",
+      "",
+    ])
+    expect(checkSteering(review, content)).toEqual([])
+  })
+
+  it("a pointer with no '#' at all produces zero findings", () => {
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./src/calc.ts — note", ""])
+    expect(checkSteering(review, content)).toEqual([])
+  })
 })
 
 describe("review — additional structural edges", () => {
@@ -442,7 +546,7 @@ describe("review — additional structural edges", () => {
   })
 
   it("a bare pointer with nothing else on its line or below has no note and is valid", () => {
-    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1", ""])
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1-1", ""])
     expect(checkSteering(review, content)).toEqual([])
   })
 
@@ -467,7 +571,7 @@ describe("review — additional structural edges", () => {
       "",
       "Second description line.[^fn1]",
       "",
-      "- [ ] ./a.ts#1 note",
+      "- [ ] ./a.ts#1-1 note",
       "",
       "[^fn1]:",
       "    Detail that is longer than eighty characters so it definitely wraps here nicely.",
@@ -495,7 +599,7 @@ describe("review — inline segment resolution edge cases", () => {
   })
 
   it("a pointer with an empty paragraph (no text at all after it) has no findings", () => {
-    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1", ""])
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1-1", ""])
     expect(checkSteering(review, content)).toEqual([])
   })
 })
@@ -509,7 +613,7 @@ describe("review — continuation-line dash stripping", () => {
       "",
       "## Chunk",
       "",
-      "- [ ] ./a.ts#1",
+      "- [ ] ./a.ts#1-1",
       "  — continuation note",
       "",
     ])
@@ -524,7 +628,7 @@ describe("review — continuation-line dash stripping", () => {
       "",
       "## Chunk",
       "",
-      "- [ ] ./a.ts#1",
+      "- [ ] ./a.ts#1-1",
       "  a well-known dash mid-word",
       "",
     ])
@@ -731,6 +835,37 @@ describe("review — clearFilePointerTicks (clearTicks)", () => {
     expect(cleared).toBe(content.replace("[x]", "[ ]"))
   })
 
+  it("clears a checked range pointer ('#42-70') back to '- [ ]'", () => {
+    const content = doc([
+      HEADER,
+      "",
+      BASE,
+      "",
+      "## Chunk",
+      "",
+      "- [x] ./src/calc.ts#42-70 — note",
+      "",
+    ])
+    expect(clearTicks(review, content)).toContain("- [ ] ./src/calc.ts#42-70 — note")
+  })
+
+  it("a CRLF document with a ticked range pointer keeps its CRLF line endings byte for byte after clearing", () => {
+    const content = doc([
+      HEADER,
+      "",
+      BASE,
+      "",
+      "## Chunk",
+      "",
+      "- [x] ./a.ts#1-9 note",
+      "",
+    ]).replace(/\n/g, "\r\n")
+    const cleared = clearTicks(review, content)
+    expect(cleared).toBe(content.replace("[x]", "[ ]"))
+    expect(cleared).toContain("\r\n")
+    expect(cleared).not.toMatch(/(?<!\r)\n/)
+  })
+
   it("clears an indented checked task item too, when its own content is itself a pointer", () => {
     const content = doc([
       HEADER,
@@ -810,7 +945,7 @@ describe("review — footnotes wired into the review format", () => {
       "",
       "## Chunk",
       "",
-      "- [ ] ./a.ts#1 note[^fn1]",
+      "- [ ] ./a.ts#1-1 note[^fn1]",
       "",
       "[^fn1]:",
       "    Detail that is longer than eighty characters so it definitely wraps here nicely.",
@@ -837,7 +972,7 @@ describe("review — footnotes wired into the review format", () => {
       "",
       "## Chunk",
       "",
-      "- [ ] ./a.ts#1[^fn1] note",
+      "- [ ] ./a.ts#1-1[^fn1] note",
       "",
       "[^fn1]:",
       "    Detail that is longer than eighty characters so it definitely wraps here nicely.",
@@ -981,8 +1116,8 @@ describe("review — nested hunks are the same hunks", () => {
       "",
       "## Chunk",
       "",
-      "- [ ] ./a.ts#1 parent note",
-      "  - [ ] ./nested.ts#1 nested note",
+      "- [ ] ./a.ts#1-1 parent note",
+      "  - [ ] ./nested.ts#1-1 nested note",
       "",
     ])
     expect(checkSteering(review, content)).toEqual([])
@@ -1049,6 +1184,27 @@ describe("review.view", () => {
     const view = review.view(NESTED_CONTENT)
     expect(view.header).toBe("abc1234")
   })
+
+  it("a '#42-70' pointer's hunk node carries line: 42 and endLine: 70", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./a.ts#42-70 note",
+      "",
+    ].join("\n")
+    const hunk = review.view(content).nodes[0]!.children![0]!
+    expect(hunk.line).toBe(42)
+    expect(hunk.endLine).toBe(70)
+  })
+
+  it("a bare '#1' pointer's hunk node carries no endLine", () => {
+    const hunk = review.view(NESTED_CONTENT).nodes[0]!.children![0]!
+    expect(hunk.line).toBe(1)
+    expect(hunk.endLine).toBeUndefined()
+  })
 })
 
 describe("review.annotate", () => {
@@ -1058,7 +1214,7 @@ describe("review.annotate", () => {
     "",
     "## Chunk one",
     "",
-    "- [ ] ./a.ts#1 outer hunk",
+    "- [ ] ./a.ts#1-1 outer hunk",
     "",
   ].join("\n")
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import type { RunInWorktree, SpawnOutcome } from "./Beat.js"
-import { type DiffDeps, parseUnifiedDiff, resolveDiff, selectHunk } from "./Diff.js"
+import { type DiffDeps, parseUnifiedDiff, resolveDiff, selectHunks, sliceHunk } from "./Diff.js"
 
 const WORKTREE = "/repo"
 const BASE = "abc1234def5678901234567890123456789abcd"
@@ -49,6 +49,23 @@ const TWO_HUNK_DIFF = [
   "",
 ].join("\n")
 
+/** Two hunks with ADJACENT post-image ranges (2-4 then 5-6, no gap) — unlike `TWO_HUNK_DIFF`'s gapped pair, a range straddling the boundary must return both. */
+const ADJACENT_TWO_HUNK_DIFF = [
+  "diff --git a/src/a.ts b/src/a.ts",
+  "index 1111111..2222222 100644",
+  "--- a/src/a.ts",
+  "+++ b/src/a.ts",
+  "@@ -2,3 +2,3 @@",
+  " context",
+  "-old",
+  "+new one",
+  "+new two",
+  "@@ -5,2 +5,2 @@",
+  "+new three",
+  "+new four",
+  "",
+].join("\n")
+
 describe("parseUnifiedDiff", () => {
   it("parses hunk headers into post-image ranges plus their body lines", () => {
     const diff = parseUnifiedDiff("src/a.ts", TWO_HUNK_DIFF)
@@ -76,7 +93,7 @@ describe("parseUnifiedDiff", () => {
     ].join("\n")
     const diff = parseUnifiedDiff("src/a.ts", ONE_LINE_RANGE_DIFF)
     expect(diff.hunks[0]).toMatchObject({ newStart: 5, newLines: 1 })
-    expect(selectHunk(diff, 5)).toBe(diff.hunks[0])
+    expect(selectHunks(diff, 5, 5)).toEqual([diff.hunks[0]])
   })
 
   it("never appends a SECOND file's own preamble (---/+++) into the FIRST file's last hunk, when a pointer matches more than one file", () => {
@@ -107,69 +124,226 @@ describe("parseUnifiedDiff", () => {
   })
 })
 
-describe("selectHunk", () => {
-  const diff = parseUnifiedDiff("src/a.ts", TWO_HUNK_DIFF)
+describe("selectHunks", () => {
+  const gapped = parseUnifiedDiff("src/a.ts", TWO_HUNK_DIFF)
+  const adjacent = parseUnifiedDiff("src/a.ts", ADJACENT_TWO_HUNK_DIFF)
 
-  it("selects the hunk whose post-image range contains the line", () => {
-    expect(selectHunk(diff, 3)).toBe(diff.hunks[0])
+  it("returns exactly the one hunk a range falls wholly inside", () => {
+    expect(selectHunks(gapped, 3, 3)).toEqual([gapped.hunks[0]])
   })
 
-  it("selects neither hunk when the line falls in the gap between them", () => {
-    expect(selectHunk(diff, 7)).toBeUndefined()
+  it("returns both hunks, in document order, for a range straddling two adjacent hunks", () => {
+    expect(selectHunks(adjacent, 4, 5)).toEqual([adjacent.hunks[0], adjacent.hunks[1]])
   })
 
-  it("selects the hunk at its first post-image line, not the previous hunk", () => {
-    // Hunk 0 spans 2-4; line 2 is its first line and must not fall through
-    // to "no match" or to some earlier hunk.
-    expect(selectHunk(diff, 2)).toBe(diff.hunks[0])
+  it("returns the one hunk a range starts inside, when the range ends in untouched context below it", () => {
+    // Hunk 0 spans 2-4, hunk 1 spans 10-11 — 3-7 starts inside hunk 0 and
+    // ends in the gap, never reaching hunk 1.
+    expect(selectHunks(gapped, 3, 7)).toEqual([gapped.hunks[0]])
   })
 
-  it("selects the hunk at its last post-image line, not the next hunk", () => {
-    // Hunk 0 spans 2-4; line 4 is its last line and must not select hunk 1.
-    expect(selectHunk(diff, 4)).toBe(diff.hunks[0])
-    expect(selectHunk(diff, 5)).toBeUndefined()
+  it("returns an empty list when the range overlaps no hunk at all", () => {
+    expect(selectHunks(gapped, 6, 9)).toEqual([])
   })
 
-  it("returns undefined for no line number", () => {
-    expect(selectHunk(diff, undefined)).toBeUndefined()
+  it("returns an empty list for an INVERTED range (end < start) — a hand-written pointer with its two numbers transposed — even against a hunk wide enough to span both numbers", () => {
+    const wide = parseUnifiedDiff(
+      "a.ts",
+      [
+        "diff --git a/a.ts b/a.ts",
+        "index 1111111..2222222 100644",
+        "--- a/a.ts",
+        "+++ b/a.ts",
+        "@@ -1,100 +1,100 @@",
+        ...Array.from({ length: 100 }, (_, i) => `+line${i + 1}`),
+        "",
+      ].join("\n"),
+    )
+    expect(selectHunks(wide, 70, 42)).toEqual([])
+  })
+
+  it("never returns a newLines === 0 hunk, for any range, including one whose start equals that hunk's own newStart", () => {
+    const MID_FILE_DELETION_DIFF = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -5,2 +4,0 @@",
+      "-deleted line one",
+      "-deleted line two",
+      "",
+    ].join("\n")
+    const diff = parseUnifiedDiff("src/a.ts", MID_FILE_DELETION_DIFF)
+    expect(diff.hunks[0]).toMatchObject({ newStart: 4, newLines: 0 })
+    expect(selectHunks(diff, 4, 4)).toEqual([])
+    expect(selectHunks(diff, 1, 10)).toEqual([])
+  })
+})
+
+describe("sliceHunk", () => {
+  /** A single 400-line hunk for a brand-new file: `+line1` through `+line400`. */
+  const NEW_FILE_HUNK = {
+    header: "@@ -0,0 +1,400 @@",
+    newStart: 1,
+    newLines: 400,
+    lines: Array.from({ length: 400 }, (_, i) => `+line${i + 1}`),
+  }
+
+  it("slices a 400-line single-hunk new-file diff to 42-53 into exactly 18 body lines: 12 in range plus 3 above and 3 below", () => {
+    const sliced = sliceHunk(NEW_FILE_HUNK, 42, 53)
+    expect(sliced.lines).toHaveLength(18)
+    expect(sliced.lines[0]).toBe("+line39")
+    expect(sliced.lines[17]).toBe("+line56")
+  })
+
+  /**
+   * A 20-line context-only hunk with a single `-gone` deletion spliced in
+   * right before post-image line 10 (so `-gone` itself sits AT position 10,
+   * same as the ` line10` that follows it) — 20 lines gives enough padding
+   * either side of any mid-hunk range that the `[start - 3, end + 3]`
+   * widening never reaches the hunk's own clamp, isolating the window math
+   * this fixture is meant to exercise.
+   */
+  const contextHunkWithDeletionAt10 = () => {
+    const lines: string[] = []
+    for (let n = 1; n <= 20; n++) {
+      if (n === 10) lines.push("-gone")
+      lines.push(` line${n}`)
+    }
+    return { header: "@@ -1,21 +1,20 @@", newStart: 1, newLines: 20, lines }
+  }
+
+  it("keeps a `-` line whose position falls inside the window", () => {
+    const sliced = sliceHunk(contextHunkWithDeletionAt10(), 10, 10)
+    // Window is [7, 13]: "-gone" sits at position 10, inside it.
+    expect(sliced.lines).toContain("-gone")
+    expect(sliced.lines).toEqual([
+      " line7",
+      " line8",
+      " line9",
+      "-gone",
+      " line10",
+      " line11",
+      " line12",
+      " line13",
+    ])
+  })
+
+  it("drops a `-` line whose position falls outside the window", () => {
+    const sliced = sliceHunk(contextHunkWithDeletionAt10(), 17, 17)
+    // Window is [14, 20]: position 10 ("-gone") is well outside it.
+    expect(sliced.lines).not.toContain("-gone")
+  })
+
+  it("keeps a `-` line at the very END of a hunk, for a range spanning the whole hunk — the real shape git emits for an end-of-file deletion", () => {
+    // Verified against real git: `printf 'a\nb\nc\nd\n'` committed, then
+    // truncated to `a\nb`, emits `@@ -1,4 +1,2 @@` with `c`/`d` as trailing
+    // `-` lines. Post-image lines 3/4 don't exist, so 1-2 is the only range
+    // a pointer can ever name here — trailing deletions must survive it.
+    const hunk = {
+      header: "@@ -1,4 +1,2 @@",
+      newStart: 1,
+      newLines: 2,
+      lines: [" a", " b", "-c", "-d"],
+    }
+    const sliced = sliceHunk(hunk, 1, 2)
+    expect(sliced.lines).toEqual([" a", " b", "-c", "-d"])
+  })
+
+  it("does not let a `\\ No newline at end of file` marker advance the post-image counter, so the line after it keeps its correct number", () => {
+    // If the marker wrongly advanced the counter, every line from " l2"
+    // onward would carry a number one too high, pushing " l5" (the hunk's
+    // real last post-image line, number 5) past the window's own clamp at
+    // the hunk's end and dropping it from the slice.
+    const hunk = {
+      header: "@@ -1,2 +1,5 @@",
+      newStart: 1,
+      newLines: 5,
+      lines: [" l1", "\\ No newline at end of file", " l2", " l3", " l4", " l5"],
+    }
+    const sliced = sliceHunk(hunk, 5, 5)
+    expect(sliced.lines[sliced.lines.length - 1]).toBe(" l5")
+  })
+
+  it("yields zero context lines above a range starting at post-image line 1 — never a negative index or a line borrowed from another hunk", () => {
+    const sliced = sliceHunk(NEW_FILE_HUNK, 1, 5)
+    expect(sliced.lines[0]).toBe("+line1")
+    expect(sliced.lines).toHaveLength(8) // 5 in range + 3 below
+  })
+
+  it("yields zero context lines below a range ending at the hunk's last post-image line", () => {
+    const sliced = sliceHunk(NEW_FILE_HUNK, 396, 400)
+    expect(sliced.lines[sliced.lines.length - 1]).toBe("+line400")
+    expect(sliced.lines).toHaveLength(8) // 3 above + 5 in range
+  })
+
+  it("carries the original hunk's header string byte for byte", () => {
+    const sliced = sliceHunk(NEW_FILE_HUNK, 42, 53)
+    expect(sliced.header).toBe(NEW_FILE_HUNK.header)
   })
 })
 
 describe("resolveDiff", () => {
   it("refuses a path that escapes the worktree root — before either gtd base or git diff ever runs", async () => {
     const { run, calls } = fakeRun(ok(TWO_HUNK_DIFF))
-    const result = await resolveDiff(WORKTREE, "../../../etc/passwd", 3, { run })
+    const result = await resolveDiff(WORKTREE, "../../../etc/passwd", 3, 3, { run })
     expect(result).toEqual({ kind: "refused", detail: "path escapes the served worktree" })
     expect(calls).toEqual([])
   })
 
-  it("selects exactly the hunk containing the pointed-at line", async () => {
-    const result = await resolveDiff(WORKTREE, "src/a.ts", 3, deps(ok(TWO_HUNK_DIFF)))
+  it("selects exactly the hunk containing the pointed-at range", async () => {
+    const result = await resolveDiff(WORKTREE, "src/a.ts", 3, 3, deps(ok(TWO_HUNK_DIFF)))
     expect(result.kind).toBe("hunk")
     if (result.kind !== "hunk") throw new Error("expected hunk")
-    expect(result.hunk.newStart).toBe(2)
+    expect(result.hunks).toHaveLength(1)
+    expect(result.hunks[0]!.newStart).toBe(2)
   })
 
-  it("falls back to whole-file when the line falls between two hunks", async () => {
-    const result = await resolveDiff(WORKTREE, "src/a.ts", 7, deps(ok(TWO_HUNK_DIFF)))
+  it("returns kind: hunk with a two-element hunks list for a range spanning two hunks", async () => {
+    const result = await resolveDiff(WORKTREE, "src/a.ts", 4, 5, deps(ok(ADJACENT_TWO_HUNK_DIFF)))
+    expect(result.kind).toBe("hunk")
+    if (result.kind !== "hunk") throw new Error("expected hunk")
+    expect(result.hunks).toHaveLength(2)
+  })
+
+  it("falls back to whole-file with reason no-hunk-match when the range falls between two hunks, and diff.hunks is non-empty", async () => {
+    const result = await resolveDiff(WORKTREE, "src/a.ts", 6, 9, deps(ok(TWO_HUNK_DIFF)))
     expect(result).toMatchObject({ kind: "whole-file", reason: "no-hunk-match" })
     if (result.kind !== "whole-file") throw new Error("expected whole-file")
     expect(result.diff.hunks).toHaveLength(2)
   })
 
-  it("falls back to whole-file when no line number is given", async () => {
-    const result = await resolveDiff(WORKTREE, "src/a.ts", undefined, deps(ok(TWO_HUNK_DIFF)))
+  it("falls back to whole-file with reason no-hunk-match for an INVERTED range (`#70-42`) — never kind: hunk with a zero-line body, even against a hunk wide enough to span both numbers", async () => {
+    const WIDE_ADDITIONS_DIFF = [
+      "diff --git a/a.ts b/a.ts",
+      "index 1111111..2222222 100644",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1,100 +1,100 @@",
+      ...Array.from({ length: 100 }, (_, i) => `+line${i + 1}`),
+      "",
+    ].join("\n")
+    const result = await resolveDiff(WORKTREE, "a.ts", 70, 42, deps(ok(WIDE_ADDITIONS_DIFF)))
+    expect(result).toMatchObject({ kind: "whole-file", reason: "no-hunk-match" })
+  })
+
+  it("falls back to whole-file with reason no-line when no line number is given", async () => {
+    const result = await resolveDiff(
+      WORKTREE,
+      "src/a.ts",
+      undefined,
+      undefined,
+      deps(ok(TWO_HUNK_DIFF)),
+    )
+    expect(result).toMatchObject({ kind: "whole-file", reason: "no-line" })
+  })
+
+  it("falls back to whole-file with reason no-line when a line is given but no endLine", async () => {
+    const result = await resolveDiff(WORKTREE, "src/a.ts", 3, undefined, deps(ok(TWO_HUNK_DIFF)))
     expect(result).toMatchObject({ kind: "whole-file", reason: "no-line" })
   })
 
   it("treats a `#0` pointer (a bare path parses to line 0) the SAME as no line number at all — never a hunk selection", async () => {
-    // `hunkContainsLine` now never matches a `newLines: 0` (pure-deletion)
-    // hunk's own `newStart: 0` at all (its post-image range is empty), so
-    // `selectHunk` alone already can't select a hunk for line 0 — this
-    // dedicated `resolveDiff` short-circuit exists for the REASON string, not
-    // the outcome: a bare path/line-0 pointer must report `"no-line"`
-    // (T3's own wording), never `"no-hunk-match"`, which is what falling
-    // through to `selectHunk` returning `undefined` would otherwise label it.
     const DELETED_DIFF = [
       "diff --git a/src/gone.ts b/src/gone.ts",
       "deleted file mode 100644",
@@ -180,25 +354,64 @@ describe("resolveDiff", () => {
       "-line two",
       "",
     ].join("\n")
-    const result = await resolveDiff(WORKTREE, "src/gone.ts", 0, deps(ok(DELETED_DIFF)))
+    const result = await resolveDiff(WORKTREE, "src/gone.ts", 0, 0, deps(ok(DELETED_DIFF)))
     expect(result).toMatchObject({ kind: "whole-file", reason: "no-line" })
   })
 
+  it("a range against a pure-deletion pointer (newLines: 0) returns whole-file with reason no-hunk-match, never an empty body", async () => {
+    const DELETED_DIFF = [
+      "diff --git a/src/gone.ts b/src/gone.ts",
+      "deleted file mode 100644",
+      "--- a/src/gone.ts",
+      "+++ /dev/null",
+      "@@ -1,2 +0,0 @@",
+      "-line one",
+      "-line two",
+      "",
+    ].join("\n")
+    const result = await resolveDiff(WORKTREE, "src/gone.ts", 4, 4, deps(ok(DELETED_DIFF)))
+    expect(result).toMatchObject({ kind: "whole-file", reason: "no-hunk-match" })
+    if (result.kind !== "whole-file") throw new Error("expected whole-file")
+    expect(result.diff.hunks).toHaveLength(1)
+  })
+
   it("selects the hunk at the first line of its post-image range, not the previous hunk", async () => {
-    const result = await resolveDiff(WORKTREE, "src/a.ts", 2, deps(ok(TWO_HUNK_DIFF)))
+    const result = await resolveDiff(WORKTREE, "src/a.ts", 2, 2, deps(ok(TWO_HUNK_DIFF)))
     expect(result.kind).toBe("hunk")
     if (result.kind !== "hunk") throw new Error("expected hunk")
-    expect(result.hunk.newStart).toBe(2)
+    expect(result.hunks[0]!.newStart).toBe(2)
   })
 
   it("selects the hunk at the last line of its post-image range, not the next hunk", async () => {
-    const result = await resolveDiff(WORKTREE, "src/a.ts", 4, deps(ok(TWO_HUNK_DIFF)))
+    const result = await resolveDiff(WORKTREE, "src/a.ts", 4, 4, deps(ok(TWO_HUNK_DIFF)))
     expect(result.kind).toBe("hunk")
     if (result.kind !== "hunk") throw new Error("expected hunk")
-    expect(result.hunk.newStart).toBe(2)
+    expect(result.hunks[0]!.newStart).toBe(2)
 
-    const next = await resolveDiff(WORKTREE, "src/a.ts", 5, deps(ok(TWO_HUNK_DIFF)))
+    const next = await resolveDiff(WORKTREE, "src/a.ts", 5, 5, deps(ok(TWO_HUNK_DIFF)))
     expect(next).toMatchObject({ kind: "whole-file", reason: "no-hunk-match" })
+  })
+
+  it("the command spawned drops HEAD and diffs base against the working tree", async () => {
+    const { run, calls } = fakeRun(ok(TWO_HUNK_DIFF))
+    await resolveDiff(WORKTREE, "src/a.ts", 3, 3, { run })
+    const diffCall = calls.find((c) => c.startsWith("git diff"))
+    expect(diffCall).toBe(`git diff '${BASE}' -- 'src/a.ts'`)
+  })
+
+  it("a path whose only change is uncommitted now resolves to a hunk, where git diff base HEAD previously returned no-changes", async () => {
+    const UNCOMMITTED_DIFF = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1,1 +1,1 @@",
+      "-old",
+      "+new",
+      "",
+    ].join("\n")
+    const result = await resolveDiff(WORKTREE, "src/a.ts", 1, 1, deps(ok(UNCOMMITTED_DIFF)))
+    expect(result.kind).toBe("hunk")
   })
 
   it("passes a path containing a literal # through unchanged, shell-quoted rather than split on it", async () => {
@@ -216,18 +429,18 @@ describe("resolveDiff", () => {
       ].join("\n"),
     )
     const { run, calls } = fakeRun(diffOutcome)
-    const result = await resolveDiff(WORKTREE, HASH_PATH, 1, { run })
+    const result = await resolveDiff(WORKTREE, HASH_PATH, 1, 1, { run })
     expect(result.kind).toBe("hunk")
     const diffCall = calls.find((c) => c.startsWith("git diff"))
-    expect(diffCall).toBe(`git diff '${BASE}' HEAD -- 'src/weird#name.ts'`)
+    expect(diffCall).toBe(`git diff '${BASE}' -- 'src/weird#name.ts'`)
   })
 
   it("single-quotes gtd base's own stdout before interpolating it into git diff — a compromised base never reaches the shell unescaped", async () => {
     const maliciousBase = "$(touch PWNED_MARKER)"
     const { run, calls } = fakeRun(ok(""), ok(`${maliciousBase}\n`))
-    await resolveDiff(WORKTREE, "src/a.ts", 1, { run })
+    await resolveDiff(WORKTREE, "src/a.ts", 1, 1, { run })
     const diffCall = calls.find((c) => c.startsWith("git diff"))
-    expect(diffCall).toBe(`git diff '${maliciousBase}' HEAD -- 'src/a.ts'`)
+    expect(diffCall).toBe(`git diff '${maliciousBase}' -- 'src/a.ts'`)
   })
 
   it("renders a file added in the range as an all-additions diff", async () => {
@@ -242,7 +455,13 @@ describe("resolveDiff", () => {
       "+line two",
       "",
     ].join("\n")
-    const result = await resolveDiff(WORKTREE, "src/new.ts", undefined, deps(ok(ADDED_DIFF)))
+    const result = await resolveDiff(
+      WORKTREE,
+      "src/new.ts",
+      undefined,
+      undefined,
+      deps(ok(ADDED_DIFF)),
+    )
     expect(result.kind).toBe("whole-file")
     if (result.kind !== "whole-file") throw new Error("expected whole-file")
     expect(result.diff.hunks).toHaveLength(1)
@@ -261,7 +480,13 @@ describe("resolveDiff", () => {
       "-line two",
       "",
     ].join("\n")
-    const result = await resolveDiff(WORKTREE, "src/gone.ts", undefined, deps(ok(DELETED_DIFF)))
+    const result = await resolveDiff(
+      WORKTREE,
+      "src/gone.ts",
+      undefined,
+      undefined,
+      deps(ok(DELETED_DIFF)),
+    )
     expect(result.kind).toBe("whole-file")
     if (result.kind !== "whole-file") throw new Error("expected whole-file")
     expect(result.diff.hunks).toHaveLength(1)
@@ -269,53 +494,26 @@ describe("resolveDiff", () => {
     expect(result.diff.hunks[0]!.newLines).toBe(0)
   })
 
-  it("a line pointer against a pure-deletion hunk (newLines: 0) matches NOTHING — the post-image range is empty, never its own insertion point", async () => {
-    const DELETED_DIFF = [
-      "diff --git a/src/gone.ts b/src/gone.ts",
-      "deleted file mode 100644",
-      "--- a/src/gone.ts",
-      "+++ /dev/null",
-      "@@ -1,2 +0,0 @@",
-      "-line one",
-      "-line two",
-      "",
-    ].join("\n")
-    const diff = parseUnifiedDiff("src/gone.ts", DELETED_DIFF)
-    expect(selectHunk(diff, 0)).toBeUndefined()
-  })
-
-  it("a MID-FILE deletion's own insertion point is an UNTOUCHED line before the deletion, not part of it — a pointer there matches nothing (verified against real git's own @@ -5,2 +4,0 @@ shape)", async () => {
-    const MID_FILE_DELETION_DIFF = [
-      "diff --git a/src/a.ts b/src/a.ts",
-      "index 1111111..2222222 100644",
-      "--- a/src/a.ts",
-      "+++ b/src/a.ts",
-      "@@ -5,2 +4,0 @@",
-      "-deleted line one",
-      "-deleted line two",
-      "",
-    ].join("\n")
-    const diff = parseUnifiedDiff("src/a.ts", MID_FILE_DELETION_DIFF)
-    expect(diff.hunks[0]).toMatchObject({ newStart: 4, newLines: 0 })
-    expect(selectHunk(diff, 4)).toBeUndefined()
-  })
-
   it("renders a binary file as a stated placeholder, not an attempt to parse it as text", async () => {
     const BINARY_OUTPUT =
       "diff --git a/image.png b/image.png\nindex 1111111..2222222 100644\nBinary files a/image.png and b/image.png differ\n"
-    const result = await resolveDiff(WORKTREE, "image.png", undefined, deps(ok(BINARY_OUTPUT)))
+    const result = await resolveDiff(
+      WORKTREE,
+      "image.png",
+      undefined,
+      undefined,
+      deps(ok(BINARY_OUTPUT)),
+    )
     expect(result).toEqual({ kind: "binary" })
   })
 
-  it("returns its own stated 'no-changes' result for a path with NOTHING in the range — a stale/renamed/moved pointer, or (under base..HEAD) a path whose only edit is uncommitted — never `whole-file` with an empty body", async () => {
-    // `git diff <base> HEAD -- <path>` exits 0 with EMPTY stdout when the
-    // path carries no change in the range at all.
-    const result = await resolveDiff(WORKTREE, "old/path.ts", 1, deps(ok("")))
+  it("returns its own stated 'no-changes' result for a path with NOTHING in the range — a stale/renamed/moved pointer, or a path with no working-tree diff at all — never `whole-file` with an empty body", async () => {
+    const result = await resolveDiff(WORKTREE, "old/path.ts", 1, 1, deps(ok("")))
     expect(result).toEqual({ kind: "no-changes" })
   })
 
   it("returns 'no-changes' regardless of whether a line number was given at all", async () => {
-    const result = await resolveDiff(WORKTREE, "old/path.ts", undefined, deps(ok("")))
+    const result = await resolveDiff(WORKTREE, "old/path.ts", undefined, undefined, deps(ok("")))
     expect(result).toEqual({ kind: "no-changes" })
   })
 
@@ -339,6 +537,7 @@ describe("resolveDiff", () => {
       WORKTREE,
       "src/ui/Diff.test.ts",
       1,
+      1,
       deps(ok(TEXT_DIFF_MENTIONING_BINARY)),
     )
     expect(result.kind).toBe("hunk")
@@ -346,7 +545,13 @@ describe("resolveDiff", () => {
 
   it("surfaces gtd base refusing at exit 1 as a named refusal, not an empty result", async () => {
     const baseRefusal = fail(1, "gtd base: refused — no process is underway at HEAD")
-    const result = await resolveDiff(WORKTREE, "src/a.ts", 1, deps(ok(TWO_HUNK_DIFF), baseRefusal))
+    const result = await resolveDiff(
+      WORKTREE,
+      "src/a.ts",
+      1,
+      1,
+      deps(ok(TWO_HUNK_DIFF), baseRefusal),
+    )
     expect(result.kind).toBe("refused")
     if (result.kind !== "refused") throw new Error("expected refused")
     expect(result.detail).toContain("no process is underway")
@@ -357,7 +562,7 @@ describe("resolveDiff", () => {
       if (command === "gtd base") return ok(`${BASE}\n`)
       return { status: null, stdout: "", stderr: "", spawnError: "spawn git ENOENT" }
     })
-    const result = await resolveDiff(WORKTREE, "src/a.ts", 1, { run })
+    const result = await resolveDiff(WORKTREE, "src/a.ts", 1, 1, { run })
     expect(result).toEqual({ kind: "refused", detail: "spawn git ENOENT" })
   })
 })

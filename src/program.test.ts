@@ -811,7 +811,7 @@ describe("gtd check <mode> <file>", () => {
     "",
     "## Add calculator",
     "",
-    "- [x] ./src/calc.ts#1",
+    "- [x] ./src/calc.ts#1-1",
     "",
   ].join("\n")
 

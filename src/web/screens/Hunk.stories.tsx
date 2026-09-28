@@ -24,12 +24,14 @@ const hunkNode = (over: Partial<SteeringViewNode> = {}): SteeringViewNode => ({
 const RESOLVED_DIFF: DiffResult = {
   kind: "hunk",
   diff: { path: "src/x.ts", hunks: [] },
-  hunk: {
-    header: "@@ -1,3 +1,3 @@",
-    newStart: 1,
-    newLines: 3,
-    lines: ["  const value = 1", "-const old = 2", "+const value2 = 2"],
-  },
+  hunks: [
+    {
+      header: "@@ -1,3 +1,3 @@",
+      newStart: 1,
+      newLines: 3,
+      lines: ["  const value = 1", "-const old = 2", "+const value2 = 2"],
+    },
+  ],
 }
 
 const WHOLE_FILE_DIFF: DiffResult = {
@@ -394,7 +396,9 @@ export const KeywordTokensAreVisiblyColoredDifferentlyFromPlainText: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const line = canvas.getByTestId("diff-line-0")
+    // Line 0 is now the hunk's own `@@` header (T1: every hunk renders one) —
+    // line 1 is the first body line.
+    const line = canvas.getByTestId("diff-line-1")
     const keywordSpan = within(line).getByText("const")
     const plainSpan = within(line).getByText("value", { exact: false })
     expect(keywordSpan.getAttribute("data-token-kind")).toBe("kw")
@@ -429,11 +433,12 @@ export const AddedRemovedAndContextLinesHaveVisiblyDifferentBackgrounds: Story =
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    // RESOLVED_DIFF's own lines: 0 is context ("  const value = 1"), 1 is
-    // del ("-const old = 2"), 2 is add ("+const value2 = 2").
-    const contextLine = canvas.getByTestId("diff-line-0")
-    const delLine = canvas.getByTestId("diff-line-1")
-    const addLine = canvas.getByTestId("diff-line-2")
+    // RESOLVED_DIFF's own lines: 0 is the hunk's `@@` header (T1), 1 is
+    // context ("  const value = 1"), 2 is del ("-const old = 2"), 3 is add
+    // ("+const value2 = 2").
+    const contextLine = canvas.getByTestId("diff-line-1")
+    const delLine = canvas.getByTestId("diff-line-2")
+    const addLine = canvas.getByTestId("diff-line-3")
     expect(contextLine).toHaveAttribute("data-kind", "context")
     expect(delLine).toHaveAttribute("data-kind", "del")
     expect(addLine).toHaveAttribute("data-kind", "add")
@@ -451,12 +456,14 @@ export const NoNewlineMarkerRendersVerbatimNotAsContext: Story = {
     diff: {
       kind: "hunk",
       diff: { path: "src/x.ts", hunks: [] },
-      hunk: {
-        header: "@@ -1,2 +1,2 @@",
-        newStart: 1,
-        newLines: 2,
-        lines: ["-const old = 2", "+const value2 = 2", "\\ No newline at end of file"],
-      },
+      hunks: [
+        {
+          header: "@@ -1,2 +1,2 @@",
+          newStart: 1,
+          newLines: 2,
+          lines: ["-const old = 2", "+const value2 = 2", "\\ No newline at end of file"],
+        },
+      ],
     } satisfies DiffResult,
     index: 0,
     total: 1,
@@ -468,7 +475,8 @@ export const NoNewlineMarkerRendersVerbatimNotAsContext: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const markerLine = canvas.getByTestId("diff-line-2")
+    // Line 0 is the hunk's own `@@` header (T1); the marker is the third body line.
+    const markerLine = canvas.getByTestId("diff-line-3")
     expect(markerLine).toHaveAttribute("data-kind", "marker")
     expect(markerLine).not.toHaveAttribute("data-kind", "context")
     expect(markerLine).toHaveTextContent("\\ No newline at end of file")
@@ -491,12 +499,14 @@ export const MarkupInADiffLineRendersAsInertTextNeverParsedHtml: Story = {
     diff: {
       kind: "hunk",
       diff: { path: "src/x.ts", hunks: [] },
-      hunk: {
-        header: "@@ -1,1 +1,1 @@",
-        newStart: 1,
-        newLines: 1,
-        lines: [`+const s = "<script>window.__xss = true</script>"`],
-      },
+      hunks: [
+        {
+          header: "@@ -1,1 +1,1 @@",
+          newStart: 1,
+          newLines: 1,
+          lines: [`+const s = "<script>window.__xss = true</script>"`],
+        },
+      ],
     } satisfies DiffResult,
     index: 0,
     total: 1,
@@ -508,7 +518,8 @@ export const MarkupInADiffLineRendersAsInertTextNeverParsedHtml: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const line = canvas.getByTestId("diff-line-0")
+    // Line 0 is the hunk's own `@@` header (T1); the added line is line 1.
+    const line = canvas.getByTestId("diff-line-1")
     // The raw markup survives in the rendered TEXT content...
     expect(line).toHaveTextContent(`const s = "<script>window.__xss = true</script>"`)
     // ...but was never actually parsed into a real <script> element, and
@@ -532,16 +543,18 @@ export const LineBackgroundsSpanTheFullScrollWidthNotJustTheViewport: Story = {
     diff: {
       kind: "hunk",
       diff: { path: "src/x.ts", hunks: [] },
-      hunk: {
-        header: "@@ -1,2 +1,2 @@",
-        newStart: 1,
-        newLines: 2,
-        lines: [
-          "  const short = 1",
-          `+const wide = "${"x".repeat(400)}"`,
-          `-const gone = "${"y".repeat(400)}"`,
-        ],
-      },
+      hunks: [
+        {
+          header: "@@ -1,2 +1,2 @@",
+          newStart: 1,
+          newLines: 2,
+          lines: [
+            "  const short = 1",
+            `+const wide = "${"x".repeat(400)}"`,
+            `-const gone = "${"y".repeat(400)}"`,
+          ],
+        },
+      ],
     } satisfies DiffResult,
     index: 0,
     total: 1,
@@ -554,13 +567,15 @@ export const LineBackgroundsSpanTheFullScrollWidthNotJustTheViewport: Story = {
   play: async ({ canvasElement }) => {
     await viewport(390, 844)
     const canvas = within(canvasElement)
-    const addLine = canvas.getByTestId("diff-line-1")
+    // Line 0 is now the hunk's own `@@` header (T1); the fixture's three body
+    // lines are 1-3.
+    const addLine = canvas.getByTestId("diff-line-2")
     const scroller = addLine.closest("[class*='overflow-x-auto']")
     expect(scroller).not.toBeNull()
     // The fixture really does overflow — otherwise this story would pass
     // against a viewport wide enough to hide the bug.
     expect(scroller!.scrollWidth).toBeGreaterThan(scroller!.clientWidth)
-    for (const id of ["diff-line-0", "diff-line-1", "diff-line-2"]) {
+    for (const id of ["diff-line-0", "diff-line-1", "diff-line-2", "diff-line-3"]) {
       expect(canvas.getByTestId(id).getBoundingClientRect().width).toBeGreaterThanOrEqual(
         scroller!.scrollWidth - 1,
       )
@@ -639,5 +654,343 @@ export const AHunkKnownToCarryANoteWithoutItsTextStillReadsAsAControl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("hunk-note-affordance")).toHaveTextContent("Edit note")
+  },
+}
+
+/**
+ * A new-file hunk (`newStart: 1, newLines: 400`) pointed at lines 190-201 (12
+ * lines). `lines`/`dimmed` here are already `Diff.ts#sliceHunk`'s OUTPUT for
+ * that range — this story fixture is the client's own input, one layer
+ * downstream of that slicing — so the 18-line body is exactly [187..204]:
+ * three lines of dimmed pad on each side of the 12-line, never-dimmed range.
+ */
+const TWELVE_LINE_RANGE_IN_A_NEW_FILE: DiffResult = {
+  kind: "hunk",
+  diff: { path: "src/big.ts", hunks: [] },
+  hunks: [
+    {
+      header: "@@ -0,0 +1,400 @@",
+      newStart: 1,
+      newLines: 400,
+      lines: Array.from({ length: 18 }, (_, i) => `+line${187 + i}`),
+      dimmed: Array.from({ length: 18 }, (_, i) => i < 3 || i >= 15),
+    },
+  ],
+}
+
+/** T4: a new-file pointer whose range covers 12 lines of a 400-line file shows 12 in-range rows plus 3 dimmed above and 3 dimmed below — never the whole 400-line body. */
+export const RangeInANewFileShowsTwelveInRangeRowsWithThreeDimmedOnEachSide: Story = {
+  args: {
+    node: hunkNode({ title: "src/big.ts#190-201", line: 190, endLine: 201 }),
+    diff: TWELVE_LINE_RANGE_IN_A_NEW_FILE,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // Line 0: the hunk's own `@@` header. Lines 1-3: dimmed pad above.
+    // Lines 4-15: the 12 in-range rows (never dimmed). Lines 16-18: dimmed
+    // pad below. Line 19 doesn't exist — no cap, but also nothing beyond
+    // the pointed range's own 3-line pad.
+    await expect(canvas.getByTestId("diff-line-0")).toHaveAttribute("data-kind", "header")
+    for (const i of [1, 2, 3]) {
+      await expect(canvas.getByTestId(`diff-line-${i}`)).toHaveAttribute("data-dimmed", "true")
+    }
+    for (let i = 4; i <= 15; i++) {
+      await expect(canvas.getByTestId(`diff-line-${i}`)).not.toHaveAttribute("data-dimmed")
+    }
+    for (const i of [16, 17, 18]) {
+      await expect(canvas.getByTestId(`diff-line-${i}`)).toHaveAttribute("data-dimmed", "true")
+    }
+    await expect(canvas.queryByTestId("diff-line-19")).not.toBeInTheDocument()
+  },
+}
+
+/** T4: a range spanning two hunks shows BOTH `@@` headers, one immediately above its own body — the same "no merged bodies" rule T1's whole-file fallback already enforces, now proven for a resolved `"hunk"` result too. */
+export const RangeSpanningTwoHunksShowsBothHeaders: Story = {
+  args: {
+    node: hunkNode({ title: "src/x.ts#4-11", line: 4, endLine: 11 }),
+    diff: {
+      kind: "hunk",
+      diff: { path: "src/x.ts", hunks: [] },
+      hunks: [
+        {
+          header: "@@ -1,5 +1,5 @@",
+          newStart: 1,
+          newLines: 5,
+          lines: [
+            "  const a = 1",
+            "  const b = 2",
+            "  const c = 3",
+            "  const d = 4",
+            "  const e = 5",
+          ],
+        },
+        {
+          header: "@@ -10,6 +10,6 @@",
+          newStart: 10,
+          newLines: 6,
+          lines: [
+            "  const f = 6",
+            "  const g = 7",
+            "  const h = 8",
+            "  const i = 9",
+            "  const j = 10",
+            "  const k = 11",
+          ],
+        },
+      ],
+    } satisfies DiffResult,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("diff-line-0")).toHaveTextContent("@@ -1,5 +1,5 @@")
+    await expect(canvas.getByTestId("diff-line-6")).toHaveTextContent("@@ -10,6 +10,6 @@")
+    await expect(canvas.getByTestId("diff-line-7")).toHaveTextContent("const f = 6")
+  },
+}
+
+/** T4: a range clamped at a hunk's first line has nowhere to pad ABOVE — the first body row is the range's own first line, never a dimmed one, and never a missing `diff-line-1`. */
+export const RangeClampedAtAHunksFirstLineShowsFewerThanThreeContextLinesAbove: Story = {
+  args: {
+    node: hunkNode({ title: "src/x.ts#1-3", line: 1, endLine: 3 }),
+    diff: {
+      kind: "hunk",
+      diff: { path: "src/x.ts", hunks: [] },
+      hunks: [
+        {
+          header: "@@ -1,10 +1,10 @@",
+          newStart: 1,
+          newLines: 10,
+          lines: [
+            "  const a = 1",
+            "  const b = 2",
+            "  const c = 3",
+            "  const d = 4",
+            "  const e = 5",
+            "  const f = 6",
+          ],
+          dimmed: [false, false, false, true, true, true],
+        },
+      ],
+    } satisfies DiffResult,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // Line 0: header. Line 1: the range's own first line ("const a = 1") —
+    // never dimmed, since the hunk starts exactly there. Lines 2-3: the
+    // rest of the 3-line range. Lines 4-6: the (full, un-clamped) 3-line pad
+    // below.
+    await expect(canvas.getByTestId("diff-line-1")).not.toHaveAttribute("data-dimmed")
+    await expect(canvas.getByTestId("diff-line-1")).toHaveTextContent("const a = 1")
+    for (const i of [4, 5, 6]) {
+      await expect(canvas.getByTestId(`diff-line-${i}`)).toHaveAttribute("data-dimmed", "true")
+    }
+  },
+}
+
+/**
+ * T4's "both light and dark themes" bullet: this client ships exactly one
+ * theme (`styles.css`'s own `@theme` block is labelled "Dark-only palette"
+ * at its top, and nothing in `src/web` reads `prefers-color-scheme` or a
+ * `data-theme` attribute) — so this is that one theme's own dimmed-band
+ * story, standing in for both until a second theme exists to actually
+ * switch between. What it proves regardless of theme count: a dimmed row's
+ * TEXT renders at reduced opacity while an in-range row's does not, and
+ * neither row's own background changes.
+ */
+export const DimmedContextBandRendersInTheShippedTheme: Story = {
+  args: {
+    node: hunkNode({ title: "src/big.ts#190-201", line: 190, endLine: 201 }),
+    diff: TWELVE_LINE_RANGE_IN_A_NEW_FILE,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const dimmedRow = canvas.getByTestId("diff-line-1")
+    const inRangeRow = canvas.getByTestId("diff-line-4")
+    const dimmedOpacity = Number(getComputedStyle(dimmedRow.querySelector("span")!).opacity)
+    const inRangeOpacity = Number(getComputedStyle(inRangeRow.querySelector("span")!).opacity)
+    expect(dimmedOpacity).toBeLessThan(1)
+    expect(inRangeOpacity).toBe(1)
+    // Backgrounds stay identical — both rows are `add` kind (T3: opacity on
+    // the foreground only, never a new background).
+    expect(getComputedStyle(dimmedRow).backgroundColor).toBe(
+      getComputedStyle(inRangeRow).backgroundColor,
+    )
+    // Spec feedback: opacity alone (a ~1.4:1 difference at the shipped
+    // 0.85, under WCAG's own 3:1 non-text-distinction floor) is not a
+    // glanceable boundary — `dimmedOpacity < 1` alone would still pass at
+    // 0.999. The left border rule is the PRIMARY cue this pins: a real,
+    // non-transparent colour on the dimmed row and NO border at all
+    // (transparent, zero-alpha) on the in-range row, painted, not just
+    // classed.
+    const dimmedBorder = getComputedStyle(dimmedRow).borderLeftColor
+    const inRangeBorder = getComputedStyle(inRangeRow).borderLeftColor
+    expect(getComputedStyle(dimmedRow).borderLeftWidth).toBe("2px")
+    expect(dimmedBorder).not.toBe("rgba(0, 0, 0, 0)")
+    expect(inRangeBorder).toBe("rgba(0, 0, 0, 0)")
+    expect(dimmedBorder).not.toBe(inRangeBorder)
+  },
+}
+
+/** T1's own explicit bullet: "No cap on screen length" — a 900-line range renders 900 rows, verbatim, never a truncation marker or a "show more" control. `line`/`endLine` cover the WHOLE hunk, so nothing is dimmed; this story is about length alone. */
+export const A900LineRangeRendersAll900RowsWithNoTruncationMarker: Story = {
+  args: {
+    node: hunkNode({ title: "src/huge.ts#1-900", line: 1, endLine: 900 }),
+    diff: {
+      kind: "hunk",
+      diff: { path: "src/huge.ts", hunks: [] },
+      hunks: [
+        {
+          header: "@@ -0,0 +1,900 @@",
+          newStart: 1,
+          newLines: 900,
+          lines: Array.from({ length: 900 }, (_, i) => `+line${i + 1}`),
+        },
+      ],
+    } satisfies DiffResult,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // Line 0: the hunk's own header. Lines 1-900: every body row, none
+    // dimmed (the range covers the whole hunk) and none missing.
+    await expect(canvas.getByTestId("diff-line-1")).toHaveTextContent("line1")
+    await expect(canvas.getByTestId("diff-line-900")).toHaveTextContent("line900")
+    await expect(canvas.getByTestId("diff-line-900")).not.toHaveAttribute("data-dimmed")
+    await expect(canvas.queryByTestId("diff-line-901")).not.toBeInTheDocument()
+    // No truncation affordance of any kind — the spec forbids one outright.
+    expect(canvas.queryByText(/show more/i)).not.toBeInTheDocument()
+    expect(canvas.queryByText(/\.\.\./)).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * `Diff.ts#sliceHunk`'s own OUTPUT for a range with a deletion inside it AND
+ * a deletion in each pad band — mirrors `Diff.test.ts#contextHunkWithDeletionAt10`'s
+ * shape, computed by hand against `sliceHunk`'s real algorithm (`Diff.ts` is
+ * outside this package's `Paths`, so this fixture is pre-sliced, the same as
+ * `TWELVE_LINE_RANGE_IN_A_NEW_FILE` above). Source hunk: 20 context lines
+ * (`newStart: 1, newLines: 20`) with `-delAbove` spliced in right before post-
+ * image line 7, `-delInside` right before line 11, `-delBelow` right before
+ * line 14. Range `[10, 12]` → window `[7, 15]`, giving exactly this 12-line
+ * slice: `-delAbove`, 7-9, `line10`, `-delInside`, 11-13, `-delBelow`, 14-15.
+ */
+const RANGE_WITH_DELETIONS_INSIDE_AND_IN_THE_PAD_BAND: DiffResult = {
+  kind: "hunk",
+  diff: { path: "src/x.ts", hunks: [] },
+  hunks: [
+    {
+      header: "@@ -1,21 +1,20 @@",
+      newStart: 1,
+      newLines: 20,
+      lines: [
+        "-delAbove",
+        " line7",
+        " line8",
+        " line9",
+        " line10",
+        "-delInside",
+        " line11",
+        " line12",
+        " line13",
+        "-delBelow",
+        " line14",
+        " line15",
+      ],
+      dimmed: [true, true, true, true, false, false, false, false, true, true, true, true],
+    },
+  ],
+}
+
+/**
+ * `sliceHunk`'s own `dimmed` array, for a `-` line on both sides of the
+ * dimmed/in-range boundary (the `Math.min(postImageLine, hunkEnd)` clamp, "a
+ * deleted line sits at the number it does not advance past") — every OTHER
+ * dimmed-band story only ever exercises its `+`/` ` branch. `-delAbove` (pad
+ * band, dimmed), `-delInside` (inside the range, never dimmed) and
+ * `-delBelow` (pad band, dimmed) — so a future edit that shifts that clamp
+ * by one line fails here even though every `+`/` `-only fixture would still
+ * pass.
+ */
+export const DeletionsInsideTheRangeAndInThePadBandAreFlaggedCorrectly: Story = {
+  args: {
+    node: hunkNode({ title: "src/x.ts#10-12", line: 10, endLine: 12 }),
+    diff: RANGE_WITH_DELETIONS_INSIDE_AND_IN_THE_PAD_BAND,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // Line 0: header. Line 1: `-delAbove`, in the pad band above the range
+    // — dimmed, even though it's a `-` line, not a ` ` one.
+    const delAbove = canvas.getByTestId("diff-line-1")
+    await expect(delAbove).toHaveTextContent("delAbove")
+    await expect(delAbove).toHaveAttribute("data-kind", "del")
+    await expect(delAbove).toHaveAttribute("data-dimmed", "true")
+    // Lines 2-4 (line7-line9): pad-band context, also dimmed.
+    for (const i of [2, 3, 4]) {
+      await expect(canvas.getByTestId(`diff-line-${i}`)).toHaveAttribute("data-dimmed", "true")
+    }
+    // Line 5 (line10): the range's own first line — never dimmed.
+    await expect(canvas.getByTestId("diff-line-5")).not.toHaveAttribute("data-dimmed")
+    // Line 6: `-delInside`, inside the range — never dimmed, despite being
+    // a `-` line right next to two dimmed ones.
+    const delInside = canvas.getByTestId("diff-line-6")
+    await expect(delInside).toHaveTextContent("delInside")
+    await expect(delInside).toHaveAttribute("data-kind", "del")
+    await expect(delInside).not.toHaveAttribute("data-dimmed")
+    // Lines 7-8 (line11-line12): the rest of the range — never dimmed.
+    for (const i of [7, 8]) {
+      await expect(canvas.getByTestId(`diff-line-${i}`)).not.toHaveAttribute("data-dimmed")
+    }
+    // Line 9 (line13): pad band below — dimmed.
+    await expect(canvas.getByTestId("diff-line-9")).toHaveAttribute("data-dimmed", "true")
+    // Line 10: `-delBelow`, pad band below — dimmed.
+    const delBelow = canvas.getByTestId("diff-line-10")
+    await expect(delBelow).toHaveTextContent("delBelow")
+    await expect(delBelow).toHaveAttribute("data-kind", "del")
+    await expect(delBelow).toHaveAttribute("data-dimmed", "true")
+    // Lines 11-12 (line14-line15): pad band below — dimmed.
+    for (const i of [11, 12]) {
+      await expect(canvas.getByTestId(`diff-line-${i}`)).toHaveAttribute("data-dimmed", "true")
+    }
   },
 }

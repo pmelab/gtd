@@ -114,7 +114,7 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
 
       ## Add thing.ts
 
-      - [ ] ./src/thing.ts#1
+      - [ ] ./src/thing.ts#1-9
       new export
       """
     When I run gtd with args "check review REVIEW.md"
@@ -130,8 +130,8 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
 
       ## Add thing.ts
 
-      - [x] ./src/thing.ts#1 — new export
-      - [ ] ./src/other.ts#7 — reworks the validator
+      - [x] ./src/thing.ts#1-9 — new export
+      - [ ] ./src/other.ts#7-12 — reworks the validator
         to also accept the one-line form
       """
     When I run gtd with args "check review REVIEW.md"
@@ -236,7 +236,7 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
 
       ## Add thing.ts
 
-      - [ ] ./src/thing.ts#1
+      - [ ] ./src/thing.ts#1-9
       new export
       """
     When I run gtd with args "check review REVIEW.md"

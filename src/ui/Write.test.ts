@@ -30,7 +30,7 @@ const CONTENT = [
   "",
   "## Chunk",
   "",
-  "- [ ] ./a.ts#1 hunk",
+  "- [ ] ./a.ts#1-1 hunk",
   "",
 ].join("\n")
 
@@ -403,7 +403,7 @@ describe("writeValue", () => {
     expect(deps.writeFile).toHaveBeenCalledTimes(1)
     const [absPath, written] = (deps.writeFile as ReturnType<typeof vi.fn>).mock.calls[0]!
     expect(absPath).toBe("/repo/.gtd/REVIEW.md")
-    expect(written).toContain("- [x] ./a.ts#1 hunk")
+    expect(written).toContain("- [x] ./a.ts#1-1 hunk")
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
   })
 
@@ -528,8 +528,8 @@ describe("writeValue", () => {
       "",
       "## Chunk",
       "",
-      "- [ ] ./a.ts#1 outer hunk",
-      "  - [ ] ./b.ts#2 nested hunk",
+      "- [ ] ./a.ts#1-1 outer hunk",
+      "  - [ ] ./b.ts#2-2 nested hunk",
       "",
     ].join("\n")
     const deps = fakeDeps({ readFile: vi.fn(() => content(nestedContent)) })
@@ -541,8 +541,8 @@ describe("writeValue", () => {
     }
     const result = await writeValue(request, deps)
     const [, written] = vi.mocked(deps.writeFile).mock.calls[0]!
-    expect(written).toContain("- [x] ./a.ts#1 outer hunk")
-    expect(written).toContain("- [x] ./b.ts#2 nested hunk")
+    expect(written).toContain("- [x] ./a.ts#1-1 outer hunk")
+    expect(written).toContain("- [x] ./b.ts#2-2 nested hunk")
     expect(REVIEW_FORMAT.validate(written)).toEqual([])
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
   })

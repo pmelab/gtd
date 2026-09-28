@@ -161,6 +161,8 @@ export interface SteeringViewNode {
   readonly path?: string
   /** A 1-based line in `path` this node points at, when it has one. */
   readonly line?: number
+  /** A 1-based END line in `path`, alongside `line`, for a `review` hunk pointer carrying a range (`#<start>-<end>`). Absent whenever `line` is absent, or for a bare `#<line>` pointer with no range. */
+  readonly endLine?: number
   /** Where `annotate` attaches a NEW note to this node. */
   readonly anchor: SteeringAnchor
   readonly children?: readonly SteeringViewNode[]

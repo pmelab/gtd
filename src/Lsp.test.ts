@@ -317,6 +317,25 @@ describe("documentLinksFor", () => {
     ])
   })
 
+  it("a '#42-70' range pointer's link targets the START line, with a range covering the whole token including the '-70' tail", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#42-70",
+      "",
+    ].join("\n")
+    const links = documentLinksFor(resolveBuiltInMode("review"), content, "/repo")
+    expect(links).toEqual([
+      {
+        range: { start: { line: 5, character: 6 }, end: { line: 5, character: 22 } },
+        target: "file:///repo/src/a.ts#L42",
+      },
+    ])
+  })
+
   it("returns none for a qa-mode document — qa declares no documentLinks member", () => {
     const content = ["## Open Questions", "", "### Which API?", "", "- [ ] REST", ""].join("\n")
     expect(documentLinksFor(resolveBuiltInMode("qa"), content, "/repo")).toEqual([])
@@ -368,7 +387,7 @@ describe("diagnosticsFor", () => {
       "",
       "## Add thing.ts",
       "",
-      "- [ ] ./src/thing.ts#1 — ./src/other.ts#2",
+      "- [ ] ./src/thing.ts#1-1 — ./src/other.ts#2",
       "",
     ].join("\n")
     const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
@@ -377,8 +396,8 @@ describe("diagnosticsFor", () => {
     // The finding's own range (the second pointer token, `./src/other.ts#2`)
     // hands straight through — never re-derived as the whole line.
     expect(diagnostics[0]?.range).toEqual({
-      start: { line: 5, character: 25 },
-      end: { line: 5, character: 41 },
+      start: { line: 5, character: 27 },
+      end: { line: 5, character: 43 },
     })
   })
 
@@ -557,6 +576,34 @@ describe("makeSteeringLanguageService", () => {
       character: 0,
     })
     expect(locations).toEqual([{ uri: "file:///repo/src/a.ts", range: expect.anything() }])
+  })
+
+  it("definition on a '#42-70' range pointer jumps to the START line, 0-based", async () => {
+    const resolved = resolveBuiltInMode("review")!
+    const env = fakeEnv({
+      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      gitTopLevel: async () => "/repo",
+    })
+    const service = makeSteeringLanguageService(env, () => {})
+    const rangeDoc = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./src/a.ts#42-70",
+      "",
+    ].join("\n")
+    const locations = await service.definition("file:///repo/REVIEW.md", rangeDoc, {
+      line: 5,
+      character: 0,
+    })
+    expect(locations).toEqual([
+      {
+        uri: "file:///repo/src/a.ts",
+        range: expect.objectContaining({ start: { line: 41, character: 0 } }),
+      },
+    ])
   })
 
   it("definition on a footnote marker jumps within the SAME document, never touching gitTopLevel", async () => {

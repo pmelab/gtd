@@ -37,7 +37,10 @@ import type { SteeringDescriptor } from "./Descriptor.js"
 
 interface ReviewFile {
   readonly path: string
+  /** 1-based post-image line — the range's own start when the pointer carries one, absent entirely for a bare `./path` with no `#` at all. */
   readonly line?: number
+  /** 1-based post-image end line of a `#<start>-<end>` range — `line` holds the start. Absent for a bare `#<line>` pointer or a `#`-less one. */
+  readonly rangeEnd?: number
   readonly checked: boolean
   /** The pointer's explanation: same-line text (if any) first, then the lines gathered from BELOW it, joined with " ". */
   readonly note?: string
@@ -84,7 +87,7 @@ const REVIEW_SAMPLE = `# Review: sample123
 
 ## Sample chunk[^naduiqc4]
 
-- [ ] ./sample.ts#1 what this hunk does[^fn1]
+- [ ] ./sample.ts#1-1 what this hunk does[^fn1]
 
 [^fn1]:
     This note explains why the hunk exists in more detail than fits on one line
@@ -100,7 +103,9 @@ const REVIEW_SAMPLE = `# Review: sample123
 const HEADER_TEXT_RE = /^Review:\s*(\S+)$/
 /** The `<!-- base: <hash> -->` comment, matched against an `html` node's own raw `value`. */
 const BASE_COMMENT_RE = /^<!--\s*base:\s*(\S+)\s*-->$/
-/** A pointer token's trailing `#<line>` (greedy, so a `#` inside the path stays in it). */
+/** A pointer token's trailing `#<start>-<end>` range (greedy, so a `#` inside the path stays in it, and the LAST `#` wins). */
+const POINTER_RANGE_RE = /^(.*)#(\d+)-(\d+)$/
+/** A pointer token's trailing bare `#<line>` (greedy, same rules as `POINTER_RANGE_RE`) — tried only once the range form has failed to match, so a range token is never misread as a bare line whose path happens to end in digits after a dash. */
 const POINTER_LINE_RE = /^(.*)#(\d+)$/
 /** The optional dash that may lead the inline note segment or a continuation block — em dash, en dash, or hyphens. */
 const NOTE_SEPARATOR_RE = /^[—–-]+\s*/
@@ -143,12 +148,53 @@ const parseBaseComment = (tree: Root): string | undefined => {
   return found
 }
 
-/** True when `token` parses as a file pointer's path token — leading `./`, and a path longer than two characters once an optional `#<line>` suffix is stripped. The single source of truth for "is this a pointer token", shared by `parseHunk`, the second-pointer finding below, and `reviewClearTicks` so all three can never drift apart. */
+/**
+ * One pointer token's path plus whichever suffix it carries: a range
+ * (`line`/`rangeEnd`, `line` holding the range's own start), a bare line
+ * (`line` alone), or neither. The single source of truth for splitting a
+ * token, shared by `isPointerToken`, `buildHunkFile`, `hunkLinkFor`, and
+ * `hunkPointerAt` so none of them can parse the same token two different
+ * ways. The range regex is tried FIRST — a `#42-70` token never falls
+ * through to the bare-line regex, which cannot match it anyway (its
+ * suffix isn't all-digits), but trying range first keeps the precedence
+ * explicit rather than relying on that regex accident.
+ */
+const parsePointerToken = (
+  token: string,
+): {
+  readonly path: string
+  readonly rangeEnd?: number
+  readonly line?: number
+} => {
+  const rangeMatch = POINTER_RANGE_RE.exec(token)
+  if (rangeMatch) {
+    return {
+      path: rangeMatch[1]!,
+      line: Number(rangeMatch[2]),
+      rangeEnd: Number(rangeMatch[3]),
+    }
+  }
+  const lineMatch = POINTER_LINE_RE.exec(token)
+  if (lineMatch) return { path: lineMatch[1]!, line: Number(lineMatch[2]) }
+  return { path: token }
+}
+
+/** The pointer's own display form — `path#start-end` when it carries a range, `path#line` for a bare line, else the bare path. Shared by the second-pointer finding's target and `reviewView`'s hunk title so the two can never render a range pointer differently. */
+const pointerDisplay = (file: {
+  readonly path: string
+  readonly rangeEnd?: number
+  readonly line?: number
+}): string => {
+  if (file.line !== undefined && file.rangeEnd !== undefined) {
+    return `${file.path}#${file.line}-${file.rangeEnd}`
+  }
+  return file.line !== undefined ? `${file.path}#${file.line}` : file.path
+}
+
+/** True when `token` parses as a file pointer's path token — leading `./`, and a path longer than two characters once an optional `#<line>`/`#<start>-<end>` suffix is stripped. The single source of truth for "is this a pointer token", shared by `parseHunk`, the second-pointer finding below, and `reviewClearTicks` so all three can never drift apart. */
 const isPointerToken = (token: string): boolean => {
   if (!token.startsWith("./")) return false
-  const lineMatch = POINTER_LINE_RE.exec(token)
-  const path = lineMatch ? lineMatch[1]! : token
-  return path.length > 2 // `./` with nothing after it is not a path
+  return parsePointerToken(token).path.length > 2 // `./` with nothing after it is not a path
 }
 
 /**
@@ -165,7 +211,7 @@ const secondPointerError = (
   file: ReviewFile,
   secondToken: string,
 ): SteeringFinding => {
-  const target = file.line !== undefined ? `${file.path}#${file.line}` : file.path
+  const target = pointerDisplay(file)
   return {
     message: `Chunk "${title}" hunk ${target}'s note starts with a second pointer (${secondToken}) — give it its own "- [ ]" line`,
     line: file.sourceLine,
@@ -239,16 +285,55 @@ const buildHunkFile = (
   token: string,
   sourceLine: number,
 ): ReviewFile => {
-  const lineMatch = POINTER_LINE_RE.exec(token)
+  const parsed = parsePointerToken(token)
   const restOfParagraph = sourceText(content, paragraph).slice(token.length).trim()
   const note = hunkNote(content, item, paragraph, restOfParagraph)
   return {
-    path: lineMatch ? lineMatch[1]! : token,
-    ...(lineMatch ? { line: Number(lineMatch[2]) } : {}),
+    path: parsed.path,
+    ...(parsed.line !== undefined ? { line: parsed.line } : {}),
+    ...(parsed.rangeEnd !== undefined ? { rangeEnd: parsed.rangeEnd } : {}),
     checked: item.checked === true,
     sourceLine,
     endLine: hunkOwnEndLine(item, sourceLine),
     ...(note.length > 0 ? { note } : {}),
+  }
+}
+
+/** The pointer token's own `[start, end)` range on `sourceLine` — the token's first paragraph content offset, extended by its own length. `undefined` only when the item has no resolvable paragraph offset (kept total; never happens for a real hunk item). Shared by `hunkLinkFor`'s document-link range and the line-without-a-range finding's range so the two can never disagree about what the token spans. */
+const pointerTokenRange = (
+  content: string,
+  item: ListItem,
+  token: string,
+): SteeringFinding["range"] => {
+  const offset = firstParagraphContentOffset(item)
+  if (offset === undefined) return undefined
+  const start = toLspPositionFromOffset(content, offset)
+  const end = toLspPositionFromOffset(content, offset + token.length)
+  return { start, end }
+}
+
+/**
+ * The "line but no range" finding: a pointer whose token carries a bare
+ * `#<line>` (no `#<start>-<end>`) is a validation finding, never a silent
+ * whole-file pointer — the human chose enforcement over instruction. Absent
+ * for a range pointer (`file.rangeEnd` set) and for a `#`-less pointer
+ * (`file.line` absent entirely).
+ */
+const hunkLineWithoutRangeFinding = (
+  content: string,
+  item: ListItem,
+  token: string,
+  sourceLine: number,
+  title: string,
+  file: ReviewFile,
+): SteeringFinding | undefined => {
+  if (file.rangeEnd !== undefined || file.line === undefined) return undefined
+  const target = pointerDisplay(file)
+  const range = pointerTokenRange(content, item, token)
+  return {
+    message: `Chunk "${title}" hunk ${target} carries a line but no range — write "#${file.line}-<end>"`,
+    line: sourceLine,
+    ...(range ? { range } : {}),
   }
 }
 
@@ -310,7 +395,7 @@ const parseHunk = (
   lines: readonly string[],
   title: string,
   item: ListItem,
-): { readonly file: ReviewFile; readonly error?: SteeringFinding } | undefined => {
+): { readonly file: ReviewFile; readonly errors: readonly SteeringFinding[] } | undefined => {
   const paragraph = item.children.find((c) => c.type === "paragraph")
   if (!paragraph || !item.position) return undefined
   if (!hasPointerToken(content, item)) return undefined
@@ -318,8 +403,11 @@ const parseHunk = (
   const token = firstParagraphToken(content, item)!
   const sourceLine = toLspPosition(item.position.start).line
   const file = buildHunkFile(content, item, paragraph, token, sourceLine)
-  const error = hunkSecondPointerFinding(content, lines, item, token, sourceLine, title, file)
-  return { file, ...(error ? { error } : {}) }
+  const errors = [
+    hunkSecondPointerFinding(content, lines, item, token, sourceLine, title, file),
+    hunkLineWithoutRangeFinding(content, item, token, sourceLine, title, file),
+  ].filter((e): e is SteeringFinding => e !== undefined)
+  return { file, errors }
 }
 
 /** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own leading run and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would). Every node kind in what's left before that point contributes — a `footnoteDefinition` is the one exception, excluded by `blockNodesOfRun` itself (it's a note, never document content). */
@@ -351,7 +439,7 @@ const parseChunkBody = (
     const parsed = parseHunk(content, lines, title, item)
     if (!parsed) continue
     files.push(parsed.file)
-    if (parsed.error) errors.push(parsed.error)
+    errors.push(...parsed.errors)
   }
   return { description, descriptionNodes, files, errors }
 }
@@ -733,15 +821,13 @@ const hunkLinkFor = (content: string, item: ListItem): SteeringLink | undefined 
     .split(/\s+/)
     .find((w) => w.length > 0)
   if (!token || !isPointerToken(token)) return undefined
-  const offset = firstParagraphContentOffset(item)
-  if (offset === undefined) return undefined
-  const start = toLspPositionFromOffset(content, offset)
-  const end = toLspPositionFromOffset(content, offset + token.length)
-  const lineMatch = POINTER_LINE_RE.exec(token)
+  const range = pointerTokenRange(content, item, token)
+  if (!range) return undefined
+  const parsed = parsePointerToken(token)
   return {
-    range: { start, end },
-    path: lineMatch ? lineMatch[1]! : token,
-    line: lineMatch ? Number(lineMatch[2]) - 1 : 0,
+    range,
+    path: parsed.path,
+    line: parsed.line !== undefined ? parsed.line - 1 : 0,
   }
 }
 
@@ -819,9 +905,10 @@ const reviewView = (content: string): SteeringView => {
         children: chunk.files.map((file, index) => {
           const hunkNote = hunkNoteOf(definitionByName, markers, file.sourceLine)
           return {
-            title: file.line !== undefined ? `${file.path}#${file.line}` : file.path,
+            title: pointerDisplay(file),
             path: file.path,
             ...(file.line !== undefined ? { line: file.line } : {}),
+            ...(file.rangeEnd !== undefined ? { endLine: file.rangeEnd } : {}),
             checked: file.checked,
             ...(file.note !== undefined ? { detail: file.note } : {}),
             ...(hunkNote !== undefined ? { note: hunkNote } : {}),

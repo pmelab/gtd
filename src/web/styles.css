@@ -70,6 +70,33 @@
 
 @source "./";
 
+/*
+ * A dimmed diff context row (`Hunk.tsx`'s three-line pad band): opacity on
+ * the TEXT only, never a sixth `LINE_BACKGROUND` entry — a new background
+ * would have to clear AA against all five `TOKEN_COLOR`s on top of the
+ * existing five backgrounds, where lowering the foreground's own opacity
+ * only lowers contrast on lines that are, by construction, unchanged
+ * context. 0.85, not a rounder 0.6-0.8: `.diff-dimmed` wraps EVERY token
+ * span in a dimmed row, not just plain text, and `syntax-kw` blended over
+ * `diff-add` is the tightest of all fifteen (5 tokens × 3 backgrounds) —
+ * AA needs >= ~0.815 there, so 0.85 is the lowest round step with margin.
+ * `tokens.test.ts` reads this exact value and pins EVERY (token, background)
+ * pair against AA, not `text` alone.
+ *
+ * That AA floor is also why opacity alone can't carry the Requirement's own
+ * "see at a glance" bar: at 0.85 a dimmed row's text differs from an
+ * in-range row's by only ~1.4:1, well under the 3:1 WCAG treats as the floor
+ * for a perceivable non-text distinction. `Hunk.tsx#DiffLines` pairs this
+ * with a `border-l-2` left rule (`border-border` on a dimmed row,
+ * `border-transparent` otherwise, so the 2px never shifts either state's
+ * content) as the PRIMARY glanceable cue — a border, not a colour or a
+ * background, so it spends none of the AA budget this opacity already
+ * spends.
+ */
+.diff-dimmed {
+  opacity: 0.85;
+}
+
 body {
   margin: 0;
   background: var(--color-page);

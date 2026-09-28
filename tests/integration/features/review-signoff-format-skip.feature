@@ -49,7 +49,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1
+      - [ ] ./src/calc.ts#1-1
       new add function
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
@@ -60,7 +60,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1
+      - [x] ./src/calc.ts#1-1
       new add function
       """
     When I run gtd land

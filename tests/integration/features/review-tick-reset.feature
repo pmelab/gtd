@@ -36,7 +36,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1
+      - [ ] ./src/calc.ts#1-1
       new add function
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
@@ -47,13 +47,13 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       <!-- base: 0000000 -->
 
       ## calc
-      - [x] ./src/calc.ts#1
+      - [x] ./src/calc.ts#1-1
       new add function
       """
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
-    And ".gtd/REVIEW.md" contains "- [ ] ./src/calc.ts#1"
+    And ".gtd/REVIEW.md" contains "- [ ] ./src/calc.ts#1-1"
     And ".gtd/REVIEW.md" does not contain "[x]"
     When I run gtd next with "--json"
     And I execute the printed check script
@@ -78,7 +78,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       <!-- base: 0000000 -->
 
       ## calc
-      - [ ] ./src/calc.ts#1
+      - [ ] ./src/calc.ts#1-1
       new add function
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"

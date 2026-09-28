@@ -233,6 +233,92 @@ Then(
   },
 )
 
+// ── Package 04 — a review hunk's diff resolution, end to end against a real spawned gtd ui (see world.ts#spawnGtdUiAndResolveDiff) ──
+
+/** Splits a scenario's `"path#start-end"` pointer literal into its path and range, mirroring `review.ts#POINTER_RANGE_RE` closely enough for a test fixture (no note text to strip here). */
+function parsePointerLiteral(pointer: string): {
+  path: string
+  line: number | undefined
+  endLine: number | undefined
+} {
+  const match = /^(.*)#(\d+)-(\d+)$/.exec(pointer)
+  if (match === null) return { path: pointer, line: undefined, endLine: undefined }
+  return { path: match[1]!, line: Number(match[2]), endLine: Number(match[3]) }
+}
+
+When(
+  "I resolve the diff for {string} via a spawned gtd ui",
+  async (world: GtdWorld, pointer: string) => {
+    const { path, line, endLine } = parsePointerLiteral(pointer)
+    await world.spawnGtdUiAndResolveDiff(path, line, endLine)
+  },
+)
+
+Then("the diff result is a resolved hunk", (world: GtdWorld) => {
+  assert.strictEqual(
+    world.lastDiffResult?.kind,
+    "hunk",
+    `expected kind "hunk", got: ${JSON.stringify(world.lastDiffResult)}`,
+  )
+})
+
+Then("the diff result carries {int} hunks", (world: GtdWorld, count: number) => {
+  const result = world.lastDiffResult
+  assert.strictEqual(result?.kind, "hunk", `expected kind "hunk", got: ${JSON.stringify(result)}`)
+  if (result?.kind !== "hunk") throw new Error("expected hunk")
+  assert.strictEqual(result.hunks.length, count)
+})
+
+Then(
+  "the diff result's hunk {int} carries {int} lines",
+  (world: GtdWorld, hunkIndex: number, lineCount: number) => {
+    const result = world.lastDiffResult
+    assert.strictEqual(result?.kind, "hunk", `expected kind "hunk", got: ${JSON.stringify(result)}`)
+    if (result?.kind !== "hunk") throw new Error("expected hunk")
+    const hunk = result.hunks[hunkIndex]
+    assert.ok(hunk !== undefined, `expected a hunk at index ${hunkIndex}`)
+    assert.strictEqual(hunk.lines.length, lineCount)
+  },
+)
+
+Then(
+  "the diff result's hunk {int} contains {string}",
+  (world: GtdWorld, hunkIndex: number, text: string) => {
+    const result = world.lastDiffResult
+    assert.strictEqual(result?.kind, "hunk", `expected kind "hunk", got: ${JSON.stringify(result)}`)
+    if (result?.kind !== "hunk") throw new Error("expected hunk")
+    const hunk = result.hunks[hunkIndex]
+    assert.ok(hunk !== undefined, `expected a hunk at index ${hunkIndex}`)
+    assert.ok(
+      hunk.lines.some((line) => line.includes(text)),
+      `expected hunk ${hunkIndex} to contain ${JSON.stringify(text)}, got: ${JSON.stringify(hunk.lines)}`,
+    )
+  },
+)
+
+Then(
+  "the diff result's hunk {int} does not contain {string}",
+  (world: GtdWorld, hunkIndex: number, text: string) => {
+    const result = world.lastDiffResult
+    assert.strictEqual(result?.kind, "hunk", `expected kind "hunk", got: ${JSON.stringify(result)}`)
+    if (result?.kind !== "hunk") throw new Error("expected hunk")
+    const hunk = result.hunks[hunkIndex]
+    assert.ok(hunk !== undefined, `expected a hunk at index ${hunkIndex}`)
+    assert.ok(
+      !hunk.lines.some((line) => line.includes(text)),
+      `expected hunk ${hunkIndex} NOT to contain ${JSON.stringify(text)}`,
+    )
+  },
+)
+
+Then("the diff result is the whole-file banner", (world: GtdWorld) => {
+  assert.strictEqual(
+    world.lastDiffResult?.kind,
+    "whole-file",
+    `expected kind "whole-file", got: ${JSON.stringify(world.lastDiffResult)}`,
+  )
+})
+
 When(
   "I edit paragraph {int} of {string} with the text {string} via a spawned gtd ui",
   async (world: GtdWorld, line: number, filePath: string, text: string) => {

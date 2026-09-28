@@ -215,8 +215,8 @@ back.
 **Chunk**: One coherent group of changes in a review record: a title, a sentence
 on what it changes and why, and its hunk pointers.
 
-**Hunk**: One `- [ ] ./path/to/file.ts#42` pointer inside a chunk — a place to
-look, and a box a reviewer ticks.
+**Hunk**: One `- [ ] ./path/to/file.ts#42-70` pointer inside a chunk — a place
+to look, and a box a reviewer ticks.
 
 **Open question**: A `###` heading under `## Open Questions` in a Q&A steering
 file, carrying candidate answers as checkboxes plus a free-text slot. It becomes
