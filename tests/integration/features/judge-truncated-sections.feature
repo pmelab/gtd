@@ -12,7 +12,7 @@ Feature: A section the judge budget cuts fails open (package 02)
   Scenario: packages.item.spec.pre — a section the budget cuts stays in the reviewer's scope despite a confident yes
     Given a test project
     And the workflow
-    And an environment variable "GTD_JUDGEBUDGETBYTES" set to "60"
+    And an environment variable "GTD_JUDGEBUDGETBYTES" set to "320"
     And gtd enters "start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
@@ -30,10 +30,10 @@ Feature: A section the judge budget cuts fails open (package 02)
       Package: the widget factory.
 
       ## Alpha
-      - [ ] add src/a.ts, exported as the default widget builder
+      - [ ] add src/a.ts, exported as the default widget builder for the whole factory line, including safety checks, telemetry hooks, and full inline documentation of every branch
 
       ## Bravo
-      - [ ] add src/b.ts, exported as the fallback widget builder
+      - [ ] add src/b.ts, exported as the fallback widget builder used whenever the default builder cannot run, with its own safety checks and telemetry hooks
 
       ## Charlie
       ok
@@ -121,3 +121,44 @@ Feature: A section the judge budget cuts fails open (package 02)
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): build.review.triage → build.review.collecting"
+
+  @inmem
+  Scenario: packages.item.spec.pre — a cut `diff` key sends every section to full review, even a small one answered "yes"
+    Given a test project
+    And the workflow
+    And an environment variable "GTD_JUDGEBUDGETBYTES" set to "60"
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      Build the widget factory. No open questions.
+      """
+    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
+      """
+      [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
+      """
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget factory.
+
+      ## A
+      ok
+      """
+    And gtd lands "gtd(check): architecture-promote → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
+    When I run gtd judge answer with stdin:
+      """
+      [{"id": "section-1", "answer": true, "p": 0.99}]
+      """
+    Then it succeeds
+    # section-1's own evidence was small enough to survive the budget, and the
+    # judge answered it "yes" at full confidence — but the diff every question
+    # is judged against was cut, so it stays unclearable regardless.
+    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"

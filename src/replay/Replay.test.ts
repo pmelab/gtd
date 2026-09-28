@@ -3,6 +3,7 @@ import fc from "fast-check"
 import {
   agent,
   changes,
+  changesSince,
   human,
   judge,
   read,
@@ -267,6 +268,78 @@ describe("replay", () => {
       { path: "gone", status: "deleted", before: "bye", after: undefined },
       { path: "keep", status: "modified", before: "old", after: "new" },
     ])
+  })
+
+  it("changesSince(hash) diffs the tree at hash to the tree replay stands on", async () => {
+    let seen: unknown
+    const wf = async () => {
+      const since = hashOf(1)
+      for (;;) {
+        await human("write")
+        seen = changesSince(since).map(({ path, status }) => ({ path, status }))
+      }
+    }
+    const h = new History()
+      .land("human", "write", 1, "write", { a: "1" })
+      .land("human", "write", 2, "write", { b: "1" })
+      .land("human", "write", 3, "write", { c: "1" })
+    await replayOf(wf, h)
+    expect(seen).toEqual([
+      { path: "b", status: "added" },
+      { path: "c", status: "added" },
+    ])
+  })
+
+  it("changesSince(hash) resolves against the episode base, and is empty over a zero-length range", async () => {
+    let seenFromBase: unknown
+    let seenFromLast: unknown
+    const wf = async () => {
+      for (;;) {
+        await human("write")
+        seenFromBase = changesSince(hashOf(0)).paths
+        seenFromLast = changesSince(hashOf(2)).paths
+      }
+    }
+    const h = new History()
+      .land("human", "write", 1, "write", { a: "1" })
+      .land("human", "write", 2, "write", { b: "1" })
+    await replayOf(wf, h)
+    expect(seenFromBase).toEqual(["a", "b", "README.md"])
+    expect(seenFromLast).toEqual([])
+  })
+
+  // A squash or rebase never strands a captured hash: `since` is never
+  // persisted, and every replay re-derives its own commit list from whatever
+  // history exists at that moment (see the comment at `treeAt`). What DOES
+  // reach the guard is a hash from outside that run entirely — read out of
+  // state, from another branch, or otherwise fabricated. This case models
+  // that: a hash real in one episode, handed to a second, unrelated episode
+  // that never held it.
+  it("fails the step when changesSince is given a hash that resolved in an earlier episode but not this one", async () => {
+    const hash = hashOf(2)
+    const wf = async () => {
+      for (;;) {
+        await human("write")
+        changesSince(hash)
+      }
+    }
+    // First: prove `hash` really does resolve — a two-commit episode where it
+    // names the second commit.
+    const resolvable = new History()
+      .land("human", "write", 1, "write", { a: "1" })
+      .land("human", "write", 2, "write", { b: "1" })
+    const resolved = await replayOf(wf, resolvable)
+    expect(resolved.kind).not.toBe("failed")
+
+    // Then: a squash collapses those two commits into one, so the same hash
+    // no longer names anything in this episode's commit list.
+    const squashed = new History().land("human", "write", 1, "write", { a: "1", b: "1" })
+    const outcome = await replayOf(wf, squashed)
+    expect(outcome.kind).toBe("failed")
+    expect(outcome.kind === "failed" && outcome.message).toContain(
+      `changesSince(${hash}): ${hash} is not the episode base or one of its commits`,
+    )
+    expect(outcome.kind === "failed" && outcome.message).toContain("pass a hash this run read from")
   })
 
   it("keeps a local variable across replayed steps", async () => {

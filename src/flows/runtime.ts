@@ -125,6 +125,8 @@ export interface FlowContext {
   readonly glob: (pattern: string) => readonly string[]
   /** The last step's changes, content read on demand. */
   readonly changes: () => readonly Change[]
+  /** Every change from the tree at `hash` to the tree replay stands on. Throws when `hash` resolves to neither. */
+  readonly changesSince: (hash: string) => readonly Change[]
   readonly matches: (path: string, pattern: string) => boolean
   readonly sections: (text: string) => readonly string[]
   readonly sectionBodies: (text: string) => readonly Section[]
@@ -201,16 +203,33 @@ export const read = (path: string): string | undefined => ctx().read(path)
 /** Every path in the tree matching `pattern` (`*` stays within a segment, `**` crosses them). */
 export const glob = (pattern: string): readonly string[] => ctx().glob(pattern)
 
-/** What the last step changed, optionally only the paths matching a glob. */
-export const changes = (pattern?: string): Changes => {
-  const context = ctx()
-  const all = context.changes()
-  const list = pattern === undefined ? all : all.filter((c) => context.matches(c.path, pattern))
-  return Object.freeze(
+const toChanges = (list: readonly Change[]): Changes =>
+  Object.freeze(
     Object.assign([...list], {
       paths: list.map((c) => c.path),
       get: (path: string) => list.find((c) => c.path === path),
     }),
+  )
+
+/** What the last step changed, optionally only the paths matching a glob. */
+export const changes = (pattern?: string): Changes => {
+  const context = ctx()
+  const all = context.changes()
+  return toChanges(
+    pattern === undefined ? all : all.filter((c) => context.matches(c.path, pattern)),
+  )
+}
+
+/**
+ * Every change from the tree at `hash` to the tree replay stands on — this
+ * package's own range, when `hash` is captured at its first step. `hash` must
+ * be the episode's base or one of its commits; anything else fails the step.
+ */
+export const changesSince = (hash: string, pattern?: string): Changes => {
+  const context = ctx()
+  const all = context.changesSince(hash)
+  return toChanges(
+    pattern === undefined ? all : all.filter((c) => context.matches(c.path, pattern)),
   )
 }
 
