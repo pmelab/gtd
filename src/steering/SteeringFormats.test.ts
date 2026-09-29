@@ -240,7 +240,7 @@ const applyEdits = (
 
 describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", () => {
   it("qa: applying the action's edits to the sample validates clean apart from the empty-body finding, and is an oxfmt fixed point", () => {
-    const cursor = { line: 7, character: 8 } // inside "Option B"
+    const cursor = { line: 8, character: 8 } // inside "Option B"
     const action = QA_FORMAT.actions(QA_FORMAT.sample, { start: cursor, end: cursor }).find(
       (a) => a.title === "gtd: add a footnote",
     )!
@@ -317,7 +317,7 @@ describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", 
   })
 
   it("qa: refuses the action with the cursor on an existing definition's own label line, rather than splitting it", () => {
-    const cursor = { line: 10, character: 6 } // "[^fn1]:" — the definition's own label line
+    const cursor = { line: 23, character: 6 } // "[^fn1]:" — the definition's own label line
     const action = QA_FORMAT.actions(QA_FORMAT.sample, { start: cursor, end: cursor }).find(
       (a) => a.title === "gtd: add a footnote",
     )

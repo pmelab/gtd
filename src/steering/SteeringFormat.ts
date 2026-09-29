@@ -176,10 +176,16 @@ export interface SteeringViewNode {
    * `{kind: "paragraph", line}` anchor (`OpenQuestions.ts#questionBodyNodes`,
    * `review.ts#parseChunkBody`'s `descriptionNodes`, both via
    * `Blocks.ts#blockNodesOfRun`) — no new `SteeringAnchor` member exists for
-   * it. Set by `qa` questions and `review` chunks alike; `[]` for either one
-   * with no body at all — never merely absent on a node that legitimately
-   * carries this field, so `node.body !== undefined` alone is not "this is a
-   * question" (`Review.tsx` sets it too).
+   * it. Set by `qa` questions and `review` chunks alike, and by a `qa`
+   * OPTION node too — a nested bullet list or second paragraph under it is
+   * that option's own impacts, rendered inline under its radio
+   * (`Question.tsx`'s `OptionRow`), read-only there since the write-back span
+   * an answer commits through never reaches past the option's own label.
+   * `[]` for a question/chunk with no body at all — never merely absent on a
+   * node that legitimately carries this field, so `node.body !== undefined`
+   * alone is not "this is a question" (`Review.tsx` sets it too). Absent
+   * entirely on the `qa` free-text slot's own option node, which never
+   * carries impacts.
    */
   readonly body?: readonly SteeringViewNode[]
   /**

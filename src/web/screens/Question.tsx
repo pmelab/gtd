@@ -130,6 +130,29 @@ const FreeTextOption = ({
   </div>
 )
 
+/**
+ * One option's own impacts, rendered under its radio, always — no tap,
+ * nothing hidden (the requirement's own "the human scrolls; scrolling is the
+ * accepted cost" call). `readOnly` drops the note-attach seam: an impact
+ * block's own `paragraph` anchor resolves through a walk that only sees
+ * TOP-LEVEL document nodes, so a note anchored there would attach its
+ * definition after the whole option list, not after this option. `null` when
+ * the option carries none — split out of `OptionRow` to keep that
+ * component's own complexity down.
+ */
+const OptionImpacts = ({
+  body,
+  index,
+}: {
+  readonly body: readonly SteeringViewNode[] | undefined
+  readonly index: number
+}) =>
+  body !== undefined && body.length > 0 ? (
+    <div data-testid={`option-impacts-${index}`} className="pl-8">
+      <ProseBlocks nodes={body} noteOverrides={{}} onOpenNote={() => {}} readOnly />
+    </div>
+  ) : null
+
 /** One option row — a radio, its label, and (only for the free-text slot) the textarea. */
 const OptionRow = ({
   option,
@@ -171,6 +194,7 @@ const OptionRow = ({
       />
       <span className={isSelected ? "font-medium" : undefined}>{option.title}</span>
     </label>
+    <OptionImpacts body={option.body} index={index} />
     {isFreeText && <FreeTextOption freeText={freeText} onOpenSheet={onOpenSheet} />}
   </div>
 )

@@ -89,9 +89,9 @@ describe("qa — structure (checkSteering)", () => {
       )
       const [question] = result.questions
       expect(question!.options).toEqual([
-        { checked: false, text: "REST", freeText: false, sourceLine: 4, endLine: 4 },
-        { checked: false, text: "GraphQL", freeText: false, sourceLine: 5, endLine: 5 },
-        { checked: false, text: "", freeText: true, sourceLine: 6, endLine: 6 },
+        { checked: false, text: "REST", freeText: false, sourceLine: 4, endLine: 4, body: [] },
+        { checked: false, text: "GraphQL", freeText: false, sourceLine: 5, endLine: 5, body: [] },
+        { checked: false, text: "", freeText: true, sourceLine: 6, endLine: 6, body: [] },
       ])
       expect(question!.answered).toBe(false)
     })
@@ -121,6 +121,7 @@ describe("qa — structure (checkSteering)", () => {
         freeText: true,
         sourceLine: 6,
         endLine: 6,
+        body: [],
       })
     })
 
@@ -136,6 +137,7 @@ describe("qa — structure (checkSteering)", () => {
         freeText: true,
         sourceLine: 6,
         endLine: 6,
+        body: [],
       })
     })
 
@@ -166,6 +168,7 @@ describe("qa — structure (checkSteering)", () => {
         freeText: false,
         sourceLine: 4,
         endLine: 4,
+        body: [],
       })
       expect(last!.freeText).toBe(true)
     })
@@ -1606,6 +1609,177 @@ describe("qa — option text span (Task 1: one span, read and written by one hel
   // answer" test (below) covers the reachable shape of this same guard: an
   // erase writes `FREE_TEXT_PLACEHOLDER` rather than truly empty text,
   // specifically so this anchor never goes stale.
+})
+
+describe("qa — option impacts (nested content under an option)", () => {
+  it("a nested plain bullet list under an option parses into that option's own body, and the option's own text stays the label alone", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which option?",
+      "",
+      "- [ ] Ship it behind a flag",
+      "  - Rollback is one edit, not a revert",
+      "  - Leaves a config key nobody removes",
+      "- [ ] Ship it directly",
+      "",
+    ].join("\n")
+    const [first, second] = parseOpenQuestions(content).questions[0]!.options
+    expect(first!.text).toBe("Ship it behind a flag")
+    expect(first!.body).toHaveLength(1)
+    expect(first!.body[0]!.block?.kind).toBe("list")
+    expect(first!.body[0]!.block?.items?.map((item) => item.text)).toEqual([
+      "Rollback is one edit, not a revert",
+      "Leaves a config key nobody removes",
+    ])
+    expect(second!.text).toBe("Ship it directly")
+    expect(second!.body).toEqual([])
+  })
+
+  it("a second paragraph under an option parses into its body the same way a nested list does", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which option?",
+      "",
+      "- [ ] Ship it behind a flag",
+      "",
+      "  A second paragraph of impacts, indented under the option.",
+      "- [ ] Ship it directly",
+      "",
+    ].join("\n")
+    const [first] = parseOpenQuestions(content).questions[0]!.options
+    expect(first!.body.map((n) => n.title)).toEqual([
+      "A second paragraph of impacts, indented under the option.",
+    ])
+  })
+
+  it("a nested plain bullet never becomes a sub-option — optionListItems is unchanged", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which option?",
+      "",
+      "- [ ] Ship it behind a flag",
+      "  - Rollback is one edit, not a revert",
+      "- [ ] Ship it directly",
+      "",
+    ].join("\n")
+    expect(parseOpenQuestions(content).questions[0]!.options.map((o) => o.text)).toEqual([
+      "Ship it behind a flag",
+      "Ship it directly",
+    ])
+  })
+
+  it("endLine already spans the nested content, so a footnote marker written inside an option's impacts resolves to that option", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which option?",
+      "",
+      "- [ ] Ship it behind a flag",
+      "  - Rollback is one edit, not a revert[^fn1]",
+      "- [ ] Ship it directly",
+      "",
+      "[^fn1]: a note on the impact itself",
+      "",
+    ].join("\n")
+    const outline = qa.outline(content)
+    const option = outline[0]!.children![0]!
+    expect(option.children!.some((c) => c.name.includes("a note on the impact itself"))).toBe(true)
+  })
+
+  it("a free-text save leaves every other option's nested impacts byte-identical, and moves nothing outside the saved option's own first paragraph", () => {
+    // The WRITTEN option (index 2, the free-text slot) itself carries a
+    // nested bullet under its label — the one shape in which widening
+    // `optionTextSpan`'s `end` from the first paragraph to the whole list
+    // item (the exact corruption its own doc comment and the Requirement's
+    // Risk line call out) would delete something THIS test can catch: a
+    // regression there would swallow "a nested note the human left before
+    // writing an answer" into the replacement text or delete it outright.
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which option?",
+      "",
+      "- [ ] Ship it behind a flag",
+      "  - Rollback is one edit, not a revert",
+      "  - Leaves a config key nobody removes",
+      "- [ ] Ship it directly",
+      "  - No rollback path at all",
+      `- [ ] ${FREE_TEXT_PLACEHOLDER}`,
+      "  - a nested note the human left before writing an answer",
+      "",
+    ].join("\n")
+    const result = qa.apply(
+      content,
+      { kind: "option", questionIndex: 0, index: 2 },
+      { checked: true, text: "go with the flag" },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEditsLocal(content, result.edits)
+    // One `toBe` against the WHOLE document, not a handful of `toContain`
+    // substring checks: only the free-text slot's own label line changes
+    // (`- [ ] _your answer_` → `- [x] go with the flag`) — every other byte,
+    // every other option's nested content, and the written option's OWN
+    // nested bullet all stay exactly where they were.
+    expect(applied).toBe(
+      [
+        "## Open Questions",
+        "",
+        "### Which option?",
+        "",
+        "- [ ] Ship it behind a flag",
+        "  - Rollback is one edit, not a revert",
+        "  - Leaves a config key nobody removes",
+        "- [ ] Ship it directly",
+        "  - No rollback path at all",
+        "- [x] go with the flag",
+        "  - a nested note the human left before writing an answer",
+        "",
+      ].join("\n"),
+    )
+  })
+
+  it("the view carries an option's impacts on its own node's body, and the free-text slot's option node carries no body", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which option?",
+      "",
+      "- [ ] Ship it behind a flag",
+      "  - Rollback is one edit, not a revert",
+      `- [ ] ${FREE_TEXT_PLACEHOLDER}`,
+      "",
+    ].join("\n")
+    const question = qa.view(content).nodes.find((n) => n.status !== undefined)!
+    const [first, freeText] = question.children!
+    expect(first!.body!.map((n) => n.title)).toEqual(["Rollback is one edit, not a revert"])
+    expect(freeText!.body).toBeUndefined()
+  })
+
+  it("the outline's option node carries its impacts' collapsed text as detail, with no extra node per impact", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### Which option?",
+      "",
+      "- [ ] Ship it behind a flag",
+      "  - Rollback is one edit, not a revert",
+      "  - Leaves a config key nobody removes",
+      "- [ ] Ship it directly",
+      "",
+    ].join("\n")
+    const outline = qa.outline(content)
+    const [first, second] = outline[0]!.children!
+    expect(first!.detail).toBe(
+      "Rollback is one edit, not a revert Leaves a config key nobody removes",
+    )
+    expect(first!.leaf).toBe(true)
+    expect(first!.children).toBeUndefined()
+    expect(second!.detail).toBeUndefined()
+  })
 })
 
 describe("qa.annotate", () => {
