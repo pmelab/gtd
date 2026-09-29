@@ -475,6 +475,11 @@ indented 4 or more spaces stops counting as one (it is Markdown indented code,
 or a lazy continuation of the line above it) and fails `gtd check qa` /
 `gtd validate` naming the exact line; 2 or 3 spaces of indent are still fine.
 
+Content nested under a `qa` option — a bullet list or a second paragraph
+indented under its `- [ ]`/`- [x]` line — is that option's own detail, shown
+alongside it, never part of the answer, and never touched when you write into
+the free-text slot.
+
 Both formats also understand **footnotes** — your own comment attached to an
 exact spot in the file, for the next agent turn to read as a mandatory note
 rather than as an instruction. Mark the spot with `[^name]` (any name, no

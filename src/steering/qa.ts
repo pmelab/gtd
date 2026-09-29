@@ -1,6 +1,6 @@
 import type { Code, Heading, List, ListItem, Root, RootContent } from "mdast"
 import { blockNodesOf, blockNodesOfRun } from "./Blocks.js"
-import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
+import type { Footnotes, FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
   FOOTNOTE_ACTION_TITLE,
   footnoteAdditionEdits,
@@ -61,17 +61,19 @@ export const FREE_TEXT_PLACEHOLDER = "_your answer_"
 
 /**
 
- * The `qa` descriptor's canonical sample: one open question with two options plus the
- * unfilled free-text slot, one hand-authored footnote on Option A with a body
- * over 80 characters, and a SECOND footnote on Option B, attached exactly the
- * way the server attaches one (`questionsAnnotate` →
- * `Footnotes.ts#footnoteAttachEdits`, hence its `na`-prefixed id, distinct
- * from the hand-authored `fn` one) — its body also over 80 characters and
- * carrying a multi-word inline code span, so `ModeContradiction.ts`'s
- * formatter round-trip covers a server-written note reflowing, not just a
- * hand-authored one. Pinned already in oxfmt's own wrapped four-space form
- * (see `src/steering/SteeringFormats.test.ts`'s formatter round-trip). Not
- * authored to survive any particular formatter.
+ * The `qa` descriptor's canonical sample: one open question with three real
+ * options plus the unfilled free-text slot, each real option carrying a
+ * nested impact list (different bullet counts, so the parser/outline/view
+ * tests below cover more than one shape at once), one hand-authored footnote
+ * on Option A with a body over 80 characters, and a SECOND footnote on
+ * Option B, attached exactly the way the server attaches one
+ * (`questionsAnnotate` → `Footnotes.ts#footnoteAttachEdits`, hence its
+ * `na`-prefixed id, distinct from the hand-authored `fn` one) — its body also
+ * over 80 characters and carrying a multi-word inline code span, so
+ * `ModeContradiction.ts`'s formatter round-trip covers a server-written note
+ * reflowing, not just a hand-authored one. Pinned already in oxfmt's own
+ * wrapped four-space form (see `src/steering/SteeringFormats.test.ts`'s
+ * formatter round-trip). Not authored to survive any particular formatter.
  */
 const QA_SAMPLE = `Sample plan. Add a thing.
 
@@ -80,7 +82,14 @@ const QA_SAMPLE = `Sample plan. Add a thing.
 ### Which option?
 
 - [ ] Option A[^fn1]
+  - Keeps today's behavior exactly as it is
 - [ ] Option B[^na17v2bjb]
+  - Costs a migration script
+  - Buys a smaller runtime footprint
+- [ ] Option C
+  - Splits the difference between A and B
+  - Costs the most review time
+  - Buys the easiest rollback
 
 [^na17v2bjb]:
     Attached via the phone UI on Option B, this note carries a
@@ -104,6 +113,14 @@ interface QuestionOption {
   readonly sourceLine: number
   /** 0-based line index of the LAST line of this option's list item — equal to `sourceLine` unless the item's text wraps onto continuation lines. */
   readonly endLine: number
+  /**
+   * This option's own nested blocks — a nested plain bullet list or a second
+   * paragraph under it, projected through the shared block walk
+   * (`optionBodyNodes`). `[]` when the option carries none. Never part of
+   * `text`, and never reached by the write-back span (`optionTextSpan`) —
+   * see that span's own doc comment for why it stays narrow.
+   */
+  readonly body: readonly SteeringViewNode[]
 }
 
 interface OpenQuestion {
@@ -217,14 +234,22 @@ const optionListItems = (body: readonly RootContent[]): readonly ListItem[] => {
  * whatever this format's own convention favors — still surfaces in `body`
  * rather than vanishing along with the options beside it. Shares every helper
  * the whole-document walk uses (`blockTitle`, `blockOf`, `blockListItemsOf`,
- * note attachment) rather than re-deriving any of them.
+ * note attachment) rather than re-deriving any of them. `footnotes` is
+ * `parseOpenQuestions`'s own SINGLE `parseFootnotes` call, threaded in rather
+ * than re-parsed here — see `optionBodyNodes`'s own doc comment for why a
+ * per-question (and per-option) re-parse would be a whole-document walk
+ * multiplied by every question/option in the file.
  */
 const questionBodyNodes = (
   content: string,
   body: readonly RootContent[],
+  footnotes: Footnotes,
 ): readonly SteeringViewNode[] => {
   const optionItems = new Set(optionListItems(body))
-  return blockNodesOfRun(content, body, { skipListItem: (item) => optionItems.has(item) })
+  return blockNodesOfRun(content, body, {
+    skipListItem: (item) => optionItems.has(item),
+    footnotes,
+  })
 }
 
 /** The whole body's collapsed text — every `bodyNodes` block's own title, joined with a single space, or `""` for an empty body. Feeds `OpenQuestion.text`. */
@@ -285,8 +310,37 @@ const optionText = (content: string, item: ListItem): string => {
   return stripMarkerText(content.slice(span.start, span.end)).replace(/\s+/g, " ").trim()
 }
 
+/**
+ * An option's own nested blocks — the list item's children with its label
+ * paragraph (the one `optionTextSpan`/`optionText` already read) excluded,
+ * run through the shared block walk (`Blocks.ts#blockNodesOfRun`). A nested
+ * plain bullet list under an option is real per-option content (`checked` is
+ * `null` on a plain bullet, exactly what `optionListItems` already filters
+ * on, so it can never be mistaken for a sub-option); a second paragraph under
+ * the option reads the same way. `[]` for an option with nothing nested under
+ * it. `footnotes` is `parseOpenQuestions`'s own SINGLE `parseFootnotes` call,
+ * threaded in rather than re-parsed here: `blockNodesOfRun`'s own footnote
+ * pass walks the WHOLE document, so a question with five options re-parsing
+ * it five times over (on top of the per-question pass `questionBodyNodes`
+ * already pays) would cost work proportional to the file, not to the
+ * option's own nested nodes.
+ */
+const optionBodyNodes = (
+  content: string,
+  item: ListItem,
+  footnotes: Footnotes,
+): readonly SteeringViewNode[] => {
+  const labelParagraph = item.children.find((c) => c.type === "paragraph")
+  const rest = item.children.filter((c) => c !== labelParagraph)
+  return blockNodesOfRun(content, rest, { footnotes })
+}
+
 /** Extracts the checkbox options from a question block's body, in document order. */
-const parseOptions = (content: string, body: readonly RootContent[]): QuestionOption[] => {
+const parseOptions = (
+  content: string,
+  body: readonly RootContent[],
+  footnotes: Footnotes,
+): QuestionOption[] => {
   const items = optionListItems(body)
   const lastIndex = items.length - 1
   return items.map((item, i) => {
@@ -304,6 +358,7 @@ const parseOptions = (content: string, body: readonly RootContent[]): QuestionOp
       freeText,
       sourceLine: toLspPosition(item.position!.start).line,
       endLine: toLspPosition(item.position!.end).line,
+      body: optionBodyNodes(content, item, footnotes),
     }
   })
 }
@@ -347,6 +402,7 @@ const parseQuestionBlock = (
   content: string,
   block: QuestionBlock,
   status: OpenQuestionStatus,
+  footnotes: Footnotes,
 ): OpenQuestion | { readonly error: SteeringFinding } => {
   const question = headingText(content, block.heading)
   if (question.length === 0) {
@@ -361,8 +417,8 @@ const parseQuestionBlock = (
   }
 
   const headingLine = toLspPosition(block.heading.position!.start).line
-  const bodyNodes = questionBodyNodes(content, block.body)
-  const options = status === "open" ? parseOptions(content, block.body) : []
+  const bodyNodes = questionBodyNodes(content, block.body, footnotes)
+  const options = status === "open" ? parseOptions(content, block.body, footnotes) : []
 
   return {
     question,
@@ -648,10 +704,15 @@ const strictReadingFindings = (tree: Root, content: string): SteeringFinding[] =
  * never had a real node to begin with, so their range spans the raw offending
  * line instead). This IS `parseOpenQuestions` — there is no second parse
  * function to route around its own return type, mirroring `review.ts`'s
- * single `parseReviewDoc`.
+ * single `parseReviewDoc`. `parseFootnotes(content)` runs exactly ONCE here
+ * and is threaded through every question/option body walk below — never
+ * re-run per question or per option, which would turn a document-sized walk
+ * into one multiplied by every question/option in the file (see
+ * `questionBodyNodes`/`optionBodyNodes`'s own doc comments).
  */
 export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   const tree = parseMarkdown(content)
+  const footnotes = parseFootnotes(content)
 
   const questions: OpenQuestion[] = []
   const findings: SteeringFinding[] = [
@@ -672,7 +733,7 @@ export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
     if (!headingNode) continue
     const index = tree.children.indexOf(headingNode)
     for (const block of splitQuestionBlocks(tree, index)) {
-      const result = parseQuestionBlock(content, block, status)
+      const result = parseQuestionBlock(content, block, status, footnotes)
       if ("error" in result) {
         findings.push(result.error)
       } else {
@@ -776,8 +837,10 @@ const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
       )
       optionMarkers.forEach((m) => assigned.add(m))
       const footnotes = optionMarkers.map((m) => footnoteLeaf(lines, definitionByName, m))
+      const impactsDetail = bodyText(option.body)
       return {
         name: `${option.checked ? "[x]" : "[ ]"} ${option.text || "your answer"}`,
+        ...(impactsDetail.length > 0 ? { detail: impactsDetail } : {}),
         range: spanRange(lines, option.sourceLine, option.endLine),
         selectionRange: lineRange(lines, option.sourceLine),
         // `leaf: true` means "no children of its own" (SteeringFormat.ts) —
@@ -1065,6 +1128,9 @@ const questionsView = (content: string): SteeringView => {
           title: option.text,
           checked: option.checked,
           anchor: { kind: "option" as const, questionIndex, index },
+          // The free-text slot never carries impacts of its own — see
+          // `QuestionOption.body`'s own doc comment.
+          ...(option.freeText ? {} : { body: option.body }),
         })),
       })),
     ],

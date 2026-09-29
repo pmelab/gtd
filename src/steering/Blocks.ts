@@ -1,5 +1,6 @@
 import type { List, ListItem, RootContent, Root } from "mdast"
 import { parseFootnotes } from "./Footnotes.js"
+import type { Footnotes } from "./Footnotes.js"
 import { headingText, sourceText, toLspPosition } from "./MarkdownTree.js"
 import type { BlockListItem, SteeringView, SteeringViewNode } from "./SteeringFormat.js"
 
@@ -198,6 +199,15 @@ export interface BlockWalkOptions {
   readonly skipNode?: (content: string, node: RootContent) => boolean
   readonly skipLine?: (line: number) => boolean
   readonly skipListItem?: (item: ListItem) => boolean
+  /**
+   * Pre-parsed footnotes, for a caller that walks MULTIPLE runs of the SAME
+   * document (`qa.ts`'s one call per question, now one per option too) and
+   * must not pay `parseFootnotes`'s own whole-document walk again for each
+   * one. Absent means "parse it here" — every single-call caller (`review.ts`,
+   * `freeform.ts`, this module's own `blockNodesOf`) still gets that for
+   * free, unchanged.
+   */
+  readonly footnotes?: Footnotes
 }
 
 /**
@@ -230,13 +240,17 @@ const isEmptiedList = (node: RootContent, options?: BlockWalkOptions): boolean =
  * anchored at that same line surfaces as the node's own `note` (mirrors
  * `review.ts#chunkNoteOf`'s exact-line-match convention), so a block already
  * carrying a note offers editing it, not a second one.
+ *
+ * `options.footnotes`, when given, replaces this call's own
+ * `parseFootnotes(content)` — see `BlockWalkOptions.footnotes`'s own doc
+ * comment for why a caller walking many runs of the same document needs it.
  */
 export const blockNodesOfRun = (
   content: string,
   nodes: readonly RootContent[],
   options?: BlockWalkOptions,
 ): readonly SteeringView["nodes"][number][] => {
-  const { markers, definitions } = parseFootnotes(content)
+  const { markers, definitions } = options?.footnotes ?? parseFootnotes(content)
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   return nodes
     .filter((node) => node.position !== undefined)

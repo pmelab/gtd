@@ -126,13 +126,36 @@ export const questionBar = `- The goal is shared understanding, not a quota or a
   plus a one-line rationale in prose, no checkboxes. That heading
   always comes last, after every other \`##\` section
 - Above the bar, write it under \`## Open Questions\` — always the first
-  \`##\` section — as \`### <question>\` plus a checkbox list: two
-  concrete options and a free-text slot, all unticked:
+  \`##\` section — as \`### <question>\` plus a body plus a checkbox list.
+  The count of concrete options is your call, taken from how many
+  genuinely distinct answers the fork has — never padded to a fixed
+  number. A floor still applies: at least two real options plus the
+  free-text slot, or the question is not a fork
+- The heading is followed by one or two lines of body naming the fork
+  and what actually differs, THEN the option list. The body frames the
+  fork; each option's own content carries that option's impacts — they
+  never repeat each other. A body that lists the options back is
+  padding, and an option line that restates the fork is padding too
+- Each option is one short line plus its own impacts nested under it as
+  a bullet list: one to four bullets, free-form — what it costs, what
+  it buys, how it differs from the others. Write the dimensions this
+  fork actually has and skip the ones it does not; no \`Costs:\`/\`Buys:\`/
+  \`Differs:\` labels, no fixed bullet count. The free-text slot is last,
+  mandatory, identified by position rather than by label:
 
       ### <the question>
 
-      - [ ] <first option — a concrete answer, a few words of rationale>
-      - [ ] <second option>
+      <one or two lines: what the fork is, what actually differs>
+
+      - [ ] <first option — a short line>
+        - <impact>
+        - <impact>
+      - [ ] <second option — a short line>
+        - <impact>
+      - [ ] <third option — a short line>
+        - <impact>
+        - <impact>
+        - <impact>
       - [ ] _your answer_
 
 - Never tick a box yourself — the human ticks exactly one per question`

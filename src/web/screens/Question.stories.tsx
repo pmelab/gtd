@@ -4,6 +4,7 @@ import { expect, fireEvent, waitFor, within } from "storybook/test"
 import { FREE_TEXT_PLACEHOLDER, steeringFormatFor } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { RefusalBanner, useRefusal } from "../Refusal.js"
+import { viewport } from "../testing/browserContext.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
 /**
@@ -879,5 +880,111 @@ export const TappingTheAnswerValueReopensTheSheetForEditing: Story = {
     await fireEvent.change(reopened, { target: { value: "edited answer" } })
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await expect(canvas.getByTestId("free-text-value")).toHaveTextContent("edited answer")
+  },
+}
+
+/** One option's own nested impact list, as `qa.view` projects it (`option.body`) — a single `list`-kind body block whose `items` carry the impact bullets verbatim. */
+const impactBody = (items: readonly string[]): readonly SteeringViewNode[] => [
+  {
+    title: items.join(" "),
+    anchor: { kind: "paragraph", line: 0 },
+    block: { kind: "list", ordered: false, items: items.map((text) => ({ text })) },
+  },
+]
+
+/**
+ * An option's own impacts render inline under its radio, with no
+ * interaction — the requirement's own "every option's impacts are always
+ * visible ... no tap, nothing hidden". Also proves DOM order: the impact
+ * text sits under its OWN option row, not before it or under a sibling's.
+ */
+export const AnOptionsImpactsRenderInlineUnderItsOwnRadioNoInteractionRequired: Story = {
+  args: {
+    node: questionNode({
+      children: [
+        {
+          title: "Option A",
+          checked: false,
+          anchor: { kind: "option", questionIndex: 0, index: 0 },
+          body: impactBody(["Rollback is one edit, not a revert"]),
+        },
+        {
+          title: "Option B",
+          checked: false,
+          anchor: { kind: "option", questionIndex: 0, index: 1 },
+          body: impactBody(["Leaves a config key nobody removes"]),
+        },
+        {
+          title: FREE_TEXT_PLACEHOLDER,
+          checked: false,
+          anchor: { kind: "option", questionIndex: 0, index: 2 },
+        },
+      ],
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const optionA = canvas.getByTestId("option-0")
+    const optionB = canvas.getByTestId("option-1")
+    await expect(optionA).toHaveTextContent("Rollback is one edit, not a revert")
+    await expect(optionA).not.toHaveTextContent("Leaves a config key nobody removes")
+    await expect(optionB).toHaveTextContent("Leaves a config key nobody removes")
+    await expect(optionB).not.toHaveTextContent("Rollback is one edit, not a revert")
+    // Read-only: no note-attach seam on an impact block.
+    expect(canvas.queryByTestId("note-target-0")).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * Wraps `ControlledQuestionHarness` in the SAME scroll-container shape
+ * `Deck.tsx`'s own `data-testid="deck-content"` div is (`min-h-0 flex-1
+ * overflow-auto`, sized by a fixed-height ancestor here rather than `Deck`'s
+ * own `h-full` chain, which needs a real viewport to resolve) — so a story
+ * that never mounts `Deck` still measures the real geometry a phone screen
+ * would show: a bounded box that SCROLLS, never one that grows to fit or
+ * clips.
+ */
+const ScrollBoundedQuestionHarness = (props: { readonly node: SteeringViewNode }) => (
+  <div style={{ height: "400px" }} className="flex flex-col">
+    <div data-testid="scroll-container" className="min-h-0 flex-1 overflow-auto">
+      <ControlledQuestionHarness node={props.node} />
+    </div>
+  </div>
+)
+
+/**
+ * Five options, each with its own impacts, confirms the screen SCROLLS
+ * rather than truncating or hiding any option's impacts — the requirement's
+ * own accepted cost ("scrolling is the accepted cost of seeing the whole
+ * comparison at once"). `toHaveTextContent` alone would stay green through
+ * exactly the regression this guards against (`display: none`,
+ * `visibility: hidden`, an `overflow: hidden`/`max-height` clip all still
+ * report their text as `textContent`), so this asserts real geometry
+ * instead: every impact line is actually VISIBLE (`toBeVisible`, which fails
+ * on all of those), and the scroll container's own `scrollHeight` exceeds
+ * its `clientHeight` — the box is bounded and overflowing, not merely tall
+ * enough to fit everything without scrolling at all.
+ */
+export const FiveOptionsWithImpactsRendersAllOfThemRatherThanHidingAny: Story = {
+  render: (args) => <ScrollBoundedQuestionHarness node={args.node} />,
+  args: {
+    node: questionNode({
+      children: ["A", "B", "C", "D", "E"].map((label, index) => ({
+        title: `Option ${label}`,
+        checked: false,
+        anchor: { kind: "option", questionIndex: 0, index },
+        body: impactBody([`Option ${label}'s own impact line`]),
+      })),
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    for (const label of ["A", "B", "C", "D", "E"]) {
+      const impact = canvas.getByText(`Option ${label}'s own impact line`)
+      await expect(impact).toBeVisible()
+    }
+    const scrollContainer = canvas.getByTestId("scroll-container")
+    expect(scrollContainer.scrollHeight).toBeGreaterThan(scrollContainer.clientHeight)
   },
 }
