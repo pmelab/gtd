@@ -3,7 +3,6 @@ import fc from "fast-check"
 import {
   footnoteAdditionEdits,
   footnoteAttachEdits,
-  footnoteMarkerColumn,
   footnotePointerAt,
   isOnExistingFootnote,
   nextFootnoteName,
@@ -80,6 +79,71 @@ describe("parseFootnotes", () => {
     expect(definitions).toEqual([{ name: "fn1", line: 2, endLine: 2, body: "" }])
   })
 
+  it("raises the indent finding (not the empty-body one) for a definition whose continuation is indented under 4 spaces, even though a human wrote real words there — the indent, not the words, decides membership", () => {
+    const content = ["text[^fn1]", "", "[^fn1]:", " a human wrote this comment here"].join("\n")
+    const { definitions, findings } = parseFootnotes(content)
+    expect(definitions).toEqual([{ name: "fn1", line: 2, endLine: 2, body: "" }])
+    expect(findings).toContainEqual({
+      message:
+        'Footnote definition "[^fn1]": the text below it is indented too little to belong to it — indent continuation lines by 4 spaces',
+      line: 2,
+      range: { start: { line: 2, character: 0 }, end: { line: 3, character: 32 } },
+    })
+    expect(findings.some((f) => f.message.includes("has an empty body"))).toBe(false)
+  })
+
+  it("raises the indent message and never the empty-body one, and exactly one finding, for a definition followed by words indented 1-3 spaces", () => {
+    const content = ["text[^fn1]", "", "[^fn1]:", "   stranded words here"].join("\n")
+    const { findings } = parseFootnotes(content)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toBe(
+      'Footnote definition "[^fn1]": the text below it is indented too little to belong to it — indent continuation lines by 4 spaces',
+    )
+  })
+
+  it("spans the indent finding's range through the stranded paragraph's own last line when it wraps several lines", () => {
+    const content = [
+      "text[^fn1]",
+      "",
+      "[^fn1]:",
+      " first stranded line",
+      " second stranded line",
+    ].join("\n")
+    const { findings } = parseFootnotes(content)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.range).toEqual({
+      start: { line: 2, character: 0 },
+      end: { line: 4, character: " second stranded line".length },
+    })
+  })
+
+  it("still raises has an empty body for a definition followed by a non-blank line at 0 indent", () => {
+    const content = ["text[^fn1]", "", "[^fn1]:", "not indented at all"].join("\n")
+    const { findings } = parseFootnotes(content)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toBe('Footnote definition "[^fn1]" has an empty body')
+  })
+
+  it("raises has an empty body for [^a] (never the indent message) when the indented next line is actually [^b]'s own definition", () => {
+    const content = ["text[^fn1] text[^fn2]", "", "[^fn1]:", " [^fn2]: text"].join("\n")
+    const { findings } = parseFootnotes(content)
+    const fn1Findings = findings.filter((f) => f.message.includes('"[^fn1]"'))
+    expect(fn1Findings).toEqual([
+      {
+        message: 'Footnote definition "[^fn1]" has an empty body',
+        line: 2,
+        range: { start: { line: 2, character: 0 }, end: { line: 2, character: 7 } },
+      },
+    ])
+  })
+
+  it("raises neither finding for a definition followed by a tab-indented line — GFM joins it to the body", () => {
+    const content = ["text[^fn1]", "", "[^fn1]:", "\tstranded but joined by the tab"].join("\n")
+    const { definitions, findings } = parseFootnotes(content)
+    expect(definitions[0]!.body).toBe("stranded but joined by the tab")
+    expect(findings).toHaveLength(0)
+  })
+
   it("ends a definition at a blank line", () => {
     const content = ["text[^fn1]", "", "[^fn1]:", "    first", "", "not part of it"].join("\n")
     const { definitions } = parseFootnotes(content)
@@ -154,14 +218,28 @@ describe("parseFootnotes", () => {
     })
   })
 
-  it("reports a definition whose body is still the seeded placeholder", () => {
-    const content = ["a[^fn1]", "", "[^fn1]: your comment"].join("\n")
+  it("parses a body-less definition as a real footnoteDefinition, matched to its marker, not an orphan", () => {
+    const content = "a[^fn1]\n\n[^fn1]:\n"
+    const { definitions, markers, findings } = parseFootnotes(content)
+    expect(definitions).toEqual([{ name: "fn1", line: 2, endLine: 2, body: "" }])
+    expect(markers).toEqual([{ name: "fn1", line: 0, character: 1, endCharacter: 7 }])
+    expect(findings.some((f) => f.message.includes("has no matching definition"))).toBe(false)
+  })
+
+  it("reports a definition whose body is empty as unfilled", () => {
+    const content = ["a[^fn1]", "", "[^fn1]:"].join("\n")
     const { findings } = parseFootnotes(content)
     expect(findings).toContainEqual({
-      message: 'Footnote definition "[^fn1]" still has its seeded placeholder body',
+      message: 'Footnote definition "[^fn1]" has an empty body',
       line: 2,
-      range: { start: { line: 2, character: 0 }, end: { line: 2, character: 20 } },
+      range: { start: { line: 2, character: 0 }, end: { line: 2, character: 7 } },
     })
+  })
+
+  it("reports no finding for a definition holding the ordinary human text 'your comment' — it is no longer a placeholder", () => {
+    const content = ["a[^fn1]", "", "[^fn1]: your comment"].join("\n")
+    const { findings } = parseFootnotes(content)
+    expect(findings.some((f) => f.message.includes("has an empty body"))).toBe(false)
   })
 
   it("reports no finding of any kind for placement — a far-away definition is valid", () => {
@@ -268,7 +346,7 @@ describe("nextFootnoteName", () => {
   it("is idempotent across two applications: fn1 then fn2, never a collision", () => {
     const first = nextFootnoteName("prose")
     expect(first).toBe("fn1")
-    const withFirst = `prose[^${first}]\n\n[^${first}]: your comment\n`
+    const withFirst = `prose[^${first}]\n\n[^${first}]:\n`
     expect(nextFootnoteName(withFirst)).toBe("fn2")
   })
 
@@ -278,40 +356,39 @@ describe("nextFootnoteName", () => {
   })
 })
 
-describe("footnoteMarkerColumn", () => {
-  it("lands at the word's end when the cursor sits inside it", () => {
-    expect(footnoteMarkerColumn("Option A here", 7)).toBe(8) // cursor inside "A"
-    expect(footnoteMarkerColumn("hello world", 2)).toBe(5) // cursor inside "hello"
-  })
-
-  it("stays at the cursor when it already sits just past a word", () => {
-    expect(footnoteMarkerColumn("hello world", 5)).toBe(5) // right after "hello", before the space
-  })
-
-  it("stays at the cursor when it sits on whitespace or punctuation", () => {
-    expect(footnoteMarkerColumn("hello, world", 5)).toBe(5) // on the comma
-    expect(footnoteMarkerColumn("hello world", 5)).toBe(5) // on the space
-  })
-})
-
 describe("footnoteAdditionEdits", () => {
-  it("inserts the marker at the cursor's word-scanned column, and a placeholder definition anchored one line PAST blockEndLine, separated by blank lines", () => {
+  it("inserts the marker at exactly the cursor position — no scan, no +1 — and a seeded-empty definition anchored one line PAST blockEndLine, separated by blank lines", () => {
     const content = ["Option A here", "", "next paragraph"].join("\n")
     const edits = footnoteAdditionEdits(content, { line: 0, character: 7 }, 0)
     expect(edits).toHaveLength(2)
     expect(edits[0]).toEqual({
-      range: { start: { line: 0, character: 8 }, end: { line: 0, character: 8 } },
+      range: { start: { line: 0, character: 7 }, end: { line: 0, character: 7 } },
       newText: "[^fn1]",
     })
-    expect(edits[1]!.newText).toBe("\n[^fn1]: your comment\n\n")
+    expect(edits[1]!.newText).toBe("\n[^fn1]:\n\n")
     expect(edits[1]!.range.start).toEqual({ line: 1, character: 0 })
     expect(edits[1]!.range.end).toEqual({ line: 2, character: 0 })
+  })
+
+  it("plants the marker mid-word when the cursor sits inside one — the old word-end scan is gone", () => {
+    const content = "new add function"
+    const edits = footnoteAdditionEdits(content, { line: 0, character: 1 }, 0) // cursor on "e" of "new"
+    expect(edits[0]).toEqual({
+      range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } },
+      newText: "[^fn1]",
+    })
+  })
+
+  it("leaves the marker exactly where the cursor already sits just past a word", () => {
+    const content = "new add function"
+    const edits = footnoteAdditionEdits(content, { line: 0, character: 3 }, 0) // right after "new", before the space
+    expect(edits[0]!.range.start).toEqual({ line: 0, character: 3 })
   })
 
   it("at end of file, seeds the definition with a single trailing newline, no extra blank line after", () => {
     const content = "Option A here"
     const edits = footnoteAdditionEdits(content, { line: 0, character: 7 }, 0)
-    expect(edits[1]!.newText).toBe("\n[^fn1]: your comment\n")
+    expect(edits[1]!.newText).toBe("\n[^fn1]:\n")
     expect(edits[1]!.range.start).toEqual({ line: 1, character: 0 })
     expect(edits[1]!.range.end).toEqual({ line: 1, character: 0 })
   })
@@ -333,6 +410,15 @@ describe("footnoteAdditionEdits", () => {
       definitionEdit!.range.start.line === markerEdit!.range.end.line &&
         definitionEdit!.range.start.character === markerEdit!.range.end.character,
     ).toBe(false)
+  })
+
+  it("applying both edits raises exactly one finding — the empty-body one — for the definition it just seeded", () => {
+    const content = ["Option A here", "", "next paragraph"].join("\n")
+    const edits = footnoteAdditionEdits(content, { line: 0, character: 7 }, 0)
+    const applied = applyEdits(content, edits)
+    const { findings } = parseFootnotes(applied)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.message).toBe('Footnote definition "[^fn1]" has an empty body')
   })
 })
 
@@ -489,7 +575,7 @@ describe("footnoteAttachEdits", () => {
     expect(applied.includes("\r\n")).toBe(true)
   })
 
-  it("seeds the new definition with the given text verbatim, never PLACEHOLDER_BODY — the resulting document never trips the seeded-placeholder finding", () => {
+  it("seeds the new definition with the given text verbatim, never empty — the resulting document never trips the empty-body finding", () => {
     const content = "Some chunk text here"
     const result = footnoteAttachEdits(
       content,
@@ -500,9 +586,7 @@ describe("footnoteAttachEdits", () => {
     if (!result.ok) return
     const applied = applyEdits(content, result.edits)
     const { findings } = parseFootnotes(applied)
-    expect(findings.some((f) => f.message.includes("still has its seeded placeholder body"))).toBe(
-      false,
-    )
+    expect(findings.some((f) => f.message.includes("has an empty body"))).toBe(false)
   })
 })
 

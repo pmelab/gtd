@@ -2,6 +2,7 @@ import type { ListItem, Root, RootContent } from "mdast"
 import { blockNodesOfRun } from "./Blocks.js"
 import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
+  FOOTNOTE_ACTION_TITLE,
   footnoteAdditionEdits,
   footnoteAttachEdits,
   footnotePointerAt,
@@ -714,9 +715,10 @@ const footnoteBlockEnd = (content: string, tree: Root, cursorLine: number): numb
 /**
  * Actions for `.gtd/REVIEW.md`: "check/uncheck this hunk" when `range` sits
  * on a hunk line, "check/uncheck all hunks" when `range` sits anywhere in a
- * chunk (heading or body), and "add a footnote" everywhere EXCEPT inside an
- * existing marker's span or on an existing definition's own line — planting
- * a new marker/definition there would corrupt the footnote already written.
+ * chunk (heading or body), and "add a footnote" LAST, after every hunk/chunk
+ * action, everywhere EXCEPT inside an existing marker's span or on an
+ * existing definition's own line — planting a new marker/definition there
+ * would corrupt the footnote already written.
  */
 const reviewActions: SteeringFormat["actions"] = (content, range) => {
   const { changesets } = parseReviewDoc(content)
@@ -724,16 +726,6 @@ const reviewActions: SteeringFormat["actions"] = (content, range) => {
   const lines = content.split(/\r?\n/)
   const cursorLine = range.start.line
   const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
-  if (!isOnExistingFootnote(content, range.start)) {
-    actions.push({
-      title: "gtd: add a footnote",
-      edits: footnoteAdditionEdits(
-        content,
-        range.start,
-        footnoteBlockEnd(content, tree, cursorLine),
-      ),
-    })
-  }
 
   // fallow-ignore-next-line complexity
   changesets.forEach((chunk, i) => {
@@ -768,6 +760,17 @@ const reviewActions: SteeringFormat["actions"] = (content, range) => {
       }
     }
   })
+
+  if (!isOnExistingFootnote(content, range.start)) {
+    actions.push({
+      title: FOOTNOTE_ACTION_TITLE,
+      edits: footnoteAdditionEdits(
+        content,
+        range.start,
+        footnoteBlockEnd(content, tree, cursorLine),
+      ),
+    })
+  }
 
   return actions
 }

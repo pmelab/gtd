@@ -484,11 +484,13 @@ anywhere below — on its own line, at the start of the line — as
 the file. Indent a longer comment's continuation lines so they stay part of the
 same definition. The next agent turn folds the comment into its own work and
 deletes both the marker and the definition — a footnote is never carried forward
-or left for a later turn to re-read. `gtd check`/`gtd validate` flag four things
+or left for a later turn to re-read. `gtd check`/`gtd validate` flag five things
 about a footnote: a marker with no matching definition, a definition with no
-matching marker, the same name defined twice, and a definition still holding the
-literal seeded placeholder text `your comment` unedited — each fails the file
-until fixed.
+matching marker, the same name defined twice, a definition whose body is still
+empty (a newly seeded definition starts that way), and a definition followed by
+text indented 1-3 spaces — too little to join the body as a continuation line —
+which names the indent and the 4-space fix rather than calling the body empty —
+each fails the file until fixed.
 
 #### The normalization-only contract on `format:`
 

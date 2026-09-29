@@ -354,11 +354,47 @@ Then("the applied document contains {string}", (world: GtdWorld, substring: stri
   )
 })
 
+/** Unlike "contains", discriminates a body-carrying line from a body-less one — a plain substring check on `[^name]:` passes whether or not a body follows on the same line, so this is what pins the seed's body actually being empty. */
+Then("the applied document matches {string}", (world: GtdWorld, pattern: string) => {
+  const client = clients.get(world)!
+  assert.ok(client.appliedDocument !== undefined, "No code action has been applied yet")
+  assert.ok(
+    new RegExp(pattern, "m").test(client.appliedDocument),
+    `Expected the applied document to match /${pattern}/. Got:\n${client.appliedDocument}`,
+  )
+})
+
 When(
   "the LSP client sends a workspace\\/executeCommand request for {string}",
   async (world: GtdWorld, command: string) => {
     const client = clients.get(world)!
     const response = await request(client, "workspace/executeCommand", { command, arguments: [] })
+    ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
+  },
+)
+
+/**
+ * Executes the `command` a NAMED code action itself carries (its own
+ * `command`/`arguments`, e.g. `gtd.revealPosition`'s `[uri, position]`) —
+ * unlike the step above, which always sends a hardcoded `arguments: []` and
+ * so proves nothing about a command that needs real arguments to do
+ * anything.
+ */
+When(
+  "the LSP client executes the command of the code action titled {string}",
+  async (world: GtdWorld, title: string) => {
+    const client = clients.get(world)!
+    const previous = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+    const actions = previous.result as ReadonlyArray<{
+      readonly title: string
+      readonly command?: { readonly command: string; readonly arguments?: unknown[] }
+    }>
+    const action = actions.find((a) => a.title === title)
+    assert.ok(action?.command, `Expected a code action titled "${title}" carrying a command`)
+    const response = await request(client, "workspace/executeCommand", {
+      command: action.command.command,
+      arguments: action.command.arguments ?? [],
+    })
     ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
   },
 )
@@ -379,6 +415,32 @@ Then(
         client.serverRequests,
       )}`,
     )
+  },
+)
+
+Then(
+  "the LSP client received a window\\/showDocument request for {string} with a selection at line {int} character {int}, taking focus",
+  (world: GtdWorld, path: string, line: number, character: number) => {
+    const client = clients.get(world)!
+    const expectedUri = pathToFileURL(join(world.repoDir, path)).toString()
+    const found = client.serverRequests.find(
+      (m) =>
+        m.method === "window/showDocument" &&
+        (m.params as { uri?: string } | undefined)?.uri === expectedUri,
+    )
+    assert.ok(
+      found,
+      `Expected a window/showDocument request for "${expectedUri}". Got server requests: ${JSON.stringify(
+        client.serverRequests,
+      )}`,
+    )
+    const params = found.params as {
+      selection?: { start: { line: number; character: number } }
+      takeFocus?: boolean
+    }
+    assert.strictEqual(params.selection?.start.line, line)
+    assert.strictEqual(params.selection?.start.character, character)
+    assert.strictEqual(params.takeFocus, true)
   },
 )
 

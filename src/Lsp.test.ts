@@ -207,12 +207,96 @@ describe("toCodeAction", () => {
       range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } },
       newText: "x",
     }
-    const action = toCodeAction("file:///repo/REVIEW.md")({
+    const action = toCodeAction(
+      "file:///repo/REVIEW.md",
+      "a\n",
+    )({
       title: "gtd: check this hunk",
       edits: [edit],
     })
     expect(action.title).toBe("gtd: check this hunk")
     expect(action.edit?.changes?.["file:///repo/REVIEW.md"]).toEqual([edit])
+  })
+
+  it("every non-footnote action's CodeAction carries no command field at all", () => {
+    const edit = {
+      range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } },
+      newText: "x",
+    }
+    const action = toCodeAction(
+      "file:///repo/REVIEW.md",
+      "a\n",
+    )({
+      title: "gtd: check this hunk",
+      edits: [edit],
+    })
+    expect(action.command).toBeUndefined()
+  })
+
+  it("attaches gtd.revealPosition to the footnote action, with content 'a' (no trailing newline) landing on line 1", () => {
+    const markerEdit = {
+      range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } },
+      newText: "[^fn1]",
+    }
+    const definitionEdit = {
+      range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+      newText: "\n[^fn1]:\n",
+    }
+    const action = toCodeAction(
+      "file:///repo/REVIEW.md",
+      "a",
+    )({
+      title: "gtd: add a footnote",
+      edits: [markerEdit, definitionEdit],
+    })
+    expect(action.command).toEqual({
+      title: "gtd: add a footnote",
+      command: "gtd.revealPosition",
+      arguments: ["file:///repo/REVIEW.md", { line: 1, character: 7 }],
+    })
+  })
+
+  it("with content 'a\\n' (a real trailing newline), the reveal position lands on line 2", () => {
+    const markerEdit = {
+      range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } },
+      newText: "[^fn1]",
+    }
+    const definitionEdit = {
+      range: { start: { line: 1, character: 0 }, end: { line: 2, character: 0 } },
+      newText: "\n[^fn1]:\n\n",
+    }
+    const action = toCodeAction(
+      "file:///repo/REVIEW.md",
+      "a\n",
+    )({
+      title: "gtd: add a footnote",
+      edits: [markerEdit, definitionEdit],
+    })
+    expect(action.command?.arguments?.[1]).toEqual({ line: 2, character: 7 })
+  })
+
+  it("a footnote action whose edits carry no matching definition edit gains no command, rather than throwing", () => {
+    const edit = {
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      newText: "unrelated",
+    }
+    expect(() =>
+      toCodeAction(
+        "file:///repo/REVIEW.md",
+        "a",
+      )({
+        title: "gtd: add a footnote",
+        edits: [edit],
+      }),
+    ).not.toThrow()
+    const action = toCodeAction(
+      "file:///repo/REVIEW.md",
+      "a",
+    )({
+      title: "gtd: add a footnote",
+      edits: [edit],
+    })
+    expect(action.command).toBeUndefined()
   })
 })
 
@@ -519,7 +603,7 @@ describe("makeSteeringLanguageService", () => {
     expect(result.capabilities.definitionProvider).toBe(true)
     expect(result.capabilities.documentLinkProvider).toEqual({ resolveProvider: false })
     expect(result.capabilities.executeCommandProvider).toEqual({
-      commands: ["gtd.openSteeringFile"],
+      commands: ["gtd.openSteeringFile", "gtd.revealPosition"],
     })
   })
 
@@ -791,6 +875,38 @@ describe("makeSteeringLanguageService", () => {
       expect(outcome.kind).toBe("error")
       expect((outcome as { message: string }).message).toContain("no repo here")
     })
+
+    it("gtd.revealPosition resolves to 'show' with a collapsed selection at the given position", async () => {
+      const service = makeSteeringLanguageService(fakeEnv(), () => {})
+      const outcome = await service.executeCommand("gtd.revealPosition", [
+        "file:///repo/TODO.md",
+        { line: 3, character: 7 },
+      ])
+      expect(outcome).toEqual({
+        kind: "show",
+        uri: "file:///repo/TODO.md",
+        selection: {
+          start: { line: 3, character: 7 },
+          end: { line: 3, character: 7 },
+        },
+      })
+    })
+
+    it("gtd.revealPosition resolves to 'error' for missing or malformed arguments, never a thrown rejection", async () => {
+      const service = makeSteeringLanguageService(fakeEnv(), () => {})
+      expect((await service.executeCommand("gtd.revealPosition", [])).kind).toBe("error")
+      expect(
+        (await service.executeCommand("gtd.revealPosition", ["file:///repo/TODO.md"])).kind,
+      ).toBe("error")
+      expect(
+        (
+          await service.executeCommand("gtd.revealPosition", [
+            "file:///repo/TODO.md",
+            { line: "not a number", character: 7 },
+          ])
+        ).kind,
+      ).toBe("error")
+    })
   })
 })
 
@@ -932,6 +1048,28 @@ describe("bindSteeringServer", () => {
 
     await handlers["onExecuteCommand"]!({ command: "gtd.openSteeringFile", arguments: [] })
     expect(connection.window.showDocument).toHaveBeenCalledWith({ uri: "file:///repo/TODO.md" })
+  })
+
+  it("a 'show' outcome carrying a selection passes it and takeFocus:true to showDocument", async () => {
+    const service = fakeService({
+      executeCommand: vi.fn(
+        async (): Promise<ExecuteCommandOutcome> => ({
+          kind: "show",
+          uri: "file:///repo/TODO.md",
+          selection: { start: { line: 3, character: 7 }, end: { line: 3, character: 7 } },
+        }),
+      ),
+    })
+    const { connection, handlers } = fakeConnection()
+    const { documents } = fakeDocuments()
+    bindSteeringServer(connection, documents, service)
+
+    await handlers["onExecuteCommand"]!({ command: "gtd.revealPosition", arguments: [] })
+    expect(connection.window.showDocument).toHaveBeenCalledWith({
+      uri: "file:///repo/TODO.md",
+      selection: { start: { line: 3, character: 7 }, end: { line: 3, character: 7 } },
+      takeFocus: true,
+    })
   })
 
   it("an 'error' outcome calls showErrorMessage", async () => {

@@ -48,7 +48,7 @@ export { FREE_TEXT_PLACEHOLDER, isAnswered } from "./qa.js"
 // `ModeContradiction.ts`'s round-trip check re-parses a formatted sample's
 // footnotes to prove the formatter moved none of them — the one consumer
 // outside this package that needs the footnote parser itself, not a format.
-export { parseFootnotes } from "./Footnotes.js"
+export { parseFootnotes, FOOTNOTE_ACTION_TITLE } from "./Footnotes.js"
 
 // Test-observability only: the memo-hit counter is the one way "one parse per
 // document" is assertable from outside `MarkdownTree.ts` — timing is not.

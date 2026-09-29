@@ -29,6 +29,7 @@ import { currentRest, type RestRequirements } from "./Edge.js"
 import type { StateMode, WorkflowDefinition } from "./Workflow.js"
 import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
 import {
+  FOOTNOTE_ACTION_TITLE,
   viewOf,
   type SteeringAction,
   type SteeringFinding,
@@ -49,13 +50,57 @@ export const toDocumentSymbol = (node: SteeringOutlineNode): DocumentSymbol => (
   ...(node.children !== undefined ? { children: node.children.map(toDocumentSymbol) } : {}),
 })
 
+/**
+ * Matches the footnote action's own definition edit's `newText`: a leading
+ * newline then the `[^name]:` label — the shape `footnoteAdditionEdits`
+ * always writes. Group 1 is the label alone, whose length is the reveal
+ * column (see `revealPositionFor`).
+ */
+const FOOTNOTE_DEFINITION_RE = /^\r?\n(\[\^[^\s\]]+\]:)/
+
+/**
+ * Where `gtd.revealPosition` should land the cursor for `action`, or
+ * `undefined` for anything but the footnote action (or a footnote action
+ * whose edits carry no matching definition — never thrown, just no jump).
+ * The line CLAMPS the definition edit's own start line to the document's
+ * last line index before adding one: the edit's `newText` opens with one
+ * `\n`, so the definition sits one line below wherever that start position
+ * actually resolves, and at EOF that position is clamped by the protocol
+ * itself. A flat `+2` is wrong there — see the package's own risk note.
+ */
+const revealPositionFor = (text: string, action: SteeringAction): Position | undefined => {
+  if (action.title !== FOOTNOTE_ACTION_TITLE) return undefined
+  const lines = text.split(/\r?\n/)
+  for (const edit of action.edits) {
+    const match = FOOTNOTE_DEFINITION_RE.exec(edit.newText)
+    if (!match) continue
+    return {
+      line: Math.min(edit.range.start.line, lines.length - 1) + 1,
+      character: match[1]!.length,
+    }
+  }
+  return undefined
+}
+
 export const toCodeAction =
-  (uri: string) =>
-  (action: SteeringAction): CodeAction => ({
-    title: action.title,
-    kind: CodeActionKind.QuickFix,
-    edit: { changes: { [uri]: [...action.edits] } },
-  })
+  (uri: string, text: string) =>
+  (action: SteeringAction): CodeAction => {
+    const position = revealPositionFor(text, action)
+    return {
+      title: action.title,
+      kind: CodeActionKind.QuickFix,
+      edit: { changes: { [uri]: [...action.edits] } },
+      ...(position !== undefined
+        ? {
+            command: {
+              title: action.title,
+              command: REVEAL_POSITION_COMMAND,
+              arguments: [uri, position],
+            },
+          }
+        : {}),
+    }
+  }
 
 /**
  * A `SteeringPointer` → a `Location` — a collapsed range (a cursor, not a
@@ -228,6 +273,9 @@ export const resolveWorkspaceRoot = (params: {
 
 const OPEN_STEERING_FILE_COMMAND = "gtd.openSteeringFile"
 
+/** Registered alongside `gtd.openSteeringFile`: a NEW command id rather than overloading that one, whose whole contract is "resolve the current state's steering file" — an unrelated argument shape (uri, position) has no business riding along. */
+const REVEAL_POSITION_COMMAND = "gtd.revealPosition"
+
 /** What `gtd.openSteeringFile` does once the current state/file is resolved — pure, so the decision (show vs. inform) is unit-testable without a protocol connection. */
 export type SteeringFileOutcome =
   | { readonly kind: "show"; readonly uri: string }
@@ -265,9 +313,15 @@ export interface LspEnv {
   readonly cwd: string
 }
 
-/** What `gtd.openSteeringFile` (or any future command) does, in a form `bindSteeringServer` can act on without the service itself ever touching `connection.window`. */
+/**
+ * What a command does, in a form `bindSteeringServer` can act on without the
+ * service itself ever touching `connection.window`. `show`'s `selection` is
+ * present only for `gtd.revealPosition` — a collapsed range at the reveal
+ * position — and absent for `gtd.openSteeringFile`, whose contract has never
+ * been "move the cursor", only "open the file".
+ */
 export type ExecuteCommandOutcome =
-  | { readonly kind: "show"; readonly uri: string }
+  | { readonly kind: "show"; readonly uri: string; readonly selection?: Range }
   | { readonly kind: "inform"; readonly message: string }
   | { readonly kind: "error"; readonly message: string }
   | { readonly kind: "unknown" }
@@ -287,6 +341,19 @@ export interface SteeringLanguageService {
 }
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+
+/** Reads `gtd.revealPosition`'s two required arguments off the raw, untyped `args` array — `undefined` for anything malformed (wrong length/types, a position missing `line`/`character`), never a thrown property access. */
+const revealPositionArgs = (
+  args: ReadonlyArray<unknown> | undefined,
+): { readonly uri: string; readonly position: Position } | undefined => {
+  const [uri, position] = args ?? []
+  if (typeof uri !== "string" || typeof position !== "object" || position === null) {
+    return undefined
+  }
+  const { line, character } = position as { line?: unknown; character?: unknown }
+  if (typeof line !== "number" || typeof character !== "number") return undefined
+  return { uri, position: { line, character } }
+}
 
 /**
  * Builds the whole `SteeringLanguageService` over `env`. Every `env` call is
@@ -334,7 +401,9 @@ export const makeSteeringLanguageService = (
           codeActionProvider: true,
           definitionProvider: true,
           documentLinkProvider: { resolveProvider: false },
-          executeCommandProvider: { commands: [OPEN_STEERING_FILE_COMMAND] },
+          executeCommandProvider: {
+            commands: [OPEN_STEERING_FILE_COMMAND, REVEAL_POSITION_COMMAND],
+          },
         },
       }
     },
@@ -348,7 +417,7 @@ export const makeSteeringLanguageService = (
     codeAction: async (uri, text, range) => {
       const caps = await capabilitiesFor(uri)
       if (caps.format === undefined) return []
-      return viewOf(caps.format, text).actionsAt(range).map(toCodeAction(uri))
+      return viewOf(caps.format, text).actionsAt(range).map(toCodeAction(uri, text))
     },
 
     definition: async (uri, text, position) => {
@@ -373,7 +442,18 @@ export const makeSteeringLanguageService = (
       return documentLinksFor(resolvedModeForDocument(uri, map), text, root)
     },
 
-    executeCommand: async (command) => {
+    executeCommand: async (command, args) => {
+      if (command === REVEAL_POSITION_COMMAND) {
+        const parsed = revealPositionArgs(args)
+        if (!parsed) {
+          return { kind: "error", message: "gtd.revealPosition: malformed arguments" }
+        }
+        return {
+          kind: "show",
+          uri: parsed.uri,
+          selection: { start: parsed.position, end: parsed.position },
+        }
+      }
       if (command !== OPEN_STEERING_FILE_COMMAND) return { kind: "unknown" }
       const root = workspaceRoot ?? env.cwd
       try {
@@ -452,7 +532,12 @@ export const bindSteeringServer = (
   connection.onExecuteCommand(async (params) => {
     const outcome = await service.executeCommand(params.command, params.arguments)
     if (outcome.kind === "show") {
-      await connection.window.showDocument({ uri: outcome.uri })
+      await connection.window.showDocument({
+        uri: outcome.uri,
+        ...(outcome.selection !== undefined
+          ? { selection: outcome.selection, takeFocus: true }
+          : {}),
+      })
     } else if (outcome.kind === "inform") {
       connection.window.showInformationMessage(outcome.message)
     } else if (outcome.kind === "error") {

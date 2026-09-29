@@ -239,26 +239,26 @@ const applyEdits = (
 }
 
 describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", () => {
-  it("qa: applying the action's edits to the sample validates clean apart from the placeholder finding, and is an oxfmt fixed point", () => {
+  it("qa: applying the action's edits to the sample validates clean apart from the empty-body finding, and is an oxfmt fixed point", () => {
     const cursor = { line: 7, character: 8 } // inside "Option B"
     const action = QA_FORMAT.actions(QA_FORMAT.sample, { start: cursor, end: cursor }).find(
       (a) => a.title === "gtd: add a footnote",
     )!
     const applied = applyEdits(QA_FORMAT.sample, action.edits)
     const findings = QA_FORMAT.validate(applied).map((f) => f.message)
-    expect(findings.every((m) => m.includes("still has its seeded placeholder body"))).toBe(true)
+    expect(findings.every((m) => m.includes("has an empty body"))).toBe(true)
     expect(findings.length).toBeGreaterThan(0)
     expect(formatWithOxfmt(applied)).toBe(applied)
   })
 
-  it("review: applying the action's edits to the sample validates clean apart from the placeholder finding, and is an oxfmt fixed point", () => {
+  it("review: applying the action's edits to the sample validates clean apart from the empty-body finding, and is an oxfmt fixed point", () => {
     const cursor = { line: 6, character: 20 } // inside "what" on the hunk pointer line
     const action = REVIEW_FORMAT.actions(REVIEW_FORMAT.sample, { start: cursor, end: cursor }).find(
       (a) => a.title === "gtd: add a footnote",
     )!
     const applied = applyEdits(REVIEW_FORMAT.sample, action.edits)
     const findings = REVIEW_FORMAT.validate(applied).map((f) => f.message)
-    expect(findings.every((m) => m.includes("still has its seeded placeholder body"))).toBe(true)
+    expect(findings.every((m) => m.includes("has an empty body"))).toBe(true)
     expect(findings.length).toBeGreaterThan(0)
     expect(formatWithOxfmt(applied)).toBe(applied)
   })
@@ -276,7 +276,7 @@ describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", 
     const applied = applyEdits(QA_FORMAT.sample, action.edits)
     expect(applied).toContain("_your answer_[^fn2]")
     const findings = QA_FORMAT.validate(applied).map((f) => f.message)
-    expect(findings.every((m) => m.includes("still has its seeded placeholder body"))).toBe(true)
+    expect(findings.every((m) => m.includes("has an empty body"))).toBe(true)
     expect(findings.length).toBeGreaterThan(0)
     expect(formatWithOxfmt(applied)).toBe(applied)
   })
@@ -303,7 +303,7 @@ describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", 
     const applied = applyEdits(content, action.edits)
     expect(applied).toContain("some trailing prose[^fn1]")
     const findings = REVIEW_FORMAT.validate(applied).map((f) => f.message)
-    expect(findings.every((m) => m.includes("still has its seeded placeholder body"))).toBe(true)
+    expect(findings.every((m) => m.includes("has an empty body"))).toBe(true)
     expect(findings.length).toBeGreaterThan(0)
     expect(formatWithOxfmt(applied)).toBe(applied)
   })
