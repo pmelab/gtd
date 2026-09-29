@@ -128,9 +128,12 @@ export lists:
   "uncheck this option" code actions on each option — offered anywhere on the
   option's list item, including wrapped continuation lines
 - a "gtd: add a footnote" code action in both formats: it plants a `[^name]`
-  marker right after the word your cursor sits in (or at the cursor itself) and
-  a seeded definition below the current block, so leaving a footnote never means
+  marker at the exact cursor position and an empty definition below the current
+  block, with no placeholder text to delete, so leaving a footnote never means
   hand-typing the syntax
+- that same action moves the cursor into the new, empty definition so you can
+  start typing immediately — the jump needs an editor that supports being asked
+  to show a document, but the marker and definition are written either way
 - go-to-definition on a footnote jumps both ways — marker to definition,
   definition to its first marker's exact column — in both formats, within the
   same file

@@ -362,8 +362,31 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result contains a code action titled "gtd: add a footnote"
     When the LSP client applies the edits of the code action titled "gtd: add a footnote"
-    Then the applied document contains "new[^fn1] add function"
-    And the applied document contains "[^fn1]: your comment"
+    Then the applied document contains "[^fn1]new add function"
+    And the applied document matches "^\[\^fn1\]:$"
+
+  Scenario: gtd.revealPosition jumps the client to the end of the new footnote definition's line, independent of the edits standing on their own
+    Given a test project
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests code actions at line 5 character 22 in ".gtd/REVIEW.md" containing:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1 new add function
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a code action titled "gtd: add a footnote"
+    When the LSP client applies the edits of the code action titled "gtd: add a footnote"
+    Then the applied document contains "[^fn1]new add function"
+    And the applied document matches "^\[\^fn1\]:$"
+    When the LSP client executes the command of the code action titled "gtd: add a footnote"
+    Then the LSP response has no error
+    And the LSP client received a window/showDocument request for ".gtd/REVIEW.md" with a selection at line 6 character 7, taking focus
 
   Scenario: a textDocument/definition round trip jumps marker to definition, then definition back to the marker's exact column
     Given a test project

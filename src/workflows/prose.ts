@@ -180,10 +180,11 @@ export const fixFeedbackPrompt = `- The only state file this turn writes is \`.g
 
 export const footnoteRules = `- Leave a footnote anywhere: mark the exact spot with \`[^name]\` (any
   name, no whitespace or \`]\`), then define it below as \`[^name]:
-  explain what you mean\` — indent a longer comment's continuation
-  lines. (The literal words "your comment" are this format's seeded
-  placeholder body — a definition still holding them exactly is
-  flagged as unfilled, so write your own words there)
+  explain what you mean\` — indent continuation lines by 4 spaces or
+  more. (A newly seeded definition starts with an empty body — a
+  definition whose body is still empty or whitespace-only is flagged
+  as unfilled, so write your own words there; words left under-indented
+  are flagged separately, naming the indent as the fix)
 - A footnote is a comment on that exact spot — the hunk, line, or
   paragraph it marks — never a whole-file remark
 - \`name\` is yours to pick; only a definition's name must be unique in

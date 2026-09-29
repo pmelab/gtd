@@ -2,6 +2,7 @@ import type { Code, Heading, List, ListItem, Root, RootContent } from "mdast"
 import { blockNodesOf, blockNodesOfRun } from "./Blocks.js"
 import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
 import {
+  FOOTNOTE_ACTION_TITLE,
   footnoteAdditionEdits,
   footnoteAttachEdits,
   footnotePointerAt,
@@ -965,23 +966,17 @@ const footnoteBlockEnd = (tree: Root, cursorLine: number): number => {
 /**
  * Actions for a `qa`-mode file: anywhere on an open question's option's list
  * item, "pick this option" (radio semantics) or "uncheck this option" when
- * it's already chosen; "add a footnote" everywhere EXCEPT inside an existing
- * marker's span or on an existing definition's own line — planting a new
- * marker/definition there would corrupt the footnote already written. No
- * pick/uncheck action off an option's span, or on an answered-section
- * (prose) question.
+ * it's already chosen; "add a footnote" LAST, after every option action,
+ * everywhere EXCEPT inside an existing marker's span or on an existing
+ * definition's own line — planting a new marker/definition there would
+ * corrupt the footnote already written. No pick/uncheck action off an
+ * option's span, or on an answered-section (prose) question.
  */
 const questionActions: SteeringFormat["actions"] = (content, range) => {
   const { questions } = parseOpenQuestions(content)
   const tree = parseMarkdown(content)
   const cursorLine = range.start.line
   const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
-  if (!isOnExistingFootnote(content, range.start)) {
-    actions.push({
-      title: "gtd: add a footnote",
-      edits: footnoteAdditionEdits(content, range.start, footnoteBlockEnd(tree, cursorLine)),
-    })
-  }
   for (const question of questions) {
     if (question.status !== "open") continue
     const option = question.options.find(
@@ -990,6 +985,12 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
     if (!option) continue
     const action = optionAction(content, question, option)
     if (action) actions.push(action)
+  }
+  if (!isOnExistingFootnote(content, range.start)) {
+    actions.push({
+      title: FOOTNOTE_ACTION_TITLE,
+      edits: footnoteAdditionEdits(content, range.start, footnoteBlockEnd(tree, cursorLine)),
+    })
   }
   return actions
 }

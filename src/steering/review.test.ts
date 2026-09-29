@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { checkSteering, clearTicks, steeringFormatFor, viewOf } from "./index.js"
+import {
+  checkSteering,
+  clearTicks,
+  FOOTNOTE_ACTION_TITLE,
+  steeringFormatFor,
+  viewOf,
+} from "./index.js"
 import { parseReviewDoc } from "./review.js"
 import { getParseCount } from "./index.js"
 
@@ -983,6 +989,28 @@ describe("review — footnotes wired into the review format", () => {
 })
 
 describe("review — 'gtd: add a footnote' action", () => {
+  it("offers the footnote action under the shared FOOTNOTE_ACTION_TITLE constant", () => {
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 note", ""])
+    const actions = review.actions(content, {
+      start: { line: 6, character: 5 },
+      end: { line: 6, character: 5 },
+    })
+    expect(actions.some((a) => a.title === FOOTNOTE_ACTION_TITLE)).toBe(true)
+  })
+
+  it("is LAST, with both the hunk and chunk toggle actions preceding it, on a hunk line inside a chunk", () => {
+    const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 note", ""])
+    const actions = review.actions(content, {
+      start: { line: 6, character: 5 },
+      end: { line: 6, character: 5 },
+    })
+    expect(actions.map((a) => a.title)).toEqual([
+      "gtd: check this hunk",
+      'gtd: check all hunks in "Chunk"',
+      FOOTNOTE_ACTION_TITLE,
+    ])
+  })
+
   it("in a multi-paragraph hunk note, lands after the LAST non-blank line of the hunk's span", () => {
     const content = doc([
       HEADER,
@@ -1281,7 +1309,8 @@ describe("review.annotate", () => {
         applied.slice(toOffset(edit.range.end))
     }
     expect(applied).toContain("a real reason a human actually typed")
-    expect(applied).not.toContain("your comment")
+    // review.validate below already proves this raises no "has an empty
+    // body" finding — stronger than checking for the retired placeholder text.
     expect(review.validate(applied)).toEqual([])
   })
 })

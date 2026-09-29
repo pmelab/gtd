@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   checkSteering,
   clearTicks,
+  FOOTNOTE_ACTION_TITLE,
   steeringFormatFor,
   unansweredQuestions,
   viewOf,
@@ -884,6 +885,25 @@ describe("qa — actions (options, footnotes)", () => {
     expect(actions.some((a) => a.title === "gtd: add a footnote")).toBe(true)
   })
 
+  it("offers the footnote action under the shared FOOTNOTE_ACTION_TITLE constant", () => {
+    const content = doc(["## Open Questions", "", "### Q1?", "", "- [ ] A", ""])
+    const actions = qa.actions(content, {
+      start: { line: 4, character: 5 },
+      end: { line: 4, character: 5 },
+    })
+    const footnote = actions.find((a) => a.title === FOOTNOTE_ACTION_TITLE)!
+    expect(footnote).toBeDefined()
+  })
+
+  it("offers 'add a footnote' LAST, after the option action, on an open question's option", () => {
+    const content = doc(["## Open Questions", "", "### Q1?", "", "- [ ] A", ""])
+    const actions = qa.actions(content, {
+      start: { line: 4, character: 2 },
+      end: { line: 4, character: 2 },
+    })
+    expect(actions.map((a) => a.title)).toEqual(["gtd: pick this option", FOOTNOTE_ACTION_TITLE])
+  })
+
   it("is refused with the cursor inside an existing marker's span", () => {
     const content = doc([
       "## Open Questions",
@@ -1643,7 +1663,8 @@ describe("qa.annotate", () => {
         applied.slice(toOffset(edit.range.end))
     }
     expect(applied).toContain("a real reason a human actually typed")
-    expect(applied).not.toContain("your comment")
+    // qa.validate below already proves this raises no "has an empty body"
+    // finding — stronger than checking for the retired placeholder text.
     expect(qa.validate(applied)).toEqual([])
   })
 })

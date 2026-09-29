@@ -1,7 +1,9 @@
-import type { Root } from "mdast"
+import type { Paragraph, Root } from "mdast"
 import {
+  blockNodeAt,
   parseMarkdown,
   sourceText,
+  spanRange,
   toLspPosition,
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
@@ -38,8 +40,8 @@ export interface Footnotes {
   readonly findings: readonly SteeringFinding[]
 }
 
-/** The seeded placeholder a hand-authored definition starts as — still present means the human never filled it in. `footnoteAdditionEdits` (below) seeds new definitions with this exact text, so `computeFindings`'s placeholder check fires until a human replaces it. */
-const PLACEHOLDER_BODY = "your comment"
+/** The footnote-addition action's title — the ONE shared literal `qa`/`review` offer it under and `src/Lsp.ts` matches to compute the reveal position. A drifted copy in any one place silently breaks the cursor jump without failing a single test, so this constant is the only place the string is spelled. */
+export const FOOTNOTE_ACTION_TITLE = "gtd: add a footnote"
 
 /**
  * A marker's shape once it's plain text: `[^name]`, name has no whitespace
@@ -65,8 +67,23 @@ const definitionRange = (lines: readonly string[], def: FootnoteDefinition) => (
   end: { line: def.endLine, character: (lines[def.endLine] ?? "").length },
 })
 
+/** The stranded paragraph right after `def`, when the raw next line is indented 1-3 spaces (GFM's own threshold: 4+ joins the body, a tab expands to the next 4-column stop and joins too) and that line itself opens the top-level `paragraph` the tree sees there — never a second definition, heading, list, fence or other block, which the type check excludes structurally rather than via a hand-rolled list of block openers. */
+const strandedParagraphAfter = (
+  tree: Root,
+  lines: readonly string[],
+  def: FootnoteDefinition,
+): Paragraph | undefined => {
+  const nextLine = def.endLine + 1
+  if (!/^ {1,3}\S/.test(lines[nextLine] ?? "")) return undefined
+  const block = blockNodeAt(tree, nextLine)
+  if (block?.type !== "paragraph") return undefined
+  if (toLspPosition(block.position!.start).line !== nextLine) return undefined
+  return block
+}
+
 const computeFindings = (
   lines: readonly string[],
+  tree: Root,
   markers: readonly FootnoteMarker[],
   definitions: readonly FootnoteDefinition[],
 ): readonly SteeringFinding[] => {
@@ -103,12 +120,25 @@ const computeFindings = (
         range: definitionRange(lines, def),
       })
     }
-    if (def.body.trim().toLowerCase() === PLACEHOLDER_BODY) {
-      findings.push({
-        message: `Footnote definition "[^${def.name}]" still has its seeded placeholder body`,
-        line: def.line,
-        range: definitionRange(lines, def),
-      })
+    // The body being empty has two distinct causes that read the same on
+    // `def` alone (`def.body` is empty either way) — telling them apart
+    // needs the raw source below the definition, which no other finding
+    // here depends on.
+    if (def.body.trim() === "") {
+      const stranded = strandedParagraphAfter(tree, lines, def)
+      if (stranded) {
+        findings.push({
+          message: `Footnote definition "[^${def.name}]": the text below it is indented too little to belong to it — indent continuation lines by 4 spaces`,
+          line: def.line,
+          range: spanRange(lines, def.line, toLspPosition(stranded.position!.end).line),
+        })
+      } else {
+        findings.push({
+          message: `Footnote definition "[^${def.name}]" has an empty body`,
+          line: def.line,
+          range: definitionRange(lines, def),
+        })
+      }
     }
   }
 
@@ -236,7 +266,7 @@ export const parseFootnotes = (content: string): Footnotes => {
   markers.sort((a, b) => a.line - b.line || a.character - b.character)
 
   const lines = content.split(/\r?\n/)
-  return { markers, definitions, findings: computeFindings(lines, markers, definitions) }
+  return { markers, definitions, findings: computeFindings(lines, tree, markers, definitions) }
 }
 
 /** The first integer unused by any `fnN` marker or definition already in the document — deterministic (no clock, no randomness), so "add a footnote" is testable and idempotent under re-run: applying it twice yields `fn1` then `fn2`, never a collision. Counts orphan markers too (via `parseFootnotes`), so it never reuses a name that's already written but undefined. */
@@ -251,19 +281,6 @@ export const nextFootnoteName = (content: string): string => {
   let n = 1
   while (used.has(n)) n += 1
   return `fn${n}`
-}
-
-/**
- * Where "add a footnote" plants the marker: scan right from `character` while
- * the character at that position is a word character, and stop there. One
- * rule, no branching — a cursor inside a word lands at the word's end, a
- * cursor already just past a word (or on whitespace/punctuation) doesn't
- * move at all, landing right at the cursor.
- */
-export const footnoteMarkerColumn = (line: string, character: number): number => {
-  let i = character
-  while (i < line.length && /\w/.test(line[i]!)) i += 1
-  return i
 }
 
 /** The first line index at or after `from` that is non-blank, or `lines.length` when none remain (EOF). */
@@ -334,10 +351,10 @@ export type FootnoteAttachResult =
 /**
  * Attaches a note at `anchor`'s own end: a marker `[^<id>]` planted right
  * there, and a definition seeded with `text` — the human's own typed body,
- * VERBATIM, never `PLACEHOLDER_BODY` (that seed is `footnoteAdditionEdits`'s
- * own — a human fills it in afterward via the editor; a server-attached note
- * already has its real text at attach time, so the document validates clean
- * immediately rather than tripping the placeholder finding) — planted after
+ * VERBATIM, never the empty seed `footnoteAdditionEdits` writes (a human
+ * fills that one in afterward via the editor; a server-attached note already
+ * has its real text at attach time, so the document validates clean
+ * immediately rather than tripping the empty-body finding) — planted after
  * `anchor.blockEndLine`. The two-edits-at-once mechanics `T2` asks for,
  * shared by chunk/hunk/paragraph notes alike (the caller resolves its own
  * `key` per kind). `id` is derived from `anchor.key` alone (`anchorId`),
@@ -416,9 +433,9 @@ export const footnoteAttachEdits = (
 }
 
 /**
- * The two edits behind "gtd: add a footnote": a marker inserted at the
- * cursor (via `footnoteMarkerColumn`) and a definition seeded with
- * `PLACEHOLDER_BODY`, planted right after `blockEndLine` — the caller's own
+ * The two edits behind "gtd: add a footnote": a marker inserted at exactly
+ * the cursor position (no scan, no `+1`) and a definition seeded empty
+ * (`[^name]:` with no body), planted right after `blockEndLine` — the caller's own
  * notion of "the current block's last line" (a hunk's span in `review.ts`,
  * or a containing block node's own end line otherwise — each caller resolves
  * its own fallback; this module has no generic "prose block end" of its own).
@@ -445,14 +462,12 @@ export const footnoteAdditionEdits = (
   blockEndLine: number,
 ): readonly SteeringEdit[] => {
   const lines = content.split(/\r?\n/)
-  const cursorLine = lines[position.line] ?? ""
-  const markerColumn = footnoteMarkerColumn(cursorLine, position.character)
   const name = nextFootnoteName(content)
 
   const markerEdit: SteeringEdit = {
     range: {
-      start: { line: position.line, character: markerColumn },
-      end: { line: position.line, character: markerColumn },
+      start: { line: position.line, character: position.character },
+      end: { line: position.line, character: position.character },
     },
     newText: `[^${name}]`,
   }
@@ -463,9 +478,7 @@ export const footnoteAdditionEdits = (
   const atEof = nextContentLine >= lines.length
   const definitionEdit: SteeringEdit = {
     range: { start, end: atEof ? start : { line: nextContentLine, character: 0 } },
-    newText: atEof
-      ? `\n[^${name}]: ${PLACEHOLDER_BODY}\n`
-      : `\n[^${name}]: ${PLACEHOLDER_BODY}\n\n`,
+    newText: atEof ? `\n[^${name}]:\n` : `\n[^${name}]:\n\n`,
   }
 
   return [markerEdit, definitionEdit]

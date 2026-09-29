@@ -523,7 +523,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         qa:
-          format: "sed 's/  */ /g' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
+          format: "sed -E 's/([^ ]) +/\\1 /g' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
       """
     And a gtd config file at "gtd.config.ts" with:
       """

@@ -286,11 +286,12 @@ first sketch the whole process gets planned from. As a final step, if it finds
 an LSP-capable editor, the briefing also offers to wire up live diagnostics and
 review actions in it — asking first and naming the exact file, and merging
 rather than overwriting your editor's config. That editor integration also adds
-a footnote where your cursor sits with one code action, and jumps between a
-footnote's marker and its definition both ways — so leaving a comment for the
-next agent turn never means hand-typing the `[^name]` syntax yourself. In a
-review file, a `./path#42-70` hunk pointer is also a clickable link straight to
-that file and range, no go-to-definition required.
+a footnote at the exact cursor position with one code action, landing the cursor
+in the new, empty definition ready to type, and jumps between a footnote's
+marker and its definition both ways — so leaving a comment for the next agent
+turn never means hand-typing the `[^name]` syntax yourself. In a review file, a
+`./path#42-70` hunk pointer is also a clickable link straight to that file and
+range, no go-to-definition required.
 
 ### The workflow it ships with
 
