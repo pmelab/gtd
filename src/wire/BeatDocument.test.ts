@@ -141,17 +141,28 @@ describe("beatDocument / renderBeatJson", () => {
     }
   })
 
-  it("never emits skills — package 01: a state's skills: field is concatenated into content, never a separate wire key", () => {
-    // `RenderedDemandSource` (and `RenderedRest`, which satisfies it) may
-    // carry a `skills` hint, but the interface declares no such field, and
-    // `beatDocument`'s object literal reads no such key — so it can't leak
-    // through even when present on the source object.
-    const withSkills = { ...rendered(), skills: "some-skill" } as RenderedDemandSource
-    for (const kind of BEAT_KINDS) {
+  it("emits skills as an array of trimmed names at kind prompt", () => {
+    const withSkills = rendered({ skills: ["code-review", "testing"] })
+    const line = renderJsonLine({ rendered: withSkills, kind: "prompt" })
+    const parsed = JSON.parse(line) as Record<string, unknown>
+    expect(parsed.skills).toEqual(["code-review", "testing"])
+  })
+
+  it("omits skills at capture, message, script and stalled — even when the source rest carries them, the leak this design prevents", () => {
+    const withSkills = rendered({ skills: ["code-review", "testing"] })
+    for (const kind of BEAT_KINDS.filter((k) => k !== "prompt")) {
       const line = renderJsonLine({ rendered: withSkills, kind })
       const parsed = JSON.parse(line) as Record<string, unknown>
       expect("skills" in parsed).toBe(false)
     }
+  })
+
+  it("omits skills entirely (never []) when the list is empty or absent, at kind prompt", () => {
+    const empty = renderJsonLine({ rendered: rendered({ skills: [] }), kind: "prompt" })
+    expect("skills" in (JSON.parse(empty) as Record<string, unknown>)).toBe(false)
+
+    const absent = renderJsonLine({ rendered: rendered(), kind: "prompt" })
+    expect("skills" in (JSON.parse(absent) as Record<string, unknown>)).toBe(false)
   })
 
   it("omits system when its rendered value is the empty string, unlike model which carries an empty string through", () => {
@@ -177,6 +188,7 @@ describe("beatDocument / renderBeatJson", () => {
       "cost",
       "costByModel",
       "judge",
+      "skills",
     ]) {
       expect(key in parsed).toBe(false)
     }
@@ -191,6 +203,7 @@ describe("beatDocument / renderBeatJson", () => {
       mode: "qa",
       label: "Fixing",
       judge: '{"state":"build.fixing","questions":[]}',
+      skills: ["code-review"],
     })
     const line = renderJsonLine({
       rendered: r,
@@ -225,6 +238,7 @@ describe("beatDocument / renderBeatJson", () => {
       "cost",
       "costByModel",
       "judge",
+      "skills",
     ])
   })
 

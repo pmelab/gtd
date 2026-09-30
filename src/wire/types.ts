@@ -36,4 +36,5 @@ export interface RenderedDemandSource {
   readonly file?: string
   readonly mode?: StateMode
   readonly judge?: string
+  readonly skills?: readonly string[]
 }

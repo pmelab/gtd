@@ -31,6 +31,7 @@ import * as t from "./text.js"
 // re-exported below.
 
 export { defaults } from "./vars.js"
+export { agentWithSkills } from "./text.js"
 export * from "./steps.js"
 export * from "./health.js"
 export * from "./planning.js"

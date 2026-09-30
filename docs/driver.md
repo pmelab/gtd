@@ -255,7 +255,7 @@ script, whatever its exit code.
   currently populates it; it is kept as a stable slot for a future
   presentation-only follow-up.
 
-`gtd next --json` carries one more field worth a custom driver's attention:
+`gtd next --json` carries two more fields worth a custom driver's attention:
 
 - **`log`** — the per-worktree loop log path, always present. It's derived from
   the worktree's own git dir, so two worktrees looping concurrently never share
@@ -265,6 +265,13 @@ script, whatever its exit code.
   itself neither creates nor truncates this file — a driver appends subprocess
   output to it and truncates once at the start of a run, exactly like the driver
   above does.
+- **`skills`** — an array of skill names, only ever carried at `kind: "prompt"`
+  (absent when the state declares none). A driver that reads it can preload the
+  named skills into the agent CLI, pass them as flags, or route the turn to a
+  subagent that already has them loaded. Reading it is an OPTIMIZATION, never an
+  obligation: a driver that ignores it still drives correctly, because the
+  preamble in `content` already names what the turn needs and does not depend on
+  `skills` being read.
 
 Even a genuine no-op `gtd land` (a clean landing that completes nothing) has a
 PRINT-ONLY script under `--json=script`: no git write, just the same
@@ -321,20 +328,20 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 19 keys (17 of them outside `kind: "prompt"`, which is
-the only kind that ever carries `session`/`validate`); a real driver reads 8 of
-the 19. The minimal driver below is the reference for exactly which: `kind`,
-`idle`, `content`, `log`, `session` (read as its two sub-paths,
+`gtd next --json` emits 20 keys (17 of them outside `kind: "prompt"`, which is
+the only kind that ever carries `session`/`validate`/`skills`); a real driver
+reads 8 of the 20. The minimal driver below is the reference for exactly which:
+`kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, and `validate` — every
-`--json=<path>` selector its `case` arms touch. The remaining 11 (`state`,
+`--json=<path>` selector its `case` arms touch. The remaining 12 (`state`,
 `actor`, `label`, `memory`, `file`, `mode`, `changes`, `next`, `cost`,
-`costByModel`, `judge`) are read only by a human looking at plain output, or by
-a driver author deciding what to log or route to a judge model (see "Judge
-gates" below) — no `case` arm in THIS reference driver branches on them. This is
-a property of what a driver NEEDS, not a smaller wire: every key stays on every
-`gtd next --json` line, unconditionally, so `--json=<path>` keeps resolving the
-same way for a human poking at one field as for the reference driver reading
-eight of them in a loop.
+`costByModel`, `judge`, `skills`) are read only by a human looking at plain
+output, or by a driver author deciding what to log, preload, or route to a judge
+model (see "Judge gates" below) — no `case` arm in THIS reference driver
+branches on them. This is a property of what a driver NEEDS, not a smaller wire:
+every key stays on every `gtd next --json` line, unconditionally, so
+`--json=<path>` keeps resolving the same way for a human poking at one field as
+for the reference driver reading eight of them in a loop.
 
 (`gtd land --json` is a separate command with its own seven-key document —
 `script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a `gtd next`

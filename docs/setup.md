@@ -19,7 +19,9 @@ Two routes, and they combine:
   want to change. There are nine: `triageSkills`, `architectureSkills`,
   `decomposeSkills`, `buildSkills`, `fixSkills`, `reviewFixSkills`,
   `reviewSkills`, `specReviewSkills`, `escalateSkills`. Each is an ordinary
-  workflow var, overridable per repo via `.gtdrc`:
+  workflow var, overridable per repo via `.gtdrc`. It also feeds the `skills`
+  key on `gtd next --json` at that step — a driver that reads it can preload the
+  same names (see [Writing your own driver](./driver.md)):
 
   ```yaml
   # .gtdrc — build steps load your own skill instead of the bundled pair

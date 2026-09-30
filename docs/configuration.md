@@ -111,6 +111,7 @@ Every step takes an options object; all keys are optional.
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                 |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                          |
 | `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).            |
+| `skills`      | `agent`              | The skill names this turn declares, already split (`readonly string[]`, not a comma string) — what `gtd next --json`'s `skills` key carries.       |
 | `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit. |
 | `base`        | all                  | The commit this step reviews changes since — what `gtd base` prints while the process rests here. Without it, the process's `start()`.             |
 
@@ -647,7 +648,10 @@ or `GTD_<NAME>`:
 - **`plannerModel`** (`smart`) / **`coderModel`** (`base`) — the `model` hints
   of the planning/reviewing steps and of the building/fixing steps.
 - **`*Skills`** — the skill names each agent step loads; see
-  [Setup](./setup.md#using-a-different-skill-set).
+  [Setup](./setup.md#using-a-different-skill-set). Setting one also determines
+  what `gtd next --json`'s `skills` key carries at that step (see
+  [Writing your own driver](./driver.md#writing-your-own-driver)); blanking it
+  empties that key for the step too.
 - **`judgeIdenticalMinP`** (`0.7`) — the confidence an "identical failure"
   verdict at `health.judge` needs before a red streak escalates early. Blank,
   non-numeric or non-finite means it can never be cleared, so the early

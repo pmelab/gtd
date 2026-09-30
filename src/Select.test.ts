@@ -42,10 +42,33 @@ describe("selectPath — absent vs unknown", () => {
     expect(selectPath({ session: undefined }, "session.id")).toEqual({ kind: "absent" })
   })
 
-  it("returns unknown for an all-digits segment against a list", () => {
+  it("resolves an in-range all-digits segment against a list, descending into that entry", () => {
     expect(selectPath({ changes: [{ path: "a" }] }, "changes.0.path")).toEqual({
+      kind: "value",
+      text: "a",
+    })
+  })
+
+  it("returns unknown for an out-of-range index against a list", () => {
+    expect(selectPath({ skills: ["a"] }, "skills.1")).toEqual({
       kind: "unknown",
-      path: "changes.0.path",
+      path: "skills.1",
+    })
+  })
+
+  it("returns unknown for a non-numeric segment against a list — no inherited array member (length, map, ...) resolves", () => {
+    expect(selectPath({ skills: ["a"] }, "skills.length")).toEqual({
+      kind: "unknown",
+      path: "skills.length",
+    })
+  })
+})
+
+describe("selectPath — array indexing", () => {
+  it("skills.0 reads the first declared skill, matching a driver's own read", () => {
+    expect(selectPath({ skills: ["code-review", "testing"] }, "skills.0")).toEqual({
+      kind: "value",
+      text: "code-review",
     })
   })
 })

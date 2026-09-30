@@ -24,6 +24,8 @@ export interface AgentOptions extends SteeringOptions {
    * is an attempt: recorded, but the process stays at the step (a stall).
    */
   readonly allowEmpty?: boolean | undefined
+  /** The skill names this turn declares — what `gtd next --json`'s `skills` key carries. */
+  readonly skills?: readonly string[] | undefined
 }
 
 export interface HumanOptions extends SteeringOptions {
