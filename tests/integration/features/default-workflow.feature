@@ -113,6 +113,12 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): architecture.decompose → packages.item.building"
 
+    # packages.item.building's prompt names the bundled buildSkills pair, and
+    # nothing else — ponytail is a scope-cutting lens, not a build-time skill.
+    When I run gtd next
+    Then stdout contains "test-driven-development, incremental-implementation"
+    Then stdout does not contain "ponytail"
+
     # packages.item.building: implements the package (a real change relative
     # to the initial diff — a type annotation the package spec calls for)
     Given "src/greeter.ts" is modified to:

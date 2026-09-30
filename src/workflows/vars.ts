@@ -13,7 +13,7 @@ export const defaults: Readonly<Record<string, string>> = {
   triageSkills: "spec-driven-development, planning-and-task-breakdown",
   architectureSkills: "api-and-interface-design, documentation-and-adrs, ponytail",
   decomposeSkills: "incremental-implementation, planning-and-task-breakdown",
-  buildSkills: "test-driven-development, incremental-implementation, ponytail",
+  buildSkills: "test-driven-development, incremental-implementation",
   fixSkills: "debugging-and-error-recovery",
   reviewFixSkills: "incremental-implementation, code-simplification",
   reviewSkills: "code-review-and-quality",
