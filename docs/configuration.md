@@ -668,10 +668,10 @@ or `GTD_<NAME>`:
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.
-- **`qualityReviews`** (`owasp-security, code-simplification`) — the quality lap
-  `build.quality` runs ahead of the human review, one comma-separated skill per
-  turn. Every round pays for it, so extend the list only as far as that is worth
-  paying for; blanking it disables the lap. See
+- **`qualityReviews`** (`owasp-security, ponytail-review, test-audit`) — the
+  quality lap `build.quality` runs ahead of the human review, one
+  comma-separated skill per turn. Every round pays for it, so extend the list
+  only as far as that is worth paying for; blanking it disables the lap. See
   [Setup](./setup.md#extending-the-quality-review-lap).
 - **`reviewBase`** (empty) — the commitish `--entry review-gate.check` reviews
   from.

@@ -267,6 +267,9 @@ ${footnoteFoldIn}
   the product ones, one phase earlier. PERMISSIVE: answer it
   yourself unless you genuinely cannot defend a default; a wrong
   technical call is still caught at spec review
+- The narrow exception: a simplification that drops something
+  \`.gtd/REQUIREMENTS.md\` mentions is an open question, not a
+  silent default
 
 ${questionBar}
 ## Return lap
@@ -485,6 +488,8 @@ export const buildFixQualityPrompt = (): string =>
 - Read \`.gtd/QUALITY.md\` — one \`## \` chunk per quality dimension
   that found something blocking. Merge duplicate findings across
   dimensions FIRST, then fix every chunk
+- When findings conflict, missing test signal beats line count —
+  a test is never deleted to satisfy a simplification finding
 - Delete \`.gtd/QUALITY.md\` once every finding is resolved
 - Leave everything else uncommitted and finish your turn
 `

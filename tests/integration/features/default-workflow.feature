@@ -79,6 +79,13 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(judge): architecture-pre → architecture.author"
 
+    # architecture.author's prompt carries the settled-requirements exception
+    # to its PERMISSIVE default: a simplification dropping something
+    # REQUIREMENTS.md mentions is an open question, not a silent default.
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "is an open question, not a"
+
     # architecture.author: a COLD read of REQUIREMENTS.md — develops the how,
     # deletes the requirements file once folded in
     Given the file ".gtd/REQUIREMENTS.md" is deleted
@@ -181,7 +188,12 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.reviewing"
 
-    # The second lens (code-simplification) is clean too -> the lap has no
+    # The second lens (ponytail-review) is clean too.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing"
+
+    # The third and final lens (test-audit) is clean too -> the lap has no
     # findings, straight on to human review.
     When I run gtd land
     Then it succeeds
@@ -253,6 +265,7 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(judge): packages.item.spec.pre → packages.item.spec.review
       gtd(agent): packages.item.spec.review → packages.item.closing
       gtd(check): packages.item.closing → build.quality.reviewing
+      gtd(agent): build.quality.reviewing
       gtd(agent): build.quality.reviewing
       gtd(agent): build.quality.reviewing → build.review.reviewing
       gtd(agent): build.review.reviewing → build.review.await-review

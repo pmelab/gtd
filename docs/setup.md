@@ -2,14 +2,34 @@
 
 ## Prerequisites
 
-Install [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills)
-— the bundled workflow's build/fix/review steps name skills from this set in
-their prompts instead of spelling out their technique in prose. This is a real
-prerequisite, not an optional boost: without it installed, your harness has
-nothing to load at those steps, and the prompt carries no prose standing in for
-it. gtd itself never installs, resolves, or verifies this — a repo can also
-repoint any of the bundled `*Skills` config vars to name a different set its own
-harness has instead, or blank one to drop the skill names from that step.
+Install all three skill sources the bundled workflow names in its prompts — none
+is optional, all three are hard prerequisites:
+
+- [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills)
+- the ponytail skills from
+  [`DietrichGebert/ponytail`](https://github.com/DietrichGebert/ponytail) —
+  install only `--skill ponytail --skill ponytail-review`
+- joshmanders' `test-audit`, from
+  [`joshmanders/dotfiles`](https://github.com/joshmanders/dotfiles) — install
+  with `npx -y skills add joshmanders/dotfiles --skill test-audit`
+
+The bundled workflow's build/fix/review steps name skills from these sets in
+their prompts instead of spelling out their technique in prose. Without a source
+installed, your harness has nothing to load at the steps that name it, and the
+prompt carries no prose standing in for it. gtd itself never installs, resolves,
+or verifies any of this — a repo can also repoint any of the bundled `*Skills`
+config vars to name a different set its own harness has instead, or blank one to
+drop the skill names from that step.
+
+**Install the skills, never the ponytail plugin** — its hooks inject into every
+turn and bypass the per-step skill variables above.
+
+A name missing from a `*Skills` var is skipped silently and costs nothing. A
+missing `qualityReviews` entry does not share that rule — see
+[Extending the quality-review lap](#extending-the-quality-review-lap) below. Two
+of the three default lenses (`ponytail-review`, `test-audit`) come from sources
+a reader has no reason to already have, so the default configuration wastes
+turns per quality lap until all three are installed.
 
 ### Using a different skill set
 
@@ -24,7 +44,7 @@ Two routes, and they combine:
   same names (see [Writing your own driver](./driver.md)):
 
   ```yaml
-  # .gtdrc — build steps load your own skill instead of the bundled pair
+  # .gtdrc — build steps load your own skill instead of the bundled trio
   vars:
     buildSkills: my-org-tdd-skill
   ```
@@ -41,10 +61,11 @@ Two routes, and they combine:
   your own value:
 
   ```yaml
-  # .gtdrc — keep the bundled pair, add one more
+  # .gtdrc — keep the bundled trio, add one more
   vars:
     buildSkills:
-      test-driven-development, incremental-implementation, my-org-tdd-skill
+      test-driven-development, incremental-implementation, ponytail,
+      my-org-tdd-skill
   ```
 
   The cost of this route: a later gtd release that changes `buildSkills`'
@@ -65,22 +86,23 @@ Both routes share the same safety rules:
 
 ### Extending the quality-review lap
 
-`qualityReviews` (default `owasp-security, code-simplification`) is a skill set
-too, but a different shape from the `*Skills` vars above: each entry is its own
-full turn, not a list handed to one step. Extend it for a project-specific
-concern — a company security checklist, a house style skill — the same way as
-any other var, via `.gtdrc`:
+`qualityReviews` (default `owasp-security, ponytail-review, test-audit`) is a
+skill set too, but a different shape from the `*Skills` vars above: each entry
+is its own full turn, not a list handed to one step. Extend it for a
+project-specific concern — a company security checklist, a house style skill —
+the same way as any other var, via `.gtdrc`:
 
 ```yaml
-# .gtdrc — keep the bundled pair, add a company checklist
+# .gtdrc — keep the bundled trio, add a company checklist
 vars:
-  qualityReviews: owasp-security, code-simplification, acme-security-checklist
+  qualityReviews:
+    owasp-security, ponytail-review, test-audit, acme-security-checklist
 ```
 
 or, highest precedence, via the matching `GTD_<NAME>` environment variable:
 
 ```bash
-GTD_QUALITYREVIEWS="owasp-security, code-simplification, acme-security-checklist" gtd next
+GTD_QUALITYREVIEWS="owasp-security, ponytail-review, test-audit, acme-security-checklist" gtd next
 ```
 
 Unlike the `*Skills` vars, gtd DOES split this one — on every comma, one lens

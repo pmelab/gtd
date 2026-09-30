@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   agentWithSkills,
   architectureAuthorPrompt,
+  buildFixQualityPrompt,
   designTriagePrompt,
   splitSkills,
   summaryPrompt,
@@ -100,6 +101,21 @@ describe("the shared open-question instruction", () => {
 
     expect(designBlock.length).toBeGreaterThan(3000)
     expect(designBlock).toBe(architectureBlock)
+  })
+})
+
+describe("architectureAuthorPrompt", () => {
+  it("qualifies the PERMISSIVE default with a settled-requirements exception", () => {
+    const prompt = renderText(() => architectureAuthorPrompt())
+    expect(prompt).toContain("is an open question, not a")
+  })
+})
+
+describe("buildFixQualityPrompt", () => {
+  it("states the missing-test-signal-beats-line-count tiebreak", () => {
+    const prompt = renderText(() => buildFixQualityPrompt())
+    expect(prompt).toContain("missing test signal beats line count")
+    expect(prompt).toContain("a test is never deleted to satisfy a simplification finding")
   })
 })
 
