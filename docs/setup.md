@@ -44,7 +44,7 @@ Two routes, and they combine:
   same names (see [Writing your own driver](./driver.md)):
 
   ```yaml
-  # .gtdrc — build steps load your own skill instead of the bundled trio
+  # .gtdrc — build steps load your own skill instead of the bundled pair
   vars:
     buildSkills: my-org-tdd-skill
   ```
@@ -61,11 +61,10 @@ Two routes, and they combine:
   your own value:
 
   ```yaml
-  # .gtdrc — keep the bundled trio, add one more
+  # .gtdrc — keep the bundled pair, add one more
   vars:
     buildSkills:
-      test-driven-development, incremental-implementation, ponytail,
-      my-org-tdd-skill
+      test-driven-development, incremental-implementation, my-org-tdd-skill
   ```
 
   The cost of this route: a later gtd release that changes `buildSkills`'
