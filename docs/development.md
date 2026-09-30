@@ -11,6 +11,7 @@ npm run test:changed # local pre-flight: only unit/@inmem tests git says changed
 npm run test:mutation # StrykerJS mutation testing (manual only, ~10 min)
 npm run typecheck
 npm run lint
+npm run build && npm run bench:replay # git-history replay timing (manual only, not gated; ~90s + a 50k-commit fixture build)
 ```
 
 `npm test` is a turbo task graph (`turbo.json`): each check declares its own

@@ -186,11 +186,48 @@ export class InMemRepo {
       filtered = chain.slice(baseIdx + 1)
     }
 
+    // Counts every commit whose body/diff this call computes — the perf test
+    // in Edge.test.ts pins this staying bounded (independent of repo age)
+    // rather than growing with the total commit count.
+    this.bodyReadCount += filtered.length
+
     return filtered.map((c) => {
       const parentTree = c.parent ? (this.getCommit(c.parent)?.files ?? new Map()) : new Map()
       const touched = diffTrees(parentTree, c.files).map((e) => e.path)
       return { hash: c.hash, message: c.message, touched }
     })
+  }
+
+  /** Total commits `commitHistory` has ever computed a body/diff for, across every call — see `commitHistory`'s own comment. */
+  bodyReadCount = 0
+
+  /**
+   * `{ hash, subject }` pairs for one page of history — the fake's
+   * counterpart to the real port's `git log --skip --max-count --reverse`:
+   * walk backward (newest-first) from `head`, drop `skip`, keep at most
+   * `pageSize`, then reverse the kept page to oldest→newest. Never touches
+   * `bodyReadCount` — a subject-only read costs nothing to model as cheap.
+   */
+  subjectHistory(
+    pageSize: number,
+    skip: number,
+    head?: string,
+  ): Array<{ hash: string; subject: string }> {
+    const headHash = head !== undefined ? this.resolveRef(head) : this.head
+    if (headHash === null) return []
+
+    const chain: Commit[] = []
+    let cur: string | null = headHash
+    while (cur !== null) {
+      const c = this.getCommit(cur)
+      if (!c) break
+      chain.push(c)
+      cur = c.parent
+    }
+
+    const page = chain.slice(skip, Number.isFinite(pageSize) ? skip + pageSize : undefined)
+    page.reverse()
+    return page.map((c) => ({ hash: c.hash, subject: c.message.split("\n")[0] ?? "" }))
   }
 
   fileAtRef(ref: string, path: string): string | null {

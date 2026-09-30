@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process"
-import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -134,6 +134,43 @@ describe("ConfigService", () => {
     expect(typeof cfg.workflow.summary).toBe("function")
     expect(typeof cfg.workflow.base).toBe("function")
     expect(cfg.workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
+  })
+
+  it("workflowFiles names gtd.config.ts AND a sibling module it imports from — a caller watching only gtd.config.ts's own path misses that module's edits", async () => {
+    writeFileSync(
+      join(projectDir, "steps.ts"),
+      [`export const steering = { ".gtd/PLAN.md": "qa" }`, ``].join("\n"),
+    )
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [minimalWorkflow("first"), `export { steering } from "./steps.js"`, ``].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
+    expect(cfg.workflowFiles.map((f) => realpathSync(f))).toEqual(
+      expect.arrayContaining([
+        realpathSync(join(projectDir, "gtd.config.ts")),
+        realpathSync(join(projectDir, "steps.ts")),
+      ]),
+    )
+  })
+
+  it("workflowFiles is empty for the built-in workflow — no gtd.config.ts backs it", async () => {
+    const cfg = await getConfig()
+
+    expect(cfg.workflowFiles).toEqual([])
+  })
+
+  it("configFiles names every .gtdrc-family file this load actually found, outermost→innermost", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: hi\n`)
+
+    const cfg = await getConfig()
+
+    expect(cfg.configFiles.map((f) => realpathSync(f))).toEqual([
+      realpathSync(join(projectDir, ".gtdrc.yaml")),
+    ])
   })
 
   it.each([

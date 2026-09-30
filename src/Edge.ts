@@ -187,15 +187,111 @@ const runOf = (
   }
 }
 
-const historyUpTo = (git: GitOperations, head: string | undefined): Effect.Effect<History, Error> =>
-  git.commitHistory(undefined, head)
+// The page sizes `findBoundaryBase` doubles through before giving up and
+// reading the whole repository — chosen so an ordinary episode (a handful of
+// commits) resolves at the very first tier.
+const PAGE_TIERS: ReadonlyArray<number> = [32, 128, 512, Infinity]
+
+/**
+ * `locateEpisode`'s own boundary test, subject-only: a commit that isn't a
+ * gtd step commit, or one landing the flow's initial state, bounds an
+ * episode from below — EXCEPT a bare `gtd(human): <x>` subject (no `→`),
+ * which is NEVER a boundary here, whatever `<x>` is. That bare shape is
+ * `locateEpisode`'s own `opening` branch (an entered episode's first commit),
+ * which takes priority there over the initial-state check no matter what the
+ * entry is named — including an entry named after `def.initial` itself,
+ * where the two branches would otherwise disagree. A bare human commit can
+ * also be a self-loop step landing rather than a real opening (this
+ * subject-only pass can't read the `Gtd-Step` trailer that would tell them
+ * apart), so ruling it out here can only make `findBoundaryBase` walk a FEW
+ * commits further back than strictly needed — never stop short of the
+ * boundary `locateEpisode` would find once it has full commit bodies in
+ * hand. That asymmetry is the only direction this approximation may err in;
+ * it must never call a real boundary "not yet found".
+ */
+const subjectIsBoundary = (def: WorkflowDefinition, subject: string): boolean => {
+  const parsed = parseCommitMessage(subject).parsed
+  if (parsed === undefined || !ACTORS.has(parsed.actor)) return true
+  if (parsed.actor === "human" && parsed.from === undefined) return false
+  return parsed.to === def.initial
+}
+
+/** The last page index (walking newest→oldest, same direction as `locateEpisode`) whose subject is a boundary, or `undefined` if none in `page`. */
+const boundaryIndexIn = (
+  def: WorkflowDefinition,
+  page: ReadonlyArray<{ readonly subject: string }>,
+): number | undefined => {
+  for (let i = page.length - 1; i >= 0; i--) {
+    if (subjectIsBoundary(def, page[i]!.subject)) return i
+  }
+  return undefined
+}
+
+/**
+ * `findBoundaryBase`'s result: `base` is the hash to pass `commitHistory` so
+ * a `git.commitHistory(base, head)` call reads exactly the episode ending at
+ * `head`, plus whatever a subject-only read couldn't rule out — never the
+ * whole repository. `base` is deliberately the boundary commit's PARENT, not
+ * the boundary commit itself: `commitHistory`'s range excludes `base`, and
+ * `runOf` needs the boundary commit present in the read history
+ * (`episode.base`, `startParentHash`). `base: undefined` means "read from the
+ * repository root" — an empty repository, an unresolvable `head`, or an
+ * episode that reaches the root commit, none of which cost anything extra
+ * since that IS the whole history in those cases.
+ *
+ * `head` is the CONCRETE hash the literal `head` argument resolved to on this
+ * call's first read — `undefined` only when it never resolved (an empty
+ * repository, or an unresolvable ref). The caller must hand this hash, not
+ * the original `head` argument, to its own `commitHistory` call: resolving a
+ * symbolic ref (literal `HEAD`, most callers' default) a second time risks
+ * reading a DIFFERENT commit than this function paged through, if something
+ * moves HEAD in between — pinning both reads to one resolved hash is what
+ * keeps the two-read split from disagreeing with itself.
+ */
+const findBoundaryBase = (
+  git: GitOperations,
+  def: WorkflowDefinition,
+  head: string | undefined,
+): Effect.Effect<{ readonly base: string | undefined; readonly head: string | undefined }, Error> =>
+  Effect.gen(function* () {
+    let pinnedHead = head
+    for (const pageSize of PAGE_TIERS) {
+      const page = yield* git.subjectHistory(pageSize, 0, pinnedHead)
+      // The newest entry of the very first page IS whatever `head` resolved
+      // to — pin it now so every further page in this call, and the caller's
+      // own `commitHistory`, all read through this same concrete hash rather
+      // than re-resolving a moving literal `HEAD`.
+      if (pinnedHead === undefined) pinnedHead = page[page.length - 1]?.hash
+      const wholeHistory = !Number.isFinite(pageSize) || page.length < pageSize
+      const boundaryIdx = boundaryIndexIn(def, page)
+      // No room in this page for the boundary commit's own parent — either
+      // no boundary was found at all, or it sits at the page's own oldest
+      // slot. Either way, grow the page and look again, unless the page
+      // already IS the whole history (nothing earlier to find).
+      if (boundaryIdx === undefined || boundaryIdx === 0) {
+        if (wholeHistory) return { base: undefined, head: pinnedHead }
+        continue
+      }
+      return { base: page[boundaryIdx - 1]!.hash, head: pinnedHead }
+    }
+    return { base: undefined, head: pinnedHead }
+  })
+
+const historyUpTo = (
+  git: GitOperations,
+  def: WorkflowDefinition,
+  head: string | undefined,
+): Effect.Effect<History, Error> =>
+  Effect.flatMap(findBoundaryBase(git, def, head), ({ base, head: resolvedHead }) =>
+    git.commitHistory(base, resolvedHead),
+  )
 
 const computeProcessRun = (
   git: GitOperations,
   def: WorkflowDefinition,
   head?: string,
 ): Effect.Effect<ProcessRun, Error> =>
-  Effect.map(historyUpTo(git, head), (history) => runOf(history, locateEpisode(def, history)))
+  Effect.map(historyUpTo(git, def, head), (history) => runOf(history, locateEpisode(def, history)))
 
 type ConfigRequirements = GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
 
@@ -213,13 +309,34 @@ export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = 
   function* () {
     const git = yield* GitService
     const def = (yield* (yield* ConfigService).load).workflow
-    const history = yield* historyUpTo(git, undefined)
-    const head = history[history.length - 1]
-    const closes = head !== undefined && parseCommitMessage(head.message).parsed?.to === def.initial
-    if (!closes) return runOf(history, locateEpisode(def, history))
-    const before = history.slice(0, -1)
+    // Cheap: just HEAD's own subject, to decide which of the two reads below
+    // this run needs — never the commits before it. Its hash is also this
+    // run's ONE resolution of literal HEAD: every further read below is
+    // pinned to it, rather than re-resolving a `head` that could move.
+    const headEntry = (yield* git.subjectHistory(1, 0))[0]
+    if (headEntry === undefined) {
+      // No commits at all — `historyUpTo` folds an empty repository to an
+      // empty run on its own; there is no hash yet to pin anything to.
+      const history = yield* historyUpTo(git, def, undefined)
+      return runOf(history, locateEpisode(def, history))
+    }
+    const closes = parseCommitMessage(headEntry.subject).parsed?.to === def.initial
+    if (!closes) {
+      const history = yield* historyUpTo(git, def, headEntry.hash)
+      return runOf(history, locateEpisode(def, history))
+    }
+    // HEAD itself closes the process: its own subject would otherwise read as
+    // a boundary to `findBoundaryBase` (landing the initial state), stopping
+    // the page one commit too soon. Search for the PRIOR episode's boundary
+    // from HEAD's parent instead, then read the closing commit separately —
+    // `commitHistory` falls back to the whole history when that parent ref
+    // doesn't resolve (HEAD is the repository's root commit).
+    const parentRef = `${headEntry.hash}~1`
+    const before = yield* historyUpTo(git, def, parentRef)
     const location = locateEpisode(def, before)
-    return runOf(history, { ...location }, head.hash)
+    let closing = yield* git.commitHistory(parentRef, headEntry.hash)
+    if (closing.length === 0) closing = yield* git.commitHistory(undefined, headEntry.hash)
+    return runOf([...before, ...closing], { ...location }, headEntry.hash)
   },
 )
 
@@ -228,9 +345,13 @@ export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = 
 const commitTree = (workspace: WorkspaceOps, hash: string): TreeView => {
   let entries: ReadonlyMap<string, string> | undefined
   const list = () => (entries ??= workspace.treeSync(hash))
+  // Sorted once per commit, not per call: `Workspace.episodeTrees` has
+  // already materialized `list()` before this is ever read, so the sort
+  // itself is the only remaining per-call cost `paths()` used to pay.
+  let sortedPaths: readonly string[] | undefined
   const contents = new Map<string, string | undefined>()
   return {
-    paths: () => [...list().keys()].sort(),
+    paths: () => (sortedPaths ??= [...list().keys()].sort()),
     read: (path) => {
       if (!list().has(path)) return undefined
       if (!contents.has(path)) contents.set(path, workspace.readCommittedSync(path, hash))
@@ -246,9 +367,17 @@ interface Rewrite {
   readonly apply: (content: string) => string
 }
 
-/** The tree a landing would commit: the working tree, with any rewrite the landing script applies first. */
-const pendingTree = (workspace: WorkspaceOps, rewrite: Rewrite | undefined): TreeView => {
-  const entries = workspace.worktreeSync()
+/**
+ * The tree a landing would commit: the working tree, with any rewrite the
+ * landing script applies first. `entries` is `setup.pendingWorktree()` —
+ * already memoized — never a fresh `workspace.worktreeSync()` call; see that
+ * field's own comment for why the memo lives there and not on `Workspace`.
+ */
+const pendingTree = (
+  workspace: WorkspaceOps,
+  entries: ReadonlyMap<string, string | undefined>,
+  rewrite: Rewrite | undefined,
+): TreeView => {
   const paths = [...entries.keys()]
   const readWorktree = (path: string): string | undefined => {
     try {
@@ -298,36 +427,42 @@ interface ReplaySetup {
   readonly vars: Record<string, string>
   readonly budget: number
   readonly workspace: WorkspaceOps
+  /**
+   * The episode's base tree and every commit's, built ONCE — after
+   * `Workspace.episodeTrees` has already materialized every one of them —
+   * and reused by both replays one `gtd` command runs (`restAt`'s own, then
+   * `decideLanding`'s). Rebuilding these per `replayFor` call bought nothing
+   * once the underlying `treeSync`/`readCommittedSync` reads are themselves
+   * cached, but still allocated a fresh `TreeView` (and its own `contents`
+   * memo) per replay for no reason.
+   */
+  readonly base: { readonly hash: string; readonly tree: TreeView }
+  readonly episode: readonly EpisodeCommit[]
+  /**
+   * The working tree `git add -A` would commit, read at most once — memoized
+   * HERE, per `ReplaySetup` (built fresh every `restAt` call), rather than on
+   * `Workspace` itself: the LSP memoizes one runtime (and its `Workspace`)
+   * per root across requests (`runtimeCache`), so a workspace-scoped memo
+   * would keep serving the FIRST request's working tree forever. A new
+   * `ReplaySetup` per `restAt` call is what makes each request see the
+   * working tree as it stands right then, while still reading it only once
+   * across that one request's `decideLanding`/`entryRefusal` replay.
+   */
+  readonly pendingWorktree: () => ReadonlyMap<string, string | undefined>
 }
-
-const episodeCommits = (setup: ReplaySetup): readonly EpisodeCommit[] =>
-  setup.run.episode.commits.map((c) => ({
-    hash: c.hash,
-    message: c.message,
-    tree: commitTree(setup.workspace, c.hash),
-  }))
 
 const replayFor = (
   setup: ReplaySetup,
   pending?: { readonly tree: TreeView; readonly verdicts?: readonly JudgeVerdict[] },
-): Promise<ReplayOutcome> => {
-  const base = setup.run.episode.base
-  return replay({
+): Promise<ReplayOutcome> =>
+  replay({
     flow: setup.def.flow,
-    episode: {
-      entry: setup.run.entry,
-      base:
-        base === undefined
-          ? { hash: EMPTY_TREE, tree: treeFromRecord({}) }
-          : { hash: base, tree: commitTree(setup.workspace, base) },
-      commits: episodeCommits(setup),
-    },
+    episode: { entry: setup.run.entry, base: setup.base, commits: setup.episode },
     vars: setup.vars,
     start: setup.run.diffBase,
     budgetBytes: setup.budget,
     ...(pending !== undefined ? { pending } : {}),
   })
-}
 
 const replayError = (outcome: ReplayOutcome): Error | undefined => {
   if (outcome.kind === "divergence" || outcome.kind === "failed") return new Error(outcome.message)
@@ -556,7 +691,42 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       try: () => judgeBudgetBytes(vars),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
-    const setup: ReplaySetup = { def, run, vars, budget, workspace }
+    // One bulk fetch materializes the base's and every commit's tree — via
+    // `Workspace`'s own cache, at most two subprocesses regardless of the
+    // episode's length — BEFORE `commitTree` below ever calls `treeSync`/
+    // `readCommittedSync` per commit, so those calls always hit the cache
+    // this just warmed.
+    yield* workspace.episodeTrees(
+      run.episode.base,
+      run.episode.commits.map((c) => c.hash),
+    )
+    const base =
+      run.episode.base === undefined
+        ? { hash: EMPTY_TREE, tree: treeFromRecord({}) }
+        : { hash: run.episode.base, tree: commitTree(workspace, run.episode.base) }
+    const episode: readonly EpisodeCommit[] = run.episode.commits.map((c) => ({
+      hash: c.hash,
+      message: c.message,
+      tree: commitTree(workspace, c.hash),
+    }))
+    let pendingMemo: ReadonlyMap<string, string | undefined> | undefined
+    const setup: ReplaySetup = {
+      def,
+      run,
+      vars,
+      budget,
+      workspace,
+      base,
+      episode,
+      pendingWorktree: () => (pendingMemo ??= workspace.worktreeSync()),
+    }
+    // No `pending` tree: `restAt` resolves the LANDED process only, never a
+    // pending working-tree edit (that's `decideLanding`'s own `replayFor`
+    // call, below, deciding what landing right now WOULD do). The LSP's
+    // steering-map memo (`src/Lsp.ts`) depends on this staying true — it's
+    // what makes HEAD's hash a complete cache key for everything `rest`
+    // exposes (`trace`, `state`, `hints.file`); passing a pending tree here
+    // would make the memo serve a stale map on every cache hit.
     const outcome = yield* Effect.promise(() => replayFor(setup))
     const error = replayError(outcome)
     if (error !== undefined || outcome.kind !== "rest") {
@@ -623,7 +793,7 @@ export const entryRefusal = (
         flow: rest.def.flow,
         episode: {
           entry: name,
-          base: { hash: "", tree: pendingTree(workspace, undefined) },
+          base: { hash: "", tree: pendingTree(workspace, rest.setup.pendingWorktree(), undefined) },
           commits: [],
         },
         vars,
@@ -726,7 +896,11 @@ const decideLanding = (
     if (early !== undefined) return early
     const outcome = yield* Effect.promise(() =>
       replayFor(rest.setup, {
-        tree: pendingTree(rest.setup.workspace, reviewGateRewrite(rest.stepDef)),
+        tree: pendingTree(
+          rest.setup.workspace,
+          rest.setup.pendingWorktree(),
+          reviewGateRewrite(rest.stepDef),
+        ),
         ...(verdicts !== undefined ? { verdicts } : {}),
       }),
     )

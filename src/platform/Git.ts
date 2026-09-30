@@ -27,6 +27,14 @@ export interface GitReaderOperations {
    */
   readonly gitDir: () => Effect.Effect<string, Error>
   /**
+   * The absolute git COMMON directory — shared by every linked worktree of
+   * one clone, unlike `gitDir` above. A commit hash or blob id means the
+   * same thing in every worktree, so caches keyed on one (`gtd-cache/` under
+   * this directory) are deliberately shared rather than duplicated per
+   * worktree.
+   */
+  readonly gitCommonDir: () => Effect.Effect<string, Error>
+  /**
    * First-parent history from `base..head` (or through `head` if no base),
    * oldest→newest; `head` defaults to `"HEAD"`. Pass a resolved hash to walk a
    * head other than the literal `HEAD`.
@@ -44,6 +52,22 @@ export interface GitReaderOperations {
     }>,
     Error
   >
+  /**
+   * `{ hash, subject }` pairs, first-parent, for one PAGE of history: `skip`
+   * commits are dropped and at most `pageSize` kept, walking backward from
+   * `head` (default `"HEAD"`) newest-first before the kept page is reversed
+   * to oldest→newest — the same selection `git log --skip --max-count
+   * --reverse` makes. No commit body or diff is read, which is the point:
+   * `Edge.ts` uses this to find an episode's boundary commit without paying
+   * for `commitHistory`'s `%B`/`--name-status` over the whole repository.
+   * `pageSize` may be non-finite (e.g. `Infinity`) for an unbounded page —
+   * the whole history from `skip` onward, with no `--max-count` at all.
+   */
+  readonly subjectHistory: (
+    pageSize: number,
+    skip: number,
+    head?: string,
+  ) => Effect.Effect<ReadonlyArray<{ readonly hash: string; readonly subject: string }>, Error>
   /** Fails when the path doesn't exist at `ref` — a caller expecting that (e.g. the review sign-off gate) handles it with an explicit `catchAll`. */
   readonly readFileAtRef: (ref: string, path: string) => Effect.Effect<string, Error>
   /**
@@ -380,6 +404,11 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
 
     gitDir: () => exec("git", "rev-parse", "--absolute-git-dir").pipe(Effect.map((s) => s.trim())),
 
+    gitCommonDir: () =>
+      exec("git", "rev-parse", "--path-format=absolute", "--git-common-dir").pipe(
+        Effect.map((s) => s.trim()),
+      ),
+
     commitHistory: (base?: string, head = "HEAD") => {
       const range = base !== undefined ? `${base}..${head}` : head !== "HEAD" ? head : undefined
       const args: [string, ...Array<string>] = [
@@ -420,6 +449,36 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
               readonly touched: ReadonlyArray<string>
             }>,
           ),
+        ),
+      )
+    },
+
+    subjectHistory: (pageSize: number, skip: number, head = "HEAD") => {
+      const ref = head !== "HEAD" ? head : undefined
+      const args: [string, ...Array<string>] = [
+        "git",
+        "log",
+        "--first-parent",
+        "--reverse",
+        "-z",
+        "--format=%H%x02%s",
+        `--skip=${skip}`,
+        ...(Number.isFinite(pageSize) ? [`--max-count=${pageSize}`] : []),
+        ...(ref !== undefined ? [ref] : []),
+      ]
+      return exec(...args).pipe(
+        Effect.map((out) =>
+          splitNul(out).map((chunk) => {
+            const sep = chunk.indexOf("\x02")
+            const hash = (sep === -1 ? chunk : chunk.slice(0, sep)).trim()
+            const subject = (sep === -1 ? "" : chunk.slice(sep + 1)).trim()
+            return { hash, subject }
+          }),
+        ),
+        // Empty repo (no HEAD), or an unresolvable `head`, makes `git log`
+        // fail; treat as no commits — the same fold `commitHistory` applies.
+        Effect.catchAll(() =>
+          Effect.succeed([] as ReadonlyArray<{ readonly hash: string; readonly subject: string }>),
         ),
       )
     },
