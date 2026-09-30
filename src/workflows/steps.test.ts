@@ -25,6 +25,7 @@ describe("the bundled workflow's steps declare skills", () => {
     expect(agentSkills(await capture(() => steps.author()))).toEqual([
       "api-and-interface-design",
       "documentation-and-adrs",
+      "ponytail",
     ])
   })
 
