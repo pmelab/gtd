@@ -205,7 +205,7 @@ const STEERING_OPTIONS = ["file", "mode", "label", "base"]
 // The option keys each step accepts. A gtd.config.ts is evaluated without a
 // type check, so a misspelt key would otherwise be silently ignored.
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
-  agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty"]),
+  agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty", "skills"]),
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean"]),
   run: new Set(STEERING_OPTIONS),
   judge: new Set([...STEERING_OPTIONS, "message"]),

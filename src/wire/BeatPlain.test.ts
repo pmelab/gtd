@@ -93,4 +93,18 @@ describe("renderBeatPlain", () => {
     const withSystem = documentFor("prompt", "fix the bug", { system: "a persona" })
     expect(renderBeatPlain(withSystem)).toBe(renderBeatPlain(withoutSystem))
   })
+
+  it("never prints a Skills: line, in any kind's header or the bare prompt body", () => {
+    const kinds: readonly BeatKind[] = ["capture", "message", "script", "stalled", "prompt"]
+    for (const kind of kinds) {
+      const plain = renderBeatPlain(documentFor(kind, "fix the bug", { skills: ["code-review"] }))
+      expect(plain).not.toContain("Skills:")
+    }
+  })
+
+  it("plain output at kind prompt is byte-identical whether or not the machine declares skills", () => {
+    const withoutSkills = documentFor("prompt", "fix the bug")
+    const withSkills = documentFor("prompt", "fix the bug", { skills: ["code-review"] })
+    expect(renderBeatPlain(withSkills)).toBe(renderBeatPlain(withoutSkills))
+  })
 })

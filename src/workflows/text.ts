@@ -1,4 +1,4 @@
-import { head, start, vars, type SummaryContext } from "../flows/index.js"
+import { agent, head, start, vars, type AgentOptions, type SummaryContext } from "../flows/index.js"
 import {
   skillsPreamble,
   styleBlock,
@@ -26,6 +26,32 @@ import {
 export const withSkills = (skills: string | undefined, prompt: string): string => {
   if (skills === undefined || skills.trim() === "") return prompt
   return `${skillsPreamble.replaceAll("{skills}", skills)}\n\n${prompt}`
+}
+
+/** `skills:` split on `,`, each name trimmed, empty entries dropped — `[]` for `undefined`, `""`, or blank. */
+export const splitSkills = (raw: string | undefined): readonly string[] =>
+  (raw ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0)
+
+/**
+ * An `agent()` step declaring `skills`: the raw, comma-separated var feeds
+ * both the `skills` option (the wire's `skills` key, split) and, re-joined
+ * with `", "`, `withSkills`'s preamble — one declaration, so the two can
+ * never drift apart.
+ */
+export const agentWithSkills = (
+  name: string,
+  skills: string | undefined,
+  prompt: string,
+  options: AgentOptions = {},
+): Promise<void> => {
+  const list = splitSkills(skills)
+  return agent(name, withSkills(list.join(", "), prompt), {
+    ...options,
+    skills: list,
+  })
 }
 
 export const unwindFailure = (commit: string): string =>

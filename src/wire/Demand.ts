@@ -79,17 +79,18 @@ export type Demand =
       readonly content: string
       readonly session: DemandSession | undefined
       readonly validate: string | undefined
+      readonly skills: readonly string[] | undefined
     }
 
 /**
  * Assemble one `Demand` — the ONLY place a rest's resolved content becomes
  * `Demand.content` (`stallDiagnosis` at `kind === "stalled"`, the rendered
- * content otherwise), and the only place `session`/`validate` are attached,
- * which the `prompt` variant's own type makes impossible to do at any other
- * kind.
+ * content otherwise), and the only place `session`/`validate`/`skills` are
+ * attached, which the `prompt` variant's own type makes impossible to do at
+ * any other kind.
  */
 export const demandOf = (input: {
-  readonly rendered: Pick<RenderedDemandSource, "actor" | "content" | "state">
+  readonly rendered: Pick<RenderedDemandSource, "actor" | "content" | "state" | "skills">
   readonly kind: BeatKind
   readonly session?: DemandSession
   readonly validate?: string
@@ -97,5 +98,7 @@ export const demandOf = (input: {
   const { rendered, kind, session, validate } = input
   const content =
     kind === "stalled" ? stallDiagnosis(rendered.state, rendered.actor) : rendered.content
-  return kind === "prompt" ? { kind, content, session, validate } : { kind, content }
+  const skills =
+    rendered.skills !== undefined && rendered.skills.length > 0 ? rendered.skills : undefined
+  return kind === "prompt" ? { kind, content, session, validate, skills } : { kind, content }
 }

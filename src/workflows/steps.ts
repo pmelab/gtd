@@ -1,4 +1,4 @@
-import { agent, human, vars } from "../flows/index.js"
+import { human, vars } from "../flows/index.js"
 import * as t from "./text.js"
 
 // The bundled workflow's single steps. A step's name is relative to the
@@ -21,7 +21,7 @@ const coder = (): string => vars.coderModel ?? ""
 
 /** Turn the sketch since `base` into `.gtd/REQUIREMENTS.md`. */
 export const triage = (base: string): Promise<void> =>
-  agent("triage", t.withSkills(vars.triageSkills, t.designTriagePrompt(base)), {
+  t.agentWithSkills("triage", vars.triageSkills, t.designTriagePrompt(base), {
     label: "Triaging the change",
     file: REQUIREMENTS,
     mode: "qa",
@@ -30,7 +30,7 @@ export const triage = (base: string): Promise<void> =>
   })
 
 export const author = (): Promise<void> =>
-  agent("author", t.withSkills(vars.architectureSkills, t.architectureAuthorPrompt()), {
+  t.agentWithSkills("author", vars.architectureSkills, t.architectureAuthorPrompt(), {
     label: "Refining the technical plan",
     file: ARCHITECTURE,
     mode: "qa",
@@ -39,7 +39,7 @@ export const author = (): Promise<void> =>
   })
 
 export const decompose = (): Promise<void> =>
-  agent("decompose", t.withSkills(vars.decomposeSkills, t.architectureDecomposePrompt()), {
+  t.agentWithSkills("decompose", vars.decomposeSkills, t.architectureDecomposePrompt(), {
     label: "Decomposing into packages",
     model: planner(),
     system: t.architectSystem(),
@@ -66,14 +66,14 @@ export const answerTechnicalQuestions = (): Promise<void> =>
 // ── Packages ────────────────────────────────────────────────────────────────
 
 export const build = (pkg: string): Promise<void> =>
-  agent("building", t.withSkills(vars.buildSkills, t.packagesItemBuildingPrompt(pkg)), {
+  t.agentWithSkills("building", vars.buildSkills, t.packagesItemBuildingPrompt(pkg), {
     label: "Building",
     model: coder(),
     system: t.builderSystem(),
   })
 
 export const fixSuite = (): Promise<void> =>
-  agent("fix-suite", t.withSkills(vars.fixSkills, t.packagesItemFixSuitePrompt()), {
+  t.agentWithSkills("fix-suite", vars.fixSkills, t.packagesItemFixSuitePrompt(), {
     label: "Fixing the check",
     file: FEEDBACK,
     model: coder(),
@@ -81,7 +81,7 @@ export const fixSuite = (): Promise<void> =>
   })
 
 export const fixSpec = (pkg: string): Promise<void> =>
-  agent("fix-spec", t.withSkills(vars.reviewFixSkills, t.packagesItemFixSpecPrompt(pkg)), {
+  t.agentWithSkills("fix-spec", vars.reviewFixSkills, t.packagesItemFixSpecPrompt(pkg), {
     label: "Fixing review feedback",
     file: SPEC_FEEDBACK,
     model: coder(),
@@ -90,9 +90,10 @@ export const fixSpec = (pkg: string): Promise<void> =>
 
 /** Review `pkg` against its spec, focused on the `failing` sections the pre-judge could not clear. */
 export const reviewPackage = (pkg: string, failing: readonly string[] = []): Promise<void> =>
-  agent(
+  t.agentWithSkills(
     "spec.review",
-    t.withSkills(vars.specReviewSkills, t.packagesItemSpecReviewPrompt(pkg, failing)),
+    vars.specReviewSkills,
+    t.packagesItemSpecReviewPrompt(pkg, failing),
     {
       label: "Reviewing the package",
       model: planner(),
@@ -104,7 +105,7 @@ export const reviewPackage = (pkg: string, failing: readonly string[] = []): Pro
 // ── Keeping the suite green ─────────────────────────────────────────────────
 
 export const fix = (): Promise<void> =>
-  agent("fix", t.withSkills(vars.fixSkills, t.buildFixPrompt()), {
+  t.agentWithSkills("fix", vars.fixSkills, t.buildFixPrompt(), {
     label: "Fixing the check",
     file: FEEDBACK,
     model: coder(),
@@ -112,7 +113,7 @@ export const fix = (): Promise<void> =>
   })
 
 export const describeEscalation = (): Promise<void> =>
-  agent("health.describe", t.withSkills(vars.escalateSkills, t.healthDescribePrompt()), {
+  t.agentWithSkills("health.describe", vars.escalateSkills, t.healthDescribePrompt(), {
     label: "Describing the escalation",
     file: FEEDBACK,
     model: coder(),
@@ -140,7 +141,7 @@ export const escalationExhausted = (): Promise<void> =>
 
 /** One quality review, through the skill `lens`. */
 export const reviewQuality = (lens: string): Promise<void> =>
-  agent("quality.reviewing", t.withSkills(lens, t.buildQualityReviewingPrompt(lens)), {
+  t.agentWithSkills("quality.reviewing", lens, t.buildQualityReviewingPrompt(lens), {
     label: "Reviewing (one quality lens)",
     file: QUALITY,
     model: planner(),
@@ -149,7 +150,7 @@ export const reviewQuality = (lens: string): Promise<void> =>
   })
 
 export const fixQuality = (): Promise<void> =>
-  agent("fix-quality", t.withSkills(vars.reviewFixSkills, t.buildFixQualityPrompt()), {
+  t.agentWithSkills("fix-quality", vars.reviewFixSkills, t.buildFixQualityPrompt(), {
     label: "Fixing quality findings",
     file: QUALITY,
     model: coder(),
@@ -159,7 +160,7 @@ export const fixQuality = (): Promise<void> =>
 
 /** Write `.gtd/REVIEW.md` over everything since `base`. */
 export const reviewing = (base: string): Promise<void> =>
-  agent("review.reviewing", t.withSkills(vars.reviewSkills, t.buildReviewReviewingPrompt(base)), {
+  t.agentWithSkills("review.reviewing", vars.reviewSkills, t.buildReviewReviewingPrompt(base), {
     label: "Reviewing",
     file: REVIEW,
     mode: "review",
@@ -186,9 +187,10 @@ export const reviewMissing = (round: string): Promise<void> =>
 
 /** Turn the review round `capture` describes into `.gtd/REQUIREMENTS.md`, or change nothing. */
 export const collecting = (capture: string): Promise<void> =>
-  agent(
+  t.agentWithSkills(
     "review.collecting",
-    t.withSkills(vars.reviewSkills, t.buildReviewCollectingPrompt(capture)),
+    vars.reviewSkills,
+    t.buildReviewCollectingPrompt(capture),
     {
       label: "Collecting your feedback",
       file: REQUIREMENTS,

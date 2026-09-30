@@ -152,11 +152,13 @@ Options:
                    --json=<path> (a dotted key path into that document, e.g.
                    kind, content, session.id) prints just that value: a
                    scalar raw and unquoted, a boolean as true/false, a list
-                   one JSON entry per line. An absent optional field prints
-                   nothing and exits 0 — including when an earlier segment of
-                   <path> is itself absent/null (e.g. session.id at a
-                   non-prompt rest), which never counts as unknown; an
-                   unknown path is a usage error (exit 2).
+                   one JSON entry per line — a numeric segment (e.g.
+                   skills.0) indexes into one entry of a list field instead.
+                   An absent optional field prints nothing and exits 0 —
+                   including when an earlier segment of <path> is itself
+                   absent/null (e.g. session.id at a non-prompt rest), which
+                   never counts as unknown; an unknown path is a usage error
+                   (exit 2).
   --port=<n>       (gtd ui only) the tailscale serve port (default: the first
                    free of 8443, 10000, 443), or the bind port when --host
                    opts out of serve (default: a free port)

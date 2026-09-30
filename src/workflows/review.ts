@@ -32,11 +32,7 @@ import {
 import * as t from "./text.js"
 
 /** The skills the quality lap reviews with, one turn each: the `qualityReviews` var. */
-export const qualityLenses = (): readonly string[] =>
-  (vars.qualityReviews ?? "")
-    .split(",")
-    .map((lens) => lens.trim())
-    .filter((lens) => lens !== "")
+export const qualityLenses = (): readonly string[] => t.splitSkills(vars.qualityReviews)
 
 /**
  * One review turn per lens over the whole change, each appending what it

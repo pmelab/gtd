@@ -227,7 +227,9 @@ BLOCK — absent at every other kind, a \`stalled\` beat included, by
 construction): \`session.id\`/\`session.resume\` — both DERIVED from history,
 never stored, so a plain peek is exactly as safe to call as a dispatch would
 be — and, when the state declares a validatable steering file, \`validate\`
-(the script that formats then validates it). When set: \`model\`, \`memory\`,
+(the script that formats then validates it), and, when the step declares
+skills, \`skills\` (an array of the skill names, already trimmed and split —
+\`--json=skills.0\` reads the first). When set: \`model\`, \`memory\`,
 \`label\`, \`file\`, \`mode\`, \`edges\`, \`judge\` (the pending judgment's rendered
 document). When a cost has been recorded (a prior \`gtd land --cost=<n>\`):
 \`cost\`, \`costByModel\`.

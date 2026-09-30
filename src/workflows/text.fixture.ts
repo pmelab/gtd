@@ -1,4 +1,4 @@
-import { installContext } from "../flows/index.js"
+import { installContext, type StepRequest } from "../flows/index.js"
 import { defaults } from "./vars.js"
 
 export interface TextContext {
@@ -36,4 +36,39 @@ export const renderText = <T>(text: () => T, context: TextContext = {}): T => {
   } finally {
     installContext(undefined)
   }
+}
+
+/** Run `fn`, recording the one `StepRequest` it issues, against the same fixed context `renderText` installs. */
+export const captureStep = async (
+  fn: () => Promise<void>,
+  context: TextContext = {},
+): Promise<StepRequest> => {
+  let captured: StepRequest | undefined
+  installContext({
+    step: (request) => {
+      captured = request
+      return Promise.resolve()
+    },
+    refuse: unavailable,
+    pushScope: unavailable,
+    popScope: unavailable,
+    read: context.read ?? (() => undefined),
+    glob: () => [],
+    changes: () => [],
+    changesSince: unavailable,
+    matches: () => false,
+    sections: () => [],
+    sectionBodies: () => [],
+    openQuestions: () => [],
+    vars: { ...defaults, ...context.vars },
+    head: () => context.head ?? "",
+    start: () => context.start ?? "",
+  })
+  try {
+    await fn()
+  } finally {
+    installContext(undefined)
+  }
+  if (captured === undefined) throw new Error("no step was issued")
+  return captured
 }

@@ -13,28 +13,33 @@ const assertNeverDemand = (demand: never): never => {
 
 /**
  * The ONE exhaustive switch translating a `Demand` into its wire
- * `session`/`validate` pair — only the `prompt` variant carries either, and
- * every other member is listed explicitly (not a `default:` fallthrough) so
- * adding a sixth `BeatKind` without adding its case here fails `tsc` at the
- * `assertNeverDemand` call, not silently falling through to "no session."
+ * `session`/`validate`/`skills` triple — only the `prompt` variant carries
+ * any of them, and every other member is listed explicitly (not a
+ * `default:` fallthrough) so adding a sixth `BeatKind` without adding its
+ * case here fails `tsc` at the `assertNeverDemand` call, not silently
+ * falling through to "no session."
  */
 const dispatchFieldsOf = (
   demand: Demand,
-): { readonly session: DemandSession | undefined; readonly validate: string | undefined } => {
+): {
+  readonly session: DemandSession | undefined
+  readonly validate: string | undefined
+  readonly skills: readonly string[] | undefined
+} => {
   switch (demand.kind) {
     case "prompt":
-      return { session: demand.session, validate: demand.validate }
+      return { session: demand.session, validate: demand.validate, skills: demand.skills }
     case "capture":
     case "message":
     case "script":
     case "stalled":
-      return { session: undefined, validate: undefined }
+      return { session: undefined, validate: undefined, skills: undefined }
     default:
       return assertNeverDemand(demand)
   }
 }
 
-/** One beat's whole field set, flattened — the ONE object `renderBeatJson` renders from, in the object's own key order (also the JSON key order). Byte-identical to the pre-`06-wire-demand-status` `BeatFields`. */
+/** One beat's whole field set, flattened — the ONE object `renderBeatJson` renders from, in the object's own key order (also the JSON key order). */
 export interface BeatDocument {
   readonly kind: BeatKind
   readonly content: string
@@ -55,6 +60,7 @@ export interface BeatDocument {
   readonly cost: number | undefined
   readonly costByModel: readonly ModelCost[] | undefined
   readonly judge: string | undefined
+  readonly skills: readonly string[] | undefined
 }
 
 /**
@@ -64,7 +70,7 @@ export interface BeatDocument {
  * (`cost <= 0`).
  */
 export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument => {
-  const { session, validate } = dispatchFieldsOf(demand)
+  const { session, validate, skills } = dispatchFieldsOf(demand)
   const hasCost = status.cost > 0
   return {
     kind: demand.kind,
@@ -86,6 +92,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     cost: hasCost ? status.cost : undefined,
     costByModel: hasCost ? status.costByModel : undefined,
     judge: status.judge,
+    skills,
   }
 }
 

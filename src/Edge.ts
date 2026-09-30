@@ -520,6 +520,7 @@ const promptDef = (common: StepCommon, request: RequestOf<"agent">): StepDef => 
   ...optional("model", request.options.model),
   ...optional("system", request.options.system),
   ...optional("allowEmpty", request.options.allowEmpty),
+  ...optional("skills", request.options.skills),
 })
 
 const scriptDef = (common: StepCommon, request: RequestOf<"run">): StepDef => ({
@@ -618,7 +619,11 @@ const memoryOf = (
   return { key: `${rest.memoryScope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`, resumed }
 }
 
-/** A rest's hints, as the wire carries them. Optional keys are omitted, never `undefined`. */
+/**
+ * A rest's hints, as the wire carries them. Optional keys are omitted, never
+ * `undefined`. Not strings-only: `skills` carries an array, already split —
+ * the wire does no parsing of its own.
+ */
 export interface RestHints {
   readonly model?: string
   readonly label?: string
@@ -626,6 +631,7 @@ export interface RestHints {
   readonly judge?: string
   readonly system?: string
   readonly mode?: string
+  readonly skills?: readonly string[]
 }
 
 const hintsOf = (def: StepDef): RestHints => ({
@@ -635,6 +641,7 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("judge", def.judge),
   ...optional("system", def.system),
   ...optional("mode", def.mode),
+  ...optional("skills", def.skills),
 })
 
 const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw === "D" ? "D" : "M")

@@ -21,22 +21,30 @@ const toSelection = (value: unknown): Selection => {
   return { kind: "value", text: String(value) }
 }
 
-/** A segment that resolves to no key at all (missing from an object, or numeric/absent against an array) — distinct from a present key holding `undefined`. */
+/** A segment that resolves to no key at all (missing from an object, out-of-range or non-numeric against an array) — distinct from a present key holding `undefined`. */
 const NOT_FOUND: unique symbol = Symbol("not-found")
+
+/** An all-digits segment (`"0"`, `"12"`) — the only shape an array segment resolves against. */
+const ARRAY_INDEX = /^\d+$/
 
 /**
  * One step of the walk: looks `segment` up on `current`, or reports
- * `NOT_FOUND` for a key that was never there (no array indexing; a primitive
- * has no keys). Presence is an OWN-property test
+ * `NOT_FOUND` for a key that was never there (a primitive has no keys).
+ * Against an array, only an all-digits segment resolves — an in-range index
+ * (`skills.0` reads the first declared skill), never a non-index own key
+ * (`length`/`map`/every other inherited array member stays `NOT_FOUND`).
+ * Against an object, presence is an OWN-property test
  * (`Object.prototype.hasOwnProperty`), never the `in` operator — `in` walks
  * the prototype chain, so it would resolve inherited members
  * (`constructor`, `toString`, `hasOwnProperty`, `valueOf`, ...) as real
- * document fields. An array declares no non-index own key the document ever
- * uses, so every array segment is `NOT_FOUND` (all-digit ones already were;
- * this also now excludes `length`/`map`/every other inherited array member).
+ * document fields.
  */
 const resolveSegment = (current: unknown, segment: string): unknown => {
-  if (Array.isArray(current)) return NOT_FOUND
+  if (Array.isArray(current)) {
+    return ARRAY_INDEX.test(segment) && Number(segment) < current.length
+      ? current[Number(segment)]
+      : NOT_FOUND
+  }
   if (typeof current === "object" && current !== null) {
     const record = current as Record<string, unknown>
     return Object.prototype.hasOwnProperty.call(record, segment) ? record[segment] : NOT_FOUND
@@ -46,10 +54,10 @@ const resolveSegment = (current: unknown, segment: string): unknown => {
 
 /**
  * Walks `fields` by dotted key path. Never throws — any unwalkable shape
- * (a primitive mid-path, an array indexed by a numeric segment) degrades to
- * `unknown`, and a present-but-`undefined` value anywhere along the path
- * short-circuits the whole remaining path to `absent` rather than reporting
- * a key that was never actually missing.
+ * (a primitive mid-path, an out-of-range or non-numeric array segment)
+ * degrades to `unknown`, and a present-but-`undefined` value anywhere along
+ * the path short-circuits the whole remaining path to `absent` rather than
+ * reporting a key that was never actually missing.
  */
 export const selectPath = (fields: unknown, path: string): Selection => {
   try {

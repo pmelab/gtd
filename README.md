@@ -26,7 +26,8 @@ for the settings most projects tune.
 Also install
 [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills) — the
 bundled workflow names skills from it at several states instead of spelling out
-technique in the prompt itself; see
+technique in the prompt itself — the same names also ride `gtd next --json`'s
+`skills` key at those states, for a driver that wants to preload them; see
 [Setup](https://github.com/pmelab/gtd/blob/main/docs/setup.md) for the details.
 
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow

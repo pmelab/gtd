@@ -40,6 +40,7 @@ export interface StepDef {
   readonly requireRevert?: boolean
   readonly allowEmpty?: boolean
   readonly acceptClean?: boolean
+  readonly skills?: readonly string[]
 }
 
 /**

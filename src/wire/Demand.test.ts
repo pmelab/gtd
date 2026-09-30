@@ -99,4 +99,26 @@ describe("demandOf", () => {
     expect("validate" in demand).toBe(true)
     expect(demand.validate).toBeUndefined()
   })
+
+  it("carries skills at kind prompt when the rendered source has a non-empty list", () => {
+    const demand = demandOf({ rendered: rendered({ skills: ["a", "b"] }), kind: "prompt" })
+    expect(demand.kind).toBe("prompt")
+    if (demand.kind !== "prompt") throw new Error("unreachable")
+    expect(demand.skills).toEqual(["a", "b"])
+  })
+
+  it("normalizes an empty or absent skills list to undefined at kind prompt, never []", () => {
+    const empty = demandOf({ rendered: rendered({ skills: [] }), kind: "prompt" })
+    const absent = demandOf({ rendered: rendered(), kind: "prompt" })
+    if (empty.kind !== "prompt" || absent.kind !== "prompt") throw new Error("unreachable")
+    expect(empty.skills).toBeUndefined()
+    expect(absent.skills).toBeUndefined()
+  })
+
+  it("carries no skills field at any non-prompt kind, even when the rendered source has one", () => {
+    for (const kind of BEAT_KINDS.filter((k) => k !== "prompt")) {
+      const demand = demandOf({ rendered: rendered({ skills: ["a"] }), kind })
+      expect("skills" in demand).toBe(false)
+    }
+  })
 })
