@@ -17,7 +17,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   routing is under test.
 
   @inmem
-  Scenario: two lenses each get one reviewing turn in listed order, then the clean lap hands straight on to the human review
+  Scenario: three lenses each get one reviewing turn in listed order, then the clean lap hands straight on to the human review
     Given a test project
     And the workflow
     And gtd enters "fix-precheck"
@@ -36,11 +36,12 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.quality.reviewing"
 
-    # The bundled lenses: owasp-security first, code-simplification second.
+    # The bundled lenses, in order: owasp-security, ponytail-review, test-audit.
     When I run gtd next
     Then it succeeds
     And stdout contains "`owasp-security`"
-    And stdout does not contain "`code-simplification`"
+    And stdout does not contain "`ponytail-review`"
+    And stdout does not contain "`test-audit`"
 
     # A clean reviewing turn under the owasp-security lens — nothing blocking.
     When I run gtd land
@@ -48,10 +49,21 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And the last commit subject is "gtd(agent): build.quality.reviewing"
     When I run gtd next
     Then it succeeds
-    And stdout contains "`code-simplification`"
+    And stdout contains "`ponytail-review`"
     And stdout does not contain "`owasp-security`"
+    And stdout does not contain "`test-audit`"
 
-    # A clean reviewing turn under the code-simplification lens too: with
+    # A clean reviewing turn under the ponytail-review lens too.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "`test-audit`"
+    And stdout does not contain "`owasp-security`"
+    And stdout does not contain "`ponytail-review`"
+
+    # A clean reviewing turn under the final, test-audit lens: with
     # .gtd/QUALITY.md never written, the lap hands straight on to the human
     # review tail, never fix-quality.
     When I run gtd land
