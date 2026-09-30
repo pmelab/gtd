@@ -4,7 +4,7 @@ import {
   type InfoConstructor,
   type QuickPickleWorldInterface,
 } from "quickpickle"
-import type { TestContext } from "vitest"
+import { vi, type TestContext } from "vitest"
 import { Effect } from "effect"
 import assert from "node:assert"
 import { execSync, execFile as execFileCb, spawn } from "node:child_process"
@@ -20,7 +20,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs"
-import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
+import { constants as osConstants, tmpdir } from "node:os"
 import { join, relative, resolve, sep } from "node:path"
 import { PassThrough } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
@@ -1115,14 +1115,13 @@ export class GtdWorld extends QuickPickleWorld {
       `expected the fallback reason line before the bound URL, got:\n${stdout()}`,
     )
 
-    // `pickBindHost` (the PURE scan), never `pickBindHostFromSystem` —
-    // `ui.steps.ts`'s own `vi.mock("../../../../src/ui/BindSystem.js", ...)`
-    // is a SUITE-WIDE mock (`setup-files.ts`'s own comment: it must load
-    // first, before anything else's real import caches the module) that
-    // always returns `undefined`, so calling the wrapper here would read
-    // that mock, not this machine's real interfaces.
+    // The REAL `node:os` — `ui.steps.ts`'s suite-wide `vi.mock("node:os", ...)`
+    // pins `networkInterfaces()` to `{}` so the in-process `gtd ui` scenarios
+    // never see this machine's tailnet, but THIS scenario needs the machine's
+    // actual interfaces to know which address the spawned server bound to.
     const { pickBindHost } = await import("../../../src/ui/index.js")
-    const bindHost = pickBindHost(networkInterfaces())
+    const realOs = await vi.importActual<typeof import("node:os")>("node:os")
+    const bindHost = pickBindHost(realOs.networkInterfaces())
     assert.ok(
       bindHost !== undefined,
       "no 100.64.0.0/10 interface found on this machine — the direct-bind fallback this scenario exercises needs one (CI supplies a loopback alias; see .github/workflows/test.yml)",

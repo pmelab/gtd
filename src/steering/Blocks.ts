@@ -5,46 +5,26 @@ import { definitionsOf, joinInlineRuns, projectInline, type InlineNode } from ".
 import { headingText, sourceText, toLspPosition } from "./MarkdownTree.js"
 import type { BlockListItem, SteeringView, SteeringViewNode } from "./SteeringFormat.js"
 
-/**
- * A marker's shape once it's plain text: `[^name]`, no whitespace, no `]` —
- * stripped out of every extracted title/text below, since a marker read back
- * out of a heading's or a blockquote's own body is noise no caller wants.
- */
+/** A footnote marker as plain text, stripped out of every extracted title below. */
 const MARKER_TEXT_RE = /\[\^([^\s\]]+)\]/g
 
 const stripMarkerText = (text: string): string => text.replace(MARKER_TEXT_RE, "")
 
-/**
- * `child`'s own raw source slice, UNCOLLAPSED — unlike `sourceText`, which
- * collapses whitespace before a caller ever sees the string. Only
- * `blockquoteChildrenText` needs the newlines intact a moment longer, to
- * tell a blockquote's own line-leading `> ` continuation marker (see
- * `stripContinuationMarker`) apart from a literal `>` typed mid-prose.
- */
+/** `child`'s raw source slice, UNCOLLAPSED — only `blockquoteChildrenText` needs the newlines intact, to tell a line-leading `> ` continuation marker apart from a literal `>` typed mid-prose. */
 const rawChildText = (content: string, child: RootContent): string => {
   const start = child.position?.start.offset
   const end = child.position?.end.offset
   return start === undefined || end === undefined ? "" : content.slice(start, end)
 }
 
-/**
- * A blockquote's own `> ` continuation marker sits in the raw bytes between a
- * child's first and last line — stripped here on the RAW, uncollapsed slice
- * (`sourceText` collapses whitespace, which would erase the newline that
- * distinguishes a line-leading continuation marker from a literal `>` typed
- * mid-prose), before whitespace is collapsed below.
- */
+/** Strips a blockquote's `> ` continuation markers. Must run on the RAW slice: the newline is what distinguishes them from a literal `>` typed mid-prose. */
 const stripContinuationMarker = (text: string): string => text.replace(/\n[ \t]*>[ \t]?/g, "\n")
 
 /**
- * The flattened, marker-stripped, whitespace-collapsed text of a run of
- * sibling BLOCK nodes (a list item's own non-list children) — built by
- * taking EACH child's own `sourceText` individually and joining the
- * results, never by slicing one span from the first child's start to the
- * last child's end. A single shared span would include every byte BETWEEN
- * the children verbatim — a nested `list` filtered out of a list item's own
- * children (see `listItemText`) still sits, raw markdown and all, between
- * its neighbors' offsets.
+ * Flattened text of a run of sibling block nodes. Each child is sliced
+ * INDIVIDUALLY, never as one span from the first child's start to the last
+ * child's end: a filtered-out nested `list` still sits, raw markdown and all,
+ * between its neighbours' offsets.
  */
 const childrenText = (content: string, children: readonly RootContent[]): string =>
   children
@@ -55,13 +35,10 @@ const childrenText = (content: string, children: readonly RootContent[]): string
     .trim()
 
 /**
- * A blockquote NODE's own children text — `childrenText`'s sibling, scoped
- * to blockquotes only: a blockquote's OWN `> ` continuation markers between
- * two paragraphs sit in the raw bytes BETWEEN two children's positions (each
- * child's own position starts right after its line's `> `), so this strips
- * them via `stripContinuationMarker` before the whitespace collapse. Never
- * reused for `listItemText` — a list item's own child (a fenced code block,
- * say) can carry a real line-leading `>` that must survive untouched.
+ * `childrenText` scoped to blockquotes: their `> ` continuation markers sit in
+ * the raw bytes BETWEEN two children's positions, so they are stripped before
+ * the whitespace collapse. Never reused for `listItemText` — a list item's
+ * fenced code block can carry a real line-leading `>` that must survive.
  */
 const blockquoteChildrenText = (content: string, children: readonly RootContent[]): string =>
   children
@@ -71,10 +48,7 @@ const blockquoteChildrenText = (content: string, children: readonly RootContent[
     .replace(/\s+/g, " ")
     .trim()
 
-/**
- * One list item's own text, EXCLUDING any nested `list` child (that's a
- * separate, recursive `items` entry — see `blockListItemOf`).
- */
+/** One list item's text, EXCLUDING any nested `list` child — that's a recursive `items` entry instead. */
 const listItemText = (content: string, item: ListItem): string =>
   childrenText(
     content,
@@ -173,33 +147,17 @@ const blockListItemsOf = (content: string, items: readonly ListItem[]): readonly
 /** The `title` an empty fenced code block (a `` ``` ``/`` ``` `` pair with nothing between them) falls back to — its real body is `""`, and every node still carries a non-empty title. */
 const EMPTY_CODE_BLOCK_TITLE = "(empty code block)"
 
-/**
- * A `list` node's own children with `options.skipListItem` removed — identity
- * filtering, not a line-range guess (see `BlockWalkOptions.skipListItem`'s own
- * doc comment for why): a caller excluding SOME of a list's items (`qa.ts`'s
- * own option items, mixed in the SAME list as ordinary body bullets) still
- * sees whatever's left, rather than losing the whole node the moment any one
- * child matches.
- */
+/** A `list`'s children with `options.skipListItem` removed. Filtering, never dropping the whole node: `qa`'s option items share a list with ordinary body bullets. */
 const visibleListItems = (node: List, options?: BlockWalkOptions): readonly ListItem[] =>
   options?.skipListItem
     ? node.children.filter((item) => !options.skipListItem!(item))
     : node.children
 
 /**
- * A top-level node's own one-line, marker-stripped, whitespace-collapsed
- * text — every block kind's `title`, and reused verbatim as a `blockquote`'s
- * own `text`. `heading` uses `headingText`, `blockquote` uses
- * `blockquoteChildrenText` (their own CHILDREN span — the NODE's own
- * position starts at the `#` run / the `>` marker, which `sourceText` would
- * otherwise pull in); `code` uses its `value`
- * directly (never `sourceText`, which would pull in the fence lines),
- * falling back to `EMPTY_CODE_BLOCK_TITLE` when that value is blank; `list`
- * joins each VISIBLE item's own text (`options.skipListItem`-filtered, never
- * raw `sourceText` over the whole node's span — that span still covers every
- * excluded item's own markdown, checkbox syntax included, which would leak
- * straight back into `title`/`detail` the moment any item was filtered);
- * everything else uses `sourceText` over the node's own span.
+ * Every block kind's `title`. Each branch reads the node's CHILDREN rather
+ * than its own span, because the span includes syntax the title must not
+ * carry: a heading's `#` run, a blockquote's `>`, a code fence, and — for a
+ * filtered list — every excluded item's markdown, checkbox syntax included.
  */
 const blockTitle = (content: string, node: RootContent, options?: BlockWalkOptions): string => {
   if (node.type === "heading") return headingText(content, node, stripMarkerText)
@@ -219,12 +177,9 @@ const blockTitle = (content: string, node: RootContent, options?: BlockWalkOptio
 
 /**
  * `SteeringViewNode.block` for one top-level node — `undefined` for a kind
- * this walk doesn't project structure for (a `thematicBreak`, an `html`
- * node, …), which still renders via `title` alone. `code`'s own `text` is
- * `node.value` VERBATIM — leading whitespace intact, never
- * whitespace-collapsed like every other kind's `title` — and its `language`
- * is the fence's own info string, omitted entirely when there is none
- * (`node.lang` is `null`/`undefined`).
+ * with no projected structure (`thematicBreak`, `html`, …), which still
+ * renders via `title` alone. `code`'s `text` is `node.value` VERBATIM,
+ * leading whitespace intact, unlike every other kind's collapsed `title`.
  */
 const blockOf = (
   content: string,
@@ -264,19 +219,10 @@ const blockOf = (
 }
 
 /**
- * Options that let a caller narrow the shared block walk to its own
- * document shape, without this module hardcoding any one format's rules:
- * `skipNode` excludes a top-level node outright (`qa`'s own `## Open
- * Questions`/`## Answered Questions` section headings); `skipLine` excludes
- * a node by its own start line (`qa`'s question spans, already projected
- * elsewhere as `question`/`option` nodes); `skipListItem` excludes individual
- * `listItem`s of a top-level `list` by NODE IDENTITY (`qa`'s own option items
- * — `optionListItems`'s exact return set — mixed in the SAME list as ordinary
- * body bullets in source, never by line arithmetic or by dropping the whole
- * list the moment ANY child matches: a list that still has visible items
- * after filtering stays in the walk, with only the matched items gone from
- * its own `items`/title). None is required — a caller passing none gets every
- * top-level block, and every one of its items, unfiltered.
+ * Lets a caller narrow the shared walk to its own document shape, so this
+ * module hardcodes no format's rules. `skipListItem` matches by NODE
+ * IDENTITY, never line arithmetic: `qa`'s option items share a source list
+ * with ordinary body bullets, so a partly-filtered list stays in the walk.
  */
 export interface BlockWalkOptions {
   readonly skipNode?: (content: string, node: RootContent) => boolean
@@ -293,13 +239,7 @@ export interface BlockWalkOptions {
   readonly footnotes?: Footnotes
 }
 
-/**
- * `true` for a top-level `list` node that `options.skipListItem` empties out
- * ENTIRELY (every child matches) — the one case still excluded from the walk
- * wholesale, mirroring the old whole-list exclusion for `qa`'s pure option
- * list. A list with at least one surviving item stays, filtered rather than
- * dropped (see `BlockWalkOptions.skipListItem`'s own doc comment).
- */
+/** A `list` that `skipListItem` empties ENTIRELY — the one case excluded wholesale; one surviving item keeps the list in the walk. */
 const isEmptiedList = (node: RootContent, options?: BlockWalkOptions): boolean =>
   node.type === "list" &&
   node.children.length > 0 &&
@@ -326,26 +266,16 @@ const visibleNodes = (
     .filter((node) => !isEmptiedList(node, options))
 
 /**
- * Every block of an arbitrary RUN of sibling `RootContent` nodes as a view
- * node, in document order — headings, lists, code blocks, blockquotes and
- * paragraphs alike. A `footnoteDefinition` is skipped unconditionally: it is
- * the note ITSELF, surfaced below as a node's own `note`, never new document
- * content in its own right. `options.skipNode`/`options.skipLine` let a
- * caller exclude its own already-projected structure (see
- * `BlockWalkOptions`) — a caller passing neither gets every node in `nodes`,
- * unfiltered. `blockNodesOf` (below) is this walk over a WHOLE document's own
- * `tree.children`; `qa.ts`'s question-body projection is this walk over one
- * `QuestionBlock.body` array instead — the same per-node logic either way.
+ * Every block of a RUN of sibling nodes as a view node, in document order. A
+ * `footnoteDefinition` is skipped unconditionally: it is the note ITSELF,
+ * surfaced below as a node's `note`, never document content of its own.
  *
- * Every node still carries a real, server-computed `{kind:"paragraph",
- * line}` anchor at its own start line, and an existing footnote marker
- * anchored at that same line surfaces as the node's own `note` (mirrors
- * `review.ts#chunkNoteOf`'s exact-line-match convention), so a block already
- * carrying a note offers editing it, not a second one.
+ * A footnote marker on a node's start line becomes that node's `note`, so a
+ * block already carrying one offers editing it rather than a second note.
  *
  * `options.footnotes`, when given, replaces this call's own
- * `parseFootnotes(content)` — see `BlockWalkOptions.footnotes`'s own doc
- * comment for why a caller walking many runs of the same document needs it.
+ * `parseFootnotes(content)` — see its own doc for why a caller walking many
+ * runs of one document needs it.
  */
 export const blockNodesOfRun = (
   content: string,

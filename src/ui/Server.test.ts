@@ -21,7 +21,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   liveHeadSha,
   contentHashOf,
-  pickBindHostFromSystem,
   deleteServeRecord,
   readServeRecord,
   writeServeRecord,
@@ -30,12 +29,6 @@ import {
   type CertPair,
 } from "./index.js"
 import type { AppRouter } from "./Router.js"
-
-// `resolveBindHost`'s default `pickHost` reaches the real
-// `os.networkInterfaces()` — mocked so the "calls through to the real system
-// scan by default" test below is deterministic on any machine, tailnet or
-// not, rather than depending on this runner having no Tailscale interface.
-vi.mock("./BindSystem.js", () => ({ pickBindHostFromSystem: vi.fn(() => undefined) }))
 
 /**
  * `Serve.ts#serveDir`'s `base` parameter defaults to `homedir()` — a seam for
@@ -56,10 +49,39 @@ vi.mock("./BindSystem.js", () => ({ pickBindHostFromSystem: vi.fn(() => undefine
  * real home directory safe to touch.
  */
 const homedirOverride = vi.hoisted(() => ({ current: undefined as string | undefined }))
+/**
+ * `resolveBindHost`'s default `pickHost` scans the REAL `os.networkInterfaces()`
+ * — on a runner joined to a tailnet that scan finds a genuine 100.64.0.0/10
+ * address and every "no Tailscale interface" assertion here reds for a reason
+ * unrelated to `ui`. The default `{}` is "no tailnet"; `tailnetAddress()`
+ * below fakes one for the tests that need the scan to succeed.
+ */
+const networkOverride = vi.hoisted(() => ({
+  current: {} as NodeJS.Dict<import("node:os").NetworkInterfaceInfo[]>,
+}))
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>()
-  return { ...actual, homedir: () => homedirOverride.current ?? actual.homedir() }
+  return {
+    ...actual,
+    homedir: () => homedirOverride.current ?? actual.homedir(),
+    networkInterfaces: () => networkOverride.current,
+  }
 })
+
+const tailnetAddress = (address: string): void => {
+  networkOverride.current = {
+    tailscale0: [
+      {
+        address,
+        family: "IPv4",
+        netmask: "255.255.255.255",
+        mac: "00:00:00:00:00:00",
+        internal: false,
+        cidr: `${address}/32`,
+      },
+    ],
+  }
+}
 
 import { GtdError, GtdUsageError } from "../Commentary.js"
 import { CommandRunner } from "../CommandRunner.js"
@@ -84,6 +106,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  networkOverride.current = {}
   rmSync(tmpDir, { recursive: true, force: true })
   for (const dir of gitDirs) rmSync(dir, { recursive: true, force: true })
 })
@@ -209,11 +232,10 @@ describe("resolveBindHost", () => {
     expect(host).toBe("100.90.1.2")
   })
 
-  it("calls through to pickBindHostFromSystem by default — the actual integration point, not a duplicate of Bind.test.ts's own unit tests", async () => {
-    // No `pickHost` override: exercises the real default parameter
-    // (`pickBindHostFromSystem`, mocked above to always return undefined so
-    // this is deterministic regardless of the runner's actual network) —
-    // proving Server.ts reached that seam rather than short-circuiting.
+  it("scans the real network interfaces by default — the actual integration point, not a duplicate of Bind.test.ts's own unit tests", async () => {
+    // No `pickHost` override: exercises the real default parameter over the
+    // mocked, tailnet-free `os.networkInterfaces()` above — proving Server.ts
+    // reached that seam rather than short-circuiting.
     const exit = await Effect.runPromiseExit(resolveBindHost(undefined, undefined))
     expect(Exit.isFailure(exit)).toBe(true)
   })
@@ -1099,7 +1121,7 @@ describe("runUiCommand", () => {
       const keyPath = join(tmpDir, "key.pem")
       writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
       writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
-      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+      tailnetAddress("100.90.1.2")
 
       let serveStatusCalls = 0
       const runner = CommandRunner.layer((command) => {
@@ -1151,7 +1173,7 @@ describe("runUiCommand", () => {
       const keyPath = join(tmpDir, "key.pem")
       writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
       writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
-      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+      tailnetAddress("100.90.1.2")
 
       let statusCalls = 0
       const runner = CommandRunner.layer((command) => {
@@ -1194,7 +1216,7 @@ describe("runUiCommand", () => {
       const keyPath = join(tmpDir, "key.pem")
       writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
       writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
-      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+      tailnetAddress("100.90.1.2")
 
       const commands: string[] = []
       const runner = CommandRunner.layer((command) => {
@@ -1262,7 +1284,7 @@ describe("runUiCommand", () => {
       const keyPath = join(tmpDir, "key.pem")
       writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
       writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
-      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+      tailnetAddress("100.90.1.2")
 
       const explicitPort = 19555
       const commands: string[] = []
@@ -1442,7 +1464,7 @@ describe("runUiCommand", () => {
     writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
-    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+    tailnetAddress("100.90.1.2")
     let boundHost: string | undefined
     const fakeUiListener = Layer.succeed(UiListener, {
       listen: ({ host }) => {
@@ -1512,7 +1534,7 @@ describe("runUiCommand", () => {
     installFakeGtd(tmpDir, renderablePromptJson)
     const { out, written } = fakeOut()
 
-    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+    tailnetAddress("100.90.1.2")
     const fakeUiListener = Layer.succeed(UiListener, {
       listen: () => Effect.succeed({ port: 4443, close: () => {} }),
     })
@@ -1562,7 +1584,7 @@ describe("runUiCommand", () => {
     writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
-    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+    tailnetAddress("100.90.1.2")
     const fakeUiListener = Layer.succeed(UiListener, {
       listen: () => Effect.succeed({ port: 4443, close: () => {} }),
     })
@@ -1616,7 +1638,7 @@ describe("runUiCommand", () => {
     writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
-    vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+    tailnetAddress("100.90.1.2")
     // The serve attempt's own loopback bind (no `tls`) fails outright; the
     // fallback's direct TLS bind (`tls` present) still succeeds — proving
     // `attemptServe` catches the listen failure into `ok: false` rather than
@@ -1681,7 +1703,7 @@ describe("runUiCommand", () => {
       const keyPath = join(tmpDir, "key.pem")
       writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
       writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
-      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+      tailnetAddress("100.90.1.2")
 
       const commands: string[] = []
       const runner = CommandRunner.layer((command) => {
@@ -1744,7 +1766,7 @@ describe("runUiCommand", () => {
       const keyPath = join(tmpDir, "key.pem")
       writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
       writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
-      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+      tailnetAddress("100.90.1.2")
 
       const commands: string[] = []
       const runner = CommandRunner.layer((command) => {
@@ -1811,7 +1833,7 @@ describe("runUiCommand", () => {
       const keyPath = join(tmpDir, "key.pem")
       writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
       writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
-      vi.mocked(pickBindHostFromSystem).mockReturnValueOnce("100.90.1.2")
+      tailnetAddress("100.90.1.2")
 
       const commands: string[] = []
       const runner = CommandRunner.layer((command) => {

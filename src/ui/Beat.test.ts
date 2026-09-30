@@ -10,7 +10,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
-  isSupportedVersion,
   liveHeadSha,
   liveRunInWorktree,
   readLocalGtdVersionAt,
@@ -80,16 +79,6 @@ const makeDeps = (
     },
   }
 }
-
-describe("isSupportedVersion", () => {
-  it("accepts a version whose major matches", () => {
-    expect(isSupportedVersion("10.5.0", 10)).toBe(true)
-  })
-
-  it("rejects a version whose major differs", () => {
-    expect(isSupportedVersion("11.0.0", 10)).toBe(false)
-  })
-})
 
 describe("readStep — ok rows", () => {
   it("never carries content or system fields, only the projected fields plus file", async () => {

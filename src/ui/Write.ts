@@ -7,28 +7,19 @@ import { liveRunInWorktree } from "./Beat.js"
 import { resolveWithinRoot } from "./SafePath.js"
 
 /**
- * The content hash half of the compare-and-swap: over the file's EXACT bytes
- * (never a normalized/trimmed form), so a whitespace-only change invalidates
- * it — package 03's own acceptance criterion. `sha256` purely for a short,
- * collision-safe fixed-length token; never exposed as a security boundary.
+ * The content-hash half of the compare-and-swap, over the file's EXACT bytes —
+ * never a normalized form, so a whitespace-only change invalidates it. `sha256`
+ * purely for a short collision-safe token; never a security boundary.
  */
 export const contentHashOf = (content: string): string =>
   createHash("sha256").update(content, "utf8").digest("hex")
 
 /**
- * T8's four named refusals — `stale-token`, `not-resting`, `file-vanished`,
- * `anchor-unresolved` (a stale index, or a paragraph line that no longer
- * parses) — never a shared message string, so the phone can render a
- * different sentence for each. One more, reachable but not among T8's four,
- * gets its OWN distinct value rather than being folded into
- * `anchor-unresolved`:
- * `note-collision` (the anchor resolved fine, but `annotate` refused because
- * the derived note id already names an existing definition — `SteeringFormat`
- * `id-collision`, T2's own "two attaches at the same anchor are rejected").
- * An unregistered/absent `request.mode` is never a refusal — it
- * resolves to the free-form format (`steering/index.ts#steeringFormatOrFreeForm`),
- * which only ever resolves a `paragraph` anchor, so a non-paragraph anchor
- * against it surfaces as `anchor-unresolved` like any other stale anchor.
+ * One distinct value per refusal, never a shared message string, so the phone
+ * can render a different sentence for each. `note-collision` stays separate
+ * from `anchor-unresolved`: the anchor resolved fine, the derived note id
+ * collided. An absent or unregistered `mode` is never a refusal — it resolves
+ * to the free-form format, which only ever resolves a `paragraph` anchor.
  */
 export type WriteRefusalReason =
   | "stale-token"
@@ -44,12 +35,7 @@ export interface WriteRefusal {
   readonly moved?: "sha" | "content-hash"
 }
 
-/**
- * A `ui.format` command that ran but didn't leave the file formatted the way
- * the client expects — reported so the phone can name what happened, never
- * turned into a refusal or a revert (Task 5's own bullet: formatting failure
- * never invalidates the write itself).
- */
+/** A `ui.format` command that ran but failed — reported so the phone can name it, never turned into a refusal or a revert. */
 export interface WriteFormatNotice {
   readonly command: string
   /** `null` when the command's binary couldn't even be spawned — mirrors `Beat.ts#SpawnOutcome.status`'s own convention. */
@@ -98,26 +84,16 @@ export interface WriteValueRequest {
 }
 
 /**
- * Every side effect `writeNote` needs, injected so tests never touch a real
- * git checkout or filesystem — mirrors `ui/Beat.ts`'s own `BeatDeps`
- * pattern. `actorAt` and `headSha` are both called FRESH on every write
- * (T5: the rest gate is re-checked at write time, never cached) — there is
- * no caching layer anywhere in this package to lean on instead; `Beat.ts#readStep`
- * itself re-reads the worktree on every call too.
- */
-/**
- * `WriteDeps.readFile`/`ReadSteeringFileDeps.readFile`'s own return shape —
- * carries the "nothing is there yet" vs "I could not read what's there"
- * distinction that `liveReadFile` alone can see (it's the only place with the
- * real `errno`), so every call site reads a tag it cannot ignore instead of a
- * bare `string | undefined` that collapses both into the same falsy value.
- * Only `absent` may create-on-write; `unreadable` always refuses.
+ * Carries the "nothing there yet" vs "could not read what's there" distinction
+ * that only `liveReadFile` can see, so no call site can collapse both into one
+ * falsy value. Only `absent` may create-on-write; `unreadable` always refuses.
  */
 export type ReadFileResult =
   | { readonly kind: "content"; readonly content: string }
   | { readonly kind: "absent" }
   | { readonly kind: "unreadable" }
 
+/** Every side effect a write needs, injected so tests touch no real checkout. `actorAt`/`headSha` are called FRESH on every write — the rest gate is re-checked at write time, never cached. */
 export interface WriteDeps {
   readonly headSha: (worktreePath: string) => Promise<string | undefined>
   /** The actor the worktree currently rests with (`"human"`/`"agent"`/etc, `StateFields.ts`'s `Actor`) — `undefined` when it can't be determined (treated as not-resting-with-a-human, never as an implicit pass). */
@@ -125,13 +101,7 @@ export interface WriteDeps {
   /** Tagged `absent`/`unreadable`/`content` — see `ReadFileResult`. Never thrown. */
   readonly readFile: (absPath: string) => Promise<ReadFileResult>
   readonly writeFile: (absPath: string, content: string) => Promise<void>
-  /**
-   * `ui.format`'s own live spawn, `undefined` exactly when that config key is
-   * unset (Task 5: "unset means no formatting at all — no command spawned").
-   * Its `ok`/`exitCode` are read only to build a `WriteFormatNotice` — never
-   * to refuse or revert the write, which has already landed on disk by the
-   * time this runs.
-   */
+  /** `ui.format`'s live spawn, `undefined` exactly when that key is unset. Read only to build a `WriteFormatNotice` — the write has already landed on disk by the time this runs. */
   readonly formatCommand?: (absPath: string) => Promise<{
     readonly ok: boolean
     readonly command: string
@@ -139,7 +109,7 @@ export interface WriteDeps {
   }>
 }
 
-/** Applies `edits` to `content` as byte-range offset splices — sorted last-to-first so an earlier range's offset is never invalidated by a later edit, mirroring every other splice in this codebase (`ReviewDoc.ts#clearFilePointerTicks` et al.). Positions are 0-based line/character over `\n`-split lines, matching `SteeringEdit`'s own LSP convention. */
+/** Splices `edits` into `content`, sorted last-to-first so an earlier range's offset is never invalidated by a later edit. Positions are 0-based line/character over `\n`-split lines. */
 export const applySteeringEdits = (content: string, edits: readonly SteeringEdit[]): string => {
   const lines = content.split("\n")
   const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
@@ -158,7 +128,7 @@ export const applySteeringEdits = (content: string, edits: readonly SteeringEdit
   return result
 }
 
-/** Per-absolute-path write queues — serializes the read-check-apply-write sequence for concurrent writes racing on the SAME file, so exactly one of two racing writes ever applies (the other reads the just-written bytes and correctly refuses as stale). Scoped to this process, which is the whole server. */
+/** Per-path write queues: serializes read-check-apply-write so exactly one of two racing writes applies — the loser re-reads the winner's bytes and correctly refuses as stale. */
 const writeQueues = new Map<string, Promise<unknown>>()
 
 const enqueue = <T>(key: string, task: () => Promise<T>): Promise<T> => {
@@ -180,12 +150,9 @@ interface CasRequest {
 }
 
 /**
- * The actor/sha/content-hash compare-and-swap gate T4/T5/T8 ask for —
- * re-reads HEAD's sha, the steering file's exact bytes, and the resting
- * actor ALL at write time, never trusting what the client rendered from —
- * shared by `writeNote` and `writeValue` so the two checks (and their four
- * distinct refusal shapes) can never drift apart. `ok: true` carries the
- * freshly-read `content` on to the caller's own format dispatch.
+ * The compare-and-swap gate: re-reads HEAD's sha, the file's exact bytes and
+ * the resting actor at write time, never trusting what the client rendered
+ * from. Shared by both writers so their refusal shapes cannot drift apart.
  */
 const verifyForWrite = async (
   request: CasRequest,
@@ -195,10 +162,9 @@ const verifyForWrite = async (
   const actor = await deps.actorAt(request.worktreePath)
   if (actor !== "human") return { ok: false, reason: "not-resting" }
 
-  // A resolved path with nothing at it yet (never written) reads as empty and
-  // lets the write through — only a `filePath` escaping the worktree (caught
-  // by `resolveWithinRoot` before this is ever called), or a path that IS
-  // there but couldn't be read, refuses `file-vanished`.
+  // Nothing there yet reads as empty and lets the write through; only a path
+  // that IS there but unreadable refuses (an escaping `filePath` was already
+  // caught by `resolveWithinRoot`).
   const read = await deps.readFile(absPath)
   if (read.kind === "unreadable") return { ok: false, reason: "file-vanished" }
   const content = read.kind === "content" ? read.content : ""
@@ -212,14 +178,9 @@ const verifyForWrite = async (
 }
 
 /**
- * Runs `deps.formatCommand` (when configured) after the bytes are already on
- * disk, then re-reads the file so the returned `contentHash` reflects what
- * formatting actually produced — never `nextContent` itself once a formatter
- * ran, since that's the PRE-format text. A formatter failure (non-zero exit,
- * missing binary) becomes a `formatNotice`, never a refusal: the write above
- * this call already succeeded and stays on disk either way. Falls back to
- * `nextContent` only if the re-read itself comes back empty-handed, which
- * should not happen for a file this function just wrote.
+ * Runs `deps.formatCommand` after the bytes are on disk, then re-reads so the
+ * returned `contentHash` is the POST-format text. A formatter failure becomes
+ * a `formatNotice`, never a refusal — the write already succeeded.
  */
 const finishWrite = async (
   absPath: string,
@@ -229,11 +190,8 @@ const finishWrite = async (
   if (deps.formatCommand === undefined) {
     return { ok: true, contentHash: contentHashOf(nextContent) }
   }
-  // Belt-and-suspenders alongside `Server.ts#buildFormatCommand`'s own
-  // internal catch: whatever `deps.formatCommand` implementation a caller
-  // wires in (a test double included), a throw here must still resolve as a
-  // `formatNotice`, never reject the mutation after the bytes already
-  // landed on disk above this call.
+  // Whatever implementation a caller wires in, a throw here must still resolve
+  // as a `formatNotice` — the bytes already landed on disk above.
   const outcome = await deps.formatCommand(absPath).catch((error: unknown) => ({
     ok: false as const,
     command: "<format command threw before naming itself>",
@@ -251,26 +209,17 @@ const finishWrite = async (
   }
 }
 
-/** `annotate`/`apply`'s shared refusal mapping: `id-collision` → `note-collision`, anything else → `anchor-unresolved` — the one place `writeNote`/`writeValue` translate a `SteeringAnnotateResult` refusal into a `WriteRefusalReason`. */
+/** The one place a `SteeringAnnotateResult` refusal becomes a `WriteRefusalReason`. */
 const annotateRefusal = (reason: "anchor-not-found" | "id-collision"): WriteRefusal => ({
   ok: false,
   reason: reason === "id-collision" ? "note-collision" : "anchor-unresolved",
 })
 
-/**
- * The compare-and-swap write T4/T5/T8 ask for (`verifyForWrite`), splicing
- * through `SteeringFormat.annotate`. A mismatch on any axis rejects OUTRIGHT:
- * no semantic re-apply, no merge, no partial write. Two concurrent calls on
- * the same file are serialized by `enqueue`, so exactly one can ever win the
- * race; the loser re-reads the winner's own write and refuses as stale,
- * correctly.
- */
+/** A compare-and-swap write through `SteeringFormat.annotate`. A mismatch on any axis rejects OUTRIGHT: no semantic re-apply, no merge, no partial write. */
 export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<WriteResult> => {
-  // `filePath` is still a client string even with `worktreePath` off every
-  // procedure input — `../../../etc/passwd` must refuse here, before ever
-  // reaching `readFile`/`writeFile`, exactly as an already-vanished file
-  // would (there is nothing at that path INSIDE the served worktree either
-  // way, from this compare-and-swap's point of view).
+  // `filePath` is a client string: an escaping path must refuse here, before
+  // `readFile`/`writeFile`, and reads as vanished — there is nothing at that
+  // path inside the served worktree either way.
   const absPath = resolveWithinRoot(request.worktreePath, request.filePath)
   if (absPath === undefined) return Promise.resolve({ ok: false, reason: "file-vanished" })
   return enqueue(absPath, async (): Promise<WriteResult> => {
@@ -287,15 +236,7 @@ export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<W
   })
 }
 
-/**
- * The compare-and-swap write for a CHECKBOX value (package 03): the same
- * `verifyForWrite` gate `writeNote` runs, splicing through
- * `SteeringFormat.apply` instead of `annotate` — a question answer's radio
- * pick, or a review hunk/chunk tick. `WriteRefusalReason` gains no new
- * values: `apply`'s own `anchor-not-found`/`id-collision` map onto
- * `anchor-unresolved`/`note-collision` exactly as `annotate`'s do in
- * `writeNote`, even though `apply` never actually produces the latter.
- */
+/** `writeNote`'s twin for a CHECKBOX value — a question's radio pick, or a review hunk/chunk tick — through `SteeringFormat.apply`. Same gate, same refusals. */
 export const writeValue = (request: WriteValueRequest, deps: WriteDeps): Promise<WriteResult> => {
   const absPath = resolveWithinRoot(request.worktreePath, request.filePath)
   if (absPath === undefined) return Promise.resolve({ ok: false, reason: "file-vanished" })
@@ -316,7 +257,7 @@ export const writeValue = (request: WriteValueRequest, deps: WriteDeps): Promise
   })
 }
 
-/** Live `actorAt`: spawns a fresh `gtd next --json` (T5 requires this axis re-checked at write time, never a cached read) and reads its `actor` field. `undefined` on any spawn failure or unparseable output, which `writeNote` treats as "not resting with a human". */
+/** Live `actorAt`: spawns a fresh `gtd next --json` and reads its `actor`. `undefined` on any failure, which the gate treats as "not resting with a human". */
 export const liveActorAt = async (worktreePath: string): Promise<string | undefined> => {
   const outcome = await liveRunInWorktree(worktreePath, "gtd next --json")
   if (outcome.status !== 0) return undefined
@@ -329,12 +270,10 @@ export const liveActorAt = async (worktreePath: string): Promise<string | undefi
 }
 
 /**
- * Live `readFile`: the only place that sees the real `errno`, so the only
- * place that classifies. `ENOENT`/`ENOTDIR` (nothing there yet) is `absent`;
- * every other failure — `EACCES`, `EISDIR`, `EPERM`, `EIO`, `EMFILE`,
- * anything unrecognised, or a non-`Error` throw — is `unreadable`. Fails
- * closed: an unrecognised failure never becomes `absent`, because `absent` is
- * the branch that authorises a truncating create-on-write. Never throws.
+ * The only place that sees the real `errno`, so the only place that
+ * classifies. `ENOENT`/`ENOTDIR` is `absent`; everything else is `unreadable`.
+ * Fails closed — `absent` is the branch that authorises a truncating
+ * create-on-write. Never throws.
  */
 export const liveReadFile = async (absPath: string): Promise<ReadFileResult> => {
   try {

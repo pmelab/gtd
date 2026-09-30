@@ -11,11 +11,11 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Layer } from "effect"
 import { isAbsolute, join } from "node:path"
-import { parse as parseYaml } from "yaml"
 import { GtdError, Narrator } from "../Commentary.js"
 import {
   ConfigDiscovery,
   ConfigService,
+  parseConfigLevel,
   SEARCH_PLACES,
   WORKFLOW_MODULE,
   walkUp,
@@ -129,16 +129,7 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
   }
 }
 
-/** Deliberately NOT shared with `ConfigDiscovery.Live`: `yaml`/`JSON.parse` here, cosmiconfig's own bundled loaders there — see `Layers.test.ts` for the one pinned divergence this causes. */
-const parseConfigLevel = (filepath: string, content: string): unknown => {
-  const result: unknown = filepath.endsWith(".json") ? JSON.parse(content) : parseYaml(content)
-  if (result === null) {
-    throw new Error(`${filepath}: config must be a plain object, got null`)
-  }
-  return result
-}
-
-/** The in-memory counterpart to `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) — shares its `SEARCH_PLACES`/`walkUp` exactly (see `Layers.test.ts`), reading through the fake `Workspace` instead of real `fs`. */
+/** The in-memory counterpart to `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) — shares its `SEARCH_PLACES`/`walkUp`/`parseConfigLevel` exactly (see `Layers.test.ts`), reading through the fake `Workspace` instead of real `fs`. */
 const makeInMemoryConfigDiscovery = (
   repo: InMemRepo,
   root: string,

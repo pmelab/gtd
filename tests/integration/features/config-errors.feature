@@ -29,7 +29,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     And stderr contains "qa, review, adr"
     And stderr contains "step \"idle\""
 
-  Scenario: a "modes:" entry declaring neither format nor validate is valid — the format-only tier
+  Scenario: a "modes:" entry declaring neither format nor validate still registers the name, so a step may use it
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -46,6 +46,10 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
     When I run gtd next
     Then it succeeds
+    # The name resolves: contrast the "adrs" typo above, which fails naming
+    # every known mode. An empty entry declares no format: and no validate:,
+    # so gtd neither rewrites nor validates the file — it only accepts it.
+    And stderr does not contain "is not a mode this workflow knows"
 
   Scenario: a "mode: prose" naming no "modes:" declaration fails — the engine blesses no built-in vocabulary of its own
     Given a test project

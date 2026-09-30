@@ -18,16 +18,7 @@ import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
 const readPlanStorageKey = (contentHash: string): string => `gtd:plan-read:${contentHash}`
 
-/**
- * "Read the plan" confirmation state, keyed on the file's own `contentHash`
- * — the SAME token `readSteeringFile`/`writeNote` already compute
- * server-side (`Write.ts#contentHashOf`) and the real `Plan` container
- * already threads through for its `writeNote` compare-and-swap. Hand-rolling
- * a second, client-only hash of the same bytes here would be two hashes of
- * one file for no reason; a rewrite (a different `contentHash`) always
- * starts this confirmation unconfirmed again — persisted in `localStorage`
- * so it survives a reload of the same, unchanged file.
- */
+/** "Read the plan" confirmation, keyed on the SAME server-computed `contentHash` the compare-and-swap uses rather than a second client-only hash. A rewrite starts it unconfirmed again; `localStorage` survives a reload of the same file. */
 const usePlanReadConfirmation = (contentHash: string) => {
   const [confirmed, setConfirmed] = useState(
     () => localStorage.getItem(readPlanStorageKey(contentHash)) === "true",
@@ -49,14 +40,11 @@ const usePlanReadConfirmation = (contentHash: string) => {
 const isQuestionNode = (node: SteeringViewNode): boolean => node.status !== undefined
 
 /**
- * The ONLY question nodes ever fed to `Deck` (and the ONLY ones the "Open
- * Questions" card section indexes into) — an answered question's own `view`
- * node carries no options at all (`OpenQuestions.ts`'s answered section never
- * has checkboxes), so it must never be a deck ITEM either, not just a
- * non-drillable card: `deck-next`/`deck-prev` navigate the deck's own item
- * array directly, bypassing any per-card `onOpen` guard entirely. Both the
- * card's start index and the deck's item list come from this SAME list, so
- * advancing within the deck can never land past its last real question.
+ * The ONLY question nodes fed to `Deck`. An answered question carries no
+ * options, so it must not be a deck ITEM at all, not merely a non-drillable
+ * card: `deck-next`/`deck-prev` walk the item array directly and bypass any
+ * per-card guard. The card's start index comes from this same list, so
+ * advancing can never land past the last real question.
  */
 const openQuestionNodesOf = (view: SteeringView): readonly SteeringViewNode[] =>
   view.nodes.filter((node) => node.status === "open")
@@ -142,30 +130,18 @@ export interface PlanViewProps {
     opts: { readonly checked?: boolean; readonly text?: string },
   ) => Promise<unknown>
   /**
-   * Ends the turn with no note, the same `done` round trip `onDoneNote`
-   * drives minus the write — the real `Plan` container wires this to
-   * `trpc.done.mutateAsync({})`. Drives TWO controls: passed to `Deck`'s own
-   * `onDone` (package 04 Task 2), where its mere presence also flips the
-   * deck's last-item advance label from "Done" to "Back to list" (`Deck.tsx`'s
-   * own doc comment — two buttons reading "Done" on one screen is the
-   * collision that avoids); and gates/drives the list screen's own
-   * `plan-done` footer row (package 05 Task 1), present whether or not the
-   * document carries questions. Absent in `Plan.stories.tsx`'s pure-data
-   * stories, exactly like `onSaveNote`/`onDoneNote`.
+   * Ends the turn with no note. Drives TWO controls: `Deck`'s `onDone`, whose
+   * mere presence also flips the last-item advance label to "Back to list" —
+   * two buttons reading "Done" on one screen is the collision that avoids —
+   * and the list screen's own footer row.
    */
   readonly onDone?: () => Promise<unknown>
   /**
-   * Every write refusal this screen's mutations surface (package 03 Task 1)
-   * — passed straight to `Question.tsx`'s own `onRefusal`, and to
-   * `onSaveNote`/`onDoneNote`'s own `.catch`, so the same `RefusalBanner` the
-   * real `Plan` container mounts above this view shows a named reason
-   * instead of the write silently reverting. The optional second argument
-   * (task 01) is the whole write path that just failed, wired through to
-   * `RefusalBanner`'s own `Try again` control — `onSaveNote`'s own `.catch`
-   * below is the only call site here that supplies one; `Question.tsx`'s own
-   * `onRefusal` call (for `onCommitAnswer`) is unchanged and supplies none,
-   * since that screen already has its own retry-by-retyping affordance
-   * (package 03). Absent in `Plan.stories.tsx`'s pure-data stories.
+   * Every write refusal this screen's mutations surface, so `RefusalBanner`
+   * names a reason instead of the write silently reverting. The optional
+   * second argument is the whole failed write path, wired to the banner's
+   * `Try again`; the question screen supplies none, since retyping already
+   * serves as its retry.
    */
   readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
 }
@@ -461,17 +437,12 @@ export interface PlanProps {
 }
 
 /**
- * Every mutation `Plan` wires up, pulled into one hook so the component
- * itself stays a thin fetch-then-render dispatch (see `useReviewState` in
- * `Review.tsx` for the same split, applied to that screen's own local state
- * instead of its mutations). Every write routes through
- * `staleRetry.ts#withStaleShaRetry` (task 01): a `stale-token`/`moved: "sha"`
- * refusal refetches fresh tokens and retries once, silently, before the
- * banner ever shows. The compare-and-swap token itself comes from the shared
- * `contentHashOverride.ts` hook (package 02 task 1/2) — see its own doc
- * comment for why a second Save fired before the `onSettled`
- * invalidate/refetch lands must send the LAST write's own post-format hash,
- * never the query cache's stale one.
+ * Every mutation `Plan` wires up, in one hook so the component stays a thin
+ * fetch-then-render dispatch. Each write routes through `withStaleShaRetry`: a
+ * `stale-token`/`moved: "sha"` refusal refetches and retries once, silently,
+ * before the banner shows. The token comes from `contentHashOverride` — see
+ * its doc for why a second Save before the refetch lands must send the LAST
+ * write's post-format hash, never the cache's stale one.
  */
 const usePlanMutations = (
   filePath: string,

@@ -3,6 +3,7 @@ import * as http from "node:http"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import * as https from "node:https"
 import { isIP } from "node:net"
+import * as os from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createHTTPHandler } from "@trpc/server/adapters/standalone"
@@ -24,7 +25,7 @@ import {
   type Step,
   type StepRead,
 } from "./Beat.js"
-import { pickBindHostFromSystem } from "./BindSystem.js"
+import { pickBindHost } from "./Bind.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { appRouter, type RouterContext } from "./Router.js"
@@ -68,20 +69,15 @@ interface BoundServer {
 }
 
 /**
- * Determines the bind host: an explicit `--host`, then a configured
- * `ui.host`, then a scan for a Tailscale interface — refusing only when all
- * three are absent. The tailnet IS this server's whole authentication
- * boundary (there is no other), so an explicit `--host`/`ui.host` is the
- * user's own deliberate consent and stays honoured exactly as given,
- * `--host 0.0.0.0` included — this never second-guesses that choice, only
- * supplies a default when none was made. `pickHost` defaults to the real
- * system scan but is a parameter so tests can simulate "no tailnet" without
- * touching `os.networkInterfaces()`.
+ * `--host`, then `ui.host`, then a Tailscale interface scan, refusing only
+ * when all three are absent. The tailnet IS this server's whole
+ * authentication boundary, so an explicit host is the user's own deliberate
+ * consent and is honoured exactly as given, `0.0.0.0` included.
  */
 export const resolveBindHost = (
   host: string | undefined,
   config: UiConfig | undefined,
-  pickHost: () => string | undefined = pickBindHostFromSystem,
+  pickHost: () => string | undefined = () => pickBindHost(os.networkInterfaces()),
 ): Effect.Effect<string, GtdError> => {
   const resolved = host ?? config?.host ?? pickHost()
   return resolved === undefined
@@ -95,18 +91,11 @@ export const resolveBindHost = (
 }
 
 /**
- * Determines the certificate/key pair, four branches in order: `--self-
- * signed` always wins (an explicit ask, honored even if `ui.cert`/`ui.key`
- * are also configured), then a configured pair, then a real `tailscale cert`
- * for `tailscaleStatus`'s hostname when its `certDomains` is non-empty (the
- * probe for whether the tailnet has HTTPS certs enabled at all), then
- * refusal. Neither a configured pair nor an available Tailscale cert is a
- * refusal, not a silent default to self-signed — that would mean an
- * unexpected `openssl` invocation on every plain `gtd ui`. The Tailscale
- * branch is exactly why this shells out to `tailscale`, not `openssl`, when
- * it's available: only a Tailscale-issued cert can ever match a tailnet
- * hostname URL, and a self-signed cert for a CGNAT IP is a browser warning
- * on every load.
+ * `--self-signed`, then a configured pair, then a real `tailscale cert`, then
+ * refusal. Having none of the three REFUSES rather than silently defaulting to
+ * self-signed, which would mean an unexpected `openssl` on every plain
+ * `gtd ui`. Tailscale is preferred because only its cert can match a tailnet
+ * hostname; a self-signed cert for a CGNAT IP warns on every load.
  */
 export const resolveCertPair = (
   options: UiCommandOptions,
@@ -221,14 +210,10 @@ const normalizePort = (port: number | undefined): number | undefined =>
   port === 0 ? undefined : port
 
 /**
- * `--dev` needs the gtd SOURCE checkout (its `src/web/`, its `tsdown.config.ts`,
- * its devDependencies) to rebuild against — never the invoking directory,
- * which `ui` deliberately runs outside of (see `needsOf("ui")`). Walks
- * up from this module's own file — `src/ui/Server.ts` in a source checkout,
- * or the single bundled `dist/gtd.bundle.mjs` in an installed package, both of
- * which sit a fixed few directories under the package root — until it finds
- * the `package.json` that names this package, so the search works from either
- * shape without hardcoding a directory depth.
+ * `--dev` rebuilds against the gtd SOURCE checkout, never the invoking
+ * directory, which `ui` deliberately runs outside of. Walks up to the
+ * `package.json` naming this package so it works from both the source and the
+ * bundled shape without hardcoding a directory depth.
  */
 const findPackageRoot = (): Effect.Effect<string, GtdError> =>
   Effect.try({
@@ -267,17 +252,12 @@ const readDevTemplate = (
     )
 
 /**
- * `--dev`: rebuilds the browser bundle via the same tsdown config `npm run
- * build` uses (`--filter web` selects only that config's `name`), then reads
- * its freshly-written output — the simplest way to reflect an edited client
- * source file with no manual `npm run build`. Runs with `root` (the gtd
- * package's OWN directory, never the invoking cwd) as its working directory —
- * a plain `npx tsdown` in the invoking directory would have no tsdown.config.ts
- * to select against, since `ui` deliberately runs outside any repo. Called
- * exactly ONCE, ahead of `uiListener.listen` (T5) — an HTTP request can no
- * longer trigger this build: the server lives for exactly one step, so a
- * mid-step rebuild would have nothing left to reflect, and a build per
- * unauthenticated request was subprocess amplification for free.
+ * Rebuilds the browser bundle via the same tsdown config `npm run build` uses,
+ * with the gtd package's OWN directory as cwd — the invoking directory has no
+ * `tsdown.config.ts` to select against. Called exactly ONCE, ahead of
+ * `listen`: the server lives for one step, so a mid-step rebuild would have
+ * nothing left to reflect, and a build per unauthenticated request was
+ * subprocess amplification for free.
  */
 const rebuildDevClientScript = (
   runner: Context.Tag.Service<typeof CommandRunner>,
@@ -376,16 +356,10 @@ const liveBeatDeps = {
 }
 
 /**
- * Builds `Write.ts#WriteDeps.formatCommand` from `ui.format`: `undefined`
- * when that key is unset at all (Task 5's "unset means no formatting at
- * all — no command spawned" — `writeDeps` below must not even carry the
- * field in that case). Runs it with `$GTD_FILE` set to the ABSOLUTE path
- * `Write.ts` calls this with, via `run` (`Beat.ts#liveRunInWorktree` by default — the same
- * `bash -c` spawn a mode's own shell commands use, so a worktree-local
- * `node_modules/.bin` install resolves identically). `run`'s own
- * `status`/`spawnError` become `exitCode: null` for "never even spawned",
- * mirroring `SpawnOutcome`'s own convention — never thrown, since a
- * formatting failure must never refuse or revert the write already on disk.
+ * `undefined` when `ui.format` is unset — `writeDeps` must not even carry the
+ * field then. Runs through the same `bash -c` spawn a mode's own commands use,
+ * so a worktree-local `node_modules/.bin` resolves identically. Never throws:
+ * a formatting failure must not refuse or revert the write already on disk.
  */
 export const buildFormatCommand = (
   format: string | undefined,
@@ -400,19 +374,11 @@ export const buildFormatCommand = (
 }
 
 /**
- * `true` only for the one rest the phone client can actually render: a
- * rest whose ACTOR is human, carrying a `file`. An idle rest is renderable
- * too — the client opens free-form on `.gtd/TODO.md` and the
- * human's own write is what eventually moves the state, not this axis.
- * `mode` is not part of this axis — an absent or unregistered `mode` falls
- * back to free-form rendering, so it is never a reason to refuse. `kind` is never read either — a `message`
- * rest whose beat reports a human actor is just as renderable as a `prompt`
- * rest with the same shape, and content kind shifts under the human's own
- * editing (a `message` rest turns `capture` the moment the tree is
- * dirtied), so it's the wrong axis regardless of which kinds would be
- * listed. This is the SAME axis `Write.ts#verifyForWrite` already gates
- * writes on (`actorAt !== "human"` → `not-resting`), so startup and write
- * agree.
+ * A rest is renderable iff its ACTOR is human. `mode` is not part of the axis
+ * — an unregistered one falls back to free-form. Nor is `kind`: content kind
+ * shifts under the human's own editing (a `message` rest turns `capture` the
+ * moment the tree is dirtied), so it is the wrong axis whatever the list. Same
+ * axis `verifyForWrite` gates writes on, so startup and write agree.
  */
 const isRenderable = (step: Step): step is Step & { readonly file: string } =>
   step.actor === "human" && step.file !== undefined
@@ -477,15 +443,9 @@ const isPidAlive = (pid: number): boolean => {
 }
 
 /**
- * Re-reads `tailscale serve status --json` fresh — used both by the orphan
- * check (Task 4, before publishing) and by teardown (after). `ok: false`
- * (a spawn failure or a non-zero exit) is distinct from `ok: true, mapping:
- * undefined` (the probe RAN and found nothing on `servePort`): the
- * `undefined`-is-never-a-failure rule `Serve.ts#parseServeStatus` sets is
- * about the JSON PARSE, not about a probe that never produced JSON to parse
- * at all — collapsing the two let the orphan check publish over a mapping it
- * simply couldn't see (a foreign holder, an operator-permission error, a
- * `tailscaled` restart mid-probe).
+ * `ok: false` (the probe failed to run) is distinct from `ok: true, mapping:
+ * undefined` (it ran and found nothing). Collapsing the two let the orphan
+ * check publish over a mapping it simply could not see.
  */
 const probeLiveServeMapping = (
   servePort: number,
@@ -510,21 +470,16 @@ const probeLiveServeMapping = (
   })
 
 /**
- * Task 4's ownership guarantees, run before ever publishing: a foreign live
- * mapping with no record of ours is left untouched (the caller falls back to
- * a direct bind rather than overwriting it) — and so is a probe that FAILED
- * to answer at all, since an unreadable status proves nothing about whether
- * the port is free; a record naming a dead pid (or, degenerate but cheap to
- * check, our own) is stale — cleared via `unpublishServe` before a fresh
- * publish; a record naming another LIVE gtd ui is left alone too, since two
- * instances racing the same port is exactly the case ownership exists to
- * prevent. Returns `"clear"` when it's safe to proceed to `publishServe`;
- * `"occupied"` (a foreign live mapping) and `"unknowable"` (a probe that
- * failed to answer) are both "don't publish", but the caller's candidate
- * walk (Task 2) treats them differently — `"occupied"` is per-port and
- * walkable, `"unknowable"` says nothing about any port and would only
- * re-run the same failing subprocess against every remaining candidate, so
- * it aborts the walk instead of advancing it.
+ * Ownership, checked before publishing. A foreign live mapping is left
+ * untouched, as is a probe that FAILED — an unreadable status proves nothing
+ * about whether the port is free. A record naming a dead pid is stale and
+ * cleared; one naming another LIVE gtd ui is left alone, since two instances
+ * racing a port is what ownership exists to prevent.
+ *
+ * `"occupied"` and `"unknowable"` are both "don't publish", but the candidate
+ * walk treats them differently: `"occupied"` is per-port and walkable, while
+ * `"unknowable"` says nothing about any port and would only re-run the same
+ * failing subprocess, so it aborts the walk.
  */
 const clearOrphanForPublish = (
   servePort: number,
@@ -543,14 +498,9 @@ const clearOrphanForPublish = (
   })
 
 /**
- * What one candidate attempt yields the caller: either a bound loopback
- * listener plus the printable tailnet URL and the port actually taken, or a
- * one-line reason — `retry: true` when the NEXT candidate is worth trying
- * (a foreign mapping on just this port, or a publish that exited non-zero,
- * both plausibly a per-port policy restriction), `retry: false` when serve
- * isn't viable at all this run (no Tailscale backend, or the loopback bind
- * itself refused — neither is specific to the port just tried). Never a
- * failed Effect (Task 3's own "never refuses" rule).
+ * One candidate attempt's result. `retry: true` when the failure is plausibly
+ * per-port (a foreign mapping, a publish that exited non-zero); `retry: false`
+ * when serve isn't viable at all this run. Never a failed Effect.
  */
 type ServeAttempt =
   | {
@@ -562,16 +512,11 @@ type ServeAttempt =
   | { readonly ok: false; readonly retry: boolean; readonly reason: string }
 
 /**
- * Task 3's serve-first path: probe for a tailnet hostname, run the Task 4
- * orphan check, bind an EPHEMERAL loopback listener (nothing outside the
- * machine dials it directly — `tailscaled` terminates TLS and proxies in),
- * then `publishServe` on `servePort`. Every failure — no tailnet, an
- * unclearable foreign mapping, the loopback bind itself refusing (EADDRINUSE,
- * EMFILE, a sandbox that denies it), a non-zero `tailscale serve` exit —
- * closes whatever it bound and returns `ok: false` with one human-readable
- * reason. The `never` error channel makes "it never fails the Effect, so
- * `runUiCommand` always has a direct-bind fallback available" a type-checked
- * invariant rather than a claim only the doc comment made.
+ * The serve-first path: probe, orphan-check, bind an EPHEMERAL loopback
+ * listener (`tailscaled` terminates TLS and proxies in, so nothing outside the
+ * machine dials it), then publish. Every failure closes whatever it bound and
+ * returns one human-readable reason. The `never` error channel makes "a
+ * direct-bind fallback is always available" a type-checked invariant.
  */
 const attemptServe = (
   servePort: number,
@@ -642,18 +587,12 @@ const attemptServe = (
   })
 
 /**
- * Task 4's teardown half of `attemptServe`: removes only a mapping THIS
- * instance published. No record at all (serve was never attempted, or the
- * direct-bind fallback ran instead) is a silent no-op. A record whose live
- * mapping still points at our own `target` is unpublished, then deleted; a
- * record whose target has since diverged means another process took the
- * port over already — deleted without touching that mapping. A probe that
- * FAILED to run (mirroring `clearOrphanForPublish`'s own publish-side rule)
- * proves nothing either way — the record is left exactly as it is, never
- * deleted, so this instance's own dead pid (once the process actually exits)
- * lets the NEXT `gtd ui`'s orphan check clear it properly instead of leaving
- * a live mapping permanently unreachable behind a deleted record. Never
- * fails: this runs inside `Effect.ensuring`, which requires it.
+ * Removes only a mapping THIS instance published. A diverged target means
+ * another process took the port over — the record is deleted without touching
+ * that mapping. A probe that FAILED proves nothing, so the record is left
+ * exactly as it is: this instance's dead pid then lets the NEXT `gtd ui`'s
+ * orphan check clear it, rather than stranding a live mapping behind a deleted
+ * record. Never fails — `Effect.ensuring` requires it.
  */
 const teardownServe = (servePort: number): Effect.Effect<void, never, CommandRunner> =>
   Effect.gen(function* () {
@@ -668,15 +607,9 @@ const teardownServe = (servePort: number): Effect.Effect<void, never, CommandRun
   })
 
 /**
- * Task 3's full control flow, factored out of `runUiCommand`'s own generator
- * so that function's own cyclomatic/cognitive complexity stays flat (mirrors
- * why `resolveHostsAndCert` was pulled out for Package 02): an explicit
- * `--host`/`ui.host` or `--self-signed` skips serve entirely (step 1);
- * otherwise Task 2's candidate walk is tried first — a one-element list when
- * `explicitPort` was given, `SERVE_PORT_CANDIDATES` otherwise — printing the
- * LAST candidate's failure reason (prefixed with every port tried, when more
- * than one was) above the URL before falling back — never a refusal either
- * way.
+ * An explicit `--host`/`ui.host` or `--self-signed` skips serve entirely;
+ * otherwise the candidate walk runs first, printing the LAST candidate's
+ * failure reason above the URL before falling back. Never a refusal either way.
  */
 const resolveListener = (args: {
   readonly options: UiCommandOptions

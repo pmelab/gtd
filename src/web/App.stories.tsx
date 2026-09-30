@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
-import { builtInModeNames } from "../steering/index.js"
+import { BUILT_IN_MODE_NAMES } from "../steering/index.js"
 import { App } from "./App.js"
 import { TrpcTestProvider } from "./testing/TrpcTestProvider.js"
 
@@ -280,6 +280,6 @@ export const UnregisteredModeOpensDirectlyOnTheFreeFormScreen: Story = {
 export const TheBuiltInRegistryStillHasExactlyTheTwoModesAppDispatchesByName: Story = {
   render: () => <></>,
   play: () => {
-    expect(builtInModeNames()).toEqual(["qa", "review"])
+    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review"])
   },
 }

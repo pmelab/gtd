@@ -134,4 +134,7 @@ export const freeFormFormat: SteeringFormat = {
   view: freeFormView,
   annotate: freeFormAnnotate,
   apply: freeFormApply,
+  // Nothing here is a read-progress tick: free-form has no structure whose
+  // checkboxes mean anything to this engine.
+  clearTicks: (content) => content,
 }

@@ -158,27 +158,6 @@ Then("the log file does not contain {string}", (world: GtdWorld, text: string) =
   )
 })
 
-// Non-overlapping count — proves a recovered retry ran, which a plain
-// "contains" check can't distinguish from a single occurrence.
-Then(
-  "the log file contains {string} {int} times",
-  (world: GtdWorld, text: string, count: number) => {
-    const path = join(world.repoDir, loopLogPath(world))
-    const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-    let actual = 0
-    let idx = 0
-    while ((idx = content.indexOf(text, idx)) !== -1) {
-      actual++
-      idx += text.length
-    }
-    assert.strictEqual(
-      actual,
-      count,
-      `Expected the log file ("${loopLogPath(world)}") to contain "${text}" exactly ${count} times, found ${actual}. Got:\n${content}`,
-    )
-  },
-)
-
 // Regex variants of the two assertions above — needed for the computed
 // session id (a real @live commit-derived value), which isn't a fixed
 // literal, and for a regex BACKREFERENCE proving the SAME id came back on a

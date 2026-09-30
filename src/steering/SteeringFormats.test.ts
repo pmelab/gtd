@@ -3,8 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { builtInModeNames, steeringFormatFor } from "./index.js"
-import { parseFootnotes } from "./index.js"
+import { applySteeringEdits } from "../ui/index.js"
+import { BUILT_IN_MODE_NAMES, parseFootnotes, steeringFormatFor } from "./index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!
@@ -30,9 +30,9 @@ const formatWithOxfmt = (content: string): string => {
   }
 }
 
-describe("builtInModeNames", () => {
+describe("BUILT_IN_MODE_NAMES", () => {
   it("lists the two built-in format names", () => {
-    expect(builtInModeNames()).toEqual(["qa", "review"])
+    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review"])
   })
 })
 
@@ -56,7 +56,7 @@ describe("every registry entry's sample", () => {
   // every prompt beat that declares `file:`+`mode:`, at 3 wasted agent turns
   // each, with no way to tell a real contradiction from a drifted fixture.
   it("validates clean under its own format's parser", () => {
-    for (const mode of builtInModeNames()) {
+    for (const mode of BUILT_IN_MODE_NAMES) {
       const format = steeringFormatFor(mode)!
       expect(format.validate(format.sample)).toEqual([])
     }
@@ -65,7 +65,7 @@ describe("every registry entry's sample", () => {
 
 describe("every registry entry declares apply", () => {
   it("has a function-typed apply member, not just annotate", () => {
-    for (const mode of builtInModeNames()) {
+    for (const mode of BUILT_IN_MODE_NAMES) {
       const format = steeringFormatFor(mode)!
       expect(typeof format.apply).toBe("function")
     }
@@ -87,7 +87,7 @@ const anchorsIn = (value: unknown): unknown[] => {
 
 describe("every registry entry's view", () => {
   it("parses `format.sample` without throwing", () => {
-    for (const mode of builtInModeNames()) {
+    for (const mode of BUILT_IN_MODE_NAMES) {
       const format = steeringFormatFor(mode)!
       expect(() => format.view(format.sample)).not.toThrow()
     }
@@ -106,7 +106,7 @@ describe("every registry entry's view", () => {
   // too. Only `anchor-not-found` — the anchor itself failing to resolve — is
   // the failure this property actually guards against.
   it("every anchor `view` reports is one `annotate` accepts (or correctly refuses only as an id-collision, never as anchor-not-found)", () => {
-    for (const mode of builtInModeNames()) {
+    for (const mode of BUILT_IN_MODE_NAMES) {
       const format = steeringFormatFor(mode)!
       const content = format.sample
       const view = format.view(content)
@@ -126,7 +126,7 @@ describe("every registry entry's view", () => {
 
 describe("footnote formatter round-trip (real oxfmt, measured not assumed)", () => {
   it("both samples carry a footnote whose body exceeds 80 characters", () => {
-    for (const mode of builtInModeNames()) {
+    for (const mode of BUILT_IN_MODE_NAMES) {
       const format = steeringFormatFor(mode)!
       const { definitions } = parseFootnotes(format.sample)
       expect(definitions.length).toBeGreaterThan(0)
@@ -135,7 +135,7 @@ describe("footnote formatter round-trip (real oxfmt, measured not assumed)", () 
   })
 
   it("both samples are already oxfmt fixed points, and still validate clean after formatting", () => {
-    for (const mode of builtInModeNames()) {
+    for (const mode of BUILT_IN_MODE_NAMES) {
       const format = steeringFormatFor(mode)!
       const formatted = formatWithOxfmt(format.sample)
       expect(formatted).toBe(format.sample)
@@ -322,5 +322,87 @@ describe("'gtd: add a footnote' produces an oxfmt fixed point in both formats", 
       (a) => a.title === "gtd: add a footnote",
     )
     expect(action).toBeUndefined()
+  })
+})
+
+describe("each built-in format's canonical sample (T7: writing into a live worktree)", () => {
+  it("contains a note attached the way the server attaches one — a distinct `na`-prefixed id, from `Footnotes.ts#footnoteAttachEdits`", () => {
+    for (const mode of BUILT_IN_MODE_NAMES) {
+      const format = steeringFormatFor(mode)!
+      const { definitions } = parseFootnotes(format.sample)
+      expect(definitions.some((d) => /^na[0-9a-z]+$/.test(d.name))).toBe(true)
+    }
+  })
+})
+
+/**
+ * Attaches `text` at the first anchor `view(content)` reports that `annotate`
+ * actually accepts, and returns the resulting document. An anchor that
+ * already carries the server-written note T7 requires now EDITS that note
+ * in place (`Footnotes.ts#footnoteAttachEdits`'s same-anchor update path)
+ * rather than refusing, so this always succeeds on the FIRST anchor tried —
+ * still named "free" for what it once had to search past, kept as the
+ * throwing fallback in case a future fixture ever adds a genuinely
+ * unresolvable anchor.
+ */
+const attachAtFirstFreeAnchor = (
+  format: NonNullable<ReturnType<typeof steeringFormatFor>>,
+  content: string,
+  text: string,
+): string => {
+  for (const anchor of anchorsIn(format.view(content))) {
+    const result = format.annotate(content, anchor as never, text)
+    if (result.ok) return applySteeringEdits(content, result.edits)
+  }
+  throw new Error("no free anchor found to attach a test note at")
+}
+
+describe("a server-written note actually reflows and still validates (T7's real risk, not just the already-wrapped sample)", () => {
+  // ONE long, deliberately UNWRAPPED line with a multi-word inline code span
+  // — exactly the shape `annotate` actually produces (a single `[^id]: ...`
+  // line, never pre-wrapped), and exactly the input oxfmt's 80-column prose
+  // wrap actually reflows. The risk T7 names is a note the SERVER writes
+  // getting reflowed before commit; asserting against the sample's own
+  // already-wrapped state (as an earlier version of this test did) can never
+  // exercise that reflow at all.
+  const LONG_UNWRAPPED_NOTE =
+    "Attached by a human through the phone UI, this note is intentionally " +
+    "written as one long unwrapped line so the formatter actually has " +
+    "something to reflow, and it carries a `multi word code span` too."
+
+  it("reflows a freshly-attached note across multiple lines, and still validates clean afterward", () => {
+    for (const mode of BUILT_IN_MODE_NAMES) {
+      const format = steeringFormatFor(mode)!
+      const applied = attachAtFirstFreeAnchor(format, format.sample, LONG_UNWRAPPED_NOTE)
+
+      // Before formatting: the definition is genuinely ONE physical line —
+      // proof this test feeds the formatter an actually-unwrapped note.
+      const beforeDefs = parseFootnotes(applied).definitions
+      const freshNote = beforeDefs.find((d) => d.body === LONG_UNWRAPPED_NOTE)!
+      expect(freshNote.endLine).toBe(freshNote.line)
+
+      const formatted = formatWithOxfmt(applied)
+
+      // After formatting: oxfmt actually reflowed it across multiple lines —
+      // proof the formatter's reflow is the thing this test exercised, not a
+      // no-op on already-wrapped content.
+      const afterDefs = parseFootnotes(formatted).definitions
+      const reflowedNote = afterDefs.find((d) => d.name === freshNote.name)!
+      expect(reflowedNote.endLine).toBeGreaterThan(reflowedNote.line)
+      expect(reflowedNote.body).toBe(LONG_UNWRAPPED_NOTE)
+
+      expect(format.validate(formatted)).toEqual([])
+    }
+  })
+
+  it("a note containing a multi-word inline code span still validates after reflow", () => {
+    for (const mode of BUILT_IN_MODE_NAMES) {
+      const format = steeringFormatFor(mode)!
+      expect(LONG_UNWRAPPED_NOTE).toMatch(/`[^`]*\s[^`]*`/)
+      const applied = attachAtFirstFreeAnchor(format, format.sample, LONG_UNWRAPPED_NOTE)
+      const formatted = formatWithOxfmt(applied)
+      expect(formatted).toContain("`multi word code span`")
+      expect(format.validate(formatted)).toEqual([])
+    }
   })
 })

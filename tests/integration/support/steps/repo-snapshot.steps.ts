@@ -61,18 +61,6 @@ Then(
   },
 )
 
-Then(
-  "stdout recorded as {string} contains {string}",
-  (world: GtdWorld, label: string, text: string) => {
-    const recorded = world.recordedStdout[label]
-    assert.notStrictEqual(recorded, undefined, `no stdout was ever recorded as "${label}"`)
-    assert.ok(
-      recorded!.includes(text),
-      `Expected stdout recorded as "${label}" to contain "${text}". Got:\n${recorded}`,
-    )
-  },
-)
-
 // Proves `gtd next`'s plain text and `gtd status --json`'s `content` field
 // describe the SAME resolved rest (both flow through the same `renderRest`) —
 // stdout recorded from `gtd next` is compared against the CURRENT invocation's

@@ -1,5 +1,5 @@
 import { seededValidateCommand } from "../SteeringFormats.js"
-import { builtInModeNames } from "../steering/index.js"
+import { BUILT_IN_MODE_NAMES } from "../steering/index.js"
 import type { ModeDef } from "../Workflow.js"
 import type { UiConfig } from "../ConfigSchema.js"
 import {
@@ -258,7 +258,7 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
   const { modes: rcModes, diagnostics: modesDiagnostics } = compileModesMap(mergedConfig["modes"])
   diagnostics.push(...withOrigin(modesDiagnostics, lookupIn))
   const seeded = Object.fromEntries(
-    builtInModeNames().map((name) => [name, { validate: seededValidateCommand(name) }]),
+    BUILT_IN_MODE_NAMES.map((name) => [name, { validate: seededValidateCommand(name) }]),
   )
   return {
     rcVars,

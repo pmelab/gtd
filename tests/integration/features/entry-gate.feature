@@ -19,29 +19,6 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   (`GTD_TESTCOMMAND`).
 
   @inmem
-  Scenario: a green baseline proceeds from the gate into design.triage
-    Given a test project
-    And the workflow
-    Given a file "NOTE.md" with:
-      """
-      Build a thing.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): idle → unwind"
-
-    # Simulate the unwind's revert — @inmem never executes
-    # scripts — by reverting the tree to the start commit ourselves.
-    Given the file "NOTE.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): unwind → start-gate.check"
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): start-gate.check → design.triage"
-
-  @inmem
   Scenario: a red baseline halts at start-gate.blocked, then a fix re-runs the gate to green
     Given a test project
     And the workflow

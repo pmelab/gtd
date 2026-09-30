@@ -13,11 +13,12 @@ import { vi } from "vitest"
 // mock can reach.
 //
 // MUST load before `world.ts` in `setup-files.ts`'s own list: `world.ts`
-// statically imports `Cli.js`, which eagerly loads the real `BindSystem.js`
-// through `program.ts` -> `ui/Server.js`. Once that real module is loaded and
-// cached, a `vi.mock` registered afterward (in a setup file later in the
-// list) never takes effect — the mock must be registered before ANYTHING
-// else in the setup chain imports this module transitively.
-// Same seam as `src/program.test.ts`: `vi.mock` must name the resolved module,
-// so it cannot go through `ui/index.ts`.
-vi.mock("../../../../src/ui/BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))
+// statically imports `Cli.js`, which eagerly loads `node:os` through
+// `program.ts` -> `ui/Server.js`. Once that real module is loaded and cached,
+// a `vi.mock` registered afterward (in a setup file later in the list) never
+// takes effect — the mock must be registered before ANYTHING else in the
+// setup chain imports it transitively.
+vi.mock("node:os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:os")>()),
+  networkInterfaces: () => ({}),
+}))

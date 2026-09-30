@@ -554,13 +554,12 @@ describe("ConfigService — malformed level content", () => {
   })
 })
 
-describe("ConfigService — discovery tolerates the same failure modes cosmiconfig's search does", () => {
-  // `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) calls cosmiconfig's
-  // own `explorer.search()` directly — this pins that its own internal
-  // ENOENT/EISDIR/ENOTDIR/EACCES tolerance still walks past the candidate to
-  // the next one, so a directory merely NAMED `.gtdrc` (or an unreadable
-  // ancestor) doesn't kill every gtd command with a raw fs error instead of
-  // falling through to the built-in default / the next search place.
+describe("ConfigService — discovery walks past an unreadable candidate", () => {
+  // `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) treats ANY read
+  // failure — ENOENT/EISDIR/ENOTDIR/EACCES alike — as "not a config file
+  // here", so a directory merely NAMED `.gtdrc` (or an unreadable ancestor)
+  // doesn't kill every gtd command with a raw fs error instead of falling
+  // through to the built-in default / the next search place.
   it("walks past a `.gtdrc` that is actually a DIRECTORY (EISDIR), instead of failing the whole load", async () => {
     mkdirSync(join(projectDir, ".gtdrc"))
 

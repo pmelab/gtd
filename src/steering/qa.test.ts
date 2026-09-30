@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  checkSteering,
-  clearTicks,
-  FOOTNOTE_ACTION_TITLE,
-  steeringFormatFor,
-  unansweredQuestions,
-  viewOf,
-} from "./index.js"
+import { FOOTNOTE_ACTION_TITLE, steeringFormatFor, unansweredQuestions, viewOf } from "./index.js"
 import { FREE_TEXT_PLACEHOLDER, isAnswered, parseOpenQuestions } from "./qa.js"
 import { getParseCount } from "./index.js"
 
@@ -14,14 +7,14 @@ const qa = steeringFormatFor("qa")!
 
 const doc = (lines: readonly string[]): string => lines.join("\n")
 
-describe("qa — structure (checkSteering)", () => {
+describe("qa — structure (validate)", () => {
   it("an empty document has no questions and no findings", () => {
-    expect(checkSteering(qa, "")).toEqual([])
+    expect(qa.validate("")).toEqual([])
     expect(unansweredQuestions(qa, "")).toEqual([])
   })
 
   it("an Open Questions section present but empty is valid", () => {
-    expect(checkSteering(qa, doc(["# Plan", "", "## Open Questions", ""]))).toEqual([])
+    expect(qa.validate(doc(["# Plan", "", "## Open Questions", ""]))).toEqual([])
   })
 
   it("a question with a free-form body (no options) validates clean", () => {
@@ -35,7 +28,7 @@ describe("qa — structure (checkSteering)", () => {
       "add and subtract.",
       "",
     ])
-    expect(checkSteering(qa, content)).toEqual([])
+    expect(qa.validate(content)).toEqual([])
     expect(unansweredQuestions(qa, content)).toEqual([
       expect.objectContaining({ question: "Which operations?" }),
     ])
@@ -72,7 +65,7 @@ describe("qa — structure (checkSteering)", () => {
       "- [ ] B",
       "",
     ])
-    const findings = checkSteering(qa, content)
+    const findings = qa.validate(content)
     expect(findings).toHaveLength(1)
     expect(unansweredQuestions(qa, content)).toEqual([
       expect.objectContaining({ question: "Real question?" }),
@@ -180,120 +173,6 @@ describe("qa — structure (checkSteering)", () => {
       const question = parseOpenQuestions(content).questions[0]!
       expect(question.options).toEqual([])
       expect(question.answered).toBe(false)
-    })
-  })
-
-  describe("section ordering", () => {
-    it("reports a finding when a '##' section precedes '## Open Questions'", () => {
-      const content = [
-        "## Implementation Notes",
-        "",
-        "some notes.",
-        "",
-        "## Open Questions",
-        "",
-        "### Which operations?",
-        "",
-        "add and subtract.",
-        "",
-      ].join("\n")
-      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([
-        "A '##' section appears before '## Open Questions', which must come first",
-      ])
-    })
-
-    it("reports a finding when a '##' section follows '## Answered Questions'", () => {
-      const content = [
-        "## Answered Questions",
-        "",
-        "### Already resolved?",
-        "",
-        "Yes.",
-        "",
-        "## Implementation Notes",
-        "",
-        "some notes.",
-        "",
-      ].join("\n")
-      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([
-        "A '##' section appears after '## Answered Questions', which must come last",
-      ])
-    })
-
-    it("reports at most one 'before' finding even with multiple sections preceding Open Questions", () => {
-      const content = [
-        "## Implementation Notes",
-        "",
-        "some notes.",
-        "",
-        "## Constraints",
-        "",
-        "some constraints.",
-        "",
-        "## Open Questions",
-        "",
-        "### Which operations?",
-        "",
-        "add and subtract.",
-        "",
-      ].join("\n")
-      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([
-        "A '##' section appears before '## Open Questions', which must come first",
-      ])
-    })
-
-    it("reports both findings when '## Answered Questions' comes before '## Open Questions'", () => {
-      const content = [
-        "## Answered Questions",
-        "",
-        "### Already resolved?",
-        "",
-        "Yes.",
-        "",
-        "## Open Questions",
-        "",
-        "### Which operations?",
-        "",
-        "add and subtract.",
-        "",
-      ].join("\n")
-      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([
-        "A '##' section appears before '## Open Questions', which must come first",
-        "A '##' section appears after '## Answered Questions', which must come last",
-      ])
-    })
-
-    it("reports no ordering finding with only '## Open Questions' present", () => {
-      const content = ["## Open Questions", "", "### Which operations?", "", "add.", ""].join("\n")
-      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
-    })
-
-    it("reports no ordering finding with only '## Answered Questions' present", () => {
-      const content = ["## Answered Questions", "", "### Already resolved?", "", "Yes.", ""].join(
-        "\n",
-      )
-      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
-    })
-
-    it("reports no ordering finding when neither section is present", () => {
-      const content = ["## Implementation Notes", "", "some notes.", ""].join("\n")
-      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
-    })
-
-    it("reports no finding for lead prose and a level-1 title above '## Open Questions'", () => {
-      const content = [
-        "# Plan",
-        "",
-        "Some lead prose describing the plan.",
-        "",
-        "## Open Questions",
-        "",
-        "### Which operations?",
-        "",
-        "add and subtract.",
-        "",
-      ].join("\n")
-      expect(parseOpenQuestions(content).findings.map((f) => f.message)).toEqual([])
     })
   })
 
@@ -494,6 +373,48 @@ describe("qa — answer completeness (unansweredQuestions)", () => {
 })
 
 describe("qa — section ordering", () => {
+  it("reports a finding when a '##' section precedes '## Open Questions'", () => {
+    const content = doc([
+      "## Implementation Notes",
+      "",
+      "some notes.",
+      "",
+      "## Open Questions",
+      "",
+      "### Which operations?",
+      "",
+      "add and subtract.",
+      "",
+    ])
+    expect(qa.validate(content).map((f) => f.message)).toEqual([
+      "A '##' section appears before '## Open Questions', which must come first",
+    ])
+  })
+
+  it("reports a finding when a '##' section follows '## Answered Questions'", () => {
+    const content = doc([
+      "## Answered Questions",
+      "",
+      "### Already resolved?",
+      "",
+      "Yes.",
+      "",
+      "## Implementation Notes",
+      "",
+      "some notes.",
+      "",
+    ])
+    expect(qa.validate(content).map((f) => f.message)).toEqual([
+      "A '##' section appears after '## Answered Questions', which must come last",
+    ])
+  })
+
+  it("reports no ordering finding with only '## Open Questions' present", () => {
+    expect(
+      qa.validate(doc(["## Open Questions", "", "### Which operations?", "", "add.", ""])),
+    ).toEqual([])
+  })
+
   it("reports at most one 'before' finding even with multiple sections preceding Open Questions", () => {
     const content = doc([
       "## Implementation Notes",
@@ -511,7 +432,7 @@ describe("qa — section ordering", () => {
       "add and subtract.",
       "",
     ])
-    expect(checkSteering(qa, content).map((f) => f.message)).toEqual([
+    expect(qa.validate(content).map((f) => f.message)).toEqual([
       "A '##' section appears before '## Open Questions', which must come first",
     ])
   })
@@ -531,7 +452,7 @@ describe("qa — section ordering", () => {
       "add and subtract.",
       "",
     ])
-    expect(checkSteering(qa, content).map((f) => f.message)).toEqual([
+    expect(qa.validate(content).map((f) => f.message)).toEqual([
       "A '##' section appears before '## Open Questions', which must come first",
       "A '##' section appears after '## Answered Questions', which must come last",
     ])
@@ -539,11 +460,11 @@ describe("qa — section ordering", () => {
 
   it("reports no ordering finding with only '## Answered Questions' present", () => {
     const content = doc(["## Answered Questions", "", "### Already resolved?", "", "Yes.", ""])
-    expect(checkSteering(qa, content)).toEqual([])
+    expect(qa.validate(content)).toEqual([])
   })
 
   it("reports no ordering finding when neither section is present", () => {
-    expect(checkSteering(qa, doc(["## Implementation Notes", "", "some notes.", ""]))).toEqual([])
+    expect(qa.validate(doc(["## Implementation Notes", "", "some notes.", ""]))).toEqual([])
   })
 
   it("reports no finding for lead prose and a level-1 title above '## Open Questions'", () => {
@@ -559,7 +480,7 @@ describe("qa — section ordering", () => {
       "add and subtract.",
       "",
     ])
-    expect(checkSteering(qa, content)).toEqual([])
+    expect(qa.validate(content)).toEqual([])
   })
 })
 
@@ -713,32 +634,32 @@ describe("qa — outline (option span, endLine, footnotes, ordering)", () => {
       "    Example: `- [ ] not a real option, just quoted inside a footnote body here`.",
       "",
     ])
-    expect(checkSteering(qa, content)).toEqual([])
+    expect(qa.validate(content)).toEqual([])
   })
 })
 
 describe("qa — sections and questions come from heading NODES, not string search", () => {
   it("a '## Open Questions' line quoted inside a fenced code block does not count as the section", () => {
     const content = doc(["Some prose.", "", "```", "## Open Questions", "", "### fake?", "```", ""])
-    expect(checkSteering(qa, content)).toEqual([])
+    expect(qa.validate(content)).toEqual([])
     expect(unansweredQuestions(qa, content)).toEqual([])
   })
 
   it("a fenced block using '~~~' delimiters is recognized the same way", () => {
     const content = doc(["Some prose.", "", "~~~", "## Open Questions", "~~~", ""])
-    expect(checkSteering(qa, content)).toEqual([])
+    expect(qa.validate(content)).toEqual([])
   })
 })
 
 describe("qa — strict indentation reading", () => {
   it("a '###' heading indented two spaces still counts as a question", () => {
     const content = doc(["## Open Questions", "", "  ### Real question?", "", "- [ ] A", ""])
-    expect(checkSteering(qa, content)).toEqual([])
+    expect(qa.validate(content)).toEqual([])
   })
 
   it("a '###' heading indented four spaces is reported as a positioned refusal, not silently dropped", () => {
     const content = doc(["## Open Questions", "", "    ### Dropped question?", "", "text", ""])
-    const findings = checkSteering(qa, content)
+    const findings = qa.validate(content)
     expect(findings.some((f) => f.message.includes("not a question heading"))).toBe(true)
   })
 
@@ -751,7 +672,7 @@ describe("qa — strict indentation reading", () => {
       "    - [ ] Dropped option",
       "",
     ])
-    const findings = checkSteering(qa, content)
+    const findings = qa.validate(content)
     expect(findings.some((f) => f.message.includes("not an option"))).toBe(true)
   })
 
@@ -765,7 +686,7 @@ describe("qa — strict indentation reading", () => {
       "    - [ ] Nested option",
       "",
     ])
-    const findings = checkSteering(qa, content)
+    const findings = qa.validate(content)
     expect(findings.some((f) => f.message.includes("not an option"))).toBe(true)
   })
 
@@ -779,7 +700,7 @@ describe("qa — strict indentation reading", () => {
       "  - [ ] Shallow nested option",
       "",
     ])
-    expect(checkSteering(qa, content)).toEqual([])
+    expect(qa.validate(content)).toEqual([])
   })
 
   it("a 4+-space heading folded into a preceding option's own lazy continuation is still reported, and the question it would start stays missing", () => {
@@ -793,7 +714,7 @@ describe("qa — strict indentation reading", () => {
       "",
       "- [ ] two",
     ])
-    const findings = checkSteering(qa, content)
+    const findings = qa.validate(content)
     expect(findings).toHaveLength(1)
     expect(findings[0]!.message).toContain("### B?")
     expect(unansweredQuestions(qa, content)).toEqual([expect.objectContaining({ question: "A?" })])
@@ -811,7 +732,7 @@ describe("qa — strict-reading ignores indented lines that aren't heading- or o
       "    just an indented continuation, not heading- or option-shaped",
       "",
     ])
-    expect(checkSteering(qa, content)).toEqual([])
+    expect(qa.validate(content)).toEqual([])
   })
 })
 
@@ -930,7 +851,7 @@ describe("qa — actions (options, footnotes)", () => {
 describe("qa — clearTicks is a deliberate no-op", () => {
   it("never clears its own answer tick — qa's ticks ARE its answers", () => {
     const content = doc(["## Open Questions", "", "### Q1?", "", "- [x] A", "- [ ] B", ""])
-    expect(clearTicks(qa, content)).toBe(content)
+    expect(qa.clearTicks(content)).toBe(content)
   })
 })
 

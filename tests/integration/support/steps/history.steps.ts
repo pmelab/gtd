@@ -24,14 +24,6 @@ Given("gtd lands {string}", async (world: GtdWorld, subject: string) => {
   expectSubject(world, subject)
 })
 
-Given(
-  "gtd lands {string} with {string}",
-  async (world: GtdWorld, subject: string, args: string) => {
-    await world.runGtd("land", ...args.split(" "))
-    expectSubject(world, subject)
-  },
-)
-
 Given("gtd enters {string}", async (world: GtdWorld, entry: string) => {
   await world.runGtd("--entry", entry)
   expectSubject(world, `gtd(human): ${entry}`)

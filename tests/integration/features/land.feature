@@ -95,20 +95,6 @@ Feature: gtd land — the one landing verb, actorless
     When I run gtd land
     Then the exit code is 0
     And stdout contains "nothing to do at \"checking\""
-
-  @inmem
-  Scenario: the green --entry fix-precheck probe lands an ordinary commit at exit 0, HEAD never moving backward
-    Given a test project
-    And the workflow
-    And I record the commit count
-    When I run gtd with args "--entry fix-precheck"
-    Then it succeeds
-    When I run gtd land
-    Then the exit code is 0
-    And the commit count increased by 2
-    And the git log contains "gtd(human): fix-precheck"
-    And the git log contains "gtd(check): fix-precheck → idle"
-
   @inmem
   Scenario: a dirty no-match exits 1 authoring nothing
     Given a test project

@@ -5,7 +5,7 @@ import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { CommandRunner } from "../CommandRunner.js"
 import { GtdError } from "../Commentary.js"
-import { singleQuoted } from "./Shell.js"
+import { shellQuote } from "../GitScript.js"
 
 /** A certificate and its matching private key, as PEM content — never file paths, so callers (the https server, tests) never re-read the filesystem. */
 export interface CertPair {
@@ -48,15 +48,15 @@ export const generateSelfSignedCert = (
       request.ip !== undefined ? `IP:${request.ip},DNS:${request.host}` : `DNS:${request.host}`
     const command = [
       "openssl req -x509 -newkey rsa:2048 -nodes -days 825",
-      `-keyout ${singleQuoted(keyPath)}`,
-      `-out ${singleQuoted(certPath)}`,
-      // Accepted, not fixed: `singleQuoted` only stops SHELL execution — a
+      `-keyout ${shellQuote(keyPath)}`,
+      `-out ${shellQuote(certPath)}`,
+      // Accepted, not fixed: `shellQuote` only stops SHELL execution — a
       // `host` containing `/` or `=` reaches openssl as an inert literal
       // but can still confuse openssl's OWN `-subj` parsing (which reads
       // `/`-separated `key=value` pairs). That surfaces as a failed
       // certificate request with a named error below, never code execution.
-      `-subj ${singleQuoted(`/CN=${request.host}`)}`,
-      `-addext ${singleQuoted(`subjectAltName=${subjectAltName}`)}`,
+      `-subj ${shellQuote(`/CN=${request.host}`)}`,
+      `-addext ${shellQuote(`subjectAltName=${subjectAltName}`)}`,
       `-addext "extendedKeyUsage=serverAuth"`,
       `-addext "basicConstraints=critical,CA:FALSE"`,
     ].join(" ")
@@ -114,9 +114,9 @@ export const obtainTailscaleCert = (
     const certPath = join(dir, "cert.pem")
     const command = [
       "tailscale cert",
-      `--cert-file ${singleQuoted(certPath)}`,
-      `--key-file ${singleQuoted(keyPath)}`,
-      singleQuoted(domain),
+      `--cert-file ${shellQuote(certPath)}`,
+      `--key-file ${shellQuote(keyPath)}`,
+      shellQuote(domain),
     ].join(" ")
 
     return yield* runner.bash(command).pipe(

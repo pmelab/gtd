@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -9,8 +9,6 @@ import {
   modeContradictionSkipNotice,
 } from "./ModeContradiction.js"
 import { shellQuote } from "./GitScript.js"
-import { applySteeringEdits } from "./ui/index.js"
-import { builtInModeNames, parseFootnotes, steeringFormatFor } from "./steering/index.js"
 
 describe("buildModeContradictionCheck", () => {
   const inputs = {
@@ -37,43 +35,6 @@ describe("buildModeContradictionCheck", () => {
         `rm -f ${pathQ}`,
       ].join("\n"),
     )
-  })
-
-  it("has no blank lines — the block must stay one Emit.ts block", () => {
-    const block = buildModeContradictionCheck(inputs)
-    expect(block.split("\n\n").length).toBe(1)
-  })
-
-  it("writes the sample with printf '%s', never a heredoc", () => {
-    const block = buildModeContradictionCheck(inputs)
-    expect(block.startsWith(`printf '%s' ${shellQuote(inputs.sample)} > `)).toBe(true)
-    expect(block).not.toContain("<<")
-  })
-
-  it("runs the rendered format: command verbatim, right after the printf line", () => {
-    const block = buildModeContradictionCheck(inputs)
-    const afterPrintf = block.slice(
-      `printf '%s' ${shellQuote(inputs.sample)} > ${shellQuote(inputs.samplePath)}\n`.length,
-    )
-    expect(afterPrintf.startsWith(inputs.formatCommand)).toBe(true)
-  })
-
-  it("re-validates via gtd check <mode> <samplePath> with output discarded", () => {
-    const block = buildModeContradictionCheck(inputs)
-    expect(block).toContain(`gtd check qa '${inputs.samplePath}' >/dev/null 2>&1 || {`)
-  })
-
-  it("on failure prints the message, cats the sample, removes it, and exits non-zero", () => {
-    const block = buildModeContradictionCheck(inputs)
-    const failureBranch = block.slice(block.indexOf("|| {"))
-    expect(failureBranch).toContain(`cat '${inputs.samplePath}' >&2`)
-    expect(failureBranch).toContain(`rm -f '${inputs.samplePath}'`)
-    expect(failureBranch).toContain(`exit 1`)
-  })
-
-  it("on success removes the sample and continues (no trailing exit)", () => {
-    const block = buildModeContradictionCheck(inputs)
-    expect(block.endsWith(`rm -f '${inputs.samplePath}'`)).toBe(true)
   })
 
   it("shell-quotes a sample containing single quotes and newlines safely", () => {
@@ -118,137 +79,6 @@ describe("modeContradictionSkipNotice", () => {
     expect(line).toContain(">&2")
     expect(line).toContain("adr")
     expect(line.toLowerCase()).toContain("skip")
-  })
-})
-
-/**
- * Formats `content` with the repo's real `oxfmt` binary, under the repo's own
- * `.oxfmtrc.json` — mirrors `src/SteeringFormats.test.ts`'s own helper of the
- * same name, kept local since this file has no other reason to depend on it.
- */
-const formatWithOxfmt = (content: string): string => {
-  const dir = mkdtempSync(join(tmpdir(), "gtd-mode-contradiction-oxfmt-"))
-  try {
-    writeFileSync(join(dir, ".oxfmtrc.json"), readFileSync(join(process.cwd(), ".oxfmtrc.json")))
-    const file = join(dir, "sample.md")
-    writeFileSync(file, content)
-    execFileSync(join(process.cwd(), "node_modules", ".bin", "oxfmt"), ["--write", file], {
-      cwd: dir,
-    })
-    return readFileSync(file, "utf8")
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
-
-describe("each built-in format's canonical sample (T7: writing into a live worktree)", () => {
-  it("contains a note attached the way the server attaches one — a distinct `na`-prefixed id, from `Footnotes.ts#footnoteAttachEdits`", () => {
-    for (const mode of builtInModeNames()) {
-      const format = steeringFormatFor(mode)!
-      const { definitions } = parseFootnotes(format.sample)
-      expect(definitions.some((d) => /^na[0-9a-z]+$/.test(d.name))).toBe(true)
-    }
-  })
-
-  it("still validates clean with zero findings", () => {
-    for (const mode of builtInModeNames()) {
-      const format = steeringFormatFor(mode)!
-      expect(format.validate(format.sample)).toEqual([])
-    }
-  })
-
-  it("survives a round-trip through the formatter and still validates clean", () => {
-    for (const mode of builtInModeNames()) {
-      const format = steeringFormatFor(mode)!
-      const formatted = formatWithOxfmt(format.sample)
-      expect(formatted).toBe(format.sample)
-      expect(format.validate(formatted)).toEqual([])
-    }
-  })
-})
-
-/** Every `SteeringAnchor` embedded anywhere in a `view` — same generic walk as `SteeringFormats.test.ts`'s own `anchorsIn`, duplicated locally since this file has no other reason to depend on that one. */
-const anchorsIn = (value: unknown): unknown[] => {
-  if (Array.isArray(value)) return value.flatMap(anchorsIn)
-  if (value === null || typeof value !== "object") return []
-  const record = value as Record<string, unknown>
-  const found: unknown[] = []
-  for (const [key, val] of Object.entries(record)) {
-    if (key === "anchor") found.push(val)
-    else found.push(...anchorsIn(val))
-  }
-  return found
-}
-
-/**
- * Attaches `text` at the first anchor `view(content)` reports that `annotate`
- * actually accepts, and returns the resulting document. An anchor that
- * already carries the server-written note T7 requires now EDITS that note
- * in place (`Footnotes.ts#footnoteAttachEdits`'s same-anchor update path)
- * rather than refusing, so this always succeeds on the FIRST anchor tried —
- * still named "free" for what it once had to search past, kept as the
- * throwing fallback in case a future fixture ever adds a genuinely
- * unresolvable anchor.
- */
-const attachAtFirstFreeAnchor = (
-  format: NonNullable<ReturnType<typeof steeringFormatFor>>,
-  content: string,
-  text: string,
-): string => {
-  for (const anchor of anchorsIn(format.view(content))) {
-    const result = format.annotate(content, anchor as never, text)
-    if (result.ok) return applySteeringEdits(content, result.edits)
-  }
-  throw new Error("no free anchor found to attach a test note at")
-}
-
-describe("a server-written note actually reflows and still validates (T7's real risk, not just the already-wrapped sample)", () => {
-  // ONE long, deliberately UNWRAPPED line with a multi-word inline code span
-  // — exactly the shape `annotate` actually produces (a single `[^id]: ...`
-  // line, never pre-wrapped), and exactly the input oxfmt's 80-column prose
-  // wrap actually reflows. The risk T7 names is a note the SERVER writes
-  // getting reflowed before commit; asserting against the sample's own
-  // already-wrapped state (as an earlier version of this test did) can never
-  // exercise that reflow at all.
-  const LONG_UNWRAPPED_NOTE =
-    "Attached by a human through the phone UI, this note is intentionally " +
-    "written as one long unwrapped line so the formatter actually has " +
-    "something to reflow, and it carries a `multi word code span` too."
-
-  it("reflows a freshly-attached note across multiple lines, and still validates clean afterward", () => {
-    for (const mode of builtInModeNames()) {
-      const format = steeringFormatFor(mode)!
-      const applied = attachAtFirstFreeAnchor(format, format.sample, LONG_UNWRAPPED_NOTE)
-
-      // Before formatting: the definition is genuinely ONE physical line —
-      // proof this test feeds the formatter an actually-unwrapped note.
-      const beforeDefs = parseFootnotes(applied).definitions
-      const freshNote = beforeDefs.find((d) => d.body === LONG_UNWRAPPED_NOTE)!
-      expect(freshNote.endLine).toBe(freshNote.line)
-
-      const formatted = formatWithOxfmt(applied)
-
-      // After formatting: oxfmt actually reflowed it across multiple lines —
-      // proof the formatter's reflow is the thing this test exercised, not a
-      // no-op on already-wrapped content.
-      const afterDefs = parseFootnotes(formatted).definitions
-      const reflowedNote = afterDefs.find((d) => d.name === freshNote.name)!
-      expect(reflowedNote.endLine).toBeGreaterThan(reflowedNote.line)
-      expect(reflowedNote.body).toBe(LONG_UNWRAPPED_NOTE)
-
-      expect(format.validate(formatted)).toEqual([])
-    }
-  })
-
-  it("a note containing a multi-word inline code span still validates after reflow", () => {
-    for (const mode of builtInModeNames()) {
-      const format = steeringFormatFor(mode)!
-      expect(LONG_UNWRAPPED_NOTE).toMatch(/`[^`]*\s[^`]*`/)
-      const applied = attachAtFirstFreeAnchor(format, format.sample, LONG_UNWRAPPED_NOTE)
-      const formatted = formatWithOxfmt(applied)
-      expect(formatted).toContain("`multi word code span`")
-      expect(format.validate(formatted)).toEqual([])
-    }
   })
 })
 

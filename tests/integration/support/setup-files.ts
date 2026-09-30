@@ -1,9 +1,9 @@
 export const SETUP_FILES: readonly string[] = [
-  // `ui.steps.ts` MUST load first: its `vi.mock("../../../../src/ui/BindSystem.js", ...)`
-  // must register before `world.ts`'s static `import { runCli } from "../../../src/Cli.js"`
-  // eagerly loads the real `BindSystem.js` transitively — once that real
-  // module is loaded and cached, a `vi.mock` registered by a LATER setup
-  // file never takes effect.
+  // `ui.steps.ts` MUST load first: its `vi.mock("node:os", ...)` must register
+  // before `world.ts`'s static `import { runCli } from "../../../src/Cli.js"`
+  // eagerly loads the real `node:os` transitively — once that real module is
+  // loaded and cached, a `vi.mock` registered by a LATER setup file never
+  // takes effect.
   "./tests/integration/support/steps/ui.steps.ts",
   "./tests/integration/support/world.ts",
   "./tests/integration/support/hooks.ts",
