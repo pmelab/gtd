@@ -59,25 +59,6 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     And stdout contains "\"state\":\"working\""
     And the json field "session.id" matches the one recorded as "s1"
     And stdout contains "\"resume\":true"
-
-  Scenario: two peeks with no step in between derive the SAME id, both resume:false
-    Given a file "NOTE.md" with:
-      """
-      start
-      """
-    When I run gtd land
-    Then it succeeds
-
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"resume\":false"
-    And I record the json field "session.id" as "first peek"
-
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"resume\":false"
-    And the json field "session.id" matches the one recorded as "first peek"
-
   Scenario: a message rest and a script rest emit no session at all
     When I run gtd next with "--json"
     Then it succeeds

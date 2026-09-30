@@ -142,7 +142,7 @@ describe("generateSelfSignedCert", () => {
 
   it("T1: a host containing a slash confuses openssl's own -subj parsing — a named GtdError, never code execution", async () => {
     // Accepted, not fixed (Tls.ts's own comment at the `-subj` line):
-    // `singleQuoted` stops the SHELL from ever seeing a real `/`, but
+    // `shellQuote` stops the SHELL from ever seeing a real `/`, but
     // openssl's `-subj "/CN=..."` itself reads `/`-separated `key=value`
     // pairs, so a host containing `/` (or `=`) still confuses openssl's OWN
     // parser. Real openssl, no fake CommandRunner — this must fail with a

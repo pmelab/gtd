@@ -41,7 +41,6 @@ import type {
   SteeringView,
   SteeringViewNode,
 } from "./SteeringFormat.js"
-import type { SteeringDescriptor } from "./Descriptor.js"
 
 interface ReviewFile {
   readonly path: string
@@ -80,18 +79,11 @@ interface ReviewDoc {
 }
 
 /**
- * The `review` descriptor's canonical sample — a minimal, valid `review`-mode
- * document: the header, the base comment, one chunk with one file pointer,
- * an author-written footnote on the hunk with a body over 80 characters, and
- * a SECOND footnote on the chunk itself, attached exactly the way the server
- * attaches one (`reviewAnnotate` → `Footnotes.ts#footnoteAttachEdits`, hence
- * its `na`-prefixed id, distinct from a hand-authored `fn` one) — its body
- * also over 80 characters and carrying a multi-word inline code span, so
- * `ModeContradiction.ts`'s formatter round-trip covers a server-written note
- * reflowing, not just a hand-authored one. Pinned already in oxfmt's own
- * wrapped four-space form (see `src/steering/SteeringFormats.test.ts`'s
- * formatter round-trip). Deliberately not authored to survive any particular
- * formatter beyond that.
+ * The canonical sample. Every detail here is load-bearing for the formatter
+ * round-trip: both footnote bodies exceed 80 characters so a reflow actually
+ * happens, the chunk's is `na`-prefixed (server-attached, not hand-authored)
+ * and carries a multi-word inline code span, and the whole document is
+ * already an oxfmt fixed point.
  */
 const REVIEW_SAMPLE = `# Review: sample123
 
@@ -161,15 +153,10 @@ const parseBaseComment = (tree: Root): string | undefined => {
 }
 
 /**
- * One pointer token's path plus whichever suffix it carries: a range
- * (`line`/`rangeEnd`, `line` holding the range's own start), a bare line
- * (`line` alone), or neither. The single source of truth for splitting a
- * token, shared by `isPointerToken`, `buildHunkFile`, `hunkLinkFor`, and
- * `hunkPointerAt` so none of them can parse the same token two different
- * ways. The range regex is tried FIRST — a `#42-70` token never falls
- * through to the bare-line regex, which cannot match it anyway (its
- * suffix isn't all-digits), but trying range first keeps the precedence
- * explicit rather than relying on that regex accident.
+ * The single source of truth for splitting a pointer token, so no caller can
+ * parse the same token two different ways. Range is tried FIRST — the
+ * bare-line regex could not match `#42-70` anyway, but the explicit order
+ * beats relying on that accident.
  */
 const parsePointerToken = (
   token: string,
@@ -640,24 +627,15 @@ const isHunkPointerItem = (content: string, item: ListItem): boolean => {
 }
 
 /**
- * Resets every checked HUNK POINTER's box in `content` back to `- [ ]` —
- * ticks are read-progress, never sign-off, and are cleared on every land at
- * the human review gate (see `src/Edge.ts#renderDecision`). Scoped to real
- * hunk pointers (`isHunkPointerItem`), never "every checked task item" —
- * that looser scope would also strip a `qa`-shaped answer's tick if this ever
- * ran against the wrong file, which `clearTicks`'s own format-parameterised
- * signature (`src/steering/index.ts`) exists to make impossible in the first
- * place; this stays doubly safe even if a caller resolved the wrong format. A
- * byte-preserving OFFSET SPLICE, never a reserialization (`split`/`join`
- * would normalize CRLF and rewrite every line of a CRLF checkout, turning a
- * tick-only round into a whole-file diff — `src/platform/Git.ts`'s `hashObjects` warns
- * of the same failure mode): every byte of `content` outside the resolved box
- * offsets survives untouched. Total — `fromMarkdown` never throws, so a
- * structurally broken document still gets its ticks cleared — and
- * idempotent, since the result has no `checked` hunk pointer left for a
- * second pass to find. Returns `content` itself (not just an equal string)
- * when there is nothing to clear, so a caller can skip the write and leave
- * the file's mtime untouched.
+ * Resets every checked HUNK POINTER back to `- [ ]` — ticks are read-progress,
+ * never sign-off. Scoped to real hunk pointers, never "every checked task
+ * item": that looser scope would strip a `qa` answer's tick if this ever ran
+ * against the wrong file.
+ *
+ * A byte-preserving OFFSET SPLICE, never a reserialization — `split`/`join`
+ * normalizes CRLF and would turn a tick-only round into a whole-file diff.
+ * Total and idempotent, and returns `content` ITSELF when there is nothing to
+ * clear, so a caller can skip the write and leave the mtime untouched.
  */
 const reviewClearTicks = (content: string): string => {
   const tree = parseMarkdown(content)
@@ -845,16 +823,7 @@ const reviewActions: SteeringFormat["actions"] = (content, range) => {
   return actions
 }
 
-/**
- * Go-to-definition pointer for a `.gtd/REVIEW.md` hunk line: the file the
- * hunk pointer at `line` (0-based) points into. Returns `undefined` when
- * `line` isn't a parsed hunk pointer (a heading, prose, or a malformed line
- * has no `sourceLine`). The `#line` in a pointer is 1-based (git/human line
- * numbers); this maps it to 0-based (`line - 1`) — a bare `./path` with no
- * `#line` lands at line 0. Path RESOLUTION (against a repo root) is the LSP's
- * concern, not this module's — the path returned here is the pointer's raw
- * `./`-relative text.
- */
+/** The file a hunk pointer points into. A pointer's `#line` is 1-based and maps to 0-based here; a bare `./path` lands at 0. Path RESOLUTION against a repo root is the LSP's concern — this returns the raw `./`-relative text. */
 const hunkPointerAt = (
   content: string,
   line: number,
@@ -917,16 +886,7 @@ const reviewDocumentLinks = (content: string): readonly SteeringLink[] => {
   return links
 }
 
-/**
- * `review`-mode's `view`: every chunk as a container node (title, description
- * as `detail`, own `chunk` anchor) with every one of its file pointers as a
- * child item node (path, line, ticked state, note, own `hunk` anchor) — built
- * from ONE `parseReviewDoc` call, never one parse per chunk/file. Pointers
- * nested at any depth are already flattened into `chunk.files` by
- * `parseChunkBody`'s own `taskItems` walk, so they need no special handling
- * here. Uses `SteeringViewNode`'s generic shape, never a `review`-only type —
- * see that type's own doc comment.
- */
+/** Every chunk as a container with its file pointers as children, from ONE parse — never one parse per chunk. Pointers nested at any depth are already flattened into `chunk.files`. */
 /**
  * A chunk-level footnote's own text, when one is attached — `NoteSheet`'s
  * `chunk` anchor attaches at the END OF THE HEADING LINE ITSELF
@@ -1107,16 +1067,7 @@ const setFileTickEdits = (
   return edits
 }
 
-/**
- * `review`-mode's `apply`: a `hunk` anchor sets that ONE file's tick; a
- * `chunk` anchor sets EVERY hunk beneath it (already flattened at any depth
- * into `chunk.files` by `parseChunkBody`) to the SAME target `opts.checked` —
- * never `toggleChunkEdits`'s own majority-flip heuristic, since the caller
- * here already knows and sends the exact state it wants. `opts.checked`
- * defaults to `true` (ticking is the only action either screen offers; there
- * is no "leave it as found" case). A `question`/`option`/`paragraph` anchor
- * (not this format's own kind) or a stale index refuses `anchor-not-found`.
- */
+/** A `hunk` anchor sets one tick; a `chunk` anchor sets every hunk beneath it to the SAME target state — never `toggleChunkEdits`'s majority-flip heuristic, since the caller already knows the state it wants. */
 const reviewApply: SteeringFormat["apply"] = (content, anchor, opts) => {
   const { changesets } = parseReviewDoc(content)
   const checked = opts.checked ?? true
@@ -1133,7 +1084,8 @@ const reviewApply: SteeringFormat["apply"] = (content, anchor, opts) => {
   return { ok: false, reason: "anchor-not-found" }
 }
 
-const REVIEW_FORMAT: SteeringFormat = {
+/** The `review` format: `.gtd/REVIEW.md`'s in-process format — validation, outline, code actions, footnote + hunk `pointerAt`/`documentLinks`, and a hunk-pointer-scoped `clearTicks` (never "every checked task item" — see `reviewClearTicks`). */
+export const reviewDescriptor: SteeringFormat = {
   sample: REVIEW_SAMPLE,
   validate: (content) => [...parseReviewDoc(content).findings, ...parseFootnotes(content).findings],
   outline: reviewOutline,
@@ -1143,10 +1095,5 @@ const REVIEW_FORMAT: SteeringFormat = {
   view: reviewView,
   annotate: reviewAnnotate,
   apply: reviewApply,
-}
-
-/** The `review` steering descriptor: `.gtd/REVIEW.md`'s in-process format — validation, outline, code actions, footnote + hunk `pointerAt`/`documentLinks`, and a hunk-pointer-scoped `clearTicks` (never "every checked task item" — see `reviewClearTicks`). */
-export const reviewDescriptor: SteeringDescriptor = {
-  ...REVIEW_FORMAT,
   clearTicks: reviewClearTicks,
 }

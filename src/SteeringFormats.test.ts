@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest"
 import fc from "fast-check"
 import { isSeededValidateCommand, seededValidateCommand } from "./SteeringFormats.js"
-import { builtInModeNames } from "./steering/index.js"
+import { BUILT_IN_MODE_NAMES } from "./steering/index.js"
 
 describe("seededValidateCommand / isSeededValidateCommand", () => {
   it("recognizes its own seeded command for every built-in mode", () => {
     fc.assert(
-      fc.property(fc.constantFrom(...builtInModeNames()), (mode) => {
+      fc.property(fc.constantFrom(...BUILT_IN_MODE_NAMES), (mode) => {
         expect(isSeededValidateCommand(mode, seededValidateCommand(mode))).toBe(true)
       }),
     )

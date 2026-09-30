@@ -23,21 +23,13 @@ const isTailscaleIPv4 = (address: string): boolean => {
 export const pickBindHost = (
   interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>,
 ): string | undefined => {
-  let best: { name: string; address: string } | undefined
-
   for (const name of Object.keys(interfaces).sort()) {
-    const infos = interfaces[name]
-    if (!infos) continue
-    const addresses = infos
+    const address = (interfaces[name] ?? [])
       .filter((info) => info.family === "IPv4" && isTailscaleIPv4(info.address))
       .map((info) => info.address)
-      .sort()
-    const address = addresses[0]
-    if (address === undefined) continue
-    if (best === undefined || name < best.name || (name === best.name && address < best.address)) {
-      best = { name, address }
-    }
+      .sort()[0]
+    if (address !== undefined) return address
   }
 
-  return best?.address
+  return undefined
 }

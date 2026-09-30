@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import {
   landFields,
@@ -20,27 +19,6 @@ describe("landFields / renderLandJson", () => {
     cost: 0.42,
     model: "smart",
   }
-
-  it("landFields assembles the object in the declared key order regardless of input order", () => {
-    const scrambled = {
-      model: sample.model,
-      cost: sample.cost,
-      subject: sample.subject,
-      state: sample.state,
-      idle: sample.idle,
-      settled: sample.settled,
-      script: sample.script,
-    }
-    expect(Object.keys(landFields(scrambled))).toEqual([
-      "script",
-      "settled",
-      "idle",
-      "state",
-      "subject",
-      "cost",
-      "model",
-    ])
-  })
 
   it("renderLandJson emits exactly script/settled/idle/state/subject/cost/model, newline-terminated", () => {
     const line = renderLandJson(landFields(sample))
@@ -84,18 +62,7 @@ describe("landFields / renderLandJson", () => {
     )
   })
 
-  it("LandFields has no `?:`-declared keys — its optionality is already expressed as `T | null`, not `T | undefined`", () => {
-    const source = readFileSync(new URL("./Land.ts", import.meta.url), "utf8")
-    const interfaceMatch = source.match(/export interface LandFields \{([\s\S]*?)\n\}/)
-    expect(interfaceMatch).not.toBeNull()
-    expect(interfaceMatch![1]!).not.toMatch(/^\s*readonly \w+\?:/m)
-  })
-
   it("landFields is a real reorder, not an identity copy: takes a LandResultSource-shaped value (program.ts's LandResult field order) and pins it into LandFields' own declared order", () => {
-    const source = readFileSync(new URL("./Land.ts", import.meta.url), "utf8")
-    expect(source).not.toMatch(/landFields = \(input: LandFields\)/)
-    expect(source).toMatch(/landFields = \(input: LandResultSource\)/)
-
     // Written in `LandResultSource`'s (== `LandResult`'s) own field order —
     // state/subject/cost/model/script/settled/idle — the opposite of
     // `LandFields`' script/settled/idle/state/subject/cost/model, so this

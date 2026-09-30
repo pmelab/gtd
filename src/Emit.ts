@@ -28,30 +28,13 @@ export type EmitStep =
     }
   | { readonly kind: "outcome"; readonly command: string }
 
-/**
- * `resolveValidateScript`'s guard: when the declared steering file is absent
- * (e.g. before the producing agent has written it at all), there's nothing
- * to format or validate, so the script exits 0 cleanly rather than running
- * the mode's commands against a missing file. An OR list, not `if`: an OR
- * list's left side failing never trips `set -e` on its own.
- */
+/** Exits 0 when the declared steering file is absent — nothing to format or validate yet. An OR list, not `if`: its left side failing never trips `set -e`. */
 export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file)} ] || exit 0`
 
 /** A mode or `ui.format` command finds the file it works on in `$GTD_FILE`. */
 export const withFileVar = (command: string, file: string): string =>
   `export GTD_FILE=${shellQuote(file)}\n${command}`
 
-/**
- * The leading word of a rendered `format:`/`validate:` command, when — and
- * only when — the command has exactly one unambiguous binary to probe: a
- * plain leading token matching `[A-Za-z0-9_./-]+`, terminated by a space/tab
- * or the end of the string (never a newline — a multi-line command's first
- * "word" is not the whole story). `undefined` for anything else a shell
- * metacharacter could hide a second command behind (`|`, `&`, `;`, `$`, `<`,
- * `>`, backticks, parens) or a `VAR=x` prefix (the leading-word regex itself
- * already can't match across the `=`) — a missing guard degrades to today's
- * raw exit, but a wrong guard would refuse a command that works.
- */
 const SIMPLE_LEADING_WORD_RE = /^[A-Za-z0-9_./-]+(?=[ \t]|$)/
 const SHELL_METACHARACTER_RE = /[|&;$<>(){}`]/
 // The file variable is an argument, never a second command.
@@ -61,6 +44,12 @@ const FILE_VAR_RE = /"\$GTD_FILE"|"\$\{GTD_FILE\}"|\$GTD_FILE\b|\$\{GTD_FILE\}/g
 export const commandForFile = (command: string, file: string): string =>
   command.replace(FILE_VAR_RE, shellQuote(file))
 
+/**
+ * The leading word of a rendered `format:`/`validate:` command, when the
+ * command has exactly one unambiguous binary to probe — `undefined` for
+ * anything a shell metacharacter could hide a second command behind. A missing
+ * guard degrades to a raw exit; a wrong guard would refuse a working command.
+ */
 export const extractLeadingBinary = (command: string): string | undefined => {
   if (command.includes("\n")) return undefined
   if (SHELL_METACHARACTER_RE.test(command.replace(FILE_VAR_RE, ""))) return undefined
@@ -69,13 +58,9 @@ export const extractLeadingBinary = (command: string): string | undefined => {
 }
 
 /**
- * `fileExistsGuard`'s sibling for a declared mode's `format:`/`validate:`
- * command: a typo'd or uninstalled binary named itself and its resolved
- * `$PATH`, the way `CommandRunner` did before it was rendered out
- * (`src/SteeringMode.test.ts` at base commit `758c0993`). Rendered, never
- * re-spawned — `$PATH` is a double-quoted shell word the DRIVER's shell
- * expands at run time, so gtd never resolves it in-process. Exits 127,
- * matching bash's own "command not found" status.
+ * Names a typo'd or uninstalled binary and the `$PATH` it was looked up on.
+ * `$PATH` is a shell word the DRIVER's shell expands at run time, so gtd never
+ * resolves it in-process. Exits 127, matching bash's "command not found".
  */
 export const binaryGuard = (binary: string, mode: string, key: "format" | "validate"): string => {
   const messageQ = shellQuote(`gtd: mode "${mode}": "${key}" command not found: ${binary}`)
@@ -88,10 +73,9 @@ export const binaryGuard = (binary: string, mode: string, key: "format" | "valid
 }
 
 /**
- * Wraps `command` so a non-zero exit prints `prompt` plus the command's
- * captured output before propagating that exit code. The `{ … }` group lets
- * a multi-line `command` be inlined verbatim; the assignment sits on the
- * left of `||` so `set -e` never trips on the failing command itself.
+ * Prints `prompt` plus the captured output on a non-zero exit, then propagates
+ * it. The `{ … }` group inlines a multi-line `command` verbatim; the
+ * assignment sits left of `||` so `set -e` never trips on the failure itself.
  */
 export const failurePromptWrapper = (command: string, prompt: string): string => {
   const promptQ = shellQuote(prompt)

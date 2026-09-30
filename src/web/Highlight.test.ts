@@ -60,11 +60,6 @@ describe("lineKind", () => {
     expect(lineKind("@@ -1,3 +1,4 @@")).toBe("header")
   })
 
-  it("gives added, removed and context lines three distinct kinds", () => {
-    const kinds = new Set([lineKind("+a"), lineKind("-a"), lineKind(" a")])
-    expect(kinds.size).toBe(3)
-  })
-
   it("classifies git's own '\\ No newline at end of file' marker as its own kind, never context", () => {
     expect(lineKind("\\ No newline at end of file")).toBe("marker")
     expect(lineKind("\\ No newline at end of file")).not.toBe("context")

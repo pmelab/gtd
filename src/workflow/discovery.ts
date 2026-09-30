@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { cosmiconfigSync, defaultLoadersSync, type LoaderSync } from "cosmiconfig"
+import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer } from "effect"
 
 /** One config level's file path plus its raw, parsed-but-undecoded content. */
@@ -28,20 +28,19 @@ interface ConfigDiscoveryOps {
 }
 
 /**
- * Exported (via the `src/workflow/` barrel) so `src/testing/Layers.ts`'s
- * in-memory `ConfigDiscovery` counterpart shares this EXACT list — a second,
- * independently-maintained copy would let this list drift (a new
- * search-place added here, or reordered) with every `@inmem` scenario still
- * silently resolving against the stale one: a green suite over a broken
- * product.
- */
-/**
  * The one file a workflow is defined in. Searched on the same cwd→home walk as
  * the `.gtdrc` family, but separately: a directory may hold both, and a
  * `.gtdrc` there still contributes `vars`/`modes`/`ui`.
  */
 export const WORKFLOW_MODULE = "gtd.config.ts"
 
+/**
+ * Exported (via the `src/workflow/` barrel) so `src/testing/Layers.ts`'s
+ * in-memory `ConfigDiscovery` counterpart shares this EXACT list — a second,
+ * independently-maintained copy would let it drift (a new search place added
+ * here, or reordered) with every `@inmem` scenario still silently resolving
+ * against the stale one: a green suite over a broken product.
+ */
 export const SEARCH_PLACES = [
   ".gtdrc",
   ".gtdrc.json",
@@ -51,37 +50,51 @@ export const SEARCH_PLACES = [
   "gtd.config.yaml",
 ]
 
-/** `base`, rejecting a `null` parse result (the YAML/JSON scalar `null`) as a config-shape error, same as any other malformed level. */
-const rejectingNull =
-  (base: LoaderSync): LoaderSync =>
-  (filepath, content) => {
-    const result: unknown = base(filepath, content)
-    if (result === null) {
-      throw new Error(`${filepath}: config must be a plain object, got null`)
-    }
-    return result
+/**
+ * One config file's content, parsed by its extension. Shared with
+ * `src/testing/Layers.ts`'s in-memory tier so both resolve a level the same
+ * way. A parse failure is a HARD error (the file exists and says something
+ * malformed), `null` included — that is not an empty config.
+ */
+export const parseConfigLevel = (filepath: string, content: string): unknown => {
+  let parsed: unknown
+  try {
+    // YAML is a JSON superset, so `.json` only needs its own parser for the
+    // stricter errors it gives on JSON-shaped input.
+    parsed = filepath.endsWith(".json") ? JSON.parse(content) : parseYaml(content)
+  } catch (e) {
+    throw new Error(`${filepath}: ${e instanceof Error ? e.message : String(e)}`)
   }
+  if (parsed === null) throw new Error(`${filepath}: config must be a plain object, got null`)
+  return parsed
+}
 
 /**
- * One `cosmiconfig` explorer, `searchStrategy: "none"` so `.search(dir)`
- * inspects only that single directory — callers drive the root→home walk
- * themselves (`levels`, below); cosmiconfig has no native multi-level merge
- * (see `compile.ts`'s own deep-merge). `noExt`/`.yaml`/`.yml` all parse as
- * YAML (a JSON superset), `.json` as JSON — cosmiconfig's OWN loaders and
- * OWN extension-precedence/empty-file-skip/symlink-tolerance semantics, not
- * a reimplementation of them.
+ * One candidate path's parsed config, or `undefined` when it is not a usable
+ * config file at all. Unreadable for ANY reason (ENOENT, EISDIR, ENOTDIR,
+ * EACCES, a dangling symlink) and empty-but-readable both mean "walk on to
+ * the next search place", never "fail the whole load" — a directory merely
+ * NAMED `.gtdrc` must not kill every gtd command.
  */
-const makeExplorer = () =>
-  cosmiconfigSync("gtd", {
-    searchPlaces: SEARCH_PLACES,
-    searchStrategy: "none",
-    loaders: {
-      noExt: rejectingNull(defaultLoadersSync.noExt),
-      ".json": rejectingNull(defaultLoadersSync[".json"]),
-      ".yaml": rejectingNull(defaultLoadersSync.noExt),
-      ".yml": rejectingNull(defaultLoadersSync.noExt),
-    },
-  })
+const readConfigLevel = (filepath: string): unknown => {
+  let content: string
+  try {
+    content = readFileSync(filepath, "utf8")
+  } catch {
+    return undefined
+  }
+  return content.trim() === "" ? undefined : parseConfigLevel(filepath, content)
+}
+
+/** The first `SEARCH_PLACES` entry in `dir` that is a readable, non-empty config file — no ancestor walk. */
+const configLevelAt = (dir: string): ConfigLevel | undefined => {
+  for (const name of SEARCH_PLACES) {
+    const filepath = join(dir, name)
+    const config = readConfigLevel(filepath)
+    if (config !== undefined) return { filepath, config }
+  }
+  return undefined
+}
 
 /**
  * Enumerate the directory chain from `from` walking UP. Stops after including
@@ -108,13 +121,11 @@ const levels = (root: string, home: string): Effect.Effect<readonly ConfigLevel[
   Effect.try({
     try: () => {
       const chain = walkUp(root, home)
-      const explorer = makeExplorer()
       const found: ConfigLevel[] = []
       // Outermost→innermost so merging in order makes innermost win.
       for (let i = chain.length - 1; i >= 0; i--) {
-        const result = explorer.search(chain[i]!)
-        if (!result || result.isEmpty) continue
-        found.push({ filepath: result.filepath, config: result.config })
+        const level = configLevelAt(chain[i]!)
+        if (level) found.push(level)
       }
       return found
     },
@@ -138,10 +149,7 @@ const workflowModule = (
 
 const presentAt = (dir: string): Effect.Effect<boolean, Error> =>
   Effect.try({
-    try: () => {
-      const result = makeExplorer().search(dir)
-      return Boolean(result && !result.isEmpty)
-    },
+    try: () => configLevelAt(dir) !== undefined,
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
@@ -149,7 +157,7 @@ const presentAt = (dir: string): Effect.Effect<boolean, Error> =>
  * The discovery seam — a `Context.Tag`, not part of `WorkflowFiles` (that
  * port is a plain sync record for `compileWorkflow`'s own content-file-ref
  * reads; discovery is effectful and environment-dependent: `.Live` reads
- * REAL disk through cosmiconfig directly, so an `@inmem` scenario's fake
+ * REAL disk, so an `@inmem` scenario's fake
  * `Workspace` — a pure in-memory `Map`, no real files anywhere on disk —
  * cannot back it. `src/testing/Layers.ts` provides the in-memory
  * counterpart instead, mirroring how `Workspace`/`Host`/`GitService` already

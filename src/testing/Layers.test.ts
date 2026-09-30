@@ -4,13 +4,10 @@ import { ConfigDiscovery, SEARCH_PLACES, walkUp } from "../workflow/index.js"
 import { InMemRepo } from "./index.js"
 import { testLayers } from "./Layers.js"
 
-// Pins the one fact `Layers.ts`'s over-long comment used to carry: the
-// in-memory `ConfigDiscovery` counterpart walks the SAME root→home chain
-// and reads the SAME `SEARCH_PLACES` as `ConfigDiscovery.Live` (both tiers
-// import the identical values, asserted below), but parses with a plain
-// YAML/JSON reader rather than cosmiconfig's own bundled loaders — so a
-// malformed-config error message is the one place the two are allowed to
-// differ.
+// The in-memory `ConfigDiscovery` counterpart walks the SAME root→home chain,
+// reads the SAME `SEARCH_PLACES` and parses through the SAME
+// `parseConfigLevel` as `ConfigDiscovery.Live` — all three imported from it,
+// never copied.
 
 const ROOT = "/home/user/project/sub"
 const MIDDLE = "/home/user/project"
@@ -69,7 +66,7 @@ describe("the in-memory ConfigDiscovery counterpart", () => {
     expect(levels.map((l) => l.filepath)).toEqual([`${HOME}/${SEARCH_PLACES[0]}`])
   })
 
-  it("rejects a bare YAML/JSON null with the in-memory tier's own error text — cosmiconfig's own loaders differ on purpose, so this is NOT asserted to match ConfigDiscovery.Live", async () => {
+  it("rejects a bare YAML/JSON null with the SAME error text ConfigDiscovery.Live produces — both tiers share parseConfigLevel", async () => {
     const repo = new InMemRepo()
     seed(repo, ROOT, SEARCH_PLACES[0]!, "null\n")
 

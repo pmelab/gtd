@@ -137,19 +137,6 @@ Given(
   },
 )
 
-// A commit that changes nothing — subject only, no file touched (like a gtd
-// workflow turn that only advances state).
-Given("an empty commit {string}", (world: GtdWorld, message: string) => {
-  if (world.tier === "inmem") {
-    world.repo!.commitAllWithPrefix(message)
-  } else {
-    execFileSync("git", ["commit", "-q", "--allow-empty", "-m", message], {
-      cwd: world.repoDir,
-      stdio: "pipe",
-    })
-  }
-})
-
 // Commits everything currently in the working tree under one chore commit —
 // the "I've reviewed the scaffold, now commit it" move a human makes after
 // `gtd init`, so the machine starts from a clean tree at the initial state.
@@ -159,21 +146,6 @@ Given("the working tree is committed", (world: GtdWorld) => {
   } else {
     execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
     execFileSync("git", ["commit", "-q", "-m", "chore: commit working tree"], {
-      cwd: world.repoDir,
-      stdio: "pipe",
-    })
-  }
-})
-
-// Like the step above, but under a caller-supplied subject — for building a
-// single commit out of several preceding working-tree edits that need to
-// land together.
-Given("the working tree is committed as {string}", (world: GtdWorld, message: string) => {
-  if (world.tier === "inmem") {
-    world.repo!.commitAllWithPrefix(message)
-  } else {
-    execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
-    execFileSync("git", ["commit", "-q", "-m", message], {
       cwd: world.repoDir,
       stdio: "pipe",
     })
@@ -278,21 +250,6 @@ When("I run gtd next", async (world: GtdWorld) => {
 
 When("I run gtd next with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd("next", arg)
-})
-
-When(
-  "I run gtd next with {string} and {string}",
-  async (world: GtdWorld, arg1: string, arg2: string) => {
-    await world.runGtd("next", arg1, arg2)
-  },
-)
-
-When("I run gtd status", async (world: GtdWorld) => {
-  await world.runGtd("status")
-})
-
-When("I run gtd status with {string}", async (world: GtdWorld, arg: string) => {
-  await world.runGtd("status", arg)
 })
 
 // `gtd judge answer` (.gtd/packages/01-judgment-surface.md Task 4) is the
@@ -404,47 +361,6 @@ Then("stdout contains no ANSI escape sequence", (world: GtdWorld) => {
   )
 })
 
-// Counts non-overlapping occurrences of `text` in stdout — used to prove a
-// transition line was printed exactly once even when the review checkout
-// window rewinds HEAD between beats.
-Then(
-  "stdout contains {string} exactly {int} times",
-  (world: GtdWorld, text: string, count: number) => {
-    const stdout = world.lastResult.stdout
-    let actual = 0
-    let idx = 0
-    while ((idx = stdout.indexOf(text, idx)) !== -1) {
-      actual++
-      idx += text.length
-    }
-    assert.strictEqual(
-      actual,
-      count,
-      `Expected stdout to contain "${text}" exactly ${count} times, found ${actual}. Got:\n${stdout}`,
-    )
-  },
-)
-
-// The stderr counterpart — proves a warning (or any other stderr line)
-// prints once per invocation, not once per internal re-load/re-check.
-Then(
-  "stderr contains {string} exactly {int} times",
-  (world: GtdWorld, text: string, count: number) => {
-    const stderr = world.lastResult.stderr
-    let actual = 0
-    let idx = 0
-    while ((idx = stderr.indexOf(text, idx)) !== -1) {
-      actual++
-      idx += text.length
-    }
-    assert.strictEqual(
-      actual,
-      count,
-      `Expected stderr to contain "${text}" exactly ${count} times, found ${actual}. Got:\n${stderr}`,
-    )
-  },
-)
-
 /**
  * Asserts on `world.lastScriptOutput`, distinct from `world.lastResult.stdout`
  * (gtd's own plain-text line). LIVE tier only: the in-memory tier's
@@ -530,16 +446,6 @@ function resolveHash(world: GtdWorld, name: string): string {
   assert.ok(hash, `Expected "${name}" to resolve to a commit hash`)
   return hash!
 }
-
-// E.g. the `Gtd-Review-Base: <hash>` trailer `gtd review <name>` writes.
-Then("the last commit body contains the hash of {string}", (world: GtdWorld, name: string) => {
-  const hash = resolveHash(world, name)
-  const body = world.lastCommitBody()
-  assert.ok(
-    body.includes(hash),
-    `Expected last commit body to contain the hash of "${name}" (${hash}). Got:\n${body}`,
-  )
-})
 
 // E.g. a prompt naming a diff base for the agent to `git diff` itself, rather
 // than inlining diff content.

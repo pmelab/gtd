@@ -3,7 +3,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import { CommandRunner } from "../CommandRunner.js"
-import { singleQuoted } from "./Shell.js"
+import { shellQuote } from "../GitScript.js"
 
 /** What `parseServeStatus` publishes for a mapping found on the requested port: the tailnet hostname `tailscale serve` bound it to, and the loopback URL it forwards to. */
 export interface ServeMapping {
@@ -75,7 +75,7 @@ export const publishServe = (
       "tailscale serve --bg",
       `--https=${request.servePort}`,
       "--set-path=/",
-      singleQuoted(target),
+      shellQuote(target),
     ].join(" ")
 
     const outcome = yield* runner.bash(command)

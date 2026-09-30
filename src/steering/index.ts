@@ -1,12 +1,10 @@
 import type {
   SteeringAction,
-  SteeringFinding,
   SteeringFormat,
   SteeringLink,
   SteeringOutlineNode,
   SteeringPointer,
 } from "./SteeringFormat.js"
-import type { SteeringDescriptor } from "./Descriptor.js"
 import { qaDescriptor } from "./qa.js"
 import { reviewDescriptor } from "./review.js"
 
@@ -32,14 +30,14 @@ export type {
   SteeringViewNode,
 } from "./SteeringFormat.js"
 
-/** The built-in registry: mode name → its descriptor, in registry order. The single place `qa` and `review` are wired into names — everything else in this module dispatches over a resolved `SteeringDescriptor`, never a mode-name string. */
-const REGISTRY: ReadonlyMap<string, SteeringDescriptor> = new Map([
+/** The built-in registry: mode name → its format, in registry order. The single place `qa` and `review` are wired into names — everything else in this module dispatches over a resolved `SteeringFormat`, never a mode-name string. */
+const REGISTRY: ReadonlyMap<string, SteeringFormat> = new Map([
   ["qa", qaDescriptor],
   ["review", reviewDescriptor],
 ])
 
 /** Every built-in format name, in registry order. */
-export const builtInModeNames = (): readonly string[] => [...REGISTRY.keys()]
+export const BUILT_IN_MODE_NAMES: readonly string[] = [...REGISTRY.keys()]
 
 // The two `qa` primitives the phone client itself needs: `src/web/screens/
 // Question.tsx` renders the free-text slot and derives answeredness in the
@@ -59,7 +57,7 @@ export { getParseCount } from "./MarkdownTree.js"
 // A flow's `sections()` is the one caller outside this package.
 export { headingSectionBodies, headingSections } from "./MarkdownTree.js"
 
-/** The built-in `SteeringFormat` registered under `mode`'s name, or `undefined` when it isn't a built-in mode at all. The one place a bare mode-name string is ever looked up — `checkSteering`/`viewOf`/`clearTicks` all take the RESOLVED value this returns, never a name, so "mode is required, never inferred from a file's basename" is a type, not a rule to remember. */
+/** The built-in `SteeringFormat` registered under `mode`'s name, or `undefined` when it isn't a built-in mode at all. The one place a bare mode-name string is ever looked up — every consumer takes the RESOLVED value this returns, never a name, so "mode is required, never inferred from a file's basename" is a type, not a rule to remember. */
 export const steeringFormatFor = (mode: string): SteeringFormat | undefined => REGISTRY.get(mode)
 
 /**
@@ -74,20 +72,10 @@ export const steeringFormatFor = (mode: string): SteeringFormat | undefined => R
 export const steeringFormatOrFreeForm = (mode: string | undefined): SteeringFormat =>
   (mode !== undefined ? REGISTRY.get(mode) : undefined) ?? freeFormFormat
 
-/** The descriptor a resolved `format` wraps, found by reference — `format` is always literally one of `REGISTRY`'s own values (returned by `steeringFormatFor`), never reconstructed, so identity is exact, not approximate. `undefined` for any other `SteeringFormat` (there are none, today, but a caller that fabricates its own is not this module's problem to guess at). */
-const descriptorOf = (format: SteeringFormat): SteeringDescriptor | undefined =>
-  [...REGISTRY.values()].find((d) => d === format)
-
-/** `format`'s own validation findings — empty means valid. A thin, named wrapper over `format.validate`, so a caller reaches this engine's own entry point rather than reconstructing "call whichever format's own validate" logic itself. */
-export const checkSteering = (
-  format: SteeringFormat,
-  content: string,
-): readonly SteeringFinding[] => format.validate(content)
-
 /**
  * `qa`-only: every OPEN question in `content` not yet answered, as
  * `{ question, headingLine }` pairs — enough for a refusal message ("which
- * question", "where"). Semantically distinct from `checkSteering`'s findings:
+ * question", "where"). Semantically distinct from `validate`'s findings:
  * a document can be perfectly well-formed (zero findings) while still having
  * open questions nobody has answered, which is the whole point of the
  * answer-completeness gate this feeds. Format-parameterised like everything
@@ -99,19 +87,7 @@ export const unansweredQuestions = (
   format: SteeringFormat,
   content: string,
 ): readonly { readonly question: string; readonly headingLine: number }[] =>
-  descriptorOf(format)?.unansweredQuestions?.(content) ?? []
-
-/**
- * `format`'s own tick-clearing rule, run over `content` — `qa`'s ticks ARE
- * its answers (a no-op), `review`'s hunk ticks are read-progress (cleared).
- * Taking the RESOLVED `format`, never a bare string, makes running the wrong
- * format's rule over the wrong file a type distinction, not a runtime
- * footgun — see `Descriptor.ts` and each descriptor's own `clearTicks`.
- */
-export const clearTicks = (format: SteeringFormat, content: string): string => {
-  const descriptor = descriptorOf(format)
-  return descriptor ? descriptor.clearTicks(content) : content
-}
+  format.unansweredQuestions?.(content) ?? []
 
 /**
  * Every positional thing an editor (the LSP, in a later pass) needs for one

@@ -33,19 +33,13 @@ import type {
   SteeringView,
   SteeringViewNode,
 } from "./SteeringFormat.js"
-import type { SteeringDescriptor } from "./Descriptor.js"
 
 type OpenQuestionStatus = "open" | "answered"
 
 /**
- * A marker's shape once it's plain text: `[^name]`, no whitespace, no `]` —
- * mirrors `Footnotes.ts`'s own orphan-marker pattern. Local to this module:
- * `headingText` and `optionText` (below) each extract
- * text that is NOT a full node's own tree span (a heading's synthetic
- * children span, or a raw line slice) — `sourceText`'s own real-reference
- * exclusion only covers the former, so a marker (real, matched-by-definition
- * as much as orphan) still needs stripping out of the resulting string by
- * its own literal shape either way.
+ * A marker as plain text. Local to this module because `headingText`/
+ * `optionText` extract text that is NOT a full node's tree span, which
+ * `sourceText`'s own reference exclusion does not cover.
  */
 const MARKER_TEXT_RE = /\[\^([^\s\]]+)\]/g
 
@@ -61,20 +55,13 @@ const stripMarkerText = (text: string): string => text.replace(MARKER_TEXT_RE, "
 export const FREE_TEXT_PLACEHOLDER = "_your answer_"
 
 /**
-
- * The `qa` descriptor's canonical sample: one open question with three real
- * options plus the unfilled free-text slot, each real option carrying a
- * nested impact list (different bullet counts, so the parser/outline/view
- * tests below cover more than one shape at once), one hand-authored footnote
- * on Option A with a body over 80 characters, and a SECOND footnote on
- * Option B, attached exactly the way the server attaches one
- * (`questionsAnnotate` → `Footnotes.ts#footnoteAttachEdits`, hence its
- * `na`-prefixed id, distinct from the hand-authored `fn` one) — its body also
- * over 80 characters and carrying a multi-word inline code span, so
- * `ModeContradiction.ts`'s formatter round-trip covers a server-written note
- * reflowing, not just a hand-authored one. Pinned already in oxfmt's own
- * wrapped four-space form (see `src/steering/SteeringFormats.test.ts`'s
- * formatter round-trip). Not authored to survive any particular formatter.
+ * The canonical sample. Every detail is load-bearing: the three real options
+ * carry nested impact lists of DIFFERENT bullet counts, so the parser,
+ * outline and view tests cover more than one shape at once; both footnote
+ * bodies exceed 80 characters so the formatter round-trip actually reflows
+ * one; Option B's is `na`-prefixed (server-attached, not hand-authored) and
+ * carries a multi-word inline code span; and the whole document is already an
+ * oxfmt fixed point.
  */
 const QA_SAMPLE = `Sample plan. Add a thing.
 
@@ -161,14 +148,7 @@ const headingText = (content: string, heading: Heading): string =>
 /** One `###` heading node under a questions section, with its raw body block nodes (up to the next heading of any level). */
 interface QuestionBlock extends HeadingBlock {}
 
-/**
- * Splits the tree's top-level nodes after a `## ... Questions` heading (given
- * its own index into `tree.children`) into consecutive `###` blocks. Stops at
- * the next heading of depth 1 or 2, or the end of the document. A depth-3
- * heading with no children (a bare `###`) is still collected as a block, not
- * skipped as prose — `parseQuestionBlock` is the one place that turns it into
- * a finding.
- */
+/** Splits the nodes after a `## ... Questions` heading into consecutive `###` blocks. A bare `###` with no children is still collected — `parseQuestionBlock` is the one place that turns it into a finding. */
 const splitQuestionBlocks = (tree: Root, sectionHeadingIndex: number): readonly QuestionBlock[] => {
   const blocks: QuestionBlock[] = []
   let i = sectionHeadingIndex + 1
@@ -196,25 +176,11 @@ const splitQuestionBlocks = (tree: Root, sectionHeadingIndex: number): readonly 
 }
 
 /**
- * Every task-list `listItem` in the TOP-LEVEL list(s) that appear directly in
- * a question's body, in document order — never nested sub-lists (a
- * continuation indented far enough to form a nested list under an option is
- * not itself an option). `listItem.checked` — set by the GFM task-list
- * extension — replaces the old checkbox regex entirely.
- *
- * Scope decision: a genuinely NESTED task-list item (indented under an
- * existing option, so CommonMark parses it as that option's own sub-list,
- * not indented code) is deliberately excluded from `options` — this format
- * has no notion of a sub-option. Below a shallow (under 4 spaces) indent this
- * is unremarkable — a real sub-list CommonMark itself distinguishes from a
- * top-level option, no different from any other nested content. At 4+
- * spaces, though, it's exactly the shape the old indent-tolerant
- * `CHECKBOX_RE` DID count as an option — so it's genuinely lost from this
- * format's output at that indent, and `recognizedStructureLines` (below)
- * does NOT protect it from `strictReadingFindings`: only a node at or above
- * the TOP level is excluded from that refusal, precisely so a 4+-space
- * nested option (or a heading folded into a lazy continuation the same way)
- * still gets a positioned finding instead of silently vanishing.
+ * Every task-list `listItem` in the TOP-LEVEL lists of a question's body, in
+ * document order. A NESTED task-list item is deliberately not an option —
+ * this format has no sub-option — and `recognizedStructureLines` does NOT
+ * shield it from `strictReadingFindings`, so a 4+-space nested option gets a
+ * positioned finding rather than silently vanishing.
  */
 const optionListItems = (body: readonly RootContent[]): readonly ListItem[] => {
   const items: ListItem[] = []
@@ -228,20 +194,12 @@ const optionListItems = (body: readonly RootContent[]): readonly ListItem[] => {
 }
 
 /**
- * A question's own body run, projected through the shared block walk
- * (`Blocks.ts#blockNodesOfRun`) — every block of `body` with the question's
- * own option ITEMS excluded, never a whole list swept out because SOME of its
- * children happen to be options: `optionListItems`'s own return set is the
- * exact node-identity set `skipListItem` excludes, so a plain (non-task)
- * bullet sharing a list with real options — a shape CommonMark itself allows,
- * whatever this format's own convention favors — still surfaces in `body`
- * rather than vanishing along with the options beside it. Shares every helper
- * the whole-document walk uses (`blockTitle`, `blockOf`, `blockListItemsOf`,
- * note attachment) rather than re-deriving any of them. `footnotes` is
- * `parseOpenQuestions`'s own SINGLE `parseFootnotes` call, threaded in rather
- * than re-parsed here — see `optionBodyNodes`'s own doc comment for why a
- * per-question (and per-option) re-parse would be a whole-document walk
- * multiplied by every question/option in the file.
+ * A question's body run through the shared block walk, with the question's
+ * own option ITEMS excluded by node identity — never a whole list swept out
+ * because some of its children are options, so a plain bullet sharing a list
+ * with real options still surfaces in `body`. `footnotes` is
+ * `parseOpenQuestions`'s SINGLE `parseFootnotes` call, threaded in: a
+ * re-parse here would be a whole-document walk per question and per option.
  */
 const questionBodyNodes = (
   content: string,
@@ -274,15 +232,10 @@ const bodyText = (bodyNodes: readonly SteeringViewNode[]): string =>
     .join(" ")
 
 /**
- * The source OFFSET right after an option's `- [ ]`/`- [x]` marker — the
- * first inline child of the item's paragraph, NOT the paragraph node's own
- * position. `mdast-util-gfm-task-list-item` splices the consumed `[x] `
- * text node out of a CHECKED item's paragraph without re-deriving the
- * paragraph's own (now-stale) `position.start` when what's left starts with a
- * non-text inline node (an unfilled placeholder's emphasis, say) — the
- * paragraph's first CHILD is always positioned correctly, so this reads that
- * instead. `undefined` when the item has no paragraph, or an empty one (a
- * bare `- [ ]`/`- [x]` with no text).
+ * The source offset right after an option's `- [ ]`/`- [x]` marker, read off
+ * the first inline CHILD rather than the paragraph node:
+ * `mdast-util-gfm-task-list-item` leaves a checked item's paragraph with a
+ * stale `position.start` when what remains starts with a non-text inline node.
  */
 const optionContentOffset = (item: ListItem): number | undefined => {
   const paragraph = item.children.find((c) => c.type === "paragraph")
@@ -290,17 +243,12 @@ const optionContentOffset = (item: ListItem): number | undefined => {
 }
 
 /**
- * The ONE span an option's text is read from and written back over: the
- * offset right after the `- [ ]`/`- [x]` marker (`optionContentOffset`)
- * through the end of the item's FIRST PARAGRAPH node — never the list
- * item's own end. A wrapped option is one paragraph with lazy continuation
- * lines, so this span covers the whole wrap; a nested list, a second
- * paragraph, or a footnote definition under the same item sits OUTSIDE it,
- * so a free-text save can never delete it. `optionText` and
- * `replaceOptionTextEdit` both call this — neither re-derives an end
- * position of its own, so the two can never drift apart into the exact
- * corruption this span exists to remove. `undefined` when the item has no
- * paragraph (a bare `- [ ]`) — there is no span to read or write.
+ * The ONE span an option's text is read from and written back over: after the
+ * marker through the end of the item's FIRST PARAGRAPH, never the list item's
+ * end. A wrapped option is one paragraph, so the wrap is covered; a nested
+ * list, second paragraph or footnote definition sits outside it and a
+ * free-text save can never delete it. Both the reader and the writer call
+ * this, so the two can never drift into that corruption.
  */
 const optionTextSpan = (
   item: ListItem,
@@ -377,14 +325,7 @@ const parseOptions = (
   })
 }
 
-/**
- * The exact three fields `isAnswered` reads — deliberately narrower than the
- * full `QuestionOption` (which also carries `sourceLine`/`endLine`, meaningless
- * off the server), so a CLIENT can build this shape from its own local radio
- * state (`Question.tsx`) and call the identical predicate, rather than
- * re-deriving a second, divergent rule. `QuestionOption` itself already
- * satisfies this structurally.
- */
+/** The three fields `isAnswered` reads, narrower than `QuestionOption` so a CLIENT can build this from its own radio state and call the identical predicate. */
 export interface AnsweredOption {
   readonly checked: boolean
   readonly text: string
@@ -392,12 +333,10 @@ export interface AnsweredOption {
 }
 
 /**
- * An OPEN question is answered iff EXACTLY ONE option is ticked and — when that
- * option is the free-text slot — its (placeholder-normalized) text is non-empty.
- * Zero ticks (unanswered), two+ ticks (ambiguous), or a ticked-but-empty
- * free-text slot all read as not answered. T5's own "already exists and is
- * the single one enforced" acceptance bullet: `Question.tsx` calls this SAME
- * function (via `AnsweredOption`) rather than recomputing the rule.
+ * An OPEN question is answered iff EXACTLY ONE option is ticked and, for the
+ * free-text slot, its normalized text is non-empty. Zero ticks, two+ ticks and
+ * a ticked-but-empty slot all read as not answered. The phone client calls
+ * this same function rather than recomputing the rule.
  */
 export const isAnswered = (options: readonly AnsweredOption[]): boolean => {
   const ticked = options.filter((o) => o.checked)
@@ -448,24 +387,14 @@ const parseQuestionBlock = (
 }
 
 /**
- * `## Open Questions` must precede every other level-2 section, and
- * `## Answered Questions` must follow every other level-2 section — so a
- * reader (and a driver walking the file) always finds open questions first
- * and resolved ones last. At most one finding per rule, regardless of how
- * many competing sections offend it. Level-1 headings and prose don't count,
- * and — because this walks `heading` NODES, never a string search — a
- * `## Open Questions` line quoted inside a fenced code block (a `code` node,
- * not a heading) never counts as the section either. Each finding's range
- * points at ONE offending heading — the first section (`h2[0]`) for the
- * "before" violation, the last (`h2[h2.length - 1]`) for the "after" one —
- * since either is, by construction, always one of the offenders when its
- * violation fires.
+ * `## Open Questions` first, `## Answered Questions` last, so a reader always
+ * finds open questions before resolved ones. At most one finding per rule.
+ * Walks `heading` NODES, never a string search, so the line quoted inside a
+ * fenced code block never counts as the section.
  *
- * Known gap, out of this package's scope: a `## Open Questions` heading
- * itself indented 4+ spaces parses as indented code too, so the whole
- * section (and every question in it) goes unrecognized with no finding —
- * `strictReadingFindings` only covers the `### ` heading and `- [ ]` option
- * shapes this package's acceptance criteria name, not the section heading.
+ * Known gap: a `## Open Questions` heading itself indented 4+ spaces parses as
+ * indented code, so the whole section goes unrecognized with no finding —
+ * `strictReadingFindings` covers the `### ` and `- [ ]` shapes, not this one.
  */
 const checkSectionOrder = (tree: Root, content: string): readonly SteeringFinding[] => {
   const h2 = tree.children.filter((n): n is Heading => n.type === "heading" && n.depth === 2)
@@ -503,14 +432,7 @@ const HEADING_SHAPE_RE = /^#{3}(?:\s|$)/
 /** A line shaped like a '- [ ]'/'- [x]'/'* [X]' task-list option, indented past what CommonMark still parses as a real list item — used only by `strictReadingFindings` to recognize what fell through. */
 const OPTION_SHAPE_RE = /^[-*]\s*\[[ xX]\]/
 
-/**
- * True when the `code` node at `node` is FENCED (```` ``` ````/`~~~`), never
- * indented — both parse to the same `code` node type, so telling them apart
- * means checking the delimiter that actually opens the block, back in the
- * source. A fenced block quoting `### ` or `- [ ]` text is a legitimate
- * example, not a dropped heading/option — `strictReadingFindings` must not
- * fire on it.
- */
+/** FENCED, never indented — both parse to the same `code` node, so telling them apart means reading the opening delimiter back out of the source. A fenced block quoting `### ` is an example, not a dropped heading. */
 const isFencedCode = (content: string, node: Code): boolean => {
   if (!node.position) return false
   const lines = content.split(/\r?\n/)
@@ -545,16 +467,7 @@ const markRange = (lines: Set<number>, node: RootContent): void => {
   for (let l = start; l <= end; l += 1) lines.add(l)
 }
 
-/**
- * Every 0-based line inside a NESTED `heading` or `list` descendant of a
- * top-level task-list `item` — the part of that item's own span this
- * format's `optionListItems` (above) never looks past. A lazy continuation
- * heading or a nested sub-list is real, correctly-parsed tree structure, but
- * it's still lost from this format's OUTPUT (no option, no question — the
- * old indent-tolerant `CHECKBOX_RE` would have counted it as one), so
- * `recognizedStructureLines` must not blanket-exclude it just because it
- * sits inside a real item's overall span.
- */
+/** Lines inside a NESTED `heading`/`list` under a top-level item. Real tree structure, but lost from this format's OUTPUT, so `recognizedStructureLines` must not excuse it just for sitting inside a real item's span. */
 const nestedBlockLines = (item: ListItem): Set<number> => {
   const lines = new Set<number>()
   const walk = (node: RootContent): void => {
@@ -579,30 +492,18 @@ const markTopLevelListItems = (lines: Set<number>, list: List): void => {
 }
 
 /**
- * Every 0-based line already inside a TOP-LEVEL `heading` (depth 2 or 3 —
- * the only depths this format recognizes), a TOP-LEVEL task-list `listItem`'s
- * own span (a direct child of a `list` that is itself a direct child of the
- * tree) — MINUS any `heading`/`list` nested inside that item
- * (`nestedBlockLines`) — or a `footnoteDefinition`'s ENTIRE span, whole.
- * `strictReadingFindings` never flags a line in what's left.
+ * The lines `strictReadingFindings` never flags: a TOP-LEVEL depth-2/3
+ * heading, a TOP-LEVEL task-list item's span MINUS any `heading`/`list`
+ * nested inside it, and a `footnoteDefinition`'s whole span.
  *
- * The heading/list-item exclusion covers what's legitimately part of the
- * tree already, in a shape this format actually consumes; anything at a
- * DEEPER nesting depth there is NOT excluded, however validly CommonMark
- * parses it — `optionListItems` never looks past the top level, so that
- * content is just as lost from this format's output as an unindented line
- * would be, and the refusal must still be able to flag it. A genuinely
- * shallow (under 4 spaces) nested sub-item is unaffected either way, via the
- * `raw` indent guard in `strictReadingFindingsInRange`.
+ * Deeper nesting is deliberately NOT excluded, however validly CommonMark
+ * parses it: `optionListItems` never looks past the top level, so that
+ * content is as lost from this format's output as an unindented line.
  *
- * A footnote definition is different in kind, not degree: it is the human's
- * own free-text comment channel, never itself a candidate heading or option
- * under ANY reading (loose or strict) — the refusal exists to catch content
- * lost from this format's OUTPUT, and a footnote body was never part of that
- * output to begin with. So its whole span is excluded unconditionally, at
- * whatever nesting a human happens to write inside it — this repo's own
- * footnote style (`QA_SAMPLE`) indents a definition's continuation lines
- * four spaces, exactly the threshold that would otherwise misfire here.
+ * A footnote definition differs in kind, not degree — the human's free-text
+ * channel, never a candidate heading or option under any reading — so its
+ * whole span is excluded at any nesting. This repo's own footnote style
+ * indents continuation lines four spaces, exactly the misfire threshold.
  */
 const recognizedStructureLines = (tree: Root): Set<number> => {
   const lines = new Set<number>()
@@ -618,15 +519,7 @@ const recognizedStructureLines = (tree: Root): Set<number> => {
 const fencedCodeLines = (tree: Root, content: string): Set<number> =>
   linesWhere(tree, (n) => n.type === "code" && isFencedCode(content, n))
 
-/**
- * A depth-2 section heading's own body line range: from just after the
- * heading's own line to (but excluding) the next depth-1/2 heading's line,
- * or the document's last line. Line-based (not node-index-based) because the
- * whole point of `strictReadingFindings` is to catch source that DIDN'T
- * become a distinct top-level node — a lazy paragraph continuation folds
- * into the PRECEDING paragraph's own node, so there is no node boundary to
- * walk between here.
- */
+/** A depth-2 section's body line range. Line-based, not node-based: the point is to catch source that never became a distinct node, so there is no node boundary to walk. */
 const sectionLineRange = (
   tree: Root,
   content: string,
@@ -685,17 +578,11 @@ const strictReadingFindingsInRange = (
 }
 
 /**
- * The strict reading's positioned refusal: a `### `-shaped or `- [ ]`-shaped
- * line indented 4+ spaces is never a real heading or list item — either
- * INDENTED CODE (when it opens its own block) or, just as easily, a LAZY
- * PARAGRAPH CONTINUATION of whatever non-blank line precedes it (when it
- * doesn't) — so without this check it vanishes with no signal at all: a
- * whole question silently dropped, or left with zero options and read as
- * merely unanswered. Scans every RAW line of a `## Open Questions`/
- * `## Answered Questions` section's own body for such a line (excluding
- * lines already inside a real heading/list-item node, or inside a fenced
- * code block) and reports it at that EXACT source line, rather than let it
- * disappear regardless of which of the two swallowed it.
+ * A `### `- or `- [ ]`-shaped line indented 4+ spaces is never a real heading
+ * or list item — it is indented code, or a lazy paragraph continuation — so
+ * without this it vanishes with no signal: a whole question silently dropped,
+ * or one left with zero options and read as merely unanswered. Reported at the
+ * exact source line, whichever of the two swallowed it.
  */
 const strictReadingFindings = (tree: Root, content: string): SteeringFinding[] => {
   const lines = content.split(/\r?\n/)
@@ -713,18 +600,13 @@ const strictReadingFindings = (tree: Root, content: string): SteeringFinding[] =
 }
 
 /**
- * Parses the open-questions structure out of `content`, plus every finding
- * `qaDescriptor.validate` reports — every finding here carries a `line` AND a
- * `range` spanning the node it's about (the section-order and empty-heading
- * findings included; only `strictReadingFindings`' own line-shaped findings
- * never had a real node to begin with, so their range spans the raw offending
- * line instead). This IS `parseOpenQuestions` — there is no second parse
- * function to route around its own return type, mirroring `review.ts`'s
- * single `parseReviewDoc`. `parseFootnotes(content)` runs exactly ONCE here
- * and is threaded through every question/option body walk below — never
- * re-run per question or per option, which would turn a document-sized walk
- * into one multiplied by every question/option in the file (see
- * `questionBodyNodes`/`optionBodyNodes`'s own doc comments).
+ * The structure plus every finding `validate` reports. Each finding carries a
+ * `line` AND a `range` spanning its node — except `strictReadingFindings`',
+ * which never had a node, so their range spans the raw offending line.
+ *
+ * `parseFootnotes(content)` runs exactly ONCE here and is threaded through
+ * every question/option body walk below: re-running it per question or per
+ * option would multiply a document-sized walk by every one in the file.
  */
 export const parseOpenQuestions = (content: string): OpenQuestionsDoc => {
   const tree = parseMarkdown(content)
@@ -767,19 +649,10 @@ const unansweredQuestions = (content: string): readonly OpenQuestion[] =>
   parseOpenQuestions(content).questions.filter((q) => q.status === "open" && !q.answered)
 
 /**
- * Flips the checkbox on the task-list item starting at `line`, preserving the
- * rest of the line exactly. `undefined` when `line` isn't a real task-list
- * item's own start line — a bare `[x]` in ordinary prose doesn't count,
- * because it never parses into a `listItem` with `checked !== null` at all.
- *
- * The box's offset is resolved as the first `[` at or after the item's own
- * start offset, bounded by (before) its content's start offset
- * (`optionContentOffset`) — the task-list extension consumes the `[x]`
- * marker, so the item's actual text starts right after `] `, and that window
- * contains only the list marker and the box. This replaces a guess
- * (`raw.indexOf("[")` over the whole line, which text containing its own `[`
- * could otherwise mislead) with an exact offset that cannot land on anything
- * but the box.
+ * Flips the checkbox on the task-list item at `line`, preserving the rest
+ * exactly. The box is found in the window between the item's start offset and
+ * its content offset — which holds only the list marker and the box — rather
+ * than by `indexOf("[")`, which text containing its own `[` would mislead.
  */
 const toggleCheckbox = (content: string, line: number): SteeringEdit | undefined => {
   const tree = parseMarkdown(content)
@@ -826,15 +699,7 @@ const questionEndLines = (content: string): ReadonlyMap<number, number> => {
   return map
 }
 
-/**
- * The outline tree for a `qa`-mode file's open/answered questions, each
- * option a `leaf: true` child of its open question — unless it carries a
- * footnote of its own, in which case it's a container instead (`leaf` and
- * `children` are never both set; see `SteeringFormat.ts`'s `leaf` doc). A
- * footnote is itself always a `leaf: true` child of whichever node's span
- * contains its marker — an option when the marker sits inside that option's
- * span, otherwise the question itself.
- */
+/** The outline tree. An option is a `leaf` unless it carries a footnote, which makes it a container instead — `leaf` and `children` are never both set. */
 const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
   const { questions } = parseOpenQuestions(content)
   const { markers, definitions } = parseFootnotes(content)
@@ -896,14 +761,7 @@ const pickOptionEdits = (
   return edits
 }
 
-/**
- * The `apply`-callable counterpart to `pickOptionEdits`: sets `option` to an
- * explicit `checked` STATE rather than assuming (as `pickOptionEdits`'s own
- * caller, `optionAction`, does) that the target isn't already ticked.
- * `checked: true` is radio semantics — ticks the target (only if not already
- * ticked) and unticks every OTHER already-ticked sibling; `checked: false`
- * only unticks the target itself, leaving siblings untouched.
- */
+/** Sets an explicit `checked` STATE, unlike `pickOptionEdits`, which assumes the target is not already ticked. `true` is radio (unticks every sibling); `false` only unticks the target. */
 const setOptionCheckedEdits = (
   content: string,
   question: OpenQuestion,
@@ -925,14 +783,7 @@ const setOptionCheckedEdits = (
   return edits
 }
 
-/**
- * The edit that replaces `option`'s own label text — the WHOLE
- * `optionTextSpan`, wrap and all — with `text` verbatim: used only for the
- * free-text slot, whose placeholder (or prior answer) the human's typed
- * answer replaces in place. `undefined` when the option has no paragraph at
- * all (a bare `- [ ]`, mirroring `optionText`'s identical guard) — there is
- * no span to replace.
- */
+/** Replaces the WHOLE `optionTextSpan`, wrap and all — used only for the free-text slot, whose placeholder or prior answer the typed answer replaces in place. */
 const replaceOptionTextEdit = (
   content: string,
   item: ListItem,
@@ -950,42 +801,23 @@ const replaceOptionTextEdit = (
 }
 
 /**
- * Collapses a human-typed free-text answer to the single-line,
- * whitespace-trimmed shape a list-item's own label must be — a raw textarea
- * value can carry interior newlines or trailing whitespace, either of which
- * would leave `.gtd/`'s own oxfmt fixed point broken the moment it's spliced
- * onto a `- [x] ` line (AGENTS.md's "`.gtd/` is formatted, not ignored" rule
- * — every steering file, including a server-written one, is covered by
- * `format:check`). Interior whitespace, a real newline included, collapses
- * to a single space — mirrors `headingText`'s identical normalization
- * elsewhere in this file, applied here to a WRITE rather than a read.
+ * Collapses a typed answer to the single-line shape a list-item label must
+ * be. A raw textarea value's interior newlines would break `.gtd/`'s oxfmt
+ * fixed point the moment they are spliced onto a `- [x] ` line, and every
+ * steering file — server-written ones included — is covered by `format:check`.
  */
 /**
- * Empty normalizes to `FREE_TEXT_PLACEHOLDER`, never to `""` — an empty
- * label leaves `- [ ] ` with nothing after the marker, which
- * `optionContentOffset` can't find a content offset for (its own guard
- * requires content ON the marker's line), permanently breaking this
- * anchor's own `apply` from then on (`anchor-not-found`, forever). Package
- * 03's Task 6 erase path relies on this: writing the placeholder instead
- * keeps the option re-editable, and `parseOptions` already normalizes the
- * placeholder back to `""` on read, so an erase still reads back as
- * unanswered.
+ * Empty normalizes to `FREE_TEXT_PLACEHOLDER`, never `""`: an empty label
+ * leaves nothing after the marker, which `optionContentOffset` cannot find an
+ * offset for, breaking this anchor's `apply` forever. The placeholder reads
+ * back as `""`, so an erase still reads as unanswered.
  */
 const normalizeFreeTextAnswer = (text: string): string => {
   const normalized = text.replace(/\s+/g, " ").trim()
   return normalized.length === 0 ? FREE_TEXT_PLACEHOLDER : normalized
 }
 
-/**
- * `qa`-mode's `apply`: only the `option` anchor resolves here — a
- * `chunk`/`hunk` anchor (not this format's own kind) refuses
- * `anchor-not-found`, mirroring `resolveQuestionsAnchor`'s own discipline.
- * `opts.checked` defaults to `true` (picking an option always ticks it; there
- * is no "leave it as found" case). `opts.text`, when given, is normalized
- * (`normalizeFreeTextAnswer`) and replaces the option's own label in the SAME
- * edit set as the tick — never a second `apply` call, and never the raw
- * textarea value verbatim.
- */
+/** Only the `option` anchor resolves here. `checked` defaults to `true`, and `text` is normalized and replaces the label in the SAME edit set as the tick — never a second call, never the raw textarea value. */
 const questionsApply: SteeringFormat["apply"] = (content, anchor, opts) => {
   if (anchor.kind !== "option") return { ok: false, reason: "anchor-not-found" }
   const { questions } = parseOpenQuestions(content)
@@ -1024,33 +856,16 @@ const optionAction = (
 }
 
 /**
- * The block a footnote lands after when "add a footnote" fires with the
- * cursor at `cursorLine`: the containing top-level block NODE's own end line
- * (`blockNodeAt`) — a `list` node's own span IS the whole contiguous list
- * (never split between two items), so this covers "inside a question's
- * option list" the same way it covers question-body prose ABOVE a list, a
- * question with no options at all, and any cursor position outside every
- * question — one rule, not a special case per shape. Resolving from the
- * cursor's OWN containing node (rather than aggregating every option across
- * a whole question) also means a question with TWO separate option lists
- * resolves prose written between them to that prose's own span, never to the
- * second list's end. Falls back to `cursorLine` itself only past the end of
- * the document, where no block node exists.
+ * Where a footnote lands: the containing top-level block node's end line. One
+ * rule, not a case per shape — and resolving from the cursor's OWN node means
+ * prose between two option lists anchors to that prose, not the second list.
  */
 const footnoteBlockEnd = (tree: Root, cursorLine: number): number => {
   const block = blockNodeAt(tree, cursorLine)
   return block?.position ? toLspPosition(block.position.end).line : cursorLine
 }
 
-/**
- * Actions for a `qa`-mode file: anywhere on an open question's option's list
- * item, "pick this option" (radio semantics) or "uncheck this option" when
- * it's already chosen; "add a footnote" LAST, after every option action,
- * everywhere EXCEPT inside an existing marker's span or on an existing
- * definition's own line — planting a new marker/definition there would
- * corrupt the footnote already written. No pick/uncheck action off an
- * option's span, or on an answered-section (prose) question.
- */
+/** Pick/uncheck on an open question's option; "add a footnote" LAST, after every option action, and everywhere EXCEPT inside an existing marker's span or on a definition's line, where a new marker would corrupt the footnote already there. */
 const questionActions: SteeringFormat["actions"] = (content, range) => {
   const { questions } = parseOpenQuestions(content)
   const tree = parseMarkdown(content)
@@ -1107,20 +922,11 @@ const isInsideQuestionSpan = (spans: ReadonlyMap<number, number>, line: number):
 }
 
 /**
- * `qa`-mode's `view`: every top-level block of the document (`blockNodesOf`
- * — prose, headings, lists, code, blockquotes; a prose-only document with no
- * `## Open Questions`/`## Answered Questions` section at all yields these
- * and nothing else) FIRST — requirement 4/T5's "Read the plan" row needs an
- * actual plan to read; without this, a `qa` document with any open/answered
- * question would drop its own intro prose entirely — followed by every
- * question as a container node: `title` the question's own heading TEXT
- * (`OpenQuestion.question`, never `OpenQuestion.text`, which is only the
- * first body line, a summary carried separately as `detail`), plus
- * status/answered flag and own `question` anchor — with every one of its
- * options as a child item node (checked, text as `title`, own `option`
- * anchor). Built from ONE `parseOpenQuestions` call plus one `blockNodesOf`
- * walk, never one parse per question/option. Uses `SteeringViewNode`'s
- * generic shape, never a `qa`-only type — see that type's own doc comment.
+ * Every top-level block FIRST — the phone's "Read the plan" row needs a plan,
+ * and without this a document with any question would drop its intro prose —
+ * then every question as a container with its options as children. `title` is
+ * the heading TEXT, never the first body line, which rides as `detail`. ONE
+ * parse plus one block walk, never one parse per question.
  */
 const questionsView = (content: string): SteeringView => {
   const tree = parseMarkdown(content)
@@ -1258,7 +1064,7 @@ const questionsAnnotate = (
 const qaClearTicks = (content: string): string => content
 
 /** The `qa` steering descriptor: gtd's own in-process open-questions checkbox format — validation, outline, code actions, a footnote-only `pointerAt`, a no-op `clearTicks`, and the answer-completeness predicate (`unansweredQuestions`). Every structural finding carries a line and a range spanning the node it's about. */
-export const qaDescriptor: SteeringDescriptor = {
+export const qaDescriptor: SteeringFormat = {
   sample: QA_SAMPLE,
   validate: (content) => [
     ...parseOpenQuestions(content).findings,

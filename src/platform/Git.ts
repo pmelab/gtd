@@ -74,11 +74,10 @@ export interface GitReaderOperations {
    * Pending working-tree changes vs `base` (default `HEAD`), as
    * `{path, status}` pairs: tracked diff unioned with untracked files.
    *
-   * An untracked path is classified by CONTENT against `base`, not the index (see
-   * `classifyUntracked`): reporting the index's view instead would call a
-   * present-but-untracked file `D` (deleted) whenever the index doesn't match
-   * the working tree. A REAL deletion still reports `D`: it's absent from the
-   * untracked list, so the tracked diff's own `D` stands.
+   * An untracked path is classified by CONTENT against `base`, not the index:
+   * the index's view calls a present-but-untracked file `D` whenever it
+   * doesn't match the working tree. A REAL deletion still reports `D` — it is
+   * absent from the untracked list, so the tracked diff's own `D` stands.
    */
   readonly changedPaths: (
     base?: string,
@@ -197,20 +196,17 @@ const blobsAtRef = (
   )
 
 /**
- * `path → object id` for every path's CURRENT bytes, in one call. An empty
- * map on failure (an unreadable file) — every candidate then reads as
- * "differs", the safe direction, since a file that EXISTS must never be
- * reported deleted.
+ * `path → object id` for every path's CURRENT bytes, in one call. An empty map
+ * on failure, so every candidate reads as "differs" — the safe direction,
+ * since a file that EXISTS must never be reported deleted.
  *
- * These ids are directly comparable with `git ls-tree`'s because hash-object
- * applies the repo's own CLEAN FILTERS. NEVER add `--no-filters` here: a
- * `text=auto` repo's untouched CRLF file would then report `M` — a spurious
- * "the human edited something real" that flips a clean sign-off onto the
- * feedback edge and fabricates a change for any `on` pattern to match. Both
- * tiers of the `changedPaths` contract pin this (`src/testing/GitTiers.ts`).
+ * NEVER add `--no-filters`: these ids are comparable with `git ls-tree`'s only
+ * because hash-object applies the repo's own clean filters, and without them a
+ * `text=auto` repo's untouched CRLF file reports `M`, flipping a clean
+ * sign-off onto the feedback edge. Both tiers pin this.
  *
- * A symlink is the one residual inexactness: hash-object hashes the target's
- * content rather than the link text git stores, and reads as `M`, never `D`.
+ * A symlink is the residual inexactness: hash-object hashes the target's
+ * content rather than the link text, and reads as `M`, never `D`.
  */
 const hashObjects = (
   exec: GitExec,

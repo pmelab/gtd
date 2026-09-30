@@ -4,8 +4,6 @@
 
 const ESCAPE_RE = /[.+^${}()|[\]\\?]/g
 
-const cache = new Map<string, RegExp>()
-
 const compile = (glob: string): RegExp => {
   let pattern = "^"
   let i = 0
@@ -28,11 +26,4 @@ const compile = (glob: string): RegExp => {
   return new RegExp(`${pattern}$`)
 }
 
-export const globMatches = (path: string, glob: string): boolean => {
-  let regex = cache.get(glob)
-  if (regex === undefined) {
-    regex = compile(glob)
-    cache.set(glob, regex)
-  }
-  return regex.test(path)
-}
+export const globMatches = (path: string, glob: string): boolean => compile(glob).test(path)

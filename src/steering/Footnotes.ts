@@ -146,16 +146,11 @@ const computeFindings = (
 }
 
 /**
- * Every `[^name]` found inside an ordinary `text` node's own SOURCE slice
- * (never `node.value`: a character reference like `&amp;` makes `value`
- * shorter than its source, which would throw off every subsequent column in
- * that node) — each hit is, by construction, an orphan marker: GFM only
- * keeps `[^name]` as literal text when no definition matches, so anything
- * this scan finds already failed to become a real `footnoteReference` node.
- * A `text` node can span several source lines (a lazy list-item wrap parses
- * as one node), so each hit's position is computed from the node's own
- * offset plus the match's index in the slice, never from assuming one line
- * per node.
+ * Every `[^name]` in a `text` node's SOURCE slice, never `node.value` — a
+ * character reference makes `value` shorter than its source and throws off
+ * every subsequent column. Each hit is an orphan by construction: GFM keeps
+ * `[^name]` as literal text only when no definition matches. A `text` node can
+ * span several lines, so positions come from offsets, never one line per node.
  */
 const orphanMarkers = (content: string, tree: Root): FootnoteMarker[] => {
   const found: FootnoteMarker[] = []
@@ -300,16 +295,7 @@ const markerAt = (
     return position.character >= m.character && position.character <= m.endCharacter
   })
 
-/**
- * True when `position` sits inside an EXISTING marker's `[^name]` span, or on
- * an existing definition's own line (its `[^name]:` label line or an indented
- * continuation — the definition's real GFM span, from the tree) — the guard
- * "gtd: add a footnote" uses to refuse itself rather than plant a new
- * marker/definition into already-written footnote syntax (which would
- * corrupt it: a marker inserted inside another marker's name, or a
- * definition inserted between an existing definition's label and its own
- * name).
- */
+/** The guard "gtd: add a footnote" refuses itself on, rather than planting a marker inside another marker's name or a definition between an existing label and its body. */
 export const isOnExistingFootnote = (
   content: string,
   position: { readonly line: number; readonly character: number },
@@ -349,30 +335,18 @@ export type FootnoteAttachResult =
   | { readonly ok: false; readonly reason: "id-collision" }
 
 /**
- * Attaches a note at `anchor`'s own end: a marker `[^<id>]` planted right
- * there, and a definition seeded with `text` — the human's own typed body,
- * VERBATIM, never the empty seed `footnoteAdditionEdits` writes (a human
- * fills that one in afterward via the editor; a server-attached note already
- * has its real text at attach time, so the document validates clean
- * immediately rather than tripping the empty-body finding) — planted after
- * `anchor.blockEndLine`. The two-edits-at-once mechanics `T2` asks for,
- * shared by chunk/hunk/paragraph notes alike (the caller resolves its own
- * `key` per kind). `id` is derived from `anchor.key` alone (`anchorId`),
- * never counted, so this is safe to call from two concurrent requests
- * without a shared counter.
+ * Attaches a note at `anchor`'s end: a marker plus a definition seeded with
+ * `text` VERBATIM, never the empty seed `footnoteAdditionEdits` writes — a
+ * server-attached note has its real body at attach time, so the document
+ * validates clean immediately instead of tripping the empty-body finding.
+ * `id` derives from `anchor.key` alone, never a counter, so two concurrent
+ * requests need no shared state.
  *
- * A SECOND call at the SAME anchor is an EDIT, not a collision: this is
- * exactly what "a paragraph already carrying a note offers editing it, not a
- * second note" (T6) requires, and `id` being deterministic in `anchor.key`
- * is what makes detecting "same anchor" possible at all — a marker whose
- * folded name already equals `id` AND already sits on `anchor.line` (the
- * exact spot THIS anchor's own marker edit would land, every time) can only
- * be this anchor's own earlier attach, never a coincidence. That case
- * replaces the existing definition's whole body span with the new text —
- * one edit, no new marker (already there) — rather than the two-edit
- * attach below. A `foldName(d.name) === foldName(id)` collision with NO
- * marker on `anchor.line` is the genuine ambiguous case (a hash collision
- * with an unrelated anchor, or a human-authored id) and still refuses.
+ * A SECOND call at the SAME anchor is an EDIT, not a collision: a marker whose
+ * folded name equals `id` AND sits on `anchor.line` — the exact spot this
+ * anchor's own marker edit would land — can only be its earlier attach. That
+ * replaces the definition's body span in one edit. The same name collision
+ * with NO marker there is genuinely ambiguous and still refuses.
  */
 export const footnoteAttachEdits = (
   content: string,
@@ -433,28 +407,17 @@ export const footnoteAttachEdits = (
 }
 
 /**
- * The two edits behind "gtd: add a footnote": a marker inserted at exactly
- * the cursor position (no scan, no `+1`) and a definition seeded empty
- * (`[^name]:` with no body), planted right after `blockEndLine` — the caller's own
- * notion of "the current block's last line" (a hunk's span in `review.ts`,
- * or a containing block node's own end line otherwise — each caller resolves
- * its own fallback; this module has no generic "prose block end" of its own).
- * The definition edit REPLACES any existing blank-line run between
- * `blockEndLine` and the next non-blank content (or EOF) with exactly one
- * blank line, the definition, and — unless at EOF — one more blank line, so
- * the result is deterministic regardless of the surrounding whitespace.
+ * The two edits behind "gtd: add a footnote": a marker at exactly the cursor
+ * position (no scan, no `+1`) and an EMPTY definition after `blockEndLine`,
+ * which each caller resolves itself. The definition edit REPLACES the whole
+ * blank-line run after it, so the result is deterministic whatever the
+ * surrounding whitespace.
  *
- * The definition edit's range starts at `(blockEndLine + 1, 0)` — the line
- * AFTER `blockEndLine` — never at the end of `blockEndLine` itself, even when
- * that line doesn't literally exist yet (a document with no trailing
- * newline): a `line` past the document's last index is a legal LSP position,
- * clamped to end-of-file, per the protocol. The marker edit's own position is
- * always on or before `blockEndLine` (callers only ever pass a `blockEndLine`
- * at or after the cursor's line), so anchoring one line later guarantees the
- * two edits' ranges never touch: two edits that share a start position have
- * no defined application order (LSP forbids overlapping — including
- * coincident-zero-length — ranges in one action), and a naive apply corrupts
- * whichever text sits at the shared offset.
+ * That edit starts at `(blockEndLine + 1, 0)`, never at the end of
+ * `blockEndLine` — a line past the last index is a legal LSP position,
+ * clamped to EOF. Anchoring one line later is what guarantees the two ranges
+ * never touch: LSP gives coincident ranges in one action no defined
+ * application order, and a naive apply corrupts whatever sits at that offset.
  */
 export const footnoteAdditionEdits = (
   content: string,
@@ -485,15 +448,11 @@ export const footnoteAdditionEdits = (
 }
 
 /**
- * The footnote half of `pointerAt`, shared by `qa` (which serves footnote
- * jumps ONLY) and `review` (which tries this FIRST — footnotes are
- * column-scoped and the hunk jump is line-scoped, so a marker sitting in a
- * hunk's inline note would otherwise be shadowed by it). Returns `undefined`
- * when `position` isn't on a footnote at all (the caller should try its own
- * next resolver); returns `{ pointer: undefined }` for an orphan marker or
- * definition — resolved, but to nothing, so the caller must NOT fall through
- * to another resolver (an orphan marker inside a review hunk's note must not
- * jump to the hunk).
+ * The footnote half of `pointerAt`. `review` tries this FIRST because
+ * footnotes are column-scoped and its hunk jump is line-scoped, which would
+ * otherwise shadow a marker inside a hunk's note. `undefined` means "not a
+ * footnote, try the next resolver"; `{ pointer: undefined }` means "resolved,
+ * but to nothing" — the caller must NOT fall through.
  */
 export const footnotePointerAt = (
   content: string,

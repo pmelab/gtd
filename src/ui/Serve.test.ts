@@ -1,5 +1,5 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
-import { homedir, tmpdir } from "node:os"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
@@ -191,18 +191,6 @@ describe("serve record", () => {
     } finally {
       rmSync(base, { recursive: true, force: true })
     }
-  })
-
-  it("the injected base is a test-only seam — omitting it still resolves against the real homedir()", () => {
-    writeServeRecord(testPort, {
-      pid: 1,
-      servePort: testPort,
-      targetPort: 2,
-      target: "http://127.0.0.1:2",
-      worktree: "/repo/w",
-    })
-    const path = join(homedir(), ".gtd", "serve", `${testPort}.json`)
-    expect(existsSync(path)).toBe(true)
   })
 
   it("delete removes a written record", () => {

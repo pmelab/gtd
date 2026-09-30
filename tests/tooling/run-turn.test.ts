@@ -2,30 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import {
-  AGENTS,
-  buildClaudeArgv,
-  buildPiArgv,
-  CLAUDE_TOOLS,
-  parseArgs,
-  PI_TOOLS,
-  readFeedback,
-} from "../../evals/run-turn.mjs"
+import { buildClaudeArgv, CLAUDE_TOOLS, parseArgs, readFeedback } from "../../evals/run-turn.mjs"
 import { matchGtdFiles } from "../../evals/expect.mjs"
 import { checkLandError, SHARED_CHECKS, safeGrade } from "../../evals/asserts/shared.mjs"
 
-describe("buildPiArgv", () => {
-  it("pins pi's tool surface to the four docs/development.md promises", () => {
-    const argv = buildPiArgv("some-model", "system prompt", "key")
-    const toolsIdx = argv.indexOf("--tools")
-    expect(toolsIdx).toBeGreaterThanOrEqual(0)
-    expect(argv[toolsIdx + 1]).toBe(PI_TOOLS)
-    expect(PI_TOOLS).toBe("read,write,edit,bash")
-  })
-})
-
 describe("buildClaudeArgv", () => {
-  it("pins Claude Code's tool surface to the same four promises, in its own spelling", () => {
+  it("pins Claude Code's tool surface to the four docs/development.md promises", () => {
     const argv = buildClaudeArgv("sonnet", "system prompt")
     const toolsIdx = argv.indexOf("--tools")
     expect(toolsIdx).toBeGreaterThanOrEqual(0)
@@ -59,34 +41,22 @@ describe("buildClaudeArgv", () => {
 })
 
 describe("parseArgs", () => {
-  it("defaults to the claude agent when no --agent flag is passed", () => {
+  it("reads both model classes and the trailing case:variant positional", () => {
     expect(parseArgs(["--planner", "opus", "--coder", "sonnet", "spec-review:clean"])).toEqual({
-      agent: "claude",
       models: { planner: "opus", coder: "sonnet" },
       caseName: "spec-review",
       variant: "clean",
     })
   })
 
-  it("takes --agent, and still finds the positional after it", () => {
-    expect(
-      parseArgs(["--agent", "pi", "--planner", "a", "--coder", "b", "build-fix:violation"]),
-    ).toEqual({
-      agent: "pi",
-      models: { planner: "a", coder: "b" },
+  // With no flags at all nothing is consumed, so the positional must still be
+  // found at index 0 rather than skipped as a flag value.
+  it("finds the positional when no flags precede it", () => {
+    expect(parseArgs(["build-fix:violation"])).toEqual({
+      models: { planner: undefined, coder: undefined },
       caseName: "build-fix",
       variant: "violation",
     })
-  })
-})
-
-describe("AGENTS", () => {
-  // Only the gateway-backed agent may demand GTD_EVALS_URL/KEY — a claude
-  // run that blocked on them would be unrunnable on a machine with no
-  // gateway at all, which is the whole point of it being the default.
-  it("marks pi as gateway-backed and claude as not", () => {
-    expect(AGENTS.pi.needsGateway).toBe(true)
-    expect(AGENTS.claude.needsGateway).toBe(false)
   })
 })
 

@@ -256,7 +256,7 @@ const runGitExit = <A>(
   f: (g: GitOperations) => Effect.Effect<A, Error>,
 ): Promise<Exit.Exit<A, Error>> => t.provideExit(Effect.flatMap(GitService, f))
 
-/** Every `GitOperations` method the contract below exercises — asserted (in `GitTiers.test.ts`) to equal `fakeGitOperations`'s own key set, so a new port method can't go uncovered. */
+/** Every `GitOperations` method the contract below exercises — asserted (in `GitTiers.test.ts`) to equal `fakeGitOperations`'s own key set, so a new port method reds until it is listed here. Listing it is not writing the contract case: this fires on a forgotten method, never on an unexercised one. */
 export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new Set([
   "lastCommitSubject",
   "lastCommitMessage",

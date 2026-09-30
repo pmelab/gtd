@@ -58,12 +58,6 @@ Feature: gtd --entry <name> — start a brand new process the workflow opens for
     When I run gtd with args "--entry=review-gate.check --var reviewBase=base"
     Then it succeeds
     And the last commit subject is "gtd(human): review-gate.check"
-
-  Scenario: gtd --entry fix-precheck also enters the fix-entry gate — see fix-entry.feature for the deep coverage
-    When I run gtd with args "--entry fix-precheck"
-    Then it succeeds
-    And the last commit subject is "gtd(human): fix-precheck"
-
   Scenario: a dirty working tree is captured into the entry commit, not refused
     Given I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

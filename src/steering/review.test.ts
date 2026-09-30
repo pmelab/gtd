@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  checkSteering,
-  clearTicks,
-  FOOTNOTE_ACTION_TITLE,
-  steeringFormatFor,
-  viewOf,
-} from "./index.js"
+import { FOOTNOTE_ACTION_TITLE, steeringFormatFor, viewOf } from "./index.js"
 import { parseReviewDoc } from "./review.js"
 import { getParseCount } from "./index.js"
 
@@ -120,15 +114,15 @@ const doc = (lines: readonly string[]): string => lines.join("\n")
 const HEADER = "# Review: abc123"
 const BASE = "<!-- base: 0000000000000000000000000000000000000000 -->"
 
-describe("review — structure (checkSteering)", () => {
+describe("review — structure (validate)", () => {
   it("parses a well-formed review with one chunk, no explanations, cleanly", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1-1 does a thing", ""])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 
   it("errors when the header is missing", () => {
     const content = doc([BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 does a thing", ""])
-    expect(checkSteering(review, content)).toContainEqual(
+    expect(review.validate(content)).toContainEqual(
       expect.objectContaining({
         message: "Missing or malformed '# Review: <hash>' header as the document's first line",
       }),
@@ -137,36 +131,36 @@ describe("review — structure (checkSteering)", () => {
 
   it("errors when the base comment is missing", () => {
     const content = doc([HEADER, "", "## Chunk", "", "- [ ] ./a.ts#1 does a thing", ""])
-    expect(checkSteering(review, content)).toContainEqual(
+    expect(review.validate(content)).toContainEqual(
       expect.objectContaining({ message: "Missing '<!-- base: <hash> -->' comment" }),
     )
   })
 
   it("errors when there are no chunks at all", () => {
     const content = doc([HEADER, "", BASE, ""])
-    expect(checkSteering(review, content)).toContainEqual(
+    expect(review.validate(content)).toContainEqual(
       expect.objectContaining({ message: "REVIEW.md has no '##' chunks" }),
     )
   })
 
   it("collects all applicable errors at once for a fully malformed document", () => {
-    const findings = checkSteering(review, "")
+    const findings = review.validate("")
     expect(findings.length).toBeGreaterThanOrEqual(2)
   })
 
   it("keeps a hyphenated path whole and its #line, instead of splitting at the first hyphen", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./my-file.ts#42-70 note", ""])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 
   it("keeps a # not followed by digits in the path, with no line parsed, and no findings", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./file#hash.ts note", ""])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 
   it("still refuses a bare box, a non-./ path, and a ./ with nothing after it — no pointer, so chunk is empty", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] just prose here", ""])
-    expect(checkSteering(review, content)).toContainEqual(
+    expect(review.validate(content)).toContainEqual(
       expect.objectContaining({ message: 'Chunk "Chunk" has no file pointers' }),
     )
   })
@@ -182,7 +176,7 @@ describe("review — structure (checkSteering)", () => {
       "- some inferred note with no pointer",
       "",
     ])
-    expect(checkSteering(review, content)).toContainEqual(
+    expect(review.validate(content)).toContainEqual(
       expect.objectContaining({ message: 'Chunk "Not Assumptions" has no file pointers' }),
     )
   })
@@ -198,7 +192,7 @@ describe("review — structure (checkSteering)", () => {
       "- some inferred note with no pointer",
       "",
     ])
-    expect(checkSteering(review, content)).toContainEqual(
+    expect(review.validate(content)).toContainEqual(
       expect.objectContaining({ message: 'Chunk "Assumptions" has no file pointers' }),
     )
   })
@@ -495,12 +489,12 @@ describe("review — same-line note", () => {
       "- [ ] ./a.ts#1-1 explains the change",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 
   it("does not report 'no file pointers' for a chunk whose only pointer carries a same-line note", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 note here", ""])
-    expect(checkSteering(review, content)).not.toContainEqual(
+    expect(review.validate(content)).not.toContainEqual(
       expect.objectContaining({ message: expect.stringContaining("no file pointers") }),
     )
   })
@@ -516,7 +510,7 @@ describe("review — same-line note", () => {
       "- [ ] ./my-file.ts#1-1 — dash note",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 
   it("strips an em dash, en dash, or hyphen run from the same-line segment", () => {
@@ -532,7 +526,7 @@ describe("review — same-line note", () => {
         `- [ ] ./a.ts#1-1 ${dash} note text`,
         "",
       ])
-      expect(checkSteering(review, content)).toEqual([])
+      expect(review.validate(content)).toEqual([])
     }
   })
 
@@ -548,14 +542,14 @@ describe("review — same-line note", () => {
       "  more detail below",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 })
 
 describe("review — a note starting with a second pointer is a positioned finding", () => {
   it("a same-line note whose first token is itself a pointer token yields one finding at the pointer's own sourceLine", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 ./b.ts#2", ""])
-    const findings = checkSteering(review, content)
+    const findings = review.validate(content)
     expect(findings).toContainEqual(
       expect.objectContaining({ line: 6, message: expect.stringContaining("second pointer") }),
     )
@@ -563,9 +557,7 @@ describe("review — a note starting with a second pointer is a positioned findi
 
   it("still fires when a separator sits between the two pointers", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 — ./b.ts#2", ""])
-    expect(checkSteering(review, content).some((f) => f.message.includes("second pointer"))).toBe(
-      true,
-    )
+    expect(review.validate(content).some((f) => f.message.includes("second pointer"))).toBe(true)
   })
 
   it("does not fire for a below-pointer line opening with a bare path — only the same-line segment is checked", () => {
@@ -580,9 +572,7 @@ describe("review — a note starting with a second pointer is a positioned findi
       "  ./src/foo.ts is the caller",
       "",
     ])
-    expect(checkSteering(review, content).some((f) => f.message.includes("second pointer"))).toBe(
-      false,
-    )
+    expect(review.validate(content).some((f) => f.message.includes("second pointer"))).toBe(false)
   })
 
   it("does not fire for a same-line note whose first word merely contains a dot", () => {
@@ -596,39 +586,31 @@ describe("review — a note starting with a second pointer is a positioned findi
       "- [ ] ./a.ts#1 v1.2.3 released",
       "",
     ])
-    expect(checkSteering(review, content).some((f) => f.message.includes("second pointer"))).toBe(
-      false,
-    )
+    expect(review.validate(content).some((f) => f.message.includes("second pointer"))).toBe(false)
   })
 
   it("does not fire for a bare './' token, reusing the minimum-path-length rule", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 ./ trailing", ""])
-    expect(checkSteering(review, content).some((f) => f.message.includes("second pointer"))).toBe(
-      false,
-    )
+    expect(review.validate(content).some((f) => f.message.includes("second pointer"))).toBe(false)
   })
 
   it("two pointer tokens crammed onto one hunk's own line are refused", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 ./b.ts#2", ""])
     expect(
-      checkSteering(review, content).some((f) =>
-        f.message.includes("note starts with a second pointer"),
-      ),
+      review.validate(content).some((f) => f.message.includes("note starts with a second pointer")),
     ).toBe(true)
   })
 
   it("renders the target as path#start-end when the first pointer carries a range", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1-9 ./b.ts#2", ""])
-    expect(
-      checkSteering(review, content).some((f) => f.message.includes("./a.ts#1-9's note")),
-    ).toBe(true)
+    expect(review.validate(content).some((f) => f.message.includes("./a.ts#1-9's note"))).toBe(true)
   })
 })
 
 describe("review — the line-without-a-range finding", () => {
   it("a bare '#42' pointer produces exactly one finding, naming the pointer and its chunk", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./src/calc.ts#42 — note", ""])
-    const findings = checkSteering(review, content)
+    const findings = review.validate(content)
     expect(findings).toHaveLength(1)
     expect(findings[0]!.message).toContain("./src/calc.ts#42")
     expect(findings[0]!.message).toContain('Chunk "Chunk"')
@@ -636,7 +618,7 @@ describe("review — the line-without-a-range finding", () => {
 
   it("the finding's line is the pointer's own 0-based sourceLine, and its range covers exactly the token", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./src/calc.ts#42 — note", ""])
-    const findings = checkSteering(review, content)
+    const findings = review.validate(content)
     expect(findings[0]!.line).toBe(6)
     expect(findings[0]!.range).toEqual({
       start: { line: 6, character: 6 },
@@ -655,18 +637,18 @@ describe("review — the line-without-a-range finding", () => {
       "- [ ] ./src/calc.ts#42-70 — note",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 
   it("a pointer with no '#' at all produces zero findings", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./src/calc.ts — note", ""])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 })
 
 describe("review — additional structural edges", () => {
   it("an entirely empty document reports the missing-header finding with no range (no first node to point at)", () => {
-    const findings = checkSteering(review, "")
+    const findings = review.validate("")
     expect(findings).toContainEqual({
       message: "Missing or malformed '# Review: <hash>' header as the document's first line",
     })
@@ -674,7 +656,7 @@ describe("review — additional structural edges", () => {
 
   it("a bare pointer with nothing else on its line or below has no note and is valid", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1-1", ""])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 
   it("the whole-chunk toggle action works from the last chunk (no next chunk to bound its end)", () => {
@@ -704,7 +686,7 @@ describe("review — additional structural edges", () => {
       "    Detail that is longer than eighty characters so it definitely wraps here nicely.",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 })
 
@@ -720,14 +702,12 @@ describe("review — inline segment resolution edge cases", () => {
       "- [ ] ./a.ts#1",
       "  ./b.ts#2 is unrelated prose",
     ])
-    expect(checkSteering(review, content).some((f) => f.message.includes("second pointer"))).toBe(
-      false,
-    )
+    expect(review.validate(content).some((f) => f.message.includes("second pointer"))).toBe(false)
   })
 
   it("a pointer with an empty paragraph (no text at all after it) has no findings", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1-1", ""])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 })
 
@@ -744,7 +724,7 @@ describe("review — continuation-line dash stripping", () => {
       "  — continuation note",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 
   it("keeps a dash mid-sentence on a continuation line", () => {
@@ -759,7 +739,7 @@ describe("review — continuation-line dash stripping", () => {
       "  a well-known dash mid-word",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 })
 
@@ -943,7 +923,7 @@ describe("review — pointerAt", () => {
 describe("review — clearFilePointerTicks (clearTicks)", () => {
   it("clears [X] as well as [x]", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [X] ./a.ts#1 note", ""])
-    expect(clearTicks(review, content)).toContain("- [ ] ./a.ts#1 note")
+    expect(review.clearTicks(content)).toContain("- [ ] ./a.ts#1 note")
   })
 
   it("preserves path, inline note, continuation lines, chunk headings, the base comment byte for byte", () => {
@@ -958,7 +938,7 @@ describe("review — clearFilePointerTicks (clearTicks)", () => {
       "  more detail",
       "",
     ])
-    const cleared = clearTicks(review, content)
+    const cleared = review.clearTicks(content)
     expect(cleared).toBe(content.replace("[x]", "[ ]"))
   })
 
@@ -973,7 +953,7 @@ describe("review — clearFilePointerTicks (clearTicks)", () => {
       "- [x] ./src/calc.ts#42-70 — note",
       "",
     ])
-    expect(clearTicks(review, content)).toContain("- [ ] ./src/calc.ts#42-70 — note")
+    expect(review.clearTicks(content)).toContain("- [ ] ./src/calc.ts#42-70 — note")
   })
 
   it("a CRLF document with a ticked range pointer keeps its CRLF line endings byte for byte after clearing", () => {
@@ -987,7 +967,7 @@ describe("review — clearFilePointerTicks (clearTicks)", () => {
       "- [x] ./a.ts#1-9 note",
       "",
     ]).replace(/\n/g, "\r\n")
-    const cleared = clearTicks(review, content)
+    const cleared = review.clearTicks(content)
     expect(cleared).toBe(content.replace("[x]", "[ ]"))
     expect(cleared).toContain("\r\n")
     expect(cleared).not.toMatch(/(?<!\r)\n/)
@@ -1004,7 +984,7 @@ describe("review — clearFilePointerTicks (clearTicks)", () => {
       "- [ ] ./a.ts#1",
       "  - [x] ./nested.ts#1",
     ])
-    expect(clearTicks(review, content)).toContain("- [ ] ./nested.ts#1")
+    expect(review.clearTicks(content)).toContain("- [ ] ./nested.ts#1")
   })
 
   it("does NOT clear an indented checked item whose content isn't a pointer — never 'every checked task item'", () => {
@@ -1018,7 +998,7 @@ describe("review — clearFilePointerTicks (clearTicks)", () => {
       "- [ ] ./a.ts#1",
       "  - [x] not a real path",
     ])
-    expect(clearTicks(review, content)).toContain("- [x] not a real path")
+    expect(review.clearTicks(content)).toContain("- [x] not a real path")
   })
 
   it("leaves a [x] in prose alone", () => {
@@ -1032,34 +1012,34 @@ describe("review — clearFilePointerTicks (clearTicks)", () => {
       "prose with [x] in it",
       "- [ ] ./a.ts#1",
     ])
-    expect(clearTicks(review, content)).toBe(content)
+    expect(review.clearTicks(content)).toBe(content)
   })
 
   it("leaves a [x] in a chunk heading alone", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk [x]", "", "- [ ] ./a.ts#1"])
-    expect(clearTicks(review, content)).toBe(content)
+    expect(review.clearTicks(content)).toBe(content)
   })
 
   it("leaves a `- [x]` line with no whitespace-delimited pointer token after the box alone (qa-shaped content)", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [x] not a pointer at all", ""])
-    expect(clearTicks(review, content)).toBe(content)
+    expect(review.clearTicks(content)).toBe(content)
   })
 
   it("is idempotent", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [x] ./a.ts#1 note", ""])
-    const once = clearTicks(review, content)
-    expect(clearTicks(review, once)).toBe(once)
+    const once = review.clearTicks(content)
+    expect(review.clearTicks(once)).toBe(once)
   })
 
   it("is total and never throws on an empty or malformed string", () => {
-    expect(() => clearTicks(review, "")).not.toThrow()
-    expect(clearTicks(review, "")).toBe("")
-    expect(() => clearTicks(review, "not markdown at all {{{")).not.toThrow()
+    expect(() => review.clearTicks("")).not.toThrow()
+    expect(review.clearTicks("")).toBe("")
+    expect(() => review.clearTicks("not markdown at all {{{")).not.toThrow()
   })
 
   it("is a no-op (returns the identical string) when there is nothing to clear", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 note", ""])
-    expect(clearTicks(review, content)).toBe(content)
+    expect(review.clearTicks(content)).toBe(content)
   })
 })
 
@@ -1078,17 +1058,17 @@ describe("review — footnotes wired into the review format", () => {
       "    Detail that is longer than eighty characters so it definitely wraps here nicely.",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 
   it("surfaces all four footnote findings through validate, each with its line", () => {
     const content = doc([HEADER, "", BASE, "", "## Chunk", "", "- [ ] ./a.ts#1 note[^orphan]", ""])
-    const findings = checkSteering(review, content)
+    const findings = review.validate(content)
     expect(findings.some((f) => f.message.includes("has no matching definition"))).toBe(true)
   })
 
   it("review.validate(sample) returns zero findings", () => {
-    expect(checkSteering(review, review.sample)).toEqual([])
+    expect(review.validate(review.sample)).toEqual([])
   })
 
   it("strips a marker written directly against the pointer token, instead of corrupting the path", () => {
@@ -1105,7 +1085,7 @@ describe("review — footnotes wired into the review format", () => {
       "    Detail that is longer than eighty characters so it definitely wraps here nicely.",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 })
 
@@ -1208,7 +1188,7 @@ describe("review — header, base comment, and chunk headings come from nodes", 
       "",
       "- [ ] ./a.ts#1",
     ])
-    expect(checkSteering(review, content)).toContainEqual(
+    expect(review.validate(content)).toContainEqual(
       expect.objectContaining({
         message: "Missing or malformed '# Review: <hash>' header as the document's first line",
       }),
@@ -1217,7 +1197,7 @@ describe("review — header, base comment, and chunk headings come from nodes", 
 
   it("finds the base comment wherever it appears in the document", () => {
     const content = doc([HEADER, "", "## Chunk", "", "- [ ] ./a.ts#1 note", "", BASE, ""])
-    expect(checkSteering(review, content)).not.toContainEqual(
+    expect(review.validate(content)).not.toContainEqual(
       expect.objectContaining({ message: "Missing '<!-- base: <hash> -->' comment" }),
     )
   })
@@ -1236,7 +1216,7 @@ describe("review — header, base comment, and chunk headings come from nodes", 
       "",
       "- [ ] ./a.ts#1",
     ])
-    const findings = checkSteering(review, content)
+    const findings = review.validate(content)
     expect(findings.some((f) => f.message.includes('Chunk "Fake chunk"'))).toBe(false)
   })
 })
@@ -1254,7 +1234,7 @@ describe("review — nested hunks are the same hunks", () => {
       "  - [x] ./nested.ts#1",
       "",
     ])
-    expect(clearTicks(review, content)).toContain("- [ ] ./nested.ts#1")
+    expect(review.clearTicks(content)).toContain("- [ ] ./nested.ts#1")
   })
 
   it("the parent hunk's note does NOT contain its nested hunk's text", () => {
@@ -1269,17 +1249,17 @@ describe("review — nested hunks are the same hunks", () => {
       "  - [ ] ./nested.ts#1-1 nested note",
       "",
     ])
-    expect(checkSteering(review, content)).toEqual([])
+    expect(review.validate(content)).toEqual([])
   })
 })
 
 describe("review — total over a structurally broken document", () => {
   it("clearFilePointerTicks still clears ticks in a structurally broken document", () => {
-    expect(() => clearTicks(review, "not markdown at all {{{ [x]")).not.toThrow()
+    expect(() => review.clearTicks("not markdown at all {{{ [x]")).not.toThrow()
   })
 
-  it("parseReviewDoc (via checkSteering) never throws on arbitrary/malformed input", () => {
-    expect(() => checkSteering(review, "\0\0\0")).not.toThrow()
+  it("parseReviewDoc (via validate) never throws on arbitrary/malformed input", () => {
+    expect(() => review.validate("\0\0\0")).not.toThrow()
   })
 })
 

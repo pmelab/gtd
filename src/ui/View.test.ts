@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs"
-import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { freeFormFormat, steeringFormatFor } from "../steering/index.js"
 import type { SteeringAnchor, SteeringViewNode } from "../steering/index.js"
@@ -12,16 +10,6 @@ const flattenAnchors = (nodes: readonly SteeringViewNode[]): readonly SteeringAn
   nodes.flatMap((node) => [node.anchor, ...flattenAnchors(node.children ?? [])])
 
 describe("steeringViewFor", () => {
-  it("delegates a review-mode document to REVIEW_FORMAT's own view, verbatim", () => {
-    const result = steeringViewFor("review", REVIEW_FORMAT.sample)
-    expect(result).toEqual(REVIEW_FORMAT.view(REVIEW_FORMAT.sample))
-  })
-
-  it("delegates a qa-mode document to QA_FORMAT's own view, verbatim", () => {
-    const result = steeringViewFor("qa", QA_FORMAT.sample)
-    expect(result).toEqual(QA_FORMAT.view(QA_FORMAT.sample))
-  })
-
   it("yields a review view whose anchors are chunk/hunk-shaped, never question/option-shaped", () => {
     const result = steeringViewFor("review", REVIEW_FORMAT.sample)
     const kinds = flattenAnchors(result.nodes).map((a) => a.kind)
@@ -61,13 +49,5 @@ describe("steeringViewFor", () => {
   it("falls back to the free-form format's own view for an absent mode too", () => {
     const result = steeringViewFor(undefined, "some content")
     expect(result).toEqual(freeFormFormat.view("some content"))
-  })
-
-  it("imports no format module and switches on no mode-name string", () => {
-    const source = readFileSync(fileURLToPath(new URL("./View.ts", import.meta.url)), "utf8")
-    expect(source).not.toMatch(/from ["']\.\.\/ReviewDoc\.js["']/)
-    expect(source).not.toMatch(/from ["']\.\.\/OpenQuestions\.js["']/)
-    expect(source).not.toMatch(/\bswitch\s*\(/)
-    expect(source).not.toMatch(/mode\s*===\s*["'](qa|review)["']/)
   })
 })

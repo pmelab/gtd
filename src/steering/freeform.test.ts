@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { freeFormFormat } from "./freeform.js"
-import { builtInModeNames, steeringFormatFor } from "./index.js"
+import { BUILT_IN_MODE_NAMES, steeringFormatFor } from "./index.js"
 
 /** Applies edits back-to-front — a local copy of the file's own splice pattern, mirroring `qa.test.ts`/`review.test.ts`'s identical helper. */
 const applyEdits = (
@@ -76,7 +76,7 @@ describe("freeFormFormat — registry", () => {
   })
 
   it("is not among the built-in mode names", () => {
-    expect(builtInModeNames()).not.toContain("freeform")
+    expect(BUILT_IN_MODE_NAMES).not.toContain("freeform")
   })
 })
 

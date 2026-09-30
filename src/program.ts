@@ -31,9 +31,7 @@ import { planEntry, planStep as planStepPure, type JudgeVerdict } from "./step/i
 import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
 import {
-  builtInModeNames,
-  checkSteering,
-  clearTicks,
+  BUILT_IN_MODE_NAMES,
   steeringFormatFor,
   unansweredQuestions,
   type SteeringFinding,
@@ -91,15 +89,7 @@ type Rest = Effect.Effect.Success<typeof currentRest>
  */
 export class SelectorUsageError extends Error {}
 
-/**
- * The `--json=<path>` select branch, shared by `runNextCommand`,
- * `runLandCommand`, and `runJudgeAnswerCommand` (which emits the same
- * `LandFields` shape `gtd land` does) so none of the three drift on the
- * unknown-selector message: a `value` writes its text plus exactly one
- * trailing newline, `absent` writes nothing (the caller's normal success
- * path continues), and `unknown` fails with `SelectorUsageError` (mapped to
- * `EXIT_USAGE_ERROR` by `Cli.ts`'s `report`).
- */
+/** The `--json=<path>` select branch, shared by all three emitting commands so none drift on the unknown-selector message. `absent` writes nothing and lets the caller's success path continue. */
 const writeSelection = (
   out: ArtifactOut,
   fields: BeatDocument | LandFields,
@@ -141,15 +131,11 @@ const runInstallCommand = (out: ArtifactOut): Effect.Effect<void> =>
   })
 
 /**
- * `gtd init`: scaffold a minimal `.gtdrc.json` seeding `vars.testCommand` and
- * a Prettier formatting suggestion — no `workflow:` key, since gtd's built-in
- * default runs whenever none is configured. Uses its own, more permissive
- * location check (`assertInitLocation`, which also allows a directory outside
- * any repository) rather than the shared repo-root guard, since it writes
- * `.gtdrc.json` at the root and refuses to clobber an existing config. The
- * file is left uncommitted, so the message warns to commit it before the
- * first `gtd land` (an uncommitted config would otherwise be captured as a
- * pending change by the initial state's own edge).
+ * Scaffolds a minimal `.gtdrc.json` — no `workflow:` key, since the built-in
+ * default runs whenever none is configured. Uses its own more permissive
+ * location check, which also allows a directory outside any repository. The
+ * file is left uncommitted, and the message says to commit it before the
+ * first `gtd land`, which would otherwise capture it as a pending change.
  */
 const runInitCommand = (
   out: ArtifactOut,
@@ -235,16 +221,7 @@ interface LandOptions {
   readonly judge?: readonly JudgeVerdict[]
 }
 
-/**
- * Decide the one resulting transition (a commit) for `gtd land` without
- * performing it, authenticating as `rest.actor`. Refusals fail the Effect
- * with a formatted message; a no-op returns `subject: null` and empty
- * scripts.
- *
- * `snapshotFromRest` + `src/step/`'s pure `planStep` do the actual deciding
- * (`.gtd/packages/05-step-core.md`) — this wraps that outcome into the
- * `--json`-shaped `LandResult`.
- */
+/** Decides `gtd land`'s one transition without performing it. Refusals fail the Effect; a no-op returns `subject: null` and empty scripts. */
 const planLanding = (
   opts: LandOptions = {},
 ): Effect.Effect<LandResult, Error, CommandRequirements> =>
@@ -305,15 +282,7 @@ const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
     out.write(rendered.endsWith("\n") ? rendered : rendered + "\n")
   })
 
-/**
- * `gtd base`: print the review anchor hash — `reviewBaseFor(rest)` — bare and newline-terminated, so an external tool (a diff, a
- * PR tool, another agent) can be pointed at the range under review. Shaped
- * exactly like `runSummaryCommand`: one `Rest` resolved, nothing written — no
- * git, no state transition, no session identity. Refuses (mapped to the
- * runtime-error exit code) when the resolved run has no commits to name —
- * the only case where the hash would name a range that corresponds to no
- * review, exactly the way `runSummaryCommand` refuses on an empty trace.
- */
+/** Prints the review anchor hash bare, so an external tool can be pointed at the range under review. Nothing is written. Refuses when the run has no commits, where the hash would name a range with no review. */
 const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
@@ -324,19 +293,7 @@ const runBaseCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandReq
     out.write(`${base}\n`)
   })
 
-/**
- * `gtd judge`: read-only peek at the resolved rest's pending judgment — the
- * same `judge` field `gtd next --json` already carries (`renderRest`'s
- * `RenderedRest.judge`, the JSON document `{ state, questions: [...] }`).
- * Refuses (mapped to the runtime-error exit code) when the resolved rest is
- * not a judge step — a
- * state may legitimately have none. `--json`'s three shapes match `gtd
- * next`/`gtd land`: bare prints the whole document (`rendered.judge`
- * itself), `--json=<path>` selects a dotted key out of it via the same
- * `selectPath`/`SelectorUsageError` machinery (an unknown path exits with
- * the usage-error code), plain output (no `--json`) prints the document
- * verbatim, same as before this flag was wired in.
- */
+/** A read-only peek at the pending judgment — the same document `gtd next --json` carries. Refuses when the rest is not a judge step. `--json`'s three shapes match `gtd next`/`gtd land`. */
 const runJudgeCommand = (
   json: JsonMode,
   out: ArtifactOut,
@@ -433,15 +390,10 @@ const verdictSchemaFor = (ids: readonly string[]) =>
   )
 
 /**
- * `gtd judge answer`: decode a verdict off stdin against the pending
- * judgment's own question ids, then land the CURRENT turn through the SAME
- * `planLanding` path `gtd land` uses — `planLanding({ judge })`, one shared
- * decision path so the two can never drift on the required-half /
- * optional-half script contract, `settled`/`idle`, or the `Gtd-Judge: <json>`
- * trailer `planStep`'s `renderDecision` adds per answered question (the way
- * `--cost`/`--model` already carry `Gtd-Cost:`). `--json` therefore emits the
- * same pinned 7-key `LandFields` `gtd land --json` does; plain output points
- * at `gtd judge answer --json=script`, not `gtd land`'s own hint.
+ * Decodes a verdict off stdin against the pending judgment's question ids,
+ * then lands through the SAME `planLanding` path `gtd land` uses, so the two
+ * can never drift on the script contract, `settled`/`idle`, or the
+ * `Gtd-Judge:` trailer. `--json` emits the same `LandFields`.
  */
 const runJudgeAnswerCommand = (
   json: JsonMode,
@@ -486,15 +438,10 @@ const runJudgeAnswerCommand = (
   })
 
 /**
- * `gtd land [--cost=<n>] [--model=<name>]`: land whatever the tree shows at
- * the currently resolved rest, authenticated as the rest's own actor.
- * Plain output is `renderLandPlain`'s prose — the commit subject plus a
- * pointer at `--json=script`, or the no-op note when nothing landed — never
- * the script itself; `--json` emits `script` (byte-identical to before)
- * alongside `settled`/`idle`/`state`/`subject`/`cost`/`model`, so it stays
- * the machine path a driver pipes to `sh`. Exit code is uniformly `EXIT_OK`
- * on success — whose turn is next lives in the following `gtd next --json`'s
- * `kind` field.
+ * Lands whatever the tree shows at the resolved rest. Plain output is prose
+ * and never the script; `--json` carries it, so that stays the machine path a
+ * driver pipes to `sh`. Exit code is uniformly `EXIT_OK` on success — whose
+ * turn is next lives in the following `gtd next --json`'s `kind`.
  */
 const runLandCommand = (
   opts: LandOptions,
@@ -514,19 +461,13 @@ const runLandCommand = (
   })
 
 /**
- * `gtd --entry <state> [--var <name>=<value> ...]` (`actor` always `"human"`):
- * start a brand new process the flow opens for `<state>`.
- * Writes an ordinary turn commit carrying zero or more `Gtd-Var:` trailers,
- * plus a `Gtd-Review-Base:` trailer when `<state>` declares a `reviewBase:`.
- * Commits via `commitAllWithPrefix` — capturing whatever the working tree
- * carries at entry, like an ordinary `gtd land` capture, rather than
- * demanding a clean tree.
+ * Starts a brand new process at `<state>`, always as `"human"`. Captures
+ * whatever the working tree carries at entry, like an ordinary land, rather
+ * than demanding a clean tree.
  *
- * Refused when: a process is already underway; the flow does not open one
- * for `<state>` (see `entryRefusal`); a `--var` name isn't
- * declared by the workflow's or `.gtdrc`'s `vars:`; or `<state>`'s
- * `reviewBase:` template doesn't render to a commitish that's an ancestor of
- * (and differs from) HEAD.
+ * Refused when a process is already underway, the flow opens none for
+ * `<state>`, a `--var` name is undeclared, or `reviewBase:` renders to
+ * something that is not an ancestor of (and differs from) HEAD.
  */
 const runEntryCommand = (
   actor: string,
@@ -558,26 +499,17 @@ const runEntryCommand = (
   })
 
 /**
- * `gtd abandon`: end the process currently underway without completing it,
- * returning the machine to the workflow's initial state — the recovery path
- * out of a process nobody is going to finish.
+ * Ends the process underway without completing it. Nothing is discarded: a
+ * `git reset --mixed` to the process's start commit leaves every turn
+ * commit's content in the working tree.
  *
- * Nothing is discarded: it `git reset --mixed`es HEAD to the commit the
- * process started from, dropping every turn commit while leaving everything
- * they carried in the working tree as uncommitted changes.
+ * Reads state off the trace rather than `resolveRest`, which refuses when HEAD
+ * names a state the current workflow no longer declares — exactly the
+ * situation this command must still work in, and why the read-side checks
+ * stay direct `GitService` reads.
  *
- * Reads the current state off `computeProcessRun`'s own trace rather than
- * `resolveRest`, which refuses when HEAD names a state the current workflow
- * no longer declares — exactly the situation this command must still work in.
- *
- * Idempotent: resting at the initial state is a no-op success, not a
- * refusal. The one refusal is a process whose first commit is the
- * repository's own root commit — there's no earlier commit to rewind to.
- *
- * The read-side checks stay direct `GitService` reads (the documented
- * exception) since abandon must work even when a `Rest` would refuse; the
- * mutation itself is emitted as a `required` bash script for the driver to
- * run.
+ * Idempotent at the initial state. The one refusal is a process whose first
+ * commit is the repository's root commit: nothing earlier to rewind to.
  */
 const runAbandonCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
@@ -689,19 +621,13 @@ const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
   rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
 
 /**
- * Resolve the resting state's own steering-file validate script — shared by
- * `gtd validate --json` and `gtd next --json`'s embedded `validate` field so
- * the two surfaces can't drift. `undefined` = nothing to validate: no
- * `file:`+`mode:` declared. An unknown `mode:` fails this Effect;
- * `runNextCommand` is the one caller that degrades that to omitting
- * `validate`.
+ * Shared by `gtd validate --json` and `gtd next --json`'s `validate` field so
+ * the two can't drift. `undefined` means no `file:`+`mode:` declared.
  *
- * The declared file's presence is checked inside the emitted script itself
- * (`fileExistsGuard`), not here, since it's only knowable after the turn —
- * so a turn that legitimately wrote nothing exits 0 with nothing to do
- * rather than burning a fix turn. The contradiction round-trip is emitted
- * before that guard, so it still runs at that same first-write beat
- * (`SteeringMode.ts`'s `validateScriptFor`).
+ * The file's presence is checked inside the emitted SCRIPT, not here: it is
+ * only knowable after the turn, so a turn that legitimately wrote nothing
+ * exits 0 rather than burning a fix turn. The contradiction round-trip is
+ * emitted before that guard, so it still runs at the first-write beat.
  */
 const resolveValidateScript = (
   rest: Rest,
@@ -763,16 +689,7 @@ const runNextCommand = (
     }
   })
 
-/**
- * `gtd validate`: emit the script that would format then validate the
- * resolved rest's declared steering file, for the driver to run. The command
- * itself reads no file and executes nothing: a state with no
- * `file:`/`mode:`, or a file absent from the working tree, has nothing to
- * validate (exit 0 either way) — the verdict lives in the emitted script's
- * own future exit code. When the validator is a command, the last rendered
- * command carries `onFailure: fixPromptInstruction(file)`, so a non-zero
- * exit prints the complete fix prompt rather than bare findings.
- */
+/** Emits the format-then-validate script for the driver to run; reads no file and executes nothing itself. The verdict lives in that script's future exit code, which prints the complete fix prompt rather than bare findings. */
 const runValidateCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const rest = yield* currentRest
@@ -784,15 +701,7 @@ const runValidateCommand = (out: ArtifactOut): Effect.Effect<void, Error, Comman
     )
   })
 
-/**
- * `file:line:col: message` — the shape editors and grep-style tools already
- * jump on. The column comes from `range.start`, 0-based stored, 1-based
- * printed like `line`. A finding with a `line` but no `range` prints
- * `file:line: message` instead (no built-in format produces that shape any
- * more — a range always carries a column — but the flat, optional
- * `SteeringFinding` shape still allows it, for a future format). A
- * positionless finding prints its bare message.
- */
+/** `file:line:col: message` — the shape editors and grep already jump on. Stored 0-based, printed 1-based. A finding with a `line` but no `range`, or none at all, degrades to the shorter forms. */
 export const formatFinding = (file: string, finding: SteeringFinding): string => {
   if (finding.line === undefined) return finding.message
   const col = finding.range !== undefined ? `:${finding.range.start.character + 1}` : ""
@@ -800,22 +709,12 @@ export const formatFinding = (file: string, finding: SteeringFinding): string =>
 }
 
 /**
- * `gtd check <mode> <file>`: read `<file>` and run the built-in steering
- * format named `<mode>`'s pure parser over its contents, printing each
- * finding one per line and exiting non-zero when there are any. Resolves no
- * workflow state and reads no config — both `mode` and `file` are given
- * explicitly. This is what a workflow's seeded `validate:` command invokes
- * as a leaf step; it does no formatting in-place.
+ * Runs `<mode>`'s parser over `<file>`, exiting non-zero on any finding.
+ * Resolves no workflow state and reads no config — this is what a seeded
+ * `validate:` command invokes as a leaf step, and it formats nothing.
  *
- * An absent file mirrors `gtd validate`'s absent-file behavior: exit 0. A
- * non-clean parse writes nothing through `out` — the findings instead ride
- * the failing Effect's own message, so `Cli.ts`'s shared refusal path
- * reports them on stderr.
- *
- * `--open-questions` replaces this structural-findings path with
- * `runOpenQuestionsCheckCommand`, below, but only after the same
- * unknown-mode validation runs, and only for `mode === "qa"` (the only mode
- * the open-questions predicate applies to).
+ * An absent file exits 0, like `gtd validate`. Findings ride the failing
+ * Effect's message, so the shared refusal path reports them on stderr.
  */
 const runCheckCommand = (
   mode: string,
@@ -827,7 +726,7 @@ const runCheckCommand = (
     if (format === undefined) {
       return yield* Effect.fail(
         new Error(
-          `gtd check: unknown mode "${mode}" — known modes: ${builtInModeNames().join(", ")}`,
+          `gtd check: unknown mode "${mode}" — known modes: ${BUILT_IN_MODE_NAMES.join(", ")}`,
         ),
       )
     }
@@ -845,7 +744,7 @@ const runCheckCommand = (
     const content = workspace.atPath(file)
     const errors =
       content !== undefined
-        ? checkSteering(format, content).map((finding) => formatFinding(file, finding))
+        ? format.validate(content).map((finding) => formatFinding(file, finding))
         : []
 
     if (errors.length === 0) return
@@ -859,14 +758,9 @@ const runCheckCommand = (
   })
 
 /**
- * `gtd check <mode> <file> --open-questions`: read `<file>` and run
- * `src/steering/index.ts`'s `unansweredQuestions` — the same predicate a
- * flow's `openQuestions()` reads — printing one unanswered question per line
- * and exiting non-zero when any remain. Sharing the one function keeps the
- * gate script and the flow's own check in sync.
- *
- * A missing or unreadable file is a non-zero exit, unlike the structural
- * path above, which treats an absent file as "nothing to report".
+ * Runs the SAME `unansweredQuestions` predicate a flow's `openQuestions()`
+ * reads, so the gate script and the flow's own check stay in sync. A missing
+ * file is a non-zero exit here, unlike the structural path above.
  */
 const runOpenQuestionsCheckCommand = (
   format: SteeringFormat,
@@ -892,18 +786,12 @@ const runOpenQuestionsCheckCommand = (
   })
 
 /**
- * `gtd uncheck <file>`: read `<file>`, apply `clearTicks` against the
- * `review` format, and write the result back only when the bytes actually
- * changed — an untouched file is never rewritten, so its mtime never moves.
- * Resolves no workflow
- * state and reads no config — standalone, runnable from any directory with
- * `<file>` given explicitly, shaped exactly like `gtd check <mode> <file>`.
+ * Clears the `review` format's ticks in `<file>`, writing back only when the
+ * bytes changed so an untouched file's mtime never moves. Standalone: no
+ * workflow state, no config.
  *
- * Takes no `<mode>` argument, and must never grow one: this command means
- * review-mode file pointers and nothing else — `gtd check <mode> <file>`
- * already handles `qa`-mode's answered-question boxes, which this command
- * must never touch. A missing file writes nothing and exits 0, mirroring
- * `gtd check`'s absent-file behavior.
+ * Takes no `<mode>` argument and must never grow one — this means review
+ * pointers and nothing else, and must never touch `qa`'s answer boxes.
  */
 const runUncheckCommand = (file: string): Effect.Effect<void, Error, Workspace> =>
   Effect.gen(function* () {
@@ -916,7 +804,7 @@ const runUncheckCommand = (file: string): Effect.Effect<void, Error, Workspace> 
     const content = workspace.atPath(file)
     if (content === undefined) return
 
-    const cleared = clearTicks(format, content)
+    const cleared = format.clearTicks(content)
     if (cleared === content) return
 
     yield* workspace.writeAtPath(file, cleared)

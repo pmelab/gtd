@@ -44,55 +44,28 @@ export interface ReviewViewProps {
   /** The `readSteeringFile` query's own thrown error — mirrors `Plan.tsx#PlanViewProps.readError`'s identical doc comment. */
   readonly readError?: unknown
   /**
-   * `true` only for the real `Review` container — every hunk screen then
-   * fetches its own diff live via `HunkDeck`'s `trpc.diff` call
-   * (`Server.ts`'s `diff` procedure, `Diff.ts#resolveDiff` resolve against
-   * the one worktree the server serves; no path of any kind travels from
-   * this client). `Review.stories.tsx`'s own pure-data stories leave this
-   * unset and see `Hunk.tsx`'s permanent "Loading diff…" state instead —
-   * every OTHER diff shape (whole-file banner, binary, no-changes, refused)
-   * is driven directly at `Hunk.stories.tsx`'s own layer, which takes a
-   * `diff` prop straight from the caller with no fetch involved at all.
+   * `true` only for the real container, where every hunk screen fetches its
+   * own diff live against the one worktree the server serves. Pure-data
+   * stories leave it unset and see the permanent "Loading diff…" state; every
+   * other diff shape is driven at the `Hunk` layer, which takes a `diff` prop
+   * with no fetch at all.
    */
   readonly live?: boolean
   /**
-   * Called with a saved note's `anchor`/`text` — the real `Review` container
-   * wires this to an actual `writeNote` mutation (compare-and-swap against
-   * the `headSha`/`contentHash` its own `readSteeringFile` fetch returned),
-   * returning `writeNote.mutateAsync`'s OWN promise so `useReviewState` can
-   * revert its optimistic override on a rejection (a `CONFLICT` refusal, a
-   * network failure, …) — otherwise a refused write leaves the local
-   * override in place forever, and the "keeps this round open" badge keeps
-   * claiming a footnote that was never actually written. Local optimistic
-   * state (below) still updates immediately either way, so the sheet's own
-   * save feels instant. Absent in `Review.stories.tsx`'s pure-data stories.
+   * Returns the mutation's OWN promise so `useReviewState` can revert its
+   * optimistic override on a rejection — otherwise a refused write leaves the
+   * override in place forever and the "keeps this round open" badge claims a
+   * footnote that was never written. The local state still updates
+   * immediately, so the save feels instant either way.
    */
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
   /** The done action (T2): saves the SAME note `onSaveNote` would, then hands the turn back — mirrors `Plan.tsx#PlanViewProps.onDoneNote`'s identical doc comment. Absent in `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`. */
   readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
   /** Ends the turn with no note — mirrors `Plan.tsx#PlanViewProps.onDone`: drives both the chunk list's `review-done` footer and the hunk deck's own Done control. */
   readonly onDone?: () => Promise<unknown>
-  /**
-   * Write-through for a hunk/chunk tick (package 03): the real `Review`
-   * container wires this to `trpc.setValue.mutateAsync` (invalidating
-   * `readSteeringFile` on settle), the exact SAME compare-and-swap `onSaveNote`
-   * uses for a note, just calling `SteeringFormat.apply` server-side instead
-   * of `annotate`. `useReviewState`'s `ticked` map stays optimistic/local
-   * either way — this is the write-through ALONGSIDE it, mirroring
-   * `saveNote`'s own revert-on-rejection pattern. Absent in
-   * `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`.
-   */
+  /** Write-through for a hunk/chunk tick — the same compare-and-swap `onSaveNote` uses, through `apply` rather than `annotate`. The `ticked` map stays optimistic; this runs alongside it. */
   readonly onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>
-  /**
-   * Every write refusal this screen's mutations surface (package 03 Task 1)
-   * — the same `RefusalBanner` the real `Review` container mounts above
-   * this view shows a named reason instead of the write silently reverting.
-   * The optional second argument (task 01) mirrors
-   * `Plan.tsx#PlanViewProps.onRefusal`'s identical doc comment — see that
-   * for why `saveNote`/`toggleChunk`/`setHunkChecked` below each supply one
-   * and `doneNote` doesn't. Absent in `Review.stories.tsx`'s pure-data
-   * stories.
-   */
+  /** Every write refusal this screen's mutations surface, so `RefusalBanner` names a reason instead of the write silently reverting. Second argument as in `PlanViewProps.onRefusal`. */
   readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
 }
 

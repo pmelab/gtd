@@ -17,13 +17,10 @@ export interface QuestionAnswer {
 }
 
 /**
- * Exactly one ticked option seeds a real selection; ZERO or TWO-OR-MORE both
- * seed `undefined` — never "pick the first one" for the multi-tick case,
- * which would render "answered" for a document the server's own
- * `isAnswered`/landing gate both read as unanswered (`ticked.length !== 1`
- * fails immediately). A stale/malformed `node.children` snapshot with two
- * `- [x]` options is the one shape this guards against; the radio UI itself
- * can never produce it once a human is driving the screen.
+ * Exactly one ticked option seeds a selection; zero or two-or-more both seed
+ * `undefined` — never "pick the first", which would render "answered" for a
+ * document the server's own gate reads as unanswered. Guards against a stale
+ * snapshot with two `- [x]` options, which the radio UI cannot itself produce.
  */
 const singleCheckedIndex = (options: readonly SteeringViewNode[]): number | undefined => {
   const checkedIndices = options
@@ -46,52 +43,26 @@ export interface QuestionProps {
   /** One `qa`-view question node — `children` are its options, the LAST one (by array position, never by label) the free-text slot. */
   readonly node: SteeringViewNode
   /**
-   * Fully CONTROLLED: the caller (`Plan.tsx`'s `PlanView`, or a story's own
-   * harness) owns this state, keyed per-question, so it survives `Deck`
-   * navigating away and back — this component holds no `useState` of its
-   * own for the answer. Without this, paging next-then-back through the
-   * deck silently discarded whatever the human had just answered, since
-   * `Deck`'s `renderItem` remounts a fresh `Question` per index.
+   * Fully CONTROLLED, keyed per-question by the caller, so an answer survives
+   * `Deck` navigating away and back — its `renderItem` remounts a fresh
+   * `Question` per index, which silently discarded answers before.
    *
-   * Accepts a FUNCTIONAL updater as well as a plain value — the same shape
-   * React's own `setState` offers, and for the same reason: the
-   * refusal-revert sequence (`commitAnchor`'s `.catch`, below) fires after an
-   * awaited write, so it must read "current answer" no earlier than the
-   * moment it actually applies — a plain value computed at commit time would
-   * silently clobber whatever was typed while that write was in flight. A
-   * functional updater instead defers the read of "current text" to WHEN the
-   * caller's own `setState` applies it, which sees the true latest state no
-   * matter how old the closure calling it is.
+   * Accepts a FUNCTIONAL updater because the refusal-revert fires after an
+   * awaited write: a plain value computed at commit time would clobber
+   * whatever was typed while that write was in flight.
    */
   readonly answer: QuestionAnswer
   readonly onAnswerChange: (
     update: QuestionAnswer | ((prev: QuestionAnswer) => QuestionAnswer),
   ) => void
-  /**
-   * Write-through to the steering file (package 03): the real `Plan`
-   * container wires this to `trpc.setValue.mutateAsync` followed by a
-   * `readSteeringFile` invalidation, mirroring `Plan.tsx`'s own
-   * `onSaveNote`/`onDoneNote` pattern — fired ALONGSIDE `onAnswerChange`
-   * (never instead of it), so the controlled local state above still gives
-   * instant tap feedback regardless of the write's own latency or outcome.
-   * Absent in `Question.stories.tsx`'s/`Plan.stories.tsx`'s pure-data
-   * stories, exactly like those two.
-   */
+  /** Write-through to the steering file, fired ALONGSIDE `onAnswerChange` and never instead of it, so the controlled state above still gives instant tap feedback whatever the write's latency. */
   readonly onCommitAnswer?: (
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ) => Promise<unknown>
   /** Fires on every refusal a `commitAnchor`-issued write surfaces (package 03's Task 1) — alongside the revert, never instead of it. Absent exactly where `onCommitAnswer` is absent (`Question.stories.tsx`'s pure-data stories). */
   readonly onRefusal?: (error: unknown) => void
-  /**
-   * The question's own body's note overrides, keyed by each body block's
-   * `paragraph` anchor line — the SAME shape `Plan.tsx#PlanView` already
-   * keeps for the list screen's own prose (`noteOverrides`), threaded down
-   * here so a note saved on a body block while drilled into this question
-   * shows up immediately, without waiting on a `readSteeringFile` refetch.
-   * Defaults to `{}` so `Question.stories.tsx`'s pure-data stories (and any
-   * question with no body) never have to pass one.
-   */
+  /** Note overrides keyed by body-block anchor line, so a note saved while drilled into this question shows immediately rather than waiting on a refetch. */
   readonly noteOverrides?: Readonly<Record<number, string>>
   /**
    * Opens the note sheet for one of this question's own body blocks —
@@ -222,13 +193,10 @@ export const Question = ({
   const { selected } = answer
 
   /**
-   * The free-text draft (package 03 Task 3) — NOT in the caller's `answer`
-   * map: seeded once from this question's own starting text and otherwise
-   * untouched by any prop, so it dies the moment `Deck` remounts a fresh
-   * `Question` for a different index, rather than surviving navigation like
-   * `selected` does. This inverts the fully-controlled design `QuestionAnswer`
-   * otherwise keeps — deliberately, since "types, navigates away, returns,
-   * box is empty" is only true if the draft dies with the component.
+   * The free-text draft, deliberately NOT in the caller's `answer` map: it
+   * dies when `Deck` remounts, rather than surviving navigation like
+   * `selected` does. Inverting the controlled design here is the only way
+   * "types, navigates away, returns, box is empty" holds.
    */
   const [freeText, setFreeTextState] = useState(() => defaultAnswerFor(node).freeText)
   const [answerSheetOpen, setAnswerSheetOpen] = useState(false)
@@ -237,16 +205,12 @@ export const Question = ({
   const selectLocally = (index: number) => onAnswerChange((prev) => ({ ...prev, selected: index }))
 
   /**
-   * Per-FIELD write sequence numbers (Task 7) — NOT per-anchor: `selected`
-   * is one shared radio slot across every option's own anchor (ticking
-   * option 1 supersedes option 0's own in-flight write even though they're
-   * different anchors), so keying a revert guard by anchor JSON — the
-   * previous scheme — let a stale rejection for option 0 clobber option 1's
-   * already-landed tick, exactly the "tick A, tick B, A's write fails, B's
-   * tick vanishes too" failure the spec calls out. A REJECTED write now only
-   * reverts a FIELD (`selected` or `freeText`) when it's still the latest
-   * write that touched that field, whichever anchor issued it. Held in refs
-   * (never `useState`): bumping either must never itself trigger a render.
+   * Per-FIELD write sequence numbers, NOT per-anchor: `selected` is one shared
+   * radio slot across every option's anchor, so keying the revert guard by
+   * anchor let a stale rejection for option 0 clobber option 1's already-landed
+   * tick — "tick A, tick B, A's write fails, B's tick vanishes too". A
+   * rejected write now reverts a field only while it is still the latest write
+   * to touch it. Refs, never state: bumping one must not render.
    */
   const selectedSeqRef = useRef(0)
   const freeTextSeqRef = useRef(0)
@@ -254,16 +218,10 @@ export const Question = ({
   const bumpFreeTextSeq = (): number => ++freeTextSeqRef.current
 
   /**
-   * The one write-through both `setSelected` and `commitFreeText` fire —
-   * split out so neither caller's own branching (an out-of-range index) also
-   * carries the anchor-resolved / anchor-missing split here. A rejection (a
-   * `CONFLICT` refusal, a network failure, …) surfaces via `onRefusal` AND
-   * reverts ONLY the fields `reverts` names — each gated by ITS OWN
-   * field-level seq, so a stale rejection can never clobber a field a newer
-   * write (to any anchor) already changed. `selected` reverts through the
-   * caller-owned `answer` map; `freeText` reverts through this component's
-   * own local state (package 03 Task 3 moved it out of `answer`). A no-op
-   * when `anchor` is `undefined` (an out-of-range index).
+   * The one write-through both callers fire. A rejection surfaces via
+   * `onRefusal` and reverts ONLY the fields `reverts` names, each gated by its
+   * OWN field-level seq, so a stale rejection can never clobber a field a
+   * newer write already changed.
    */
   const commitAnchor = (
     anchor: SteeringAnchor | undefined,
@@ -315,15 +273,10 @@ export const Question = ({
   const freeTextOptionAnchor = freeTextAnchor()
 
   /**
-   * The free-text slot's own commit point — fired ONLY by a deliberate tap
-   * on the Save button (package 03 Task 3), never on type, blur, or unmount.
-   * Writes the CURRENT `freeText` state in one call, never split into a
-   * separate tick-then-text pair (T3's "both fields together" bullet). An
-   * explicit tap always writes — there is no changed-since-last-commit guard
-   * to skip a no-op save. Touches BOTH `selected` and `freeText`, each
-   * reverted only against its OWN field-level seq — a plain option tap
-   * landing/failing independently in between can never be undone by this
-   * write's own rejection, and vice versa.
+   * Fired ONLY by a deliberate Save tap, never on type, blur or unmount, and
+   * always writes — there is no changed-since-last-commit guard. Both fields
+   * go in ONE call, never a tick-then-text pair, and each reverts against its
+   * own seq, so an option tap in between cannot be undone by this rejection.
    */
   const commitFreeText = (text: string = freeText): Promise<unknown> | undefined => {
     const current = normalizeAnswerText(text)
@@ -345,14 +298,10 @@ export const Question = ({
   }
 
   /**
-   * The SAME `isAnswered` predicate the server enforces (`OpenQuestions.ts`),
-   * fed the client's own current radio state rather than re-deriving the
-   * rule locally — T5's own "already exists and is the single one enforced"
-   * bullet: taking the FIRST checked option and asking only "is it the
-   * free-text slot" (this component's earlier logic) diverges from the
-   * server's "exactly one ticked" rule the moment two options are ticked at
-   * once, which local radio state alone can't produce, but a stale/replayed
-   * `node.children` snapshot could.
+   * The SAME `isAnswered` predicate the server enforces, fed the client's own
+   * radio state rather than re-deriving the rule: taking the first checked
+   * option diverges from "exactly one ticked" the moment two are ticked, which
+   * a stale or replayed snapshot can produce even though the UI cannot.
    */
   const answered = isAnswered(
     options.map((option, index) => ({

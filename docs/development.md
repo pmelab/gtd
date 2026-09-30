@@ -48,23 +48,18 @@ A filtered run prints its per-cell rates and **skips the baseline gate** — a
 subset cannot be gated against a whole baseline, since every excluded cell would
 read as missing. Compare, and record, only from a full run.
 
-The turn's agent is swappable, and the committed default is `--agent claude`:
-your local [Claude Code](https://claude.com/claude-code) install, its own login,
-the same agent the workflow ships against. That is the configuration to run when
-the question is "does this prompt still work" — it needs no gateway and no model
-ids kept served, and `--planner`/`--coder` take plain Claude aliases (`opus`,
-`sonnet`). Pass `--agent pi` instead to grade a NON-Claude model through the
-[pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent);
-only that agent reads `GTD_EVALS_URL` (an OpenAI-compatible gateway) and
-`GTD_EVALS_KEY`, and it reaches its model exclusively through them.
+Every turn runs against your local [Claude Code](https://claude.com/claude-code)
+install, its own login, the same agent the workflow ships against — no gateway
+and no model ids kept served, and `--planner`/`--coder` take plain Claude
+aliases (`opus`, `sonnet`).
 
-Both are set on the provider id in `evals/promptfooconfig.yaml`, never by an
-environment variable, because a baseline cell keys off the provider `label` — an
-env var could silently change what a cell measures without changing its name.
+The models are set on the provider id in `evals/promptfooconfig.yaml`, never by
+an environment variable, because a baseline cell keys off the provider `label` —
+an env var could silently change what a cell measures without changing its name.
 
-`GTD_EVALS_URL`/`GTD_EVALS_KEY` are still required by `npm run eval` under
-either agent: the tier-3 `llm-rubric` judge is promptfoo's own provider and
-always runs through that gateway, independent of what drove the turn.
+`GTD_EVALS_URL`/`GTD_EVALS_KEY` are still required by `npm run eval`: the tier-3
+`llm-rubric` judge is promptfoo's own provider and always runs through that
+gateway, independent of what drove the turn.
 
 ```bash
 npm run eval                              # build, then run every case under every model configuration
@@ -72,11 +67,10 @@ EVAL_CLEAN=1 npm run eval                 # delete each fixture repo after gradi
 ```
 
 Grading is versioned on two axes: the configuration above, and the harness
-itself — the four-tool surface is a flag this repo passes rather than either
-agent's current default (`--tools read,write,edit,bash` for `pi`, pinned to
-0.84.4; `--tools Read,Write,Edit,Bash` for `claude`). The Claude turn also
-passes `--system-prompt` (a REPLACEMENT, never `--append-system-prompt` — the
-step's prompt is what is under test, not gtd's prompt stacked on Claude Code's),
+itself — the four-tool surface (`--tools Read,Write,Edit,Bash`) is a flag this
+repo passes rather than Claude Code's current default. The turn also passes
+`--system-prompt` (a REPLACEMENT, never `--append-system-prompt` — the step's
+prompt is what is under test, not gtd's prompt stacked on Claude Code's),
 `--permission-mode bypassPermissions`, `--no-session-persistence`, and
 `--setting-sources ""`, which loads no user, project or local settings, so a
 machine's own hooks and output style never reach a graded turn. Auth is
@@ -84,7 +78,7 @@ untouched by that flag; the local login still applies. A reader comparing two
 baselines needs to know the harness moved, not just the model.
 
 Each case builds a fresh, disposable fixture repo per trial, drives exactly one
-real driver turn against it (`gtd next` → the agent → `gtd land`), and grades
+real driver turn against it (`gtd next` → Claude Code → `gtd land`), and grades
 the result through three tiers, cheapest first: deterministic `javascript`
 asserts on which files changed, a grep floor for a planted identifier, and —
 only once both pass — an `llm-rubric` judge scoring whether the feedback is

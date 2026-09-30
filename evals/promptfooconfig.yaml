@@ -8,38 +8,21 @@ description: gtd prompt evals — one two-sided case per prompt state the bundle
 prompts:
   - "{{case}}:{{variant}}"
 
-# The committed configuration drives each turn with the LOCAL Claude Code
-# install (`--agent claude`, run-turn.mjs's default), because the everyday
+# Every turn runs against the LOCAL Claude Code install, because the everyday
 # question these cases answer is "does this prompt still work" — and that is
 # answered against the agent the workflow actually ships against, with no
 # gateway and no model ids to keep served. `--planner`/`--coder` are Claude
-# model aliases here; the tier-3 judge still reaches GTD_EVALS_URL, since it
-# is promptfoo's own provider, not the turn's.
-#
-# To grade a non-Claude model instead, swap the id below for the pi agent,
-# which reaches its model exclusively through GTD_EVALS_URL:
-#
-#   - id: "exec:node run-turn.mjs --agent pi --planner gemini-3.5-flash --coder gemini-3.5-flash-lite"
-#     label: gemini-3.5
-#
-# Two planner candidates were measured that way, on the full --repeat (4
-# trials) on BOTH variants of the spec-review case, and rejected — a single
-# trial is not enough signal, and any future replacement must clear the same
-# bar:
-#   - deepseek-v3.2: read the `violation` variant as clean and closed the
-#     package with no feedback.
-#   - gemini-3.5-flash-lite: flagged the `clean` variant for "missing
-#     automated unit tests" — a requirement the spec never asks for.
+# model aliases; the tier-3 judge still reaches GTD_EVALS_URL, since it is
+# promptfoo's own provider, not the turn's.
 #
 # One configuration is deliberately the whole matrix: every extra provider
 # multiplies trials = cases × variants × --repeat × providers and adds a
-# baseline.json cell that can flake. Comparing two agents or two models is a
-# two-line edit for one run, not a permanent cost on every run. Baseline
-# cells key off `label`, so a label must name the agent AND the models under
-# it — changing either without re-recording reads as a newly-missing cell,
-# not a changed one.
+# baseline.json cell that can flake. Comparing two models is a two-line edit
+# for one run, not a permanent cost on every run. Baseline cells key off
+# `label`, so a label must name the models under it — changing one without
+# re-recording reads as a newly-missing cell, not a changed one.
 providers:
-  - id: "exec:node run-turn.mjs --agent claude --planner opus --coder sonnet"
+  - id: "exec:node run-turn.mjs --planner opus --coder sonnet"
     label: claude-opus-sonnet
 
 # Every case contributes one `tests:` entry per variant declared in its

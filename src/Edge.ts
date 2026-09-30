@@ -19,7 +19,7 @@ import {
   type ReplayOutcome,
   type TreeView,
 } from "./replay/index.js"
-import { clearTicks, steeringFormatFor } from "./steering/index.js"
+import { steeringFormatFor } from "./steering/index.js"
 import { UNATTRIBUTED_MODEL, type ModelCost } from "./wire/index.js"
 import {
   knownModes,
@@ -879,7 +879,7 @@ const reviewGateRewrite = (def: StepDef): Rewrite | undefined => {
   if (!isHumanReviewGate(def) || def.file === undefined || reviewFormat === undefined) {
     return undefined
   }
-  return { path: def.file, apply: (content) => clearTicks(reviewFormat, content) }
+  return { path: def.file, apply: (content) => reviewFormat.clearTicks(content) }
 }
 
 /**

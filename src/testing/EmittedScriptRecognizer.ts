@@ -28,7 +28,7 @@ import {
   modeContradictionSkipNotice,
 } from "../ModeContradiction.js"
 import { OUTCOME_MARKER } from "../OutcomeScript.js"
-import { clearTicks, steeringFormatFor, type SteeringFormat } from "../steering/index.js"
+import { steeringFormatFor, type SteeringFormat } from "../steering/index.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
 
@@ -79,13 +79,9 @@ type BlockOutcome =
   | { readonly kind: "applied" }
   | { readonly kind: "failed"; readonly error: string }
   /**
-   * `Emit.ts`'s `fileExistsGuard` tripping on an absent file: a real
-   * `[ -f <file> ] || exit 0` exits the WHOLE script cleanly right there,
-   * unlike every other guard here (`recognizePrecondition`/
-   * `recognizeHeadAssertion`/etc.), which either no-op or fail the script —
-   * this is the one shape that succeeds EARLY, skipping every remaining
-   * block. `applyEmittedScript`'s loop stops on this exactly like it stops
-   * on a `"failed"` block, but reports `{ ok: true }`.
+   * `fileExistsGuard` tripping on an absent file. The one shape that succeeds
+   * EARLY, skipping every remaining block — every other guard here either
+   * no-ops or fails the script.
    */
   | { readonly kind: "stopped" }
 
@@ -217,30 +213,14 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   return undefined
 }
 
-/**
- * `src/Emit.ts`'s REAL `fileExistsGuard` block — `src/program.ts`'s
- * `resolveValidateScript` leads every emitted validate script with it.
- * Re-derives the block from the extracted path and compares full strings,
- * same discipline as `recognizeHeadAssertion`. Unlike every OTHER guard in
- * this file, a tripped `fileExistsGuard` does not fail
- * the script — a real `exit 0` there ends it successfully right there — so
- * this is the one recognizer that can report `{ kind: "stopped" }`.
- */
+/** The REAL `fileExistsGuard` block, re-derived from the extracted path and string-compared. The one recognizer that can report `{ kind: "stopped" }`: a real `exit 0` there ends the script successfully. */
 const recognizeFileExistsGuard = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   const [file] = extractQuotedTokens(block)
   if (file === undefined || fileExistsGuard(file) !== block) return undefined
   return repo.readFile(file) !== undefined ? { kind: "noop" } : { kind: "stopped" }
 }
 
-/**
- * `src/Emit.ts`'s `binaryGuard`, ahead of every `format:`/`validate:` command
- * step. The in-memory tier has no real `$PATH` to probe — every scripted
- * command IS the stand-in for "this binary exists" — so this always reports
- * a no-op, re-deriving the block from its own message text and comparing
- * full strings like every other recognizer here; the guard actually
- * TRIPPING (an uninstalled binary) is `@live`-only coverage
- * (`tests/integration/features/missing-binary-guard.feature`).
- */
+/** `binaryGuard`. The in-memory tier has no real `$PATH` to probe — a scripted command IS the stand-in for "this binary exists" — so this always no-ops; the guard actually tripping is `@live`-only coverage. */
 const BINARY_GUARD_MESSAGE_RE = /^gtd: mode "([^"]+)": "(format|validate)" command not found: (.+)$/
 
 const recognizeBinaryGuard = (block: string): BlockOutcome | undefined => {
@@ -254,31 +234,16 @@ const recognizeBinaryGuard = (block: string): BlockOutcome | undefined => {
   return { kind: "noop" }
 }
 
-/**
- * `src/OutcomeScript.ts`'s outcome statements, recognized by their own
- * `OUTCOME_MARKER` first line rather than re-derived and string-compared like
- * every git-effecting block above: an outcome only prints (and the
- * changed-file line under it only reads), so there is no git effect a loose
- * match could ever miss (contrast `recognizeGitBuilders`, where a
- * byte-for-byte match is load-bearing — a near-miss there could silently skip
- * a real mutation).
- */
+/** Recognized by `OUTCOME_MARKER` rather than re-derived and string-compared: an outcome only prints, so no git effect a loose match could miss — unlike `recognizeGitBuilders`, where a near-miss would silently skip a real mutation. */
 const recognizeOutcome = (block: string): BlockOutcome | undefined =>
   block.startsWith(OUTCOME_MARKER) ? { kind: "noop" } : undefined
 
 /**
- * `src/Emit.ts`'s `failurePromptWrapper` — wraps a `command` step's
- * `onFailure` fix prompt around its inner command. The header/middle/footer
- * constants below bracket the one variable part of the template (the inner
- * command's text, and the shell-quoted prompt), matching
- * `failurePromptWrapper`'s own `.join("\n")` shape exactly; the extracted
- * `inner`/`prompt` pair is then confirmed by RE-RUNNING `failurePromptWrapper`
- * and string-comparing, same discipline as every other recognizer here.
- * Recurses into `recognizeGtdCheck ?? recognizeScriptedCommand` on the
- * unwrapped inner text (the only two step "command" shapes this suite emits),
- * and on a failing inner outcome prefixes the prompt onto its error — the
- * fake's stand-in for what the real wrapper prints to stdout before exiting
- * non-zero.
+ * `failurePromptWrapper`. The constants below bracket the template's one
+ * variable part; the extracted pair is confirmed by RE-RUNNING the real
+ * builder and string-comparing. On a failing inner outcome it prefixes the
+ * prompt onto the error — the fake's stand-in for what the real wrapper
+ * prints before exiting non-zero.
  */
 const FILE_VAR_PREFIX_RE = /^export GTD_FILE=('(?:[^']|'\\'')*')\n/
 
@@ -336,16 +301,7 @@ const recognizeFailurePromptWrapper = (
   return innerOutcome
 }
 
-/**
- * `src/ModeContradiction.ts`'s `modeContradictionSkipNotice` — a mode whose
- * validator is EXTERNAL (a genuine user `validate:` override, or any
- * command-validated non-built-in mode). A single loosely-recognized `printf`
- * line, re-derived and compared against the real builder from the mode name
- * embedded in its own (decoded) message text — same "call the real builder,
- * never hand-copy its template" discipline as every other recognizer here,
- * just extracting the one argument (`mode`) the builder needs from the
- * message rather than from the shell syntax around it.
- */
+/** `modeContradictionSkipNotice` — a mode whose validator is EXTERNAL. Re-derived from the mode name embedded in its own decoded message, keeping the "call the real builder, never hand-copy its template" discipline. */
 const SKIP_NOTICE_MODE_RE = /mode "([^"]+)" has an external validate:/
 
 const recognizeModeContradictionSkipNotice = (block: string): BlockOutcome | undefined => {
@@ -401,16 +357,7 @@ const parseModeAndFormatCommand = (
   return { mode, formatCommand: block.slice(prefix.length + 1, lineStart) }
 }
 
-/**
- * Parses `block` back into `buildModeContradictionCheck`'s own inputs, or
- * `undefined` when it isn't one — split out of `recognizeModeContradictionCheck`
- * so extraction (many small guards, no repo effects) and simulation (few
- * guards, all the effects) each stay simple enough to read as their own
- * function. Confirmed, like every other builder-backed recognizer here, by
- * RE-RUNNING `buildModeContradictionCheck` on the recovered pieces and
- * requiring a byte-for-byte match — a wrong guess anywhere just fails to
- * parse rather than mis-simulating.
- */
+/** Parses `block` back into the real builder's inputs. Split from the simulation so extraction (many guards, no effects) and simulation (few guards, all effects) stay separate. A wrong guess fails to parse rather than mis-simulating. */
 const parseModeContradictionCheck = (block: string): ParsedModeContradictionCheck | undefined => {
   const prefixParts = parsePrintfPrefix(block)
   if (prefixParts === undefined) return undefined
@@ -429,15 +376,10 @@ const parseModeContradictionCheck = (block: string): ParsedModeContradictionChec
 }
 
 /**
- * Runs one PARSED round-trip against `repo`: writes the sample to the
- * scratch path, runs its `format:` command through the scripted-command
- * table (the only way a command executes against the in-memory tier — real
- * bash is unreachable there), re-validates whatever ended up at the scratch
- * path with the format's own parser, and cleans the scratch path up on
- * every path out — mirroring the real script's `rm -f` on both the failure
- * and success branches. An unscripted `format:` command fails loudly
- * (mirroring `ScriptedCommand`'s own "unscripted command" error, see `Layers.ts`)
- * rather than silently succeeding.
+ * One parsed round-trip: write the sample, run its `format:` through the
+ * scripted-command table (real bash is unreachable in this tier), re-validate,
+ * and clean up on every path out, mirroring the real script's `rm -f` on both
+ * branches. An unscripted `format:` fails loudly rather than succeeding.
  */
 const simulateModeContradictionCheck = (
   repo: InMemRepo,
@@ -515,15 +457,7 @@ const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undef
 
 const GTD_UNCHECK_RE = /^gtd uncheck (.+)$/
 
-/**
- * `gtd uncheck <file>` — the review-gate reset `renderDecision`
- * (`src/Edge.ts`) prepends ahead of the human's own commit, so no tick ever
- * reaches it. Re-runs the real `clearTicks` (against the `review` format)
- * from `src/steering/index.ts` over the repo's current content, writing back
- * only on an actual change, mirroring
- * `runUncheckCommand`'s own behavior (`src/program.ts`) — an absent file is
- * a no-op, same as a real invocation.
- */
+/** `gtd uncheck <file>` — the review-gate reset prepended ahead of the human's commit, so no tick ever reaches it. Re-runs the REAL `clearTicks`, writing back only on an actual change. */
 const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   const match = GTD_UNCHECK_RE.exec(block)
   if (!match) return undefined
@@ -532,7 +466,7 @@ const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | und
   const content = repo.readFile(file)
   if (content === undefined) return { kind: "noop" }
   const format = steeringFormatFor("review")
-  const cleared = format === undefined ? content : clearTicks(format, content)
+  const cleared = format === undefined ? content : format.clearTicks(content)
   if (cleared !== content) repo.writeFile(file, cleared)
   return { kind: "noop" }
 }
@@ -546,16 +480,7 @@ const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | und
 const recognizeDidNotRunComment = (block: string): BlockOutcome | undefined =>
   block === DID_NOT_RUN_COMMENT ? { kind: "noop" } : undefined
 
-/**
- * `Emit.ts`'s `combinedScript` optional-half wrapper: `PRESENTATION_ONLY_COMMENT`
- * immediately followed (no blank line) by `(\n<optional>\n) || <warning>` —
- * kept as ONE block by `splitBlocks`'s subshell-depth tracking, even though
- * `<optional>` itself may carry blank lines. Recurses into
- * `applyEmittedScript` on the unwrapped inner script and ALWAYS reports
- * `noop` regardless of the inner result — mirroring bash's own `( … ) ||
- * <warning>` semantics, where the subshell's exit status is swallowed and
- * must never fail the outer script.
- */
+/** `combinedScript`'s optional half. ALWAYS reports `noop` whatever the inner result, mirroring bash's `( … ) || <warning>`, where the subshell's exit status is swallowed and must never fail the outer script. */
 const PRESENTATION_SUBSHELL_PREFIX = `${PRESENTATION_ONLY_COMMENT}\n(\n`
 const PRESENTATION_SUBSHELL_SUFFIX = `\n) || ${PRESENTATION_FAILURE_WARNING}`
 
@@ -600,18 +525,14 @@ const recognizeScriptedCommand = (
 }
 
 /**
- * Splits `script` into blocks on blank lines, IGNORING blank lines that fall
- * inside a single-quoted string. A commit message is a quoted argument that
- * routinely spans a blank line — every trailer-carrying subject
- * (`gtd(human): x\n\nGtd-Cost: …`) does — so a naive `split(/\n{2,}/)` tears
- * one `commitAll` block into fragments that recognize as nothing. POSIX
- * single quotes have no escape sequence of their own, so quote depth is
- * "toggle on every `'`" — with one correction that `shellQuote`'s nesting
- * makes load-bearing: the `\` in `'\''` (close, backslash-escaped literal
- * quote, reopen) escapes its following `'` OUTSIDE any quote, so that middle
- * quote must not toggle. Deliberately not a bash lexer — like every other
- * recognizer here, it only has to handle gtd's own closed emission
- * vocabulary, where no double-quoted string ever contains a `'`.
+ * Splits on blank lines, IGNORING those inside a single-quoted string: every
+ * trailer-carrying commit subject spans one, so a naive `split(/\n{2,}/)`
+ * tears a `commitAll` block into fragments that recognize as nothing.
+ *
+ * Quote depth toggles on every `'`, with one load-bearing correction: the `\`
+ * in `'\''` escapes its following `'` OUTSIDE any quote, so that middle quote
+ * must not toggle. Deliberately not a bash lexer — gtd's emission vocabulary
+ * is closed, and no double-quoted string in it ever contains a `'`.
  */
 const trackQuoteState = (line: string, quoted: boolean): boolean => {
   let inQuote = quoted
@@ -629,14 +550,10 @@ const trackQuoteState = (line: string, quoted: boolean): boolean => {
 }
 
 /**
- * `Emit.ts`'s `combinedScript` wraps the optional half in a bare `(\n...\n) ||
- * <warning>` — a literal `(` line opens it, a `) || ...` line closes it — and
- * the optional script it wraps is itself a multi-section `assembleScript`
- * output with its OWN blank-line-separated sections inside. `splitBlocks`
- * below needs this depth (alongside quote state) to keep blank lines inside
- * an open subshell from splitting it apart before `recognizePresentationSubshell`
- * ever sees the whole thing. Safe to key on a bare `(`/`)` line specifically
- * because no other emitted shape in this closed vocabulary ever produces one.
+ * The optional half is a bare `(\n...\n) || <warning>` whose inner script has
+ * its OWN blank-line-separated sections, so `splitBlocks` needs this depth to
+ * keep them from tearing it apart. Safe to key on a bare `(`/`)` line because
+ * no other shape in this closed vocabulary produces one.
  */
 const nextSubshellDepth = (trimmedLine: string, depth: number): number => {
   if (trimmedLine === "(") return depth + 1

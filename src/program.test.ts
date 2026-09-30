@@ -9,9 +9,11 @@ import { PassThrough } from "node:stream"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 // `gtd ui`'s bind-host lookup reads the real `os.networkInterfaces()` — a host
-// on a tailnet would make the "no Tailscale interface" refusal below succeed.
-// `vi.mock` must name the module the loader resolves, not the barrel.
-vi.mock("./ui/BindSystem.js", () => ({ pickBindHostFromSystem: () => undefined }))
+// on a tailnet would make the "no Tailscale interface" refusal below fail.
+vi.mock("node:os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:os")>()),
+  networkInterfaces: () => ({}),
+}))
 
 import { runCli, type Command, EXIT_USAGE_ERROR } from "./cli/index.js"
 import { stallDiagnosis, noopText } from "./wire/index.js"

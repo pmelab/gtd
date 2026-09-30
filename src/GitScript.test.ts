@@ -187,6 +187,8 @@ describe("shellQuote", () => {
     ["a dollar sign", "gtd(agent): $HOME expansion"],
     ["an arrow", "gtd(agent): design.product-author → design.product-answer"],
     ["a single quote", "gtd(agent): it's done"],
+    ["a command substitution", "$(touch PWNED_MARKER)"],
+    ["a semicolon-chained command", "host; touch PWNED_MARKER"],
   ])("round-trips a message containing %s", (_label, s) => {
     const out = execFileSync("bash", ["-c", `printf %s ${shellQuote(s)}`], { encoding: "utf8" })
     expect(out).toBe(s)
