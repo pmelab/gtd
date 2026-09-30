@@ -460,3 +460,207 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     Then the LSP response has no error
     And the LSP response result points to ".gtd/PLAN.md" at line 10
+
+  Scenario: a landing that moves HEAD is reflected on the very next request, without a server restart
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result is an empty symbol list
+    # Moves HEAD from OUTSIDE the running LSP session — no restart follows.
+    Given a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[unanswered] Which operations?"
+
+  Scenario: an edited gtd.config.ts takes effect on the next request, without a server restart
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export const steering = {}
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result is an empty symbol list
+    # Same HEAD — an uncommitted edit to gtd.config.ts, as an editor autosave
+    # would make it, with no `gtd land` in between.
+    Given "gtd.config.ts" is modified to:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export const steering = { ".gtd/PLAN.md": "qa" }
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[unanswered] Which operations?"
+
+  Scenario: an edited module that gtd.config.ts re-exports steering from takes effect on the next request — a split workflow is not stale forever
+    Given a test project
+    And a file "steps.ts" with:
+      """
+      export const steering = {}
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export { steering } from "./steps.js"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result is an empty symbol list
+    # Same HEAD, "gtd.config.ts" ITSELF untouched — only the sibling module it
+    # imports `steering` from changes, as an editor autosave would make it.
+    Given "steps.ts" is modified to:
+      """
+      export const steering = { ".gtd/PLAN.md": "qa" }
+      """
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[unanswered] Which operations?"
+    # A SECOND edit to the now-already-known "steps.ts" — the one a stat-
+    # after-read memo can pin wrong on the FIRST edit and never budge again.
+    Given "steps.ts" is modified to:
+      """
+      export const steering = {}
+      """
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which operations?
+
+      add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result is an empty symbol list
+
+  Scenario: an edited .gtdrc registering a previously-unknown mode takes effect on the next request, without a server restart
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export const steering = { ".gtd/NOTES.md": "annotated", ".gtd/MORE.md": "annotated" }
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+      """
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/NOTES.md" containing:
+      """
+      some notes
+      """
+    Then the LSP response has no error
+    # "annotated" isn't registered anywhere yet — no notice is published for
+    # ".gtd/NOTES.md". Same HEAD — an uncommitted .gtdrc, as an editor
+    # autosave would make it, registers it for the memo's NEXT request.
+    Given a file ".gtdrc.yaml" with:
+      """
+      modes:
+        annotated:
+          validate: "exit 1"
+      """
+    When the LSP client requests document symbols for ".gtd/MORE.md" containing:
+      """
+      some more notes
+      """
+    Then the LSP response has no error
+    And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/MORE.md" with exactly one Information diagnostic containing "exit 1"

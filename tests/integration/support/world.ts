@@ -21,7 +21,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
-import { join, relative, resolve } from "node:path"
+import { join, relative, resolve, sep } from "node:path"
 import { PassThrough } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
 import { runCli, EXIT_OK } from "../../../src/cli/index.js"
@@ -1742,7 +1742,14 @@ export class GtdWorld extends QuickPickleWorld {
     }).trim()
     const gitDirAbs = resolve(this.repoDir, gitDirRel)
     return {
-      gitDirFiles: fingerprintFiles(gitDirAbs),
+      // `gtd-cache/` (under the git COMMON dir) is a deliberate read-side
+      // effect — package 4's on-disk tree/blob cache, populated by ordinary
+      // reads by design (Requirement B) — not a mutation these scenarios
+      // exist to catch, so it's excluded the same way `gitStatus`/
+      // `worktreeFiles` exclude the git dir itself.
+      gitDirFiles: fingerprintFiles(gitDirAbs).filter(
+        (f) => f.path !== "gtd-cache" && !f.path.startsWith(`gtd-cache${sep}`),
+      ),
       gitStatus: this.gitStatus(),
       worktreeFiles: listFiles(this.repoDir).filter(
         (path) => path !== gitDirRel && !path.startsWith(`${gitDirRel}/`),

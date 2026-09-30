@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { PassThrough } from "node:stream"
@@ -1179,6 +1179,169 @@ describe("makeNodeLspEnv", () => {
     // (`runtimeFor`'s cache hit) rather than constructing a fresh one.
     const topLevelAgain = await env.gitTopLevel(dir)
     expect(topLevelAgain).toBe(realDir)
+  })
+})
+
+describe("makeNodeLspEnv's steering-map memo (HEAD + config identity)", () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "gtd-lsp-memo-test-"))
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
+    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** A one-step workflow whose `steering:` export is the only thing this suite cares about — it lands in `buildSteeringMap`'s declared list regardless of the process's actual trace. */
+  const writeWorkflow = (steering: Record<string, string>) =>
+    writeFileSync(
+      join(dir, "gtd.config.ts"),
+      [
+        `import { human } from "@pmelab/gtd/flows"`,
+        ``,
+        `export default async () => {`,
+        `  await human("first")`,
+        `}`,
+        ``,
+        `export const steering = ${JSON.stringify(steering)}`,
+        ``,
+      ].join("\n"),
+    )
+
+  const commit = (message: string) => {
+    execFileSync("git", ["add", "-A"], { cwd: dir })
+    execFileSync("git", ["commit", "--allow-empty", "-q", "-m", message], { cwd: dir })
+  }
+
+  it("a landing that moves HEAD from outside the editor is reflected on the very next request, without a restart", async () => {
+    writeWorkflow({ "TODO.md": "qa" })
+    commit("initial")
+    const env = makeNodeLspEnv(() => {})
+
+    const before = await env.steeringMapFor(dir)
+    expect(before.has(join(dir, "TODO.md"))).toBe(true)
+
+    // "gtd land" moving HEAD, from outside the editor entirely.
+    writeWorkflow({})
+    commit("second")
+
+    const after = await env.steeringMapFor(dir)
+    expect(after.has(join(dir, "TODO.md"))).toBe(false)
+  })
+
+  it("an edited .gtdrc (registering a previously-unknown mode) takes effect on the next request", async () => {
+    writeWorkflow({ "TODO.md": "customMode" })
+    commit("initial")
+    const env = makeNodeLspEnv(() => {})
+
+    // "customMode" doesn't resolve yet — buildSteeringMap skips it, warning.
+    const before = await env.steeringMapFor(dir)
+    expect(before.has(join(dir, "TODO.md"))).toBe(false)
+
+    writeFileSync(join(dir, ".gtdrc.yaml"), 'modes:\n  customMode:\n    validate: "true"\n')
+
+    const after = await env.steeringMapFor(dir)
+    expect(after.has(join(dir, "TODO.md"))).toBe(true)
+  })
+
+  it("an edited gtd.config.ts takes effect on the next request", async () => {
+    writeWorkflow({ "TODO.md": "qa" })
+    commit("initial")
+    const env = makeNodeLspEnv(() => {})
+
+    const before = await env.steeringMapFor(dir)
+    expect(before.has(join(dir, "PLAN.md"))).toBe(false)
+
+    // Same HEAD — this is a working-tree-only edit, exactly like an editor
+    // autosave of gtd.config.ts before the next commit.
+    writeWorkflow({ "TODO.md": "qa", "PLAN.md": "review" })
+
+    const after = await env.steeringMapFor(dir)
+    expect(after.has(join(dir, "PLAN.md"))).toBe(true)
+  })
+
+  it("an edited module that gtd.config.ts re-exports 'steering' FROM takes effect on the next request — a split workflow is not stale forever", async () => {
+    writeFileSync(
+      join(dir, "steps.ts"),
+      [`export const steering = { "TODO.md": "qa" }`, ``].join("\n"),
+    )
+    writeFileSync(
+      join(dir, "gtd.config.ts"),
+      [
+        `import { human } from "@pmelab/gtd/flows"`,
+        `export { steering } from "./steps.js"`,
+        ``,
+        `export default async () => {`,
+        `  await human("first")`,
+        `}`,
+        ``,
+      ].join("\n"),
+    )
+    commit("initial")
+    const env = makeNodeLspEnv(() => {})
+
+    const before = await env.steeringMapFor(dir)
+    expect(before.has(join(dir, "PLAN.md"))).toBe(false)
+
+    // Same HEAD, gtd.config.ts itself untouched — only the sibling module it
+    // imports `steering` from changes, exactly as an editor autosave would.
+    writeFileSync(
+      join(dir, "steps.ts"),
+      [`export const steering = { "TODO.md": "qa", "PLAN.md": "review" }`, ``].join("\n"),
+    )
+
+    const after = await env.steeringMapFor(dir)
+    expect(after.has(join(dir, "PLAN.md"))).toBe(true)
+
+    // A SECOND edit to the now-already-known "steps.ts" — this is the one
+    // the stat-after-read bug missed: the first edit's post-hoc stat gets
+    // pinned as the "known" fingerprint, and a second edit measured the same
+    // racy way never budges it. Also pins that a dependency dropping out
+    // (steering back down to one entry) is picked up too.
+    writeFileSync(
+      join(dir, "steps.ts"),
+      [`export const steering = { "TODO.md": "qa" }`, ``].join("\n"),
+    )
+
+    const afterAgain = await env.steeringMapFor(dir)
+    expect(afterAgain.has(join(dir, "PLAN.md"))).toBe(false)
+  })
+
+  it("two requests with no HEAD move and no config edit resolve the process once — a hit issues exactly one git subprocess", async () => {
+    writeWorkflow({ "TODO.md": "qa" })
+    commit("initial")
+
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim()
+    const binDir = mkdtempSync(join(tmpdir(), "gtd-lsp-gitshim-"))
+    const logFile = join(binDir, "calls.log")
+    writeFileSync(
+      join(binDir, "git"),
+      ["#!/bin/bash", `echo "$@" >> '${logFile}'`, `exec '${realGit}' "$@"`].join("\n"),
+    )
+    chmodSync(join(binDir, "git"), 0o755)
+
+    const originalPath = process.env["PATH"]
+    process.env["PATH"] = `${binDir}:${originalPath}`
+    try {
+      const env = makeNodeLspEnv(() => {})
+      await env.steeringMapFor(dir) // miss: full resolution, several git calls
+      writeFileSync(logFile, "")
+      await env.steeringMapFor(dir) // hit: memoised
+
+      const calls = readFileSync(logFile, "utf8")
+        .trim()
+        .split("\n")
+        .filter((line) => line.length > 0)
+      expect(calls).toEqual(["rev-parse --verify HEAD"])
+    } finally {
+      process.env["PATH"] = originalPath
+      rmSync(binDir, { recursive: true, force: true })
+    }
   })
 })
 

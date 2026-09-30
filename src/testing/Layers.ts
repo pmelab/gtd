@@ -73,6 +73,9 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
 
   const readSync = (path: string): string | undefined => readAt(assertRepoRelative(path))
 
+  const treeOf = (ref: string): ReadonlyMap<string, string> =>
+    new Map(repo.pathsAtRef(ref).map((path) => [path, repo.fileAtRef(ref, path) ?? ""]))
+
   return {
     readSync,
     read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),
@@ -97,8 +100,13 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
       const key = assertRepoRelative(path)
       return isGitDirKey(key) ? undefined : (repo.fileAtRef(ref, key) ?? undefined)
     },
-    treeSync: (ref) =>
-      new Map(repo.pathsAtRef(ref).map((path) => [path, repo.fileAtRef(ref, path) ?? ""])),
+    treeSync: treeOf,
+    // No subprocess, no cache to warm — the in-memory fake reads its
+    // `InMemRepo` directly for each hash, same as `treeSync` above.
+    episodeTrees: (base, commits) =>
+      Effect.succeed(
+        new Map([...(base !== undefined ? [base] : []), ...commits].map((h) => [h, treeOf(h)])),
+      ),
     worktreeSync: () =>
       new Map(
         repo

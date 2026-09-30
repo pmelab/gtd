@@ -1,0 +1,29 @@
+Package 1 baseline — `node scripts/bench-replay.mjs`, captured before any of
+packages 2-4's fixes land. Committed here (not in a commit message) because
+`gtd land` dictates the step commit's own subject; this file is what survives
+independently of the machine that produced it. Re-run the script by hand to
+compare against a later baseline.
+
+label           backdrop  episode  next ms  next git#  land ms  land git#
+--------------  --------  -------  -------  ---------  -------  ---------
+episode=1       10        1        789.7    5          498.0    8
+episode=10      10        10       1230.6   19         1606.4   35
+episode=50      10        50       3593.3   79         6554.4   155
+episode=100     10        100      6636.0   154        12623.9  305
+episode=200     10        200      13149.8  304        25039.1  605
+backdrop=1000   1000      50       3882.9   79         6417.9   155
+backdrop=50000  50000     50       3887.0   79         6865.2   155
+
+Package 4 after — `node scripts/bench-replay.mjs`, captured once packages 2-4
+(episode bounds resolved in one pass, the delta-stream reconstruction, and the
+on-disk tree/blob cache) had all landed.
+
+label           backdrop  episode  next ms  next git#  land ms  land git#
+--------------  --------  -------  -------  ---------  -------  ---------
+episode=1       10        1        799.0    9          506.4    9
+episode=10      10        10       944.7    13         528.3    9
+episode=50      10        50       1803.3   34         589.6    10
+episode=100     10        100      2871.5   59         582.6    10
+episode=200     10        200      4915.5   110        619.5    11
+backdrop=1000   1000      50       1800.4   34         565.4    10
+backdrop=50000  50000     50       1806.7   34         579.4    10

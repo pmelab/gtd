@@ -16,8 +16,16 @@ import {
   UNATTRIBUTED_MODEL,
   type RestRequirements,
 } from "./Edge.js"
+import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "./platform/index.js"
 import { formatCommitMessage, type CommitSpec } from "./replay/index.js"
-import { InMemRepo, applyEmittedScript, makeCapturingCliIo, testLayers } from "./testing/index.js"
+import {
+  fakeGitOperations,
+  InMemRepo,
+  applyEmittedScript,
+  makeCapturingCliIo,
+  makeInMemoryWorkspaceOps,
+  testLayers,
+} from "./testing/index.js"
 
 type Env = Readonly<Record<string, string | undefined>>
 type Files = Readonly<Record<string, string>>
@@ -34,6 +42,27 @@ const provideExit = <A>(
   env: Env = {},
 ): Promise<Exit.Exit<A, Error>> =>
   Effect.runPromiseExit(eff.pipe(Effect.provide(testLayers(repo, { env }))))
+
+/** Like `provide`, but with `git` swapping in for the run's `GitService` — for tests that need to observe or interfere with the exact git calls a run makes. */
+const provideWithGit = <A>(
+  eff: Effect.Effect<A, Error, RestRequirements>,
+  git: GitOperations,
+  repo: InMemRepo,
+  env: Env = {},
+): Promise<A> =>
+  Effect.runPromise(
+    eff.pipe(Effect.provideService(GitService, git), Effect.provide(testLayers(repo, { env }))),
+  )
+
+/** Like `provideWithGit`, but with `workspace` swapping in for the run's `Workspace` — for tests observing exactly when `worktreeSync` runs. */
+const provideWithWorkspace = <A>(
+  eff: Effect.Effect<A, Error, RestRequirements>,
+  workspace: WorkspaceOps,
+  repo: InMemRepo,
+): Promise<A> =>
+  Effect.runPromise(
+    eff.pipe(Effect.provideService(Workspace, workspace), Effect.provide(testLayers(repo, {}))),
+  )
 
 const write = (repo: InMemRepo, files: Files): void => {
   for (const [path, content] of Object.entries(files)) repo.writeFile(path, content)
@@ -181,6 +210,36 @@ describe("currentRun", () => {
     expect(run.episode.commits.map((c) => c.hash)).toEqual([fixed])
   })
 
+  it("an entry named after the flow's initial state still opens its own episode, not the empty tree", async () => {
+    const ENTRY_NAMED_INITIAL = `import { agent, human, refuse } from "@pmelab/gtd/flows"
+
+export default async ({ entry }) => {
+    if (entry === "idle") {
+      await agent("fixing", "fix-prompt")
+      await agent("tidying", "tidy-prompt", { allowEmpty: true })
+      return
+    }
+    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
+    await human("idle", { message: "idle-message" })
+    await agent("building", "build-prompt")
+  }
+`
+    const repo = repoWith(ENTRY_NAMED_INITIAL)
+    const before = headOf(repo)
+    const opening = await enter(repo, "idle")
+    expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
+    const fixed = await land(repo, { "fix.txt": "x\n" })
+    const run = await provide(currentRun, repo)
+    expect(run.entry).toBe("idle")
+    expect(run.startHash).toBe(opening)
+    expect(run.startParentHash).toBe(before)
+    expect(run.diffBase).toBe(before)
+    expect(run.trace).toEqual([
+      { state: "idle", hash: opening, actor: "human" },
+      { state: "tidying", hash: fixed, actor: "agent" },
+    ])
+  })
+
   it("collects every process commit's Gtd-Cost, attributing a model-less one to UNATTRIBUTED_MODEL", async () => {
     const repo = repoWith(LINEAR)
     commit(
@@ -322,6 +381,102 @@ describe("currentRun", () => {
       const run = await provide(currentRun, repo)
       expect(run.headTurn).toBeUndefined()
     })
+  })
+})
+
+describe("history reads stay bounded by the episode, not the repository", () => {
+  /** Piles up `count` ordinary non-gtd commits before the workflow even exists — the repo's "age". */
+  const repoWithHistory = (count: number): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile("seed.txt", "0")
+    repo.commitAllWithPrefix("chore: seed 0")
+    for (let i = 1; i < count; i++) {
+      repo.writeFile("seed.txt", String(i))
+      repo.commitAllWithPrefix(`chore: seed ${i}`)
+    }
+    write(repo, { "gtd.config.ts": LINEAR })
+    repo.commitAllWithPrefix("chore: add workflow")
+    return repo
+  }
+
+  it("currentRun never fetches a growing number of commit bodies as the repository ages", async () => {
+    const repo = repoWithHistory(600)
+    const boundary = headOf(repo)
+    const building = await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    repo.bodyReadCount = 0
+    const run = await provide(currentRun, repo)
+    expect(run.startParentHash).toBe(boundary)
+    expect(run.startHash).toBe(building)
+    // Bounded by the episode (2 step commits) plus a small constant, never by
+    // the 600 unrelated commits sitting underneath it.
+    expect(repo.bodyReadCount).toBeLessThan(20)
+  })
+
+  it("summaryRun's closing read stays just as bounded", async () => {
+    const repo = repoWithHistory(600)
+    const boundary = headOf(repo)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    const closing = await land(repo, { "c.txt": "c\n" })
+    repo.bodyReadCount = 0
+    const summary = await provide(summaryRun, repo)
+    expect(summary.closingHash).toBe(closing)
+    expect(summary.startParentHash).toBe(boundary)
+    expect(repo.bodyReadCount).toBeLessThan(20)
+  })
+
+  it("an episode reaching the repository's root commit still resolves, with the empty tree as its base", async () => {
+    const repo = new InMemRepo()
+    write(repo, { "gtd.config.ts": LINEAR })
+    const building = commit(
+      repo,
+      { actor: "human", to: "building", step: { name: "idle", occurrence: 1 } },
+      { "a.txt": "a\n" },
+    )
+    const run = await provide(currentRun, repo)
+    expect(run.startHash).toBe(building)
+    expect(run.startParentHash).toBe("4b825dc642cb6eb9a060e54bf8d69288fbee4904")
+    expect(run.episode.base).toBeUndefined()
+  })
+
+  it("pins the body read to the hash the subject-only read resolved HEAD to, not a literal HEAD moved underneath it", async () => {
+    const repo = repoWith(LINEAR)
+    const boundary = headOf(repo)
+    await land(repo, { "a.txt": "a\n" })
+    const checking = await land(repo, { "b.txt": "b\n" })
+    expect(headOf(repo)).toBe(checking)
+
+    // Simulates a concurrent writer (a reset, another `gtd` on the same
+    // checkout) moving literal HEAD back to the boundary commit in the
+    // window between `historyUpTo`'s subject-only read and its body read.
+    // `subjectHistory`'s first call observes and returns the CURRENT
+    // (pre-move) history — exactly as a real `git log` would, already having
+    // read it before the move happens — then the move fires.
+    let moved = false
+    const base = fakeGitOperations(repo)
+    const raceyGit: GitOperations = {
+      ...base,
+      subjectHistory: (pageSize, skip, head) =>
+        Effect.tap(base.subjectHistory(pageSize, skip, head), () => {
+          if (!moved) {
+            moved = true
+            repo.hardResetTo(boundary)
+          }
+        }),
+    }
+
+    const run = await provideWithGit(currentRun, raceyGit, repo)
+
+    // Pinned to the hash the subject-only read resolved HEAD to (`checking`):
+    // the full episode, unaffected by the later move. An unpinned second read
+    // would resolve literal HEAD to `boundary` instead, find no commits in
+    // `base..boundary` (`boundary` is not a descendant of the computed
+    // `base`), and silently fold to an empty run at the empty tree — exactly
+    // what this test would catch.
+    expect(run.startParentHash).toBe(boundary)
+    expect(run.trace.map((t) => t.hash)).toHaveLength(2)
+    expect(run.trace.at(-1)?.hash).toBe(checking)
   })
 })
 
@@ -749,5 +904,57 @@ export default async () => {
       repoWith(STEERED),
     )
     expect(snapshot.file).toBeUndefined()
+  })
+})
+
+describe("the pending working tree is read at most once per restAt, and never stale across a long-lived reuse", () => {
+  const countingWorkspace = (
+    repo: InMemRepo,
+    root = "/repo",
+  ): { readonly workspace: WorkspaceOps; readonly calls: () => number } => {
+    const base = makeInMemoryWorkspaceOps(repo, root)
+    let calls = 0
+    return {
+      workspace: {
+        ...base,
+        worktreeSync: () => {
+          calls++
+          return base.worktreeSync()
+        },
+      },
+      calls: () => calls,
+    }
+  }
+
+  it("decideLanding reads the working tree exactly once for one rest, even though it's the same ReplaySetup entryRefusal would also reuse", async () => {
+    const repo = repoWith(LINEAR)
+    write(repo, { "scratch.txt": "dirty\n" }) // a pending change forces the real replay path, not cleanLanding's early return
+    const { workspace, calls } = countingWorkspace(repo)
+    const rest = await provideWithWorkspace(currentRest, workspace, repo)
+    expect(calls()).toBe(0) // restAt itself never touches the pending tree
+    await provideWithWorkspace(snapshotFromRest(rest), workspace, repo)
+    expect(calls()).toBe(1)
+  })
+
+  it("a SECOND restAt call sharing the same Workspace instance (an LSP's long-lived runtimeCache reuse) reads the working tree fresh, not a stale first-request snapshot", async () => {
+    const repo = repoWith(LINEAR)
+    write(repo, { "scratch.txt": "first\n" })
+    const { workspace, calls } = countingWorkspace(repo)
+
+    const rest1 = await provideWithWorkspace(currentRest, workspace, repo)
+    const snap1 = await provideWithWorkspace(snapshotFromRest(rest1), workspace, repo)
+    expect(snap1.changes.map((c) => c.path)).toContain("scratch.txt")
+
+    // Between two "requests" against the same long-lived Workspace, the tree changes.
+    write(repo, { "second.txt": "second\n" })
+
+    const rest2 = await provideWithWorkspace(currentRest, workspace, repo)
+    const snap2 = await provideWithWorkspace(snapshotFromRest(rest2), workspace, repo)
+    expect(snap2.changes.map((c) => c.path)).toContain("second.txt")
+
+    // One worktreeSync call per request, not one total — a workspace-scoped
+    // memo (rather than the per-`ReplaySetup` one) would have kept `calls()`
+    // at 1 and `snap2` stuck on the first request's tree.
+    expect(calls()).toBe(2)
   })
 })

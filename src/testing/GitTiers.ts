@@ -266,7 +266,9 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "isAncestor",
   "topLevel",
   "gitDir",
+  "gitCommonDir",
   "commitHistory",
+  "subjectHistory",
   "readFileAtRef",
   "changedPaths",
   "commitAllWithPrefix",
@@ -459,6 +461,63 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       const result = await runGit(t, (g) => g.commitHistory())
       const renameCommit = result.find((c) => c.message === "feat: rename old to new")
       expect([...(renameCommit?.touched ?? [])].sort()).toEqual(["new.txt", "old.txt"])
+    })
+  })
+
+  describe("subjectHistory", () => {
+    it("returns [] for an empty repo", async () => {
+      const empty = t.emptyRepo()
+      try {
+        expect(await runGit(empty, (g) => g.subjectHistory(32, 0))).toEqual([])
+      } finally {
+        empty.dispose()
+      }
+    })
+
+    it("returns hash+subject pairs oldest to newest, no body", async () => {
+      t.seed.commit("feat: second\n\nA body line.", { "b.txt": "b" })
+      t.seed.commit("feat: third", { "c.txt": "c" })
+      const result = await runGit(t, (g) => g.subjectHistory(32, 0))
+      expect(result.map((c) => c.subject)).toEqual([
+        "init: first commit",
+        "feat: second",
+        "feat: third",
+      ])
+      expect(result[2]?.hash).toBe(t.observe.resolveRef("HEAD"))
+    })
+
+    it("pages backward from head: skip drops the newest commits kept in an earlier page", async () => {
+      t.seed.commit("feat: second", { "b.txt": "b" })
+      t.seed.commit("feat: third", { "c.txt": "c" })
+      const firstPage = await runGit(t, (g) => g.subjectHistory(1, 0))
+      const secondPage = await runGit(t, (g) => g.subjectHistory(1, 1))
+      expect(firstPage.map((c) => c.subject)).toEqual(["feat: third"])
+      expect(secondPage.map((c) => c.subject)).toEqual(["feat: second"])
+    })
+
+    it("an unbounded page (non-finite pageSize) returns the whole history", async () => {
+      t.seed.commit("feat: second", { "b.txt": "b" })
+      t.seed.commit("feat: third", { "c.txt": "c" })
+      const result = await runGit(t, (g) => g.subjectHistory(Infinity, 0))
+      expect(result.map((c) => c.subject)).toEqual([
+        "init: first commit",
+        "feat: second",
+        "feat: third",
+      ])
+    })
+
+    it("reads through an explicit head ref instead of literal HEAD when given one", async () => {
+      t.seed.commit("feat: second", { "b.txt": "b" })
+      const earlierHead = t.observe.resolveRef("HEAD")
+      t.seed.commit("feat: third", { "c.txt": "c" })
+      const result = await runGit(t, (g) => g.subjectHistory(32, 0, earlierHead))
+      expect(result.map((c) => c.subject)).toEqual(["init: first commit", "feat: second"])
+    })
+
+    it("is no worse handled than commitHistory for a subject containing the \\x02 delimiter", async () => {
+      t.seed.commit("feat: has a \x02 byte in it", { "d.txt": "d" })
+      const result = await runGit(t, (g) => g.subjectHistory(32, 0))
+      expect(result[result.length - 1]?.hash).toBe(t.observe.resolveRef("HEAD"))
     })
   })
 
@@ -776,6 +835,42 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
           // git names a linked worktree's internal directory after the
           // worktree PATH's basename, not the `-b` branch name given below.
           expect(siblingGitDir).toBe(join(mainGitDir, "worktrees", basename(siblingDir)))
+        } finally {
+          rmSync(siblingDir, { recursive: true, force: true })
+        }
+      },
+    )
+  })
+
+  describe("gitCommonDir", () => {
+    it("resolves to the same absolute path as gitDir, for the main worktree", async () => {
+      const [common, dir] = await runGit(t, (g) => Effect.all([g.gitCommonDir(), g.gitDir()]))
+      expect(common).toBe(dir)
+    })
+
+    it.skipIf(!capabilities.linkedWorktrees)(
+      "resolves to the SAME shared directory from a linked worktree, unlike gitDir",
+      async () => {
+        const siblingDir = `${t.root}-commondir-sibling`
+        gitExecIn(t.root, "worktree", "add", "-q", "-b", "commondir-sibling", siblingDir, "HEAD")
+        try {
+          const mainCommonDir = await runGit(t, (g) => g.gitCommonDir())
+          const siblingCommonDir = await Effect.runPromise(
+            Effect.flatMap(GitService, (g) => g.gitCommonDir()).pipe(
+              Effect.provide(GitService.Live),
+              Effect.provide(Host.layer({ root: siblingDir, home: siblingDir, env: {} })),
+              Effect.provide(NodeContext.layer),
+            ),
+          )
+          const siblingGitDir = await Effect.runPromise(
+            Effect.flatMap(GitService, (g) => g.gitDir()).pipe(
+              Effect.provide(GitService.Live),
+              Effect.provide(Host.layer({ root: siblingDir, home: siblingDir, env: {} })),
+              Effect.provide(NodeContext.layer),
+            ),
+          )
+          expect(siblingCommonDir).toBe(mainCommonDir)
+          expect(siblingCommonDir).not.toBe(siblingGitDir)
         } finally {
           rmSync(siblingDir, { recursive: true, force: true })
         }

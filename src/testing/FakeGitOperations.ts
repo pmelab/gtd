@@ -52,7 +52,14 @@ const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations =>
    */
   gitDir: () => Effect.succeed(`${root}/.git`),
 
+  // The fake models a single worktree, so the common dir is the same as the
+  // per-worktree one — there is no sibling worktree for it to differ from.
+  gitCommonDir: () => Effect.succeed(`${root}/.git`),
+
   commitHistory: (base?: string, head?: string) => Effect.succeed(repo.commitHistory(base, head)),
+
+  subjectHistory: (pageSize: number, skip: number, head?: string) =>
+    Effect.succeed(repo.subjectHistory(pageSize, skip, head)),
 
   changedPaths: (base?: string) => Effect.succeed(repo.changedPathsWorktree(base)),
 })

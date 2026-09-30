@@ -29,6 +29,10 @@ export interface ConfigOperations {
   readonly ui?: UiConfig
   /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
   readonly warnings: readonly Diagnostic[]
+  /** Every `.gtdrc`-family file this load actually found, outermost→innermost — the `.gtdrc` half of what backs `workflow`/`rcVars`/`ui`. */
+  readonly configFiles: readonly string[]
+  /** Every real file `gtd.config.ts`'s evaluation touched (itself plus any relative import), or `[]` for the built-in workflow — the other half. A caller that must know when `workflow` might have changed (the LSP's steering-map memo) watches `configFiles` + `workflowFiles` together; watching `gtd.config.ts`'s own path alone misses an edit to a module it imports. */
+  readonly workflowFiles: readonly string[]
 }
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
@@ -193,16 +197,32 @@ export const load: Effect.Effect<
     rcVars: compiled.rcVars,
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
     warnings: diagnostics.filter((d) => d.severity === "warning"),
+    configFiles: levels.map((level) => level.filepath),
+    workflowFiles: loaded.dependencyFiles,
   }
 })
 
 interface LoadedModule extends Pick<WorkflowDefinition, "flow" | "summary" | "base" | "steering"> {
   readonly defaults: Readonly<Record<string, string>>
   readonly origin: string
+  /**
+   * Every real file this module's evaluation touched — `origin` itself plus
+   * any relative import it (transitively) resolved on disk, in NO particular
+   * order. Empty for the built-in workflow (no file backs it). A caller that
+   * needs to know when this workflow's DEFINITION might have changed (the
+   * LSP's steering-map memo) must watch this whole set, not just `origin`:
+   * `gtd.config.ts` re-exporting a sibling module's `steering`/steps is a
+   * documented pattern (`docs/configuration.md`), and jiti resolves that
+   * import off disk same as any other require.
+   */
+  readonly dependencyFiles: readonly string[]
 }
 
 type JitiInstance = {
-  evalModule: (source: string, options: { filename: string; async?: false }) => unknown
+  evalModule: (
+    source: string,
+    options: { filename: string; async?: false; cache?: Record<string, unknown> },
+  ) => unknown
 }
 type JitiModule = {
   createJiti: (id: string, options: Record<string, unknown>) => JitiInstance
@@ -279,7 +299,11 @@ const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T 
  * Read a workflow module: the default export is the flow; `defaults`,
  * `summary`, `base` and `steering` are optional; any other export is ignored.
  */
-const fromModule = (exported: unknown, origin: string): LoadedModule => {
+const fromModule = (
+  exported: unknown,
+  origin: string,
+  dependencyFiles: readonly string[],
+): LoadedModule => {
   const exports = (typeof exported === "object" && exported !== null ? exported : {}) as Record<
     string,
     unknown
@@ -295,14 +319,25 @@ const fromModule = (exported: unknown, origin: string): LoadedModule => {
     summary: optionalFunction(exports, "summary"),
     base: optionalFunction(exports, "base"),
     origin,
+    dependencyFiles,
   }
 }
 
-/** Evaluate `gtd.config.ts`, or take the bundled default. */
-const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule =>
-  module === undefined
-    ? fromModule(builtInWorkflow, BUILT_IN_ORIGIN)
-    : fromModule(jiti().evalModule(module.source, { filename: module.filepath }), module.filepath)
+/**
+ * Evaluate `gtd.config.ts`, or take the bundled default. `cache` is jiti's
+ * OWN per-call module cache (unrelated to the instance's `moduleCache:
+ * false` — that governs reuse ACROSS calls, this one is populated fresh
+ * DURING this one) — passing an empty object in has the side effect of
+ * collecting every real file jiti resolved evaluating this module, module
+ * AND every relative import it pulled in, transitively. Virtual modules
+ * (`@pmelab/gtd/flows`) never touch it — no real file backs them.
+ */
+const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule => {
+  if (module === undefined) return fromModule(builtInWorkflow, BUILT_IN_ORIGIN, [])
+  const cache: Record<string, unknown> = {}
+  const exported = jiti().evalModule(module.source, { filename: module.filepath, cache })
+  return fromModule(exported, module.filepath, Object.keys(cache))
+}
 
 // The repository's HEAD, read lazily.
 const headTree = (workspace: WorkspaceOps): TreeView => {
