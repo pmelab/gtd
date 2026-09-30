@@ -1,7 +1,11 @@
 import { fromMarkdown } from "mdast-util-from-markdown"
+import { gfmAutolinkLiteralFromMarkdown } from "mdast-util-gfm-autolink-literal"
 import { gfmFootnoteFromMarkdown } from "mdast-util-gfm-footnote"
+import { gfmStrikethroughFromMarkdown } from "mdast-util-gfm-strikethrough"
 import { gfmTaskListItemFromMarkdown } from "mdast-util-gfm-task-list-item"
+import { gfmAutolinkLiteral } from "micromark-extension-gfm-autolink-literal"
 import { gfmFootnote } from "micromark-extension-gfm-footnote"
+import { gfmStrikethrough } from "micromark-extension-gfm-strikethrough"
 import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item"
 import type { Heading, ListItem, Node, Root, RootContent } from "mdast"
 import type { SteeringOutlineNode } from "./SteeringFormat.js"
@@ -25,12 +29,15 @@ let memoContent: string | undefined
 let memoTree: Root | undefined
 
 /**
- * Parses `content` into an mdast tree with both GFM extensions wired —
- * footnotes and task-list checkboxes. Both the micromark and the mdast half
- * of each extension must be CALLED (`gfmTaskListItem()`, not
- * `gfmTaskListItem`); passing the bare function is accepted silently and
- * yields `listItem.checked === null` on every item instead of a real
- * checkbox. Total: `fromMarkdown` never throws, so this never does either.
+ * Parses `content` into an mdast tree with all four GFM extensions wired —
+ * footnotes, task-list checkboxes, strikethrough, and bare-URL autolinks.
+ * `gfmTable` is deliberately NOT wired: tables are block-level and outside
+ * this parser's scope. Both the micromark and the mdast half of each
+ * extension must be CALLED (`gfmTaskListItem()`, not `gfmTaskListItem`);
+ * passing the bare function is accepted silently and yields, e.g.,
+ * `listItem.checked === null` on every item instead of a real checkbox —
+ * the same trap applies to every extension pair here. Total: `fromMarkdown`
+ * never throws, so this never does either.
  *
  * Memoized on the content string, one entry deep — the last document parsed
  * stays cached so one `validate` call's footnote pass and format pass share
@@ -39,8 +46,13 @@ let memoTree: Root | undefined
 export const parseMarkdown = (content: string): Root => {
   if (memoContent === content && memoTree !== undefined) return memoTree
   const tree = fromMarkdown(content, {
-    extensions: [gfmFootnote(), gfmTaskListItem()],
-    mdastExtensions: [gfmFootnoteFromMarkdown(), gfmTaskListItemFromMarkdown()],
+    extensions: [gfmFootnote(), gfmTaskListItem(), gfmStrikethrough(), gfmAutolinkLiteral()],
+    mdastExtensions: [
+      gfmFootnoteFromMarkdown(),
+      gfmTaskListItemFromMarkdown(),
+      gfmStrikethroughFromMarkdown(),
+      gfmAutolinkLiteralFromMarkdown(),
+    ],
   })
   parseCount += 1
   memoContent = content

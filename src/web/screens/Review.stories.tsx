@@ -3,7 +3,11 @@ import { viewport } from "../testing/browserContext.js"
 import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
 import { token } from "../testing/palette.js"
+import { steeringFormatFor } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringView } from "../../steering/index.js"
+
+/** The real `review` format's own `view` — used only by the image-collapsing regression story below, which must exercise the actual server-side projection rather than a hand-built fixture. */
+const reviewFormat = steeringFormatFor("review")!
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { withRealMousePress } from "../testing/realMousePress.js"
 import { Review, ReviewView } from "./Review.js"
@@ -198,41 +202,35 @@ export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
 }
 
 /**
- * Package 02 Task 2: a chunk whose description carries a heading and a
- * fenced code block — `descriptionNodes` projected straight through
- * (`review.ts#reviewView`'s own `body` field), rendered on the chunk's own
- * screen via the shared `ProseBlocks` (`ProseBlock.tsx`), the SAME renderer
- * `Question.tsx`/`Plan.tsx` already use for their own body blocks. No new
- * renderer, no new CSS: the existing `CodeBlock` handles the fenced block's
- * own overflow.
+ * Package 01: the hunk deck no longer renders the chunk's `body` at all — the
+ * description already lives on the chunk list row (`detail`), and a persistent
+ * header above every hunk of the chunk was fixed vertical space taken from the
+ * deck on a 390px phone. `descriptionNodes`/`body` still flow through the wire
+ * unchanged (`review.ts#reviewView`); this story just proves the hunk screen
+ * itself renders none of it.
  */
-/**
- * One unbroken "word" (no spaces to wrap on), well past 390px at any
- * reasonable font size — a short line like `const x = 1` would pass an
- * overflow assertion whether or not the fenced block actually clips its own
- * content, so this is long enough to genuinely test it.
- */
-const LONG_CODE_LINE =
-  "const veryLongIdentifierNameThatWillNeverWrapBecauseItHasNoWhitespaceAtAllInsideIt123456789 = 1"
-
 const DESCRIPTION_CHUNK: SteeringView["nodes"][number] = {
   title: "Chunk with a rich description",
   detail: "A heading followed by a fenced code block.",
+  // Package 02: the SAME single-row `detail` string, now carrying its own
+  // inline structure — a `**bold**` word renders as a real `<strong>`
+  // inside this same row, never as literal asterisks.
+  detailInline: [
+    { kind: "text", value: "A " },
+    { kind: "strong", children: [{ kind: "text", value: "heading" }] },
+    { kind: "text", value: " followed by a fenced code block." },
+  ],
   anchor: { kind: "chunk", index: 3 },
   body: [
     {
       title: "Watch this",
       anchor: { kind: "paragraph", line: 0 },
       block: { kind: "heading", depth: 3 },
-      // An existing footnote landing on this block's own line — real
-      // content the block still shows inline, even though there is no
-      // write path to edit it from this screen (see the next story).
-      note: "left over from an earlier pass",
     },
     {
-      title: "long code line",
+      title: "some detail",
       anchor: { kind: "paragraph", line: 2 },
-      block: { kind: "code", text: LONG_CODE_LINE },
+      block: { kind: "code", text: "const x = 1" },
     },
   ],
   children: [
@@ -251,73 +249,131 @@ const VIEW_WITH_DESCRIPTION_CHUNK: SteeringView = {
   nodes: [NESTED_CHUNK, FOOTNOTE_CHUNK, SINGLE_HUNK_CHUNK, DESCRIPTION_CHUNK],
 }
 
-export const AChunkDescriptionsHeadingAndFencedCodeBlockBothRenderOnTheChunksScreen: Story = {
+export const AChunkDescriptionsHeadingAndFencedCodeBlockRenderNowhereOnTheChunksScreen: Story = {
   args: { view: VIEW_WITH_DESCRIPTION_CHUNK, isLoading: false },
+  // The viewport-tall column `App.tsx` itself provides — mirrors
+  // `BackFromAChunksDeckRestoresScrollPosition`'s identical decorator, needed
+  // here so `hunk-deck` has a REAL bounded height to reclaim rather than
+  // collapsing to its own content's natural size, which would pass whether or
+  // not a header sibling still ate part of it.
+  decorators: [
+    (Story) => (
+      <div className="mx-auto flex h-dvh max-w-[390px] flex-col">
+        <Story />
+      </div>
+    ),
+  ],
   play: async ({ canvasElement }) => {
     // Phone width — the same 390px convention `Card.stories.tsx`'s
     // `RendersCorrectlyAt390pxWide` measures against.
     await viewport(390, 844)
     const canvas = within(canvasElement)
     // The chunk card itself still renders `detail` as a single text row —
-    // unchanged, no block structure leaking into the list.
+    // the description's only surviving surface, once the hunk deck's own
+    // copy is gone.
     const card = canvas.getByTestId("chunk-card-3")
     await expect(card).toHaveTextContent("A heading followed by a fenced code block.")
+    // The bold word inside that same row is a real element, not literal
+    // `**heading**` asterisks.
+    const strong = card.querySelector("strong")
+    expect(strong).not.toBeNull()
+    expect(strong).toHaveTextContent("heading")
 
     await fireEvent.click(canvas.getByTestId("chunk-open-3"))
 
-    // Both blocks from `body` render on the chunk's own screen (the hunk
-    // deck), through the shared `prose-paragraphs` rendering.
-    const body = canvas.getByTestId("prose-paragraphs")
-    await expect(body).toHaveTextContent("Watch this")
-    await expect(body).toHaveTextContent(LONG_CODE_LINE)
+    // The hunk deck renders none of `body` — even for a chunk carrying a
+    // heading and a fenced code block, `chunk.body` is dropped entirely, not
+    // collapsed or shown on the first hunk only.
+    expect(canvas.queryByTestId("prose-paragraphs")).not.toBeInTheDocument()
 
-    // The fenced block renders inside a scrollable `pre` — `CodeBlock`'s own
-    // `overflow-auto`.
-    const pre = body.querySelector("pre")
-    expect(pre).not.toBeNull()
-    expect(pre?.className).toContain("overflow-x-auto")
-    // The line has no whitespace to wrap on and is far wider than 390px, so
-    // the `pre`'s OWN scroll region genuinely overflows its box — this is
-    // the positive control proving the line really is long enough to widen
-    // something if nothing clipped it.
-    expect(pre!.scrollWidth).toBeGreaterThan(pre!.clientWidth)
-    // What must NOT grow: the document itself. If the fenced block reflowed
-    // its ancestors instead of scrolling internally, the whole page would
-    // widen past the 390px viewport — this is the actual layout risk Task
-    // 2 names ("a fenced block does not reflow"), not the `pre`'s own
-    // (expected-to-overflow) `scrollWidth`.
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
+    // `Deck` is the hunk screen's only flex child now — no `shrink-0
+    // overflow-auto border-b` sibling above it reserving vertical space, so
+    // the whole `hunk-deck` box is exactly the one `deck` element.
+    const hunkDeck = canvas.getByTestId("hunk-deck")
+    expect(hunkDeck.children).toHaveLength(1)
+    expect(hunkDeck.firstElementChild).toBe(canvas.getByTestId("deck"))
+
+    // The measured payoff: `deck`'s own box is the FULL `hunk-deck` box, not
+    // a fraction of it reduced by a reserved header above it — a regression
+    // reintroducing even a small `shrink-0` sibling would shrink `deck`'s
+    // height below `hunk-deck`'s without shrinking `hunk-deck` itself.
+    const hunkDeckRect = hunkDeck.getBoundingClientRect()
+    const deckRect = canvas.getByTestId("deck").getBoundingClientRect()
+    expect(deckRect.height).toBe(hunkDeckRect.height)
+    // The positive control: `hunk-deck` itself genuinely fills most of the
+    // 844px viewport column (`App.tsx`'s own shell), so the assertion above
+    // is pinning something worth reclaiming, not two empty boxes agreeing.
+    expect(hunkDeckRect.height).toBeGreaterThan(700)
   },
 }
 
 /**
- * The bug this fixes: `ProseBlocks` normally draws a full-width "+ Add
- * note"/"Edit note" control below every non-code block — real in
- * `Question.tsx`/`Plan.tsx`, which wire a real `onOpenNote` handler, but a
- * review document has no per-block write path at all (its only phone edit is
- * ticking a pointer's checkbox). `Review.tsx` passes `readOnly` so the seam
- * never renders here, even though a block still shows an existing footnote's
- * text inline (real content, not a control that would do nothing when
- * tapped).
+ * Package 02, R2/T5: `detailInline` collapses an image to its own alt text
+ * SERVER-SIDE — the chunk row renders no `<img>` element at all, so no
+ * remote fetch can ever fire from the compact chunk list.
  */
-export const DescriptionBlocksShowAnExistingNoteButNoDeadEditSeam: Story = {
-  args: { view: VIEW_WITH_DESCRIPTION_CHUNK, isLoading: false },
+export const ChunkRowImageCollapsesToAltTextNoRemoteFetch: Story = {
+  args: {
+    // A REAL `![alt](url)` through the actual server-side parser
+    // (`reviewDescriptor.view`), not a hand-built `detailInline` fixture — a
+    // fixture with no `image` node in it would pass this assertion for the
+    // wrong reason (spec feedback).
+    view: reviewFormat.view(
+      [
+        "# Review: abc1234",
+        "<!-- base: abc1234def5678901234567890123456789abcd -->",
+        "",
+        "## Chunk with an image in its description",
+        "",
+        "See ![a diagram](https://x.example/p.png) here.",
+        "",
+        "- [ ] ./src/e.ts#1",
+        "",
+      ].join("\n"),
+    ),
+    isLoading: false,
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await fireEvent.click(canvas.getByTestId("chunk-open-3"))
-    const body = canvas.getByTestId("prose-paragraphs")
-    await expect(body).toHaveTextContent("left over from an earlier pass")
-    expect(body.querySelector("[data-testid^='note-target-']")).toBeNull()
+    const card = canvas.getByTestId("chunk-card-0")
+    await expect(card).toHaveTextContent("See a diagram here.")
+    expect(card.querySelector("img")).toBeNull()
   },
 }
 
-export const AChunkWithAnEmptyDescriptionRendersNoBodyRegionOnItsOwnScreen: Story = {
-  args: { view: SAMPLE_VIEW, isLoading: false },
+/**
+ * Spec feedback: a nested list item's own text used to vanish from
+ * `detailInline` entirely — only the top-level items contributed. A real
+ * chunk description whose leading run is a nested list, through the actual
+ * server-side parser, must show the nested item's own text in the compact
+ * chunk row, exactly as it already does in `detail`.
+ */
+export const ChunkRowNestedListItemTextSurvivesInDetailInline: Story = {
+  args: {
+    view: reviewFormat.view(
+      [
+        "# Review: abc1234",
+        "<!-- base: abc1234def5678901234567890123456789abcd -->",
+        "",
+        "## Chunk with a nested list in its description",
+        "",
+        "- item one",
+        "- item two",
+        "  - nested item",
+        "",
+        // A `*`-marker pointer list, deliberately: CommonMark merges
+        // adjacent SAME-marker bullet lists into one node even across a
+        // blank line, which would swallow the description above.
+        "* [ ] ./src/e.ts#1",
+        "",
+      ].join("\n"),
+    ),
+    isLoading: false,
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    // `NESTED_CHUNK`'s own `body` is unset — no body region on its screen.
-    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
-    expect(canvas.queryByTestId("prose-paragraphs")).not.toBeInTheDocument()
+    const card = canvas.getByTestId("chunk-card-0")
+    await expect(card).toHaveTextContent("item one item two nested item")
   },
 }
 

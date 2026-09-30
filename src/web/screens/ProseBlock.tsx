@@ -1,50 +1,6 @@
-import type { ReactElement, ReactNode } from "react"
+import type { ReactElement } from "react"
 import type { BlockListItem, SteeringViewNode } from "../../steering/index.js"
-
-/** A markdown inline link — `[label](url)` — the one inline construct Requirement A names ("headings, paragraphs, lists, code blocks, links") that survives into a node's `title`/`block.text` verbatim (`Blocks.ts#blockTitle`/`sourceText` strip footnote markers only, never link syntax). */
-const LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/g
-
-/** One piece of `splitOnLinks`'s own output — plain text, or a matched link's own label/href. */
-type TextPart = { readonly text: string } | { readonly label: string; readonly href: string }
-
-/** Splits `text` on every `[label](url)` occurrence — the pure matching half of `InlineText`, kept apart from JSX so neither half carries the other's own branching. */
-const splitOnLinks = (text: string): readonly TextPart[] => {
-  const parts: TextPart[] = []
-  let lastIndex = 0
-  LINK_RE.lastIndex = 0
-  for (let match = LINK_RE.exec(text); match !== null; match = LINK_RE.exec(text)) {
-    if (match.index > lastIndex) parts.push({ text: text.slice(lastIndex, match.index) })
-    parts.push({ label: match[1]!, href: match[2]! })
-    lastIndex = match.index + match[0].length
-  }
-  if (lastIndex < text.length) parts.push({ text: text.slice(lastIndex) })
-  return parts
-}
-
-/**
- * Renders `text` with every `[label](url)` occurrence as a real `<a>`,
- * everything else as a plain string child — never wrapped in an extra
- * element: `HeadingBlock`'s own `heading.tagName === "H2"` assertion (and
- * every other caller's own text-content check) must still resolve to the
- * SAME element this returns children into, not a synthetic wrapper one
- * level deeper.
- */
-const InlineText = ({ text }: { readonly text: string }): ReactNode =>
-  splitOnLinks(text).map((part, index) =>
-    "href" in part ? (
-      <a
-        key={index}
-        href={part.href}
-        target="_blank"
-        rel="noreferrer"
-        className="text-link underline"
-      >
-        {part.label}
-      </a>
-    ) : (
-      part.text
-    ),
-  )
+import { Inline } from "./InlineRun.js"
 
 /** The heading tag a `block.heading`'s own `depth` renders as — three buckets covering all six markdown levels, never a literal `h1`..`h6` (this screen's own `h2` already labels "Open Questions"/"Already answered"). */
 const headingTagFor = (depth: number): "h2" | "h3" | "h4" => {
@@ -69,7 +25,7 @@ const BlockList = ({
           {item.checked !== undefined && (
             <input type="checkbox" checked={item.checked} readOnly className="mr-2 align-middle" />
           )}
-          <InlineText text={item.text} />
+          <Inline inline={item.inline} fallback={item.text} />
           {item.items !== undefined && <BlockList items={item.items} ordered={ordered} />}
         </li>
       ))}
@@ -89,7 +45,7 @@ const HeadingBlock = ({ node }: { readonly node: SteeringViewNode }) => {
   const HeadingTag = headingTagFor(node.block?.depth ?? 2)
   return (
     <HeadingTag className={`m-0 px-3 pt-4 pb-1 font-semibold ${HEADING_CLASSES[HeadingTag]}`}>
-      <InlineText text={node.title} />
+      <Inline inline={node.block?.inline} fallback={node.title} />
     </HeadingTag>
   )
 }
@@ -113,7 +69,7 @@ const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => (
 /** A `blockquote` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
 const BlockquoteBlock = ({ node }: { readonly node: SteeringViewNode }) => (
   <blockquote className="m-0 border-l-4 border-quote px-3 py-2 text-muted italic">
-    <InlineText text={node.block?.text ?? node.title} />
+    <Inline inline={node.block?.inline} fallback={node.block?.text ?? node.title} />
   </blockquote>
 )
 
@@ -148,7 +104,7 @@ const NoteBadge = ({ index }: { readonly index: number }) => (
 /** The plain `p` fallback — `block` absent, or a `kind` this doesn't (yet) render structure for — exactly the fallback Task 4 requires so a client that ignores `block` still renders `title`. */
 const ParagraphBlock = ({ node }: { readonly node: SteeringViewNode }) => (
   <p className="m-0 px-3 py-2">
-    <InlineText text={node.title} />
+    <Inline inline={node.block?.inline} fallback={node.title} />
   </p>
 )
 
@@ -176,12 +132,10 @@ const BlockBody = ({ node }: { readonly node: SteeringViewNode }) => {
  * node so the row still renders and keys uniquely. A fenced CODE block gets
  * neither the seam nor the inline note row (Task 3's own reason: a marker on
  * its anchor line would land in the opening fence and corrupt it) — every
- * other kind gets both, UNLESS `readOnly` is set: `Review.tsx`'s chunk
- * description has no per-block write path at all (a review document's only
- * phone edit is ticking a pointer's checkbox), so a caller passing
- * `readOnly` still shows an existing footnote's text inline (real content,
- * not a dead control) but never the seam — a control that would tap into a
- * no-op `onOpenNote` otherwise.
+ * other kind gets both, UNLESS `readOnly` is set: a caller with no per-block
+ * write path (a question option's impact list, say) still shows an existing
+ * footnote's text inline (real content, not a dead control) but never the
+ * seam — a control that would tap into a no-op `onOpenNote` otherwise.
  */
 // fallow-ignore-next-line complexity
 const ProseBlock = ({

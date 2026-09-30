@@ -285,6 +285,55 @@ export const DescriptionRendersBetweenTitleAndDiff: Story = {
   },
 }
 
+/**
+ * Package 02, T4/T8: a description carrying `**bold**`, `` `code` ``,
+ * `~~strike~~` and a link renders real `<strong>`, `<code>`, `<s>` and `<a>`
+ * elements, with no marker character left in the row's own text content —
+ * the shared `InlineRun` renderer, not the deleted `LINK_RE` regex.
+ */
+export const DescriptionInlineMarkdownRendersAsRealElements: Story = {
+  args: {
+    node: hunkNode({
+      detail: "adds bold code strike and a link",
+      detailInline: [
+        { kind: "text", value: "adds " },
+        { kind: "strong", children: [{ kind: "text", value: "bold" }] },
+        { kind: "text", value: " " },
+        { kind: "code", value: "code" },
+        { kind: "text", value: " " },
+        { kind: "delete", children: [{ kind: "text", value: "strike" }] },
+        { kind: "text", value: " and a " },
+        {
+          kind: "link",
+          href: "https://example.com",
+          children: [{ kind: "text", value: "link" }],
+        },
+      ],
+    }),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const description = canvas.getByTestId("hunk-description")
+    expect(description.querySelector("strong")).toHaveTextContent("bold")
+    expect(description.querySelector("code")).toHaveTextContent("code")
+    expect(description.querySelector("s")).toHaveTextContent("strike")
+    const link = description.querySelector("a")
+    expect(link).toHaveTextContent("link")
+    expect(link).toHaveAttribute("href", "https://example.com")
+    expect(description.textContent).not.toContain("**")
+    expect(description.textContent).not.toContain("~~")
+    expect(description.textContent).not.toContain("`")
+  },
+}
+
 /** No description at all renders nothing in that slot — no placeholder element, one rule with the chunk level (`Review.tsx`'s `chunk.detail` guard). */
 export const NoDescriptionRendersNoPlaceholder: Story = {
   args: {

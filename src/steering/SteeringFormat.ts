@@ -1,6 +1,8 @@
-// Zero imports on purpose: this module is pure vocabulary, shared by the built-in
-// registry (`src/SteeringFormats.ts`) and the LSP's translation layer
-// (`src/Lsp.ts`) without either pulling in the other's dependencies.
+// Only `InlineNode` is imported — this module otherwise stays pure vocabulary,
+// shared by the built-in registry (`src/SteeringFormats.ts`) and the LSP's
+// translation layer (`src/Lsp.ts`) without either pulling in the other's
+// dependencies.
+import type { InlineNode } from "./Inline.js"
 
 /** The same shape `vscode-languageserver`'s `TextEdit` carries, kept format-side so this module stays protocol-independent. */
 export interface SteeringEdit {
@@ -126,6 +128,8 @@ export interface BlockListItem {
   readonly checked?: boolean
   /** A nested list directly under this item, recursively. Absent when this item has none. */
   readonly items?: readonly BlockListItem[]
+  /** `text`'s own inline structure — the shared renderer walks this instead of `text` when present. Populated at every nesting depth. */
+  readonly inline?: readonly InlineNode[]
 }
 
 /**
@@ -157,6 +161,18 @@ export interface SteeringViewNode {
   readonly checked?: boolean
   /** An attached note's text, when this node carries one. */
   readonly note?: string
+  /**
+   * `detail`'s own inline counterpart, for the three compact rows (a chunk
+   * card, a hunk's description row, a plan row): built server-side by
+   * concatenating each contributing block's own inline run with a single
+   * space `text` separator, mirroring exactly how `detail` itself joins.
+   * Block structure stays flattened — a list contributes its items' runs
+   * joined by spaces, a fence contributes its plain text — and an image
+   * collapses to its alt text unconditionally, so a compact row can never
+   * fire a remote fetch. Set by `review.ts` (chunk, hunk) and `qa.ts`
+   * (question); absent wherever `detail` itself is absent.
+   */
+  readonly detailInline?: readonly InlineNode[]
   /** A file path this node points at, when it has one (a `review` hunk). */
   readonly path?: string
   /** A 1-based line in `path` this node points at, when it has one. */
@@ -215,6 +231,15 @@ export interface SteeringViewNode {
      * replaces a block's whole source span with this same shape of text.
      */
     readonly text?: string
+    /**
+     * This block's own inline structure — set only for `kind: "paragraph"`,
+     * `"heading"` and `"blockquote"` (a `code` block's `text` has none; a
+     * `list` block's own items each carry their own `inline` instead, on
+     * `BlockListItem`). The shared client renderer walks this instead of
+     * `title`/`text` when present, so `**bold**` and friends survive as real
+     * structure rather than literal markers.
+     */
+    readonly inline?: readonly InlineNode[]
   }
 }
 

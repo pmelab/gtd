@@ -3,6 +3,7 @@ import type { SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { highlightDiffLine } from "../Highlight.js"
 import { Notice } from "../Notice.js"
+import { Inline } from "./InlineRun.js"
 
 export interface HunkProps {
   /** The `review`-view hunk node this screen renders — `title`/`path`/`line` for the header, `checked` seeds nothing here (the caller passes the live `checked` prop below instead, since a chunk-level check-all can move it out from under this node). */
@@ -270,7 +271,7 @@ export const Hunk = ({
     <div className="px-3 pt-0.5 pb-1 font-mono text-body font-semibold break-all">{node.title}</div>
     {node.detail !== undefined && node.detail.length > 0 && (
       <div data-testid="hunk-description" className="px-3 pb-2 text-small text-muted">
-        {node.detail}
+        <Inline inline={node.detailInline} fallback={node.detail} />
       </div>
     )}
 
