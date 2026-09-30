@@ -1,6 +1,7 @@
 import type { List, ListItem, RootContent, Root } from "mdast"
 import { parseFootnotes } from "./Footnotes.js"
 import type { Footnotes } from "./Footnotes.js"
+import { definitionsOf, joinInlineRuns, projectInline, type InlineNode } from "./Inline.js"
 import { headingText, sourceText, toLspPosition } from "./MarkdownTree.js"
 import type { BlockListItem, SteeringView, SteeringViewNode } from "./SteeringFormat.js"
 
@@ -80,12 +81,86 @@ const listItemText = (content: string, item: ListItem): string =>
     item.children.filter((c) => c.type !== "list"),
   )
 
+/**
+ * One list item's own inline structure, EXCLUDING any nested `list` child
+ * (mirrors `listItemText`'s identical exclusion) — recurses through each
+ * remaining non-list child via `nodeInline`, joined the same way
+ * `childrenText` joins its own text. Feeds `BlockListItem.inline` (the FULL
+ * block rendering) ONLY — a nested item renders as its own nested `<li>`
+ * there (`BlockListItem.items`), so folding its text back into the PARENT's
+ * own `inline` would duplicate it. `flattenListItemsInline` (below) is the
+ * separate, deliberately non-recursive-exclusion sibling `nodeInline`'s own
+ * `list` branch uses instead, for the flattened `detailInline` path.
+ */
+const listItemInline = (content: string, item: ListItem): readonly InlineNode[] =>
+  joinInlineRuns(item.children.filter((c) => c.type !== "list").map((c) => nodeInline(content, c)))
+
+/**
+ * Every list item's own inline run, AT ANY NESTING DEPTH, flattened and
+ * joined in document order — what `nodeInline`'s own `list` branch needs for
+ * `detailInline` (R2: "a list contributes its items' runs joined by
+ * spaces", explicitly INCLUDING a nested item, since block structure stays
+ * flattened there). Deliberately distinct from `listItemInline`/
+ * `BlockListItem.inline`, which keep a nested item's text OUT of its
+ * parent's own `inline` — that field feeds the FULL block's own recursive
+ * `<li>` tree, where a nested item already renders once, on its own.
+ */
+const flattenListItemsInline = (
+  content: string,
+  items: readonly ListItem[],
+): readonly InlineNode[] =>
+  joinInlineRuns(
+    items.flatMap((item) => {
+      const ownRun = listItemInline(content, item)
+      const nested = item.children.filter((c): c is List => c.type === "list")
+      const nestedRuns = nested.map((list) => flattenListItemsInline(content, list.children))
+      return [ownRun, ...nestedRuns]
+    }),
+  )
+
+/**
+ * One top-level (or list-item-child) node's own inline structure —
+ * `heading`/`paragraph` project their own `children` directly; `blockquote`
+ * joins each non-footnote-definition child's own inline run; `list` joins
+ * each of its visible items' own `listItemInline`; `code` has none of its
+ * own beyond its plain `value`. Mirrors `blockTitle`'s per-kind dispatch,
+ * structurally rather than as a flattened string.
+ */
+const nodeInline = (
+  content: string,
+  node: RootContent,
+  options?: BlockWalkOptions,
+): readonly InlineNode[] => {
+  if (node.type === "heading" || node.type === "paragraph") {
+    return projectInline(node.children, definitionsOf(content))
+  }
+  if (node.type === "blockquote") {
+    return joinInlineRuns(
+      node.children
+        .filter((c) => c.type !== "footnoteDefinition")
+        .map((c) => nodeInline(content, c, options)),
+    )
+  }
+  if (node.type === "list") {
+    return flattenListItemsInline(content, visibleListItems(node, options))
+  }
+  if (node.type === "code") return [{ kind: "text", value: node.value }]
+  // Every other kind (a block-level `html` node, a `thematicBreak`, …) has
+  // no inline structure of its own to project — but its own text must still
+  // survive as an inert `text` node (R4: "raw HTML in a description stays
+  // inert text", not nothing), mirroring `blockTitle`'s own identical
+  // `sourceText` fallback for the same set of kinds.
+  const title = blockTitle(content, node, options)
+  return title.length > 0 ? [{ kind: "text", value: title }] : []
+}
+
 /** One list item as a `BlockListItem`, recursing into a nested `list` child (there is at most one, CommonMark's own shape) as its own `items`. */
 const blockListItemOf = (content: string, item: ListItem): BlockListItem => {
   const nested = item.children.filter((c): c is List => c.type === "list")
   const items = nested.flatMap((list) => blockListItemsOf(content, list.children))
   return {
     text: listItemText(content, item),
+    inline: listItemInline(content, item),
     ...(item.checked === true || item.checked === false ? { checked: item.checked } : {}),
     ...(items.length > 0 ? { items } : {}),
   }
@@ -158,7 +233,11 @@ const blockOf = (
 ): SteeringViewNode["block"] | undefined => {
   switch (node.type) {
     case "heading":
-      return { kind: "heading", depth: node.depth }
+      return {
+        kind: "heading",
+        depth: node.depth,
+        inline: projectInline(node.children, definitionsOf(content)),
+      }
     case "list":
       return {
         kind: "list",
@@ -172,9 +251,13 @@ const blockOf = (
         ...(node.lang !== null && node.lang !== undefined ? { language: node.lang } : {}),
       }
     case "blockquote":
-      return { kind: "blockquote", text: blockTitle(content, node) }
+      return {
+        kind: "blockquote",
+        text: blockTitle(content, node),
+        inline: nodeInline(content, node),
+      }
     case "paragraph":
-      return { kind: "paragraph" }
+      return { kind: "paragraph", inline: projectInline(node.children, definitionsOf(content)) }
     default:
       return undefined
   }
@@ -224,6 +307,25 @@ const isEmptiedList = (node: RootContent, options?: BlockWalkOptions): boolean =
   visibleListItems(node, options).length === 0
 
 /**
+ * The nodes of a run that `blockNodesOfRun`/`blockRunInline` both walk —
+ * a real position (so `position!` below is total), not a footnote
+ * definition, not `options`-skipped, not a list emptied down to nothing by
+ * `skipListItem`. Shared so the two walks can never drift apart on which
+ * nodes they see (see `blockRunInline`'s own doc comment).
+ */
+const visibleNodes = (
+  content: string,
+  nodes: readonly RootContent[],
+  options?: BlockWalkOptions,
+): readonly RootContent[] =>
+  nodes
+    .filter((node) => node.position !== undefined)
+    .filter((node) => node.type !== "footnoteDefinition")
+    .filter((node) => !(options?.skipNode?.(content, node) ?? false))
+    .filter((node) => !(options?.skipLine?.(toLspPosition(node.position!.start).line) ?? false))
+    .filter((node) => !isEmptiedList(node, options))
+
+/**
  * Every block of an arbitrary RUN of sibling `RootContent` nodes as a view
  * node, in document order — headings, lists, code blocks, blockquotes and
  * paragraphs alike. A `footnoteDefinition` is skipped unconditionally: it is
@@ -252,26 +354,20 @@ export const blockNodesOfRun = (
 ): readonly SteeringView["nodes"][number][] => {
   const { markers, definitions } = options?.footnotes ?? parseFootnotes(content)
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
-  return nodes
-    .filter((node) => node.position !== undefined)
-    .filter((node) => node.type !== "footnoteDefinition")
-    .filter((node) => !(options?.skipNode?.(content, node) ?? false))
-    .filter((node) => !(options?.skipLine?.(toLspPosition(node.position!.start).line) ?? false))
-    .filter((node) => !isEmptiedList(node, options))
-    .map((node) => {
-      const startLine = toLspPosition(node.position!.start).line
-      const noteBodies = markers
-        .filter((marker) => marker.line === startLine)
-        .map((marker) => definitionByName.get(marker.name))
-        .filter((body): body is string => body !== undefined)
-      const block = blockOf(content, node, options)
-      return {
-        title: blockTitle(content, node, options),
-        anchor: { kind: "paragraph" as const, line: startLine },
-        ...(block !== undefined ? { block } : {}),
-        ...(noteBodies.length > 0 ? { note: noteBodies.join(" ") } : {}),
-      }
-    })
+  return visibleNodes(content, nodes, options).map((node) => {
+    const startLine = toLspPosition(node.position!.start).line
+    const noteBodies = markers
+      .filter((marker) => marker.line === startLine)
+      .map((marker) => definitionByName.get(marker.name))
+      .filter((body): body is string => body !== undefined)
+    const block = blockOf(content, node, options)
+    return {
+      title: blockTitle(content, node, options),
+      anchor: { kind: "paragraph" as const, line: startLine },
+      ...(block !== undefined ? { block } : {}),
+      ...(noteBodies.length > 0 ? { note: noteBodies.join(" ") } : {}),
+    }
+  })
 }
 
 /** Every top-level block of the WHOLE document, in document order — `blockNodesOfRun` over `tree.children`. See that function's own doc comment for the shared per-node logic. */
@@ -280,3 +376,21 @@ export const blockNodesOf = (
   tree: Root,
   options?: BlockWalkOptions,
 ): readonly SteeringView["nodes"][number][] => blockNodesOfRun(content, tree.children, options)
+
+/**
+ * A run of sibling nodes' own inline structure, flattened and joined exactly
+ * the way `blockTitle`/`childrenText` flatten the SAME run into one string —
+ * a caller's `detailInline` (`review.ts`'s chunk, `qa.ts`'s question)
+ * builds this over the same node run its own `detail` string is built over,
+ * with the SAME `options` (so a skipped node/line/list-item is skipped in
+ * both). Never itself collapses an image to alt text — a caller wanting the
+ * compact-row rule (R2) applies `Inline.ts#collapseImages` to the result.
+ */
+export const blockRunInline = (
+  content: string,
+  nodes: readonly RootContent[],
+  options?: BlockWalkOptions,
+): readonly InlineNode[] => {
+  const filtered = visibleNodes(content, nodes, options)
+  return joinInlineRuns(filtered.map((node) => nodeInline(content, node, options)))
+}

@@ -64,6 +64,70 @@ export const RendersHeadingListCodeParagraphAndLinkStructureNeverARawTextarea: S
   },
 }
 
+/**
+ * Package 02's own regression, mirroring `Hunk.stories.tsx`'s
+ * `MarkupInADiffLineRendersAsInertTextNeverParsedHtml` assertion for
+ * assertion: `FreeForm` is the screen that puts arbitrary blocks through the
+ * shared renderer with no format structure in the way, so a real `<script>`
+ * tag typed into prose is the sharpest test of "markdown is never raw HTML" —
+ * the raw markup must survive as inert TEXT content, never a parsed,
+ * executing element.
+ */
+export const RawHtmlInPoseRendersAsInertTextNeverParsedHtml: Story = {
+  args: {
+    filePath: "/tmp/raw-html.md",
+    isLoading: false,
+    view: freeFormFormat.view("before <script>window.__xss = true</script> after\n"),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const paragraph = canvas.getByTestId("note-target-0")
+    expect(paragraph).toHaveTextContent("before <script>window.__xss = true</script> after")
+    expect(paragraph.querySelector("script")).toBeNull()
+    expect((window as unknown as { __xss?: boolean }).__xss).toBeUndefined()
+  },
+}
+
+/**
+ * Package 02, T4/T5: a remote image in a FULL block (the plan/question/
+ * free-form screens, per R1) renders as a real `<img>` — lazy-loaded,
+ * async-decoded, and with no `Referer` leak to the third-party origin
+ * (the UI runs inside a Tailnet). `onError`'s alt-text fallback is exercised
+ * separately by the story below.
+ */
+export const RemoteImageInAFullBlockRendersALazyReferrerlessImg: Story = {
+  args: {
+    filePath: "/tmp/image.md",
+    isLoading: false,
+    view: freeFormFormat.view("![a diagram](https://example.com/pic.png)\n"),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const img = canvas.getByAltText("a diagram")
+    expect(img.tagName).toBe("IMG")
+    expect(img).toHaveAttribute("src", "https://example.com/pic.png")
+    expect(img).toHaveAttribute("loading", "lazy")
+    expect(img).toHaveAttribute("decoding", "async")
+    expect(img).toHaveAttribute("referrerpolicy", "no-referrer")
+  },
+}
+
+/** An image whose request fails (mixed content over an `http://` src on a TLS page, or any other load failure) swaps to its own alt text — never a broken-image icon left in place. */
+export const AFailedImageLoadSwapsToItsOwnAltText: Story = {
+  args: {
+    filePath: "/tmp/broken-image.md",
+    isLoading: false,
+    view: freeFormFormat.view("![a diagram](https://example.com/missing.png)\n"),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const img = canvas.getByAltText("a diagram")
+    await fireEvent.error(img)
+    await expect(canvas.queryByRole("img")).not.toBeInTheDocument()
+    await expect(canvas.getByText("a diagram")).toBeInTheDocument()
+  },
+}
+
 export const NoFindingsSurfaceRendersAnywhereOnThisScreen: Story = {
   args: {
     filePath: "/tmp/no-findings.md",

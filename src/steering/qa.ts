@@ -1,6 +1,7 @@
 import type { Code, Heading, List, ListItem, Root, RootContent } from "mdast"
-import { blockNodesOf, blockNodesOfRun } from "./Blocks.js"
+import { blockNodesOf, blockNodesOfRun, blockRunInline } from "./Blocks.js"
 import type { Footnotes, FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
+import { collapseImages, type InlineNode } from "./Inline.js"
 import {
   FOOTNOTE_ACTION_TITLE,
   footnoteAdditionEdits,
@@ -130,6 +131,8 @@ interface OpenQuestion {
   readonly text: string
   /** The question's own body run, projected through the shared block walk (`questionBodyNodes`) — every body block EXCEPT the option list itself, in document order. `[]` for a question with no body. */
   readonly bodyNodes: readonly SteeringViewNode[]
+  /** `text`'s own inline counterpart, image-collapsed (R2) — feeds the question node's `detailInline`. Built over the SAME body run and `skipListItem` option as `bodyNodes`/`text`. */
+  readonly bodyInline: readonly InlineNode[]
   readonly headingLine: number
   /** Checkbox options in document order. `[]` for an ANSWERED question (prose, no checkboxes). The LAST option is the free-text slot. */
   readonly options: readonly QuestionOption[]
@@ -250,6 +253,17 @@ const questionBodyNodes = (
     skipListItem: (item) => optionItems.has(item),
     footnotes,
   })
+}
+
+/** `questionBodyNodes`'s own inline counterpart — the SAME body run and `skipListItem` option, walked by `Blocks.ts#blockRunInline` instead, then image-collapsed (R2) for the question node's `detailInline`. */
+const questionBodyInline = (
+  content: string,
+  body: readonly RootContent[],
+): readonly InlineNode[] => {
+  const optionItems = new Set(optionListItems(body))
+  return collapseImages(
+    blockRunInline(content, body, { skipListItem: (item) => optionItems.has(item) }),
+  )
 }
 
 /** The whole body's collapsed text — every `bodyNodes` block's own title, joined with a single space, or `""` for an empty body. Feeds `OpenQuestion.text`. */
@@ -418,6 +432,7 @@ const parseQuestionBlock = (
 
   const headingLine = toLspPosition(block.heading.position!.start).line
   const bodyNodes = questionBodyNodes(content, block.body, footnotes)
+  const bodyInline = questionBodyInline(content, block.body)
   const options = status === "open" ? parseOptions(content, block.body, footnotes) : []
 
   return {
@@ -425,6 +440,7 @@ const parseQuestionBlock = (
     status,
     text: bodyText(bodyNodes),
     bodyNodes,
+    bodyInline,
     headingLine,
     options,
     answered: status === "open" && options.length > 0 && isAnswered(options),
@@ -1120,6 +1136,7 @@ const questionsView = (content: string): SteeringView => {
       ...questions.map((question, questionIndex) => ({
         title: question.question,
         detail: question.text,
+        detailInline: question.bodyInline,
         status: question.status,
         answered: question.answered,
         anchor: { kind: "question" as const, index: questionIndex },

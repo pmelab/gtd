@@ -2111,8 +2111,20 @@ export const MarkdownStructureIsColouredByRole: Story = {
           block: { kind: "heading", depth: 3 },
         },
         {
-          title: "See the [docs](https://example.com/docs) for more.",
+          title: "See the docs for more.",
           anchor: { kind: "paragraph", line: 4 },
+          block: {
+            kind: "paragraph",
+            inline: [
+              { kind: "text", value: "See the " },
+              {
+                kind: "link",
+                href: "https://example.com/docs",
+                children: [{ kind: "text", value: "docs" }],
+              },
+              { kind: "text", value: " for more." },
+            ],
+          },
         },
         {
           title: "const x = 1",
@@ -2158,7 +2170,22 @@ export const DoubleTapAndEnterBothOpenTheNoteSheetButALinkDoesNot: Story = {
     isLoading: false,
     view: {
       nodes: [
-        paragraphNode(0, "A paragraph with a [link](https://example.com) inside it."),
+        {
+          title: "A paragraph with a link inside it.",
+          anchor: { kind: "paragraph", line: 0 },
+          block: {
+            kind: "paragraph",
+            inline: [
+              { kind: "text", value: "A paragraph with a " },
+              {
+                kind: "link",
+                href: "https://example.com",
+                children: [{ kind: "text", value: "link" }],
+              },
+              { kind: "text", value: " inside it." },
+            ],
+          },
+        },
         paragraphNode(2, "A plain second paragraph."),
       ],
     } satisfies SteeringView,

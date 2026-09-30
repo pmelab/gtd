@@ -1,6 +1,43 @@
 import { describe, expect, it } from "vitest"
-import { blockNodesOf } from "./Blocks.js"
+import { blockNodesOf, blockRunInline } from "./Blocks.js"
 import { parseMarkdown } from "./Blocks.fixture.js"
+
+describe("blockNodesOf — T1 blast-radius: blockTitle is byte-identical for a list item containing ~~strike~~ and a bare URL", () => {
+  it("a list item's own title keeps the literal markers, unaffected by wiring the two new GFM extensions", () => {
+    const content = ["- A ~~gone~~ item https://example.com/x", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const nodes = blockNodesOf(content, tree)
+    expect(nodes[0]?.title).toBe("A ~~gone~~ item https://example.com/x")
+    expect(nodes[0]?.block?.items?.[0]?.text).toBe("A ~~gone~~ item https://example.com/x")
+  })
+})
+
+describe("blockRunInline — spec-feedback regression: a nested list item's own text is not dropped", () => {
+  it("a nested item's own run joins the flattened detailInline path, unlike a hand-picked top-level-only walk", () => {
+    const content = ["- outer", "  - inner deep text", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const inline = blockRunInline(content, tree.children)
+    const joined = inline.map((n) => ("value" in n ? n.value : "")).join("")
+    expect(joined).toBe("outer inner deep text")
+  })
+
+  it("still recurses at three levels deep, in document order", () => {
+    const content = ["- a", "  - b", "    - c", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const inline = blockRunInline(content, tree.children)
+    const joined = inline.map((n) => ("value" in n ? n.value : "")).join("")
+    expect(joined).toBe("a b c")
+  })
+
+  it("a nested item's own text still stays OUT of its parent's structural BlockListItem.inline — only the flattened detailInline path recurses", () => {
+    const content = ["- outer", "  - inner", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const nodes = blockNodesOf(content, tree)
+    const topItem = nodes[0]?.block?.items?.[0]
+    expect(topItem?.inline).toEqual([{ kind: "text", value: "outer" }])
+    expect(topItem?.items).toEqual([{ text: "inner", inline: [{ kind: "text", value: "inner" }] }])
+  })
+})
 
 describe("blockNodesOf — default walk, no skip predicates", () => {
   it("yields every top-level block, in document order, when called with no options", () => {
@@ -125,10 +162,6 @@ describe("blockNodesOf — block.text", () => {
     const content = ["Above.", "", "---", "", "Below.", ""].join("\n")
     const tree = parseMarkdown(content)
     const nodes = blockNodesOf(content, tree)
-    expect(nodes.map((n) => n.block)).toEqual([
-      { kind: "paragraph" },
-      undefined,
-      { kind: "paragraph" },
-    ])
+    expect(nodes.map((n) => n.block?.kind)).toEqual(["paragraph", undefined, "paragraph"])
   })
 })

@@ -12,6 +12,7 @@ import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
 import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
+import { Inline } from "./InlineRun.js"
 import { ProseBlocks } from "./ProseBlock.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
@@ -81,7 +82,9 @@ const QuestionCard = ({
     <>
       <div className="font-semibold">{node.title}</div>
       {node.detail !== undefined && node.detail.length > 0 && (
-        <div className="text-small text-muted">{node.detail}</div>
+        <div className="text-small text-muted">
+          <Inline inline={node.detailInline} fallback={node.detail} />
+        </div>
       )}
     </>
   )

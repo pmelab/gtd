@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
+import { viewport } from "../testing/browserContext.js"
 import { FREE_TEXT_PLACEHOLDER, steeringFormatFor } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { RefusalBanner, useRefusal } from "../Refusal.js"
-import { viewport } from "../testing/browserContext.js"
 import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
 
 /**
@@ -798,6 +798,58 @@ export const AQuestionBodyWithAParagraphAndAFencedCodeBlockRendersBothAboveTheOp
     expect(
       body.compareDocumentPosition(firstOption) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+  },
+}
+
+/**
+ * One unbroken "word" (no spaces to wrap on), well past 390px at any
+ * reasonable font size — a short line like `const x = 1` would pass an
+ * overflow assertion whether or not the fenced block actually clips its own
+ * content, so this is long enough to genuinely test it.
+ */
+const LONG_CODE_LINE =
+  "const veryLongIdentifierNameThatWillNeverWrapBecauseItHasNoWhitespaceAtAllInsideIt123456789 = 1"
+
+/**
+ * A fenced code block's own overflow guard, on the one `ProseBlocks` surface
+ * left that still renders a body: `CodeBlock`'s own `overflow-x-auto` must
+ * scroll internally rather than reflowing the document past a 390px phone.
+ * Moved here (package 01, `gtd`) from `Review.stories.tsx`'s own chunk
+ * description story once the hunk deck stopped rendering `body` at all — this
+ * is the only surface left where the assertion still means anything.
+ */
+export const AFencedCodeBlockScrollsInternallyRatherThanWideningThePage: Story = {
+  args: {
+    node: questionNode({
+      body: [
+        {
+          title: "long code line",
+          anchor: { kind: "paragraph", line: 0 },
+          block: { kind: "code", text: LONG_CODE_LINE },
+        },
+      ],
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    const body = canvas.getByTestId("prose-paragraphs")
+    await expect(body).toHaveTextContent(LONG_CODE_LINE)
+
+    // The fenced block renders inside a scrollable `pre` — `CodeBlock`'s own
+    // `overflow-x-auto`.
+    const pre = body.querySelector("pre")
+    expect(pre).not.toBeNull()
+    expect(pre?.className).toContain("overflow-x-auto")
+    // The line has no whitespace to wrap on and is far wider than 390px, so
+    // the `pre`'s OWN scroll region genuinely overflows its box — this is
+    // the positive control proving the line really is long enough to widen
+    // something if nothing clipped it.
+    expect(pre!.scrollWidth).toBeGreaterThan(pre!.clientWidth)
+    // What must NOT grow: the document itself. If the fenced block reflowed
+    // its ancestors instead of scrolling internally, the whole page would
+    // widen past the 390px viewport.
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
   },
 }
 

@@ -5,6 +5,7 @@ import {
   getParseCount,
   headingSectionBodies,
   headingSections,
+  headingText,
   parseMarkdown,
   sourceText,
   taskItems,
@@ -12,7 +13,7 @@ import {
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
 import { steeringFormatFor } from "./index.js"
-import type { List, ListItem, Paragraph } from "mdast"
+import type { Heading, List, ListItem, Paragraph } from "mdast"
 
 describe("parseMarkdown", () => {
   it("calls both GFM extensions: a task checkbox parses to checked === true, not null", () => {
@@ -20,6 +21,25 @@ describe("parseMarkdown", () => {
     const list = tree.children[0] as List
     const item = list.children[0] as ListItem
     expect(item.checked).toBe(true)
+  })
+
+  it("parses strikethrough and a bare-URL autolink into real nodes", () => {
+    const tree = parseMarkdown("~~gone~~ and https://example.com/x\n")
+    const paragraph = tree.children[0] as Paragraph
+    expect(paragraph.children.some((c) => c.type === "delete")).toBe(true)
+    expect(
+      paragraph.children.some((c) => c.type === "link" && c.url === "https://example.com/x"),
+    ).toBe(true)
+  })
+
+  it("wiring the two new extensions leaves every flattened string byte-identical — sourceText and headingText slice raw source, not the parsed tree", () => {
+    const content =
+      "# A ~~gone~~ heading https://example.com/x\n\nSome ~~gone~~ text https://example.com/x here.\n"
+    const tree = parseMarkdown(content)
+    const heading = tree.children[0] as Heading
+    const paragraph = tree.children[1]!
+    expect(headingText(content, heading)).toBe("A ~~gone~~ heading https://example.com/x")
+    expect(sourceText(content, paragraph)).toBe("Some ~~gone~~ text https://example.com/x here.")
   })
 
   it("never throws and always returns a root, for arbitrary strings", () => {

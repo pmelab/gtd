@@ -1,6 +1,13 @@
 import type { ListItem, Root, RootContent } from "mdast"
-import { blockNodesOfRun } from "./Blocks.js"
+import { blockNodesOfRun, blockRunInline } from "./Blocks.js"
 import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
+import {
+  collapseImages,
+  definitionsOf,
+  joinInlineRuns,
+  projectInline,
+  type InlineNode,
+} from "./Inline.js"
 import {
   FOOTNOTE_ACTION_TITLE,
   footnoteAdditionEdits,
@@ -45,6 +52,8 @@ interface ReviewFile {
   readonly checked: boolean
   /** The pointer's explanation: same-line text (if any) first, then the lines gathered from BELOW it, joined with " ". */
   readonly note?: string
+  /** `note`'s own inline structure, image-collapsed (R2) — feeds the hunk node's `detailInline`. Absent exactly where `note` is. */
+  readonly noteInline?: readonly InlineNode[]
   /** 0-based line index of this file pointer's own `- [ ]`/`- [x]` line in REVIEW.md, for editor tooling. */
   readonly sourceLine: number
   /** 0-based index of the last line of this pointer's OWN span (excluding any nested hunk's span); equals `sourceLine` when it has no explanation. */
@@ -56,6 +65,8 @@ interface Changeset {
   readonly description: string
   /** The same leading run collapsed into `description`, projected as block nodes (`Blocks.ts#blockNodesOfRun`) instead of flattened text — `Review.tsx`'s chunk screen renders these through the shared prose-block rendering. */
   readonly descriptionNodes: readonly SteeringViewNode[]
+  /** `description`'s own inline structure, image-collapsed (R2) — feeds the chunk node's `detailInline`. */
+  readonly descriptionInline: readonly InlineNode[]
   readonly files: readonly ReviewFile[]
   /** 0-based index of this chunk's `##` heading. */
   readonly headingLine: number
@@ -271,6 +282,57 @@ const hunkNote = (
   return segments.join(" ").trim()
 }
 
+/** `nodes` with `NOTE_SEPARATOR_RE` stripped off its own FIRST text node's value, mirroring `hunkNote`'s identical string-side stripping — a no-op when `nodes` doesn't open with a `text` node. */
+const stripLeadingSeparatorInline = (nodes: readonly InlineNode[]): readonly InlineNode[] => {
+  const first = nodes[0]
+  if (first === undefined || first.kind !== "text") return nodes
+  return [
+    { kind: "text" as const, value: first.value.replace(NOTE_SEPARATOR_RE, "") },
+    ...nodes.slice(1),
+  ]
+}
+
+/** `paragraph`'s own inline content strictly AFTER raw source offset `afterOffset` — the structural counterpart of `restOfParagraph`'s string slice: keeps every child entirely past the cut, trims the one child that straddles it (only when it's plain `text`; a straddling non-text child is dropped, the one edge case a token followed immediately by styled text hits), and trims the result's own leading whitespace. `undefined`/`[]` for anything that isn't a real `paragraph`. */
+const trailingParagraphInline = (
+  content: string,
+  paragraph: RootContent,
+  afterOffset: number,
+): readonly InlineNode[] => {
+  if (paragraph.type !== "paragraph") return []
+  const kept = paragraph.children.flatMap((child) => {
+    const start = child.position?.start.offset
+    const end = child.position?.end.offset
+    if (start === undefined || end === undefined || end <= afterOffset) return []
+    if (start >= afterOffset) return [child]
+    if (child.type !== "text") return []
+    return [{ ...child, value: child.value.slice(afterOffset - start) }]
+  })
+  const projected = projectInline(kept, definitionsOf(content))
+  const first = projected[0]
+  if (first === undefined || first.kind !== "text") return projected
+  return [{ kind: "text" as const, value: first.value.trimStart() }, ...projected.slice(1)]
+}
+
+/** `note`'s own inline counterpart, mirroring `hunkNote` structurally: `paragraph`'s own trailing inline content (past the pointer token) first, then every further sibling block's own `nodeInline`-equivalent projection, joined and image-collapsed (R2). `tokenEndOffset` is the raw source offset right after the pointer token itself. */
+const hunkNoteInline = (
+  content: string,
+  item: ListItem,
+  paragraph: RootContent,
+  tokenEndOffset: number,
+): readonly InlineNode[] => {
+  const otherChildren = item.children.filter(
+    (c) => c !== paragraph && c.type !== "list" && c.type !== "footnoteDefinition",
+  )
+  const trailing = stripLeadingSeparatorInline(
+    trailingParagraphInline(content, paragraph, tokenEndOffset),
+  )
+  const runs = [
+    trailing,
+    ...otherChildren.map((c) => stripLeadingSeparatorInline(blockRunInline(content, [c]))),
+  ]
+  return collapseImages(joinInlineRuns(runs))
+}
+
 /** The last line of a hunk's OWN span — every non-`list` child's own end line, at most — excluding a nested hunk's span entirely, so a parent's span never swallows it (for "add a footnote" placement, or for matching which hunk a cursor sits on). */
 const hunkOwnEndLine = (item: ListItem, sourceLine: number): number => {
   const nonListChildren = item.children.filter((c) => c.type !== "list")
@@ -289,6 +351,11 @@ const buildHunkFile = (
   const parsed = parsePointerToken(token)
   const restOfParagraph = sourceText(content, paragraph).slice(token.length).trim()
   const note = hunkNote(content, item, paragraph, restOfParagraph)
+  const contentOffset = firstParagraphContentOffset(item)
+  const noteInline =
+    contentOffset !== undefined
+      ? hunkNoteInline(content, item, paragraph, contentOffset + token.length)
+      : []
   return {
     path: parsed.path,
     ...(parsed.line !== undefined ? { line: parsed.line } : {}),
@@ -296,7 +363,7 @@ const buildHunkFile = (
     checked: item.checked === true,
     sourceLine,
     endLine: hunkOwnEndLine(item, sourceLine),
-    ...(note.length > 0 ? { note } : {}),
+    ...(note.length > 0 ? { note, noteInline } : {}),
   }
 }
 
@@ -420,6 +487,7 @@ const parseChunkBody = (
 ): {
   readonly description: string
   readonly descriptionNodes: readonly SteeringViewNode[]
+  readonly descriptionInline: readonly InlineNode[]
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
 } => {
@@ -428,6 +496,7 @@ const parseChunkBody = (
   )
   const leadingRun = firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)
   const descriptionNodes = blockNodesOfRun(content, leadingRun)
+  const descriptionInline = collapseImages(blockRunInline(content, leadingRun))
   const description = leadingRun
     .filter((n) => n.type !== "footnoteDefinition")
     .map((n) => sourceText(content, n))
@@ -442,7 +511,7 @@ const parseChunkBody = (
     files.push(parsed.file)
     errors.push(...parsed.errors)
   }
-  return { description, descriptionNodes, files, errors }
+  return { description, descriptionNodes, descriptionInline, files, errors }
 }
 
 /** One `##` chunk heading node with its raw body block nodes (up to the next `##`-or-shallower heading). */
@@ -487,6 +556,7 @@ const parseChangesets = (
     const {
       description,
       descriptionNodes,
+      descriptionInline,
       files,
       errors: bodyErrors,
     } = parseChunkBody(content, lines, title, body)
@@ -498,7 +568,7 @@ const parseChangesets = (
         range: nodeRange(heading),
       })
     }
-    changesets.push({ title, description, descriptionNodes, files, headingLine })
+    changesets.push({ title, description, descriptionNodes, descriptionInline, files, headingLine })
   }
   if (changesets.length === 0) errors.push({ message: "REVIEW.md has no '##' chunks" })
   return { changesets, errors }
@@ -902,6 +972,7 @@ const reviewView = (content: string): SteeringView => {
       return {
         title: chunk.title,
         detail: chunk.description,
+        detailInline: chunk.descriptionInline,
         body: chunk.descriptionNodes,
         anchor: { kind: "chunk", index: chunkIndex },
         ...(chunkNote !== undefined ? { note: chunkNote } : {}),
@@ -913,7 +984,9 @@ const reviewView = (content: string): SteeringView => {
             ...(file.line !== undefined ? { line: file.line } : {}),
             ...(file.rangeEnd !== undefined ? { endLine: file.rangeEnd } : {}),
             checked: file.checked,
-            ...(file.note !== undefined ? { detail: file.note } : {}),
+            ...(file.note !== undefined
+              ? { detail: file.note, detailInline: file.noteInline ?? [] }
+              : {}),
             ...(hunkNote !== undefined ? { note: hunkNote } : {}),
             anchor: { kind: "hunk", chunkIndex, index },
           }

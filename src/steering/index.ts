@@ -10,6 +10,8 @@ import type { SteeringDescriptor } from "./Descriptor.js"
 import { qaDescriptor } from "./qa.js"
 import { reviewDescriptor } from "./review.js"
 
+export type { InlineNode } from "./Inline.js"
+
 // The free-form format: the mode-less/unregistered-mode FALLBACK —
 // deliberately not a `REGISTRY` entry of its own, since it is never a mode a
 // `mode:` key names.

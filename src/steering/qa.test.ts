@@ -1026,6 +1026,39 @@ describe("qa.view", () => {
   })
 })
 
+describe("qa.view — spec-feedback regression: raw HTML stays inert text, never an empty detailInline", () => {
+  it("an answered question's own block-level <div> body carries one text node on detailInline, never []", () => {
+    const content = ["## Answered Questions", "", "### Second?", "", "<div>raw</div>", ""].join(
+      "\n",
+    )
+    const view = qa.view(content)
+    const question = view.nodes.find((n) => n.status !== undefined)!
+    expect(question.detail).toBe("<div>raw</div>")
+    expect(question.detailInline).toEqual([{ kind: "text", value: "<div>raw</div>" }])
+  })
+
+  it("a nested list item's own text is not dropped from an answered question's own detailInline", () => {
+    const content = [
+      "## Answered Questions",
+      "",
+      "### Second?",
+      "",
+      "- item one",
+      "- item two",
+      "  - nested",
+      "",
+    ].join("\n")
+    const view = qa.view(content)
+    const question = view.nodes.find((n) => n.status !== undefined)!
+    // `detail` itself is title-based (`bodyText`/`blockTitle`), which has
+    // never included a nested item's own text — unchanged, not this
+    // regression's own concern. `detailInline` is the flattened path this
+    // regression fixes, and must carry it.
+    const joined = (question.detailInline ?? []).map((n) => ("value" in n ? n.value : "")).join("")
+    expect(joined).toContain("nested")
+  })
+})
+
 describe("qa.view — prose-only projection (T2, no Open/Answered Questions section at all)", () => {
   it("yields one paragraph node per paragraph, and no questions", () => {
     const content = ["First paragraph of the plan.", "", "Second paragraph, more detail.", ""].join(
@@ -1212,15 +1245,17 @@ describe("qa.view — block nodes (package 02, T1/T2)", () => {
     expect(topItem?.text).toBe("Top Tail para.")
     expect(topItem?.text).not.toContain("Nested")
     expect(topItem?.text).not.toContain("-")
-    expect(topItem?.items).toEqual([{ text: "Nested" }])
+    expect(topItem?.items).toEqual([
+      { text: "Nested", inline: [{ kind: "text", value: "Nested" }] },
+    ])
   })
 
   it("a task-list item carries its checked state on the item", () => {
     const content = ["- [ ] Not done", "- [x] Done", ""].join("\n")
     const view = qa.view(content)
     expect(view.nodes[0]?.block?.items).toEqual([
-      { text: "Not done", checked: false },
-      { text: "Done", checked: true },
+      { text: "Not done", checked: false, inline: [{ kind: "text", value: "Not done" }] },
+      { text: "Done", checked: true, inline: [{ kind: "text", value: "Done" }] },
     ])
   })
 

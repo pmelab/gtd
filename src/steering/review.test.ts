@@ -33,11 +33,15 @@ describe("parseReviewDoc", () => {
           title: "Add calculator",
           headingLine: 4,
           description: "New add function for the calculator.",
+          descriptionInline: [{ kind: "text", value: "New add function for the calculator." }],
           descriptionNodes: [
             {
               title: "New add function for the calculator.",
               anchor: { kind: "paragraph", line: 6 },
-              block: { kind: "paragraph" },
+              block: {
+                kind: "paragraph",
+                inline: [{ kind: "text", value: "New add function for the calculator." }],
+              },
             },
           ],
           files: [
@@ -356,9 +360,126 @@ describe("parseReviewDoc — a same-line note (trailing the pointer on its own l
       line: 42,
       checked: true,
       note: "what this hunk does",
+      noteInline: [{ kind: "text", value: "what this hunk does" }],
       sourceLine: 5,
       endLine: 5,
     })
+  })
+})
+
+describe("parseReviewDoc — spec-feedback regression: a nested list item's own text is not dropped from descriptionInline (R2/T3)", () => {
+  it("descriptionInline carries a nested item's own text, matching what the flattened description string already carries", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- item one",
+      "- item two",
+      "  - nested",
+      "",
+      // A `*`-marker list, deliberately: CommonMark merges adjacent
+      // SAME-marker bullet lists into one node even across a blank line, so
+      // a `-`-marker pointer list here would swallow the description list
+      // above into itself (leaving nothing before the first pointer) — the
+      // `*` keeps the description its own separate leading-run node.
+      "* [ ] ./a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const chunk = result.changesets[0]
+    expect(chunk?.description).toContain("nested")
+    const joined = (chunk?.descriptionInline ?? [])
+      .map((n) => ("value" in n ? n.value : ""))
+      .join("")
+    expect(joined).toContain("nested")
+  })
+})
+
+describe("parseReviewDoc — spec-feedback regression: a nested list item's own text is not dropped from a hunk's noteInline either", () => {
+  it("noteInline carries a nested item's own text inside a blockquote sibling, matching the flattened note string", () => {
+    // A nested LIST directly under the pointer item is excluded from a
+    // hunk's own note by design (`hunkNote`'s own `otherChildren` filter —
+    // that shape is a NESTED HUNK pointer list, never prose). A blockquote
+    // sibling wrapping a list, though, is ordinary note prose, and its own
+    // nested list item is exactly the shape this regression covers.
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./a.ts#1",
+      "",
+      "  > - item one",
+      "  >   - nested",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const file = result.changesets[0]?.files[0]
+    expect(file?.note ?? "").toContain("nested")
+    const joined = (file?.noteInline ?? []).map((n) => ("value" in n ? n.value : "")).join("")
+    expect(joined).toContain("nested")
+  })
+})
+
+describe("parseReviewDoc — spec-feedback regression: a real image through the parser collapses to alt text on detailInline (R2/T5)", () => {
+  it("a chunk description's image never reaches detailInline as an 'image' kind — collapsed server-side, not merely absent from a hand-built fixture", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "See ![a diagram](https://x.example/p.png) here.",
+      "",
+      "- [ ] ./a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const inline = result.changesets[0]?.descriptionInline ?? []
+    expect(inline.some((n) => n.kind === "image")).toBe(false)
+    const joined = inline.map((n) => ("value" in n ? n.value : "")).join("")
+    expect(joined).toBe("See a diagram here.")
+  })
+})
+
+describe("parseReviewDoc — spec-feedback regression: raw HTML stays inert text, never an empty detailInline", () => {
+  it("a hunk's own note carries a block-level <div> as one text node, never []", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "- [ ] ./a.ts#1",
+      "",
+      "  <div>raw</div>",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const file = result.changesets[0]?.files[0]
+    expect(file?.note).toBe("<div>raw</div>")
+    expect(file?.noteInline).toEqual([{ kind: "text", value: "<div>raw</div>" }])
+  })
+
+  it("a chunk's own leading-run description carries a block-level <div> as one text node, never []", () => {
+    const content = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk",
+      "",
+      "<div>raw</div>",
+      "",
+      "- [ ] ./a.ts#1",
+      "",
+    ].join("\n")
+    const result = parseReviewDoc(content)
+    const chunk = result.changesets[0]
+    expect(chunk?.description).toBe("<div>raw</div>")
+    expect(chunk?.descriptionInline).toEqual([{ kind: "text", value: "<div>raw</div>" }])
   })
 })
 

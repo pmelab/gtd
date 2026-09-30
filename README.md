@@ -372,7 +372,9 @@ format, or one nothing recognizes, which still opens as plain markdown structure
 instead of refusing to start: read, plus a note on any block. It also binds on
 an idle worktree — nothing pending yet — opening `.gtd/TODO.md` free-form with a
 bare textfield so you can sketch from your phone; the sketch stays un-triaged on
-disk until you run `gtd` again, from anywhere, to pick it up. See
+disk until you run `gtd` again, from anywhere, to pick it up. A description
+renders inline markdown — bold, code, strikethrough, links, and images — instead
+of literal asterisks and backticks. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 
