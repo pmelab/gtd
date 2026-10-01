@@ -2,74 +2,44 @@ import { useRef, useState, type RefObject } from "react"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { CardList } from "../Card.js"
-import { useContentHashOverride } from "../contentHashOverride.js"
 import { Deck } from "../Deck.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
-import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
+import { messageForReadRefusal, SaveIndicator, useSaveIndicatorProps } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
-import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
+import type { CasTokens } from "../staleRetry.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
+import { cellKey, latestOverlayValue, useWriteStore, WriteStoreProvider } from "../writeStore.js"
 import { Hunk, type HunkProps } from "./Hunk.js"
 import { Inline } from "./InlineRun.js"
 
-/**
- * Every hunk-anchored descendant of a chunk node, at any depth —
- * `ReviewDoc.ts#reviewView` nests hunks exactly one level deep today (its own
- * doc comment says pointers are already flattened by `parseChunkBody`), but
- * `SteeringViewNode.children` is recursive by type, so this walks all the way
- * down rather than assuming one level, per the package's own "nested at any
- * depth" acceptance bullet.
- */
+/** A write guarded by the store's own compare-and-swap retry — see `writeStore.ts#SaveArgs.write`'s own doc comment. */
+type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
+
+/** Every hunk-anchored descendant of a chunk node, at any depth. */
 const hunksOf = (node: SteeringViewNode): readonly SteeringViewNode[] =>
   (node.children ?? []).flatMap((child) => [
     ...(child.anchor.kind === "hunk" ? [child] : []),
     ...hunksOf(child),
   ])
 
-const hunkKey = (anchor: SteeringAnchor): string =>
-  anchor.kind === "hunk" ? `hunk:${anchor.chunkIndex}:${anchor.index}` : ""
-
-const noteKey = (anchor: SteeringAnchor): string =>
-  anchor.kind === "chunk"
-    ? `chunk:${anchor.index}`
-    : anchor.kind === "hunk"
-      ? `hunk:${anchor.chunkIndex}:${anchor.index}`
-      : ""
-
 export interface ReviewViewProps {
   readonly view: SteeringView | undefined
+  readonly filePath: string
   readonly isLoading: boolean
-  /** The `readSteeringFile` query's own thrown error — mirrors `Plan.tsx#PlanViewProps.readError`'s identical doc comment. */
   readonly readError?: unknown
-  /**
-   * `true` only for the real container, where every hunk screen fetches its
-   * own diff live against the one worktree the server serves. Pure-data
-   * stories leave it unset and see the permanent "Loading diff…" state; every
-   * other diff shape is driven at the `Hunk` layer, which takes a `diff` prop
-   * with no fetch at all.
-   */
+  /** `true` only for the real container, where every hunk screen fetches its own diff live. */
   readonly live?: boolean
-  /**
-   * Returns the mutation's OWN promise so `useReviewState` can revert its
-   * optimistic override on a rejection — otherwise a refused write leaves the
-   * override in place forever and the "keeps this round open" badge claims a
-   * footnote that was never written. The local state still updates
-   * immediately, so the save feels instant either way.
-   */
-  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
-  /** The done action (T2): saves the SAME note `onSaveNote` would, then hands the turn back — mirrors `Plan.tsx#PlanViewProps.onDoneNote`'s identical doc comment. Absent in `Review.stories.tsx`'s pure-data stories, exactly like `onSaveNote`. */
-  readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
-  /** Ends the turn with no note — mirrors `Plan.tsx#PlanViewProps.onDone`: drives both the chunk list's `review-done` footer and the hunk deck's own Done control. */
+  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite
+  readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite
   readonly onDone?: () => Promise<unknown>
-  /** Write-through for a hunk/chunk tick — the same compare-and-swap `onSaveNote` uses, through `apply` rather than `annotate`. The `ticked` map stays optimistic; this runs alongside it. */
-  readonly onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>
-  /** Every write refusal this screen's mutations surface, so `RefusalBanner` names a reason instead of the write silently reverting. Second argument as in `PlanViewProps.onRefusal`. */
-  readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
+  readonly onSetValue?: (anchor: SteeringAnchor, checked: boolean) => TokenGuardedWrite
+  /** Package 03 Task 1's single `busy` boolean, threaded from the store's own pending count. */
+  readonly busy?: boolean | undefined
 }
 
-/** `{anchor, initialNote}` captured at the moment a note affordance opens `NoteSheet`, so a save/dismiss never has to re-look-up the node it came from. */
+/** `{anchor, initialNote}` captured at the moment a note affordance opens `NoteSheet`. */
 interface NoteSheetState {
   readonly anchor: SteeringAnchor
   readonly initialNote: string | undefined
@@ -77,54 +47,38 @@ interface NoteSheetState {
 
 /**
  * All of `ReviewView`'s local/optimistic UI state plus the derived helpers
- * every branch below needs — pulled into one hook so `ReviewView` itself
- * stays a thin dispatch over three render branches (note sheet / hunk deck /
- * chunk list) instead of a single large function carrying both state and
- * markup.
- *
- * `ticked`'s local map stays optimistic/tap-responsive UI state, exactly like
- * `notes` below, but both `toggleChunk` and `setHunkChecked` ALSO write
- * through via `onSetValue` (when the container supplies one) — `apply` is
- * `SteeringFormat`'s format-agnostic tick primitive, splicing through
- * `writeValue`'s compare-and-swap the same way `annotate` does for a note.
+ * every branch below needs. `ticked`/notes read straight off the write
+ * store's own overlay (keyed by `cellKey`), so a rollback on a refused write
+ * falls back to the node's own last-server-confirmed value automatically —
+ * no local `useState`, no per-hunk seq guard of its own.
  */
 const useReviewState = (
+  filePath: string,
   scrollRef: RefObject<HTMLDivElement | null>,
-  onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
-  onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>,
-  onSetValue?: (anchor: SteeringAnchor, checked: boolean) => Promise<unknown>,
-  onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void,
+  onSaveNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite,
+  onDoneNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite,
+  onSetValue?: (anchor: SteeringAnchor, checked: boolean) => TokenGuardedWrite,
 ) => {
-  const [ticked, setTicked] = useState<Record<string, boolean>>({})
-  const [notes, setNotes] = useState<Record<string, string>>({})
+  const overlay = useWriteStore((s) => s.overlay)
+  const save = useWriteStore((s) => s.save)
+  const shadow = useWriteStore((s) => s.shadow)
   const [openChunkIndex, setOpenChunkIndex] = useState<number | undefined>(undefined)
   const [deckIndex, setDeckIndex] = useState(0)
   const [noteSheet, setNoteSheet] = useState<NoteSheetState | undefined>(undefined)
   const scroll = useScrollRestoration()
 
-  /**
-   * Per-hunk-key write sequence numbers (package 03 Task 7) — mirrors
-   * `Question.tsx`'s identical `seqRef`. A REJECTED tick only reverts a
-   * hunk's local state when it's still the LATEST write issued for that same
-   * hunk key; a whole-state `previous` snapshot (the previous scheme) would
-   * instead clobber whatever a later, already-issued tick on a DIFFERENT
-   * hunk had just done. Held in a ref (never `useState`): bumping it must
-   * never itself trigger a render. `toggleChunk` bumps one seq per hunk
-   * beneath the chunk (one write, many keys); `setHunkChecked` bumps just
-   * its own key.
-   */
-  const seqRef = useRef(new Map<string, number>())
-  const nextSeqFor = (key: string): number => {
-    const seq = (seqRef.current.get(key) ?? 0) + 1
-    seqRef.current.set(key, seq)
-    return seq
-  }
+  const checkedCell = (anchor: SteeringAnchor): string => cellKey(filePath, anchor, "checked")
+  const noteCell = (anchor: SteeringAnchor): string => cellKey(filePath, anchor, "note")
+  const doneCell = (anchor: SteeringAnchor): string => cellKey(filePath, anchor, "done")
 
   const isChecked = (hunk: SteeringViewNode): boolean =>
-    ticked[hunkKey(hunk.anchor)] ?? hunk.checked === true
+    (overlay[checkedCell(hunk.anchor)]?.value as boolean | undefined) ?? hunk.checked === true
 
-  const noteTextOf = (node: SteeringViewNode): string | undefined =>
-    notes[noteKey(node.anchor)] ?? node.note
+  /** Reads BOTH a plain save's own `"note"` cell and that same anchor's `"done"` cell (a Save & Done) — only one of the two is ever written per interaction, so whichever is newer is what should show. */
+  const noteTextOf = (node: SteeringViewNode): string | undefined => {
+    const value = latestOverlayValue(overlay, [noteCell(node.anchor), doneCell(node.anchor)])
+    return (value as string | undefined) ?? node.note
+  }
 
   const hasNoteText = (node: SteeringViewNode): boolean => {
     const text = noteTextOf(node)
@@ -135,81 +89,55 @@ const useReviewState = (
     setNoteSheet({ anchor: node.anchor, initialNote: noteTextOf(node) })
 
   const saveNote = (anchor: SteeringAnchor, text: string) => {
-    setNotes((prev) => ({ ...prev, [noteKey(anchor)]: text }))
     setNoteSheet(undefined)
-    // A refused/failed write reverts the optimistic override — otherwise a
-    // CONFLICT (stale token, anchor moved, …) would leave this note showing
-    // (and the "keeps this round open" badge claiming it) forever, even
-    // though the file was never actually touched.
-    onSaveNote?.(anchor, text)?.catch((error: unknown) => {
-      // `onSaveNote` is surely defined here — this `.catch` only runs off a
-      // promise `onSaveNote?.(...)` itself returned.
-      onRefusal?.(error, () => onSaveNote(anchor, text))
-      setNotes((prev) => {
-        const next = { ...prev }
-        delete next[noteKey(anchor)]
-        return next
-      })
-    })
+    save({
+      cell: noteCell(anchor),
+      optimistic: text,
+      write: onSaveNote === undefined ? undefined : onSaveNote(anchor, text),
+    }).catch(() => {})
   }
 
-  /** The done action's own trigger — same optimistic-note update `saveNote` does, then `onDoneNote` (never both: this is `NoteSheet`'s "Save & Done", not a second save). */
+  /** The done action's own trigger — same optimistic note update `saveNote` does, then `onDoneNote`. Its own `/done` cell, never the plain save's `"note"` cell — a failed `onDoneNote` and a failed `onSaveNote` for the SAME anchor must file two distinct dots, never collide into one. */
   const doneNote = (anchor: SteeringAnchor, text: string) => {
-    setNotes((prev) => ({ ...prev, [noteKey(anchor)]: text }))
     setNoteSheet(undefined)
-    onDoneNote?.(anchor, text)
+    save({
+      cell: doneCell(anchor),
+      optimistic: text,
+      write: onDoneNote === undefined ? undefined : onDoneNote(anchor, text),
+    }).catch(() => {})
   }
 
+  // fallow-ignore-next-line complexity
   const toggleChunk = (chunk: SteeringViewNode) => {
     const hunks = hunksOf(chunk)
     const target = !(hunks.length > 0 && hunks.every(isChecked))
-    const previous = new Map(hunks.map((hunk) => [hunkKey(hunk.anchor), isChecked(hunk)]))
-    const issuedSeqs = new Map(
-      hunks.map((hunk) => [hunkKey(hunk.anchor), nextSeqFor(hunkKey(hunk.anchor))]),
-    )
-    // Every hunk beneath the chunk updates locally for immediate feedback,
-    // but the write-through below is ONE `setValue` call at the chunk anchor
-    // — `REVIEW_FORMAT.apply` ticks every hunk beneath it server-side in one
-    // edit set, so a call per hunk would be redundant network traffic, not
-    // just slower.
-    setTicked((prev) => {
-      const next = { ...prev }
-      for (const hunk of hunks) next[hunkKey(hunk.anchor)] = target
-      return next
+    // Every hunk beneath the chunk shows the SAME optimistic tick, but the
+    // write-through is ONE `setValue` call at the chunk anchor —
+    // `REVIEW_FORMAT.apply` ticks every hunk beneath it server-side in one
+    // edit set. Only the FIRST hunk's own cell goes through `save` (the real
+    // `write`, the one failed dot, the one pending count); every other
+    // hunk's own cell `shadow`s that SAME promise — it mirrors the optimistic
+    // tick and rolls back on the same rejection, but never files its own
+    // `failed` entry. One refused write is one dot, never one per hunk.
+    const [first, ...rest] = hunks
+    if (first === undefined) return
+    const firstPromise = save({
+      cell: checkedCell(first.anchor),
+      optimistic: target,
+      write: onSetValue === undefined ? undefined : onSetValue(chunk.anchor, target),
     })
-    onSetValue?.(chunk.anchor, target)?.catch((error: unknown) => {
-      onRefusal?.(error, () => onSetValue(chunk.anchor, target))
-      setTicked((prev) => {
-        const next = { ...prev }
-        for (const hunk of hunks) {
-          const key = hunkKey(hunk.anchor)
-          // Only revert a hunk still on THIS write's own seq — a later,
-          // already-issued tick on the same hunk (`setHunkChecked`, or
-          // another `toggleChunk`) bumped it past `issuedSeqs`, so this
-          // stale rejection must leave it standing.
-          if (seqRef.current.get(key) === issuedSeqs.get(key)) {
-            next[key] = previous.get(key) ?? false
-          }
-        }
-        return next
-      })
-    })
+    firstPromise.catch(() => {})
+    for (const hunk of rest) {
+      shadow(checkedCell(hunk.anchor), target, firstPromise)
+    }
   }
 
   const setHunkChecked = (hunk: SteeringViewNode, checked: boolean) => {
-    const key = hunkKey(hunk.anchor)
-    const seq = nextSeqFor(key)
-    setTicked((prev) => ({ ...prev, [key]: checked }))
-    // A refused/failed write reverts the optimistic tick — mirrors `saveNote`'s
-    // own revert-on-rejection above — but only when this write is still the
-    // latest issued for `key` (Task 7), so a stale rejection can never
-    // clobber a newer, already-landed tick on the same hunk.
-    onSetValue?.(hunk.anchor, checked)?.catch((error: unknown) => {
-      onRefusal?.(error, () => onSetValue(hunk.anchor, checked))
-      if (seqRef.current.get(key) === seq) {
-        setTicked((prev) => ({ ...prev, [key]: !checked }))
-      }
-    })
+    save({
+      cell: checkedCell(hunk.anchor),
+      optimistic: checked,
+      write: onSetValue === undefined ? undefined : onSetValue(hunk.anchor, checked),
+    }).catch(() => {})
   }
 
   const openChunk = (index: number) => {
@@ -218,7 +146,6 @@ const useReviewState = (
     setDeckIndex(0)
   }
 
-  /** Both the chunk-deck's own `onExit` (back from the first hunk) and the last-hunk-approved path below route through this, so scroll position is restored on either exit, not just an explicit back tap. */
   const exitToChunkList = () => {
     setOpenChunkIndex(undefined)
     scroll.restore(scrollRef)
@@ -255,7 +182,7 @@ const useReviewState = (
 
 type ReviewState = ReturnType<typeof useReviewState>
 
-/** Fetches ONE hunk's own diff live via `trpc.diff` (`Server.ts`'s `diff` procedure → `Diff.ts#resolveDiff`) — only ever mounted for the deck's CURRENT item (`Deck.tsx` renders one item at a time), so this is one query per screen, not one per hunk in the chunk. Disabled when the hunk carries no `path` at all (never expected in practice — every review hunk has one — but guards against an ever-loading query on malformed data instead of a crash). */
+/** Fetches ONE hunk's own diff live via `trpc.diff`. */
 const HunkWithDiff = ({ node, ...rest }: Omit<HunkProps, "diff">) => {
   const query = trpc.diff.useQuery(
     {
@@ -268,7 +195,6 @@ const HunkWithDiff = ({ node, ...rest }: Omit<HunkProps, "diff">) => {
   return <Hunk node={node} diff={query.data} {...rest} />
 }
 
-/** One hunk's own props — `hunks` is the WHOLE chunk's own hunk list (needed by `approveAndAdvance` to know when this is the last one), not just this one item. */
 const hunkPropsFor = (
   hunk: SteeringViewNode,
   index: number,
@@ -286,17 +212,18 @@ const hunkPropsFor = (
   onOpenNote: () => state.openNoteSheet(hunk),
 })
 
-/** The per-chunk deck of hunks — one hunk per screen, approving the last one exits back to the chunk list via `state.approveAndAdvance`. Renders `HunkWithDiff` (a live `trpc.diff` fetch) when `live` is set — the real `Review` container always sets it — else a plain `Hunk` stuck permanently on `diff={undefined}`'s "Loading diff…" state, which is exactly what `Review.stories.tsx`'s own pure-data stories exercise. */
 const HunkDeck = ({
   chunk,
   live,
   state,
   onDone,
+  busy,
 }: {
   readonly chunk: SteeringViewNode
   readonly live: boolean
   readonly state: ReviewState
-  readonly onDone: (() => Promise<unknown>) | undefined
+  readonly onDone: (() => void) | undefined
+  readonly busy?: boolean | undefined
 }) => {
   const hunks = hunksOf(chunk)
   return (
@@ -306,27 +233,19 @@ const HunkDeck = ({
         index={state.deckIndex}
         onIndexChange={state.setDeckIndex}
         onExit={state.exitToChunkList}
-        {...(onDone !== undefined
-          ? {
-              onDone: () => {
-                onDone()
-              },
-              doneLabel: "Done",
-            }
-          : {})}
+        {...(onDone !== undefined ? { onDone, doneLabel: "Done", doneDisabled: busy } : {})}
         renderItem={(hunk, i) => {
           const props = hunkPropsFor(hunk, i, hunks, state)
           if (live) {
-            return <HunkWithDiff key={hunkKey(hunk.anchor)} {...props} />
+            return <HunkWithDiff key={`${hunk.anchor.kind}:${i}`} {...props} />
           }
-          return <Hunk key={hunkKey(hunk.anchor)} {...props} diff={undefined} />
+          return <Hunk key={`${hunk.anchor.kind}:${i}`} {...props} diff={undefined} />
         }}
       />
     </div>
   )
 }
 
-/** One chunk's own row: prose, a check-all tick over every one of its hunks (nested at any depth), and its note affordance — including the badge that keeps the round open when a footnote is attached, even fully ticked. */
 // fallow-ignore-next-line complexity
 const ChunkRow = ({
   chunk,
@@ -380,9 +299,6 @@ const ChunkRow = ({
             </div>
           )}
         </Button>
-        {/* The control only exists while there is NO note. Once there is
-            one, the note itself takes its place below: "Edit note" says only
-            that a note exists, while the note says what it is. */}
         {!footnoteKeepsRoundOpen && (
           <Button
             variant="secondary"
@@ -407,29 +323,26 @@ const ChunkRow = ({
   )
 }
 
-/** Chunks whose every hunk is ticked — a chunk with no hunks at all is never "approved", matching `ChunkRow`'s own disabled tick. */
 const approvedCount = (nodes: SteeringView["nodes"], state: ReviewState): number =>
   nodes.filter((chunk) => {
     const hunks = hunksOf(chunk)
     return hunks.length > 0 && hunks.every(state.isChecked)
   }).length
 
-/** The chunk list itself — one `ChunkRow` per top-level node. */
 const ChunkList = ({
   nodes,
   state,
   scrollRef,
   onDone,
+  busy,
 }: {
   readonly nodes: SteeringView["nodes"]
   readonly state: ReviewState
   readonly scrollRef: RefObject<HTMLDivElement | null>
-  readonly onDone: (() => Promise<unknown>) | undefined
+  readonly onDone: (() => void) | undefined
+  readonly busy?: boolean | undefined
 }) => (
   <div data-testid="review-screen" className="flex h-full min-h-0 flex-1 flex-col">
-    {/* The one place the round's own size is visible: a chunk list is
-        otherwise a stack of identical rows with no answer to "how much of
-        this is left". `shrink-0`, so it stays put while the list scrolls. */}
     <div
       data-testid="review-progress"
       className="flex shrink-0 items-baseline justify-between gap-2 border-b border-divider px-3 py-2"
@@ -455,13 +368,7 @@ const ChunkList = ({
         data-testid="review-done-row"
         className="flex shrink-0 items-center justify-end border-t border-border p-3"
       >
-        <Button
-          variant="primary"
-          data-testid="review-done"
-          onClick={() => {
-            onDone()
-          }}
-        >
+        <Button variant="primary" data-testid="review-done" onClick={onDone} disabled={busy}>
           Done
         </Button>
       </div>
@@ -471,15 +378,12 @@ const ChunkList = ({
 
 /**
  * Presentational review screen — chunk list drilling into a per-chunk deck
- * of hunks, mirroring `Plan.tsx`'s `PlanView`/`Plan` split so
- * `Review.stories.tsx` can drive every shape with plain `view` data. Itself
- * just a thin dispatch over the note sheet / hunk deck / chunk list branches
- * — the state and per-branch markup live in `useReviewState`/`HunkDeck`/
- * `ChunkList` above.
+ * of hunks, mirroring `Plan.tsx`'s `PlanView`/`Plan` split.
  */
 // fallow-ignore-next-line complexity
 export const ReviewView = ({
   view,
+  filePath,
   isLoading,
   readError,
   live,
@@ -487,10 +391,11 @@ export const ReviewView = ({
   onDoneNote,
   onDone,
   onSetValue,
-  onRefusal,
+  busy,
 }: ReviewViewProps) => {
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const state = useReviewState(scrollRef, onSaveNote, onDoneNote, onSetValue, onRefusal)
+  const save = useWriteStore((s) => s.save)
+  const state = useReviewState(filePath, scrollRef, onSaveNote, onDoneNote, onSetValue)
 
   if (view === undefined) {
     const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
@@ -505,7 +410,6 @@ export const ReviewView = ({
     )
   }
 
-  // Rendered OVER the screen it belongs to (a modal), never instead of it.
   const noteSheet = ((): React.ReactElement | null => {
     if (state.noteSheet === undefined) return null
     return (
@@ -516,22 +420,30 @@ export const ReviewView = ({
           : {})}
         onSave={state.saveNote}
         onDismiss={() => state.setNoteSheet(undefined)}
-        {...(onDoneNote !== undefined ? { onDone: state.doneNote } : {})}
+        {...(onDoneNote !== undefined ? { onDone: state.doneNote, busy } : {})}
       />
     )
   })()
 
+  const runDone = (): void => {
+    if (onDone === undefined) return
+    save({ cell: cellKey(filePath, undefined, "done"), optimistic: true, mutate: onDone }).catch(
+      () => {},
+    )
+  }
+
   const openChunk =
     state.openChunkIndex !== undefined ? view.nodes[state.openChunkIndex] : undefined
-  // A chunk with zero hunks never opens a deck at all — `Deck.tsx` renders
-  // `null` for an empty item list, which would otherwise be an unrecoverable
-  // blank dead-end (no content, no Back control). The chunk-open button is
-  // already disabled for this shape; this is the defensive backstop for any
-  // other path that could still set `openChunkIndex` on one.
   if (openChunk !== undefined && hunksOf(openChunk).length > 0) {
     return (
       <>
-        <HunkDeck chunk={openChunk} live={live === true} state={state} onDone={onDone} />
+        <HunkDeck
+          chunk={openChunk}
+          live={live === true}
+          state={state}
+          onDone={onDone === undefined ? undefined : runDone}
+          busy={busy}
+        />
         {noteSheet}
       </>
     )
@@ -539,20 +451,19 @@ export const ReviewView = ({
 
   return (
     <>
-      <ChunkList nodes={view.nodes} state={state} scrollRef={scrollRef} onDone={onDone} />
+      <ChunkList
+        nodes={view.nodes}
+        state={state}
+        scrollRef={scrollRef}
+        onDone={onDone === undefined ? undefined : runDone}
+        busy={busy}
+      />
       {noteSheet}
     </>
   )
 }
 
-/**
- * The terminal panel after `done` resolves (T2): the server has already
- * written the note and called `ctx.handOff()`, so the process exits moments
- * later — this needs no further server round trip, and offers no way back to
- * any list. Identical in shape to `Plan.tsx#HandedBackPanel`; kept as two
- * small copies rather than a shared import since each screen owns its own
- * file per this package's declared scope.
- */
+/** The terminal panel after `done` resolves. */
 const HandedBackPanel = () => (
   <Notice data-testid="handed-back-panel" role="status" aria-live="polite">
     Handed back — this turn is done.
@@ -560,28 +471,15 @@ const HandedBackPanel = () => (
 )
 
 export interface ReviewProps {
-  /** Path to the review steering file, relative to the served worktree (`.gtd/REVIEW.md`, typically). */
   readonly filePath: string
 }
 
-/**
- * The real review screen: fetches the file's content/`view`/tokens through
- * `readSteeringFile` (never a bare `content` prop with no way to have
- * actually been fetched), and write-throughs a saved note via `writeNote`'s
- * compare-and-swap using the SAME `headSha`/`contentHash` that fetch
- * returned — refetching afterward so a stale local override never
- * outlives the server's own authoritative content. Always passes
- * `live={true}` down (`HunkDeck`'s live `trpc.diff` fetch): `App.tsx`
- * renders this when `trpc.step`'s own `mode` is `"review"`;
- * `Review.stories.tsx`'s own `RealContainerFetchesTheCurrentHunksDiffLive`
- * story is its other real consumer.
- */
-export const Review = ({ filePath }: ReviewProps) => {
-  const { refusal, saveStatus, showRefusal, dismiss, trackSave, onRetry } = useRefusal()
-  const [formatNotice, setFormatNotice] = useState<FormatNotice | undefined>(undefined)
-  const override = useContentHashOverride()
+/** Every raw write `Review` wires up — mirrors `Plan.tsx#usePlanMutations`'s identical shape: a plain `trpc` call curried over its own anchor, no token/retry logic of its own. */
+const useReviewMutations = (
+  filePath: string,
+  onFormatNotice: (notice: FormatNotice | undefined) => void,
+) => {
   const utils = trpc.useUtils()
-  const query = trpc.readSteeringFile.useQuery({ filePath, mode: "review" })
   const writeNote = trpc.writeNote.useMutation({
     onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode: "review" }),
   })
@@ -590,120 +488,99 @@ export const Review = ({ filePath }: ReviewProps) => {
   })
   const done = trpc.done.useMutation()
 
-  // `fetch`, never `invalidate` — mirrors `Plan.tsx#usePlanMutations`'s
-  // identical `refetchTokens`/doc comment: the retry needs the fresh tokens
-  // back as a value, and `onSettled`'s own `invalidate` above already
-  // populates the same cache entry, so the two don't fight.
-  const refetchTokens = async (): Promise<CasTokens> => {
-    const fresh = await utils.readSteeringFile.fetch({ filePath, mode: "review" })
-    override.clear()
-    return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
-  }
+  const onSetValue =
+    (anchor: SteeringAnchor, checked: boolean) =>
+    (cas: CasTokens): Promise<unknown> =>
+      setValue.mutateAsync({ filePath, ...cas, mode: "review", anchor, checked }).then((result) => {
+        onFormatNotice(result.formatNotice)
+        return result
+      })
 
-  const onSetValue = (anchor: SteeringAnchor, checked: boolean): Promise<unknown> => {
-    const tokens = override.casTokensFor(query.data)
-    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return withStaleShaRetry(
-      (cas) =>
-        setValue
-          .mutateAsync({ filePath, ...cas, mode: "review", anchor, checked })
-          .then((result) => {
-            override.onWriteSuccess(result.contentHash)
-            setFormatNotice(result.formatNotice)
-            return result
-          }),
-      tokens,
-      refetchTokens,
-    ).catch((error: unknown) => {
-      override.onWriteRefusal(error)
-      throw error
-    })
-  }
+  const onSaveNote =
+    (anchor: SteeringAnchor, text: string) =>
+    (cas: CasTokens): Promise<unknown> =>
+      writeNote.mutateAsync({ filePath, ...cas, mode: "review", anchor, text }).then((result) => {
+        onFormatNotice(result.formatNotice)
+        return result
+      })
 
-  const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = override.casTokensFor(query.data)
-    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return withStaleShaRetry(
-      (cas) =>
-        writeNote.mutateAsync({ filePath, ...cas, mode: "review", anchor, text }).then((result) => {
-          override.onWriteSuccess(result.contentHash)
-          setFormatNotice(result.formatNotice)
-          return result
-        }),
-      tokens,
-      refetchTokens,
-    ).catch((error: unknown) => {
-      override.onWriteRefusal(error)
-      throw error
-    })
-  }
+  const onDoneNote =
+    (anchor: SteeringAnchor, text: string) =>
+    (cas: CasTokens): Promise<unknown> =>
+      done.mutateAsync({ note: { filePath, ...cas, mode: "review", anchor, text } })
 
-  const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = override.casTokensFor(query.data)
-    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return withStaleShaRetry(
-      (cas) =>
-        done
-          .mutateAsync({ note: { filePath, ...cas, mode: "review", anchor, text } })
-          .then((result) => {
-            if ("contentHash" in result) override.onWriteSuccess(result.contentHash)
-            return result
-          }),
-      tokens,
-      refetchTokens,
-    ).catch((error: unknown) => {
-      override.onWriteRefusal(error)
-      // Mirrors `Plan.tsx#Plan`'s identical `onDoneNote` catch — see its
-      // own doc comment for why this is caught, not rethrown.
-      showRefusal(error)
-    })
-  }
+  const onDone = (): Promise<unknown> => done.mutateAsync({})
 
-  // Fire-and-forget, caught never rethrown — mirrors `Plan.tsx#usePlanMutations`'s `onDone`.
-  const onDone = (): Promise<unknown> =>
-    done.mutateAsync({}).catch((error: unknown) => {
-      showRefusal(error)
-    })
+  return { onSaveNote, onDoneNote, onDone, onSetValue, isDone: done.isSuccess }
+}
 
-  // Task 3's "Saving…"/"Saved" affordance — mirrors `Plan.tsx#Plan`'s
-  // identical split: wraps only the two write paths a human sits waiting on
-  // (a tick, a note save), excluding `onDoneNote` since a successful `done`
-  // unmounts this screen for `HandedBackPanel` first.
-  const onSetValueTracked = (anchor: SteeringAnchor, checked: boolean): Promise<unknown> =>
-    trackSave(onSetValue(anchor, checked))
-  const onSaveNoteTracked = (anchor: SteeringAnchor, text: string): Promise<unknown> =>
-    trackSave(onSaveNote(anchor, text))
+/** `Review`'s own inner render, a child of its `WriteStoreProvider`. */
+const ReviewInner = ({
+  filePath,
+  data,
+  isLoading,
+  error,
+}: ReviewProps & {
+  readonly data: { readonly view?: SteeringView } | undefined
+  readonly isLoading: boolean
+  readonly error: unknown
+}) => {
+  const indicatorProps = useSaveIndicatorProps()
+  const pending = useWriteStore((s) => s.pendingCount)
+  const [formatNotice, setFormatNotice] = useState<FormatNotice | undefined>(undefined)
+  const { onSaveNote, onDoneNote, onDone, onSetValue, isDone } = useReviewMutations(
+    filePath,
+    setFormatNotice,
+  )
 
   return (
     <>
-      <RefusalBanner
-        refusal={refusal}
-        saveStatus={saveStatus}
-        onDismiss={dismiss}
-        onRetry={onRetry}
-      />
+      <SaveIndicator {...indicatorProps} />
       <FormatNoticeBanner notice={formatNotice} onDismiss={() => setFormatNotice(undefined)} />
-      {done.isSuccess ? (
-        // Once `done` resolves, the server has already written the note and
-        // called `ctx.handOff()` — the process exits moments later, so
-        // nothing here needs (or can get) another round trip. No screen
-        // offers a way back to a list, this included: rendering `ReviewView`
-        // past this point would let a human tap into a chunk/hunk whose
-        // write can never land.
+      {isDone ? (
         <HandedBackPanel />
       ) : (
         <ReviewView
-          view={query.data?.view}
-          isLoading={query.isLoading}
-          readError={query.error}
+          view={data?.view}
+          filePath={filePath}
+          isLoading={isLoading}
+          readError={error}
           live={true}
-          onSaveNote={onSaveNoteTracked}
+          onSaveNote={onSaveNote}
           onDoneNote={onDoneNote}
           onDone={onDone}
-          onSetValue={onSetValueTracked}
-          onRefusal={showRefusal}
+          onSetValue={onSetValue}
+          busy={pending > 0}
         />
       )}
     </>
+  )
+}
+
+/**
+ * The real review screen: fetches the file's content/`view`/tokens through
+ * `readSteeringFile` OUTSIDE the write store, handing `tokens`/
+ * `refetchTokens` to `WriteStoreProvider` as props — see `Plan.tsx#Plan`'s
+ * identical doc comment. `App.tsx` renders this when `trpc.step`'s own
+ * `mode` is `"review"`.
+ */
+export const Review = ({ filePath }: ReviewProps) => {
+  const utils = trpc.useUtils()
+  const query = trpc.readSteeringFile.useQuery({ filePath, mode: "review" })
+
+  const refetchTokens = async (): Promise<CasTokens> => {
+    const fresh = await utils.readSteeringFile.fetch({ filePath, mode: "review" })
+    return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
+  }
+
+  return (
+    <WriteStoreProvider tokens={query.data} refetchTokens={refetchTokens}>
+      <ReviewInner
+        filePath={filePath}
+        data={query.data}
+        isLoading={query.isLoading}
+        error={query.error}
+      />
+    </WriteStoreProvider>
   )
 }

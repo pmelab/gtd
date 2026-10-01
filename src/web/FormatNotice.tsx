@@ -19,7 +19,7 @@ export interface FormatNotice {
  * the client as a notice naming the command and its exit code" — is
  * unqualified by screen. Never a refusal (the write itself already
  * succeeded): a distinct `Notice`, dismissible on its own, never routed
- * through `Refusal.tsx#RefusalBanner`.
+ * through `Refusal.tsx#SaveIndicator`.
  */
 export const FormatNoticeBanner = ({
   notice,

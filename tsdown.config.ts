@@ -25,6 +25,11 @@ export default defineConfig([
     // exceptions, mirroring the `gtd` config's own `deps.alwaysBundle` below.
     deps: { alwaysBundle: [/.*/] },
     outputOptions: { codeSplitting: false },
+    // Lets `writeStore.ts`'s dev-only `console.warn` (an absent `mutate`)
+    // fold away as dead code in the shipped bundle — unlike Vite, tsdown's
+    // browser platform leaves `process.env.NODE_ENV` unreplaced by default,
+    // so without this the literal check survives into `dist/web/`.
+    define: { "process.env.NODE_ENV": JSON.stringify("production") },
   },
   {
     name: "gtd",

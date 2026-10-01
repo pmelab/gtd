@@ -35,3 +35,17 @@ export const cdpSession = async (): Promise<PlaywrightCdpSession | null> => {
   const context = await browserContext()
   return context === null ? null : (context.cdp() as unknown as PlaywrightCdpSession)
 }
+
+/**
+ * Emulates `prefers-reduced-motion` via CDP — `window.matchMedia` in a real
+ * browser reflects the OS setting, which nothing in a headless CI runner can
+ * toggle from JS alone; `Emulation.setEmulatedMedia` is Chromium's own way to
+ * override it for the page. A no-op in Storybook (`cdpSession` returns
+ * `null` there), where this emulation isn't needed for local dev preview.
+ */
+export const setReducedMotion = async (reduced: boolean): Promise<void> => {
+  const session = await cdpSession()
+  await session?.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-motion", value: reduced ? "reduce" : "no-preference" }],
+  })
+}

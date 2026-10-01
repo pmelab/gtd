@@ -4,49 +4,24 @@ import { expect, fireEvent, waitFor, within } from "storybook/test"
 import { viewport } from "../testing/browserContext.js"
 import { FREE_TEXT_PLACEHOLDER, steeringFormatFor } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
-import { RefusalBanner, useRefusal } from "../Refusal.js"
-import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
+import { SaveIndicator, useSaveIndicatorProps } from "../Refusal.js"
+import { WriteStoreProvider } from "../writeStore.js"
+import { Question } from "./Question.js"
 
-/**
- * `Question` is fully controlled (no internal `useState` of its own — see
- * its own doc comment for why: state must survive `Deck` remounting it per
- * navigation, which only a caller-owned answer can do). Every story below
- * still just passes `{node}`, unaware of that — this harness supplies the
- * `answer`/`onAnswerChange` half via `meta.render`, seeded from the SAME
- * `defaultAnswerFor` the real `Plan.tsx` uses, so a story exercises the
- * exact same "starts from node.children, then tracks edits" behavior.
- * `onCommitAnswer`/`onRefusal` pass straight through — absent unless a story
- * supplies them, exactly like the real `Plan.tsx`/`Question.tsx` contract.
- */
-const ControlledQuestionHarness = (props: {
-  readonly node: SteeringViewNode
-  readonly onCommitAnswer?: (
-    anchor: SteeringAnchor,
-    opts: { readonly checked?: boolean; readonly text?: string },
-  ) => Promise<unknown>
-  readonly onRefusal?: (error: unknown) => void
-}) => {
-  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(props.node))
-  return (
-    <Question
-      node={props.node}
-      answer={answer}
-      onAnswerChange={setAnswer}
-      {...(props.onCommitAnswer !== undefined ? { onCommitAnswer: props.onCommitAnswer } : {})}
-      {...(props.onRefusal !== undefined ? { onRefusal: props.onRefusal } : {})}
-    />
-  )
-}
+/** Every story's own write-store cell key lives under this one file path — a fresh `WriteStoreProvider` wraps each story (the global storybook decorator), so nothing leaks between stories sharing the same constant. */
+const FILE_PATH = "questions.md"
+
+/** A harness exercising `onCommitAnswer` needs ITS OWN `WriteStoreProvider` (nested inside the global decorator's bare one) configured with fake tokens — `Question`'s own `onCommitAnswer` is now a `write` the STORE cas-guards, so with no tokens configured every commit would reject "no steering file loaded yet" before the harness's own mock ever ran. */
+const FAKE_TOKENS = { headSha: "deadbeef", contentHash: "cafef00d" }
+const refetchFakeTokens = () =>
+  Promise.resolve({
+    expectedHeadSha: FAKE_TOKENS.headSha,
+    expectedContentHash: FAKE_TOKENS.contentHash,
+  })
 
 const meta: Meta<typeof Question> = {
   component: Question,
-  render: (args) => (
-    <ControlledQuestionHarness
-      node={args.node}
-      {...(args.onCommitAnswer !== undefined ? { onCommitAnswer: args.onCommitAnswer } : {})}
-      {...(args.onRefusal !== undefined ? { onRefusal: args.onRefusal } : {})}
-    />
-  ),
+  args: { filePath: FILE_PATH },
 }
 
 export default meta
@@ -88,24 +63,19 @@ const readCommitCalls = (canvas: ReturnType<typeof within>): readonly CommitCall
  * populated, so both asserted nothing).
  */
 const CommitCallRecordingHarness = ({ node }: { readonly node: SteeringViewNode }) => {
-  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
   const [calls, setCalls] = useState<readonly CommitCall[]>([])
-  const onCommitAnswer = (
-    anchor: SteeringAnchor,
-    opts: { readonly checked?: boolean; readonly text?: string },
-  ) => {
-    setCalls((prev) => [...prev, { anchor, opts }])
-    return Promise.resolve({ ok: true })
-  }
+  const onCommitAnswer =
+    (anchor: SteeringAnchor, opts: { readonly checked?: boolean; readonly text?: string }) =>
+    () => {
+      setCalls((prev) => [...prev, { anchor, opts }])
+      return Promise.resolve({ ok: true })
+    }
   return (
     <>
       <div data-testid="commit-calls">{JSON.stringify(calls)}</div>
-      <Question
-        node={node}
-        answer={answer}
-        onAnswerChange={setAnswer}
-        onCommitAnswer={onCommitAnswer}
-      />
+      <WriteStoreProvider tokens={FAKE_TOKENS} refetchTokens={refetchFakeTokens}>
+        <Question node={node} filePath={FILE_PATH} onCommitAnswer={onCommitAnswer} />
+      </WriteStoreProvider>
     </>
   )
 }
@@ -302,16 +272,14 @@ export const TypingWithoutTappingSaveFiresNoWriteEverNotAfterAnyElapsedTimeNorOn
  * unmount-commit effect at all.
  */
 const UnmountDiscardsFreeTextHarness = ({ node }: { readonly node: SteeringViewNode }) => {
-  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
   const [calls, setCalls] = useState<readonly CommitCall[]>([])
   const [mounted, setMounted] = useState(true)
-  const onCommitAnswer = (
-    anchor: SteeringAnchor,
-    opts: { readonly checked?: boolean; readonly text?: string },
-  ) => {
-    setCalls((prev) => [...prev, { anchor, opts }])
-    return Promise.resolve({ ok: true })
-  }
+  const onCommitAnswer =
+    (anchor: SteeringAnchor, opts: { readonly checked?: boolean; readonly text?: string }) =>
+    () => {
+      setCalls((prev) => [...prev, { anchor, opts }])
+      return Promise.resolve({ ok: true })
+    }
   return (
     <>
       <div data-testid="commit-calls">{JSON.stringify(calls)}</div>
@@ -319,12 +287,9 @@ const UnmountDiscardsFreeTextHarness = ({ node }: { readonly node: SteeringViewN
         unmount
       </button>
       {mounted && (
-        <Question
-          node={node}
-          answer={answer}
-          onAnswerChange={setAnswer}
-          onCommitAnswer={onCommitAnswer}
-        />
+        <WriteStoreProvider tokens={FAKE_TOKENS} refetchTokens={refetchFakeTokens}>
+          <Question node={node} filePath={FILE_PATH} onCommitAnswer={onCommitAnswer} />
+        </WriteStoreProvider>
       )}
     </>
   )
@@ -396,20 +361,18 @@ export const DeletingAPreviouslyWrittenAnswerAndSavingErasesIt: StoryObj<typeof 
  * identical pattern, at `Question`'s own layer.
  */
 const RevertScopeHarness = ({ node }: { readonly node: SteeringViewNode }) => {
-  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
   const pendingRejectRef = useRef<((error: unknown) => void) | undefined>(undefined)
-  const onCommitAnswer = (
-    anchor: SteeringAnchor,
-    opts: { readonly checked?: boolean; readonly text?: string },
-  ): Promise<unknown> => {
-    void opts
-    if (anchor.kind === "option" && anchor.index === 0) {
-      return new Promise((_resolve, reject) => {
-        pendingRejectRef.current = reject
-      })
+  const onCommitAnswer =
+    (anchor: SteeringAnchor, opts: { readonly checked?: boolean; readonly text?: string }) =>
+    (): Promise<unknown> => {
+      void opts
+      if (anchor.kind === "option" && anchor.index === 0) {
+        return new Promise((_resolve, reject) => {
+          pendingRejectRef.current = reject
+        })
+      }
+      return Promise.resolve({ ok: true })
     }
-    return Promise.resolve({ ok: true })
-  }
   return (
     <>
       <button
@@ -419,12 +382,9 @@ const RevertScopeHarness = ({ node }: { readonly node: SteeringViewNode }) => {
       >
         Reject A
       </button>
-      <Question
-        node={node}
-        answer={answer}
-        onAnswerChange={setAnswer}
-        onCommitAnswer={onCommitAnswer}
-      />
+      <WriteStoreProvider tokens={FAKE_TOKENS} refetchTokens={refetchFakeTokens}>
+        <Question node={node} filePath={FILE_PATH} onCommitAnswer={onCommitAnswer} />
+      </WriteStoreProvider>
     </>
   )
 }
@@ -463,20 +423,18 @@ export const ARejectedTickOnOneOptionLeavesALaterTickOnAnotherOptionStanding: St
  * option tick resolves immediately.
  */
 const FreeTextRevertScopeHarness = ({ node }: { readonly node: SteeringViewNode }) => {
-  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
   const pendingRejectRef = useRef<((error: unknown) => void) | undefined>(undefined)
-  const onCommitAnswer = (
-    anchor: SteeringAnchor,
-    opts: { readonly checked?: boolean; readonly text?: string },
-  ): Promise<unknown> => {
-    if (opts.text !== undefined) {
-      return new Promise((_resolve, reject) => {
-        pendingRejectRef.current = reject
-      })
+  const onCommitAnswer =
+    (anchor: SteeringAnchor, opts: { readonly checked?: boolean; readonly text?: string }) =>
+    (): Promise<unknown> => {
+      if (opts.text !== undefined) {
+        return new Promise((_resolve, reject) => {
+          pendingRejectRef.current = reject
+        })
+      }
+      void anchor
+      return Promise.resolve({ ok: true })
     }
-    void anchor
-    return Promise.resolve({ ok: true })
-  }
   return (
     <>
       <button
@@ -486,12 +444,9 @@ const FreeTextRevertScopeHarness = ({ node }: { readonly node: SteeringViewNode 
       >
         Reject free text
       </button>
-      <Question
-        node={node}
-        answer={answer}
-        onAnswerChange={setAnswer}
-        onCommitAnswer={onCommitAnswer}
-      />
+      <WriteStoreProvider tokens={FAKE_TOKENS} refetchTokens={refetchFakeTokens}>
+        <Question node={node} filePath={FILE_PATH} onCommitAnswer={onCommitAnswer} />
+      </WriteStoreProvider>
     </>
   )
 }
@@ -522,61 +477,51 @@ export const ARejectedFreeTextWriteLeavesALaterRadioTickStanding: StoryObj<typeo
 }
 
 /**
- * `RefusalHarness` mounts the SAME `useRefusal`/`RefusalBanner` pair the real
- * `Plan`/`Review` containers mount, wired to `Question`'s own `onRefusal`
- * prop — package 03 Task 1's acceptance: a rejected write names its reason on
- * screen, not silence. Also wraps `onCommitAnswer` in `trackSave`, exactly
- * like `Plan.tsx`'s own `onCommitAnswerTracked` — needed to reproduce the
- * spec-feedback bug where a refused write's `saveStatus` still settled to
- * `"saved"`, later showing "Saved" for a write that never landed once the
- * refusal itself was dismissed.
+ * `RefusalHarness` mounts the SAME `SaveIndicator` the real `Plan`/`Review`
+ * containers mount, reading its props off the store's own
+ * `useSaveIndicatorProps` — package 03 Task 1's acceptance: a rejected write
+ * names its reason on screen, not silence. `Question` writes through the
+ * store directly (its own `save` call), so there is no separate tracking
+ * wrapper left to apply.
  */
-const RefusalHarness = ({
-  node,
-  onCommitAnswer,
-}: {
+interface RefusalHarnessProps {
   readonly node: SteeringViewNode
   readonly onCommitAnswer: (
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
-  ) => Promise<unknown>
-}) => {
-  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
-  const { refusal, saveStatus, showRefusal, dismiss, trackSave } = useRefusal()
-  const onCommitAnswerTracked = (
-    anchor: SteeringAnchor,
-    opts: { readonly checked?: boolean; readonly text?: string },
-  ): Promise<unknown> => trackSave(onCommitAnswer(anchor, opts))
+  ) => () => Promise<unknown>
+}
+
+/** `SaveIndicator`/`useSaveIndicatorProps` must sit INSIDE the fake-tokens `WriteStoreProvider` below — a provider only affects descendants, and the indicator needs to read the SAME store `Question`'s own writes land in, not the outer (bare, token-less) one the global decorator supplies. */
+const RefusalHarnessInner = ({ node, onCommitAnswer }: RefusalHarnessProps) => {
+  const indicatorProps = useSaveIndicatorProps()
   return (
     <>
-      <RefusalBanner refusal={refusal} saveStatus={saveStatus} onDismiss={dismiss} />
-      <Question
-        node={node}
-        answer={answer}
-        onAnswerChange={setAnswer}
-        onCommitAnswer={onCommitAnswerTracked}
-        onRefusal={showRefusal}
-      />
+      <SaveIndicator {...indicatorProps} />
+      <Question node={node} filePath={FILE_PATH} onCommitAnswer={onCommitAnswer} />
     </>
   )
 }
+
+const RefusalHarness = (props: RefusalHarnessProps) => (
+  <WriteStoreProvider tokens={FAKE_TOKENS} refetchTokens={refetchFakeTokens}>
+    <RefusalHarnessInner {...props} />
+  </WriteStoreProvider>
+)
 
 /**
  * Package 03's Task 1: a `setValue`-shaped write rejecting with a
  * `stale-token` refusal must show `Refusal.tsx`'s own named sentence for it
  * — never silence, never `error.message`. Task 01 pins this on
  * `moved: "content-hash"` specifically (a genuine concurrent edit, never
- * auto-retried by `staleRetry.ts#withStaleShaRetry`) — see this file's own
- * doc comment on why: `moved: "sha"` is covered end-to-end, including the
- * post-refusal recovery, by `Plan.stories.tsx`/`Review.stories.tsx`'s own
- * "recovers in place"/"Try again" stories instead.
+ * auto-retried by `staleRetry.ts#withStaleShaRetry`).
  */
 export const ARejectedStaleTokenWriteShowsTheNamedReasonOnScreen: StoryObj<typeof Question> = {
   args: { node: questionNode() },
   render: (args) => (
     <RefusalHarness
       node={args.node}
-      onCommitAnswer={() =>
+      onCommitAnswer={() => () =>
         Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "content-hash" } } })
       }
     />
@@ -585,30 +530,27 @@ export const ARejectedStaleTokenWriteShowsTheNamedReasonOnScreen: StoryObj<typeo
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("option-radio-0"))
     await waitFor(() =>
-      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
         "The file's content changed underneath you",
       ),
     )
-    expect(canvas.getByTestId("refusal-message")).not.toHaveTextContent("reload")
+    expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("reload")
   },
 }
 
 /**
  * Spec feedback on package 03: dismissing a refusal must not leave the SAME
- * live region announcing "Saved" for the write that was just refused.
- * `trackSave` used to settle `saveStatus` to `"saved"` in a `.finally`
- * regardless of outcome, and `dismiss` only ever cleared `refusal` — so once
- * the human dismissed (a realistic tap within `SAVED_LINGER_MS`), the banner
- * fell through to `saveStatus`'s own `"saved"` branch and reported the write
- * landed when it did not. `trackSave` now only ever settles to `"saved"` on
- * a genuine resolve.
+ * live region announcing "Saved" for the write that was just refused. The
+ * store's own `settleSaveStatus` only ever settles to `"saved"` on a genuine
+ * resolve — a rejection goes straight to `"idle"`, so there is no
+ * `.finally`-shaped path left for `dismiss` to race against.
  */
 export const DismissingARefusalNeverThenReportsSaved: StoryObj<typeof Question> = {
   args: { node: questionNode() },
   render: (args) => (
     <RefusalHarness
       node={args.node}
-      onCommitAnswer={() =>
+      onCommitAnswer={() => () =>
         Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "content-hash" } } })
       }
     />
@@ -617,61 +559,66 @@ export const DismissingARefusalNeverThenReportsSaved: StoryObj<typeof Question> 
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("option-radio-0"))
     await waitFor(() =>
-      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
         "The file's content changed underneath you",
       ),
     )
-    expect(canvas.getByTestId("refusal-message")).not.toHaveTextContent("reload")
-    await fireEvent.click(canvas.getByTestId("refusal-dismiss"))
+    expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("reload")
+    await fireEvent.click(canvas.getByTestId("save-indicator-dismiss"))
     // The banner (the SAME live region) must disappear entirely, not fall
-    // through to `saveStatus`'s own "Saved" branch — `RefusalBanner` renders
+    // through to `saveStatus`'s own "Saved" branch — `SaveIndicator` renders
     // nothing when there's neither a refusal nor an in-flight/settled save,
     // so its continued absence IS the assertion that "Saved" never shows for
     // the write that was just refused.
-    await waitFor(() => expect(canvas.queryByTestId("refusal-banner")).not.toBeInTheDocument())
+    await waitFor(() => expect(canvas.queryByTestId("save-indicator")).not.toBeInTheDocument())
   },
 }
 
 /**
  * `onCommitAnswer` recorded into the DOM (like `CommitCallRecordingHarness`)
- * AND the refusal banner (like `RefusalHarness`), combined — needed to prove
+ * AND the refusal indicator (like `RefusalHarness`), combined — needed to prove
  * BOTH that the refusal shows AND that a retry with the SAME text actually
  * fires a second write, not a silent no-op. Rejects only the write at
  * `rejectCallIndex` (0 by default: the first).
  */
-const RefusalRetryHarness = ({ node }: { readonly node: SteeringViewNode }) => {
-  const [answer, setAnswer] = useState<QuestionAnswer>(() => defaultAnswerFor(node))
-  const { refusal, saveStatus, showRefusal, dismiss } = useRefusal()
+/** `SaveIndicator`/`useSaveIndicatorProps` must sit INSIDE the fake-tokens `WriteStoreProvider` — see `RefusalHarnessInner`'s identical doc comment. */
+const RefusalRetryHarnessInner = ({ node }: { readonly node: SteeringViewNode }) => {
+  const indicatorProps = useSaveIndicatorProps()
   const [calls, setCalls] = useState<
     ReadonlyArray<{
       readonly anchor: SteeringAnchor
       readonly opts: { readonly checked?: boolean; readonly text?: string }
     }>
   >([])
-  const onCommitAnswer = (
-    anchor: SteeringAnchor,
-    opts: { readonly checked?: boolean; readonly text?: string },
-  ): Promise<unknown> => {
-    const callIndex = calls.length
-    setCalls((prev) => [...prev, { anchor, opts }])
-    return callIndex === 0
-      ? Promise.reject({ data: { writeRefusal: { reason: "stale-token", moved: "content-hash" } } })
-      : Promise.resolve({ ok: true })
-  }
+  // A ref, never `calls.length` read inside the closure — a plain
+  // closure-captured count goes stale across `Question`'s own re-renders.
+  const callCountRef = useRef(0)
+  const onCommitAnswer =
+    (anchor: SteeringAnchor, opts: { readonly checked?: boolean; readonly text?: string }) =>
+    (): Promise<unknown> => {
+      const callIndex = callCountRef.current
+      callCountRef.current += 1
+      setCalls((prev) => [...prev, { anchor, opts }])
+      return callIndex === 0
+        ? Promise.reject({
+            data: { writeRefusal: { reason: "stale-token", moved: "content-hash" } },
+          })
+        : Promise.resolve({ ok: true })
+    }
   return (
     <>
-      <RefusalBanner refusal={refusal} saveStatus={saveStatus} onDismiss={dismiss} />
+      <SaveIndicator {...indicatorProps} />
       <div data-testid="commit-calls">{JSON.stringify(calls)}</div>
-      <Question
-        node={node}
-        answer={answer}
-        onAnswerChange={setAnswer}
-        onCommitAnswer={onCommitAnswer}
-        onRefusal={showRefusal}
-      />
+      <Question node={node} filePath={FILE_PATH} onCommitAnswer={onCommitAnswer} />
     </>
   )
 }
+
+const RefusalRetryHarness = ({ node }: { readonly node: SteeringViewNode }) => (
+  <WriteStoreProvider tokens={FAKE_TOKENS} refetchTokens={refetchFakeTokens}>
+    <RefusalRetryHarnessInner node={node} />
+  </WriteStoreProvider>
+)
 
 /**
  * Spec feedback on package 03: a refused free-text write must not poison its
@@ -689,11 +636,11 @@ export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<ty
     await fireEvent.change(textarea, { target: { value: "hello" } })
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() =>
-      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
         "The file's content changed underneath you",
       ),
     )
-    expect(canvas.getByTestId("refusal-message")).not.toHaveTextContent("reload")
+    expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("reload")
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
 
     // Retype the SAME text and tap Save again — must fire a second write.
@@ -988,18 +935,17 @@ export const AnOptionsImpactsRenderInlineUnderItsOwnRadioNoInteractionRequired: 
 }
 
 /**
- * Wraps `ControlledQuestionHarness` in the SAME scroll-container shape
- * `Deck.tsx`'s own `data-testid="deck-content"` div is (`min-h-0 flex-1
- * overflow-auto`, sized by a fixed-height ancestor here rather than `Deck`'s
- * own `h-full` chain, which needs a real viewport to resolve) — so a story
- * that never mounts `Deck` still measures the real geometry a phone screen
- * would show: a bounded box that SCROLLS, never one that grows to fit or
- * clips.
+ * Wraps `Question` in the SAME scroll-container shape `Deck.tsx`'s own
+ * `data-testid="deck-content"` div is (`min-h-0 flex-1 overflow-auto`, sized
+ * by a fixed-height ancestor here rather than `Deck`'s own `h-full` chain,
+ * which needs a real viewport to resolve) — so a story that never mounts
+ * `Deck` still measures the real geometry a phone screen would show: a
+ * bounded box that SCROLLS, never one that grows to fit or clips.
  */
 const ScrollBoundedQuestionHarness = (props: { readonly node: SteeringViewNode }) => (
   <div style={{ height: "400px" }} className="flex flex-col">
     <div data-testid="scroll-container" className="min-h-0 flex-1 overflow-auto">
-      <ControlledQuestionHarness node={props.node} />
+      <Question node={props.node} filePath={FILE_PATH} />
     </div>
   </div>
 )

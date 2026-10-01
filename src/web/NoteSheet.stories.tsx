@@ -86,6 +86,65 @@ export const SaveAndDoneFiresOnDoneWithTheCurrentText: Story = {
   },
 }
 
+/**
+ * Package 03 Task 2's own deliberate call: `busy` disables "Save & Done"
+ * rather than unmounting it — a vanishing control would move the dismiss/
+ * save buttons under the user's thumb mid-interaction. `onDone` being wired
+ * at all is a SEPARATE decision from `busy` (see `NoOnDonePropRendersNoDoneButton`
+ * for the "unwired means absent" half); this story holds `onDone` present and
+ * only toggles `busy`.
+ */
+export const SaveAndDoneIsDisabledNotUnmountedWhileAWriteIsPending: Story = {
+  args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn(), onDone: fn(), busy: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await settled(canvasElement)
+    const done = canvas.getByTestId("note-sheet-done")
+    await expect(done).toBeInTheDocument()
+    await expect(done).toBeDisabled()
+    // The dismiss/save buttons stay reachable at their usual place — nothing
+    // shifted to fill the gap a vanished control would have left.
+    await expect(canvas.getByTestId("note-sheet-save")).not.toBeDisabled()
+  },
+}
+
+/** Toggles `busy` from a sibling button, standing in for the mutation queue's own pending-count going back to zero. */
+const BusyTogglesHarness = (props: {
+  readonly anchor: SteeringAnchor
+  readonly onSave: (anchor: SteeringAnchor, text: string) => void
+  readonly onDismiss: () => void
+  readonly onDone: (anchor: SteeringAnchor, text: string) => void
+}) => {
+  const [busy, setBusy] = useState(true)
+  return (
+    <>
+      <NoteSheet {...props} busy={busy} />
+      <button type="button" data-testid="clear-busy" onClick={() => setBusy(false)}>
+        Clear busy
+      </button>
+    </>
+  )
+}
+
+export const SaveAndDoneReEnablesOnceBusyClears: Story = {
+  render: (args) => (
+    <BusyTogglesHarness
+      anchor={args.anchor}
+      onSave={args.onSave}
+      onDismiss={args.onDismiss}
+      onDone={args.onDone as (anchor: SteeringAnchor, text: string) => void}
+    />
+  ),
+  args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await settled(canvasElement)
+    await expect(canvas.getByTestId("note-sheet-done")).toBeDisabled()
+    await fireEvent.click(canvas.getByTestId("clear-busy"))
+    await waitFor(() => expect(canvas.getByTestId("note-sheet-done")).not.toBeDisabled())
+  },
+}
+
 // T6's "no selection gesture is required to place a note" is pinned as a
 // real, enforced source-grep test in `NoteSheet.test.ts` (the sibling `.ts`
 // unit test), not left as a claim in a comment here.

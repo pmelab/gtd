@@ -22,39 +22,3 @@ export const existingNoteFor = (
     .flatMap((node) => [node, ...(node.body ?? [])])
     .find((node) => node.anchor.kind === "paragraph" && node.anchor.line === anchor.line)?.note
 }
-
-/**
- * The note-save handler every screen wires into its sheet: shows the text
- * immediately, closes the sheet, then REVERTS that optimistic override if
- * the write is refused — a note that stays on screen after the file rejected
- * it is the one outcome worse than a visible refusal, since the reader
- * believes it landed.
- */
-export const optimisticNoteSave =
-  ({
-    setOverrides,
-    close,
-    write,
-    onRefusal,
-  }: {
-    readonly setOverrides: (update: (prev: NoteOverrides) => NoteOverrides) => void
-    readonly close: () => void
-    readonly write?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
-    readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
-  }) =>
-  (anchor: SteeringAnchor, text: string): void => {
-    if (anchor.kind === "paragraph") {
-      setOverrides((prev) => ({ ...prev, [anchor.line]: text }))
-    }
-    close()
-    if (write === undefined) return
-    write(anchor, text).catch((error: unknown) => {
-      onRefusal?.(error, () => write(anchor, text))
-      if (anchor.kind !== "paragraph") return
-      setOverrides((prev) => {
-        const next = { ...prev }
-        delete next[anchor.line]
-        return next
-      })
-    })
-  }

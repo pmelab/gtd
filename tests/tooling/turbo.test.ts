@@ -119,6 +119,7 @@ describe("turbo.json / package.json invariants", () => {
       "@trpc/client",
       "@trpc/react-query",
       "tailwind-merge",
+      "zustand",
     ]) {
       expect(pkg.dependencies, `"${name}" must not be a runtime dependency`).not.toHaveProperty(
         name,

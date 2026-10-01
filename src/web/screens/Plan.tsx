@@ -2,19 +2,28 @@ import { useEffect, useRef, useState } from "react"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { Card, CardList } from "../Card.js"
-import { useContentHashOverride } from "../contentHashOverride.js"
 import { Deck } from "../Deck.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
-import { existingNoteFor, optimisticNoteSave } from "../notes.js"
-import { messageForReadRefusal, RefusalBanner, useRefusal } from "../Refusal.js"
+import { existingNoteFor } from "../notes.js"
+import { messageForReadRefusal, SaveIndicator, useSaveIndicatorProps } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
-import { withStaleShaRetry, type CasTokens } from "../staleRetry.js"
+import type { CasTokens } from "../staleRetry.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
+import {
+  cellKey,
+  latestOverlayValue,
+  useWriteStore,
+  WriteStoreProvider,
+  type OverlayEntry,
+} from "../writeStore.js"
 import { Inline } from "./InlineRun.js"
 import { ProseBlocks } from "./ProseBlock.js"
-import { defaultAnswerFor, Question, type QuestionAnswer } from "./Question.js"
+import { Question } from "./Question.js"
+
+/** A write guarded by the store's own compare-and-swap retry — see `writeStore.ts#SaveArgs.write`'s own doc comment. */
+type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
 
 const readPlanStorageKey = (contentHash: string): string => `gtd:plan-read:${contentHash}`
 
@@ -36,28 +45,31 @@ const usePlanReadConfirmation = (contentHash: string) => {
   return { confirmed, confirm }
 }
 
-/** A `qa`-view question node sets `status` (`"open"`/`"answered"`); a prose-only document's `view` has no such nodes at all — every one of its `view.nodes` is instead a `paragraph`-anchored node (`OpenQuestions.ts#blockNodesOf`). */
+/** A `qa`-view question node sets `status` (`"open"`/`"answered"`); a prose-only document's `view` has no such nodes at all. */
 const isQuestionNode = (node: SteeringViewNode): boolean => node.status !== undefined
 
-/**
- * The ONLY question nodes fed to `Deck`. An answered question carries no
- * options, so it must not be a deck ITEM at all, not merely a non-drillable
- * card: `deck-next`/`deck-prev` walk the item array directly and bypass any
- * per-card guard. The card's start index comes from this same list, so
- * advancing can never land past the last real question.
- */
 const openQuestionNodesOf = (view: SteeringView): readonly SteeringViewNode[] =>
   view.nodes.filter((node) => node.status === "open")
 
-/**
- * `onOpen` is OPTIONAL: an ANSWERED question's own `view` node carries no
- * options at all (`OpenQuestions.ts#OpenQuestion.options` is `[]` for the
- * answered section — there is nothing left to review or edit), so drilling
- * into `Question.tsx` for one renders zero options, an empty `lastIndex`,
- * and — worse — recomputes "unanswered" from that empty state, contradicting
- * the very section the card came from. An answered card renders as an
- * inert, non-button summary row instead of a fake-clickable `Card`.
- */
+/** Every paragraph-anchored node's own overlay text, read straight off the store — the `noteOverrides` record `ProseBlocks`/`existingNoteFor` expect, built fresh each render rather than kept as a second copy of state. Reads BOTH a plain save's own `"note"` cell and that same anchor's `"done"` cell (a Save & Done), since only one of the two is ever written per interaction and whichever is newer should show. */
+// fallow-ignore-next-line complexity
+const noteOverridesFrom = (
+  filePath: string,
+  overlay: Readonly<Record<string, OverlayEntry>>,
+  nodes: readonly SteeringViewNode[],
+): Record<number, string> => {
+  const overrides: Record<number, string> = {}
+  for (const node of nodes.flatMap((n) => [n, ...(n.body ?? [])])) {
+    if (node.anchor.kind !== "paragraph") continue
+    const value = latestOverlayValue(overlay, [
+      cellKey(filePath, node.anchor, "note"),
+      cellKey(filePath, node.anchor, "done"),
+    ])
+    if (typeof value === "string") overrides[node.anchor.line] = value
+  }
+  return overrides
+}
+
 // fallow-ignore-next-line complexity
 const QuestionCard = ({
   node,
@@ -79,9 +91,6 @@ const QuestionCard = ({
   const testId = `question-card-${node.anchor.kind === "question" ? node.anchor.index : 0}`
   if (onOpen === undefined) {
     return (
-      // An answered question is finished, not disabled: it reads in the
-      // muted text colour (which still clears AA) rather than at 85%
-      // opacity, which dims a row's every layer including its own contrast.
       <div data-testid={testId} className="border-b border-divider p-3 text-muted">
         {content}
       </div>
@@ -96,57 +105,21 @@ const QuestionCard = ({
 
 export interface PlanViewProps {
   readonly view: SteeringView | undefined
-  /** The file's `contentHash` (`Write.ts#contentHashOf`, already computed server-side by `readSteeringFile`) — used ONLY to key the "read the plan" confirmation below. Never the raw file bytes: there is nothing else in this component that needs them since paragraph text comes from `view.nodes` (`OpenQuestions.ts#blockNodesOf`), not a client-side split of raw content. */
+  readonly filePath: string
   readonly contentHash: string
   readonly isLoading: boolean
-  /** The `readSteeringFile` query's own thrown error, read through `api.ts#readRefusalFrom` to render a named sentence when `view` is `undefined` and nothing is loading — `Plan.stories.tsx`'s pure-data stories leave this unset and see the generic fallback. */
   readonly readError?: unknown
-  /**
-   * Called with a saved paragraph note's `anchor`/`text` — the real `Plan`
-   * container wires this to an actual `writeNote` mutation, returning
-   * `writeNote.mutateAsync`'s OWN promise so a rejection (a `CONFLICT`
-   * refusal, a network failure, …) reverts the optimistic `noteOverrides`
-   * entry — see `Review.tsx#ReviewViewProps.onSaveNote`'s identical doc
-   * comment for why. Absent in `Plan.stories.tsx`'s pure-data stories.
-   */
-  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
-  /**
-   * The done action (T2): saves the SAME note `onSaveNote` would, then hands
-   * the turn back — the real `Plan` container wires this to `trpc.done`,
-   * which writes the note and calls `ctx.handOff()` server-side, ending
-   * this `gtd ui` process. Absent in `Plan.stories.tsx`'s pure-data stories,
-   * exactly like `onSaveNote`.
-   */
-  readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => Promise<unknown>
-  /**
-   * Write-through for a question answer (package 03): passed straight to
-   * `Question.tsx`'s own `onCommitAnswer` prop — see that prop's doc comment
-   * for why it fires alongside, never instead of, this component's own
-   * `answers` state. Absent in `Plan.stories.tsx`'s pure-data stories,
-   * exactly like `onSaveNote`/`onDoneNote`.
-   */
+  readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite
+  readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite
   readonly onCommitAnswer?: (
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
-  ) => Promise<unknown>
-  /**
-   * Ends the turn with no note. Drives TWO controls: `Deck`'s `onDone`, whose
-   * mere presence also flips the last-item advance label to "Back to list" —
-   * two buttons reading "Done" on one screen is the collision that avoids —
-   * and the list screen's own footer row.
-   */
+  ) => TokenGuardedWrite
   readonly onDone?: () => Promise<unknown>
-  /**
-   * Every write refusal this screen's mutations surface, so `RefusalBanner`
-   * names a reason instead of the write silently reverting. The optional
-   * second argument is the whole failed write path, wired to the banner's
-   * `Try again`; the question screen supplies none, since retyping already
-   * serves as its retry.
-   */
-  readonly onRefusal?: (error: unknown, retry?: () => Promise<unknown>) => void
+  /** Package 03 Task 1's single `busy` boolean, threaded from the store's own pending count. */
+  readonly busy?: boolean | undefined
 }
 
-/** `onOpen` absent renders every card in this section as an inert summary row — used for "Already answered", whose questions carry no options to drill into (see `QuestionCard`'s own doc comment). */
 const QuestionSection = ({
   title,
   nodes,
@@ -161,9 +134,6 @@ const QuestionSection = ({
   if (nodes.length === 0) return null
   return (
     <section>
-      {/* The section that still needs the reader is coloured; the finished
-          one stays muted — the list's own "what is left" cue, before a
-          single card is read. */}
       <h2
         className={`mx-3 mt-4 mb-1 text-small font-semibold tracking-wide uppercase ${
           onOpen !== undefined ? "text-link" : "text-muted"
@@ -182,7 +152,6 @@ const QuestionSection = ({
   )
 }
 
-/** The question-list body: prose paragraphs for a format with no question-shaped nodes, else the open/answered sections. */
 const PlanBody = ({
   view,
   noteOverrides,
@@ -198,25 +167,11 @@ const PlanBody = ({
   if (questionNodes.length === 0) {
     return <ProseBlocks nodes={view.nodes} noteOverrides={noteOverrides} onOpenNote={onOpenNote} />
   }
-  // `questionsView` (`OpenQuestions.ts`) builds `nodes` as every
-  // `blockNodesOf` node in document order — before, between, and after the
-  // question sections alike — followed by every question node. Filtering
-  // the non-question nodes into one list here preserves their relative
-  // document order; it is NOT "everything before `## Open Questions`".
   const planNodes = view.nodes.filter((node) => !isQuestionNode(node))
   const openNodes = questionNodes.filter((node) => node.status === "open")
   const answeredNodes = questionNodes.filter((node) => node.status === "answered")
   return (
     <>
-      {/*
-       * `allNodes={openNodes}`, NOT `questionNodes` — a card's start index
-       * must be its position in the SAME list `PlanView` feeds `Deck`
-       * (`openQuestionNodesOf`), or tapping a card would open the deck at
-       * the wrong item the moment any answered question sorts before it.
-       * Open questions render FIRST — they're the task; the prose below is
-       * reference material — but this list, and the index it hands out,
-       * stays untouched by that reordering.
-       */}
       <QuestionSection
         title="Open Questions"
         nodes={openNodes}
@@ -231,41 +186,32 @@ const PlanBody = ({
   )
 }
 
-/** The "no view yet" branch's own message — loading, a named read refusal, or the generic fallback — split out so `PlanView` itself doesn't carry the nested ternary inline. */
 const planLoadingMessage = (isLoading: boolean, readError: unknown): string => {
   if (isLoading) return "Loading the plan…"
   const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
   return refusal !== undefined ? messageForReadRefusal(refusal) : "Could not load the plan."
 }
 
-/**
- * `Deck`'s own `onDone`/`doneLabel` prop pair (package 04 Task 2) — `{}`
- * when the Q&A deck's Done control isn't wired up at all (`Plan.stories.tsx`'s
- * pure-data stories, exactly like `onSaveNote`/`onDoneNote`), split out so
- * `PlanView` itself doesn't carry this conditional inline.
- */
 const deckDoneProps = (
-  onDone: (() => Promise<unknown>) | undefined,
-): { readonly onDone?: () => void; readonly doneLabel?: string } =>
-  onDone === undefined
-    ? {}
-    : {
-        onDone: () => {
-          onDone()
-        },
-        doneLabel: "Done",
-      }
+  onDone: (() => void) | undefined,
+  busy: boolean | undefined,
+): {
+  readonly onDone?: () => void
+  readonly doneLabel?: string
+  readonly doneDisabled?: boolean | undefined
+} => (onDone === undefined ? {} : { onDone, doneLabel: "Done", doneDisabled: busy })
 
 /**
  * Presentational plan-and-answer screen — takes its `view`/`contentHash` as
- * props so `Plan.stories.tsx` can drive every shape with plain data, no
- * mocked tRPC transport required. Never switches on a mode name: whether
- * this renders questions or plain prose is read entirely off `view.nodes`'
- * own shape.
+ * props so `Plan.stories.tsx` can drive every shape with plain data; the
+ * global storybook decorator supplies a fresh `WriteStoreProvider`, which is
+ * the only thing this component needs to resolve its own note overrides and
+ * each `Question`'s own answer.
  */
 // fallow-ignore-next-line complexity
 export const PlanView = ({
   view,
+  filePath,
   contentHash,
   isLoading,
   readError,
@@ -273,17 +219,13 @@ export const PlanView = ({
   onDoneNote,
   onDone,
   onCommitAnswer,
-  onRefusal,
+  busy,
 }: PlanViewProps) => {
   const { confirmed, confirm } = usePlanReadConfirmation(contentHash)
   const [deckIndex, setDeckIndex] = useState<number | undefined>(undefined)
-  const [noteOverrides, setNoteOverrides] = useState<Record<number, string>>({})
   const [noteSheetAnchor, setNoteSheetAnchor] = useState<SteeringAnchor | undefined>(undefined)
-  // Keyed by the SAME index `openQuestionNodesOf` assigns (the deck's own
-  // item index) — lives here, above `Deck`, so an answer survives paging
-  // next-then-back: `Deck`'s `renderItem` remounts a fresh `Question` per
-  // index, which would otherwise discard whatever was just answered.
-  const [answers, setAnswers] = useState<Record<number, QuestionAnswer>>({})
+  const overlay = useWriteStore((s) => s.overlay)
+  const save = useWriteStore((s) => s.save)
   const scroll = useScrollRestoration()
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -295,9 +237,23 @@ export const PlanView = ({
     )
   }
 
-  // Rendered OVER the screen it belongs to (a modal), never instead of it —
-  // so it is built here and mounted by each branch below rather than
-  // returned early.
+  const noteOverrides = noteOverridesFrom(filePath, overlay, view.nodes)
+
+  const saveNote = (anchor: SteeringAnchor, text: string): void => {
+    save({
+      cell: cellKey(filePath, anchor, "note"),
+      optimistic: text,
+      write: onSaveNote === undefined ? undefined : onSaveNote(anchor, text),
+    }).catch(() => {})
+  }
+  const doneNote = (anchor: SteeringAnchor, text: string): void => {
+    save({
+      cell: cellKey(filePath, anchor, "done"),
+      optimistic: text,
+      write: onDoneNote === undefined ? undefined : onDoneNote(anchor, text),
+    }).catch(() => {})
+  }
+
   const existingNote =
     noteSheetAnchor === undefined
       ? undefined
@@ -307,24 +263,29 @@ export const PlanView = ({
       <NoteSheet
         anchor={noteSheetAnchor}
         {...(existingNote !== undefined ? { note: existingNote } : {})}
-        onSave={optimisticNoteSave({
-          setOverrides: setNoteOverrides,
-          close: () => setNoteSheetAnchor(undefined),
-          ...(onSaveNote !== undefined ? { write: onSaveNote } : {}),
-          ...(onRefusal !== undefined ? { onRefusal } : {}),
-        })}
+        onSave={(anchor, text) => {
+          setNoteSheetAnchor(undefined)
+          saveNote(anchor, text)
+        }}
         onDismiss={() => setNoteSheetAnchor(undefined)}
         {...(onDoneNote !== undefined
           ? {
-              onDone: optimisticNoteSave({
-                setOverrides: setNoteOverrides,
-                close: () => setNoteSheetAnchor(undefined),
-                write: onDoneNote,
-              }),
+              onDone: (anchor: SteeringAnchor, text: string) => {
+                setNoteSheetAnchor(undefined)
+                doneNote(anchor, text)
+              },
+              busy,
             }
           : {})}
       />
     )
+
+  const runDone = (): void => {
+    if (onDone === undefined) return
+    save({ cell: cellKey(filePath, undefined, "done"), optimistic: true, mutate: onDone }).catch(
+      () => {},
+    )
+  }
 
   if (deckIndex !== undefined) {
     return (
@@ -337,21 +298,13 @@ export const PlanView = ({
             setDeckIndex(undefined)
             scroll.restore(scrollRef)
           }}
-          {...deckDoneProps(onDone)}
+          {...deckDoneProps(onDone === undefined ? undefined : runDone, busy)}
           renderItem={(node, index) => (
             <Question
               key={index}
               node={node}
-              answer={answers[index] ?? defaultAnswerFor(node)}
-              onAnswerChange={(update) =>
-                setAnswers((prev) => {
-                  const current = prev[index] ?? defaultAnswerFor(node)
-                  const next = typeof update === "function" ? update(current) : update
-                  return { ...prev, [index]: next }
-                })
-              }
+              filePath={filePath}
               {...(onCommitAnswer !== undefined ? { onCommitAnswer } : {})}
-              {...(onRefusal !== undefined ? { onRefusal } : {})}
               noteOverrides={noteOverrides}
               onOpenNote={(bodyNode) => setNoteSheetAnchor(bodyNode.anchor)}
             />
@@ -367,9 +320,6 @@ export const PlanView = ({
       <div data-testid="plan-screen" className="flex h-full min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
           <CardList>
-            {/* The confirmation is a state, so it gets a persistent mark, not
-              a tick appended to the label: the row reads the same before and
-              after otherwise. */}
             <Card testId="read-plan-row" onOpen={confirm}>
               <span className="flex items-center gap-2">
                 <span
@@ -399,13 +349,7 @@ export const PlanView = ({
             data-testid="plan-done-row"
             className="flex shrink-0 items-center justify-end border-t border-border p-3"
           >
-            <Button
-              variant="primary"
-              data-testid="plan-done"
-              onClick={() => {
-                onDone()
-              }}
-            >
+            <Button variant="primary" data-testid="plan-done" onClick={runDone} disabled={busy}>
               Done
             </Button>
           </div>
@@ -416,14 +360,7 @@ export const PlanView = ({
   )
 }
 
-/**
- * The terminal panel after `done` resolves (T2): the server has already
- * written the note and called `ctx.handOff()`, so the process exits moments
- * later — this needs no further server round trip, and offers no way back to
- * any list. Identical in shape to `Review.tsx#HandedBackPanel` — see that
- * component's own doc comment for why this stays a second small copy rather
- * than a shared import.
- */
+/** The terminal panel after `done` resolves: the server has already written the note and called `ctx.handOff()`, so the process exits moments later. */
 const HandedBackPanel = () => (
   <Notice data-testid="handed-back-panel" role="status" aria-live="polite">
     Handed back — this turn is done.
@@ -431,28 +368,24 @@ const HandedBackPanel = () => (
 )
 
 export interface PlanProps {
-  /** Path to the plan/prose steering file, relative to the served worktree. */
   readonly filePath: string
   readonly mode: string
 }
 
 /**
- * Every mutation `Plan` wires up, in one hook so the component stays a thin
- * fetch-then-render dispatch. Each write routes through `withStaleShaRetry`: a
- * `stale-token`/`moved: "sha"` refusal refetches and retries once, silently,
- * before the banner shows. The token comes from `contentHashOverride` — see
- * its doc for why a second Save before the refetch lands must send the LAST
- * write's post-format hash, never the cache's stale one.
+ * Every raw write `Plan` wires up — each is a plain `trpc` call, curried over
+ * its own anchor/opts, returning a `TokenGuardedWrite`: the store itself
+ * supplies the compare-and-swap tokens (and retries a `stale-token` refusal)
+ * when it calls this thunk at dequeue time. No `withStaleShaRetry`, no
+ * token/override bookkeeping lives here any more — `WriteStoreProvider`'s own
+ * `tokens`/`refetchTokens` props (wired by `Plan`, below) are what the store
+ * reads instead.
  */
 const usePlanMutations = (
   filePath: string,
   mode: string,
-  data: { readonly headSha: string; readonly contentHash: string } | undefined,
-  onRefusal: (error: unknown) => void,
-  /** Task 5's own `ui.format`-failure sink — `ui.format` runs on every ui write regardless of screen, so `Plan`'s own writes surface it exactly like `FreeForm.tsx`'s do. */
   onFormatNotice: (notice: FormatNotice | undefined) => void,
 ) => {
-  const override = useContentHashOverride()
   const utils = trpc.useUtils()
   const writeNote = trpc.writeNote.useMutation({
     onSettled: () => utils.readSteeringFile.invalidate({ filePath, mode }),
@@ -462,152 +395,111 @@ const usePlanMutations = (
   })
   const done = trpc.done.useMutation()
 
-  // `fetch`, never `invalidate` — the retry needs the fresh tokens back as a
-  // value to call `attempt` with a second time; `onSettled`'s own
-  // `invalidate` above stays and populates the SAME cache entry, so the two
-  // don't fight (see the package's own task 4 doc comment).
-  const refetchTokens = async (): Promise<CasTokens> => {
-    const fresh = await utils.readSteeringFile.fetch({ filePath, mode })
-    override.clear()
-    return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
-  }
+  const onCommitAnswer =
+    (anchor: SteeringAnchor, opts: { readonly checked?: boolean; readonly text?: string }) =>
+    (cas: CasTokens): Promise<unknown> =>
+      setValue.mutateAsync({ filePath, ...cas, mode, anchor, ...opts }).then((result) => {
+        onFormatNotice(result.formatNotice)
+        return result
+      })
 
-  const onCommitAnswer = (
-    anchor: SteeringAnchor,
-    opts: { readonly checked?: boolean; readonly text?: string },
-  ): Promise<unknown> => {
-    const tokens = override.casTokensFor(data)
-    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return withStaleShaRetry(
-      (cas) =>
-        setValue.mutateAsync({ filePath, ...cas, mode, anchor, ...opts }).then((result) => {
-          override.onWriteSuccess(result.contentHash)
-          onFormatNotice(result.formatNotice)
-          return result
-        }),
-      tokens,
-      refetchTokens,
-    ).catch((error: unknown) => {
-      override.onWriteRefusal(error)
-      throw error
-    })
-  }
+  const onSaveNote =
+    (anchor: SteeringAnchor, text: string) =>
+    (cas: CasTokens): Promise<unknown> =>
+      writeNote.mutateAsync({ filePath, ...cas, mode, anchor, text }).then((result) => {
+        onFormatNotice(result.formatNotice)
+        return result
+      })
 
-  const onSaveNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = override.casTokensFor(data)
-    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return withStaleShaRetry(
-      (cas) =>
-        writeNote.mutateAsync({ filePath, ...cas, mode, anchor, text }).then((result) => {
-          override.onWriteSuccess(result.contentHash)
-          onFormatNotice(result.formatNotice)
-          return result
-        }),
-      tokens,
-      refetchTokens,
-    ).catch((error: unknown) => {
-      override.onWriteRefusal(error)
-      throw error
-    })
-  }
+  const onDoneNote =
+    (anchor: SteeringAnchor, text: string) =>
+    (cas: CasTokens): Promise<unknown> =>
+      done.mutateAsync({ note: { filePath, ...cas, mode, anchor, text } })
 
-  const onDoneNote = (anchor: SteeringAnchor, text: string): Promise<unknown> => {
-    const tokens = override.casTokensFor(data)
-    if (tokens === undefined) return Promise.reject(new Error("no steering file loaded yet"))
-    return withStaleShaRetry(
-      (cas) =>
-        done.mutateAsync({ note: { filePath, ...cas, mode, anchor, text } }).then((result) => {
-          if ("contentHash" in result) override.onWriteSuccess(result.contentHash)
-          return result
-        }),
-      tokens,
-      refetchTokens,
-    ).catch((error: unknown) => {
-      override.onWriteRefusal(error)
-      // Shows the reason but never rethrows: `NoteSheet`'s own `onDone` is
-      // fire-and-forget (never awaited), so an uncaught rejection this far
-      // down would be a real unhandled promise rejection, not just a
-      // silently-discarded one.
-      onRefusal(error)
-    })
-  }
-
-  /**
-   * The Done control's own trigger (T2) — no anchor/text, no tokens: there
-   * is nothing to compare-and-swap when there's nothing to write, mirroring
-   * `Router.ts#done`'s own `note` absent branch. Fire-and-forget, caught
-   * never rethrown, for the exact reason `onDoneNote`'s own `.catch` is.
-   */
-  const onDone = (): Promise<unknown> =>
-    done.mutateAsync({}).catch((error: unknown) => {
-      onRefusal(error)
-    })
+  /** The Done control's own trigger — no anchor/text, no tokens: there is nothing to compare-and-swap when there's nothing to write. */
+  const onDone = (): Promise<unknown> => done.mutateAsync({})
 
   return { onCommitAnswer, onSaveNote, onDoneNote, onDone, isDone: done.isSuccess }
 }
 
-/** `PlanView`'s own two data props, both `undefined`-safe over an in-flight `readSteeringFile` read — split out so `Plan` itself doesn't carry the two optional-chaining branches inline. */
 const planViewDataProps = (
   data: { readonly view?: SteeringView; readonly contentHash?: string } | undefined,
 ) => ({ view: data?.view, contentHash: data?.contentHash ?? "" })
 
-/**
- * The real plan screen: fetches content/`view`/tokens through
- * `readSteeringFile` (never a bare `content` prop with no way to have
- * actually been fetched — see `Review.tsx#Review`'s identical split), and
- * write-throughs a saved paragraph note via `writeNote`'s compare-and-swap
- * using the SAME tokens that fetch returned. `App.tsx` renders this when
- * `trpc.step`'s own `mode` isn't `"review"`.
- */
-export const Plan = ({ filePath, mode }: PlanProps) => {
-  const query = trpc.readSteeringFile.useQuery({ filePath, mode })
-  const { refusal, saveStatus, showRefusal, dismiss, trackSave, onRetry } = useRefusal()
+/** `Plan`'s own inner render, a child of its `WriteStoreProvider` — reads the write store (`useSaveIndicatorProps`/`pendingCount`), which only a descendant of the provider can do. */
+const PlanInner = ({
+  filePath,
+  mode,
+  data,
+  isLoading,
+  error,
+}: PlanProps & {
+  readonly data: { readonly view?: SteeringView; readonly contentHash?: string } | undefined
+  readonly isLoading: boolean
+  readonly error: unknown
+}) => {
+  const indicatorProps = useSaveIndicatorProps()
+  const pending = useWriteStore((s) => s.pendingCount)
   const [formatNotice, setFormatNotice] = useState<FormatNotice | undefined>(undefined)
   const { onCommitAnswer, onSaveNote, onDoneNote, onDone, isDone } = usePlanMutations(
     filePath,
     mode,
-    query.data,
-    showRefusal,
     setFormatNotice,
   )
 
-  // Task 3's "Saving…"/"Saved" affordance — wraps only the two write paths a
-  // human sits waiting on mid-interaction (a tick, a note save); `onDoneNote`
-  // is excluded since a successful `done` unmounts this screen for
-  // `HandedBackPanel` before the banner could ever show "Saved".
-  const onCommitAnswerTracked = (
-    anchor: SteeringAnchor,
-    opts: { readonly checked?: boolean; readonly text?: string },
-  ): Promise<unknown> => trackSave(onCommitAnswer(anchor, opts))
-  const onSaveNoteTracked = (anchor: SteeringAnchor, text: string): Promise<unknown> =>
-    trackSave(onSaveNote(anchor, text))
-
   return (
     <>
-      <RefusalBanner
-        refusal={refusal}
-        saveStatus={saveStatus}
-        onDismiss={dismiss}
-        onRetry={onRetry}
-      />
+      <SaveIndicator {...indicatorProps} />
       <FormatNoticeBanner notice={formatNotice} onDismiss={() => setFormatNotice(undefined)} />
       {isDone ? (
-        // Once `done` resolves, the server has already written the note and
-        // called `ctx.handOff()` — see `Review.tsx#Review`'s identical check
-        // for why nothing past this point renders `PlanView` again.
         <HandedBackPanel />
       ) : (
         <PlanView
-          {...planViewDataProps(query.data)}
-          isLoading={query.isLoading}
-          readError={query.error}
-          onSaveNote={onSaveNoteTracked}
+          {...planViewDataProps(data)}
+          filePath={filePath}
+          isLoading={isLoading}
+          readError={error}
+          onSaveNote={onSaveNote}
           onDoneNote={onDoneNote}
           onDone={onDone}
-          onCommitAnswer={onCommitAnswerTracked}
-          onRefusal={showRefusal}
+          onCommitAnswer={onCommitAnswer}
+          busy={pending > 0}
         />
       )}
     </>
+  )
+}
+
+/**
+ * The real plan screen: fetches content/`view`/tokens through
+ * `readSteeringFile` OUTSIDE the write store, so its own `tokens`/
+ * `refetchTokens` can be handed to `WriteStoreProvider` as props — the store
+ * then owns every compare-and-swap concern for every write beneath it.
+ * Mounts its own provider (package 03's own isolation requirement: two `Plan`
+ * screens mounted side by side never share one store).
+ */
+export const Plan = ({ filePath, mode }: PlanProps) => {
+  const utils = trpc.useUtils()
+  const query = trpc.readSteeringFile.useQuery({ filePath, mode })
+
+  // `fetch`, never `invalidate` — the store's own retry needs the fresh
+  // tokens back as a VALUE to retry with; `onSettled`'s own `invalidate`
+  // (inside `usePlanMutations`) already populates the same cache entry, so
+  // the two don't fight.
+  const refetchTokens = async (): Promise<CasTokens> => {
+    const fresh = await utils.readSteeringFile.fetch({ filePath, mode })
+    return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
+  }
+
+  return (
+    <WriteStoreProvider tokens={query.data} refetchTokens={refetchTokens}>
+      <PlanInner
+        filePath={filePath}
+        mode={mode}
+        data={query.data}
+        isLoading={query.isLoading}
+        error={query.error}
+      />
+    </WriteStoreProvider>
   )
 }
