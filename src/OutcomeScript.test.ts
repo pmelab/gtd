@@ -168,6 +168,10 @@ describe("%-safety and quoting", () => {
     expect(out).toContain(tricky)
   })
 
+  // 120s, not the default 30s: each of the 200 `fc.assert` runs below spawns
+  // a REAL `sh` subprocess via `execSync` — shell startup overhead alone
+  // pushes 200 sequential spawns past 30s on a loaded machine, with nothing
+  // about the test itself hanging (it reliably completes, just slowly).
   it("round-trips arbitrary subjects (including % and quotes) through noteOutcome", () => {
     fc.assert(
       fc.property(
@@ -179,7 +183,7 @@ describe("%-safety and quoting", () => {
       ),
       { numRuns: 200 },
     )
-  })
+  }, 120_000)
 })
 
 describe("abandonedOutcome / restoredOutcome — real repo", () => {

@@ -316,7 +316,7 @@ export const RealContainerNamesAFailedFormatCommandAsANotice: StoryObj<typeof Fr
         "ui.format failed (exit 127): npx oxfmt --write '<file>'",
       ),
     )
-    await expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("save-indicator-dismiss")).not.toBeInTheDocument()
   },
 }
 
@@ -390,7 +390,67 @@ export const RealContainerTapsPlanDoneRendersHandedBackPanel: StoryObj<typeof Fr
   },
 }
 
-/** Every write refusal renders as its own specific sentence through `RefusalBanner`, never a generic error — now driven through the empty-document save, the only write path left on this screen besides a note. */
+/**
+ * Package 03 Task 1's own `busy` boolean reaches `plan-done` here too —
+ * mirrors `Plan.stories.tsx#PlanDoneDisabledWhileAWriteIsPending`'s identical
+ * pattern, held open via `writeNote` since free-form's own note seam is the
+ * write path available on this screen.
+ */
+export const PlanDoneDisabledWhileAWriteIsPending: StoryObj<typeof FreeForm> = {
+  render: (args) => {
+    let settle: (() => void) | undefined
+    let doneCalls = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: freeFormFormat.view("A paragraph worth commenting on.\n"),
+          }),
+          writeNote: () =>
+            new Promise((resolve) => {
+              settle = () => resolve({ ok: true, contentHash: "deadbeef2" })
+            }),
+          done: () => {
+            doneCalls += 1
+            return { ok: true }
+          },
+        }}
+      >
+        <FreeForm {...args} />
+        <button type="button" data-testid="settle-write" onClick={() => settle?.()}>
+          Settle
+        </button>
+        <div data-testid="done-call-count">{doneCalls}</div>
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_FREEFORM_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeInTheDocument())
+    expect(canvas.getByTestId("plan-done")).not.toBeDisabled()
+
+    await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "worth flagging" },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeDisabled())
+
+    await fireEvent.click(canvas.getByTestId("plan-done"))
+    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
+    expect(canvas.getByTestId("done-call-count")).toHaveTextContent("0")
+
+    await fireEvent.click(canvas.getByTestId("settle-write"))
+    await waitFor(() => expect(canvas.getByTestId("plan-done")).not.toBeDisabled())
+  },
+}
+
+/** Every write refusal renders as its own specific sentence through `SaveIndicator`, never a generic error — now driven through the empty-document save, the only write path left on this screen besides a note. */
 export const RealContainerRefusedEditShowsItsOwnNamedRefusalSentence: StoryObj<typeof FreeForm> = {
   render: (args) => (
     <TrpcTestProvider
@@ -428,7 +488,7 @@ export const RealContainerRefusedEditShowsItsOwnNamedRefusalSentence: StoryObj<t
     })
     await fireEvent.click(canvas.getByTestId("freeform-empty-save"))
     await waitFor(() =>
-      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
         "The file's content changed underneath you",
       ),
     )
@@ -445,12 +505,12 @@ export const RealContainerRefusedEditShowsItsOwnNamedRefusalSentence: StoryObj<t
  * real server, whose bytes really did move). Sequence: a first save
  * SUCCEEDS, setting the local override to `"deadbeef2"`; a second save is
  * refused `content-hash` regardless of what it sends (a stand-in for "the
- * real file moved underneath this client"); a THIRD save — retried via the
- * refusal banner's own "Try again", re-entering the exact same `onSave`
- * path — must succeed by falling back to the STILL-cached `"deadbeef"`,
- * proving the wedged `"deadbeef2"` override was dropped rather than reused
- * forever. Driven through the note seam, the only repeatable write path
- * left on a non-empty document.
+ * real file moved underneath this client"); a THIRD save — redone by hand,
+ * re-entering the exact same `onSave` path, since there is no `Try again`
+ * control left to resend it — must succeed by falling back to the
+ * STILL-cached `"deadbeef"`, proving the wedged `"deadbeef2"` override was
+ * dropped rather than reused forever. Driven through the note seam, the
+ * only repeatable write path left on a non-empty document.
  */
 export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: StoryObj<
   typeof FreeForm
@@ -522,18 +582,25 @@ export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: Sto
     })
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() =>
-      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
         "The file's content changed underneath you",
       ),
     )
 
-    // Retrying (the SAME save, re-entered) now succeeds — proving the next
-    // attempt fell back to the cached hash, not the wedged override.
-    await fireEvent.click(canvas.getByTestId("refusal-retry"))
-    // `refusal-dismiss`/`refusal-retry` render ONLY while an actual refusal
-    // is showing — `refusal-message` itself is reused for the transient
-    // "Saved" status text a successful retry also produces, so THAT testid
+    // No `Try again` left — redoing the SAME save by hand now succeeds,
+    // proving the next attempt fell back to the cached hash, not the wedged
+    // override.
+    await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "Second note." },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    // `save-indicator-dismiss` renders ONLY while an actual refusal is
+    // showing — `save-indicator-message` itself is reused for the transient
+    // "Saved" status text a successful save also produces, so THAT testid
     // alone can't tell "cleared" from "still refused" apart.
-    await waitFor(() => expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(canvas.queryByTestId("save-indicator-dismiss")).not.toBeInTheDocument(),
+    )
   },
 }

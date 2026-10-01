@@ -2223,10 +2223,19 @@ describe("runUiCommand", () => {
       // Forked, not `runPromiseExit`, since a renderable step never resolves
       // on its own (it blocks on the handoff deferred, exactly like
       // production) — polls for either a refusal (the fiber completes by
-      // itself) or a successful bind (`listenCalled` flips), then interrupts
-      // either way. Interrupting an already-completed fiber just returns its
-      // own settled `Exit`, so this same poll-then-interrupt shape covers
-      // both outcomes without a second code path.
+      // itself, checked via `Fiber.poll` so the loop notices the INSTANT it
+      // settles rather than only on a `listenCalled` flip) or a successful
+      // bind, then interrupts either way. Interrupting an already-completed
+      // fiber just returns its own settled `Exit`, so this same
+      // poll-then-interrupt shape covers both outcomes without a second
+      // code path. 400 × 25ms (10s), not the original 50 × 20ms (1s): this
+      // loop's own real work is `readStep`'s several subprocess spawns (two
+      // `git` invocations, one `gtd next --json`), which occasionally ran
+      // past 1s under load and left the fiber still mid-flight when
+      // `Fiber.interrupt` below fired — an `Interrupted` cause, not the
+      // refusal's own `Fail`, which is what made this test flake. Still
+      // well under this file's own 30s default test timeout even in the
+      // worst case (every iteration exhausted).
       const fiber = Effect.runFork(
         runUiCommand(
           { selfSigned: false, dev: false },
@@ -2239,9 +2248,11 @@ describe("runUiCommand", () => {
           Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         ),
       )
-      for (let i = 0; i < 50; i += 1) {
+      for (let i = 0; i < 400; i += 1) {
         if (listenCalled) break
-        await new Promise((resolve) => setTimeout(resolve, 20))
+        const polled = await Effect.runPromise(Fiber.poll(fiber))
+        if (polled._tag === "Some") break
+        await new Promise((resolve) => setTimeout(resolve, 25))
       }
       const exit = await Effect.runPromise(Fiber.interrupt(fiber))
 

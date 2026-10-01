@@ -28,6 +28,14 @@ export interface NoteSheetProps {
    * all, never a disabled one.
    */
   readonly onDone?: (anchor: SteeringAnchor, text: string) => void
+  /**
+   * While true, "Save & Done" renders DISABLED rather than unmounted — a
+   * control that vanishes mid-interaction
+   * moves the sheet's other controls under the user's thumb. Only decides
+   * disabled vs enabled; `onDone` absent is the separate, pre-existing
+   * decision of whether the button renders AT ALL.
+   */
+  readonly busy?: boolean | undefined
   /** Overrides the heading `anchor.kind` would pick — the free-text ANSWER slot reuses this sheet, and "Note" is the wrong word for an answer. */
   readonly title?: string
   /** Overrides the field's own label, for the same reason as `title`. */
@@ -147,12 +155,14 @@ const SheetFooter = ({
   onSave,
   onDone,
   onDismiss,
+  busy,
 }: {
   readonly anchor: SteeringAnchor
   readonly text: string
   readonly onSave: (anchor: SteeringAnchor, text: string) => void
   readonly onDone?: ((anchor: SteeringAnchor, text: string) => void) | undefined
   readonly onDismiss: () => void
+  readonly busy?: boolean | undefined
 }) => (
   /*
    * Footer is a NORMAL FLOW last child of the panel, deliberately NOT
@@ -183,6 +193,7 @@ const SheetFooter = ({
           variant="primary"
           data-testid="note-sheet-done"
           onClick={() => onDone(anchor, text)}
+          disabled={busy}
         >
           Save &amp; Done
         </Button>
@@ -197,6 +208,7 @@ export const NoteSheet = ({
   onSave,
   onDismiss,
   onDone,
+  busy,
   title,
   label,
 }: NoteSheetProps) => {
@@ -253,6 +265,7 @@ export const NoteSheet = ({
           onSave={onSave}
           onDismiss={dismiss}
           onDone={onDone}
+          busy={busy}
         />
       </div>
     </div>

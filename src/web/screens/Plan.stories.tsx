@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { viewport } from "../testing/browserContext.js"
+import { setReducedMotion, viewport } from "../testing/browserContext.js"
 import { useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
 import { token } from "../testing/palette.js"
@@ -9,6 +9,7 @@ import { Plan, PlanView } from "./Plan.js"
 
 const meta: Meta<typeof PlanView> = {
   component: PlanView,
+  args: { filePath: ".gtd/PLAN.md" },
 }
 
 export default meta
@@ -734,6 +735,7 @@ const RewritablePlan = () => {
         Rewrite file
       </button>
       <PlanView
+        filePath=".gtd/PLAN.md"
         contentHash={contentHash}
         isLoading={false}
         view={{ nodes: [] } satisfies SteeringView}
@@ -985,94 +987,14 @@ export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof P
 }
 
 /**
- * Task 01's Task 5: a `content-hash` refusal (an actual concurrent edit,
- * never auto-retried by `withStaleShaRetry`) shows the banner WITH its new,
- * "reload"-free sentence and a `Try again` control. Pressing it re-runs the
- * exact same write path; a `writeNote` resolver that succeeds on its second
- * call proves the retry actually re-fires the write, landing the note and
- * dismissing the banner.
+ * Package 02 Task 6's own criterion: the collapsed `saved` dot and the
+ * expanded refusal box are visually distinct — different colour AND shape,
+ * asserted on computed style, not by eye. First save succeeds (a small
+ * accent dot, "Saved"), second save on the same note is rejected (the wider
+ * danger-toned expanded box) — same `SaveIndicator`, two different renders
+ * of it.
  */
-export const RealContainerTryAgainRerunsTheWriteAndDismissesOnSuccess: StoryObj<typeof Plan> = {
-  render: (args) => {
-    let record: (input: unknown) => void = () => {}
-    let writeCalls = 0
-    return (
-      <TrpcTestProvider
-        resolvers={{
-          readSteeringFile: () => ({
-            ok: true,
-            content: "A paragraph worth commenting on.",
-            headSha: "abc123",
-            contentHash: "deadbeef",
-            view: {
-              nodes: [
-                {
-                  title: "A paragraph worth commenting on.",
-                  anchor: { kind: "paragraph", line: 0 },
-                },
-              ],
-            },
-          }),
-          writeNote: (input) => {
-            writeCalls += 1
-            record(input)
-            if (writeCalls === 1) {
-              throw {
-                error: {
-                  message: "gtd ui: write refused (stale-token)",
-                  code: -32600,
-                  data: {
-                    code: "CONFLICT",
-                    writeRefusal: { reason: "stale-token", moved: "content-hash" },
-                  },
-                },
-              }
-            }
-            return { ok: true }
-          },
-        }}
-      >
-        <PlanWriteCallRecorder args={args} onRegisterWriteNote={(fn) => (record = fn)} />
-      </TrpcTestProvider>
-    )
-  },
-  args: REAL_PLAN_ARGS,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await openNoteSeamAndType(canvas, "worth flagging")
-    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
-    await waitFor(() =>
-      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
-        "The file's content changed underneath you",
-      ),
-    )
-    expect(canvas.getByTestId("refusal-message")).not.toHaveTextContent("reload")
-    await fireEvent.click(canvas.getByTestId("refusal-retry"))
-    // The refusal itself (and its `Try again` control) clears on a
-    // successful retry — the banner element can still exist showing Task
-    // 3's own "Saved" status label, which is a genuine, different success.
-    await waitFor(() => expect(canvas.queryByTestId("refusal-retry")).not.toBeInTheDocument())
-    expect(canvas.queryByText(/content changed underneath you/)).not.toBeInTheDocument()
-    // `writeNote` fired exactly twice: the original write that refused, and
-    // `Try again`'s own re-run of the SAME write path — proof this is a real
-    // retry, not a silent no-op the banner just happened to clear on.
-    await expect(canvas.getByTestId("write-calls")).toHaveTextContent("worth flagging")
-    const calls = JSON.parse(canvas.getByTestId("write-calls").textContent ?? "[]") as unknown[]
-    expect(calls).toHaveLength(2)
-  },
-}
-
-/**
- * package 02 Task 7's own criterion: "The refusal banner and the `Saved`
- * label are visually distinct — different tone, asserted on a computed
- * style, not by eye." `RefusalBanner` renders through `Notice`, whose two
- * tones differ only in border (`error` adds `border border-accent`,
- * `info` has none) — this proves that difference on the REAL computed
- * style, not by reading source. First save succeeds (tone `info`, "Saved"),
- * second save on the same note is rejected (tone `error`) — same banner
- * element, two different renders of it.
- */
-export const RefusalBannerIsVisuallyDistinctFromTheSavedLabel: StoryObj<typeof Plan> = {
+export const SaveIndicatorIsVisuallyDistinctFromTheSavedDot: StoryObj<typeof Plan> = {
   render: (args) => {
     let callCount = 0
     return (
@@ -1118,70 +1040,401 @@ export const RefusalBannerIsVisuallyDistinctFromTheSavedLabel: StoryObj<typeof P
 
     await openNoteSeamAndType(canvas, "first note")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
-    await waitFor(() => expect(canvas.getByTestId("refusal-message")).toHaveTextContent("Saved"))
-    const savedBorder = getComputedStyle(canvas.getByTestId("refusal-banner")).borderWidth
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-label")).toHaveTextContent("Saved"),
+    )
+    const savedDot = getComputedStyle(canvas.getByTestId("save-indicator-dot"))
+    const savedColor = savedDot.backgroundColor
+    const savedShape = savedDot.borderRadius
 
     await openNoteSeamAndType(canvas, "second note")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() =>
-      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
         "The file's content changed underneath you",
       ),
     )
-    const refusalBorder = getComputedStyle(canvas.getByTestId("refusal-banner")).borderWidth
+    const expandedBox = getComputedStyle(canvas.getByTestId("save-indicator-expanded"))
 
-    expect(refusalBorder).not.toBe(savedBorder)
-    expect(savedBorder).toBe("0px")
-    expect(refusalBorder).not.toBe("0px")
+    expect(expandedBox.backgroundColor).not.toBe(savedColor)
+    expect(expandedBox.borderRadius).not.toBe(savedShape)
   },
 }
 
-/** Pressing `Try again` on a refusal that fails AGAIN must leave the banner up, with the refusal's own message — never silently dismiss on a second failure. */
-export const RealContainerTryAgainOnASecondRefusalLeavesTheBannerUp: StoryObj<typeof Plan> = {
-  render: (args) => (
-    <TrpcTestProvider
-      resolvers={{
-        readSteeringFile: () => ({
-          ok: true,
-          content: "A paragraph worth commenting on.",
-          headSha: "abc123",
-          contentHash: "deadbeef",
-          view: {
-            nodes: [
-              { title: "A paragraph worth commenting on.", anchor: { kind: "paragraph", line: 0 } },
-            ],
-          },
-        }),
-        writeNote: () => {
-          throw {
-            error: {
-              message: "gtd ui: write refused (stale-token)",
-              code: -32600,
-              data: {
-                code: "CONFLICT",
-                writeRefusal: { reason: "stale-token", moved: "content-hash" },
-              },
+/**
+ * Package 02 Task 3's own first bullet: the live region announces
+ * `Saving…` then `Saved`, with NO visible text — dropping the `sr-only`
+ * class off `Refusal.tsx`'s own hidden `<span>` would leave every other
+ * story in this file green (none of them assert the class), so this is the
+ * one place that pins it. `writeNote` is held open by a manually-triggered
+ * `settle-write` button (mirrors
+ * `ShowingOrHidingTheSaveIndicatorShiftsNoOtherElement`'s own pattern) so the
+ * `Saving…` sample can't race past the state it's sampling, the same defect
+ * spec feedback caught in
+ * `TheThreeSaveStatesAreVisuallyDistinctOnComputedStyle`.
+ */
+export const TheSavingThenSavedAnnouncementCarriesNoVisibleText: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let settle: (() => void) | undefined
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth commenting on.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
+              ],
             },
-          }
-        },
-      }}
-    >
-      <Plan {...args} />
-    </TrpcTestProvider>
-  ),
+          }),
+          writeNote: () =>
+            new Promise((resolve) => {
+              settle = () => resolve({ ok: true })
+            }),
+        }}
+      >
+        <Plan {...args} />
+        <button type="button" data-testid="settle-write" onClick={() => settle?.()}>
+          Settle
+        </button>
+      </TrpcTestProvider>
+    )
+  },
   args: REAL_PLAN_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+
     await openNoteSeamAndType(canvas, "worth flagging")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
-    await waitFor(() => expect(canvas.getByTestId("refusal-banner")).toBeInTheDocument())
-    await fireEvent.click(canvas.getByTestId("refusal-retry"))
     await waitFor(() =>
-      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
-        "The file's content changed underneath you",
-      ),
+      expect(canvas.getByTestId("save-indicator-label")).toHaveTextContent("Saving…"),
     )
-    expect(canvas.getByTestId("refusal-banner")).toBeInTheDocument()
+    // "No visible text": the label is there for a screen reader (`toHaveTextContent`
+    // above proves that), but `sr-only`'s own clip-to-nothing technique is what
+    // keeps a sighted human from ever seeing the word — asserted on computed
+    // style, not the class name string, so a rename to an equivalent utility
+    // still passes while actually dropping the hiding behaviour still fails.
+    const savingLabelStyle = getComputedStyle(canvas.getByTestId("save-indicator-label"))
+    expect(savingLabelStyle.position).toBe("absolute")
+    expect(savingLabelStyle.width).toBe("1px")
+    expect(savingLabelStyle.height).toBe("1px")
+    expect(canvas.getByTestId("save-indicator-dot")).toHaveTextContent("")
+
+    await fireEvent.click(canvas.getByTestId("settle-write"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-label")).toHaveTextContent("Saved"),
+    )
+    const savedLabelStyle = getComputedStyle(canvas.getByTestId("save-indicator-label"))
+    expect(savedLabelStyle.position).toBe("absolute")
+    expect(savedLabelStyle.width).toBe("1px")
+    expect(savedLabelStyle.height).toBe("1px")
+    expect(canvas.getByTestId("save-indicator-dot")).toHaveTextContent("")
+  },
+}
+
+/**
+ * Package 02 Task 1's own acceptance: the indicator is `absolute`, out of
+ * flow, so showing or hiding it — before any save, mid-`saving`,
+ * mid-expanded-refusal, and after the real 5000ms auto-collapse to the
+ * failed marker — must shift no other element's geometry. `writeNote`'s own
+ * resolver is held open by a manually-triggered `settle-write` button so the
+ * story can sample `read-plan-row`'s own rect mid-`saving` and
+ * mid-`expanded`, before either transition would otherwise have already
+ * finished; the fourth sample waits out the real auto-collapse timer (never
+ * `Dismiss`, which CLEARS the indicator rather than collapsing it) so the
+ * `save-indicator-marker` `Button` — the largest shape the collapsed
+ * indicator ever renders — is the one actually measured, not repeated first
+ * state.
+ */
+export const ShowingOrHidingTheSaveIndicatorShiftsNoOtherElement: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let settle: (() => void) | undefined
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth commenting on.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
+              ],
+            },
+          }),
+          writeNote: () =>
+            new Promise((_resolve, reject) => {
+              settle = () =>
+                reject({
+                  error: {
+                    message: "gtd ui: write refused (stale-token)",
+                    code: -32600,
+                    data: {
+                      code: "CONFLICT",
+                      writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                    },
+                  },
+                })
+            }),
+        }}
+      >
+        <Plan {...args} />
+        <button type="button" data-testid="settle-write" onClick={() => settle?.()}>
+          Settle
+        </button>
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // `read-plan-row`, not `plan-screen` itself: the note write ADDS an
+    // optimistic note badge below the paragraph (unrelated to the
+    // indicator), which genuinely grows the scroll container — the read-row
+    // is the first, content-stable element, so ITS rect is what actually
+    // proves the indicator shifted nothing.
+    const rectOf = () => {
+      const { top, left, width, height } = canvas
+        .getByTestId("read-plan-row")
+        .getBoundingClientRect()
+      return { top, left, width, height }
+    }
+    await waitFor(() => expect(canvas.getByTestId("read-plan-row")).toBeInTheDocument())
+    const before = rectOf()
+
+    await openNoteSeamAndType(canvas, "worth flagging")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-label")).toHaveTextContent("Saving…"),
+    )
+    expect(rectOf()).toEqual(before)
+
+    await fireEvent.click(canvas.getByTestId("settle-write"))
+    await waitFor(() => expect(canvas.getByTestId("save-indicator-expanded")).toBeInTheDocument())
+    expect(rectOf()).toEqual(before)
+
+    // "Collapsed" (package 02 Task 4's own vocabulary) is the real 5000ms
+    // auto-collapse down to the failed marker — never `Dismiss`, which
+    // CLEARS the indicator instead of collapsing it. The marker `Button`
+    // (`min-h-11 min-w-11`) is the largest shape the collapsed indicator
+    // ever renders, so it's the one sample that would have caught
+    // `absolute` dropped from that branch.
+    await waitFor(() => expect(canvas.getByTestId("save-indicator-marker")).toBeInTheDocument(), {
+      timeout: 6_000,
+    })
+    expect(rectOf()).toEqual(before)
+
+    // Tapping the marker re-expands (Task 4's own re-expand affordance),
+    // since `Dismiss` only ever renders in the expanded state — a fifth
+    // sample, kept for completeness alongside the fourth this story was
+    // missing.
+    await fireEvent.click(canvas.getByTestId("save-indicator-marker"))
+    await waitFor(() => expect(canvas.getByTestId("save-indicator-dismiss")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("save-indicator-dismiss"))
+    await waitFor(() => expect(canvas.queryByTestId("save-indicator")).not.toBeInTheDocument())
+    expect(rectOf()).toEqual(before)
+  },
+}
+
+/**
+ * Package 02 Task 2's own "three visually distinct states" bar, all on the
+ * SAME `save-indicator-dot` element (never by eye): `saving` is a spinning
+ * ring (a `border-t-transparent` ring, not a filled circle), `saved` a
+ * settled filled dot, `failed` a filled dot in the danger colour. Under
+ * `prefers-reduced-motion`, `saving` swaps to a filled dot too — so it needs
+ * an outline `saved` never carries to stay distinguishable, asserted here as
+ * well.
+ *
+ * The FIRST `writeNote` is held open by a manually-triggered `settle-write`
+ * button, exactly like `ShowingOrHidingTheSaveIndicatorShiftsNoOtherElement`'s
+ * own `writeNote` resolver — the mock otherwise settles immediately, and
+ * `data-state="saving"`'s own `waitFor` poll only proves the state was
+ * `saving` at SOME earlier instant, not that it still is one tick later when
+ * the following synchronous `getComputedStyle` call actually samples it.
+ * Spec feedback on this story caught exactly that race: `savingColor` read
+ * the `saved` dot's own colour on a run where React had already flushed
+ * past `saving` in between.
+ */
+export const TheThreeSaveStatesAreVisuallyDistinctOnComputedStyle: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let settleFirstWrite: (() => void) | undefined
+    let writeCallCount = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth commenting on.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
+              ],
+            },
+          }),
+          writeNote: () => {
+            writeCallCount += 1
+            if (writeCallCount === 1) {
+              return new Promise((resolve) => {
+                settleFirstWrite = () => resolve({ ok: true, contentHash: "deadbeef-1" })
+              })
+            }
+            throw {
+              error: {
+                message: "gtd ui: write refused (stale-token)",
+                code: -32600,
+                data: {
+                  code: "CONFLICT",
+                  writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                },
+              },
+            }
+          },
+        }}
+      >
+        <Plan {...args} />
+        <button type="button" data-testid="settle-first-write" onClick={() => settleFirstWrite?.()}>
+          Settle
+        </button>
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+
+    await openNoteSeamAndType(canvas, "first note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-dot")).toHaveAttribute("data-state", "saving"),
+    )
+    // `getComputedStyle` returns a LIVE `CSSStyleDeclaration` that keeps
+    // tracking its element — its own properties must be read into plain
+    // strings immediately, not stashed as the style object itself and read
+    // back out later, once the DOM has already moved on. Safe to sample
+    // NOW, unlike before: `writeNote` is still held open, so `saving` is
+    // still the CURRENT state, not one `waitFor` already caught in passing.
+    const savingColor = getComputedStyle(canvas.getByTestId("save-indicator-dot")).backgroundColor
+
+    await fireEvent.click(canvas.getByTestId("settle-first-write"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-dot")).toHaveAttribute("data-state", "saved"),
+    )
+    const savedColor = getComputedStyle(canvas.getByTestId("save-indicator-dot")).backgroundColor
+
+    await openNoteSeamAndType(canvas, "second note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.getByTestId("save-indicator-expanded")).toBeInTheDocument())
+    // Waits out the real 5000ms auto-collapse (never `Dismiss`, which would
+    // clear the failed dot this assertion needs to inspect) — the marker
+    // left standing is exactly Task 4's own "auto-collapse leaves the dot"
+    // bullet.
+    await waitFor(
+      () =>
+        expect(canvas.getByTestId("save-indicator-dot")).toHaveAttribute("data-state", "failed"),
+      { timeout: 6_000 },
+    )
+    const failedColor = getComputedStyle(canvas.getByTestId("save-indicator-dot")).backgroundColor
+
+    expect(savingColor).not.toBe(savedColor)
+    expect(savedColor).not.toBe(failedColor)
+    expect(savingColor).not.toBe(failedColor)
+  },
+}
+
+/**
+ * Under `prefers-reduced-motion`, `saving` can no longer rely on motion
+ * alone (package 02 Task 2) — it swaps to a static filled dot, which would
+ * be indistinguishable from `saved`'s own filled dot on colour alone
+ * (`Refusal.tsx#Dot`: both `bg-accent` under reduced motion), so it carries
+ * an outline ring `saved` never does. `writeNote`'s own resolver is held
+ * open by a manually-triggered `settle-write` button (mirrors
+ * `TheThreeSaveStatesAreVisuallyDistinctOnComputedStyle`'s own pattern) so
+ * this story can sample BOTH states under the same emulation and assert
+ * they differ — sampling only `saving` (a prior version of this story)
+ * cannot detect the two collapsing into the same pixel, since it never
+ * reaches `saved` to compare against.
+ */
+export const SavingUnderReducedMotionStaysDistinctFromSaved: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let settle: (() => void) | undefined
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth commenting on.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
+              ],
+            },
+          }),
+          writeNote: () =>
+            new Promise((resolve) => {
+              settle = () => resolve({ ok: true })
+            }),
+        }}
+      >
+        <Plan {...args} />
+        <button type="button" data-testid="settle-write" onClick={() => settle?.()}>
+          Settle
+        </button>
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    await setReducedMotion(true)
+    try {
+      const canvas = within(canvasElement)
+      await openNoteSeamAndType(canvas, "first note")
+      await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+      await waitFor(() =>
+        expect(canvas.getByTestId("save-indicator-dot")).toHaveAttribute("data-state", "saving"),
+      )
+      // No spin under reduced motion — a filled dot, distinguished from
+      // `saved`'s identical fill by an outline ring instead. Read into
+      // plain strings immediately (`getComputedStyle` is a LIVE object —
+      // see `TheThreeSaveStatesAreVisuallyDistinctOnComputedStyle`'s own
+      // doc comment for why stashing the style object itself, to read
+      // later, is the wrong shape).
+      const savingStyle = getComputedStyle(canvas.getByTestId("save-indicator-dot"))
+      const savingAnimation = savingStyle.animationName
+      const savingOutline = savingStyle.outlineStyle
+
+      await fireEvent.click(canvas.getByTestId("settle-write"))
+      await waitFor(() =>
+        expect(canvas.getByTestId("save-indicator-dot")).toHaveAttribute("data-state", "saved"),
+      )
+      const savedOutline = getComputedStyle(canvas.getByTestId("save-indicator-dot")).outlineStyle
+
+      expect(savingAnimation).toBe("none")
+      expect(savingOutline).not.toBe("none")
+      expect(savedOutline).toBe("none")
+      expect(savingOutline).not.toBe(savedOutline)
+    } finally {
+      await setReducedMotion(false)
+    }
   },
 }
 
@@ -1198,6 +1451,7 @@ const PlanDoneCallCounter = ({ view }: { readonly view: SteeringView }) => {
     <>
       <div data-testid="on-done-calls">{JSON.stringify(calls)}</div>
       <PlanView
+        filePath=".gtd/PLAN.md"
         contentHash="prose-hash-done"
         isLoading={false}
         view={view}
@@ -1269,6 +1523,119 @@ export const NoOnDonePropRendersNoPlanDoneControl: Story = {
 }
 
 /**
+ * Package 03 Task 1's own `busy` boolean, on `plan-done`: `writeNote`'s
+ * resolver is held open by a manually-triggered `settle-write` button —
+ * mirrors `Review.stories.tsx#ReviewDoneDisabledWhileAWriteIsPending`'s
+ * identical pattern, using the note-save write path since a prose-only plan
+ * has no question answer to commit. A tap while disabled never reaches
+ * `done` (native `disabled` discards it); the control re-enables once the
+ * held write settles.
+ */
+export const PlanDoneDisabledWhileAWriteIsPending: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let settle: (() => void) | undefined
+    let doneCalls = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth commenting on.",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                {
+                  title: "A paragraph worth commenting on.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
+              ],
+            },
+          }),
+          writeNote: () =>
+            new Promise((resolve) => {
+              settle = () => resolve({ ok: true })
+            }),
+          done: () => {
+            doneCalls += 1
+            return { ok: true }
+          },
+        }}
+      >
+        <Plan {...args} />
+        <button type="button" data-testid="settle-write" onClick={() => settle?.()}>
+          Settle
+        </button>
+        <div data-testid="done-call-count">{doneCalls}</div>
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeInTheDocument())
+    expect(canvas.getByTestId("plan-done")).not.toBeDisabled()
+
+    await openNoteSeamAndType(canvas, "worth flagging")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeDisabled())
+
+    await fireEvent.click(canvas.getByTestId("plan-done"))
+    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
+    expect(canvas.getByTestId("done-call-count")).toHaveTextContent("0")
+
+    await fireEvent.click(canvas.getByTestId("settle-write"))
+    await waitFor(() => expect(canvas.getByTestId("plan-done")).not.toBeDisabled())
+  },
+}
+
+/**
+ * The same `busy` reaches `deck-done` too (package 03 Task 1's own "has to
+ * reach all of them"): a question's option tick (`onCommitAnswer`) is the
+ * write held open here, asserted from INSIDE the deck it's issued from —
+ * `Review.stories.tsx#DeckDoneDisabledWhileAWriteIssuedFromTheListIsPending`
+ * covers the cross-screen case instead.
+ */
+export const DeckDoneDisabledWhileAnAnswerWriteIsPending: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let settle: (() => void) | undefined
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "Which option?",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: { nodes: [openQuestion(0, "Which option?")] } satisfies SteeringView,
+          }),
+          setValue: () =>
+            new Promise((resolve) => {
+              settle = () => resolve({ ok: true, contentHash: "deadbeef2" })
+            }),
+        }}
+      >
+        <Plan {...args} />
+        <button type="button" data-testid="settle-write" onClick={() => settle?.()}>
+          Settle
+        </button>
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openFirstQuestionCard(within(canvasElement))
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
+
+    await waitFor(() => expect(canvas.getByTestId("deck-done")).toBeDisabled())
+
+    await fireEvent.click(canvas.getByTestId("settle-write"))
+    await waitFor(() => expect(canvas.getByTestId("deck-done")).not.toBeDisabled())
+  },
+}
+
+/**
  * The real `Plan` container, tapping `plan-done` straight from the plan
  * screen (never opening the note sheet or the deck): `done` fires with an
  * empty request body (no `note` key, matching the deck's own no-note path),
@@ -1321,12 +1688,14 @@ export const RealContainerTapsPlanDoneFromTheListRendersHandedBackPanel: StoryOb
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeInTheDocument())
-    expect(canvas.queryByTestId("refusal-banner")).not.toBeInTheDocument()
+    expect(canvas.queryByTestId("save-indicator")).not.toBeInTheDocument()
     await fireEvent.click(canvas.getByTestId("plan-done"))
     await waitFor(() => expect(canvas.getByTestId("handed-back-panel")).toBeInTheDocument())
     await expect(canvas.getByTestId("done-calls")).toHaveTextContent(JSON.stringify({}))
     expect(canvas.getByTestId("write-or-set-calls")).toHaveTextContent("[]")
-    expect(canvas.queryByTestId("refusal-banner")).not.toBeInTheDocument()
+    // A Done tap shows the spinner, then settles to "Saved" for its own
+    // 1500ms linger, past the moment the screen hands off — no longer
+    // asserted absent, per package 01 Task 5.
   },
 }
 
@@ -1890,7 +2259,7 @@ export const RealContainerSavesTwoNotesInARowWithNoRefetchBetweenThem: StoryObj<
     await waitFor(() =>
       expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("second note"),
     )
-    await expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("save-indicator-dismiss")).not.toBeInTheDocument()
   },
 }
 
@@ -1901,9 +2270,9 @@ export const RealContainerSavesTwoNotesInARowWithNoRefetchBetweenThem: StoryObj<
  * `FreeForm.stories.tsx#RealContainerRecoversAfterAContentHashRefusalRatherThanWedging`'s
  * identical sequence, applied to `Plan`'s note-write path: a first save
  * succeeds (setting the override), a second is refused `content-hash`
- * regardless of what it sends, and a third — retried via the refusal
- * banner's own "Try again" — succeeds only by falling back to the
- * STILL-cached `"deadbeef"`, proving the wedged override was dropped.
+ * regardless of what it sends, and a third — redone by hand, since there is
+ * no `Try again` control left to resend it — succeeds only by falling back
+ * to the STILL-cached `"deadbeef"`, proving the wedged override was dropped.
  */
 export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: StoryObj<typeof Plan> =
   {
@@ -1967,13 +2336,20 @@ export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: Sto
       await openNoteSeamAndType(canvas, "second note")
       await fireEvent.click(canvas.getByTestId("note-sheet-save"))
       await waitFor(() =>
-        expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+        expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
           "The file's content changed underneath you",
         ),
       )
 
-      await fireEvent.click(canvas.getByTestId("refusal-retry"))
-      await waitFor(() => expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument())
+      // No `Try again` left to resend it — redoing the action by hand is
+      // the only path, and it must still succeed once the wedged override
+      // is dropped.
+      await openNoteSeamAndType(canvas, "second note")
+      await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+      await waitFor(() =>
+        expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("second note"),
+      )
+      await expect(canvas.queryByTestId("save-indicator-dismiss")).not.toBeInTheDocument()
     },
   }
 
@@ -2258,5 +2634,153 @@ export const ABlockWithANoteCarriesAColouredBadge: Story = {
 
     // It marks the block; it does not replace the note's own text.
     await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("the remark itself")
+  },
+}
+
+/** A `useState`-backed recorder for BOTH `setValue` and `writeNote` calls, tagged and pushed into ONE shared ordered array — proves package 01's queue drains different mutation TYPES through the same FIFO, not merely repeats of one. */
+const PlanMixedWriteRecorder = ({
+  args,
+  onRegister,
+}: {
+  readonly args: { readonly filePath: string; readonly mode: string }
+  readonly onRegister: (record: (kind: string, input: unknown) => void) => void
+}) => {
+  const [calls, setCalls] = useState<readonly { readonly kind: string; readonly input: unknown }[]>(
+    [],
+  )
+  onRegister((kind, input) => setCalls((prev) => [...prev, { kind, input }]))
+  return (
+    <>
+      <div data-testid="mixed-write-calls">{JSON.stringify(calls)}</div>
+      <Plan {...args} />
+    </>
+  )
+}
+
+/**
+ * Package 01 Task 3's own acceptance bullet: tapping an answer (a `setValue`
+ * call, from inside the Q&A deck) then, without awaiting it, saving a note
+ * (a `writeNote` call, back on the list) reach the mock resolver IN TAP
+ * ORDER — proving `usePlanMutations`'s `onCommitAnswer` and `onSaveNote`
+ * share the SAME queue instance rather than each racing off independently.
+ */
+export const TapsAnAnswerThenSavesANoteWithoutWaitingWritesInOrder: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let record: (kind: string, input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth noting.\n\n## Open Questions\n\n### Which option?\n",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                { title: "A paragraph worth noting.", anchor: { kind: "paragraph", line: 0 } },
+                openQuestion(0, "Which option?"),
+              ],
+            } satisfies SteeringView,
+          }),
+          setValue: (input) => {
+            record("setValue", input)
+            return { ok: true, contentHash: "deadbeef-1" }
+          },
+          writeNote: (input) => {
+            record("writeNote", input)
+            return { ok: true }
+          },
+        }}
+      >
+        <PlanMixedWriteRecorder args={args} onRegister={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openFirstQuestionCard(canvas)
+    fireEvent.click(canvas.getByTestId("option-radio-0"))
+    // Single-item deck: `Back` at index 0 exits straight to the list —
+    // fired with no `await` on the option tap's own write above.
+    fireEvent.click(canvas.getByTestId("deck-prev"))
+
+    await openNoteSeamAndType(canvas, "worth flagging")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+
+    await waitFor(() => {
+      const calls = JSON.parse(canvas.getByTestId("mixed-write-calls").textContent ?? "[]") as {
+        readonly kind: string
+      }[]
+      expect(calls).toHaveLength(2)
+    })
+    const calls = JSON.parse(canvas.getByTestId("mixed-write-calls").textContent ?? "[]") as {
+      readonly kind: string
+    }[]
+    expect(calls[0]?.kind).toBe("setValue")
+    expect(calls[1]?.kind).toBe("writeNote")
+  },
+}
+
+/**
+ * Package 01 Task 2's own drain guarantee: a refused FIRST queued write must
+ * not stop the SECOND, already-queued write from running and reporting its
+ * own outcome — `writeStore.ts#createWriteStore`'s own drain loop settles a
+ * rejected entry and moves on, proven here through the real `Plan`
+ * container's own two mutation hooks sharing one store.
+ */
+export const ARefusedFirstWriteStillLetsTheSecondQueuedWriteRunAndReportItsOwnOutcome: StoryObj<
+  typeof Plan
+> = {
+  render: (args) => {
+    let record: (kind: string, input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "A paragraph worth noting.\n\n## Open Questions\n\n### Which option?\n",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: {
+              nodes: [
+                { title: "A paragraph worth noting.", anchor: { kind: "paragraph", line: 0 } },
+                openQuestion(0, "Which option?"),
+              ],
+            } satisfies SteeringView,
+          }),
+          setValue: (input) => {
+            record("setValue", input)
+            throw new Error("stale token")
+          },
+          writeNote: (input) => {
+            record("writeNote", input)
+            return { ok: true }
+          },
+        }}
+      >
+        <PlanMixedWriteRecorder args={args} onRegister={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await openFirstQuestionCard(canvas)
+    fireEvent.click(canvas.getByTestId("option-radio-0"))
+    fireEvent.click(canvas.getByTestId("deck-prev"))
+
+    await openNoteSeamAndType(canvas, "worth flagging")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+
+    // The second (note) write still lands, reporting its OWN outcome, even
+    // though the first (answer) write ahead of it in the queue refused.
+    await waitFor(() =>
+      expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("worth flagging"),
+    )
+    const calls = JSON.parse(canvas.getByTestId("mixed-write-calls").textContent ?? "[]") as {
+      readonly kind: string
+    }[]
+    expect(calls.map((call) => call.kind)).toEqual(["setValue", "writeNote"])
   },
 }

@@ -82,6 +82,15 @@ export default defineConfig({
         plugins: [react(), storybookTest({ configDir: ".storybook" })],
         test: {
           name: "storybook",
+          // Package 02's own save-indicator stories drive a REAL 5000ms
+          // auto-collapse timer (never faked — mixing fake timers with the
+          // browser's real microtask-scheduled mock writes risks a hang), so
+          // the default 5000ms test timeout would race it. 30s, not 15s: an
+          // otherwise-unrelated story ("Double Tap And Enter…") flaked past
+          // 15s under concurrent load from other sessions sharing this
+          // machine — its own work has nothing to do with the 5s timer, it
+          // was just caught by too tight a global ceiling.
+          testTimeout: 30_000,
           browser: {
             enabled: true,
             headless: true,

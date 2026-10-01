@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import type { SteeringAnchor, SteeringViewNode } from "../steering/index.js"
-import { existingNoteFor, optimisticNoteSave } from "./notes.js"
+import { existingNoteFor } from "./notes.js"
 
 const paragraph = (line: number, note?: string): SteeringViewNode => ({
   title: `line ${line}`,
@@ -30,36 +30,5 @@ describe("existingNoteFor", () => {
     expect(
       existingNoteFor([paragraph(1, "x")], { kind: "chunk", index: 0 }, { 1: "y" }),
     ).toBeUndefined()
-  })
-})
-
-describe("optimisticNoteSave", () => {
-  it("shows the note and closes the sheet before the write resolves", () => {
-    const setOverrides = vi.fn()
-    const close = vi.fn()
-    optimisticNoteSave({
-      setOverrides,
-      close,
-      write: () => new Promise(() => {}),
-    })(at(2), "a note")
-    expect(close).toHaveBeenCalled()
-    const update = setOverrides.mock.calls[0]![0] as (prev: Record<number, string>) => unknown
-    expect(update({})).toEqual({ 2: "a note" })
-  })
-
-  it("reverts the override and reports the refusal when the write is rejected", async () => {
-    const setOverrides = vi.fn()
-    const onRefusal = vi.fn()
-    const write = vi.fn(() => Promise.reject(new Error("refused")))
-    optimisticNoteSave({ setOverrides, close: () => {}, write, onRefusal })(at(2), "a note")
-    await vi.waitFor(() => expect(onRefusal).toHaveBeenCalled())
-    const revert = setOverrides.mock.calls[1]![0] as (prev: Record<number, string>) => unknown
-    expect(revert({ 2: "a note" })).toEqual({})
-  })
-
-  it("still shows and closes with no write wired up at all (a pure-data screen)", () => {
-    const close = vi.fn()
-    expect(() => optimisticNoteSave({ setOverrides: vi.fn(), close })(at(1), "x")).not.toThrow()
-    expect(close).toHaveBeenCalled()
   })
 })

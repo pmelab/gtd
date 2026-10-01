@@ -9,11 +9,12 @@ export interface NoticeProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /**
  * One designed block for every text-only state (package 02 Task 7) — the
- * five `App.tsx` states, its read-error branch, and `Refusal.tsx`'s banner
- * all route through this rather than a bare `<div style={{ padding: 16 }}>`.
- * `tone` is what makes a refusal read visually distinct from a `Saved` label
- * sharing the same live region — `error` is the only tone with a border,
- * asserted on computed style rather than by eye.
+ * five `App.tsx` states and its read-error branch route through this rather
+ * than a bare `<div style={{ padding: 16 }}>`. `Refusal.tsx#SaveIndicator`
+ * no longer does (package 02 Task 1's own rewrite gave it its own floating
+ * `<div>`, never a full-width `Notice`) — `tone`'s `error` border is still
+ * what makes an in-flow read-error branch visually distinct, asserted on
+ * computed style rather than by eye.
  */
 const TONE_CLASSES: Record<NoticeTone, string> = {
   info: "bg-surface text-text",

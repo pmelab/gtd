@@ -10,10 +10,20 @@ import type { SteeringAnchor, SteeringView } from "../../steering/index.js"
 const reviewFormat = steeringFormatFor("review")!
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { withRealMousePress } from "../testing/realMousePress.js"
+import { WriteStoreProvider } from "../writeStore.js"
 import { Review, ReviewView } from "./Review.js"
+
+/** A harness exercising a token-guarded write needs ITS OWN `WriteStoreProvider` (nested inside the global decorator's bare one) configured with fake tokens — see `Question.stories.tsx`'s identical constant/doc comment. */
+const FAKE_TOKENS = { headSha: "deadbeef", contentHash: "cafef00d" }
+const refetchFakeTokens = () =>
+  Promise.resolve({
+    expectedHeadSha: FAKE_TOKENS.headSha,
+    expectedContentHash: FAKE_TOKENS.contentHash,
+  })
 
 const meta: Meta<typeof ReviewView> = {
   component: ReviewView,
+  args: { filePath: ".gtd/REVIEW.md" },
 }
 
 export default meta
@@ -456,7 +466,7 @@ export const UntickingAChunkUnticksEveryHunk: Story = {
  */
 const TwoHunkRevertHarness = () => {
   const pendingRejectRef = useRef<((error: unknown) => void) | undefined>(undefined)
-  const onSetValue = (anchor: SteeringAnchor, checked: boolean): Promise<unknown> => {
+  const onSetValue = (anchor: SteeringAnchor, checked: boolean) => (): Promise<unknown> => {
     void checked
     if (anchor.kind === "hunk" && anchor.index === 0) {
       return new Promise((_resolve, reject) => {
@@ -474,7 +484,14 @@ const TwoHunkRevertHarness = () => {
       >
         Reject A
       </button>
-      <ReviewView view={SAMPLE_VIEW} isLoading={false} onSetValue={onSetValue} />
+      <WriteStoreProvider tokens={FAKE_TOKENS} refetchTokens={refetchFakeTokens}>
+        <ReviewView
+          view={SAMPLE_VIEW}
+          filePath=".gtd/REVIEW.md"
+          isLoading={false}
+          onSetValue={onSetValue}
+        />
+      </WriteStoreProvider>
     </>
   )
 }
@@ -1011,7 +1028,9 @@ export const RealContainerSavesTwoNotesInARowWithNoRefetchBetweenThem: StoryObj<
     // token override, never the query cache.
     await openChunkNoteAndType(canvas, "second note")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
-    await waitFor(() => expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(canvas.queryByTestId("save-indicator-dismiss")).not.toBeInTheDocument(),
+    )
     await expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("second note")
   },
 }
@@ -1022,9 +1041,9 @@ export const RealContainerSavesTwoNotesInARowWithNoRefetchBetweenThem: StoryObj<
  * applied to `Review`: a `stale-token`/`moved: "content-hash"` refusal must
  * drop `Review`'s own override rather than reuse it forever. First save
  * succeeds (setting the override), a second is refused `content-hash`
- * regardless of what it sends, and a third — retried via the refusal
- * banner's own "Try again" — succeeds only by falling back to the
- * STILL-cached `"deadbeef"`.
+ * regardless of what it sends, and a third — redone by hand, since there is
+ * no `Try again` control left to resend it — succeeds only by falling back
+ * to the STILL-cached `"deadbeef"`.
  */
 export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: StoryObj<
   typeof Review
@@ -1081,13 +1100,18 @@ export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: Sto
     await openChunkNoteAndType(canvas, "second note")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() =>
-      expect(canvas.getByTestId("refusal-message")).toHaveTextContent(
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
         "The file's content changed underneath you",
       ),
     )
 
-    await fireEvent.click(canvas.getByTestId("refusal-retry"))
-    await waitFor(() => expect(canvas.queryByTestId("refusal-dismiss")).not.toBeInTheDocument())
+    // No `Try again` left to resend it — redoing the action by hand is the
+    // only path, and it must still succeed once the wedged override is
+    // dropped.
+    await openChunkNoteAndType(canvas, "second note")
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() => expect(canvas.getByTestId("chunk-note-0")).toHaveTextContent("second note"))
+    await expect(canvas.queryByTestId("save-indicator-dismiss")).not.toBeInTheDocument()
   },
 }
 
@@ -1534,5 +1558,697 @@ export const NoOnDonePropRendersNoReviewDoneControl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.queryByTestId("review-done")).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * Package 03 Task 1's own `busy` boolean, on the chunk list's own
+ * `review-done` footer button: `setValue`'s resolver is held open by a
+ * manually-triggered `settle-write` button (mirrors
+ * `Plan.stories.tsx#TheSavingThenSavedAnnouncementCarriesNoVisibleText`'s own
+ * pattern), proving the write store's own pending count — not a locally
+ * derived "is THIS screen's own write still running" flag — is what disables
+ * the control. A tap while disabled never reaches `done` at all (native
+ * `disabled` discards it, package 03 Task 3), and the control re-enables the
+ * instant the held write settles.
+ */
+export const ReviewDoneDisabledWhileAWriteIsPending: StoryObj<typeof Review> = {
+  render: (args) => {
+    let settle: (() => void) | undefined
+    let doneCalls = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: SAMPLE_REVIEW_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          setValue: () =>
+            new Promise((resolve) => {
+              settle = () => resolve({ ok: true, contentHash: "deadbeef2" })
+            }),
+          done: () => {
+            doneCalls += 1
+            return { ok: true }
+          },
+        }}
+      >
+        <Review {...args} />
+        <button type="button" data-testid="settle-write" onClick={() => settle?.()}>
+          Settle
+        </button>
+        <div data-testid="done-call-count">{doneCalls}</div>
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("review-done")).toBeInTheDocument())
+    expect(canvas.getByTestId("review-done")).not.toBeDisabled()
+
+    await fireEvent.click(canvas.getByTestId("chunk-check-all-0"))
+    await waitFor(() => expect(canvas.getByTestId("review-done")).toBeDisabled())
+
+    await fireEvent.click(canvas.getByTestId("review-done"))
+    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
+    expect(canvas.getByTestId("done-call-count")).toHaveTextContent("0")
+
+    await fireEvent.click(canvas.getByTestId("settle-write"))
+    await waitFor(() => expect(canvas.getByTestId("review-done")).not.toBeDisabled())
+  },
+}
+
+/**
+ * The same `busy` boolean reaches `deck-done` too (package 03 Task 1's own
+ * "has to reach all of them"): the pending write is issued from the CHUNK
+ * LIST's own tick, before the hunk deck ever opens — proving `busy` is one
+ * queue-wide signal, not scoped to whichever screen issued the write.
+ */
+export const DeckDoneDisabledWhileAWriteIssuedFromTheListIsPending: StoryObj<typeof Review> = {
+  render: (args) => {
+    let settle: (() => void) | undefined
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: SAMPLE_REVIEW_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          setValue: () =>
+            new Promise((resolve) => {
+              settle = () => resolve({ ok: true, contentHash: "deadbeef2" })
+            }),
+        }}
+      >
+        <Review {...args} />
+        <button type="button" data-testid="settle-write" onClick={() => settle?.()}>
+          Settle
+        </button>
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("review-done")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-check-all-0"))
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+
+    await waitFor(() => expect(canvas.getByTestId("deck-done")).toBeInTheDocument())
+    expect(canvas.getByTestId("deck-done")).toBeDisabled()
+
+    await fireEvent.click(canvas.getByTestId("settle-write"))
+    await waitFor(() => expect(canvas.getByTestId("deck-done")).not.toBeDisabled())
+  },
+}
+
+/**
+ * Package 03 Task 3's own "tapping Done disables it immediately, before the
+ * response lands" bullet: `done`'s own resolver here never settles at all,
+ * so the ONLY way this assertion can pass with no `waitFor` in between is if
+ * `writeStore.ts#save`'s own synchronous `set({ pendingCount: s.pendingCount
+ * + 1, saveStatus: "saving" })` already flushed a re-render before the next
+ * line runs — proving the disable isn't waiting on the mutation's own round
+ * trip.
+ */
+export const ReviewDoneDisablesImmediatelyOnTapBeforeTheResponseLands: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: REVIEW_CONTENT,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: SAMPLE_REVIEW_VIEW,
+        }),
+        diff: () => ({ kind: "binary" }),
+        done: () => new Promise(() => {}),
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("review-done")).toBeInTheDocument())
+    expect(canvas.getByTestId("review-done")).not.toBeDisabled()
+
+    await fireEvent.click(canvas.getByTestId("review-done"))
+    // No `waitFor`/`await` for the mutation itself — `done`'s own promise
+    // never resolves, so a disable that depended on its response would still
+    // read `false` here.
+    expect(canvas.getByTestId("review-done")).toBeDisabled()
+  },
+}
+
+/** A chunk carrying two hunks — ticking the first auto-advances the deck straight to the second (`Hunk.tsx`'s own tick-is-approve gesture), so two taps fired back to back land on two DIFFERENT `setValue` calls with no `await` between them: exactly the "double-tap" shape package 01 exists to serialize, since nothing in the UI otherwise stops the second tap's write from racing the first's. */
+const TWO_HUNK_CHUNK_VIEW: SteeringView = {
+  nodes: [
+    {
+      title: "Two hunks",
+      anchor: { kind: "chunk", index: 0 },
+      children: [
+        {
+          title: "src/a.ts#1",
+          path: "src/a.ts",
+          line: 1,
+          checked: false,
+          anchor: { kind: "hunk", chunkIndex: 0, index: 0 },
+        },
+        {
+          title: "src/b.ts#1",
+          path: "src/b.ts",
+          line: 1,
+          checked: false,
+          anchor: { kind: "hunk", chunkIndex: 0, index: 1 },
+        },
+      ],
+    },
+  ],
+}
+
+/**
+ * Package 01 Task 2's own acceptance bullet: two ticks fired back to back
+ * (no `await` between the two `fireEvent.click` calls) reach the mock
+ * `setValue` resolver IN ORDER, and the second call's `expectedContentHash`
+ * is the FIRST write's own post-format hash — never the query cache's still-
+ * stale one — proving the store's own drain serializes the whole write
+ * thunk (including the compare-and-swap token read), not just the network
+ * call.
+ */
+export const TwoQuickHunkTicksSerializeThroughTheWriteStore: StoryObj<typeof Review> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    let callCount = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: TWO_HUNK_CHUNK_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          setValue: (input) => {
+            record(input)
+            callCount += 1
+            return { ok: true, contentHash: `deadbeef-${callCount}` }
+          },
+        }}
+      >
+        <SetValueCallRecorder args={args} onRegisterSetValue={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+
+    // Two taps, no `await` between them: the first ticks hunk A and
+    // auto-advances the deck to hunk B in the SAME synchronous event-handler
+    // flush, so the second `fireEvent.click` below lands on hunk B's own
+    // (now-mounted) checkbox before hunk A's `setValue` call has resolved.
+    fireEvent.click(canvas.getByTestId("hunk-tick"))
+    fireEvent.click(canvas.getByTestId("hunk-tick"))
+
+    await waitFor(() => {
+      const calls = JSON.parse(
+        canvas.getByTestId("set-value-calls").textContent ?? "[]",
+      ) as readonly { readonly anchor: { readonly index: number } }[]
+      expect(calls).toHaveLength(2)
+    })
+
+    const calls = JSON.parse(
+      canvas.getByTestId("set-value-calls").textContent ?? "[]",
+    ) as readonly {
+      readonly anchor: { readonly index: number }
+      readonly expectedContentHash: string
+    }[]
+    // Order: hunk A (index 0) first, hunk B (index 1) second — never
+    // collapsed, never reordered.
+    expect(calls[0]?.anchor.index).toBe(0)
+    expect(calls[1]?.anchor.index).toBe(1)
+    // The second call's token is the FIRST call's own post-format hash
+    // ("deadbeef-1"), read inside the queued thunk at dequeue time — not
+    // "deadbeef", the query cache's value at the time both taps fired.
+    expect(calls[0]?.expectedContentHash).toBe("deadbeef")
+    expect(calls[1]?.expectedContentHash).toBe("deadbeef-1")
+  },
+}
+
+/** A chunk carrying three hunks — enough for a burst of three queued refusals, one per hunk, with no `await` between any of the three taps. */
+const THREE_HUNK_CHUNK_VIEW: SteeringView = {
+  nodes: [
+    {
+      title: "Three hunks",
+      anchor: { kind: "chunk", index: 0 },
+      children: [
+        {
+          title: "src/a.ts#1",
+          path: "src/a.ts",
+          line: 1,
+          checked: false,
+          anchor: { kind: "hunk", chunkIndex: 0, index: 0 },
+        },
+        {
+          title: "src/b.ts#1",
+          path: "src/b.ts",
+          line: 1,
+          checked: false,
+          anchor: { kind: "hunk", chunkIndex: 0, index: 1 },
+        },
+        {
+          title: "src/c.ts#1",
+          path: "src/c.ts",
+          line: 1,
+          checked: false,
+          anchor: { kind: "hunk", chunkIndex: 0, index: 2 },
+        },
+      ],
+    },
+  ],
+}
+
+/**
+ * Package 02 Task 5's own acceptance: a burst refusing three queued writes
+ * within a few hundred milliseconds shows the LATEST refusal's sentence,
+ * appended with a count of the other two still-failed targets — and that
+ * count shrinks as each of THOSE clears, via a later success (never the
+ * auto-collapse timer, which leaves every dot standing). Every `setValue`
+ * call refuses the same way, so the three taps (no `await` between any of
+ * them, mirroring `TwoQuickHunkTicksSerializeThroughTheWriteStore`'s own
+ * pattern) each land on a DIFFERENT hunk via the deck's own tick-advances
+ * gesture.
+ */
+export const ABurstOfThreeRefusalsShowsTheLatestPlusACountOfTheOthers: StoryObj<typeof Review> = {
+  render: (args) => {
+    // Refuses a hunk's FIRST write, succeeds on any later one to the SAME
+    // anchor — lets the story clear one of the OTHER (non-current) burst
+    // targets later by ticking it again, without touching the current one.
+    const attempted = new Set<number>()
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: THREE_HUNK_CHUNK_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          setValue: (input) => {
+            const { index } = (input as { readonly anchor: { readonly index: number } }).anchor
+            if (attempted.has(index)) return { ok: true, contentHash: `deadbeef-${index}` }
+            attempted.add(index)
+            throw {
+              error: {
+                message: "gtd ui: write refused (stale-token)",
+                code: -32600,
+                data: {
+                  code: "CONFLICT",
+                  writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                },
+              },
+            }
+          },
+        }}
+      >
+        <Review {...args} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+
+    // Three taps, no `await` between any of them — each ticks the CURRENT
+    // hunk and auto-advances the deck to the next one in the same
+    // synchronous flush, so all three land on three different hunks' own
+    // checkboxes before any of their writes has settled.
+    fireEvent.click(canvas.getByTestId("hunk-tick"))
+    fireEvent.click(canvas.getByTestId("hunk-tick"))
+    fireEvent.click(canvas.getByTestId("hunk-tick"))
+
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
+        "and 2 other writes didn't land",
+      ),
+    )
+
+    // Ticking hunk 3 (the LAST in the chunk) auto-approves straight back to
+    // the chunk list, per `Deck`'s own past-the-last-item exit — so by now
+    // the chunk list, not the hunk deck, is on screen. Reopening it lands
+    // back on hunk 0 (one of the "2 others", never the currently-shown
+    // target) — ticking it again fires its SECOND write, which succeeds,
+    // clearing only its own dot. The count shrinks from 2 to 1 on THIS
+    // success, never on the auto-collapse timer, and the currently-shown
+    // sentence (hunk 2's own, untouched) stays exactly as it was.
+    await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await expect(canvas.getByTestId("hunk-progress")).toHaveTextContent("Hunk 1 / 3")
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
+        "and 1 other write didn't land",
+      ),
+    )
+    expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
+      "The file's content changed underneath you",
+    )
+  },
+}
+
+/**
+ * Package 01's own redesign: `Dismiss` is the only control left on the
+ * indicator, and it empties the WHOLE failed map in one tap rather than just
+ * the currently-shown target — two refused hunk ticks (A, B) show B's own
+ * sentence plus "…and 1 other write didn't land", and one `Dismiss` tap
+ * clears both dots at once, not just B's.
+ */
+export const DismissClearsEveryFailedTargetAtOnce: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: REVIEW_CONTENT,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: TWO_HUNK_CHUNK_VIEW,
+        }),
+        diff: () => ({ kind: "binary" }),
+        setValue: () => {
+          throw {
+            error: {
+              message: "gtd ui: write refused (stale-token)",
+              code: -32600,
+              data: {
+                code: "CONFLICT",
+                writeRefusal: { reason: "stale-token", moved: "content-hash" },
+              },
+            },
+          }
+        },
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+
+    // Two taps, no `await` between them — hunk A (index 0) then hunk B
+    // (index 1) both refuse; the indicator currently shows B's own sentence
+    // plus "…and 1 other write didn't land".
+    fireEvent.click(canvas.getByTestId("hunk-tick"))
+    fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
+        "and 1 other write didn't land",
+      ),
+    )
+
+    // One `Dismiss` tap empties the WHOLE failed map, not just the
+    // currently-shown target — the indicator goes from two dots straight to
+    // none.
+    await fireEvent.click(canvas.getByTestId("save-indicator-dismiss"))
+    await waitFor(() => expect(canvas.queryByTestId("save-indicator")).not.toBeInTheDocument())
+  },
+}
+
+/**
+ * Spec feedback on package 01: ticking a chunk's own "check all" fires ONE
+ * physical `setValue` call that every one of its hunks' own cells optimistically
+ * mirrors (`useReviewState#toggleChunk`'s `shadow`) — a refusal of that ONE
+ * write must show as ONE dot, never one per mirrored hunk. `THREE_HUNK_CHUNK_VIEW`
+ * is what makes an overcount visible: with the old "piggyback via `save`"
+ * shape this showed "…and 2 other writes didn't land" for a single refused
+ * request; `otherFailedCount` must stay exactly `0`.
+ */
+export const RefusingAChunkCheckAllFilesExactlyOneDotNotOnePerHunk: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: REVIEW_CONTENT,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: THREE_HUNK_CHUNK_VIEW,
+        }),
+        diff: () => ({ kind: "binary" }),
+        setValue: () => {
+          throw {
+            error: {
+              message: "gtd ui: write refused (stale-token)",
+              code: -32600,
+              data: {
+                code: "CONFLICT",
+                writeRefusal: { reason: "stale-token", moved: "content-hash" },
+              },
+            },
+          }
+        },
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-check-all-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-check-all-0"))
+
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
+        "The file's content changed underneath you",
+      ),
+    )
+    // The suffix exists ONLY when `otherFailedCount > 0` — its absence here
+    // is the assertion that one refused write is exactly one dot, not three.
+    expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("other write")
+
+    await fireEvent.click(canvas.getByTestId("save-indicator-dismiss"))
+    await waitFor(() => expect(canvas.getByTestId("chunk-check-all-0")).not.toBeChecked())
+    // Every hunk's own mirrored tick rolled back too, not just the first.
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await expect(canvas.getByTestId("hunk-tick")).not.toBeChecked()
+  },
+}
+
+/**
+ * Package 02 Task 4's own acceptance: the 5000ms auto-collapse leaves the
+ * failed marker standing (the human may not have read it), while `Dismiss`
+ * collapses AND clears it in the same tap — the two ways out of the
+ * expanded state are deliberately not equivalent.
+ */
+export const AutoCollapseLeavesTheMarkerStandingUnlikeDismiss: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: REVIEW_CONTENT,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: SAMPLE_REVIEW_VIEW,
+        }),
+        diff: () => ({ kind: "binary" }),
+        setValue: () => {
+          throw {
+            error: {
+              message: "gtd ui: write refused (stale-token)",
+              code: -32600,
+              data: {
+                code: "CONFLICT",
+                writeRefusal: { reason: "stale-token", moved: "content-hash" },
+              },
+            },
+          }
+        },
+      }}
+    >
+      <Review {...args} />
+    </TrpcTestProvider>
+  ),
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+
+    await waitFor(() => expect(canvas.getByTestId("save-indicator-expanded")).toBeInTheDocument())
+    await waitFor(() => expect(canvas.getByTestId("save-indicator-marker")).toBeInTheDocument(), {
+      timeout: 6_000,
+    })
+
+    // Tapping the marker re-expands the SAME message — the auto-collapse
+    // never cleared it.
+    await fireEvent.click(canvas.getByTestId("save-indicator-marker"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
+        "The file's content changed underneath you",
+      ),
+    )
+
+    await fireEvent.click(canvas.getByTestId("save-indicator-dismiss"))
+    await waitFor(() => expect(canvas.queryByTestId("save-indicator")).not.toBeInTheDocument())
+  },
+}
+
+/**
+ * Package 02 Task 4's own full-sequence acceptance: an expanded refusal
+ * auto-collapses to a marker after 5000ms, a tap re-expands the SAME
+ * message, and a LATER successful write to the SAME target (re-ticking the
+ * same hunk, not `Dismiss`) is what finally clears the marker — the third of
+ * the three ways a failed dot is allowed to shrink (Task 5's own rule).
+ */
+export const TheFullRefusalLifecycleEndsOnALaterSuccessNotDismiss: StoryObj<typeof Review> = {
+  render: (args) => {
+    let callCount = 0
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: REVIEW_CONTENT,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: SAMPLE_REVIEW_VIEW,
+          }),
+          diff: () => ({ kind: "binary" }),
+          setValue: () => {
+            callCount += 1
+            if (callCount === 1) {
+              throw {
+                error: {
+                  message: "gtd ui: write refused (stale-token)",
+                  code: -32600,
+                  data: {
+                    code: "CONFLICT",
+                    writeRefusal: { reason: "stale-token", moved: "content-hash" },
+                  },
+                },
+              }
+            }
+            return { ok: true, contentHash: "deadbeef2" }
+          },
+        }}
+      >
+        <Review {...args} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-open-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick")) // first write: refuses
+
+    await waitFor(() => expect(canvas.getByTestId("save-indicator-expanded")).toBeInTheDocument())
+    await waitFor(() => expect(canvas.getByTestId("save-indicator-marker")).toBeInTheDocument(), {
+      timeout: 6_000,
+    })
+
+    await fireEvent.click(canvas.getByTestId("save-indicator-marker"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
+        "The file's content changed underneath you",
+      ),
+    )
+
+    // A later write to the SAME target (the same hunk, re-ticked) succeeds —
+    // never `Dismiss` — and that success is what clears the marker. The
+    // indicator itself may still show a transient `saved` dot (Task 3's own
+    // linger), so the failed marker/message being gone is the assertion,
+    // not the indicator's total absence. The FIRST tick already auto-
+    // approved straight back to the chunk list (the chunk's only hunk, so
+    // `Deck` exits past the last item) — reopening it lands back on the
+    // same hunk for the second tick.
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await waitFor(() => {
+      expect(canvas.queryByTestId("save-indicator-marker")).not.toBeInTheDocument()
+      expect(canvas.queryByTestId("save-indicator-expanded")).not.toBeInTheDocument()
+    })
+  },
+}
+
+/**
+ * Requirement A's own named proof: "A `zustand` store defined at module
+ * scope is a singleton by default; whichever scoping the store uses must
+ * keep that isolation, and the stories that mount two screens are what
+ * prove it." Two `Review` screens, mounted side by side, share no store if
+ * — and only if — `busy` (the store's own `pendingCount > 0`) is per-screen:
+ * a hunk tick that never settles in the FIRST screen must leave the
+ * SECOND screen's own `review-done` enabled throughout. A module-scope
+ * singleton (or a dropped `WriteStoreProvider` `useRef`) would instead
+ * disable BOTH.
+ */
+export const TwoScreensMountedSideBySideShareNoStore: StoryObj<typeof Review> = {
+  render: (args) => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content: REVIEW_CONTENT,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: SAMPLE_REVIEW_VIEW,
+        }),
+        diff: () => ({ kind: "binary" }),
+        setValue: () => new Promise(() => {}),
+      }}
+    >
+      <div data-testid="screen-a">
+        <Review {...args} />
+      </div>
+      <div data-testid="screen-b">
+        <Review {...args} />
+      </div>
+    </TrpcTestProvider>
+  ),
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const screenA = within(canvas.getByTestId("screen-a"))
+    const screenB = within(canvas.getByTestId("screen-b"))
+
+    await waitFor(() => expect(screenA.getByTestId("chunk-check-all-0")).toBeInTheDocument())
+    expect(screenB.getByTestId("review-done")).not.toBeDisabled()
+
+    // A's own write never settles — this is `busy` staying true in A for
+    // the rest of the story.
+    await fireEvent.click(screenA.getByTestId("chunk-check-all-0"))
+    await waitFor(() => expect(screenA.getByTestId("review-done")).toBeDisabled())
+
+    // B's own `review-done` must stay enabled the whole time — a shared
+    // store would disable it the instant A's own write was issued.
+    expect(screenB.getByTestId("review-done")).not.toBeDisabled()
   },
 }

@@ -76,7 +76,7 @@ export const App = () => {
   }
 
   return (
-    <div className="mx-auto flex h-dvh max-w-[430px] flex-col">
+    <div className="relative mx-auto flex h-dvh max-w-[430px] flex-col">
       {step.mode === "review" ? (
         <Review filePath={step.file} />
       ) : step.mode === "qa" ? (

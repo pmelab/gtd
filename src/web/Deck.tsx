@@ -10,16 +10,23 @@ export interface DeckProps<T> {
   readonly index?: number
   readonly onIndexChange?: (index: number) => void
   /**
-   * Package 04 Task 2's Done control: an optional extra button next to the
-   * advance button, rendered ONLY when given — `Review.tsx`'s hunk deck
-   * passes neither prop and is entirely unchanged, its last-item advance
-   * button still reading "Done". When given, the advance button's own
-   * last-item label reverts from "Done" to "Back to list" instead — two
-   * buttons both reading "Done" on one screen is the collision this avoids.
+   * An optional extra Done button next to the advance button, rendered ONLY
+   * when given — `Review.tsx`'s hunk deck passes neither prop, so its
+   * last-item advance button still reads "Done". When given, the advance
+   * button's own last-item label reverts from "Done" to "Back to list"
+   * instead — two buttons both reading "Done" on one screen is the
+   * collision this avoids.
    */
   readonly onDone?: () => void
   /** `onDone`'s own button label — required alongside `onDone`, since `Deck` itself carries no domain knowledge of what "done" means for a given caller. */
   readonly doneLabel?: string
+  /**
+   * Forwarded straight to the `deck-done` button's native `disabled` —
+   * `Deck` carries no domain knowledge and cannot read the mutation queue
+   * itself, so the caller (`Review.tsx`/`Plan.tsx`) threads it down from the
+   * one queue it owns.
+   */
+  readonly doneDisabled?: boolean | undefined
 }
 
 /** The advance button's own label — "Next" mid-deck; at the last item, "Done" with no separate Done control, else "Back to list" — the collision `DeckControls`'s own doc comment names. Split out so `DeckControls` itself doesn't carry the nested ternary inline. */
@@ -30,7 +37,7 @@ const advanceLabel = (isLastItem: boolean, hasDoneControl: boolean): string => {
 
 /**
  * The in-flow back/progress/next row — the `flex flex-col`/`h-dvh` shell's
- * `shrink-0` sibling of the scrollable content (package 02 Task 4). Never
+ * `shrink-0` sibling of the scrollable content. Never
  * `position: fixed`/`sticky`: it stays in normal flow, so it can never
  * overlay content, and it ends up inside the viewport with zero page scroll
  * because the column itself is exactly viewport-tall, not because of
@@ -42,12 +49,14 @@ const DeckControls = ({
   onAdvance,
   onDone,
   doneLabel,
+  doneDisabled,
 }: {
   readonly current: number
   readonly total: number
   readonly onAdvance: (delta: number) => void
   readonly onDone?: () => void
   readonly doneLabel?: string
+  readonly doneDisabled?: boolean | undefined
 }) => {
   const isLastItem = current + 1 === total
   return (
@@ -69,7 +78,12 @@ const DeckControls = ({
           {advanceLabel(isLastItem, onDone !== undefined)}
         </Button>
         {onDone !== undefined && (
-          <Button variant="primary" data-testid="deck-done" onClick={onDone}>
+          <Button
+            variant="primary"
+            data-testid="deck-done"
+            onClick={onDone}
+            disabled={doneDisabled}
+          >
             {doneLabel ?? "Done"}
           </Button>
         )}
@@ -81,7 +95,7 @@ const DeckControls = ({
 /**
  * A format-agnostic "one item per screen" deck: no review/question domain
  * knowledge, just an array and a render-prop. `flex-1 min-h-0 overflow-auto`
- * is the deck's OWN scroll container (Task 4) — `min-h-0` is mandatory: a
+ * is the deck's OWN scroll container — `min-h-0` is mandatory: a
  * flex child's default `min-height: auto` refuses to shrink below its
  * content, which is exactly what pushed the control bar off-screen before.
  * Controls are the container's `shrink-0` sibling, never absolutely
@@ -96,6 +110,7 @@ export const Deck = <T,>({
   onIndexChange,
   onDone,
   doneLabel,
+  doneDisabled,
 }: DeckProps<T>) => {
   const [uncontrolledIndex, setUncontrolledIndex] = useState(0)
   const current = index ?? uncontrolledIndex
@@ -131,7 +146,7 @@ export const Deck = <T,>({
         current={current}
         total={items.length}
         onAdvance={advance}
-        {...(onDone !== undefined ? { onDone, doneLabel } : {})}
+        {...(onDone !== undefined ? { onDone, doneLabel, doneDisabled } : {})}
       />
     </div>
   )

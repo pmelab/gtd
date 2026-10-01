@@ -1,26 +1,28 @@
-import { useRef, useState } from "react"
+import { useState } from "react"
 import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { NoteSheet } from "../NoteSheet.js"
+import type { CasTokens } from "../staleRetry.js"
+import { cellKey, useWriteStore } from "../writeStore.js"
 import { ProseBlocks } from "./ProseBlock.js"
 
-/** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. Comparing against a client-invented hint string here would be a second, divergent copy of that predicate — see T5's own "already exists and is the single one enforced" acceptance bullet. */
+/** `""` for an untouched/placeholder-only answer (case-insensitive) — the SAME sentinel and the SAME normalization the completeness gate and the open-questions check both apply server-side (`OpenQuestions.ts#FREE_TEXT_PLACEHOLDER`), redone here so the client never has to round-trip through a write to know if it's answered. */
 const normalizeAnswerText = (text: string): string => {
   const trimmed = text.trim()
   return trimmed.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : trimmed
 }
 
-/** One question's own in-progress radio selection — never derived fresh from `node.children` after the first touch (see `defaultAnswerFor`'s own doc comment for why that matters). The free-text draft is NOT part of this (package 03 Task 3): it lives in `Question`'s own local `useState`, so it dies with the component instead of surviving in the parent's `answers` map. */
-export interface QuestionAnswer {
+/** The question's own answer shape — one overlay cell holds both halves together (`writeStore.ts#cellKey`'s own "answer" field), so a rollback deletes the pair as one unit, never a tick without its text or vice versa. */
+interface QuestionAnswer {
   readonly selected: number | undefined
+  readonly freeText: string
 }
 
 /**
  * Exactly one ticked option seeds a selection; zero or two-or-more both seed
  * `undefined` — never "pick the first", which would render "answered" for a
- * document the server's own gate reads as unanswered. Guards against a stale
- * snapshot with two `- [x]` options, which the radio UI cannot itself produce.
+ * document the server's own gate reads as unanswered.
  */
 const singleCheckedIndex = (options: readonly SteeringViewNode[]): number | undefined => {
   const checkedIndices = options
@@ -29,10 +31,8 @@ const singleCheckedIndex = (options: readonly SteeringViewNode[]): number | unde
   return checkedIndices.length === 1 ? checkedIndices[0] : undefined
 }
 
-/** The answer a question STARTS at, read off `node.children`'s own `checked`/`title` fields — used ONLY to seed state the first time a question is ever shown; a caller must persist `selected` edits itself from then on (`Plan.tsx`'s own `answers` map), never re-derive this on every render, or an in-progress edit would reset the moment the node prop happens to re-render. Returns `freeText` too (beyond `QuestionAnswer`'s own shape) — `Question`'s own local draft state (package 03 Task 3) seeds from it directly. */
-export const defaultAnswerFor = (
-  node: SteeringViewNode,
-): { readonly selected: number | undefined; readonly freeText: string } => {
+/** The answer a question STARTS at, read off `node.children`'s own `checked`/`title` fields — the store's own overlay cell takes over once anything has written through it; this is "the last server-confirmed value" a rollback falls back to. */
+const defaultAnswerFor = (node: SteeringViewNode): QuestionAnswer => {
   const options = node.children ?? []
   const lastOption = options[options.length - 1]
   const freeText = lastOption?.checked === true ? lastOption.title : ""
@@ -42,45 +42,23 @@ export const defaultAnswerFor = (
 export interface QuestionProps {
   /** One `qa`-view question node — `children` are its options, the LAST one (by array position, never by label) the free-text slot. */
   readonly node: SteeringViewNode
-  /**
-   * Fully CONTROLLED, keyed per-question by the caller, so an answer survives
-   * `Deck` navigating away and back — its `renderItem` remounts a fresh
-   * `Question` per index, which silently discarded answers before.
-   *
-   * Accepts a FUNCTIONAL updater because the refusal-revert fires after an
-   * awaited write: a plain value computed at commit time would clobber
-   * whatever was typed while that write was in flight.
-   */
-  readonly answer: QuestionAnswer
-  readonly onAnswerChange: (
-    update: QuestionAnswer | ((prev: QuestionAnswer) => QuestionAnswer),
-  ) => void
-  /** Write-through to the steering file, fired ALONGSIDE `onAnswerChange` and never instead of it, so the controlled state above still gives instant tap feedback whatever the write's latency. */
+  /** The file this question's writes target — threads into `writeStore.ts#cellKey` so this question's own answer cell survives `Deck` remounting it on navigation (the store sits above `Deck`, not inside it). */
+  readonly filePath: string
+  /** Write-through to the steering file — fired alongside the store's own optimistic overlay update, never instead of it. Returns a token-guarded thunk, never a bare promise: the store itself supplies the compare-and-swap tokens at dequeue time. */
   readonly onCommitAnswer?: (
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
-  ) => Promise<unknown>
-  /** Fires on every refusal a `commitAnchor`-issued write surfaces (package 03's Task 1) — alongside the revert, never instead of it. Absent exactly where `onCommitAnswer` is absent (`Question.stories.tsx`'s pure-data stories). */
-  readonly onRefusal?: (error: unknown) => void
+  ) => (tokens: CasTokens) => Promise<unknown>
   /** Note overrides keyed by body-block anchor line, so a note saved while drilled into this question shows immediately rather than waiting on a refetch. */
   readonly noteOverrides?: Readonly<Record<number, string>>
-  /**
-   * Opens the note sheet for one of this question's own body blocks —
-   * `ProseBlocks`' own `onOpenNote` prop, passed straight through. Absent
-   * exactly where `onCommitAnswer` is (`Question.stories.tsx`'s pure-data
-   * stories): with no write path, there's nothing for a saved note to write
-   * through to either.
-   */
+  /** Opens the note sheet for one of this question's own body blocks — `ProseBlocks`' own `onOpenNote` prop, passed straight through. */
   readonly onOpenNote?: (node: SteeringViewNode) => void
 }
 
 /**
  * The free-text slot's own row. It carries NO field of its own: selecting it
  * opens the same sheet a note uses, and the saved answer then reads back
- * here as the option's value. A textarea living inline under one radio in a
- * list of radios competed with the options it belonged to, and its own Save
- * button was a second, differently-shaped commit beside a list where every
- * other choice commits on tap.
+ * here as the option's value.
  */
 const FreeTextOption = ({
   freeText,
@@ -101,16 +79,7 @@ const FreeTextOption = ({
   </div>
 )
 
-/**
- * One option's own impacts, rendered under its radio, always — no tap,
- * nothing hidden (the requirement's own "the human scrolls; scrolling is the
- * accepted cost" call). `readOnly` drops the note-attach seam: an impact
- * block's own `paragraph` anchor resolves through a walk that only sees
- * TOP-LEVEL document nodes, so a note anchored there would attach its
- * definition after the whole option list, not after this option. `null` when
- * the option carries none — split out of `OptionRow` to keep that
- * component's own complexity down.
- */
+/** One option's own impacts, rendered under its radio, always. */
 const OptionImpacts = ({
   body,
   index,
@@ -141,9 +110,7 @@ const OptionRow = ({
   readonly isFreeText: boolean
   readonly isSelected: boolean
   readonly freeText: string
-  /** The radio's own click/change — writes through immediately (T4's "selecting an option calls setValue"), except for the free-text slot, whose answer is not known until the sheet it opens is saved. */
   readonly onSelect: () => void
-  /** Opens the answer sheet — fired both by selecting the free-text slot and by tapping its value to edit it. */
   readonly onOpenSheet: () => void
 }) => (
   <div
@@ -152,9 +119,6 @@ const OptionRow = ({
       isSelected ? "border-accent bg-surface" : "border-transparent"
     }`}
   >
-    {/* The chosen option is marked by the radio AND by this row's own
-        surface + accent boundary — a filled radio dot alone is a ~6px cue
-        on a phone held at arm's length. */}
     <label className="flex min-h-11 items-center gap-3">
       <input
         type="radio"
@@ -171,138 +135,71 @@ const OptionRow = ({
 )
 
 /**
- * One question, one screen — `Plan.tsx`'s `Deck` `renderItem`. Radio
- * semantics enforced client-side: `selected` holds at most one option index,
- * so picking a new one always replaces rather than adds to it. The free-text
- * option is identified by array position (`options.length - 1`), never by
- * matching its label, so a free-text option with an ordinary-looking label
- * is still treated as the free-text slot.
+ * One question, one screen — `Plan.tsx`'s `Deck` `renderItem`. The answer
+ * (`selected` plus `freeText`) is read straight off the write store's own
+ * overlay, keyed by this question's own anchor — no controlled prop, no
+ * local `useState`: the store outlives `Deck` remounting this component on
+ * navigation, which is the only reason the old controlled-prop design
+ * existed at all.
  */
 // fallow-ignore-next-line complexity
 export const Question = ({
   node,
-  answer,
-  onAnswerChange,
+  filePath,
   onCommitAnswer,
-  onRefusal,
   noteOverrides,
   onOpenNote,
 }: QuestionProps) => {
   const options = node.children ?? []
   const lastIndex = options.length - 1
-  const { selected } = answer
+  const answerCell = cellKey(filePath, node.anchor, "answer")
 
-  /**
-   * The free-text draft, deliberately NOT in the caller's `answer` map: it
-   * dies when `Deck` remounts, rather than surviving navigation like
-   * `selected` does. Inverting the controlled design here is the only way
-   * "types, navigates away, returns, box is empty" holds.
-   */
-  const [freeText, setFreeTextState] = useState(() => defaultAnswerFor(node).freeText)
+  const overlayAnswer = useWriteStore((s) => s.overlayValue(answerCell)) as
+    | QuestionAnswer
+    | undefined
+  const { selected, freeText } = overlayAnswer ?? defaultAnswerFor(node)
+  const save = useWriteStore((s) => s.save)
+
   const [answerSheetOpen, setAnswerSheetOpen] = useState(false)
-
-  /** Updates `selected` LOCALLY only — never a write. Used for the free-text slot's own focus/keystroke tracking (`onFocusFreeText` below), so merely tapping into (or typing in) the textarea never itself reaches the network: a stray focus-then-blur with nothing typed must change nothing, neither on disk nor in this local state. */
-  const selectLocally = (index: number) => onAnswerChange((prev) => ({ ...prev, selected: index }))
-
-  /**
-   * Per-FIELD write sequence numbers, NOT per-anchor: `selected` is one shared
-   * radio slot across every option's anchor, so keying the revert guard by
-   * anchor let a stale rejection for option 0 clobber option 1's already-landed
-   * tick — "tick A, tick B, A's write fails, B's tick vanishes too". A
-   * rejected write now reverts a field only while it is still the latest write
-   * to touch it. Refs, never state: bumping one must not render.
-   */
-  const selectedSeqRef = useRef(0)
-  const freeTextSeqRef = useRef(0)
-  const bumpSelectedSeq = (): number => ++selectedSeqRef.current
-  const bumpFreeTextSeq = (): number => ++freeTextSeqRef.current
-
-  /**
-   * The one write-through both callers fire. A rejection surfaces via
-   * `onRefusal` and reverts ONLY the fields `reverts` names, each gated by its
-   * OWN field-level seq, so a stale rejection can never clobber a field a
-   * newer write already changed.
-   */
-  const commitAnchor = (
-    anchor: SteeringAnchor | undefined,
-    opts: { readonly checked?: boolean; readonly text?: string },
-    reverts: ReadonlyArray<
-      | { readonly field: "selected"; readonly seq: number; readonly value: number | undefined }
-      | { readonly field: "freeText"; readonly seq: number; readonly value: string }
-    >,
-  ): Promise<unknown> | undefined => {
-    if (anchor === undefined) return undefined
-    // fallow-ignore-next-line complexity
-    return onCommitAnswer?.(anchor, opts)?.catch((error: unknown) => {
-      onRefusal?.(error)
-      for (const revert of reverts) {
-        if (revert.field === "selected") {
-          if (selectedSeqRef.current !== revert.seq) continue
-          onAnswerChange((prev) => ({ ...prev, selected: revert.value }))
-        } else {
-          if (freeTextSeqRef.current !== revert.seq) continue
-          setFreeTextState(revert.value)
-        }
-      }
-    })
-  }
-
-  /** An ordinary option's own click: local selection AND an immediate write-through (T4's "selecting an option calls setValue") — never used for the free-text slot's focus tracking, which must stay local-only (`selectLocally`). Touches ONLY `selected` — `freeText` is never part of this write's own revert. */
-  const setSelected = (index: number) => {
-    const previousSelected = selected
-    const seq = bumpSelectedSeq()
-    selectLocally(index)
-    commitAnchor(options[index]?.anchor, { checked: true }, [
-      { field: "selected", seq, value: previousSelected },
-    ])
-  }
-
-  /**
-   * Selecting the free-text slot writes nothing and ticks nothing — there is
-   * no answer yet to write, and a radio left ticked after the sheet is
-   * cancelled would claim an answer that does not exist. It only opens the
-   * sheet; saving there is what ticks the slot and writes (`commitFreeText`),
-   * and an empty save unticks it again. Tapping the value shown on the slot
-   * reopens the same sheet for editing.
-   */
-  const openAnswerSheet = () => setAnswerSheetOpen(true)
 
   /** The free-text slot's own anchor, when there is one. */
   const freeTextAnchor = (): SteeringAnchor | undefined =>
     lastIndex >= 0 ? options[lastIndex]?.anchor : undefined
-  const freeTextOptionAnchor = freeTextAnchor()
 
-  /**
-   * Fired ONLY by a deliberate Save tap, never on type, blur or unmount, and
-   * always writes — there is no changed-since-last-commit guard. Both fields
-   * go in ONE call, never a tick-then-text pair, and each reverts against its
-   * own seq, so an option tap in between cannot be undone by this rejection.
-   */
-  const commitFreeText = (text: string = freeText): Promise<unknown> | undefined => {
-    const current = normalizeAnswerText(text)
-    const previousSelected = selected
-    const previousFreeText = freeText
-    const anchor = freeTextAnchor()
-    const freeTextSeq = bumpFreeTextSeq()
-    const selectedSeq = bumpSelectedSeq()
-    const reverts = [
-      { field: "freeText" as const, seq: freeTextSeq, value: previousFreeText },
-      { field: "selected" as const, seq: selectedSeq, value: previousSelected },
-    ]
-    if (current.length === 0) {
-      onAnswerChange((prev) => ({ ...prev, selected: undefined }))
-      return commitAnchor(anchor, { checked: false, text: "" }, reverts)
-    }
-    selectLocally(lastIndex)
-    return commitAnchor(anchor, { checked: true, text }, reverts)
+  /** An ordinary option's own click: immediate write-through, one cell for the whole question's answer. */
+  const setSelected = (index: number) => {
+    const anchor = options[index]?.anchor
+    if (anchor === undefined) return
+    save({
+      cell: answerCell,
+      optimistic: { selected: index, freeText },
+      write: onCommitAnswer === undefined ? undefined : onCommitAnswer(anchor, { checked: true }),
+      // The store already files the refusal; nothing else here awaits this.
+    }).catch(() => {})
   }
 
-  /**
-   * The SAME `isAnswered` predicate the server enforces, fed the client's own
-   * radio state rather than re-deriving the rule: taking the first checked
-   * option diverges from "exactly one ticked" the moment two are ticked, which
-   * a stale or replayed snapshot can produce even though the UI cannot.
-   */
+  const openAnswerSheet = () => setAnswerSheetOpen(true)
+
+  /** Fired only by a deliberate Save tap — both fields go in one write, one cell. */
+  // fallow-ignore-next-line complexity
+  const commitFreeText = (text: string): void => {
+    const current = normalizeAnswerText(text)
+    const anchor = freeTextAnchor()
+    if (anchor === undefined) return
+    const checked = current.length > 0
+    save({
+      cell: answerCell,
+      optimistic: { selected: checked ? lastIndex : undefined, freeText: text },
+      write:
+        onCommitAnswer === undefined
+          ? undefined
+          : onCommitAnswer(
+              anchor,
+              checked ? { checked: true, text: current } : { checked: false, text: "" },
+            ),
+    }).catch(() => {})
+  }
+
   const answered = isAnswered(
     options.map((option, index) => ({
       checked: selected === index,
@@ -311,11 +208,10 @@ export const Question = ({
     })),
   )
 
+  const freeTextOptionAnchor = freeTextAnchor()
+
   return (
     <div data-testid="question-screen" className="flex flex-col gap-1 py-3">
-      {/* This screen renders inside `Deck`'s own unpadded scroll container,
-          so its gutter has to come from here — without it every line of the
-          question ran to the bezel. */}
       <div
         data-testid="question-status"
         className={`px-3 text-small font-medium ${answered ? "text-heading-c" : "text-warning"}`}
@@ -350,7 +246,6 @@ export const Question = ({
           label="Answer text"
           note={freeText}
           onSave={(_anchor, text) => {
-            setFreeTextState(text)
             setAnswerSheetOpen(false)
             commitFreeText(text)
           }}
