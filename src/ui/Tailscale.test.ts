@@ -147,4 +147,17 @@ describe("probeTailscaleStatus", () => {
     const status = await Effect.runPromise(probeTailscaleStatus().pipe(Effect.provide(runner)))
     expect(status).toBeUndefined()
   })
+
+  it("parses stdout alone when tailscale warns on stderr (client/daemon version skew)", async () => {
+    const json = running(
+      { DNSName: "host.tailnet.ts.net." },
+      { CertDomains: ["host.tailnet.ts.net"] },
+    )
+    const warning = 'Warning: client version "1.102.5" != tailscaled server version "1.102.4"\n'
+    const runner = CommandRunner.layer(() =>
+      Effect.succeed({ status: 0, output: `${json}${warning}`, stdout: json, stderr: warning }),
+    )
+    const status = await Effect.runPromise(probeTailscaleStatus().pipe(Effect.provide(runner)))
+    expect(status?.hostname).toBe("host.tailnet.ts.net")
+  })
 })
