@@ -309,6 +309,9 @@ export class GtdWorld extends QuickPickleWorld {
   /** Env vars the in-memory tier's `EnvVars` layer exposes — never mutates the real `process.env`. */
   envVars: Record<string, string> = {}
 
+  /** Teardown callbacks for servers a step started (the judge stub server); run by the `After` hook. */
+  closers: (() => Promise<void>)[] = []
+
   /** Extra env vars merged into every LIVE-tier subprocess's environment, overriding `process.env` — never the real `process.env` itself. `@live` only. */
   liveEnvOverrides: Record<string, string> = {}
   /** The relocated git dir a scenario moved `<repoDir>/.git` to, outside the worktree, so gtd can only find it via `$GIT_DIR`. `@live` only. */
@@ -606,6 +609,21 @@ export class GtdWorld extends QuickPickleWorld {
     const pipeline = `${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)} land --json=script | sh`
     try {
       const { stdout, stderr } = await execFile("sh", ["-c", pipeline], {
+        cwd: this.repoDir,
+        env: this.spawnEnv(),
+        encoding: "utf-8",
+        timeout: 30_000,
+      })
+      this.lastResult = { exitCode: 0, stdout, stderr }
+    } catch (err: unknown) {
+      this.lastResult = execFailureResult(err)
+    }
+  }
+
+  /** `@live` only — runs `command` under `sh -c` in the repo, so a scenario can spell out a real pipe between gtd invocations. */
+  async runShell(command: string): Promise<void> {
+    try {
+      const { stdout, stderr } = await execFile("sh", ["-c", command], {
         cwd: this.repoDir,
         env: this.spawnEnv(),
         encoding: "utf-8",

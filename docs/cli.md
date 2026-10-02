@@ -143,6 +143,13 @@ Commands:
                    judge:. Exits 2 (a usage error, like an unknown --json
                    selector) when stdin isn't valid JSON or the verdict
                    doesn't decode against the pending question ids.
+  judge run        Answer a judgment: read the `gtd judge --json` document off
+                   stdin, write a verdict [{ id, answer, p }] on stdout — what
+                   `gtd judge answer` decodes. --provider fixed answers from
+                   --answers <path> or GTD_JUDGE_ANSWERS; questions the file
+                   does not cover are left out. Needs no repository. Exits 1
+                   on an unreadable or malformed answers file, with nothing
+                   on stdout
   version          Print version and exit
   help             Print this help and exit
 
@@ -169,6 +176,11 @@ Options:
                    certificate instead of the configured ui.cert/ui.key
   --dev            (gtd ui only) run against local development sources
                    instead of the packaged build
+  --provider=<name>
+                   (gtd judge run only, required) the answerer: fixed | jev
+  --answers=<path> (gtd judge run --provider fixed only) a JSON verdict array
+                   [{ id, answer, p }]; else the GTD_JUDGE_ANSWERS env var
+                   (inline JSON) is read
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land only, with --cost) tag that cost's model
   --entry <state>  (with no command at all) start a brand new process,

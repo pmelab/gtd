@@ -191,6 +191,7 @@ function cleanupLiveTier(world: GtdWorld): void {
 }
 
 After(async (world: GtdWorld) => {
+  await Promise.all(world.closers.splice(0).map((close) => close()))
   if (world.tier === "inmem") {
     world.repo = undefined
     return

@@ -320,7 +320,13 @@ noted in steps 2, 3, and 4 below.
    against its own spec before moving on. Three points along that loop are
    judged rather than always asking you outright — each stops and hands you a
    verdict to make (`gtd judge answer`, or land with a clean tree to accept the
-   conservative default, which never skips work):
+   conservative default, which never skips work;
+   `gtd judge run --provider fixed --answers <path>` — or the
+   `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
+   between `gtd judge --json` and `gtd judge answer`;
+   `gtd judge run --provider jev` asks TypeSafe's Jev instead, with the key in
+   `TYPESAFE_API_KEY` and `JEV_BASE_URL` optionally overriding the endpoint, and
+   exits 1 with nothing on stdout when it cannot answer every question):
    - Every red round after the first: was the failure identical, new, or
      progress?
    - Before spending a review turn on a package: does the code already satisfy

@@ -6,6 +6,13 @@
   },
   "rules": {
     "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-restricted-globals": [
+      "error",
+      {
+        "name": "fetch",
+        "message": "The engine never grows a network dependency — fetch lives only under src/judges/providers/"
+      }
+    ],
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
     "no-restricted-imports": [
@@ -21,6 +28,12 @@
     ]
   },
   "overrides": [
+    {
+      "files": ["src/judges/providers/**", "tests/**"],
+      "rules": {
+        "no-restricted-globals": "off"
+      }
+    },
     {
       "files": ["**/*.test.ts"],
       "rules": {

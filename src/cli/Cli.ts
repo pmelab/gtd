@@ -82,6 +82,11 @@ export type Command =
   | { readonly kind: "base" }
   | { readonly kind: "judge" }
   | { readonly kind: "judgeAnswer" }
+  | {
+      readonly kind: "judgeRun"
+      readonly provider: "fixed" | "jev"
+      readonly answers?: string
+    }
 
 /**
  * `--json`'s three shapes: absent, bare (the whole document), or `--json=<path>`
@@ -239,6 +244,36 @@ const FLAGS: readonly FlagRow[] = [
     scopeError: "gtd: --dev is only valid for `gtd ui`",
     valueHint: "",
     help: ["(gtd ui only) run against local development sources", "instead of the packaged build"],
+  },
+  {
+    name: "--provider",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "judgeRun",
+    decode: ([raw]) =>
+      raw === "fixed" || raw === "jev"
+        ? Either.right(raw)
+        : Either.left(`gtd: --provider must be one of fixed, jev — got "${raw ?? ""}"`),
+    scopeError: "gtd: --provider is only valid for `gtd judge run`",
+    valueHint: "<name>",
+    help: ["(gtd judge run only, required) the answerer: fixed | jev"],
+  },
+  {
+    name: "--answers",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "judgeRun",
+    decode: ([raw]) =>
+      raw === undefined || raw === ""
+        ? Either.left("gtd: --answers must be a non-empty path")
+        : Either.right(raw),
+    scopeError: "gtd: --answers is only valid for `gtd judge run`",
+    valueHint: "<path>",
+    help: [
+      "(gtd judge run --provider fixed only) a JSON verdict array",
+      "[{ id, answer, p }]; else the GTD_JUDGE_ANSWERS env var",
+      "(inline JSON) is read",
+    ],
   },
   {
     name: "--cost",
@@ -613,6 +648,20 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "doesn't decode against the pending question ids.",
     ],
   },
+  {
+    token: "judge run",
+    kind: "judgeRun",
+    arity: "none",
+    details: [
+      "Answer a judgment: read the `gtd judge --json` document off",
+      "stdin, write a verdict [{ id, answer, p }] on stdout — what",
+      "`gtd judge answer` decodes. --provider fixed answers from",
+      "--answers <path> or GTD_JUDGE_ANSWERS; questions the file",
+      "does not cover are left out. Needs no repository. Exits 1",
+      "on an unreadable or malformed answers file, with nothing",
+      "on stdout",
+    ],
+  },
 ]
 
 const commandByToken = (token: string): CommandRow | undefined =>
@@ -920,11 +969,14 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   // are different verbs, so `gtd land --entry <state>` is NOT a synonym (it
   // fails the scope check below instead).
   const selectsEntry = entryPresent && first === undefined
+  const judgeRun = row?.kind === "judge" && positionals[1] === "run"
   const kind: Command["kind"] | undefined = selectsEntry
     ? "entry"
     : judgeAnswer
       ? "judgeAnswer"
-      : row?.kind
+      : judgeRun
+        ? "judgeRun"
+        : row?.kind
 
   if (row === undefined && !selectsEntry) {
     // No dispatchable row resolved (missing/unknown command) — a scoped flag
@@ -950,7 +1002,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 
   // From here, `kind` is a genuine `Command["kind"]`. `judgeAnswer` consumes
   // TWO leading positionals ("judge" and "answer"), everything else one.
-  const restPositionals = first === undefined ? positionals : positionals.slice(judgeAnswer ? 2 : 1)
+  const restPositionals =
+    first === undefined ? positionals : positionals.slice(judgeAnswer || judgeRun ? 2 : 1)
 
   if (kind === "entry" && first === undefined) {
     if (restPositionals.length > 0) {
@@ -984,6 +1037,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--host"?: string
     readonly "--self-signed"?: boolean
     readonly "--dev"?: boolean
+    readonly "--provider"?: "fixed" | "jev"
+    readonly "--answers"?: string
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1041,6 +1096,25 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         ...(bag["--open-questions"] !== undefined
           ? { openQuestions: bag["--open-questions"] }
           : {}),
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "judgeRun") {
+    if (bag["--provider"] === undefined) {
+      return usagePlan("gtd judge run: --provider <fixed|jev> is required", jsonSeen)
+    }
+    if (bag["--provider"] === "jev" && bag["--answers"] !== undefined) {
+      return usagePlan("gtd judge run: --answers is only valid with --provider fixed", jsonSeen)
+    }
+    return {
+      kind: "command",
+      command: {
+        kind: "judgeRun",
+        provider: bag["--provider"],
+        ...(bag["--answers"] !== undefined ? { answers: bag["--answers"] } : {}),
       },
       json,
       verbose,
