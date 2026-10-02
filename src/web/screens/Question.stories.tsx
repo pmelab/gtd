@@ -986,3 +986,43 @@ export const FiveOptionsWithImpactsRendersAllOfThemRatherThanHidingAny: Story = 
     expect(scrollContainer.scrollHeight).toBeGreaterThan(scrollContainer.clientHeight)
   },
 }
+
+export const AnOpenThreadOnTheQuestionShowsAWaitingBadge: Story = {
+  args: {
+    node: questionNode({
+      thread: {
+        name: "t1",
+        entries: [
+          { author: "me", text: "Is B reversible?" },
+          { author: "agent", text: "Yes, via a migration." },
+        ],
+        waitingOn: "human",
+      },
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("question-thread-waiting")).toBeInTheDocument()
+    await expect(canvas.getByTestId("question-thread-entry-1")).toHaveAttribute(
+      "data-author",
+      "agent",
+    )
+  },
+}
+
+export const AThreadWaitingOnTheAgentShowsNoBadge: Story = {
+  args: {
+    node: questionNode({
+      thread: {
+        name: "t1",
+        entries: [{ author: "me", text: "Is B reversible?" }],
+        waitingOn: "agent",
+      },
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("question-thread-entry-0")).toBeInTheDocument()
+    await expect(canvas.queryByTestId("question-thread-waiting")).not.toBeInTheDocument()
+  },
+}

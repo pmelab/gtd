@@ -8,6 +8,10 @@ import {
   footnoteAttachEdits,
   footnotePointerAt,
   isOnExistingFootnote,
+  openThreadsOf,
+  threadOutlineNodes,
+  threadReplyActions,
+  noteLookup,
   parseFootnotes,
 } from "./Footnotes.js"
 import {
@@ -706,7 +710,13 @@ const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   const lines = content.split(/\r?\n/)
   const endLines = questionEndLines(content)
-  return questions.map((question) => {
+  const threads = threadOutlineNodes(content)
+  const nested = new Set<SteeringOutlineNode>()
+  const threadsIn = (from: number, to: number): SteeringOutlineNode[] =>
+    threads
+      .filter((t) => t.markerLine !== undefined && t.markerLine >= from && t.markerLine <= to)
+      .map((t) => t.node)
+  const nodes = questions.map((question) => {
     const start = question.headingLine
     const end = Math.max(start, endLines.get(start) ?? start)
     const questionMarkers = markers.filter((m) => m.line >= start && m.line <= end)
@@ -717,7 +727,12 @@ const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
         (m) => m.line >= option.sourceLine && m.line <= option.endLine,
       )
       optionMarkers.forEach((m) => assigned.add(m))
-      const footnotes = optionMarkers.map((m) => footnoteLeaf(lines, definitionByName, m))
+      const optionThreads = threadsIn(option.sourceLine, option.endLine)
+      optionThreads.forEach((n) => nested.add(n))
+      const footnotes = [
+        ...optionMarkers.map((m) => footnoteLeaf(lines, definitionByName, m)),
+        ...optionThreads,
+      ]
       const impactsDetail = bodyText(option.body)
       return {
         name: `${option.checked ? "[x]" : "[ ]"} ${option.text || "your answer"}`,
@@ -734,7 +749,9 @@ const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
     const questionFootnotes = questionMarkers
       .filter((m) => !assigned.has(m))
       .map((m) => footnoteLeaf(lines, definitionByName, m))
-    const children = [...optionChildren, ...questionFootnotes]
+    const questionThreads = threadsIn(start, end).filter((n) => !nested.has(n))
+    questionThreads.forEach((n) => nested.add(n))
+    const children = [...optionChildren, ...questionFootnotes, ...questionThreads]
 
     return {
       name: `${statusMarker(question)} ${question.question}`,
@@ -744,6 +761,7 @@ const questionsOutline = (content: string): readonly SteeringOutlineNode[] => {
       ...(children.length > 0 ? { children } : {}),
     }
   })
+  return [...nodes, ...threads.map((t) => t.node).filter((n) => !nested.has(n))]
 }
 
 /** The edits that make `option` the sole ticked option in `question` (radio semantics): check it, and uncheck any already-ticked sibling — so the question ends with exactly one tick (what the completeness gate wants). */
@@ -870,7 +888,9 @@ const questionActions: SteeringFormat["actions"] = (content, range) => {
   const { questions } = parseOpenQuestions(content)
   const tree = parseMarkdown(content)
   const cursorLine = range.start.line
-  const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
+  const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = [
+    ...threadReplyActions(content, range.start),
+  ]
   for (const question of questions) {
     if (question.status !== "open") continue
     const option = question.options.find(
@@ -936,6 +956,7 @@ const questionsView = (content: string): SteeringView => {
     skipLine: (line) => isInsideQuestionSpan(spans, line),
   })
   const { questions } = parseOpenQuestions(content)
+  const noteAt = noteLookup(content)
   return {
     nodes: [
       ...blockNodes,
@@ -946,6 +967,7 @@ const questionsView = (content: string): SteeringView => {
         status: question.status,
         answered: question.answered,
         anchor: { kind: "question" as const, index: questionIndex },
+        ...(({ thread }) => (thread ? { thread } : {}))(noteAt(question.headingLine)),
         body: question.bodyNodes,
         children: question.options.map((option, index) => ({
           title: option.text,
@@ -1078,4 +1100,5 @@ export const qaDescriptor: SteeringFormat = {
   apply: questionsApply,
   clearTicks: qaClearTicks,
   unansweredQuestions,
+  openThreads: openThreadsOf,
 }

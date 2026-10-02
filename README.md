@@ -290,7 +290,15 @@ in the new, empty definition ready to type, and jumps between a footnote's
 marker and its definition both ways — so leaving a comment for the next agent
 turn never means hand-typing the `[^name]` syntax yourself. In a review file, a
 `./path#42-70` hunk pointer is also a clickable link straight to that file and
-range, no go-to-definition required.
+range, no go-to-definition required. A footnote can also hold a `H:`/`A:`
+conversation (a thread — see [configuration](docs/configuration.md)); the editor
+outlines threads, flags the open ones, and a `gtd: reply` code action adds your
+empty `- H:` entry and puts the cursor there;
+`gtd check <mode> <file> --open-threads` lists the ones still waiting on you,
+and a review question gets its answer at the review gate again, not a lap. The
+same conversation works as bare `// H: …` / `// A: …` line comments (`#`, `--`,
+`;` by language) in files the process changed; `gtd check --open-threads` alone
+lists the open ones (editor-only — the phone UI does not show them).
 
 ### The workflow it ships with
 
@@ -300,12 +308,17 @@ noted in steps 2, 3, and 4 below.
 
 1. **You sketch.** Change anything, or write the idea into `.gtd/TODO.md`. Rough
    is fine; it is treated as a sketch, not as work.
-2. **You answer questions — when it needs you to.** Planning works out what the
-   thing should do first, then how it should be built, and hands you a file with
-   its open questions in it at either point. Answer them in your editor, in the
-   file, and start the loop again. Leave the file untouched and start the loop
-   instead to accept the plan as-is, unanswered questions and all. One point
-   along this phase is judged rather than always asking you outright:
+2. **You answer questions and discuss.** Planning works out what the thing
+   should do first, then how it should be built, and hands you a file at either
+   point — every process stops there, even with no open question. Answer open
+   questions in your editor, in the file, and start the loop again; a round that
+   only leaves notes needs no tick. Start a footnote with `- H: <question>` to
+   ask something: the agent replies with `- A: <reply>` and the process stops at
+   the same gate again. Close a thread by replying with a conclusion or deleting
+   it. While a thread's last entry is the agent's, moving on is refused. Leave
+   the file untouched and start the loop to accept the plan as-is, unanswered
+   questions and all. One point along this phase is judged rather than always
+   asking you outright:
    - Before the how-it-should-be-built pass starts: does this plan actually need
      one? A confident no skips it — and the review it would have raised — going
      straight from your answers to a single built package, with no technical
@@ -373,7 +386,12 @@ an idle worktree — nothing pending yet — opening `.gtd/TODO.md` free-form wi
 bare textfield so you can sketch from your phone; the sketch stays un-triaged on
 disk until you run `gtd` again, from anywhere, to pick it up. A description
 renders inline markdown — bold, code, strikethrough, links, and images — instead
-of literal asterisks and backticks. See
+of literal asterisks and backticks. A note you add from the phone starts a
+thread: a footnote holding a `H:`/`A:` conversation. Threads show as a
+conversation under their block, question, chunk, or hunk, and one the agent
+answered last carries a "waiting on you" badge. Tap it to reply — your reply is
+added as a new `H:` entry; while the agent has yet to answer, reopening it edits
+your last entry instead. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 

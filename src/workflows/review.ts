@@ -1,21 +1,24 @@
 import {
   answered,
   changes,
-  codeChanges,
+  changesSince,
+  hasThreadFor,
   head,
   judge,
   numeric,
   read,
   refuse,
   removeScript,
+  requireReplies,
+  requireThreadsClosed,
   run,
   scope,
   sectionBodies,
   vars,
-  wrote,
   type Change,
   type JudgeQuestion,
 } from "../flows/index.js"
+import { stripCodeThreads } from "../steering/index.js"
 import { escalation, FIX_CAP, healthy, type EscalationCount } from "./health.js"
 import {
   awaitReview,
@@ -59,9 +62,11 @@ export type ReviewOutcome =
   | { readonly verdict: "signoff" }
   | {
       readonly verdict: "feedback"
-      /** The commit the human's review edit landed as. */
+      /** The last round's commit, the re-plan base. */
       readonly base: string
-      /** The code paths that edit changed, with their content before it. */
+      /** The commit `.gtd/REVIEW.md` was written at; edits are restored from it. */
+      readonly restoreFrom: string
+      /** The code paths the rounds changed, with their content before. */
       readonly edited: readonly Change[]
     }
 
@@ -98,13 +103,105 @@ const actionable = async (review: string): Promise<boolean> => {
   )
 }
 
+const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
+
+/** A code edit, not a thread-only change: lines that only add, answer or remove code threads don't count. */
+const isCodeEdit = (c: Change): boolean =>
+  isCode(c.path) &&
+  stripCodeThreads(c.path, c.before ?? "") !== stripCodeThreads(c.path, c.after ?? "")
+
 const collect = async (capture: string): Promise<"signoff" | "feedback"> => {
   await collecting(capture)
-  if (wrote(REQUIREMENTS)) return "feedback"
+  if (read(REQUIREMENTS) !== undefined) return "feedback"
   if (changes().length === 0) return "signoff"
   return refuse(
     "gtd land: no declared pattern matches the pending changes — write .gtd/REQUIREMENTS.md from the feedback, or change nothing when it asks for nothing",
   )
+}
+
+/** A review with ticks, footnote markers and thread definitions removed: what is left is line notes. */
+const notesOf = (text: string): string =>
+  text
+    .replace(/^\[\^[^\]]+\]:[^\n]*(\n(?: {2,}|\t)[^\n]*|\n(?=\s*\n(?: {2,}|\t)))*/gm, "")
+    .replace(/\[\^[^\]]+\]/g, "")
+    .replace(/\[x\]/gi, "[ ]")
+    .replace(/\s+/g, " ")
+    .trim()
+
+/** Whether anything but thread edits and ticks landed in `.gtd/REVIEW.md` since `commit`. */
+const notedSince = (commit: string): boolean =>
+  changesSince(commit).some(
+    (c) => c.path === REVIEW && notesOf(c.before ?? "") !== notesOf(read(REVIEW) ?? ""),
+  )
+
+/**
+ * The human gate and its reply rounds: a question gets an answer inside
+ * `.gtd/REVIEW.md` and rests at the gate again, without a lap. Resolves the
+ * commit of the last `review.collecting` turn, `"missing"` when the round
+ * left no review, or `undefined` when no such turn ran.
+ */
+const converse = async (base: string): Promise<string | undefined> => {
+  let collectedAt: string | undefined
+  for (;;) {
+    await awaitReview(base)
+    if (changes(REVIEW).some((c) => c.status === "deleted")) {
+      refuse(
+        "gtd land: review-doc: .gtd/REVIEW.md was deleted — restore it, or leave a note (or edit code) to request changes.",
+      )
+    }
+    if (read(REVIEW) === undefined) {
+      await reviewMissing(head())
+      return "missing"
+    }
+    requireThreadsClosed(REVIEW)
+    if (!hasThreadFor("agent", REVIEW)) return collectedAt
+    await collecting(t.reviewEditsCapture(head()))
+    collectedAt = head()
+    requireReplies(REVIEW)
+    if (!hasThreadFor("human", REVIEW)) return collectedAt
+  }
+}
+
+/**
+ * What the in-loop `review.collecting` turn left: `folded` when it wrote
+ * REQUIREMENTS.md (those folds need their lap whatever is judged later),
+ * `settled` when only thread edits and ticks landed after it.
+ */
+const afterCollect = (collectedAt: string | undefined): { folded: boolean; settled: boolean } =>
+  // While the collecting turn is still pending its commit has no hash, so no
+  // range can start there; the flow rests at `review.closing` before it matters.
+  collectedAt === "" ? { folded: false, settled: false } : settledAfter(collectedAt)
+
+const settledAfter = (collectedAt: string | undefined): { folded: boolean; settled: boolean } => ({
+  folded: collectedAt !== undefined && read(REQUIREMENTS) !== undefined,
+  settled:
+    collectedAt !== undefined &&
+    changesSince(collectedAt).every((c) => !isCodeEdit(c)) &&
+    !notedSince(collectedAt),
+})
+
+const finish = async (
+  reviewed: string,
+  collectedAt: string | undefined,
+): Promise<ReviewOutcome> => {
+  const round = head()
+  const since = changesSince(reviewed)
+  const edited = since.filter(isCodeEdit)
+  const record = read(REVIEW) ?? ""
+  const { folded, settled } = afterCollect(collectedAt)
+  // The review gate clears every tick before its commit, so a changed
+  // REVIEW.md is a note, never a tick.
+  const noted = since.some((c) => c.path === REVIEW)
+  const outcome = (verdict: "signoff" | "feedback"): ReviewOutcome =>
+    verdict === "signoff" ? { verdict } : { verdict, base: round, restoreFrom: reviewed, edited }
+  await run("review.closing", removeScript([REVIEW]), {
+    label: "Closing the review",
+    base: round,
+  })
+  if (settled) return outcome(folded ? "feedback" : "signoff")
+  if (edited.length > 0) return outcome(await collect(t.reviewEditsCapture(round)))
+  if (!noted || !(await actionable(record))) return outcome(folded ? "feedback" : "signoff")
+  return outcome(await collect(t.reviewNotesCapture(round)))
 }
 
 /**
@@ -115,31 +212,9 @@ const collect = async (capture: string): Promise<"signoff" | "feedback"> => {
 export const review = async (base: string): Promise<ReviewOutcome> => {
   for (;;) {
     await reviewing(base)
-    await awaitReview(base)
-    if (changes(REVIEW).some((c) => c.status === "deleted")) {
-      refuse(
-        "gtd land: review-doc: .gtd/REVIEW.md was deleted — restore it, or leave a note (or edit code) to request changes.",
-      )
-    }
-    const edited = codeChanges()
-    const round = head()
-    const record = read(REVIEW)
-    if (record === undefined) {
-      await reviewMissing(round)
-      continue
-    }
-    // The review gate clears every tick before its commit, so a changed
-    // REVIEW.md is a note, never a tick.
-    const noted = changes(REVIEW).length > 0
-    const outcome = (verdict: "signoff" | "feedback"): ReviewOutcome =>
-      verdict === "signoff" ? { verdict } : { verdict, base: round, edited }
-    await run("review.closing", removeScript([REVIEW]), {
-      label: "Closing the review",
-      base: round,
-    })
-    if (edited.length > 0) return outcome(await collect(t.reviewEditsCapture(round)))
-    if (!noted || !(await actionable(record))) return { verdict: "signoff" }
-    return outcome(await collect(t.reviewNotesCapture(round)))
+    const reviewed = head()
+    const collectedAt = await converse(base)
+    if (collectedAt !== "missing") return finish(reviewed, collectedAt)
   }
 }
 

@@ -1182,6 +1182,81 @@ describe("gtd check <mode> <file> --open-questions", () => {
   })
 })
 
+describe("gtd check <mode> <file> --open-threads", () => {
+  const open = [
+    "We cache.[^cache]",
+    "",
+    "[^cache]:",
+    "    - H: why this way?",
+    "    - A: because",
+    "",
+  ].join("\n")
+  const bareRepo = (): InMemRepo => new InMemRepo()
+  const waitingOnAgent = open.replace("    - A: because\n", "")
+
+  it("exits non-zero listing file:line: [^name]: first H entry per open thread", async () => {
+    const repo = bareRepo()
+    repo.writeFile("NOTES.md", open)
+    const { stderr, exitCode } = await run(repo, "check", "qa", "--open-threads", "NOTES.md")
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain("NOTES.md:3: [^cache]: why this way?")
+  })
+
+  it("exits 0 when every thread waits on the agent", async () => {
+    const repo = bareRepo()
+    repo.writeFile("NOTES.md", waitingOnAgent)
+    const { exitCode } = await run(repo, "check", "review", "--open-threads", "NOTES.md")
+    expect(exitCode).toBe(0)
+  })
+
+  it("exits 0 when there is no thread", async () => {
+    const repo = bareRepo()
+    repo.writeFile("NOTES.md", "plain\n")
+    const { exitCode } = await run(repo, "check", "qa", "--open-threads", "NOTES.md")
+    expect(exitCode).toBe(0)
+  })
+
+  it("fails on a missing file", async () => {
+    const repo = bareRepo()
+    const { stderr, exitCode } = await run(repo, "check", "qa", "--open-threads", "MISSING.md")
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain("MISSING.md")
+  })
+})
+
+describe("gtd check --open-threads (no mode, no file) — code threads", () => {
+  const WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "hi" })
+  await agent("working", "go")
+}
+`
+  const withThread = ["const a = 1", "// H: why this?", "// A: because", "const b = 2", ""].join(
+    "\n",
+  )
+
+  it("no process underway: prints nothing, exits 0", async () => {
+    const repo = seed(WORKFLOW)
+    repo.writeFile("src/a.ts", withThread)
+    const { stderr, exitCode } = await run(repo, "check", "--open-threads")
+    expect(exitCode).toBe(0)
+    expect(stderr).toBe("")
+  })
+
+  it("process underway: lists open threads (committed and untracked) as path:line: first entry", async () => {
+    const repo = seed(WORKFLOW)
+    await landTurn(repo, { "src/a.ts": withThread })
+    repo.writeFile("src/b.ts", ["x", "// H: and this?", "// A: so"].join("\n"))
+    repo.writeFile("src/asked.ts", "// H: still waiting on the agent")
+    const { stderr, exitCode } = await run(repo, "check", "--open-threads")
+    expect(stderr).toContain("src/a.ts:2: why this?")
+    expect(stderr).toContain("src/b.ts:2: and this?")
+    expect(stderr).not.toContain("asked.ts")
+    expect(exitCode).not.toBe(0)
+  })
+})
+
 describe("gtd next — Next: preview of where landing the pending turn would go", () => {
   // A human rest past the initial step: plain `gtd next` prints no header at a
   // `prompt` rest, so the plain `Next:` line needs a non-prompt one.

@@ -204,14 +204,16 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       """
       a sketch
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       the technical plan
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
     And the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-plan.md" with:
       """

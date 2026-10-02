@@ -87,6 +87,7 @@ export const revertScript = (commit: string, report: string, failure: string): s
 export const restoreScript = (
   commit: string,
   paths: { readonly restore: readonly string[]; readonly remove: readonly string[] },
+  source?: string,
 ): string => {
   const unchanged = (path: string): string => `git diff --quiet ${quote(commit)} -- ${quote(path)}`
   return [
@@ -94,7 +95,7 @@ export const restoreScript = (
     "set +e",
     ...paths.restore.map(
       (path) =>
-        `${unchanged(path)} && git restore --source=${quote(`${commit}~1`)} --worktree -- ${quote(path)}`,
+        `${unchanged(path)} && git restore --source=${quote(source ?? `${commit}~1`)} --worktree -- ${quote(path)}`,
     ),
     ...paths.remove.map((path) => `${unchanged(path)} && rm -f -- ${quote(path)}`),
     "",

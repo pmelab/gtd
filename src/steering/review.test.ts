@@ -1636,3 +1636,69 @@ describe("review.view — chunk-level footnote projection", () => {
     expect(view.nodes[0]?.children?.[0]?.note).toBeUndefined()
   })
 })
+
+describe("review — thread outline", () => {
+  it("review nests a thread under its chunk", () => {
+    const doc = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk one",
+      "",
+      "- [ ] ./src/a.ts#1 [^t1]",
+      "",
+      "[^t1]:",
+      "    - H: q",
+      "    - A: a",
+      "",
+    ].join("\n")
+    const chunk = steeringFormatFor("review")!.outline(doc)[0]!
+    expect(chunk.children!.some((c) => c.name === "[^t1]" && c.detail === "waiting on you")).toBe(
+      true,
+    )
+  })
+})
+
+describe("review view — threads", () => {
+  const doc = [
+    "# Review: abc1234",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+    "## Chunk[^t1]",
+    "",
+    "- [ ] ./a.ts#1-1 hunk[^t2]",
+    "- [ ] ./b.ts#1-1 other[^n1]",
+    "",
+    "[^t1]:",
+    "    - H: chunk ask",
+    "    - A: which?",
+    "",
+    "[^t2]:",
+    "    - H: hunk ask",
+    "",
+    "[^n1]: one-shot",
+    "",
+  ].join("\n")
+
+  it("a chunk and a hunk with a thread expose `thread` in order and no `note`; a one-shot keeps `note`", () => {
+    const chunk = steeringFormatFor("review")!.view(doc).nodes[0]!
+    expect(chunk.note).toBeUndefined()
+    expect(chunk.thread).toEqual({
+      name: "t1",
+      entries: [
+        { author: "me", text: "chunk ask" },
+        { author: "agent", text: "which?" },
+      ],
+      waitingOn: "human",
+    })
+    const [hunk, other] = chunk.children!
+    expect(hunk!.note).toBeUndefined()
+    expect(hunk!.thread).toEqual({
+      name: "t2",
+      entries: [{ author: "me", text: "hunk ask" }],
+      waitingOn: "agent",
+    })
+    expect(other!.note).toBe("one-shot")
+    expect(other!.thread).toBeUndefined()
+  })
+})

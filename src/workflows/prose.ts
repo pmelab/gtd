@@ -211,14 +211,34 @@ export const footnoteRules = `- Leave a footnote anywhere: mark the exact spot w
 - A footnote is a comment on that exact spot — the hunk, line, or
   paragraph it marks — never a whole-file remark
 - \`name\` is yours to pick; only a definition's name must be unique in
-  this document — the same name may mark more than one spot`
+  this document — the same name may mark more than one spot
+- To start a conversation, open the definition with a list: \`[^name]:\`
+  then an indented \`- H: <your question>\`. The agent answers with
+  \`- A: <reply>\`. Reply with a new \`- H:\` entry to continue; to
+  close the thread, reply with a conclusion (the agent folds it in and
+  deletes the thread) or delete the thread yourself. Entries alternate
+  \`H:\`/\`A:\` and the agent never starts a thread
+- While a thread's last entry is the agent's, it is open and moving on
+  is refused: reply with a conclusion, or delete it
+- The same conversation works as \`// H: <question>\` comment lines in a
+  file changed in this process (\`#\`, \`--\` or \`;\` by language); the phone UI does not show them,
+  and \`gtd check --open-threads\` lists the open ones`
 
 export const footnoteFoldIn = `- A footnote (\`[^name]\` plus its \`[^name]:\` definition) is a comment on
   its exact anchor — fold it in as a mandatory concern described
   against that anchor's hunk or paragraph, never flattened into a
   whole-file remark
-- DELETE it in this same turn — marker and definition together — the
-  way a transient hand-written code comment is already treated. Never
-  re-read a footnote already acted on
-- A footnote is human input only — you reply in prose; never write one
-  yourself`
+- A one-shot footnote needs no reply: fold it in and DELETE it in this
+  same turn — marker and definition together. Never re-read a footnote
+  already acted on. A one-shot footnote that asks a question becomes a
+  thread instead: rewrite its definition as \`- H: <its body>\` then
+  \`- A: <your reply>\`, keeping the marker
+- A thread is a definition whose body is a list of \`- H:\`/\`- A:\`
+  entries. Handle each by its last entry:
+  - last is \`- H:\` and asks something — reply with exactly one
+    \`- A: <reply>\` entry and change nothing else for it
+  - last concludes or advises — fold it in like a one-shot footnote,
+    then delete marker and definition
+  - last is \`- A:\` — it waits on the human; leave it alone
+- Never start a thread yourself, and never leave a thread whose last
+  entry is \`- H:\` — a turn that does is refused`

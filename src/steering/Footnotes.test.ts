@@ -7,6 +7,9 @@ import {
   isOnExistingFootnote,
   nextFootnoteName,
   parseFootnotes,
+  openThreadFindings,
+  parseThreads,
+  threadReplyActions,
 } from "./Footnotes.js"
 
 /** Applies a list of `SteeringEdit`s to `content`, last-to-first so earlier offsets stay valid — used only by tests to assert the resulting document, never by production code (which always splices via LSP tooling). */
@@ -440,7 +443,7 @@ describe("footnoteAttachEdits", () => {
     expect(result.edits).toHaveLength(2)
     const applied = applyEdits(content, result.edits)
     expect(applied).toBe(
-      `Some chunk text here[^${result.id}]\n\n[^${result.id}]: the human's own typed note\n\nnext paragraph`,
+      `Some chunk text here[^${result.id}]\n\n[^${result.id}]:\n    - H: the human's own typed note\n\nnext paragraph`,
     )
   })
 
@@ -522,7 +525,7 @@ describe("footnoteAttachEdits", () => {
     expect(second.id).toBe(first.id)
     expect(second.edits).toHaveLength(1)
     const reapplied = applyEdits(applied, second.edits)
-    expect(reapplied).toContain(`[^${first.id}]: note a, again`)
+    expect(reapplied).toContain(`[^${first.id}]:\n    - H: note a, again`)
     expect(reapplied).not.toContain("note a, again, again")
     expect((reapplied.match(new RegExp(`\\[\\^${first.id}\\]`, "g")) ?? []).length).toBe(2) // one marker, one definition
     expect(parseFootnotes(reapplied).definitions).toHaveLength(1)
@@ -690,6 +693,285 @@ describe("case-insensitive definition matching", () => {
       message: 'Footnote definition "[^FN1]" has no marker referencing it',
       line: 2,
       range: { start: { line: 2, character: 0 }, end: { line: 2, character: 25 } },
+    })
+  })
+})
+
+import { freeFormFormat, getParseCount, steeringFormatFor } from "./index.js"
+
+const qaDescriptor = steeringFormatFor("qa")!
+const reviewDescriptor = steeringFormatFor("review")!
+
+const CACHE = [
+  "We cache the result per request.[^cache]",
+  "",
+  "[^cache]:",
+  "    - H: why do we do that this way?",
+  "    - A: because ...",
+  "    - H: would this ... work instead?",
+  "    - A: no, because ...",
+  "    - H: and this ...?",
+  "    - A: yes, that would work",
+  "    - H: then do it this way",
+  "",
+].join("\n")
+
+describe("parseThreads", () => {
+  it("parses the requirement example into 7 alternating entries waiting on the agent", () => {
+    const [t] = parseThreads(CACHE)
+    expect(t!.name).toBe("cache")
+    expect(t!.entries).toHaveLength(7)
+    expect(t!.entries.map((e) => e.author)).toEqual([
+      "me",
+      "agent",
+      "me",
+      "agent",
+      "me",
+      "agent",
+      "me",
+    ])
+    expect(t!.entries[0]).toEqual({
+      author: "me",
+      text: "why do we do that this way?",
+      line: 3,
+      endLine: 3,
+      column: 4,
+    })
+    expect(t!.waitingOn).toBe("agent")
+    expect(t!.markers).toHaveLength(1)
+  })
+
+  it("parses identically when a long entry is wrapped with a 6-space continuation", () => {
+    const wrapped = CACHE.replace(
+      "    - H: why do we do that this way?",
+      "    - H: why do we do that\n      this way?",
+    )
+    expect(parseThreads(wrapped)[0]!.entries.map((e) => e.text)).toEqual(
+      parseThreads(CACHE)[0]!.entries.map((e) => e.text),
+    )
+  })
+
+  it("is open when the last entry is the agent's", () => {
+    const open = CACHE.replace("    - H: then do it this way\n", "")
+    expect(parseThreads(open)[0]!.waitingOn).toBe("human")
+  })
+
+  it("is not a thread for a plain paragraph body or an unprefixed first list item", () => {
+    expect(parseThreads("a.[^x]\n\n[^x]: just a note\n")).toEqual([])
+    expect(parseThreads("a.[^x]\n\n[^x]:\n    - item one\n    - H: hi\n")).toEqual([])
+  })
+
+  it("parses a definition whose list starts on the next line at 4 spaces' indent", () => {
+    expect(parseThreads("a.[^x]\n\n[^x]:\n    - H: hi\n")).toHaveLength(1)
+  })
+
+  it("a list opening with the retired `- Me:` prefix is a one-shot footnote, not a thread", () => {
+    expect(parseThreads("a.[^x]\n\n[^x]:\n    - Me: hi\n")).toEqual([])
+  })
+
+  it("costs one parseMarkdown parse for two calls on the same document", () => {
+    const doc = `${CACHE}\nunique ${Math.random()}\n`
+    const before = getParseCount()
+    parseThreads(doc)
+    parseThreads(doc)
+    expect(getParseCount() - before).toBe(1)
+  })
+})
+
+describe("thread syntax findings", () => {
+  const wrap = (body: string) => `a.[^x]\n\n[^x]:\n${body}\n`
+  const cases: [string, string, RegExp][] = [
+    ["unprefixed item", "    - H: hi\n    - A: yo\n    - stray", /must start with/],
+    ["agent starts", "    - A: hi\n    - H: yo", /never starts/],
+    ["same author twice", "    - H: hi\n    - H: again", /consecutive/],
+    ["empty entry", "    - H:", /write your own words/],
+    ["stray paragraph", "    - H: hi\n\n    stray paragraph", /only one list/],
+  ]
+  for (const [name, body, re] of cases) {
+    for (const [fmtName, fmt] of [
+      ["qa", qaDescriptor],
+      ["review", reviewDescriptor],
+      ["freeform", freeFormFormat],
+    ] as const) {
+      it(`${fmtName}: ${name} is a finding`, () => {
+        const messages = fmt.validate(wrap(body)).map((f) => f.message)
+        expect(messages.some((m) => re.test(m))).toBe(true)
+        expect(parseFootnotes(wrap(body)).findings.some((f) => re.test(f.message))).toBe(true)
+      })
+    }
+  }
+
+  it("an open thread produces no finding", () => {
+    const body = "    - H: hi\n    - A: yo"
+    expect(parseFootnotes(wrap(body)).findings).toEqual([])
+    expect(freeFormFormat.validate(wrap(body))).toEqual([])
+  })
+
+  it("openThreads lists open threads in every format", () => {
+    const doc = wrap("    - H: hi\n    - A: yo")
+    for (const fmt of [qaDescriptor, reviewDescriptor, freeFormFormat]) {
+      expect(fmt.openThreads!(doc)).toEqual([{ name: "x", line: 2, firstMe: "hi" }])
+    }
+  })
+})
+
+const QA = steeringFormatFor("qa")!
+
+const QA_DOC = (agentLast: boolean): string =>
+  [
+    "## Open Questions",
+    "",
+    "### Which one?",
+    "",
+    "- [ ] A [^t1]",
+    "- [ ] B",
+    "",
+    "[^t1]:",
+    "    - H: why A?",
+    ...(agentLast ? ["    - A: because", "      wrapped on two lines"] : []),
+    "",
+    "[^once]: one-shot note",
+    "",
+  ].join("\n")
+
+const cursor = (line: number, character = 0) => ({
+  start: { line, character },
+  end: { line, character },
+})
+
+describe("open-thread findings", () => {
+  it("one finding on the last entry's full span", () => {
+    const f = openThreadFindings(QA_DOC(true))
+    expect(f).toHaveLength(1)
+    expect(f[0]!.range).toEqual({
+      start: { line: 9, character: 0 },
+      end: { line: 10, character: 26 },
+    })
+  })
+  it("none while waiting on the agent", () => {
+    expect(openThreadFindings(QA_DOC(false))).toEqual([])
+  })
+})
+
+describe("threadReplyActions", () => {
+  it("offered on the marker and anywhere in the definition", () => {
+    const doc = QA_DOC(true)
+    for (const [line, ch] of [
+      [4, 12],
+      [7, 0],
+      [9, 5],
+      [10, 3],
+    ] as const) {
+      expect(threadReplyActions(doc, { line, character: ch }).map((a) => a.title)).toEqual([
+        "gtd: reply",
+      ])
+    }
+  })
+
+  it("not offered while waiting on the agent, nor on a one-shot footnote", () => {
+    expect(threadReplyActions(QA_DOC(false), { line: 7, character: 0 })).toEqual([])
+    expect(threadReplyActions(QA_DOC(true), { line: 12, character: 0 })).toEqual([])
+  })
+
+  it("inserts after a wrapped last entry at the list indent", () => {
+    const [a] = threadReplyActions(QA_DOC(true), { line: 7, character: 0 })
+    expect(a!.edits).toEqual([
+      {
+        range: { start: { line: 10, character: 26 }, end: { line: 10, character: 26 } },
+        newText: "\n    - H: ",
+      },
+    ])
+  })
+
+  it("preserves CRLF", () => {
+    const doc = QA_DOC(true).replace(/\n/g, "\r\n")
+    const [a] = threadReplyActions(doc, { line: 7, character: 0 })
+    expect(a!.edits[0]!.newText).toBe("\r\n    - H: ")
+    expect(a!.edits[0]!.range.start).toEqual({ line: 10, character: 26 })
+  })
+
+  it("qa/review actions keep add-a-footnote away from threads", () => {
+    const titles = QA.actions(QA_DOC(true), cursor(7)).map((a) => a.title)
+    expect(titles).toContain("gtd: reply")
+    expect(titles).not.toContain("gtd: add a footnote")
+  })
+})
+
+describe("footnoteAttachEdits — threads", () => {
+  const anchor = { line: 0, endCharacter: 7, blockEndLine: 0, key: "chunk:a" }
+  const id = (() => {
+    const r = footnoteAttachEdits("Chunk A", anchor, "x")
+    if (!r.ok) throw new Error("setup")
+    return r.id
+  })()
+
+  it("no footnote → a single-entry `- H:` thread", () => {
+    const content = "Chunk A\n\nnext"
+    const result = footnoteAttachEdits(content, anchor, "do it")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(applyEdits(content, result.edits)).toBe(
+      `Chunk A[^${id}]\n\n[^${id}]:\n    - H: do it\n\nnext`,
+    )
+  })
+
+  it("no footnote, CRLF → the thread uses the document's own EOL", () => {
+    const content = "Chunk A\r\n\r\nnext"
+    const result = footnoteAttachEdits(content, anchor, "do it")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(content, result.edits)
+    expect(applied).toContain(`[^${id}]:\r\n    - H: do it\r\n`)
+    expect(applied.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/)
+  })
+
+  it("an open thread → appends a `- H:` entry", () => {
+    const content = `Chunk A[^${id}]\n\n[^${id}]:\n    - H: first\n    - A: question?\n`
+    const result = footnoteAttachEdits(content, anchor, "answer")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const applied = applyEdits(content, result.edits)
+    expect(applied).toBe(
+      `Chunk A[^${id}]\n\n[^${id}]:\n    - H: first\n    - A: question?\n    - H: answer\n`,
+    )
+    const thread = parseThreads(applied)[0]!
+    expect(thread.waitingOn).toBe("agent")
+    expect(thread.entries.map((e) => e.text)).toEqual(["first", "question?", "answer"])
+  })
+
+  it("a thread waiting on the agent → replaces its last `- H:` entry", () => {
+    const content = `Chunk A[^${id}]\n\n[^${id}]:\n    - H: first\n    - A: q?\n    - H: old\n`
+    const result = footnoteAttachEdits(content, anchor, "new")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(applyEdits(content, result.edits)).toBe(
+      `Chunk A[^${id}]\n\n[^${id}]:\n    - H: first\n    - A: q?\n    - H: new\n`,
+    )
+  })
+
+  it("a one-shot footnote → replaces its body", () => {
+    const content = `Chunk A[^${id}]\n\n[^${id}]: old\n`
+    const result = footnoteAttachEdits(content, anchor, "new")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(applyEdits(content, result.edits)).toBe(`Chunk A[^${id}]\n\n[^${id}]: new\n`)
+  })
+
+  it("multi-line text keeps continuation lines inside the entry", () => {
+    const content = "Chunk A"
+    const result = footnoteAttachEdits(content, anchor, "a\nb")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const thread = parseThreads(applyEdits(content, result.edits))[0]!
+    expect(thread.entries).toHaveLength(1)
+    expect(thread.entries[0]!.text).toBe("a b")
+  })
+
+  it("a taken id with no marker at the anchor still refuses", () => {
+    const content = `x\n\nelse[^${id}]\n\n[^${id}]:\n    - H: a\n`
+    expect(footnoteAttachEdits(content, anchor, "n")).toEqual({
+      ok: false,
+      reason: "id-collision",
     })
   })
 })

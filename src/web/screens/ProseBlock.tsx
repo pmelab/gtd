@@ -1,5 +1,7 @@
 import type { ReactElement } from "react"
 import type { BlockListItem, SteeringViewNode } from "../../steering/index.js"
+import { withReply } from "../notes.js"
+import { Thread } from "../Thread.js"
 import { Inline } from "./InlineRun.js"
 
 /** The heading tag a `block.heading`'s own `depth` renders as — three buckets covering all six markdown levels, never a literal `h1`..`h6` (this screen's own `h2` already labels "Open Questions"/"Already answered"). */
@@ -152,8 +154,15 @@ const ProseBlock = ({
   readonly readOnly?: boolean
 }) => {
   const line = node.anchor.kind === "paragraph" ? node.anchor.line : index
-  const noteText = noteOverrides[line] ?? node.note
-  const hasNote = noteText !== undefined && noteText.length > 0
+  const override = noteOverrides[line]
+  const thread =
+    node.thread === undefined
+      ? undefined
+      : override === undefined
+        ? node.thread
+        : withReply(node.thread, override)
+  const noteText = thread === undefined ? (override ?? node.note) : undefined
+  const hasNote = thread !== undefined || (noteText !== undefined && noteText.length > 0)
   const isCode = node.block?.kind === "code"
   const notable = !isCode && readOnly !== true
   return (
@@ -198,7 +207,12 @@ const ProseBlock = ({
       >
         {!isCode && hasNote && <NoteBadge index={index} />}
         <BlockBody node={node} />
-        {!isCode && hasNote && (
+        {!isCode && thread !== undefined && (
+          <div className="px-3 pb-2">
+            <Thread thread={thread} testId={`paragraph-thread-${index}`} />
+          </div>
+        )}
+        {!isCode && noteText !== undefined && noteText.length > 0 && (
           <div data-testid={`paragraph-note-${index}`} className="px-3 pb-2 text-small text-muted">
             {noteText}
           </div>

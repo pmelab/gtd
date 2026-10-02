@@ -1,13 +1,15 @@
 import {
   answered,
   changes,
+  hasThreadFor,
   judge,
   moveScript,
   numeric,
-  openQuestions,
   read,
   refuse,
   requireAnswers,
+  requireReplies,
+  requireThreadsClosed,
   requireProgress,
   run,
   scope,
@@ -26,15 +28,16 @@ import {
 import * as t from "./text.js"
 
 /**
- * Stop for a human only while `file` is missing or still has open questions.
- * Resolves `true` when the human answered (the author revises), `false` when
- * no question was left.
+ * Always stop for the human. Resolves `true` when the round changed anything
+ * (the author revises), `false` on a clean re-run. Open threads refuse every
+ * landing; unticked questions only refuse a round with no thread for the
+ * agent to answer.
  */
-const questionGate = async (file: string, answer: () => Promise<void>): Promise<boolean> => {
-  const content = read(file)
-  if (content !== undefined && openQuestions(content).length === 0) return false
+const noteGate = async (file: string, answer: () => Promise<void>): Promise<boolean> => {
   await answer()
-  requireAnswers(file)
+  requireThreadsClosed(file)
+  if (changes().length === 0) return false
+  if (!hasThreadFor("agent", file)) requireAnswers(file)
   return true
 }
 
@@ -44,14 +47,17 @@ export const design = (base: string): Promise<void> =>
     do {
       await triage(base)
       requireProgress(REQUIREMENTS)
-    } while (await questionGate(REQUIREMENTS, answerProductQuestions))
+      requireReplies(REQUIREMENTS)
+    } while (await noteGate(REQUIREMENTS, answerProductQuestions))
   })
 
 /** Work out the technical plan, then decompose it into package files. */
 export const architecture = (): Promise<void> =>
   scope("architecture", async () => {
-    do await author()
-    while (await questionGate(ARCHITECTURE, answerTechnicalQuestions))
+    do {
+      await author()
+      requireReplies(ARCHITECTURE)
+    } while (await noteGate(ARCHITECTURE, answerTechnicalQuestions))
     await decompose()
     if (changes(".gtd/packages/**").length === 0) {
       refuse("gtd land: decompose: write at least one package under .gtd/packages/")

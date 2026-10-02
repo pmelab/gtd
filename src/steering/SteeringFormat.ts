@@ -99,6 +99,12 @@ export interface BlockListItem {
   readonly inline?: readonly InlineNode[]
 }
 
+export interface SteeringViewThread {
+  readonly name: string
+  readonly entries: readonly { readonly author: "me" | "agent"; readonly text: string }[]
+  readonly waitingOn: "human" | "agent"
+}
+
 /**
  * One node of a format's `view`: a generic container/item tree, the SAME
  * shape for every format. Deliberately never a closed per-format union — a
@@ -118,8 +124,10 @@ export interface SteeringViewNode {
   readonly answered?: boolean
   /** This node's own checkbox state, when it has one (a hunk's tick, an option's tick). */
   readonly checked?: boolean
-  /** An attached note's text, when this node carries one. */
+  /** An attached one-shot note's text, when this node carries one. A thread fills `thread` instead, never this. */
   readonly note?: string
+  /** An attached footnote thread — a conversation, not a flat string. `waitingOn: "human"` means the agent spoke last. */
+  readonly thread?: SteeringViewThread
   /**
    * `detail`'s own inline counterpart, for the three compact rows (a chunk
    * card, a hunk's description row, a plan row): built server-side by
@@ -266,5 +274,11 @@ export interface SteeringFormat {
   readonly unansweredQuestions?: (content: string) => readonly {
     readonly question: string
     readonly headingLine: number
+  }[]
+  /** Every OPEN thread (last entry is the agent's), 0-based `line` — mirrors `unansweredQuestions`. */
+  readonly openThreads?: (content: string) => readonly {
+    readonly name: string
+    readonly line: number
+    readonly firstMe: string
   }[]
 }

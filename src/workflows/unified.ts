@@ -30,6 +30,7 @@ import * as t from "./text.js"
 // Every part is exported for other workflows to compose; see the modules
 // re-exported below.
 
+export { threads, type ThreadInfo } from "../flows/index.js"
 export { defaults } from "./vars.js"
 export { agentWithSkills } from "./text.js"
 export * from "./steps.js"
@@ -53,10 +54,10 @@ export const unwind = (): Promise<void> => {
 export const reUnwind = async (
   feedback: Extract<ReviewOutcome, { verdict: "feedback" }>,
 ): Promise<void> => {
-  const { base, edited } = feedback
+  const { base, restoreFrom, edited } = feedback
   const restore = edited.filter((c) => c.status !== "added").map((c) => c.path)
   const remove = edited.filter((c) => c.status === "added").map((c) => c.path)
-  await run("re-unwind", restoreScript(base, { restore, remove }), {
+  await run("re-unwind", restoreScript(base, { restore, remove }, restoreFrom), {
     label: "Re-unwinding your review edit",
     file: REVIEW,
     base,

@@ -475,6 +475,52 @@ Then(
 )
 
 Then(
+  "the LSP response result contains a symbol named {string} with detail {string}",
+  (world: GtdWorld, name: string, detail: string) => {
+    const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+    type Sym = { name: string; detail?: string; children?: Sym[] }
+    const flat = (list: ReadonlyArray<Sym>): Sym[] =>
+      list.flatMap((s) => [s, ...flat(s.children ?? [])])
+    const found = flat(response.result as ReadonlyArray<Sym>).find((s) => s.name === name)
+    assert.ok(found, `Expected a symbol named "${name}". Got: ${JSON.stringify(response.result)}`)
+    assert.strictEqual(found.detail, detail)
+  },
+)
+
+Then(
+  "the LSP response result contains a symbol named {string} nested under {string}",
+  (world: GtdWorld, name: string, parent: string) => {
+    const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+    type Sym = { name: string; children?: Sym[] }
+    const flat = (list: ReadonlyArray<Sym>): Sym[] =>
+      list.flatMap((s) => [s, ...flat(s.children ?? [])])
+    const owner = flat(response.result as ReadonlyArray<Sym>).find((s) =>
+      (s.children ?? []).some((c) => c.name === name),
+    )
+    assert.ok(
+      owner,
+      `Expected "${name}" nested under a symbol. Got: ${JSON.stringify(response.result)}`,
+    )
+    assert.ok(
+      owner.name.includes(parent),
+      `Expected parent to include "${parent}". Got: ${owner.name}`,
+    )
+  },
+)
+
+Then(
+  "the LSP response result contains no code action titled {string}",
+  (world: GtdWorld, title: string) => {
+    const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+    const actions = response.result as ReadonlyArray<{ title: string }>
+    assert.ok(
+      !actions.some((a) => a.title === title),
+      `Expected no code action titled "${title}". Got: ${JSON.stringify(actions.map((a) => a.title))}`,
+    )
+  },
+)
+
+Then(
   "the LSP response result contains a code action titled {string}",
   (world: GtdWorld, title: string) => {
     const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse

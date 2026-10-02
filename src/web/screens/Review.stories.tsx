@@ -2252,3 +2252,57 @@ export const TwoScreensMountedSideBySideShareNoStore: StoryObj<typeof Review> = 
     expect(screenB.getByTestId("review-done")).not.toBeDisabled()
   },
 }
+
+const threadChunk = (
+  waitingOn: "human" | "agent",
+  entries: readonly { author: "me" | "agent"; text: string }[],
+): SteeringView => ({
+  header: "threads",
+  nodes: [
+    {
+      title: "Threaded chunk",
+      anchor: { kind: "chunk", index: 0 },
+      thread: { name: "t1", entries, waitingOn },
+      children: [
+        {
+          title: "src/e.ts#1",
+          path: "src/e.ts",
+          line: 1,
+          checked: false,
+          anchor: { kind: "hunk", chunkIndex: 0, index: 0 },
+        },
+      ],
+    },
+  ],
+})
+
+export const AnOpenThreadRendersAsAConversationWithAWaitingBadge: Story = {
+  args: {
+    view: threadChunk("human", [
+      { author: "me", text: "Why this retry count?" },
+      { author: "agent", text: "It matches the upstream default." },
+    ]),
+    isLoading: false,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("chunk-thread-0-waiting")).toBeInTheDocument()
+    await expect(canvas.getByTestId("chunk-thread-0-entry-0")).toHaveAttribute("data-author", "me")
+    await expect(canvas.getByTestId("chunk-thread-0-entry-1")).toHaveAttribute(
+      "data-author",
+      "agent",
+    )
+  },
+}
+
+export const AThreadWaitingOnTheAgentShowsNoBadge: Story = {
+  args: {
+    view: threadChunk("agent", [{ author: "me", text: "Why this retry count?" }]),
+    isLoading: false,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("chunk-thread-0")).toBeInTheDocument()
+    await expect(canvas.queryByTestId("chunk-thread-0-waiting")).not.toBeInTheDocument()
+  },
+}

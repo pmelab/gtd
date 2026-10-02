@@ -1,4 +1,4 @@
-import { agent, head, start, vars, type AgentOptions, type SummaryContext } from "../flows/index.js"
+import { agent, codeThreads, head, start, vars, type AgentOptions, type SummaryContext } from "../flows/index.js"
 import {
   skillsPreamble,
   styleBlock,
@@ -112,13 +112,26 @@ What each change does next (then run \`gtd land\`):
 - **Retry check** — edit the code and/or \`.gtd/FEEDBACK.md\` to fix the failing tests (**review-gate.check**).
 `
 
+/** A bullet naming every code thread waiting on the agent; empty when none do. */
+const codeThreadReplies = (): string => {
+  const waiting = codeThreads().filter((t) => t.waitingOn === "agent")
+  if (waiting.length === 0) return ""
+  const list = waiting.map((t) => `  - ${t.path}:${t.line}: ${t.first}`).join("\n")
+  return `
+- Code threads waiting on you (a comment run opening with \`H:\` in a changed
+  file) — append exactly one \`A:\` comment line, same token and
+  indentation, directly below the thread's last line; or fold a
+  concluded thread in and delete its lines:
+${list}`
+}
+
 export const designTriagePrompt = (base: string): string =>
   `${styleBlock}
 
 ${styleFormatContract}
 
 ${stateFileRules}
-${footnoteFoldIn}
+${footnoteFoldIn}${codeThreadReplies()}
 - The only state file this turn touches is \`.gtd/REQUIREMENTS.md\`
   — no other files for notes or output
 - \`.gtd/TODO.md\` is the likely home of the sketch that started
@@ -195,27 +208,30 @@ export const designSystem = (): string =>
 ${agentConduct}`
 
 export const designGateAnswerMessage = (): string =>
-  `Answering here closes a gap between what you want the product to
-do and what gets built; changing nothing and re-running says that
-gap is already closed.
+  `This gate stops on every process, even with no open question, so
+you can discuss \`.gtd/REQUIREMENTS.md\`; changing nothing and re-running
+accepts it as written — unless a thread is open (see below).
 
 \`.gtd/REQUIREMENTS.md\` holds the concerns under
 development. Each open question under \`## Open Questions\` offers
-a few options plus a \`- [ ] _your answer_\` slot. Answer EVERY
-question by ticking exactly one box (\`- [x]\`); for your own
-answer, replace \`_your answer_\` with your text and tick that
-line. Stepping is refused while any question is unanswered — with one
-escape: change nothing and re-run to advance with the questions
-unanswered.
+a few options plus a \`- [ ] _your answer_\` slot. Tick exactly one
+box (\`- [x]\`) per question; for your own answer, replace
+\`_your answer_\` with your text and tick that line. A round that
+only leaves notes or thread replies needs no tick. Stepping is
+refused while a question is unanswered, unless the round adds a
+thread for the agent to answer.
 
-You can also leave a footnote alongside an answer — it never
-substitutes for ticking a box, which is still required before
-stepping is allowed:
+Moving on is refused while any thread is open — its last entry is
+the agent's. Reply with a conclusion, or delete the thread. A reply
+round returns to this same gate so you can read the agent's answer.
+
+You can also leave a footnote alongside an answer:
 
 ${footnoteRules}
 What each change does next (then run \`gtd land\`):
-- **Accept as-is** — change nothing and re-run to advance with the questions unanswered — the plan stands as written.
-- **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it. To accept the plan as-is instead, revert everything and re-run — a clean tree is the only accept gesture.
+- **Accept as-is** — change nothing and re-run; the plan stands as written. Refused while a thread is open.
+- **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it.
+- **Discuss** — start or continue a thread (\`- H:\`); the agent replies and this gate stops again.
 `
 
 export const architectureAuthorPrompt = (): string =>
@@ -224,7 +240,7 @@ export const architectureAuthorPrompt = (): string =>
 ${styleFormatContract}
 
 ${stateFileRules}
-${footnoteFoldIn}
+${footnoteFoldIn}${codeThreadReplies()}
 - The only state files this turn touches are
   \`.gtd/ARCHITECTURE.md\` (write it) and \`.gtd/REQUIREMENTS.md\`
   (delete once folded in) — no other files for notes or output
@@ -309,27 +325,30 @@ ${stateFileRules}
 `
 
 export const architectureGateAnswerMessage = (): string =>
-  `Answering here closes a gap between what you want built and how
-it actually gets built; changing nothing and re-running says
-that gap is already closed.
+  `This gate stops on every process, even with no open question, so
+you can discuss \`.gtd/ARCHITECTURE.md\`; changing nothing and re-running
+accepts it as written — unless a thread is open (see below).
 
 \`.gtd/ARCHITECTURE.md\` holds the technical plan under
 development. Each open question under \`## Open Questions\` offers
-a few options plus a \`- [ ] _your answer_\` slot. Answer EVERY
-question by ticking exactly one box (\`- [x]\`); for your own
-answer, replace \`_your answer_\` with your text and tick that
-line. Stepping is refused while any question is unanswered — with one
-escape: change nothing and re-run to advance with the questions
-unanswered.
+a few options plus a \`- [ ] _your answer_\` slot. Tick exactly one
+box (\`- [x]\`) per question; for your own answer, replace
+\`_your answer_\` with your text and tick that line. A round that
+only leaves notes or thread replies needs no tick. Stepping is
+refused while a question is unanswered, unless the round adds a
+thread for the agent to answer.
 
-You can also leave a footnote alongside an answer — it never
-substitutes for ticking a box, which is still required before
-stepping is allowed:
+Moving on is refused while any thread is open — its last entry is
+the agent's. Reply with a conclusion, or delete the thread. A reply
+round returns to this same gate so you can read the agent's answer.
+
+You can also leave a footnote alongside an answer:
 
 ${footnoteRules}
 What each change does next (then run \`gtd land\`):
-- **Accept as-is** — change nothing and re-run to advance with the questions unanswered — the plan stands as written.
-- **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it. To accept the plan as-is instead, revert everything and re-run — a clean tree is the only accept gesture.
+- **Accept as-is** — change nothing and re-run; the plan stands as written. Refused while a thread is open.
+- **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it.
+- **Discuss** — start or continue a thread (\`- H:\`); the agent replies and this gate stops again.
 `
 
 export const packagesItemBuildingPrompt = (pkg: string): string =>
@@ -535,6 +554,11 @@ When you've been through the whole diff, run \`gtd land\`:
   whatever the boxes say. Every turn commit stays on the
   branch; run \`gtd summary\` afterward for a closing-message
   prompt.
+- **Ask a question** — start a thread (\`- H: <question>\`) on a
+  footnote. The agent answers inside \`.gtd/REVIEW.md\` and the process
+  rests at this same gate again — no revert, no development lap. A
+  round that also leaves notes or edits folds those in the same turn
+  and answers the thread.
 - **Request changes** — leave a comment: a note on a
   \`.gtd/REVIEW.md\` line, a footnote anchored to a hunk, or a
   direct code edit — to send a FULL development lap
@@ -548,6 +572,9 @@ When you've been through the whole diff, run \`gtd land\`:
   There is no baseline check on the way back into planning — only a
   genuinely non-actionable comment (an approving remark with no code
   edit) skips the lap and signs off straight away.
+
+Every landing here is refused while a thread is open (its last entry
+is the agent's): reply with a conclusion, or delete the thread.
 
 A footnote works the same way here as a line note:
 
@@ -597,9 +624,16 @@ ${styleFormatContract}
 You are judging and classifying a round of review feedback.
 
 ${stateFileRules}
-${footnoteFoldIn}
-- The only state file this turn touches is \`.gtd/REQUIREMENTS.md\` —
-  you classify, you do not build
+${footnoteFoldIn}${codeThreadReplies()}
+- This turn writes \`.gtd/REQUIREMENTS.md\` (the folded concerns) and
+  replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
+  in the tree) — you classify, you do not build
+- Fold every concluded thread, note, ticked answer and hand-edit into
+  \`.gtd/REQUIREMENTS.md\` and delete the folded threads from
+  \`.gtd/REVIEW.md\`; append one \`- A:\` reply to each thread
+  whose last entry is a \`- H:\` question
+- Finish by running \`gtd check review .gtd/REVIEW.md\` and fix
+  what it reports
 
 The raw review material is:
 
@@ -612,10 +646,14 @@ The round is actionable if any of these hold:
 
 - The human left a note on \`.gtd/REVIEW.md\`. A note is a mandatory
   concern below
-- The human added a code comment this round, even a plain-prose
-  one — describe it as a concern, and note the comment line
-  itself is transient: it must not survive the lap that
-  satisfies it
+- The human added a code comment this round. A comment run whose
+  first line starts \`H:\` is a THREAD: when its last entry is an
+  \`H:\` question, write exactly one \`A:\` comment line, same token
+  and indentation, directly below it — no fold-in; a concluded
+  thread is folded into the requirements and its comment lines
+  deleted. Any other comment, even a plain-prose one, is a one-shot
+  concern — describe it, and note the comment line itself is
+  transient: it must not survive the lap that satisfies it
 - The human hand-edited non-comment code this round — no longer
   a committed intent to build on, but a sketch like the entry
   commit's own diff. Describe what it was reaching for; expect

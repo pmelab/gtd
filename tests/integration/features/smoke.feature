@@ -37,8 +37,11 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       """
     When I run gtd land
     Then it succeeds
-    # No open questions recorded -> the human gate is skipped entirely.
-    And the last commit subject is "gtd(agent): design.triage → architecture-pre"
+    # The gate stops even with no open question.
+    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
     # architecture-pre: no verdict piped -> the conservative default runs
     # the full architecture pass.
     When I run gtd land
@@ -51,8 +54,10 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       """
     When I run gtd land
     Then it succeeds
-    # No open questions recorded -> the human gate is skipped entirely.
-    And the last commit subject is "gtd(agent): architecture.author → architecture.decompose"
+    And the last commit subject is "gtd(agent): architecture.author → architecture.gate.answer"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose"
     Given the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-feature.md" with:
       """

@@ -2048,3 +2048,86 @@ describe("qa — Task 4: the real projection over an 80-column-wrapped design do
     expect(afterSecondSave).not.toContain("nothing new to learn")
   })
 })
+
+const THREAD_QA_DOC = (agentLast: boolean): string =>
+  [
+    "## Open Questions",
+    "",
+    "### Which one?",
+    "",
+    "- [ ] A [^t1]",
+    "- [ ] B",
+    "",
+    "[^t1]:",
+    "    - H: why A?",
+    ...(agentLast ? ["    - A: because", "      wrapped on two lines"] : []),
+    "",
+    "[^once]: one-shot note",
+    "",
+  ].join("\n")
+
+describe("qa — thread outline", () => {
+  it("qa nests a thread under the option holding its first marker, with waiting-on detail", () => {
+    const outline = qa.outline(THREAD_QA_DOC(true))
+    const option = outline[0]!.children!.find((c) => c.name.includes("A"))!
+    const thread = option.children!.find((c) => c.name === "[^t1]")!
+    expect(thread.detail).toBe("waiting on you")
+  })
+  it("says waiting on the agent when the human spoke last", () => {
+    const outline = qa.outline(THREAD_QA_DOC(false))
+    const option = outline[0]!.children!.find((c) => c.name.includes("A"))!
+    expect(option.children!.find((c) => c.name === "[^t1]")!.detail).toBe("waiting on the agent")
+  })
+  it("a one-shot footnote adds no thread node", () => {
+    const names = JSON.stringify(qa.outline(THREAD_QA_DOC(true)))
+    expect(names).not.toContain('"[^once]"')
+  })
+})
+
+describe("qa view — threads", () => {
+  const doc = [
+    "Intro prose.[^t1]",
+    "",
+    "## Open Questions",
+    "",
+    "### Which option?[^t2]",
+    "",
+    "- [ ] Option A",
+    "- [ ] _your answer_",
+    "",
+    "[^t1]:",
+    "    - H: prose ask",
+    "    - A: why?",
+    "",
+    "[^t2]:",
+    "    - H: q ask",
+    "",
+  ].join("\n")
+
+  it("a prose block and a question with a thread expose `thread` and no `note`", () => {
+    const nodes = steeringFormatFor("qa")!.view(doc).nodes
+    const prose = nodes[0]!
+    expect(prose.note).toBeUndefined()
+    expect(prose.thread).toEqual({
+      name: "t1",
+      entries: [
+        { author: "me", text: "prose ask" },
+        { author: "agent", text: "why?" },
+      ],
+      waitingOn: "human",
+    })
+    const question = nodes.find((n) => n.anchor.kind === "question")!
+    expect(question.note).toBeUndefined()
+    expect(question.thread).toEqual({
+      name: "t2",
+      entries: [{ author: "me", text: "q ask" }],
+      waitingOn: "agent",
+    })
+  })
+
+  it("a one-shot footnote on a prose block still fills `note`", () => {
+    const nodes = steeringFormatFor("qa")!.view("Intro.[^n1]\n\n[^n1]: plain\n").nodes
+    expect(nodes[0]!.note).toBe("plain")
+    expect(nodes[0]!.thread).toBeUndefined()
+  })
+})

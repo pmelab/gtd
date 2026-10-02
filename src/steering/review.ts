@@ -1,6 +1,6 @@
 import type { ListItem, Root, RootContent } from "mdast"
 import { blockNodesOfRun, blockRunInline } from "./Blocks.js"
-import type { FootnoteAnchor, FootnoteMarker } from "./Footnotes.js"
+import type { FootnoteAnchor } from "./Footnotes.js"
 import {
   collapseImages,
   definitionsOf,
@@ -14,6 +14,10 @@ import {
   footnoteAttachEdits,
   footnotePointerAt,
   isOnExistingFootnote,
+  openThreadsOf,
+  threadOutlineNodes,
+  threadReplyActions,
+  noteLookup,
   parseFootnotes,
 } from "./Footnotes.js"
 import {
@@ -698,13 +702,22 @@ const reviewOutline = (content: string): readonly SteeringOutlineNode[] => {
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   const lines = content.split(/\r?\n/)
   const endLines = chunkEndLines(content)
-  return changesets
+  const threads = threadOutlineNodes(content)
+  const nested = new Set<SteeringOutlineNode>()
+  const nodes = changesets
     .map((chunk) => {
       const start = chunk.headingLine
       const end = Math.max(start, endLines.get(start) ?? start)
       const checkedCount = chunk.files.filter((file) => file.checked).length
       const chunkMarkers = markers.filter((m) => m.line >= start && m.line <= end)
-      const children = chunkMarkers.map((m) => footnoteLeaf(lines, definitionByName, m))
+      const chunkThreads = threads
+        .filter((t) => t.markerLine !== undefined && t.markerLine >= start && t.markerLine <= end)
+        .map((t) => t.node)
+      chunkThreads.forEach((n) => nested.add(n))
+      const children = [
+        ...chunkMarkers.map((m) => footnoteLeaf(lines, definitionByName, m)),
+        ...chunkThreads,
+      ]
       return {
         name: `${chunk.title} (${checkedCount}/${chunk.files.length})`,
         range: spanRange(lines, start, end),
@@ -715,6 +728,7 @@ const reviewOutline = (content: string): readonly SteeringOutlineNode[] => {
     })
     .filter((node) => node.unchecked)
     .map(({ unchecked: _unchecked, ...node }) => node)
+  return [...nodes, ...threads.map((t) => t.node).filter((n) => !nested.has(n))]
 }
 
 /**
@@ -773,7 +787,9 @@ const reviewActions: SteeringFormat["actions"] = (content, range) => {
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
   const cursorLine = range.start.line
-  const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = []
+  const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = [
+    ...threadReplyActions(content, range.start),
+  ]
 
   // fallow-ignore-next-line complexity
   changesets.forEach((chunk, i) => {
@@ -886,73 +902,32 @@ const reviewDocumentLinks = (content: string): readonly SteeringLink[] => {
   return links
 }
 
-/** Every chunk as a container with its file pointers as children, from ONE parse — never one parse per chunk. Pointers nested at any depth are already flattened into `chunk.files`. */
-/**
- * A chunk-level footnote's own text, when one is attached — `NoteSheet`'s
- * `chunk` anchor attaches at the END OF THE HEADING LINE ITSELF
- * (`resolveChunkAnchor`'s `chunk:${headingLine}` key), so a chunk-owned
- * footnote is a marker whose OWN line equals `headingLine` exactly — never a
- * hunk's own line, which already surfaces as that hunk's own `note` above.
- * Multiple chunk-level footnotes (unusual, but not rejected by the format)
- * join with a space, matching `footnoteLeaf`'s own join convention.
- */
-const chunkNoteOf = (
-  definitionByName: ReadonlyMap<string, string>,
-  markers: readonly FootnoteMarker[],
-  headingLine: number,
-): string | undefined => {
-  const bodies = markers
-    .filter((marker) => marker.line === headingLine)
-    .map((marker) => definitionByName.get(marker.name))
-    .filter((body): body is string => body !== undefined)
-  return bodies.length > 0 ? bodies.join(" ") : undefined
-}
-
-/** A hunk's own attached footnote text, mirroring `chunkNoteOf` exactly: `resolveHunkAnchor` attaches a hunk footnote at `file.sourceLine`, so the lookup key here is markers whose `line === sourceLine` — never `headingLine`, which is a chunk's own key and can never collide with a hunk's source line. Multiple hunk-level footnotes join with a space, matching `chunkNoteOf`'s own join convention. */
-const hunkNoteOf = (
-  definitionByName: ReadonlyMap<string, string>,
-  markers: readonly FootnoteMarker[],
-  sourceLine: number,
-): string | undefined => {
-  const bodies = markers
-    .filter((marker) => marker.line === sourceLine)
-    .map((marker) => definitionByName.get(marker.name))
-    .filter((body): body is string => body !== undefined)
-  return bodies.length > 0 ? bodies.join(" ") : undefined
-}
-
+/** Every chunk as a container with its file pointers as children, from ONE parse — never one parse per chunk. Pointers nested at any depth are already flattened into `chunk.files`. A chunk's footnote sits at the end of its heading line; a hunk's at its source line. */
 const reviewView = (content: string): SteeringView => {
   const { shortHash, changesets } = parseReviewDoc(content)
-  const { markers, definitions } = parseFootnotes(content)
-  const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
+  const noteAt = noteLookup(content)
   return {
     ...(shortHash ? { header: shortHash } : {}),
-    nodes: changesets.map((chunk, chunkIndex) => {
-      const chunkNote = chunkNoteOf(definitionByName, markers, chunk.headingLine)
-      return {
-        title: chunk.title,
-        detail: chunk.description,
-        detailInline: chunk.descriptionInline,
-        body: chunk.descriptionNodes,
-        anchor: { kind: "chunk", index: chunkIndex },
-        ...(chunkNote !== undefined ? { note: chunkNote } : {}),
-        children: chunk.files.map((file, index) => {
-          const hunkNote = hunkNoteOf(definitionByName, markers, file.sourceLine)
-          return {
-            title: pointerDisplay(file),
-            path: file.path,
-            ...(file.line !== undefined ? { line: file.line } : {}),
-            ...(file.rangeEnd !== undefined ? { endLine: file.rangeEnd } : {}),
-            checked: file.checked,
-            ...(file.note !== undefined
-              ? { detail: file.note, detailInline: file.noteInline ?? [] }
-              : {}),
-            ...(hunkNote !== undefined ? { note: hunkNote } : {}),
-            anchor: { kind: "hunk", chunkIndex, index },
-          }
-        }),
-      }
-    }),
+    nodes: changesets.map((chunk, chunkIndex) => ({
+      title: chunk.title,
+      detail: chunk.description,
+      detailInline: chunk.descriptionInline,
+      body: chunk.descriptionNodes,
+      anchor: { kind: "chunk", index: chunkIndex },
+      ...noteAt(chunk.headingLine),
+      children: chunk.files.map((file, index) => ({
+        title: pointerDisplay(file),
+        path: file.path,
+        ...(file.line !== undefined ? { line: file.line } : {}),
+        ...(file.rangeEnd !== undefined ? { endLine: file.rangeEnd } : {}),
+        checked: file.checked,
+        ...(file.note !== undefined
+          ? { detail: file.note, detailInline: file.noteInline ?? [] }
+          : {}),
+        ...noteAt(file.sourceLine),
+        anchor: { kind: "hunk", chunkIndex, index },
+      })),
+    })),
   }
 }
 
@@ -1096,4 +1071,5 @@ export const reviewDescriptor: SteeringFormat = {
   annotate: reviewAnnotate,
   apply: reviewApply,
   clearTicks: reviewClearTicks,
+  openThreads: openThreadsOf,
 }

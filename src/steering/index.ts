@@ -28,6 +28,7 @@ export type {
   SteeringPointer,
   SteeringView,
   SteeringViewNode,
+  SteeringViewThread,
 } from "./SteeringFormat.js"
 
 /** The built-in registry: mode name → its format, in registry order. The single place `qa` and `review` are wired into names — everything else in this module dispatches over a resolved `SteeringFormat`, never a mode-name string. */
@@ -48,7 +49,13 @@ export { FREE_TEXT_PLACEHOLDER, isAnswered } from "./qa.js"
 // `ModeContradiction.ts`'s round-trip check re-parses a formatted sample's
 // footnotes to prove the formatter moved none of them — the one consumer
 // outside this package that needs the footnote parser itself, not a format.
-export { parseFootnotes, FOOTNOTE_ACTION_TITLE } from "./Footnotes.js"
+export {
+  parseFootnotes,
+  parseThreads,
+  openThreadFindings,
+  FOOTNOTE_ACTION_TITLE,
+  THREAD_REPLY_ACTION_TITLE,
+} from "./Footnotes.js"
 
 // Test-observability only: the memo-hit counter is the one way "one parse per
 // document" is assertable from outside `MarkdownTree.ts` — timing is not.
@@ -118,3 +125,14 @@ export const viewOf = (format: SteeringFormat, content: string): SteeringEditorV
   pointerAt: (position) => format.pointerAt?.(content, position),
   actionsAt: (range) => format.actions(content, range),
 })
+
+/** Every OPEN thread — last entry is the agent's — as `{ name, line, firstMe }` (0-based line). `[]` for a format with no thread concept. */
+export const openThreads = (
+  format: SteeringFormat,
+  content: string,
+): readonly { readonly name: string; readonly line: number; readonly firstMe: string }[] =>
+  format.openThreads?.(content) ?? []
+
+// Line-comment `H:`/`A:` threads in changed code files: a flow's `codeThreads()`
+// and `gtd check --open-threads` are the callers outside this package.
+export { parseCodeThreads, stripCodeThreads } from "./CodeThreads.js"

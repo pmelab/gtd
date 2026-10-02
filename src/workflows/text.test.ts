@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest"
 import {
   agentWithSkills,
   architectureAuthorPrompt,
+  architectureGateAnswerMessage,
   buildFixQualityPrompt,
+  buildReviewAwaitReviewMessage,
+  buildReviewCollectingPrompt,
+  designGateAnswerMessage,
   designTriagePrompt,
   splitSkills,
   summaryPrompt,
@@ -134,5 +138,69 @@ describe("summaryPrompt", () => {
       vars: {},
     })
     expect(prompt).toContain("Token cost: 12\n- smart: 5\n- base: 7\n\nPrint the closing message")
+  })
+})
+
+describe("the thread rules", () => {
+  it("are in all three answering prompts and no longer say a footnote is human input only", () => {
+    const prompts = renderText(() => [
+      designTriagePrompt("base"),
+      architectureAuthorPrompt(),
+      buildReviewCollectingPrompt("capture"),
+    ])
+    for (const prompt of prompts) {
+      expect(prompt).toContain("- A: <reply>")
+      expect(prompt).toContain("Never start a thread yourself")
+      expect(prompt).not.toContain("human input only")
+    }
+  })
+
+  it("make the review collector write requirements, reply in the review and run the review check", () => {
+    const prompt = renderText(() => buildReviewCollectingPrompt("capture"))
+    expect(prompt).toContain("gtd check review .gtd/REVIEW.md")
+  })
+})
+
+describe("code threads in prompts", () => {
+  const waiting = [
+    { path: "src/a.ts", line: 4, waitingOn: "agent", first: "why?", faults: [] },
+    { path: "src/b.ts", line: 9, waitingOn: "human", first: "done", faults: [] },
+  ] as const
+
+  it("lists the code threads waiting on the agent in the three gates", () => {
+    const prompts = renderText(
+      () => [
+        designTriagePrompt("base"),
+        architectureAuthorPrompt(),
+        buildReviewCollectingPrompt("capture"),
+      ],
+      { codeThreads: waiting },
+    )
+    for (const prompt of prompts) {
+      expect(prompt).toContain("src/a.ts:4: why?")
+      expect(prompt).not.toContain("src/b.ts:9")
+    }
+  })
+
+  it("says nothing when none wait", () => {
+    const prompt = renderText(() => designTriagePrompt("base"))
+    expect(prompt).not.toContain("Code threads waiting on you")
+  })
+
+  it("separates a thread from a one-shot code comment at the review collector", () => {
+    const prompt = renderText(() => buildReviewCollectingPrompt("capture"))
+    expect(prompt).toContain("exactly one `A:` comment line")
+    expect(prompt).toContain("one-shot")
+  })
+
+  it("teaches the syntax once in the footnote rules", () => {
+    for (const message of renderText(() => [
+      designGateAnswerMessage(),
+      architectureGateAnswerMessage(),
+      buildReviewAwaitReviewMessage("base"),
+    ])) {
+      expect(message).toContain("gtd check --open-threads")
+      expect(message).toContain("phone UI does not show them")
+    }
   })
 })

@@ -36,7 +36,7 @@ Feature: The bundled unified workflow — one flow, end to end
   commit.
 
   @inmem
-  Scenario: an ordinary code change starts the process — triage, both gates skip when question-free, one package built/fixed/reviewed, then a clean review sign-off lands directly into idle
+  Scenario: an ordinary code change starts the process — triage, both gates stop even when question-free, one package built/fixed/reviewed, then a clean review sign-off lands directly into idle
     Given a test project
     And the workflow
     # No steering file anywhere — a plain source edit is the whole start diff.
@@ -71,7 +71,11 @@ Feature: The bundled unified workflow — one flow, end to end
     # at design.gate.answer and goes straight on to architecture-pre
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → architecture-pre"
+    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
 
     # architecture-pre: no verdict piped -> the conservative default runs
     # the full architecture pass, same as any other skipped judgment.
@@ -97,9 +101,13 @@ Feature: The bundled unified workflow — one flow, end to end
     # stop at architecture.gate.answer either
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): architecture.author → architecture.decompose"
-    And the git log does not contain "design.gate.answer"
-    And the git log does not contain "architecture.gate.answer"
+    And the last commit subject is "gtd(agent): architecture.author → architecture.gate.answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose"
+    And the git log contains "design.gate.answer"
+    And the git log contains "architecture.gate.answer"
 
     # decompose writes the package; the flow itself picks the lexically first
     # one to build
@@ -256,9 +264,11 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(human): idle → unwind
       gtd(check): unwind → start-gate.check
       gtd(check): start-gate.check → design.triage
-      gtd(agent): design.triage → architecture-pre
+      gtd(agent): design.triage → design.gate.answer
+      gtd(human): design.gate.answer → architecture-pre
       gtd(judge): architecture-pre → architecture.author
-      gtd(agent): architecture.author → architecture.decompose
+      gtd(agent): architecture.author → architecture.gate.answer
+      gtd(human): architecture.gate.answer → architecture.decompose
       gtd(agent): architecture.decompose → packages.item.building
       gtd(agent): packages.item.building → packages.item.health.check
       gtd(check): packages.item.health.check → packages.item.fix-suite
@@ -738,7 +748,8 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Build a widget.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
@@ -868,7 +879,11 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → architecture-pre"
+    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
     And the git log does not contain "Gtd-Judge:"
     And ".gtd/ASSUMPTIONS.md" does not exist
 
@@ -916,7 +931,11 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → architecture-pre"
+    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
     And "SCRATCH.md" does not exist
     And "src/real.ts" does not exist
 
@@ -944,7 +963,8 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Add a `greet()` export returning a friendly string. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     When I run gtd next
     Then it succeeds
@@ -957,7 +977,11 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): architecture.author → architecture.decompose"
+    And the last commit subject is "gtd(agent): architecture.author → architecture.gate.answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose"
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/ARCHITECTURE.md" exists
 
@@ -980,7 +1004,8 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Add a `greet()` export returning a friendly string. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     When I run gtd next
     Then it succeeds
@@ -998,14 +1023,16 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Add a widget factory.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       Technical plan: src/widget.ts exports a factory.
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
     And the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-widget.md" with:
       """
@@ -1061,14 +1088,16 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Add a widget factory.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       Technical plan: src/widget.ts exports a factory.
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
     And the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-widget.md" with:
       """
@@ -1152,14 +1181,16 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Export a `B` constant from fileB.ts.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       Technical plan: fileB.ts exports `B`.
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
     And the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-b.md" with:
       """
@@ -1906,7 +1937,8 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       Build a thing.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     When I run gtd next with "--json"
     Then it succeeds
@@ -1917,7 +1949,8 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       Technical plan: src/thing.ts.
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
     And the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-thing.md" with:
       """

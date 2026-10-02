@@ -72,9 +72,11 @@ export type Command =
   | { readonly kind: "validate" }
   | {
       readonly kind: "check"
-      readonly mode: string
-      readonly file: string
+      /** Absent only for the bare `gtd check --open-threads` form. */
+      readonly mode?: string
+      readonly file?: string
       readonly openQuestions?: boolean
+      readonly openThreads?: boolean
     }
   | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "install" }
@@ -331,6 +333,24 @@ const FLAGS: readonly FlagRow[] = [
     ],
   },
   {
+    name: "--open-threads",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "check",
+    decode: () => Either.right(true),
+    scopeError: "gtd: --open-threads is only valid for `gtd check`",
+    valueHint: "",
+    help: [
+      "(gtd check only) ignore <mode>'s structural findings and",
+      "instead list every open thread (a footnote whose last",
+      "entry is the agent's) over <file>, one per line with its",
+      "first H entry, exiting non-zero when any are open. With no",
+      "<mode>/<file>, lists code-comment threads in the files the",
+      "current process changed (read from its diff base, unlike",
+      "the rest of `gtd check`)",
+    ],
+  },
+  {
     name: "--verbose",
     arity: 0,
     repeatable: false,
@@ -521,7 +541,10 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "with <mode>/<file> given explicitly. This is what a",
       "workflow's emitted validation script invokes as a leaf step.",
       "--open-questions runs the qa unanswered-questions predicate",
-      "instead (see --help)",
+      "instead (see --help); --open-threads lists open threads.",
+      "`gtd check --open-threads` alone lists open code-comment",
+      "threads (`// H: ...`) in the files the process changed;",
+      "it prints nothing when no process is underway.",
     ],
   },
   {
@@ -962,7 +985,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   } else {
     // `kind === "entry"` is unreachable here: `selectsEntry` only fires when
     // `first === undefined`, which the `if` branch above already handled.
-    const arityMsg = arityError(first!, restPositionals, row!.arity)
+    const bareCheck =
+      kind === "check" && restPositionals.length === 0 && present.has("--open-threads")
+    const arityMsg = bareCheck ? undefined : arityError(first!, restPositionals, row!.arity)
     if (arityMsg !== undefined) return usagePlan(arityMsg, jsonSeen)
   }
 
@@ -981,6 +1006,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
     readonly "--open-questions"?: boolean
+    readonly "--open-threads"?: boolean
     readonly "--host"?: string
     readonly "--self-signed"?: boolean
     readonly "--dev"?: boolean
@@ -1036,11 +1062,12 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: {
         kind: "check",
-        mode: restPositionals[0]!,
-        file: restPositionals[1]!,
+        ...(restPositionals[0] !== undefined ? { mode: restPositionals[0] } : {}),
+        ...(restPositionals[1] !== undefined ? { file: restPositionals[1] } : {}),
         ...(bag["--open-questions"] !== undefined
           ? { openQuestions: bag["--open-questions"] }
           : {}),
+        ...(bag["--open-threads"] !== undefined ? { openThreads: bag["--open-threads"] } : {}),
       },
       json,
       verbose,

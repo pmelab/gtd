@@ -38,6 +38,7 @@ const FLAG_NAMES = [
   "--entry",
   "--var",
   "--open-questions",
+  "--open-threads",
   "--verbose",
 ]
 
@@ -468,6 +469,24 @@ describe("parseArgv — gtd check <mode> <file>", () => {
     const plan = parseArgv(["node", "gtd.js", "check", "review", "REVIEW.md", "--json"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd next`")
+  })
+
+  it("bare --open-threads (no mode, no file) parses to a check command", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "--open-threads"])
+    expect(plan.kind).toBe("command")
+    if (plan.kind === "command") {
+      expect(plan.command).toEqual({ kind: "check", openThreads: true })
+    }
+  })
+
+  it("the <mode> <file> --open-threads form is unchanged", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "qa", "N.md", "--open-threads"])
+    expect(plan.kind === "command" && plan.command).toEqual({
+      kind: "check",
+      mode: "qa",
+      file: "N.md",
+      openThreads: true,
+    })
   })
 
   it("missing both arguments is a usage error naming mode and file", () => {

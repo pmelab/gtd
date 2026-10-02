@@ -388,6 +388,74 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/REVIEW.md" with a selection at line 6 character 7, taking focus
 
+  Scenario: a footnote thread appears in the outline with its waiting-on detail
+    Given a test project
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/REVIEW.md" containing:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1-3 new add function[^t1]
+
+      [^t1]:
+          - H: why a new function?
+          - A: the old one was private
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[^t1]" with detail "waiting on you"
+
+  Scenario: an open thread is flagged with an Information diagnostic
+    Given a test project
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/REVIEW.md" containing:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1-3 new add function[^t1]
+
+      [^t1]:
+          - H: why a new function?
+          - A: the old one was private
+      """
+    Then the LSP response has no error
+    And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/REVIEW.md" with exactly one Information diagnostic containing "waiting on you"
+
+  Scenario: 'gtd: reply' appends an empty H entry and the cursor lands right after it
+    Given a test project
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests code actions at line 7 character 2 in ".gtd/REVIEW.md" containing:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1-3 new add function[^t1]
+
+      [^t1]:
+          - H: why a new function?
+          - A: the old one was private
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a code action titled "gtd: reply"
+    When the LSP client applies the edits of the code action titled "gtd: reply"
+    Then the applied document matches "^    - H: $"
+    When the LSP client executes the command of the code action titled "gtd: reply"
+    Then the LSP response has no error
+    And the LSP client received a window/showDocument request for ".gtd/REVIEW.md" with a selection at line 10 character 9, taking focus
+
   Scenario: a textDocument/definition round trip jumps marker to definition, then definition back to the marker's exact column
     Given a test project
     And an LSP server started in the test project
@@ -664,3 +732,122 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     Then the LSP response has no error
     And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/MORE.md" with exactly one Information diagnostic containing "exit 1"
+
+  Scenario: a thread in a qa document is a symbol nested under its question, waiting on you
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which API?[^t1]
+
+      - [ ] REST
+      - [ ] GraphQL
+      - [ ] _your answer_
+
+      [^t1]:
+          - H: why GraphQL?
+          - A: it is typed
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[^t1]" nested under "Which API?"
+    And the LSP response result contains a symbol named "[^t1]" with detail "waiting on you"
+
+  Scenario: 'gtd: reply' on a qa thread's definition inserts an empty H entry and reveals right after it
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests code actions at line 10 character 2 in ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which API?[^t1]
+
+      - [ ] REST
+      - [ ] GraphQL
+      - [ ] _your answer_
+
+      [^t1]:
+          - H: why GraphQL?
+          - A: it is typed
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a code action titled "gtd: reply"
+    When the LSP client applies the edits of the code action titled "gtd: reply"
+    Then the applied document matches "^    - H: $"
+    When the LSP client executes the command of the code action titled "gtd: reply"
+    Then the LSP response has no error
+    And the LSP client received a window/showDocument request for ".gtd/PLAN.md" with a selection at line 13 character 9, taking focus
+
+  Scenario: 'gtd: reply' is not offered on a qa thread waiting on the agent
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests code actions at line 10 character 2 in ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which API?[^t1]
+
+      - [ ] REST
+      - [ ] GraphQL
+      - [ ] _your answer_
+
+      [^t1]:
+          - H: why GraphQL?
+      """
+    Then the LSP response has no error
+    And the LSP response result contains no code action titled "gtd: reply"

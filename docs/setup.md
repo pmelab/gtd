@@ -160,7 +160,16 @@ export lists:
 - go-to-definition on a footnote jumps both ways — marker to definition,
   definition to its first marker's exact column — in both formats, within the
   same file
-- live diagnostics for both formats as you edit
+- a symbol per footnote thread, nested under the question, option or chunk its
+  first marker sits in, saying whether it waits on you or on the agent
+- a "gtd: reply" code action on an open thread's marker or anywhere in its
+  definition: it appends an empty `- H: ` entry after the last one and puts the
+  cursor right after it. It is not offered while the agent is the one to answer
+- an `Information` diagnostic on the last entry of every open thread, shown even
+  when a shell `validate:` replaces the live diagnostics
+- live diagnostics for both formats as you edit, including thread syntax
+  (`- H:`/`- A:` entries); an open thread — last entry the agent's — blocks
+  landing at the requirements, architecture and review gates
 - a `gtd.openSteeringFile` command that jumps to the current step's steering
   file, falling back to `.gtd/TODO.md` when the resting step declares none, so
   the keybinding has an answer even before a process has started

@@ -1,5 +1,5 @@
 import type { List, ListItem, RootContent, Root } from "mdast"
-import { parseFootnotes } from "./Footnotes.js"
+import { noteLookup } from "./Footnotes.js"
 import type { Footnotes } from "./Footnotes.js"
 import { definitionsOf, joinInlineRuns, projectInline, type InlineNode } from "./Inline.js"
 import { headingText, sourceText, toLspPosition } from "./MarkdownTree.js"
@@ -282,20 +282,15 @@ export const blockNodesOfRun = (
   nodes: readonly RootContent[],
   options?: BlockWalkOptions,
 ): readonly SteeringView["nodes"][number][] => {
-  const { markers, definitions } = options?.footnotes ?? parseFootnotes(content)
-  const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
+  const noteAt = noteLookup(content, options?.footnotes)
   return visibleNodes(content, nodes, options).map((node) => {
     const startLine = toLspPosition(node.position!.start).line
-    const noteBodies = markers
-      .filter((marker) => marker.line === startLine)
-      .map((marker) => definitionByName.get(marker.name))
-      .filter((body): body is string => body !== undefined)
     const block = blockOf(content, node, options)
     return {
       title: blockTitle(content, node, options),
       anchor: { kind: "paragraph" as const, line: startLine },
       ...(block !== undefined ? { block } : {}),
-      ...(noteBodies.length > 0 ? { note: noteBodies.join(" ") } : {}),
+      ...noteAt(startLine),
     }
   })
 }
