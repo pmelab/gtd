@@ -204,6 +204,21 @@ describe("replay", () => {
     expect(restName(await replayOf(flow, h))).toBe("open#1")
   })
 
+  it("threads() carries each thread's own syntax faults, prefixed with its name", async () => {
+    const doc = "a.[^q] b.[^r]\n\n[^q]:\n    - H: why?\n    - H: again\n\n[^r]:\n    - H: ok\n"
+    const flow = async () => {
+      await human("idle")
+      const [q, r] = threads(read("NOTES.md") ?? "")
+      const ok =
+        q!.faults.length === 1 &&
+        q!.faults[0]!.startsWith('Footnote thread "[^q]": two consecutive') &&
+        r!.faults.length === 0
+      await human(ok ? "open" : "none")
+    }
+    const h = new History().land("human", "idle", 1, "open", { "NOTES.md": doc })
+    expect(restName(await replayOf(flow, h))).toBe("open#1")
+  })
+
   it("codeThreads() returns threads of files changed since the process base only", async () => {
     const thread = ["// H: why?", "// A: because"].join("\n")
     const open = ["x", "// H: ask"].join("\n")
@@ -239,6 +254,32 @@ describe("replay", () => {
       episode: withBase,
       vars: {},
       start: hashOf(0),
+      budgetBytes: 1024,
+    })
+    expect(restName(outcome)).toBe("open#1")
+  })
+
+  it("codeThreads() reaches back to a diff base older than the episode base", async () => {
+    // An entered process: its review base predates the opening commit, which
+    // is the episode base — so the opening commit's own edits still count.
+    const open = ["x", "// H: ask"].join("\n")
+    const flow = async () => {
+      await human("idle")
+      await human(codeThreads().length === 1 ? "open" : "none")
+    }
+    const h = new History()
+    h.files = { "src/a.ts": open }
+    h.land("human", "idle", 1, "open", { "TODO.md": "go" })
+    const episode = h.episode()
+    const outcome = await replay({
+      flow,
+      episode: {
+        ...episode,
+        base: { hash: hashOf(99), tree: treeFromRecord({ "src/a.ts": open }) },
+      },
+      vars: {},
+      start: hashOf(98),
+      startTree: treeFromRecord({}),
       budgetBytes: 1024,
     })
     expect(restName(outcome)).toBe("open#1")

@@ -283,9 +283,14 @@ export const parseFootnotes = (content: string): Footnotes => {
   }
 }
 
-/** Every thread (a footnote whose body is a `H:`/`A:` list) in `content`, off the same `parseMarkdown` memo as `parseFootnotes`. */
+/** Every thread (a footnote whose body is a `H:`/`A:` list) in `content` and its syntax findings, each prefixed `Footnote thread "[^name]": `, off the same `parseMarkdown` memo as `parseFootnotes`. */
+export const parseThreadsWithFindings = (
+  content: string,
+): { readonly threads: readonly Thread[]; readonly findings: readonly SteeringFinding[] } =>
+  collectThreads(content, parseMarkdown(content), parseFootnotes(content).markers)
+
 export const parseThreads = (content: string): readonly Thread[] =>
-  collectThreads(content, parseMarkdown(content), parseFootnotes(content).markers).threads
+  parseThreadsWithFindings(content).threads
 
 /** One-entry memo: a view walks many runs of ONE document, each building its own lookup. */
 let memo: { content: string; threads: ReadonlyMap<string, Thread> } | undefined

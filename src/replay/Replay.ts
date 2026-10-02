@@ -14,7 +14,7 @@ import {
   headingSections,
   steeringFormatFor,
   parseCodeThreads,
-  parseThreads,
+  parseThreadsWithFindings,
   unansweredQuestions,
 } from "../steering/index.js"
 import { globMatches } from "./Glob.js"
@@ -57,6 +57,8 @@ export interface ReplayInput {
   readonly vars: Readonly<Record<string, string>>
   /** The process's diff base — what `start()` returns. */
   readonly start: string
+  /** `start`'s tree, for a diff base outside the episode (an entered process's review base predates its opening commit). */
+  readonly startTree?: TreeView
   readonly budgetBytes: number
   readonly pending?: PendingTurn
 }
@@ -479,12 +481,22 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
             line: q.headingLine + 1,
           }))
     },
-    threads: (text) =>
-      parseThreads(text).map((t) => ({ name: t.name, line: t.line + 1, waitingOn: t.waitingOn })),
-    // `start` can predate the episode (the process began before its first
-    // replayed commit); the episode base's tree is the oldest one replay has.
+    threads: (text) => {
+      const { threads, findings } = parseThreadsWithFindings(text)
+      return threads.map((t) => ({
+        name: t.name,
+        line: t.line + 1,
+        waitingOn: t.waitingOn,
+        faults: findings
+          .filter((f) => f.message.startsWith(`Footnote thread "[^${t.name}]": `))
+          .map((f) => f.message),
+      }))
+    },
     codeThreads: () =>
-      changesBetween(treeAt(input.start) ?? input.episode.base.tree, position.tree)
+      changesBetween(
+        treeAt(input.start) ?? input.startTree ?? input.episode.base.tree,
+        position.tree,
+      )
         .filter((c) => c.status !== "deleted")
         .flatMap((c) => {
           const { threads, findings } = parseCodeThreads(c.path, position.tree.read(c.path) ?? "")

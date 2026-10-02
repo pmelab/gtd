@@ -91,6 +91,13 @@ interface Run {
   readonly texts: readonly string[]
 }
 
+// The agent's entry is one line, so an unprefixed comment below an `A:` line
+// is an ordinary comment: absorbing it would let a reviewer's note vanish
+// into the thread (and out of a review's code edits) when the thread is
+// stripped.
+const endsThreadRun = (texts: readonly string[], next: string): boolean =>
+  PREFIX_RE.test(texts[0]!) && texts[texts.length - 1]!.startsWith("A:") && !PREFIX_RE.test(next)
+
 const runsOf = (lines: readonly string[], tokens: readonly Token[]): readonly Run[] => {
   const runs: Run[] = []
   let current: { start: number; token: Token; texts: string[] } | undefined
@@ -100,7 +107,12 @@ const runsOf = (lines: readonly string[], tokens: readonly Token[]): readonly Ru
   }
   lines.forEach((line, i) => {
     const comment = commentOf(line, tokens)
-    if (!comment || (current && current.token !== comment.token)) close(i - 1)
+    if (
+      !comment ||
+      (current && (current.token !== comment.token || endsThreadRun(current.texts, comment.text)))
+    ) {
+      close(i - 1)
+    }
     if (!comment) return
     if (current) current.texts.push(comment.text)
     else current = { start: i, token: comment.token, texts: [comment.text] }
