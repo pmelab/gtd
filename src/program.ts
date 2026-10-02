@@ -33,6 +33,8 @@ import { startLspServer } from "./Lsp.js"
 import {
   BUILT_IN_MODE_NAMES,
   steeringFormatFor,
+  openThreads,
+  parseCodeThreads,
   unansweredQuestions,
   type SteeringFinding,
   type SteeringFormat,
@@ -720,6 +722,7 @@ const runCheckCommand = (
   mode: string,
   file: string,
   openQuestions: boolean,
+  openThreadsFlag: boolean,
 ): Effect.Effect<void, Error, Workspace> =>
   Effect.gen(function* () {
     const format = steeringFormatFor(mode)
@@ -729,6 +732,25 @@ const runCheckCommand = (
           `gtd check: unknown mode "${mode}" — known modes: ${BUILT_IN_MODE_NAMES.join(", ")}`,
         ),
       )
+    }
+
+    if (openThreadsFlag) {
+      if (openQuestions) {
+        return yield* Effect.fail(
+          new Error("gtd check: --open-threads and --open-questions are mutually exclusive"),
+        )
+      }
+      if (format.openThreads === undefined) {
+        const accepted = BUILT_IN_MODE_NAMES.filter(
+          (name) => steeringFormatFor(name)?.openThreads !== undefined,
+        )
+        return yield* Effect.fail(
+          new Error(
+            `gtd check: --open-threads only applies to modes ${accepted.join(", ")} — got "${mode}"`,
+          ),
+        )
+      }
+      return yield* runOpenThreadsCheckCommand(format, file)
     }
 
     if (openQuestions) {
@@ -754,6 +776,55 @@ const runCheckCommand = (
         `gtd check: ${file} is not valid under mode "${mode}" (${errors.length} finding(s)):\n` +
           errors.join("\n"),
       ),
+    )
+  })
+
+/**
+ * The bare `gtd check --open-threads`: code-comment threads in the files the
+ * current process changed. The one `check` form that reads process state; no
+ * process underway is silence, not an error.
+ */
+const runCodeThreadsCheckCommand = (): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const rest = yield* currentRest
+    if (rest.run.trace.length === 0) return
+    const git = yield* GitService
+    const workspace = yield* Workspace
+    const changed = yield* git.changedPaths(rest.run.diffBase)
+    const lines = changed
+      .filter((c) => c.status !== "D")
+      .flatMap(({ path }) => {
+        const { threads, findings } = parseCodeThreads(path, workspace.atPath(path) ?? "")
+        return [
+          ...threads
+            .filter((t) => t.waitingOn === "human")
+            .map((t) => `${path}:${t.line + 1}: ${t.entries[0]!.text}`),
+          ...findings.map((f) => `${path}:${(f.line ?? 0) + 1}: ${f.message}`),
+        ]
+      })
+    if (lines.length === 0) return
+    return yield* Effect.fail(new Error(lines.join("\n")))
+  })
+
+/** Prints one `file:line: [^name]: <first H entry>` line per open thread; a missing file fails, like `--open-questions`. */
+const runOpenThreadsCheckCommand = (
+  format: SteeringFormat,
+  file: string,
+): Effect.Effect<void, Error, Workspace> =>
+  Effect.gen(function* () {
+    const workspace = yield* Workspace
+    const content = workspace.atPath(file)
+    if (content === undefined) {
+      return yield* Effect.fail(new Error(`gtd check: ${file} does not exist`))
+    }
+
+    const errors = openThreads(format, content).map(
+      (t) => `${file}:${t.line + 1}: [^${t.name}]: ${t.firstMe}`,
+    )
+    if (errors.length === 0) return
+
+    return yield* Effect.fail(
+      new Error(`gtd check: ${errors.length} open thread(s) in ${file}:\n` + errors.join("\n")),
     )
   })
 
@@ -1016,7 +1087,15 @@ const dispatchVoidCommand = (
     case "validate":
       return runValidateCommand(out)
     case "check":
-      return runCheckCommand(command.mode, command.file, command.openQuestions ?? false)
+      if (command.mode === undefined || command.file === undefined) {
+        return runCodeThreadsCheckCommand()
+      }
+      return runCheckCommand(
+        command.mode,
+        command.file,
+        command.openQuestions ?? false,
+        command.openThreads ?? false,
+      )
     case "uncheck":
       return runUncheckCommand(command.file)
     case "install":

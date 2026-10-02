@@ -136,6 +136,12 @@ landed step left — never the live working tree:
 - `sections(text)` — the top-level `## ` headings of markdown `text`
 - `sectionBodies(text)` — the same sections as `{ title, body }`, `body` being
   the section's own markdown, its heading line included
+- `threads(text)` — every `H:`/`A:` thread in a document as
+  `{ name, line, waitingOn }` (1-based line; `waitingOn: "human"` means open).
+- `codeThreads()` — every `H:`/`A:` thread in line comments of the files changed
+  since the process's diff base (deleted files excluded), as
+  `{ path, line, waitingOn, first, faults }` (1-based line, `first` the opening
+  `H:` entry's text, `faults` its syntax faults). Reads committed trees
 - `openQuestions(text)` — the unanswered questions of a `qa` document, each
   `{ question, line }`
 - `vars` — the merged variables (see [Variables](#variables))
@@ -206,6 +212,16 @@ turn they check:
 - `requireAnswers(file)` — refuses a turn that changed something while a
   question in the `qa` document `file` is still unanswered. A turn that changes
   nothing is accepted
+- `requireThreadsClosed(file)` — refuses any landing while a thread in `file`,
+  or a code thread in a changed file, waits on the human (its last entry is the
+  agent's) or has a syntax fault, listing each as `file:line: [^name]` /
+  `path:line: <first H entry>`; the human replies with a conclusion or deletes
+  it
+- `requireReplies(file)` — refuses an agent turn that leaves a thread in `file`,
+  or a code thread in a changed file, whose last entry is `H:` (or that has a
+  syntax fault), listing each the same way
+- `hasThreadFor(waitingOn, file?)` — whether a thread waits on `waitingOn`: a
+  footnote thread in `file` or any code thread
 - `requireRevert(edited, base)` — refuses a turn that left any of the `edited`
   changes differing from their content before them
 
@@ -497,6 +513,70 @@ empty (a newly seeded definition starts that way), and a definition followed by
 text indented 1-3 spaces — too little to join the body as a continuation line —
 which names the indent and the 4-space fix rather than calling the body empty —
 each fails the file until fixed.
+
+A footnote can also be a **thread**: a conversation. Its definition is a list of
+alternating `- H:` and `- A:` entries, the first yours, with continuation lines
+indented 4 spaces (oxfmt's 6-space wrap is fine):
+
+```markdown
+We cache the result per request.[^cache]
+
+[^cache]:
+    - H: why do we do that this way?
+    - A: because ...
+    - H: then do it this way
+```
+
+Only a definition whose body opens with a `H:`/`A:` item is a thread; anything
+else stays a one-shot footnote. The agent reads the wording of your last entry:
+a question gets one `- A:` reply in the same thread and nothing else changes; a
+conclusion or advice gets folded into the document and the marker and definition
+are deleted together. If it misreads you, correct it with your next entry. The
+agent never starts a thread. A thread is **open** when its last entry is the
+agent's. `gtd check`/`gtd validate` flag an item without a `H:`/`A:` prefix, a
+first entry by the agent, two consecutive entries by one author, an empty entry,
+and anything in the body besides the one list; an open thread is not a finding,
+but it refuses every landing at the bundled requirements, architecture and
+review gates until you reply with a conclusion or delete it. Those gates stop on
+every process; a round that only replies returns to the same gate (at review: no
+revert, no development lap). `gtd check <mode> <file> --open-threads` prints
+`file:line: [^name]: <first H entry>` for each open thread and exits non-zero
+when any exist (modes `qa`, `review`). A `review` line note on a hunk pointer
+stays a one-shot note — to discuss a hunk, put a footnote on it.
+
+#### Threads in code comments
+
+The same conversation works in **line comments** of any file changed in the
+current process (diff base to working tree, untracked non-ignored files
+included; an untouched file is never scanned). Write bare entries — no bullet,
+no `[^name]` marker; the comment's position is the anchor:
+
+```ts
+// H: why do we retry here?
+// A: the upstream drops the first request after idle
+```
+
+- Only line comments count: `//` (`.ts`, `.js`, `.go`, `.rs`, `.c`, `.java` and
+  kin), `#` (`.feature`, `.py`, `.sh`, `.rb`, `.yaml`, `.toml`), `--` (`.sql`,
+  `.lua`, `.hs`), `;` (`.lisp`, `.clj`, `.ini`, `.asm`). A file with no mapped
+  extension (`Makefile`, `Dockerfile`) is scanned for all four; `.md` and
+  `.gtd/**` never. Block comments (`/* */`, `<!-- -->`) and trailing comments
+  after code never form a thread
+- A thread is one run of consecutive same-token comment lines whose first line
+  starts with `H:`; an unprefixed line in the run continues the entry above; the
+  first non-comment line ends it
+- Same rules as a footnote thread: entries alternate, the agent never starts
+  one, an open thread (agent spoke last) refuses landing at the requirements,
+  architecture and review gates, and the agent answers a question with exactly
+  one `A:` line directly below, or folds a conclusion in and deletes the thread.
+  A syntax fault (agent opens, same author twice, empty entry) refuses too
+- A thread-only code change is not a review code edit: a question at the review
+  gate gets its reply and rests there, no lap
+- A code thread is transient — it must not survive the lap that settles it
+- Code threads are not shown in the phone UI. `gtd check --open-threads` with no
+  `<mode> <file>` lists them as `path:line: <first H entry>` (and one line per
+  fault), exiting non-zero when any are printed; it reads the process's diff
+  base, and prints nothing (exit 0) when no process is underway
 
 #### The normalization-only contract on `format:`
 

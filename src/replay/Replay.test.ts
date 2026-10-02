@@ -4,6 +4,7 @@ import {
   agent,
   changes,
   changesSince,
+  codeThreads,
   human,
   judge,
   read,
@@ -11,6 +12,7 @@ import {
   restart,
   run,
   scope,
+  threads,
   type Flow,
 } from "../flows/index.js"
 import type { Episode, ReplayOutcome } from "./Replay.js"
@@ -187,6 +189,59 @@ describe("replay", () => {
       }),
       { numRuns: 40 },
     )
+  })
+
+  it("threads() gives a flow each thread's name, 1-based line and waitingOn", async () => {
+    const doc = "a.[^q]\n\n[^q]:\n    - H: why?\n    - A: because\n"
+    const flow = async () => {
+      await human("idle")
+      const open = threads(read("NOTES.md") ?? "").filter((t) => t.waitingOn === "human")
+      await human(
+        open.length === 1 && open[0]!.name === "q" && open[0]!.line === 3 ? "open" : "none",
+      )
+    }
+    const h = new History().land("human", "idle", 1, "open", { "NOTES.md": doc })
+    expect(restName(await replayOf(flow, h))).toBe("open#1")
+  })
+
+  it("codeThreads() returns threads of files changed since the process base only", async () => {
+    const thread = ["// H: why?", "// A: because"].join("\n")
+    const open = ["x", "// H: ask"].join("\n")
+    const flow = async () => {
+      await human("idle")
+      const found = codeThreads()
+      const ok =
+        found.length === 1 &&
+        found[0]!.path === "src/new.ts" &&
+        found[0]!.line === 2 &&
+        found[0]!.first === "ask" &&
+        found[0]!.waitingOn === "agent"
+      await human(ok ? "open" : "none")
+    }
+    const h = new History().land("human", "idle", 1, "open", { "src/new.ts": open })
+    h.files = { ...h.files, "src/old.ts": thread }
+    const episode = h.episode()
+    const withBase: Episode = {
+      ...episode,
+      base: {
+        ...episode.base,
+        tree: treeFromRecord({ "src/old.ts": thread, "src/gone.ts": open }),
+      },
+      commits: [
+        {
+          ...episode.commits[0]!,
+          tree: treeFromRecord({ "src/old.ts": thread, "src/new.ts": open }),
+        },
+      ],
+    }
+    const outcome = await replay({
+      flow,
+      episode: withBase,
+      vars: {},
+      start: hashOf(0),
+      budgetBytes: 1024,
+    })
+    expect(restName(outcome)).toBe("open#1")
   })
 
   describe("divergence", () => {

@@ -341,6 +341,118 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     Then it fails
     And stderr contains "MISSING.md"
 
+  @inmem
+  Scenario: a thread item without an H:/A: prefix is a finding
+    Given a file "NOTES.md" with:
+      """
+      We cache.[^x]
+
+      [^x]:
+          - H: why?
+          - A: because
+          - stray
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stderr contains "must start with"
+
+  @inmem
+  Scenario: a thread opening with A: is a finding
+    Given a file "NOTES.md" with:
+      """
+      We cache.[^x]
+
+      [^x]:
+          - A: hi
+          - H: ok
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stderr contains "never starts a thread"
+
+  @inmem
+  Scenario: two consecutive entries by one author are a finding
+    Given a file "NOTES.md" with:
+      """
+      We cache.[^x]
+
+      [^x]:
+          - H: why?
+          - H: and again?
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stderr contains "consecutive"
+
+  @inmem
+  Scenario: an empty thread entry is a finding
+    Given a file "NOTES.md" with:
+      """
+      We cache.[^x]
+
+      [^x]:
+          - H:
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stderr contains "write your own words there"
+
+  @inmem
+  Scenario: a stray paragraph in a thread body is a finding
+    Given a file "NOTES.md" with:
+      """
+      We cache.[^x]
+
+      [^x]:
+          - H: why?
+
+          stray paragraph
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it fails
+    And stderr contains "only one list"
+
+  @inmem
+  Scenario: an open thread is no validate finding
+    Given a file "NOTES.md" with:
+      """
+      We cache.[^x]
+
+      [^x]:
+          - H: why?
+          - A: because
+      """
+    When I run gtd with args "check qa NOTES.md"
+    Then it succeeds
+    And stdout is empty
+
+  @inmem
+  Scenario: --open-threads fails and lists the open thread with its first H entry
+    Given a file "NOTES.md" with:
+      """
+      We cache.[^x]
+
+      [^x]:
+          - H: why this way?
+          - A: because
+      """
+    When I run gtd with args "check review NOTES.md --open-threads"
+    Then it fails
+    And stderr contains "NOTES.md:3: [^x]: why this way?"
+
+  @inmem
+  Scenario: --open-threads succeeds when every thread waits on the agent
+    Given a file "NOTES.md" with:
+      """
+      We cache.[^x]
+
+      [^x]:
+          - H: why this way?
+      """
+    When I run gtd with args "check qa NOTES.md --open-threads"
+    Then it succeeds
+    And stdout is empty
+
   @live
   Scenario: gtd check runs standalone outside any git repository
     Given a plain directory that is not a git repository

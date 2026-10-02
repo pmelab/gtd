@@ -133,6 +133,8 @@ export interface FlowContext {
   readonly sections: (text: string) => readonly string[]
   readonly sectionBodies: (text: string) => readonly Section[]
   readonly openQuestions: (text: string) => readonly OpenQuestion[]
+  readonly threads: (text: string) => readonly ThreadInfo[]
+  readonly codeThreads: () => readonly CodeThreadInfo[]
   readonly vars: Readonly<Record<string, string>>
   readonly head: () => string
   readonly start: () => string
@@ -274,6 +276,32 @@ export interface OpenQuestion {
   /** The 1-based line of the question's heading. */
   readonly line: number
 }
+
+export interface ThreadInfo {
+  readonly name: string
+  /** The 1-based line of the thread's `[^name]:` definition. */
+  readonly line: number
+  /** `"human"` means the last entry is the agent's: the thread is open. */
+  readonly waitingOn: "human" | "agent"
+}
+
+/** Every `H:`/`A:` thread (a footnote) in `text`. */
+export const threads = (text: string): readonly ThreadInfo[] => ctx().threads(text)
+
+export interface CodeThreadInfo {
+  readonly path: string
+  /** The 1-based line of the thread's first comment line. */
+  readonly line: number
+  /** `"human"` means the last entry is the agent's: the thread is open. */
+  readonly waitingOn: "human" | "agent"
+  /** The text of the opening `H:` entry. */
+  readonly first: string
+  /** Syntax faults, each already prefixed `Code thread at <path>:<line>:`. */
+  readonly faults: readonly string[]
+}
+
+/** Every `H:`/`A:` thread in line comments of the files changed since the process's diff base. */
+export const codeThreads = (): readonly CodeThreadInfo[] => ctx().codeThreads()
 
 /** The qa-format questions in `text` that are still unanswered. */
 export const openQuestions = (text: string): readonly OpenQuestion[] => ctx().openQuestions(text)

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { applySteeringEdits } from "../ui/index.js"
-import { BUILT_IN_MODE_NAMES, parseFootnotes, steeringFormatFor } from "./index.js"
+import { BUILT_IN_MODE_NAMES, parseFootnotes, parseThreads, steeringFormatFor } from "./index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!
@@ -370,26 +370,30 @@ describe("a server-written note actually reflows and still validates (T7's real 
     "written as one long unwrapped line so the formatter actually has " +
     "something to reflow, and it carries a `multi word code span` too."
 
+  /** The line span of the note carrying `LONG_UNWRAPPED_NOTE` — a thread's entry (a fresh `qa` note) or a one-shot footnote body (a note replacing the review sample's). */
+  const noteSpan = (content: string): { line: number; endLine: number } | undefined => {
+    const entry = parseThreads(content)
+      .flatMap((t) => t.entries)
+      .find((e) => e.text === LONG_UNWRAPPED_NOTE)
+    if (entry) return entry
+    return parseFootnotes(content).definitions.find((d) => d.body === LONG_UNWRAPPED_NOTE)
+  }
+
   it("reflows a freshly-attached note across multiple lines, and still validates clean afterward", () => {
     for (const mode of BUILT_IN_MODE_NAMES) {
       const format = steeringFormatFor(mode)!
       const applied = attachAtFirstFreeAnchor(format, format.sample, LONG_UNWRAPPED_NOTE)
 
-      // Before formatting: the definition is genuinely ONE physical line —
+      // Before formatting: the note is genuinely ONE physical line —
       // proof this test feeds the formatter an actually-unwrapped note.
-      const beforeDefs = parseFootnotes(applied).definitions
-      const freshNote = beforeDefs.find((d) => d.body === LONG_UNWRAPPED_NOTE)!
-      expect(freshNote.endLine).toBe(freshNote.line)
+      const before = noteSpan(applied)!
+      expect(before.endLine).toBe(before.line)
 
       const formatted = formatWithOxfmt(applied)
 
-      // After formatting: oxfmt actually reflowed it across multiple lines —
-      // proof the formatter's reflow is the thing this test exercised, not a
-      // no-op on already-wrapped content.
-      const afterDefs = parseFootnotes(formatted).definitions
-      const reflowedNote = afterDefs.find((d) => d.name === freshNote.name)!
-      expect(reflowedNote.endLine).toBeGreaterThan(reflowedNote.line)
-      expect(reflowedNote.body).toBe(LONG_UNWRAPPED_NOTE)
+      // After formatting: oxfmt actually reflowed it across multiple lines.
+      const after = noteSpan(formatted)!
+      expect(after.endLine).toBeGreaterThan(after.line)
 
       expect(format.validate(formatted)).toEqual([])
     }
@@ -405,4 +409,34 @@ describe("a server-written note actually reflows and still validates (T7's real 
       expect(format.validate(formatted)).toEqual([])
     }
   })
+})
+
+describe("thread-aware attach validates clean under every built-in format", () => {
+  const FIRST = "first"
+  for (const mode of BUILT_IN_MODE_NAMES) {
+    it(`${mode}: new thread, reply to an open thread, edit a waiting thread`, () => {
+      const format = steeringFormatFor(mode)!
+      const anchors = anchorsIn(format.view(format.sample))
+      const anchor = anchors.find((a) => {
+        const r = format.annotate(format.sample, a as never, FIRST)
+        return r.ok && parseThreads(applySteeringEdits(format.sample, r.edits)).length > 0
+      })!
+      const attach = (content: string, text: string): string => {
+        const r = format.annotate(content, anchor as never, text)
+        if (!r.ok) throw new Error("annotate refused")
+        return applySteeringEdits(content, r.edits)
+      }
+      const created = attach(format.sample, FIRST)
+      expect(format.validate(created)).toEqual([])
+      const edited = attach(created, "second")
+      expect(format.validate(edited)).toEqual([])
+      const thread = parseThreads(edited).find((t) => t.entries[0]?.text === "second")!
+      expect(thread.entries).toHaveLength(1)
+      const open = edited.replace(new RegExp(`(\\n    - H: second)`), "$1\n    - A: why?")
+      const replied = attach(open, "because")
+      expect(format.validate(replied)).toEqual([])
+      const after = parseThreads(replied).find((t) => t.name === thread.name)!
+      expect(after.entries.map((e) => e.text)).toEqual(["second", "why?", "because"])
+    })
+  }
 })

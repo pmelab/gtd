@@ -91,11 +91,11 @@ describe("freeFormFormat.validate/outline/actions", () => {
     expect(freeFormFormat.validate("# Anything\n\nGoes.\n")).toEqual([])
   })
 
-  it("outline always returns []", () => {
+  it("outline is [] without threads", () => {
     expect(freeFormFormat.outline("# Anything\n\nGoes.\n")).toEqual([])
   })
 
-  it("actions always returns []", () => {
+  it("actions are [] away from a thread", () => {
     expect(
       freeFormFormat.actions("Some prose.\n", {
         start: { line: 0, character: 0 },
@@ -229,6 +229,25 @@ describe("freeFormFormat.annotate", () => {
     expect(freeFormFormat.validate(applied)).toEqual([])
   })
 
+  it("creates a thread, appends to an open one, replaces on a waiting one — each validates clean", () => {
+    const anchor = { kind: "paragraph" as const, line: 0 }
+    const attach = (content: string, text: string): string => {
+      const r = freeFormFormat.annotate(content, anchor, text)
+      if (!r.ok) throw new Error("refused")
+      return applyEdits(content, r.edits)
+    }
+    const created = attach("Paragraph one.\n", "first")
+    expect(created).toMatch(/\[\^na\w+\]:\n    - H: first\n/)
+    expect(freeFormFormat.validate(created)).toEqual([])
+    const replaced = attach(created, "second")
+    expect(replaced).toContain("- H: second")
+    expect(replaced).not.toContain("first")
+    const open = replaced.replace("- H: second", "- H: second\n    - A: why?")
+    const replied = attach(open, "because")
+    expect(replied).toContain("    - A: why?\n    - H: because")
+    expect(freeFormFormat.validate(replied)).toEqual([])
+  })
+
   it("refuses a non-paragraph anchor", () => {
     const result = freeFormFormat.annotate("x\n", { kind: "hunk", chunkIndex: 0, index: 0 }, "note")
     expect(result).toEqual({ ok: false, reason: "anchor-not-found" })
@@ -279,5 +298,14 @@ describe("freeFormFormat.apply — CRLF documents preserve untouched bytes", () 
       ["# Heading", "", "Paragraph one.", "", "Line one.", "Line two.", ""].join("\r\n"),
     )
     expect(applied.replace(/\r\n/g, "")).not.toContain("\n")
+  })
+})
+
+describe("freeFormFormat — thread outline", () => {
+  it("free-form lists threads at top level", () => {
+    const doc = "Text [^a].\n\n[^a]:\n    - H: hi\n    - A: yo\n"
+    expect(freeFormFormat.outline(doc).map((n) => [n.name, n.detail])).toEqual([
+      ["[^a]", "waiting on you"],
+    ])
   })
 })

@@ -25,7 +25,8 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -58,7 +59,8 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -106,7 +108,8 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -158,7 +161,8 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -219,7 +223,8 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -266,7 +271,8 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]

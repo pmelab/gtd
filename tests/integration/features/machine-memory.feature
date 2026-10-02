@@ -153,7 +153,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build the widget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -202,14 +203,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build the widget and the gadget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       Technical plan: one module each. No open questions.
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
     And the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-widget.md" with:
       """
@@ -303,7 +306,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       Add a doc comment above the widget export. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -341,7 +345,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build the widget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -510,7 +515,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       Add a doc comment above the widget export. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -606,7 +612,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       Add a doc comment above the widget export. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]
@@ -760,7 +767,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build a widget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     # No verdict piped: the conservative default runs the full pass.
     And gtd lands "gtd(judge): architecture-pre → architecture.author"
     When I run gtd next with "--json"
@@ -813,7 +821,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       SQLite — zero-config, file-based.
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.decompose"
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"architecture.decompose\""
@@ -832,7 +841,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build the widget. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]

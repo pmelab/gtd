@@ -1,8 +1,9 @@
 import type { DiffResult, FileDiff } from "../../ui/index.js"
-import type { SteeringViewNode } from "../../steering/index.js"
+import type { SteeringViewNode, SteeringViewThread } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { highlightDiffLine } from "../Highlight.js"
 import { Notice } from "../Notice.js"
+import { Thread } from "../Thread.js"
 import { Inline } from "./InlineRun.js"
 
 export interface HunkProps {
@@ -22,6 +23,8 @@ export interface HunkProps {
   readonly hasNote: boolean
   /** The attached note's own text, when there is one — shown IN PLACE of the note control, matching a chunk row on the list screen. `hasNote` stays the flag the control reads, since a caller with no note text at all still has one to pass. */
   readonly note?: string
+  /** The attached thread, rendered as a conversation in place of `note`. */
+  readonly thread?: SteeringViewThread
   readonly onToggle: (checked: boolean) => void
   /** Fires only when ticking (never un-ticking) — the tick IS the approval gesture here, so `Review.tsx` wires this to advance the deck, which exits back to the chunk list on the last hunk. */
   readonly onApprove: () => void
@@ -214,6 +217,9 @@ const ApproveRow = ({
   </label>
 )
 
+const noteLabel = (hasNote: boolean, note: string | undefined): string =>
+  hasNote ? (note ?? "Edit note") : "+ Add note"
+
 /**
  * With a note attached, the note itself is the control — the same rule a
  * chunk row follows on the list screen: "Edit note" says only that one
@@ -224,10 +230,12 @@ const ApproveRow = ({
 const NoteAffordance = ({
   hasNote,
   note,
+  thread,
   onOpenNote,
 }: {
   readonly hasNote: boolean
   readonly note: string | undefined
+  readonly thread: SteeringViewThread | undefined
   readonly onOpenNote: () => void
 }) => (
   <Button
@@ -240,7 +248,11 @@ const NoteAffordance = ({
         : "w-full text-left text-small text-muted"
     }
   >
-    {hasNote ? (note ?? "Edit note") : "+ Add note"}
+    {thread !== undefined ? (
+      <Thread thread={thread} testId="hunk-thread" />
+    ) : (
+      noteLabel(hasNote, note)
+    )}
   </Button>
 )
 
@@ -259,6 +271,7 @@ export const Hunk = ({
   checked,
   hasNote,
   note,
+  thread,
   onToggle,
   onApprove,
   onOpenNote,
@@ -279,7 +292,7 @@ export const Hunk = ({
 
     <div className="flex flex-col gap-2 p-3">
       <ApproveRow checked={checked} onToggle={onToggle} onApprove={onApprove} />
-      <NoteAffordance hasNote={hasNote} note={note} onOpenNote={onOpenNote} />
+      <NoteAffordance hasNote={hasNote} note={note} thread={thread} onOpenNote={onOpenNote} />
     </div>
   </div>
 )

@@ -1,10 +1,11 @@
-import { installContext, type StepRequest } from "../flows/index.js"
+import { installContext, type CodeThreadInfo, type StepRequest } from "../flows/index.js"
 import { defaults } from "./vars.js"
 
 export interface TextContext {
   readonly vars?: Readonly<Record<string, string>>
   readonly head?: string
   readonly start?: string
+  readonly codeThreads?: readonly CodeThreadInfo[]
   readonly read?: (path: string) => string | undefined
 }
 
@@ -27,6 +28,8 @@ export const renderText = <T>(text: () => T, context: TextContext = {}): T => {
     sections: () => [],
     sectionBodies: () => [],
     openQuestions: () => [],
+    threads: () => [],
+    codeThreads: () => context.codeThreads ?? [],
     vars: { ...defaults, ...context.vars },
     head: () => context.head ?? "",
     start: () => context.start ?? "",
@@ -60,6 +63,8 @@ export const captureStep = async (
     sections: () => [],
     sectionBodies: () => [],
     openQuestions: () => [],
+    threads: () => [],
+    codeThreads: () => context.codeThreads ?? [],
     vars: { ...defaults, ...context.vars },
     head: () => context.head ?? "",
     start: () => context.start ?? "",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { SteeringAnchor, SteeringViewNode } from "../steering/index.js"
-import { existingNoteFor } from "./notes.js"
+import { existingNoteFor, withReply } from "./notes.js"
 
 const paragraph = (line: number, note?: string): SteeringViewNode => ({
   title: `line ${line}`,
@@ -30,5 +30,64 @@ describe("existingNoteFor", () => {
     expect(
       existingNoteFor([paragraph(1, "x")], { kind: "chunk", index: 0 }, { 1: "y" }),
     ).toBeUndefined()
+  })
+})
+
+const open: SteeringViewNode["thread"] = {
+  name: "t",
+  entries: [
+    { author: "me", text: "ask" },
+    { author: "agent", text: "which?" },
+  ],
+  waitingOn: "human",
+}
+const waiting: SteeringViewNode["thread"] = {
+  name: "t",
+  entries: [{ author: "me", text: "ask" }],
+  waitingOn: "agent",
+}
+const withThread = (
+  anchor: SteeringAnchor,
+  thread: SteeringViewNode["thread"],
+): SteeringViewNode => ({
+  title: "n",
+  anchor,
+  thread: thread!,
+})
+
+describe("existingNoteFor — threads", () => {
+  it("opens empty for a reply to an open thread", () => {
+    expect(existingNoteFor([withThread(at(3), open)], at(3), {})).toBe("")
+  })
+
+  it("prefills the last `- H:` text of a thread waiting on the agent", () => {
+    expect(existingNoteFor([withThread(at(3), waiting)], at(3), {})).toBe("ask")
+  })
+
+  it("finds a thread on a chunk, a hunk and a question anchor", () => {
+    const hunk: SteeringAnchor = { kind: "hunk", chunkIndex: 0, index: 0 }
+    const chunk: SteeringAnchor = { kind: "chunk", index: 0 }
+    const nodes: SteeringViewNode[] = [
+      { ...withThread(chunk, waiting), children: [withThread(hunk, open)] },
+      withThread({ kind: "question", index: 1 }, waiting),
+    ]
+    expect(existingNoteFor(nodes, chunk, {})).toBe("ask")
+    expect(existingNoteFor(nodes, hunk, {})).toBe("")
+    expect(existingNoteFor(nodes, { kind: "question", index: 1 }, {})).toBe("ask")
+  })
+})
+
+describe("withReply", () => {
+  it("appends an H entry to an open thread", () => {
+    expect(withReply(open!, "answer").entries.map((e) => e.text)).toEqual([
+      "ask",
+      "which?",
+      "answer",
+    ])
+    expect(withReply(open!, "answer").waitingOn).toBe("agent")
+  })
+
+  it("replaces the last H entry of a thread waiting on the agent", () => {
+    expect(withReply(waiting!, "better").entries).toEqual([{ author: "me", text: "better" }])
   })
 })

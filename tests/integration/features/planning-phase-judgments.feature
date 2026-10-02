@@ -23,7 +23,8 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       Add a `greet()` export returning a friendly string. No open questions,
       no structural decisions, one file touched.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     When I run gtd judge answer with stdin:
       """
       [
@@ -63,7 +64,8 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       Add a `greet()` export returning a friendly string. No open questions,
       no structural decisions, one file touched.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     When I run gtd judge answer with stdin:
       """
       [
@@ -101,7 +103,8 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
       ever sees this paragraph — the structural concern living right here,
       near the top, is exactly what a truncated "no" could miss.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     When I run gtd judge answer with stdin:
       """
       [

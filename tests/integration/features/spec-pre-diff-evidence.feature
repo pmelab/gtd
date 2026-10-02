@@ -15,7 +15,8 @@ Feature: packages.item.spec.pre's evidence carries the package's own diff, filte
       """
       Build the widget factory. No open questions.
       """
-    And gtd lands "gtd(agent): design.triage → architecture-pre"
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
     And gtd lands "gtd(judge): architecture-pre → architecture-promote" judging:
       """
       [{"id": "architectureWarranted", "answer": false, "p": 0.95}]

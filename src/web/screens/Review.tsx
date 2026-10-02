@@ -1,12 +1,19 @@
 import { useRef, useState, type RefObject } from "react"
-import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
+import type {
+  SteeringAnchor,
+  SteeringView,
+  SteeringViewNode,
+  SteeringViewThread,
+} from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
+import { existingNoteFor, withReply } from "../notes.js"
 import { messageForReadRefusal, SaveIndicator, useSaveIndicatorProps } from "../Refusal.js"
+import { Thread } from "../Thread.js"
 import { readRefusalFrom, trpc } from "../api.js"
 import type { CasTokens } from "../staleRetry.js"
 import { useScrollRestoration } from "../useScrollRestoration.js"
@@ -75,18 +82,32 @@ const useReviewState = (
     (overlay[checkedCell(hunk.anchor)]?.value as boolean | undefined) ?? hunk.checked === true
 
   /** Reads BOTH a plain save's own `"note"` cell and that same anchor's `"done"` cell (a Save & Done) — only one of the two is ever written per interaction, so whichever is newer is what should show. */
-  const noteTextOf = (node: SteeringViewNode): string | undefined => {
-    const value = latestOverlayValue(overlay, [noteCell(node.anchor), doneCell(node.anchor)])
-    return (value as string | undefined) ?? node.note
+  const savedNoteOf = (node: SteeringViewNode): string | undefined =>
+    latestOverlayValue(overlay, [noteCell(node.anchor), doneCell(node.anchor)]) as
+      | string
+      | undefined
+
+  /** A thread never renders as flat text: `noteTextOf` is `undefined` for one, `threadOf` carries it (with an optimistic reply applied). */
+  const threadOf = (node: SteeringViewNode): SteeringViewThread | undefined => {
+    if (node.thread === undefined) return undefined
+    const saved = savedNoteOf(node)
+    return saved === undefined ? node.thread : withReply(node.thread, saved)
   }
 
+  const noteTextOf = (node: SteeringViewNode): string | undefined =>
+    node.thread === undefined ? (savedNoteOf(node) ?? node.note) : undefined
+
   const hasNoteText = (node: SteeringViewNode): boolean => {
+    if (node.thread !== undefined) return true
     const text = noteTextOf(node)
     return text !== undefined && text.length > 0
   }
 
   const openNoteSheet = (node: SteeringViewNode) =>
-    setNoteSheet({ anchor: node.anchor, initialNote: noteTextOf(node) })
+    setNoteSheet({
+      anchor: node.anchor,
+      initialNote: existingNoteFor([node], node.anchor, {}) ?? noteTextOf(node),
+    })
 
   const saveNote = (anchor: SteeringAnchor, text: string) => {
     setNoteSheet(undefined)
@@ -170,6 +191,7 @@ const useReviewState = (
     isChecked,
     hasNoteText,
     noteTextOf,
+    threadOf,
     openNoteSheet,
     saveNote,
     doneNote,
@@ -207,6 +229,7 @@ const hunkPropsFor = (
   checked: state.isChecked(hunk),
   hasNote: state.hasNoteText(hunk),
   ...(state.noteTextOf(hunk) !== undefined ? { note: state.noteTextOf(hunk)! } : {}),
+  ...(state.threadOf(hunk) !== undefined ? { thread: state.threadOf(hunk)! } : {}),
   onToggle: (checked) => state.setHunkChecked(hunk, checked),
   onApprove: () => state.approveAndAdvance(hunks),
   onOpenNote: () => state.openNoteSheet(hunk),
@@ -316,7 +339,11 @@ const ChunkRow = ({
           onClick={() => state.openNoteSheet(chunk)}
           className="w-full rounded border border-divider px-2 py-1 text-left text-small font-normal text-muted"
         >
-          {state.noteTextOf(chunk)}
+          {state.threadOf(chunk) !== undefined ? (
+            <Thread thread={state.threadOf(chunk)!} testId={`chunk-thread-${chunkIndex}`} />
+          ) : (
+            state.noteTextOf(chunk)
+          )}
         </Button>
       )}
     </div>

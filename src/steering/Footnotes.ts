@@ -1,14 +1,24 @@
 import type { Paragraph, Root } from "mdast"
 import {
   blockNodeAt,
+  lineRange,
   parseMarkdown,
   sourceText,
   spanRange,
   toLspPosition,
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
-import type { SteeringEdit, SteeringFinding, SteeringPointer } from "./SteeringFormat.js"
+import type {
+  SteeringAction,
+  SteeringEdit,
+  SteeringFinding,
+  SteeringOutlineNode,
+  SteeringPointer,
+  SteeringViewThread,
+} from "./SteeringFormat.js"
 import { eolOf } from "./Eol.js"
+import { collectThreads } from "./Threads.js"
+import type { Thread } from "./Threads.js"
 
 /** One `[^name]` marker's anchor: line AND column of its opening `[` — never the word or sentence it follows, which the reader reads itself. `endCharacter` is the column right after the closing `]`, on the same line (a marker's name has no whitespace, so it never spans a line) — the reference node's (or, for an orphan, the regex match's) own end, never hand-computed from `name.length`. */
 export interface FootnoteMarker {
@@ -42,6 +52,9 @@ export interface Footnotes {
 
 /** The footnote-addition action's title — the ONE shared literal `qa`/`review` offer it under and `src/Lsp.ts` matches to compute the reveal position. A drifted copy in any one place silently breaks the cursor jump without failing a single test, so this constant is the only place the string is spelled. */
 export const FOOTNOTE_ACTION_TITLE = "gtd: add a footnote"
+
+/** The thread-reply action's title — shared with `src/Lsp.ts` for the same reason as `FOOTNOTE_ACTION_TITLE`. */
+export const THREAD_REPLY_ACTION_TITLE = "gtd: reply"
 
 /**
  * A marker's shape once it's plain text: `[^name]`, name has no whitespace
@@ -82,6 +95,7 @@ const strandedParagraphAfter = (
 }
 
 const computeFindings = (
+  content: string,
   lines: readonly string[],
   tree: Root,
   markers: readonly FootnoteMarker[],
@@ -142,6 +156,7 @@ const computeFindings = (
     }
   }
 
+  findings.push(...collectThreads(content, tree, markers).findings)
   return findings.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
 }
 
@@ -261,8 +276,61 @@ export const parseFootnotes = (content: string): Footnotes => {
   markers.sort((a, b) => a.line - b.line || a.character - b.character)
 
   const lines = content.split(/\r?\n/)
-  return { markers, definitions, findings: computeFindings(lines, tree, markers, definitions) }
+  return {
+    markers,
+    definitions,
+    findings: computeFindings(content, lines, tree, markers, definitions),
+  }
 }
+
+/** Every thread (a footnote whose body is a `H:`/`A:` list) in `content`, off the same `parseMarkdown` memo as `parseFootnotes`. */
+export const parseThreads = (content: string): readonly Thread[] =>
+  collectThreads(content, parseMarkdown(content), parseFootnotes(content).markers).threads
+
+/** One-entry memo: a view walks many runs of ONE document, each building its own lookup. */
+let memo: { content: string; threads: ReadonlyMap<string, Thread> } | undefined
+const threadsByName = (content: string, footnotes: Footnotes): ReadonlyMap<string, Thread> => {
+  if (memo?.content !== content) {
+    const threads = collectThreads(content, parseMarkdown(content), footnotes.markers).threads
+    memo = { content, threads: new Map(threads.map((t) => [foldName(t.name), t])) }
+  }
+  return memo.threads
+}
+
+/**
+ * A view node's note, resolved by the line its markers sit on. A thread fills
+ * `thread` and suppresses `note`; a one-shot footnote fills `note`. Built once
+ * per document so a view walking many nodes never re-parses per node.
+ */
+export const noteLookup = (
+  content: string,
+  footnotes: Footnotes = parseFootnotes(content),
+): ((line: number) => { readonly note?: string; readonly thread?: SteeringViewThread }) => {
+  const threads = threadsByName(content, footnotes)
+  const bodies = new Map(footnotes.definitions.map((d) => [d.name, d.body]))
+  return (line) => {
+    const named = footnotes.markers.filter((m) => m.line === line)
+    const thread = named.map((m) => threads.get(foldName(m.name))).find((t) => t !== undefined)
+    if (thread) {
+      return {
+        thread: {
+          name: thread.name,
+          entries: thread.entries.map((e) => ({ author: e.author, text: e.text })),
+          waitingOn: thread.waitingOn,
+        },
+      }
+    }
+    const note = named
+      .map((m) => bodies.get(m.name))
+      .filter((body): body is string => body !== undefined)
+      .join(" ")
+    return note === "" ? {} : { note }
+  }
+}
+
+/** Thread syntax findings alone — what free-form `validate` reports without inheriting the other footnote findings. */
+export const threadFindings = (content: string): readonly SteeringFinding[] =>
+  collectThreads(content, parseMarkdown(content), []).findings
 
 /** The first integer unused by any `fnN` marker or definition already in the document — deterministic (no clock, no randomness), so "add a footnote" is testable and idempotent under re-run: applying it twice yields `fn1` then `fn2`, never a collision. Counts orphan markers too (via `parseFootnotes`), so it never reuses a name that's already written but undefined. */
 export const nextFootnoteName = (content: string): string => {
@@ -330,6 +398,9 @@ export interface FootnoteAnchor {
   readonly key: string
 }
 
+/** Entry text with continuation lines indented past the bullet's content column, so they stay inside the entry. */
+const entryText = (text: string, eol: string): string => text.split(/\r?\n/).join(`${eol}      `)
+
 export type FootnoteAttachResult =
   | { readonly ok: true; readonly id: string; readonly edits: readonly SteeringEdit[] }
   | { readonly ok: false; readonly reason: "id-collision" }
@@ -356,30 +427,59 @@ export const footnoteAttachEdits = (
   const { markers, definitions } = parseFootnotes(content)
   const id = anchorId(anchor.key)
   const existing = definitions.find((d) => foldName(d.name) === foldName(id))
-  if (existing) {
-    const attachedHere = markers.some(
-      (m) => foldName(m.name) === foldName(id) && m.line === anchor.line,
-    )
-    if (!attachedHere) {
-      return { ok: false, reason: "id-collision" }
-    }
-    const lines = content.split(/\r?\n/)
-    const lastLine = lines[existing.endLine] ?? ""
-    return {
-      ok: true,
-      id,
-      edits: [
-        {
-          range: {
-            start: { line: existing.line, character: 0 },
-            end: { line: existing.endLine, character: lastLine.length },
-          },
-          newText: `[^${id}]: ${text}`,
-        },
-      ],
-    }
-  }
+  if (!existing) return { ok: true, id, edits: newThreadEdits(content, anchor, id, text) }
+  const attachedHere = markers.some(
+    (m) => foldName(m.name) === foldName(id) && m.line === anchor.line,
+  )
+  if (!attachedHere) return { ok: false, reason: "id-collision" }
+  return { ok: true, id, edits: editExistingEdits(content, existing, id, text) }
+}
 
+/** The edit for a second attach at an anchor whose note already exists: reply to / replace into a thread, or replace a one-shot body. */
+const editExistingEdits = (
+  content: string,
+  existing: FootnoteDefinition,
+  id: string,
+  text: string,
+): readonly SteeringEdit[] => {
+  const lines = content.split(/\r?\n/)
+  const eol = eolOf(content)
+  const thread = parseThreads(content).find((t) => foldName(t.name) === foldName(id))
+  const last = thread?.entries[thread.entries.length - 1]
+  const endOf = (line: number) => ({ line, character: (lines[line] ?? "").length })
+  if (thread && last) {
+    const entry = `- H: ${entryText(text, eol)}`
+    if (thread.waitingOn === "human") {
+      // An entry opening on the definition's own line has no bullet column to copy.
+      const indent = " ".repeat(last.line === thread.line ? 4 : last.column)
+      const at = endOf(last.endLine)
+      return [{ range: { start: at, end: at }, newText: `${eol}${indent}${entry}` }]
+    }
+    return [
+      {
+        range: {
+          start: { line: last.line, character: last.column },
+          end: endOf(last.endLine),
+        },
+        newText: entry,
+      },
+    ]
+  }
+  return [
+    {
+      range: { start: { line: existing.line, character: 0 }, end: endOf(existing.endLine) },
+      newText: `[^${id}]: ${text}`,
+    },
+  ]
+}
+
+/** A marker at the anchor's end plus a fresh single-entry `- H:` thread after its block. */
+const newThreadEdits = (
+  content: string,
+  anchor: FootnoteAnchor,
+  id: string,
+  text: string,
+): readonly SteeringEdit[] => {
   const lines = content.split(/\r?\n/)
   // The document's own newline style, preserved in newly-written bytes — a
   // splice into a CRLF file that inserts bare `\n` would leave a mixed-EOL
@@ -398,12 +498,12 @@ export const footnoteAttachEdits = (
   const start = { line: insertLine, character: 0 }
   const nextContentLine = firstNonBlankFrom(lines, insertLine)
   const atEof = nextContentLine >= lines.length
+  const body = `[^${id}]:${eol}    - H: ${entryText(text, eol)}`
   const definitionEdit: SteeringEdit = {
     range: { start, end: atEof ? start : { line: nextContentLine, character: 0 } },
-    newText: atEof ? `${eol}[^${id}]: ${text}${eol}` : `${eol}[^${id}]: ${text}${eol}${eol}`,
+    newText: atEof ? `${eol}${body}${eol}` : `${eol}${body}${eol}${eol}`,
   }
-
-  return { ok: true, id, edits: [markerEdit, definitionEdit] }
+  return [markerEdit, definitionEdit]
 }
 
 /**
@@ -484,4 +584,73 @@ export const footnotePointerAt = (
   }
 
   return undefined
+}
+
+/** The open threads, shaped for `openThreads` in every format that supports it. */
+export const openThreadsOf = (
+  content: string,
+): readonly { readonly name: string; readonly line: number; readonly firstMe: string }[] =>
+  parseThreads(content)
+    .filter((t) => t.waitingOn === "human")
+    .map((t) => ({
+      name: t.name,
+      line: t.line,
+      firstMe: t.entries.find((e) => e.author === "me")?.text ?? "",
+    }))
+
+/** Threads as outline leaves, each paired with the line of its first marker (`undefined` when it has none) so a format can nest it under the block that marker sits in. A one-shot footnote is not a thread and yields nothing. */
+export const threadOutlineNodes = (
+  content: string,
+): readonly { readonly markerLine: number | undefined; readonly node: SteeringOutlineNode }[] => {
+  const lines = content.split(/\r?\n/)
+  return parseThreads(content).map((t) => ({
+    markerLine: t.markers[0]?.line,
+    node: {
+      name: `[^${t.name}]`,
+      detail: t.waitingOn === "human" ? "waiting on you" : "waiting on the agent",
+      range: spanRange(lines, t.line, t.endLine),
+      selectionRange: lineRange(lines, t.line),
+      leaf: true,
+    },
+  }))
+}
+
+/** One `Information` finding per open thread, on its last entry — what an editor flags as "your turn". */
+export const openThreadFindings = (content: string): readonly SteeringFinding[] => {
+  const lines = content.split(/\r?\n/)
+  return parseThreads(content)
+    .filter((t) => t.waitingOn === "human")
+    .map((t) => {
+      const last = t.entries[t.entries.length - 1]!
+      return {
+        message: `Footnote thread "[^${t.name}]" is waiting on you — reply with an "H:" entry`,
+        line: last.line,
+        range: spanRange(lines, last.line, last.endLine),
+      }
+    })
+}
+
+/** "gtd: reply" on an open thread when `position` is on one of its markers or anywhere in its definition. Offered only while the agent spoke last — a second `H:` would break strict alternation. */
+export const threadReplyActions = (
+  content: string,
+  position: { readonly line: number; readonly character: number },
+): readonly SteeringAction[] => {
+  const thread = parseThreads(content).find(
+    (t) =>
+      t.waitingOn === "human" &&
+      ((position.line >= t.line && position.line <= t.endLine) ||
+        markerAt(t.markers, position) !== undefined),
+  )
+  const last = thread?.entries[thread.entries.length - 1]
+  if (!thread || !last) return []
+  const lines = content.split(/\r?\n/)
+  // An entry opening on the definition's own line has no bullet column of its own to copy.
+  const indent = " ".repeat(last.line === thread.line ? 4 : last.column)
+  const at = { line: last.endLine, character: (lines[last.endLine] ?? "").length }
+  return [
+    {
+      title: THREAD_REPLY_ACTION_TITLE,
+      edits: [{ range: { start: at, end: at }, newText: `${eolOf(content)}${indent}- H: ` }],
+    },
+  ]
 }

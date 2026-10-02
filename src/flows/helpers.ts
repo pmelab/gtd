@@ -1,10 +1,12 @@
 import {
   changes,
+  codeThreads,
   head,
   openQuestions,
   read,
   refuse,
   run,
+  threads,
   type Change,
   type JudgeAnswer,
 } from "./runtime.js"
@@ -79,6 +81,46 @@ export const requireAnswers = (file: string): void => {
   const list = open.map((q) => `  - ${file}:${q.line}: ${q.question}`).join("\n")
   refuse(
     `gtd land: answer-completeness: ${open.length} open question(s) in ${file} not answered — tick exactly one option per question, or delete a question you don't want to answer. To accept the plan as-is instead, revert everything and re-run:\n${list}`,
+  )
+}
+
+const threadLines = (file: string, waitingOn: "human" | "agent"): string[] =>
+  threads(read(file) ?? "")
+    .filter((t) => t.waitingOn === waitingOn)
+    .map((t) => `  - ${file}:${t.line}: [^${t.name}]`)
+
+/** Code threads waiting on `waitingOn`, plus any with a syntax fault — a fault refuses both ways. */
+const codeThreadLines = (waitingOn: "human" | "agent"): string[] =>
+  codeThreads()
+    .filter((t) => t.waitingOn === waitingOn || t.faults.length > 0)
+    .flatMap((t) => [
+      `  - ${t.path}:${t.line}: ${t.first}`,
+      ...t.faults.map((fault) => `    ${fault}`),
+    ])
+
+const countOf = (lines: readonly string[]): number =>
+  lines.filter((line) => line.startsWith("  - ")).length
+
+/** Whether a thread waits on `waitingOn`: one in footnote file `file`, or any code thread in the process's changed files. */
+export const hasThreadFor = (waitingOn: "human" | "agent", file?: string): boolean =>
+  (file !== undefined && threads(read(file) ?? "").some((t) => t.waitingOn === waitingOn)) ||
+  codeThreads().some((t) => t.waitingOn === waitingOn)
+
+/** Refuse any landing while a thread in `file`, or a code thread in a changed file, waits on the human (its last entry is the agent's) or has a syntax fault. */
+export const requireThreadsClosed = (file: string): void => {
+  const open = [...threadLines(file, "human"), ...codeThreadLines("human")]
+  if (open.length === 0) return
+  refuse(
+    `gtd land: open-threads: ${countOf(open)} thread(s) in ${file} or code comments wait on you — reply with a conclusion, or delete the thread:\n${open.join("\n")}`,
+  )
+}
+
+/** Refuse an agent turn that leaves a thread in `file`, or a code thread in a changed file, waiting on the agent (its last entry is `H:`) or with a syntax fault. */
+export const requireReplies = (file: string): void => {
+  const open = [...threadLines(file, "agent"), ...codeThreadLines("agent")]
+  if (open.length === 0) return
+  refuse(
+    `gtd land: unanswered-threads: ${countOf(open)} thread(s) in ${file} or code comments still wait on the agent — append one "- A:" reply to each (one "A:" comment line, same token and indentation, directly below a code thread's last line), or fold a concluded thread and delete it:\n${open.join("\n")}`,
   )
 }
 

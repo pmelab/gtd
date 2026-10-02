@@ -1,6 +1,13 @@
 import { blockNodesOf } from "./Blocks.js"
 import { eolOf } from "./Eol.js"
-import { footnoteAttachEdits, type FootnoteAnchor } from "./Footnotes.js"
+import {
+  footnoteAttachEdits,
+  openThreadsOf,
+  threadFindings,
+  threadOutlineNodes,
+  threadReplyActions,
+  type FootnoteAnchor,
+} from "./Footnotes.js"
 import { blockNodeAt, parseMarkdown, toLspPosition } from "./MarkdownTree.js"
 import type {
   SteeringAnnotateResult,
@@ -128,9 +135,10 @@ const freeFormView = (content: string): SteeringView => {
  */
 export const freeFormFormat: SteeringFormat = {
   sample: FREE_FORM_SAMPLE,
-  validate: () => [],
-  outline: () => [],
-  actions: () => [],
+  validate: threadFindings,
+  openThreads: openThreadsOf,
+  outline: (content) => threadOutlineNodes(content).map((t) => t.node),
+  actions: (content, range) => threadReplyActions(content, range.start),
   view: freeFormView,
   annotate: freeFormAnnotate,
   apply: freeFormApply,

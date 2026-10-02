@@ -4,6 +4,7 @@ import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { NoteSheet } from "../NoteSheet.js"
 import type { CasTokens } from "../staleRetry.js"
+import { Thread } from "../Thread.js"
 import { cellKey, useWriteStore } from "../writeStore.js"
 import { ProseBlocks } from "./ProseBlock.js"
 
@@ -219,6 +220,22 @@ export const Question = ({
         {answered ? "✓ Answered" : "● Not answered yet"}
       </div>
       <h2 className="m-0 mb-2 px-3 text-large font-semibold">{node.title}</h2>
+      {node.thread !== undefined && (
+        <div className="px-3 pb-2">
+          {onOpenNote !== undefined ? (
+            <button
+              type="button"
+              data-testid="question-thread-open"
+              onClick={() => onOpenNote(node)}
+              className="w-full rounded border border-divider bg-transparent p-2 text-left text-inherit"
+            >
+              <Thread thread={node.thread} testId="question-thread" />
+            </button>
+          ) : (
+            <Thread thread={node.thread} testId="question-thread" />
+          )}
+        </div>
+      )}
       {node.body !== undefined && node.body.length > 0 && (
         <ProseBlocks
           nodes={node.body}

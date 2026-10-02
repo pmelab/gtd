@@ -13,6 +13,8 @@ import {
   headingSectionBodies,
   headingSections,
   steeringFormatFor,
+  parseCodeThreads,
+  parseThreads,
   unansweredQuestions,
 } from "../steering/index.js"
 import { globMatches } from "./Glob.js"
@@ -436,6 +438,16 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         }
       : { kind: "ended", via, trace, landed }
 
+  const changesSince = (hash: string): readonly Change[] => {
+    const tree = treeAt(hash)
+    if (tree === undefined) {
+      throw new Error(
+        `gtd: changesSince(${hash}): ${hash} is not the episode base or one of its commits — pass a hash this run read from head() or start(), not one captured earlier, read from state, or from another branch`,
+      )
+    }
+    return changesBetween(tree, position.tree)
+  }
+
   const context: FlowContext = {
     step: handleStep,
     refuse: (message) => {
@@ -454,15 +466,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     read: (path) => position.tree.read(path),
     glob: (pattern) => position.tree.paths().filter((path) => globMatches(path, pattern)),
     changes: () => changesBetween(previousPosition.tree, position.tree),
-    changesSince: (hash) => {
-      const tree = treeAt(hash)
-      if (tree === undefined) {
-        throw new Error(
-          `gtd: changesSince(${hash}): ${hash} is not the episode base or one of its commits — pass a hash this run read from head() or start(), not one captured earlier, read from state, or from another branch`,
-        )
-      }
-      return changesBetween(tree, position.tree)
-    },
+    changesSince,
     matches: globMatches,
     sections: (text) => headingSections(text),
     sectionBodies: (text) => headingSectionBodies(text),
@@ -475,6 +479,25 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
             line: q.headingLine + 1,
           }))
     },
+    threads: (text) =>
+      parseThreads(text).map((t) => ({ name: t.name, line: t.line + 1, waitingOn: t.waitingOn })),
+    // `start` can predate the episode (the process began before its first
+    // replayed commit); the episode base's tree is the oldest one replay has.
+    codeThreads: () =>
+      changesBetween(treeAt(input.start) ?? input.episode.base.tree, position.tree)
+        .filter((c) => c.status !== "deleted")
+        .flatMap((c) => {
+          const { threads, findings } = parseCodeThreads(c.path, position.tree.read(c.path) ?? "")
+          return threads.map((t) => ({
+            path: t.path,
+            line: t.line + 1,
+            waitingOn: t.waitingOn,
+            first: t.entries[0]?.text ?? "",
+            faults: findings
+              .filter((f) => f.message.startsWith(`Code thread at ${c.path}:${t.line + 1}: `))
+              .map((f) => f.message),
+          }))
+        }),
     vars: input.vars,
     start: () => input.start,
     // At the rest, trailing attempts sit above the last step commit: the head a

@@ -442,6 +442,65 @@ describe("externalValidatorNotice", () => {
   })
 })
 
+describe("diagnosticsFor open threads", () => {
+  const doc = [
+    "## Open Questions",
+    "",
+    "### Which?",
+    "",
+    "- [ ] A [^t1]",
+    "",
+    "[^t1]:",
+    "    - H: why",
+    "    - A: because",
+    "",
+  ].join("\n")
+
+  it("one Information diagnostic on the last entry", () => {
+    const d = diagnosticsFor(resolveBuiltInMode("qa"), doc)
+    expect(d).toHaveLength(1)
+    expect(d[0]?.severity).toBe(DiagnosticSeverity.Information)
+    expect(d[0]?.range.start.line).toBe(8)
+  })
+
+  it("none while waiting on the agent", () => {
+    expect(diagnosticsFor(resolveBuiltInMode("qa"), doc.replace("    - A: because\n", ""))).toEqual(
+      [],
+    )
+  })
+
+  it("also under a shell validate:", () => {
+    const def = { modes: { qa: { validate: "npx my-linter $GTD_FILE" } } }
+    const d = diagnosticsFor(resolveSteeringMode(def, "qa"), doc)
+    expect(d).toHaveLength(2)
+    expect(d[1]?.message).toContain("[^t1]")
+  })
+
+  it("malformed thread findings stay Warnings", () => {
+    const bad = doc.replace("    - H: why", "    - A: why")
+    const d = diagnosticsFor(resolveBuiltInMode("qa"), bad)
+    expect(d.some((x) => x.severity === DiagnosticSeverity.Warning)).toBe(true)
+  })
+})
+
+describe("toCodeAction reply reveal", () => {
+  it("lands the cursor right after '- H: '", () => {
+    const action = toCodeAction(
+      "file:///x.md",
+      "a\nb",
+    )({
+      title: "gtd: reply",
+      edits: [
+        {
+          range: { start: { line: 5, character: 9 }, end: { line: 5, character: 9 } },
+          newText: "\r\n    - H: ",
+        },
+      ],
+    })
+    expect(action.command?.arguments).toEqual(["file:///x.md", { line: 6, character: 9 }])
+  })
+})
+
 describe("diagnosticsFor", () => {
   it("publishes a built-in format's own validate findings for an unoverridden built-in mode", () => {
     const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")

@@ -141,6 +141,16 @@ actions over; a mode is that format plus the specific `format:`/`validate:`
 commands one repository plugs in for it. Overriding a built-in mode's
 `validate:` changes who validates, not what the file is.
 
+**Thread**: A footnote whose definition holds an alternating `H:`/`A:` exchange.
+_Avoid_: conversation, comment chain
+
+**Code thread**: A thread written as bare `H:`/`A:` line comments (`//`, `#`,
+`--`, `;`) in a file changed in the current process, anchored by its own
+position. _Avoid_: inline thread, comment thread
+
+**Open thread**: A thread whose last entry is the agent's — it waits on the
+human. _Avoid_: unanswered thread
+
 **Squash**: Not an engine concept — gtd never rewrites history. A process ends
 with ordinary commits, keeping every turn; a squash (or an amend, or a PR body)
 is something a human or a driver may still do afterward, outside gtd, using

@@ -37,6 +37,8 @@ import type { StateMode, WorkflowDefinition } from "./Workflow.js"
 import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
 import {
   FOOTNOTE_ACTION_TITLE,
+  THREAD_REPLY_ACTION_TITLE,
+  openThreadFindings,
   viewOf,
   type SteeringAction,
   type SteeringFinding,
@@ -65,6 +67,9 @@ export const toDocumentSymbol = (node: SteeringOutlineNode): DocumentSymbol => (
  */
 const FOOTNOTE_DEFINITION_RE = /^\r?\n(\[\^[^\s\]]+\]:)/
 
+/** The reply edit's `newText`: an EOL then the `- H: ` line; group 1 is that line, whose length is the reveal column. */
+const THREAD_REPLY_RE = /^\r?\n( *- H: )$/
+
 /**
  * Where `gtd.revealPosition` should land the cursor for `action`, or
  * `undefined` for anything but the footnote action (or a footnote action
@@ -76,6 +81,13 @@ const FOOTNOTE_DEFINITION_RE = /^\r?\n(\[\^[^\s\]]+\]:)/
  * itself. A flat `+2` is wrong there — see the package's own risk note.
  */
 const revealPositionFor = (text: string, action: SteeringAction): Position | undefined => {
+  if (action.title === THREAD_REPLY_ACTION_TITLE) {
+    const edit = action.edits[0]
+    const match = edit && THREAD_REPLY_RE.exec(edit.newText)
+    return edit && match
+      ? { line: edit.range.start.line + 1, character: match[1]!.length }
+      : undefined
+  }
   if (action.title !== FOOTNOTE_ACTION_TITLE) return undefined
   const lines = text.split(/\r?\n/)
   for (const edit of action.edits) {
@@ -170,12 +182,18 @@ export const diagnosticsFor = (
   content: string,
 ): Diagnostic[] => {
   const caps = resolved?.capabilities ?? {}
+  const lines = content.split(/\r?\n/)
+  // Built-in parse is free, so open threads show even when a shell validator displaced live findings.
+  const open = (): Diagnostic[] =>
+    openThreadFindings(content).map((f) => ({
+      ...toDiagnostic(lines)(f),
+      severity: DiagnosticSeverity.Information,
+    }))
   if (caps.liveValidate !== undefined) {
-    const lines = content.split(/\r?\n/)
-    return caps.liveValidate(content).map(toDiagnostic(lines))
+    return [...caps.liveValidate(content).map(toDiagnostic(lines)), ...open()]
   }
   if (caps.externalValidate === true && resolved?.validate?.kind === "command") {
-    return [externalValidatorNotice(resolved.mode, resolved.validate.command)]
+    return [externalValidatorNotice(resolved.mode, resolved.validate.command), ...open()]
   }
   return []
 }

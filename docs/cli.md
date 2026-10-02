@@ -95,7 +95,10 @@ Commands:
                    with <mode>/<file> given explicitly. This is what a
                    workflow's emitted validation script invokes as a leaf step.
                    --open-questions runs the qa unanswered-questions predicate
-                   instead (see --help)
+                   instead (see --help); --open-threads lists open threads.
+                   `gtd check --open-threads` alone lists open code-comment
+                   threads (`// H: ...`) in the files the process changed;
+                   it prints nothing when no process is underway.
   uncheck <file>   Read <file> and reset every review-mode `- [x]`/`- [X]`
                    file-pointer box back to `- [ ]`, writing the result back
                    only when the bytes actually changed. Resolves no workflow
@@ -182,6 +185,13 @@ Options:
                    instead run the qa open-questions predicate over <file>,
                    printing each unanswered question one per line and exiting
                    non-zero when any remain
+  --open-threads   (gtd check only) ignore <mode>'s structural findings and
+                   instead list every open thread (a footnote whose last
+                   entry is the agent's) over <file>, one per line with its
+                   first H entry, exiting non-zero when any are open. With no
+                   <mode>/<file>, lists code-comment threads in the files the
+                   current process changed (read from its diff base, unlike
+                   the rest of `gtd check`)
   --verbose        enable stderr narration for this invocation: which rest
                    resolved and how config resolved across layers. Aliased
                    to -v

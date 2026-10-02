@@ -343,6 +343,27 @@ describe("writeNote", () => {
     expect(REVIEW_FORMAT.validate(written)).toEqual([])
   })
 
+  it("replying to an open thread through the compare-and-swap path appends a `- H:` entry", async () => {
+    const attach = REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 }, "first note")
+    expect(attach.ok).toBe(true)
+    if (!attach.ok) return
+    const noted = applySteeringEdits(CONTENT, attach.edits)
+    // The agent answered: the thread is now waiting on the human.
+    const open = noted.replace(/\n*$/, "\n    - A: which file?\n")
+    const deps = fakeDeps({
+      readFile: vi.fn(() => content(open)),
+      writeFile: vi.fn(async () => undefined),
+    })
+    const result = await writeNote(
+      { ...baseRequest(), expectedContentHash: contentHashOf(open), text: "the first one" },
+      deps,
+    )
+    const [, written] = vi.mocked(deps.writeFile).mock.calls[0]!
+    expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
+    expect(written).toContain("    - A: which file?\n    - H: the first one")
+    expect(REVIEW_FORMAT.validate(written)).toEqual([])
+  })
+
   it("no refusal path leaves a partially written file — writeFile is only ever called on a full success", async () => {
     const scenarios: Partial<WriteDeps>[] = [
       { actorAt: vi.fn(async () => "agent") },

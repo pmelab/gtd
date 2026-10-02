@@ -172,7 +172,11 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → architecture-pre"
+    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
 
   Scenario: prettier plugged into the bundled default's qa mode formats the human-edited requirements at design.gate.answer, when gtd validate runs it first
     Given a test project
