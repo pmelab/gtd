@@ -221,6 +221,17 @@ and around 1 MB on macOS:
 gtd next | claude -p --dangerously-skip-permissions
 ```
 
+**The turn ends when `claude -p` returns** — a command the agent backgrounds
+dies unread, and the process stalls on an empty turn. Claude Code lets the agent
+background commands and caps foreground ones at 10 minutes by default, so a real
+driver exports these first (`gtd install`'s reference driver does):
+
+```bash
+export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
+export BASH_DEFAULT_TIMEOUT_MS=1800000 # 30 min
+export BASH_MAX_TIMEOUT_MS=7200000     # 2 h
+```
+
 Reading a value twice is free: **`gtd next` never mutates**, so a peek and a
 dispatch are the same call.
 
