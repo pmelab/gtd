@@ -1620,6 +1620,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     base: { kind: "base" },
     judge: { kind: "judge" },
     judgeAnswer: { kind: "judgeAnswer" },
+    judgeRun: { kind: "judgeRun", provider: "fixed" },
   }
 
   const stateKinds = (Object.keys(commandFor) as Command["kind"][]).filter(

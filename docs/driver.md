@@ -545,13 +545,14 @@ not something the green suite can catch.)
 
 A judge gate is a `judge()` step (actor `judge`) and a `kind: "message"` rest
 whose `--json=judge` field is non-empty — the rendered JSON document
-`{ state, questions: [...] }` the pending judgment asks about. `gtd` itself
-never calls a model: the reference driver above only displays the step's
-`message` (which tells you to run `gtd judge answer` and paste a verdict) and
-stops. An AWARE driver — one built to answer a judge gate automatically —
-instead reads `--json=judge`, pipes that document to a judgment model such as
-TypeSafe's Jev, and pipes the verdict it gets back into
-`gtd judge answer --json=script` on stdin.
+`{ state, questions: [...] }` the pending judgment asks about. The gtd engine
+never calls a model — `gtd judge run` is an answerer a driver chooses to pipe
+through: the reference driver above only displays the step's `message` (which
+tells you to run `gtd judge answer` and paste a verdict) and stops. An AWARE
+driver — one built to answer a judge gate automatically — instead reads
+`--json=judge`, pipes that document to a judgment model such as TypeSafe's Jev,
+and pipes the verdict it gets back into `gtd judge answer --json=script` on
+stdin.
 
 Whose-turn-is-it status reporting (like the herdr wrapper above) should treat
 `actor` as an ALLOWLIST, not a denylist: stand down — report the run as resting
@@ -562,18 +563,39 @@ recognises `agent`/`check` halts there correctly with no edit, while a driver
 that special-cased `!== "human"` as "nothing owed" would silently skip past a
 pending judgment.
 
-TypeSafe's own SDK expects its API key under `TYPESAFE_API_KEY`. If your
-environment instead carries the key under `TYPESAFE_AI_KEY` (a name some setup
-flows use), map one onto the other yourself before invoking the SDK — e.g.
-`export TYPESAFE_API_KEY="$TYPESAFE_AI_KEY"`. This mapping is entirely a driver
-concern: `gtd` neither reads nor validates either variable, under any name. It's
-written here as prose, not as a runnable snippet, on purpose — naming either
-variable inside a fenced script would make it an environment dependency of
-`driver-doc.feature`, which extracts and runs the single fence in
-[A complete minimal driver](#a-complete-minimal-driver) above with only `$PATH`
-(a shim directory first) and `$HOME` on its process environment; a
-judge-answering driver that needs more than that is, correctly, a different
-paste from the reference one.
+The scriptable answerer is `gtd judge run --provider fixed`: it reads the
+`gtd judge --json` document on stdin and writes a verdict on stdout, answering
+from `--answers <path>` or, when that is absent, the `GTD_JUDGE_ANSWERS`
+environment variable — a JSON array of `{ id, answer, p }` in the shape
+`gtd judge answer` decodes. Entries for questions the judgment did not ask are
+dropped, so one file serves every gate; a question the file does not cover is
+left out of the verdict, which a workflow routes to its conservative branch. A
+malformed entry (`answer` not a string, number or boolean; `p` not a number in
+`[0, 1]`) exits 1 with nothing on stdout.
+
+```sh
+gtd judge --json | gtd judge run --provider fixed --answers answers.json \
+  | gtd judge answer --json=script | sh
+```
+
+`gtd judge run --provider jev` answers by calling TypeSafe's System One API
+(`https://api.typesafe.ai/v1/systemone`) directly. It reads the key from
+`TYPESAFE_API_KEY` only; `JEV_BASE_URL` replaces the full endpoint URL. Each
+verdict's `p` is the confidence in the answer given: a `noul` at 0.1 is `"no"`
+at `p` 0.9. On any failure — no key, a non-200, an unreadable response, a
+question it cannot translate, or a verdict missing some questions — it exits 1,
+prints why on stderr and writes nothing on stdout, so the judgment stays yours.
+
+If your environment carries the key under `TYPESAFE_AI_KEY` (a name some setup
+flows use), map it yourself — e.g. `export TYPESAFE_API_KEY="$TYPESAFE_AI_KEY"`.
+The gtd engine never reads either variable; only `gtd judge run --provider jev`
+reads `TYPESAFE_API_KEY`. It's written here as prose, not as a runnable snippet,
+on purpose — naming either variable inside a fenced script would make it an
+environment dependency of `driver-doc.feature`, which extracts and runs the
+single fence in [A complete minimal driver](#a-complete-minimal-driver) above
+with only `$PATH` (a shim directory first) and `$HOME` on its process
+environment; a judge-answering driver that needs more than that is, correctly, a
+different paste from the reference one.
 
 ### The self-validation gate
 

@@ -72,6 +72,22 @@ export default {
       to: { path: "^src/[^/]+/(?!index\\.ts$)" },
     },
     {
+      name: "judges-is-leaf",
+      comment:
+        "src/judges/ imports nothing else from src/ — a later extraction is a git mv plus a bin entry.",
+      severity: "error",
+      from: { path: "^src/judges/" },
+      to: { path: "^src/(?!judges/)" },
+    },
+    {
+      name: "judges-only-from-dispatch",
+      comment:
+        "Only the CLI dispatch (src/program.ts) imports src/judges/; flows and engine never do.",
+      severity: "error",
+      from: { path: "^src/(?!judges/|program\\.ts$)", pathNot: "\\.test\\.tsx?$" },
+      to: { path: "^src/judges/" },
+    },
+    {
       name: "integration-via-barrel",
       comment: "tests/** sees published barrels only, never a module's internals.",
       severity: "error",

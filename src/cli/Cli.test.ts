@@ -796,9 +796,42 @@ describe("parseArgv — gtd judge / gtd judge answer", () => {
   })
 })
 
+describe("parseArgv — gtd judge run", () => {
+  const parse = (...args: string[]) => parseArgv(["node", "gtd.js", ...args])
+
+  it("parses --provider fixed with --answers", () => {
+    const plan = parse("judge", "run", "--provider", "fixed", "--answers", "a.json")
+    expect(plan.kind === "command" && plan.command).toEqual({
+      kind: "judgeRun",
+      provider: "fixed",
+      answers: "a.json",
+    })
+  })
+
+  it("parses --provider jev alone", () => {
+    const plan = parse("judge", "run", "--provider=jev")
+    expect(plan.kind === "command" && plan.command).toEqual({ kind: "judgeRun", provider: "jev" })
+  })
+
+  it.each([
+    [["judge", "run"], "--provider"],
+    [["judge", "run", "--provider", "nope"], "must be one of"],
+    [["judge", "run", "--provider", "jev", "--answers", "a.json"], "--answers"],
+    [["judge", "run", "--provider", "fixed", "--json"], "--json is only valid"],
+    [["judge", "run", "--provider", "fixed", "--answers="], "requires a value"],
+    [["judge", "--provider", "fixed"], "only valid for `gtd judge run`"],
+    [["judge", "answer", "--answers", "a.json"], "only valid for `gtd judge run`"],
+    [["next", "--provider", "fixed"], "only valid for `gtd judge run`"],
+  ])("%j is a usage error", (args, text) => {
+    const plan = parse(...args)
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain(text)
+  })
+})
+
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "init", "check", "uncheck", "install"])
+    expect(standaloneKinds()).toEqual(["lsp", "init", "check", "uncheck", "install", "judgeRun"])
   })
 
   it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {
@@ -807,6 +840,7 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("uncheck")).toBe("fs")
     expect(needsOf("init")).toBe("fs")
     expect(needsOf("install")).toBe("none")
+    expect(needsOf("judgeRun")).toBe("none")
     for (const kind of [
       "land",
       "entry",

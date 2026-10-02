@@ -40,7 +40,7 @@ const STAMP = /\n<!-- gtd check [0-9a-f]+ -->\n?$/
 const stripStamp = (text: string): string => text.replace(STAMP, "\n")
 
 /** "Is this red round the same failure as the last one?" — asked of two reports, or of nothing when one is empty. */
-const retryQuestion = (comparable: boolean): JudgeQuestion =>
+export const retryQuestion = (comparable: boolean): JudgeQuestion =>
   comparable
     ? {
         id: "verdict",
@@ -54,9 +54,9 @@ const retryQuestion = (comparable: boolean): JudgeQuestion =>
         id: "verdict",
         primitive: "choice",
         instructions:
-          "state carries tailsNotComparable: one of the two check reports came back empty. There is nothing to compare here; answer from criteria alone.",
+          "state carries tailsNotComparable: one of the two check reports came back empty. There is nothing to compare here; answer from criteria alone. `identical` is FORBIDDEN here.",
         criteria:
-          "identical is FORBIDDEN here — answer new-failure or progress instead, defaulting to progress if genuinely unsure.",
+          "new-failure: a materially different failure than before. progress: still red, but closer to green — the default if genuinely unsure.",
       }
 
 const sameFailure = async (previous: string, current: string): Promise<boolean> => {

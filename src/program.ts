@@ -8,6 +8,7 @@ import {
   formatDiagnostic,
   renderInitScaffold,
 } from "./workflow/index.js"
+import { runJudge } from "./judges/index.js"
 import { GitService, Host, Workspace, type GitOperations, type HostOps } from "./platform/index.js"
 import { runUiCommand, type UiRequirements } from "./ui/index.js"
 import { resolveSession } from "./Sessions.js"
@@ -364,6 +365,27 @@ const readStdin = (): Effect.Effect<string, Error> =>
       return Buffer.concat(chunks).toString("utf8")
     },
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/** Stdout is written once, after the answerer resolves — a rejection leaves it empty. */
+const runJudgeRunCommand = (
+  command: Extract<Command, { kind: "judgeRun" }>,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, Host> =>
+  Effect.gen(function* () {
+    const host = yield* Host
+    const input = yield* readStdin()
+    const verdict = yield* Effect.tryPromise({
+      try: () =>
+        runJudge({
+          provider: command.provider,
+          answers: command.answers,
+          env: host.env,
+          input,
+        }),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
+    out.write(verdict)
   })
 
 /** A verdict's own `answer` shape covers every `judge:` primitive (`noul` → boolean, `choice` → string, `score` → number) without gtd itself interpreting which one applies — that's a driver/judge-model concern, not this decode's. */
@@ -1028,6 +1050,7 @@ export const needsOf = (kind: Command["kind"]): Needs => {
   switch (kind) {
     case "lsp":
     case "install":
+    case "judgeRun":
       return "none"
     case "init":
     case "check":
@@ -1045,6 +1068,7 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "check",
   "uncheck",
   "install",
+  "judgeRun",
 ]
 
 /**
@@ -1108,6 +1132,8 @@ const dispatchVoidCommand = (
       return runJudgeCommand(json, out)
     case "judgeAnswer":
       return runJudgeAnswerCommand(json, out)
+    case "judgeRun":
+      return runJudgeRunCommand(command, out)
   }
 }
 
