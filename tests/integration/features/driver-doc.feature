@@ -592,6 +592,34 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the last commit subject is "gtd(check): checking → reviewing"
     And stdout contains "sign off"
 
+  Scenario: Every agent turn runs with backgrounding off and room for a long foreground command
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "Write src/env.txt.")
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      Record the environment.
+      """
+    And gtd lands "gtd(human): idle → working"
+    And a stub agent script that responds to prompts with:
+      """
+      mkdir -p src
+      env | grep -E '^(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS|BASH_(DEFAULT|MAX)_TIMEOUT_MS)=' | sort > src/env.txt
+      """
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
+    Then it succeeds
+    And the file "src/env.txt" contains "BASH_DEFAULT_TIMEOUT_MS=1800000"
+    And the file "src/env.txt" contains "BASH_MAX_TIMEOUT_MS=7200000"
+    And the file "src/env.txt" contains "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1"
+
   Scenario: A failing agent CLI stops the run instead of stepping past it
     Given a test project
     And a gtd config file at "gtd.config.ts" with:

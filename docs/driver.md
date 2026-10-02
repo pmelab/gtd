@@ -375,6 +375,13 @@ of twice.
 #!/usr/bin/env sh
 set -eu
 
+# A turn ends when `claude -p` returns, so work it backgrounds dies unread
+# and stalls the process. Keep every command in the foreground, with room to
+# finish a long suite (Claude Code's defaults: 2 min, capped at 10).
+export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
+export BASH_DEFAULT_TIMEOUT_MS=1800000
+export BASH_MAX_TIMEOUT_MS=7200000
+
 beat=1
 while :; do
   # One value per invocation: `gtd next --json=<path>` is a pure read (peek
