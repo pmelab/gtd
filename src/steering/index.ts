@@ -52,6 +52,7 @@ export { FREE_TEXT_PLACEHOLDER, isAnswered } from "./qa.js"
 export {
   parseFootnotes,
   parseThreads,
+  parseThreadsWithFindings,
   openThreadFindings,
   FOOTNOTE_ACTION_TITLE,
   THREAD_REPLY_ACTION_TITLE,

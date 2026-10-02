@@ -26,12 +26,18 @@ const withThreads = (
 
 afterEach(() => installContext(undefined))
 
-const open: ThreadInfo = { name: "a", line: 3, waitingOn: "human" }
-const asked: ThreadInfo = { name: "b", line: 9, waitingOn: "agent" }
+const open: ThreadInfo = { name: "a", line: 3, waitingOn: "human", faults: [] }
+const asked: ThreadInfo = { name: "b", line: 9, waitingOn: "agent", faults: [] }
+const faulty: ThreadInfo = {
+  ...asked,
+  name: "c",
+  line: 14,
+  faults: ['Footnote thread "[^c]": two consecutive "H:" entries — entries must alternate'],
+}
 
 describe("requireThreadsClosed", () => {
   it("refuses while any thread waits on the human, naming each", () => {
-    withThreads([open, asked, { name: "c", line: 12, waitingOn: "human" }], () => {
+    withThreads([open, asked, { name: "c", line: 12, waitingOn: "human", faults: [] }], () => {
       expect(() => requireThreadsClosed("f.md")).toThrow(/f\.md:3: \[\^a\][\s\S]*f\.md:12: \[\^c\]/)
       expect(() => requireThreadsClosed("f.md")).toThrow(/reply with a conclusion, or delete/)
     })
@@ -39,6 +45,12 @@ describe("requireThreadsClosed", () => {
 
   it("passes with no open thread", () => {
     withThreads([asked], () => expect(() => requireThreadsClosed("f.md")).not.toThrow())
+  })
+
+  it("refuses a thread with a syntax fault even when it waits on the agent", () => {
+    withThreads([faulty], () => {
+      expect(() => requireThreadsClosed("f.md")).toThrow(/f\.md:14: \[\^c\][\s\S]*two consecutive/)
+    })
   })
 })
 
@@ -51,6 +63,12 @@ describe("requireReplies", () => {
 
   it("passes when every thread has the agent's reply", () => {
     withThreads([open], () => expect(() => requireReplies("f.md")).not.toThrow())
+  })
+
+  it("refuses a thread with a syntax fault even when it waits on the human", () => {
+    withThreads([{ ...faulty, waitingOn: "human" }], () => {
+      expect(() => requireReplies("f.md")).toThrow(/f\.md:14: \[\^c\][\s\S]*two consecutive/)
+    })
   })
 })
 

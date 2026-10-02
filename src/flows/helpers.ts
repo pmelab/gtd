@@ -84,10 +84,14 @@ export const requireAnswers = (file: string): void => {
   )
 }
 
+/** Footnote threads in `file` waiting on `waitingOn`, plus any with a syntax fault — a fault refuses both ways. */
 const threadLines = (file: string, waitingOn: "human" | "agent"): string[] =>
   threads(read(file) ?? "")
-    .filter((t) => t.waitingOn === waitingOn)
-    .map((t) => `  - ${file}:${t.line}: [^${t.name}]`)
+    .filter((t) => t.waitingOn === waitingOn || t.faults.length > 0)
+    .flatMap((t) => [
+      `  - ${file}:${t.line}: [^${t.name}]`,
+      ...t.faults.map((fault) => `    ${fault}`),
+    ])
 
 /** Code threads waiting on `waitingOn`, plus any with a syntax fault — a fault refuses both ways. */
 const codeThreadLines = (waitingOn: "human" | "agent"): string[] =>
@@ -106,7 +110,7 @@ export const hasThreadFor = (waitingOn: "human" | "agent", file?: string): boole
   (file !== undefined && threads(read(file) ?? "").some((t) => t.waitingOn === waitingOn)) ||
   codeThreads().some((t) => t.waitingOn === waitingOn)
 
-/** Refuse any landing while a thread in `file`, or a code thread in a changed file, waits on the human (its last entry is the agent's) or has a syntax fault. */
+/** Refuse any landing while a thread in `file` or a code thread in a changed file waits on the human (its last entry is the agent's), or has a syntax fault. */
 export const requireThreadsClosed = (file: string): void => {
   const open = [...threadLines(file, "human"), ...codeThreadLines("human")]
   if (open.length === 0) return

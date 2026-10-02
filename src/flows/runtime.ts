@@ -283,6 +283,8 @@ export interface ThreadInfo {
   readonly line: number
   /** `"human"` means the last entry is the agent's: the thread is open. */
   readonly waitingOn: "human" | "agent"
+  /** Syntax faults, each already prefixed `Footnote thread "[^name]":`. */
+  readonly faults: readonly string[]
 }
 
 /** Every `H:`/`A:` thread (a footnote) in `text`. */

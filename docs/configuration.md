@@ -137,7 +137,8 @@ landed step left — never the live working tree:
 - `sectionBodies(text)` — the same sections as `{ title, body }`, `body` being
   the section's own markdown, its heading line included
 - `threads(text)` — every `H:`/`A:` thread in a document as
-  `{ name, line, waitingOn }` (1-based line; `waitingOn: "human"` means open).
+  `{ name, line, waitingOn, faults }` (1-based line; `waitingOn: "human"` means
+  open; `faults` its syntax faults).
 - `codeThreads()` — every `H:`/`A:` thread in line comments of the files changed
   since the process's diff base (deleted files excluded), as
   `{ path, line, waitingOn, first, faults }` (1-based line, `first` the opening
@@ -563,8 +564,10 @@ no `[^name]` marker; the comment's position is the anchor:
   `.gtd/**` never. Block comments (`/* */`, `<!-- -->`) and trailing comments
   after code never form a thread
 - A thread is one run of consecutive same-token comment lines whose first line
-  starts with `H:`; an unprefixed line in the run continues the entry above; the
-  first non-comment line ends it
+  starts with `H:`; an unprefixed line in the run continues the `H:` entry
+  above; the first non-comment line ends it, and so does an unprefixed line
+  below an `A:` line — the agent's entries are one line, so a comment you write
+  there stays an ordinary comment
 - Same rules as a footnote thread: entries alternate, the agent never starts
   one, an open thread (agent spoke last) refuses landing at the requirements,
   architecture and review gates, and the agent answers a question with exactly

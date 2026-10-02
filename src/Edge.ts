@@ -460,6 +460,10 @@ const replayFor = (
     episode: { entry: setup.run.entry, base: setup.base, commits: setup.episode },
     vars: setup.vars,
     start: setup.run.diffBase,
+    startTree:
+      setup.run.diffBase === EMPTY_TREE
+        ? treeFromRecord({})
+        : commitTree(setup.workspace, setup.run.diffBase),
     budgetBytes: setup.budget,
     ...(pending !== undefined ? { pending } : {}),
   })

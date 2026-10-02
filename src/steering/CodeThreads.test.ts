@@ -67,6 +67,13 @@ describe("parseCodeThreads — runs", () => {
     expect(b.threads[0]!.entries).toHaveLength(1)
   })
 
+  it("ends at an unprefixed comment below an A: line", () => {
+    const text = doc("// H: why?", "// A: because", "// rename this")
+    const [thread] = parseCodeThreads("a.ts", text).threads
+    expect(thread!.endLine).toBe(1)
+    expect(thread!.entries.map((e) => e.text)).toEqual(["why?", "because"])
+  })
+
   it("treats a run not opening with a prefix as an ordinary comment", () => {
     const text = doc("// note", "// H: why?")
     expect(parseCodeThreads("a.ts", text)).toEqual({ threads: [], findings: [] })
@@ -107,6 +114,11 @@ describe("stripCodeThreads", () => {
   it("removes thread runs and keeps ordinary comments and code", () => {
     const text = doc("// note", "code()", "// H: why?", "// A: because", "more()", "// plain")
     expect(stripCodeThreads("a.ts", text)).toBe(doc("// note", "code()", "more()", "// plain"))
+  })
+
+  it("keeps an ordinary comment written right below a thread's A: line", () => {
+    const text = doc("// H: why?", "// A: because", "// rename this", "code()")
+    expect(stripCodeThreads("a.ts", text)).toBe(doc("// rename this", "code()"))
   })
 
   it("leaves unscanned paths alone", () => {
