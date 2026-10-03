@@ -79,7 +79,10 @@ in a terminal. Plain prose is the right answer too when there is no shape to
 draw; then keep it to a paragraph, wrapped at 72 columns.
 
 No markdown headings, no code fences, no bullet list of changed files, no
-sign-off, no footer trailers.
+sign-off, and no footer trailers except one: when the instructions above
+say the change is breaking, end with a literal 'BREAKING CHANGE: <what
+breaks>' footer after a blank line. The release tooling reads only that
+footer, so a breaking change without it is never released as one.
 
 NOTHING REVIEWS THIS BEFORE IT IS COMMITTED — no editor opens on it. What you
 print is the commit message verbatim.
@@ -156,6 +159,12 @@ async function squash(
   if (summary.code !== 0) {
     io.log(`No gtd process at HEAD, so nothing is squashed; ${branch} is described as it stands.`)
     return { ok: true, text: "" }
+  }
+  // `gtd summary` also describes a process still underway; shipping that
+  // would publish half of it.
+  const state = (await io.run(["gtd", "next", "--json=state"])).out.trim()
+  if (state !== "idle") {
+    return fail(`The gtd process is still underway (at ${state}). Finish it, then ship.`)
   }
   const range = await processRange(git, summary.out)
   if (typeof range === "string") return fail(range)
@@ -258,6 +267,13 @@ export async function pushBranch(io: ShipIo, branch: string) {
   return undefined
 }
 
+// The shell commands ship's writer may run: it reads commit messages anyone
+// on the branch wrote, so read-only git and no shell syntax to chain more on.
+export const READ_ONLY_GIT =
+  /^git (log|show|diff|status|rev-parse|rev-list|merge-base|branch)\b[^;&|<>`$()\n]*$/
+
+const TITLE = /^(feat|fix|refactor|perf|docs|test|build|ci|chore)(\([\w./-]+\))?!?: \S.{0,70}$/
+
 // Marks a draft pull request `/gtd throw` opened for a hand-off.
 export const THROWN = "<!-- gtd:thrown -->"
 
@@ -309,6 +325,10 @@ ${await git("diff", "--stat", `${mergeBase}..HEAD`)}`
   const out = reply && cleanReply(reply)
   if (!out) return fail("The pull-request turn produced nothing.")
   const [title = "", ...rest] = out.split("\n")
+  // The writer read commit messages anyone on the branch wrote: publish only
+  // a reply shaped like the title it was asked for.
+  if (!TITLE.test(title))
+    return fail(`The pull-request turn returned no usable title: ${title.slice(0, 120)}`)
   const body = rest.join("\n").replace(/^\s*\n/, "")
   const head = await git("rev-parse", "HEAD")
   if (thrown) {
