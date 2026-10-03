@@ -260,12 +260,16 @@ falls back to the `gtd` on your `PATH`.
   and opens its pull request, or appends to the open one's description when
   something changed at the level of its motivation, solution or decisions. A
   subagent writes the commit message (from `gtd summary`) and the pull-request
-  text; nothing reviews them before they are published. `/gtd ship -n` prints
-  the commit message and what would happen to the pull request, and writes
-  nothing. It needs `gh`, a clean tree, and a branch other than the default.
-  When a process finishes on such a branch, the question dialog offers **Yes,
-  open the pull request**. On a thrown draft, ship writes the title and
-  description properly and marks the pull request ready for review.
+  text; nothing reviews them before they are published. Ship refuses while the
+  process is still underway. The commit message keeps a `BREAKING CHANGE:`
+  footer when the change is breaking, and the writer may run only read-only
+  `git` commands and write only its own answer, since it reads commit messages
+  anyone on the branch wrote. `/gtd ship -n` prints the commit message and what
+  would happen to the pull request, and writes nothing. It needs `gh`, a clean
+  tree, and a branch other than the default. When a process finishes on such a
+  branch, the question dialog offers **Yes, open the pull request**. On a thrown
+  draft, ship writes the title and description properly and marks the pull
+  request ready for review.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone.
