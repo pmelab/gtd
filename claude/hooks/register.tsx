@@ -5,6 +5,8 @@ import type { Run, Stop } from "../types"
 import { drive, isTrue } from "./drive"
 import type { Beat, Io, Landing, TurnEnd } from "./drive"
 import { enter } from "./entry"
+import { JUDGE_SYSTEM, judgePrompt, toVerdicts } from "./judge"
+import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
 import { ship } from "./ship"
 import type { ShipIo } from "./ship"
@@ -129,7 +131,7 @@ function io($: $): Io {
     },
     judge: async () => {
       const key = (await $.env.get("TYPESAFE_API_KEY")) ?? (await $.env.get("TYPESAFE_AI_KEY"))
-      if (!key) return undefined
+      if (!key) return judgeInSession($)
       try {
         const doc = await gtd($, ["judge", "--json"])
         const r = await $.process.run(["gtd", "judge", "run", "--provider", "jev"], {
@@ -397,28 +399,47 @@ async function offerShip($: $, token: number) {
 
 // Ship's text turns need git to read the process, so they run as a subagent.
 // Its answer is a file, not its hand-back: a hand-back never reaches a mod.
-async function writer($: $, prompt: string) {
-  // In a linked worktree `.git` is a file; the git dir is elsewhere.
+type Delegate = { name: string; description: string; system: string; tools: string[] }
+
+const SHIPPER: Delegate = {
+  name: "shipper",
+  description:
+    "Writes commit messages and pull requests for gtd's ship, spawned by the gtd mod only",
+  system:
+    "You write commit messages and pull-request descriptions for gtd's ship command. Read the repository with git and the file tools as the instructions ask. Never modify the repository: no commits, no checkouts, no pushes.",
+  tools: ["Bash", "Read", "Grep", "Glob", "Write", "Skill"],
+}
+
+// gtd's llm judge persona; writing its answer file is its one tool.
+const JUDGE: Delegate = {
+  name: "judge",
+  description: "Answers gtd judge gates, spawned by the gtd mod only",
+  system: `${JUDGE_SYSTEM}\nThe one tool you use is Write, to deliver that answer to the file the task names.`,
+  tools: ["Write"],
+}
+
+// A one-off subagent whose answer is a file, not its hand-back: a hand-back
+// never reaches a mod. The file lives in the git dir, which in a linked
+// worktree is not `.git`.
+async function delegate($: $, who: Delegate, prompt: string, model: string, delivery: string) {
   const gitDir = await $.process.run(["git", "rev-parse", "--absolute-git-dir"], { cwd: root })
-  const file = `${gitDir.stdout.trim()}/gtd-ship-reply.md`
+  const file = `${gitDir.stdout.trim()}/gtd-${who.name}-reply`
   await $.process.run(["rm", "-f", file])
-  if (!personas.has("shipper")) {
+  if (!personas.has(who.name)) {
     await $.agent.register({
-      name: "shipper",
-      description:
-        "Writes commit messages and pull requests for gtd's ship, spawned by the gtd mod only",
-      prompt:
-        "You write commit messages and pull-request descriptions for gtd's ship command. Read the repository with git and the file tools as the instructions ask. Never modify the repository: no commits, no checkouts, no pushes.",
-      tools: ["Bash", "Read", "Grep", "Glob", "Write", "Skill"],
+      name: who.name,
+      description: who.description,
+      prompt: who.system,
+      tools: who.tools,
       permissionMode: "bypassPermissions",
     })
-    personas.add("shipper")
+    personas.add(who.name)
   }
   const spawned = await $.agent.spawn({
-    subagentType: "gtd:shipper",
-    prompt: `${prompt}\n\n--- DELIVERY ---\nWrite your final answer, exactly as you would print it, to ${file} with the Write tool. Only that file is read. Then stop.`,
-    description: "gtd ship",
-    model: (await $.env.get("GTD_PLANNERMODEL")) ?? "opus",
+    subagentType: `gtd:${who.name}`,
+    prompt: `${prompt}\n\n--- DELIVERY ---\n${delivery} Write it to ${file} with the Write tool. Only that file is read. Then stop.`,
+    description: `gtd ${who.name}`,
+    model,
     cwd: root,
   })
   const id = spawned.agentId
@@ -427,6 +448,32 @@ async function writer($: $, prompt: string) {
   if (!(await turnEnd(id)).ok) return undefined
   try {
     return await $.fs.read(file)
+  } catch {
+    return undefined
+  }
+}
+
+async function writer($: $, prompt: string) {
+  const model = (await $.env.get("GTD_PLANNERMODEL")) ?? "opus"
+  return delegate($, SHIPPER, prompt, model, "Your final answer, exactly as you would print it.")
+}
+
+// Without a TypeSafe key a judge gate is put to a small model, as gtd's own
+// llm provider does, but as a subagent of this session. Any doubt leaves the
+// gate to the person, which routes the workflow its cautious way.
+async function judgeInSession($: $) {
+  try {
+    const j = JSON.parse(await gtd($, ["judge", "--json"])) as Judgment
+    const model = (await $.env.get("GTD_JUDGE_MODEL")) ?? "haiku"
+    const reply = await delegate(
+      $,
+      JUDGE,
+      judgePrompt(j),
+      model,
+      'A JSON object mapping every question id to {"answer": <your answer>, "p": <your confidence>}, and nothing else.',
+    )
+    const verdicts = reply ? toVerdicts(j, JSON.parse(reply)) : "no answer"
+    return typeof verdicts === "string" ? undefined : JSON.stringify(verdicts)
   } catch {
     return undefined
   }
