@@ -383,12 +383,19 @@ noted in steps 2, 3, and 4 below.
 
 4. **You review.** You get a review document listing what changed and what to
    look at. Tick the boxes to approve, or write what is wrong. Approving ends
-   the process; feedback sends it back to step 2 for a fresh plan — it never
-   patches over a design you rejected. One more judged point sits on that
-   feedback path: after you leave a comment, is it actionable, or just approval?
-   Confident it's approval-only skips the replan and signs off directly — the
-   same `gtd judge answer` / conservative-default shape as step 3's own judged
-   points.
+   the process; feedback is judged note by note, each as `edit`, `question`,
+   `nit` or `praise`. An `edit` sends the process back to step 2 for a fresh
+   plan — it never patches over a design you rejected. A `question` is answered
+   inline under your note and the process stops at the review again — no new
+   plan. A `nit` is fixed in one batch, the suite must go green (a red one gets
+   fix turns first), then a fresh review of the change stops at the review
+   again. `praise` is dropped; a round of only praise signs off. When a round
+   mixes them, questions are answered and nits fixed first, then the edits are
+   planned — risk: the planning lap may redo nit fixes it touches. A hand-edit
+   to code always plans a lap. Only a confident non-`edit` verdict skips the
+   replan — a note whose evidence was cut, or that got no verdict, counts as
+   `edit`. The same `gtd judge answer` / conservative-default shape as step 3's
+   own judged points.
 
 You never talk to it. Every exchange is a file in `.gtd/` that you edit in your
 own editor, and every answer you give is a commit. Your test suite is the gate

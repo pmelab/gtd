@@ -13,17 +13,18 @@ import {
   requireThreadsClosed,
   run,
   scope,
-  sectionBodies,
   vars,
   type Change,
   type JudgeQuestion,
 } from "../flows/index.js"
-import { stripCodeThreads } from "../steering/index.js"
+import { reviewNotes, stripCodeThreads, type ReviewNote } from "../steering/index.js"
 import { escalation, FIX_CAP, healthy, type EscalationCount } from "./health.js"
 import {
+  answerReviewQuestions,
   awaitReview,
   collecting,
   fix,
+  fixNits,
   fixQuality,
   QUALITY,
   REQUIREMENTS,
@@ -70,36 +71,43 @@ export type ReviewOutcome =
       readonly edited: readonly Change[]
     }
 
-/** One noul per `## ` chunk of `.gtd/REVIEW.md`: is its note actionable? */
-const triageQuestions = (chunks: readonly string[]): JudgeQuestion[] =>
-  chunks.map((title, i) => ({
-    id: `chunk-${i + 1}`,
-    primitive: "noul",
-    instructions: `Is the note under review chunk "${title}" (in .gtd/REVIEW.md) actionable — anything beyond an approving remark with no code edit?`,
-    criteria:
-      "A concrete request, a question, a code comment, or a hand-edit under this chunk answers yes. No note, or a purely approving remark, answers no.",
-  }))
+type Verdict = "edit" | "question" | "nit" | "praise"
 
-/** A note-only round: judge whether any chunk of `review` asks for something. */
-const actionable = async (review: string): Promise<boolean> => {
-  const found = sectionBodies(review)
-  const chunks = found.map((section) => section.title)
-  const evidence = Object.fromEntries(found.map(({ body }, i) => [`chunk-${i + 1}`, body]))
+const VERDICTS: readonly Verdict[] = ["edit", "question", "nit", "praise"]
+
+/** One four-way choice per note the human added to `.gtd/REVIEW.md`. */
+const verdictQuestion = (note: ReviewNote): JudgeQuestion => ({
+  id: note.id,
+  primitive: "choice",
+  instructions: `Classify the human's note on review item "${note.anchor}" (in .gtd/REVIEW.md). Its evidence holds the anchor, the reviewer's text and the human's text.`,
+  criteria:
+    "edit: a request to change behaviour, design or scope — anything needing a plan, or any note you are unsure about. question: asks something and wants an answer, with no change requested. nit: a small, local, unambiguous fix (naming, typo, formatting, comment wording) needing no re-plan. praise: an approving remark with nothing to do.",
+})
+
+/**
+ * One judge rest, one verdict per note. Dismissing a note is the risky
+ * direction, so only a confident non-`edit` verdict on uncut evidence counts;
+ * a cut, unanswered or below-floor note is an `edit`, and a blank floor makes
+ * every note one.
+ */
+const triage = async (notes: readonly ReviewNote[]): Promise<ReadonlyMap<string, Verdict>> => {
   const { answers, truncated } = await judge("review.triage", {
-    questions: triageQuestions(chunks),
-    evidence,
+    questions: notes.map(verdictQuestion),
+    evidence: Object.fromEntries(
+      notes.map((n) => [
+        n.id,
+        `Anchor: ${n.anchor}\nReviewer's text: ${n.before}\nHuman's text: ${n.text}`,
+      ]),
+    ),
     message: t.buildReviewTriageMessage(),
-    label: "Judging feedback actionability",
+    label: "Judging each note",
   })
-  // Dismissing a note is the risky direction, so only a confident "no" on
-  // uncut evidence dismisses a chunk; a blank floor dismisses nothing.
   const minP = numeric(vars.reviewNoteActionable, Infinity)
-  return (
-    chunks.length === 0 ||
-    chunks.some((_, i) => {
-      const id = `chunk-${i + 1}`
-      return truncated.includes(id) || !answered(answers[id], "no", minP)
-    })
+  return new Map(
+    notes.map((n): [string, Verdict] => {
+      const verdict = VERDICTS.find((v) => v !== "edit" && answered(answers[n.id], v, minP))
+      return [n.id, truncated.includes(n.id) || verdict === undefined ? "edit" : verdict]
+    }),
   )
 }
 
@@ -140,8 +148,8 @@ const notedSince = (commit: string): boolean =>
  * commit of the last `review.collecting` turn, `"missing"` when the round
  * left no review, or `undefined` when no such turn ran.
  */
-const converse = async (base: string): Promise<string | undefined> => {
-  let collectedAt: string | undefined
+const converse = async (base: string, collectedBefore?: string): Promise<string | undefined> => {
+  let collectedAt = collectedBefore
   for (;;) {
     await awaitReview(base)
     if (changes(REVIEW).some((c) => c.status === "deleted")) {
@@ -180,41 +188,111 @@ const settledAfter = (collectedAt: string | undefined): { folded: boolean; settl
     !notedSince(collectedAt),
 })
 
+/** What `finish` hands back to `review`: an outcome, or another lap at the gate. */
+type Finish =
+  | ReviewOutcome
+  | { readonly next: "await"; readonly reviewed: string }
+  | { readonly next: "rereview"; readonly carry: string | undefined }
+
+/** What a round's routing needs from `finish`: its closing step and the ways it ends. */
+interface Round {
+  readonly round: string
+  readonly escalations: EscalationCount
+  readonly close: () => Promise<void>
+  readonly outcome: (verdict: "signoff" | "feedback") => ReviewOutcome
+  readonly unfolded: () => Promise<Finish>
+}
+
+/** Judge every note, then run each verdict's route: answers, then nit fixes, then the edits' lap. */
+const routeNotes = async (notes: readonly ReviewNote[], r: Round): Promise<Finish> => {
+  const verdicts = await triage(notes)
+  const of = (v: Verdict): ReviewNote[] => notes.filter((n) => verdicts.get(n.id) === v)
+  const [edits, questions, nits] = [of("edit"), of("question"), of("nit")]
+  if (edits.length + questions.length + nits.length === 0) return r.unfolded()
+
+  let answeredAt: string | undefined
+  if (questions.length > 0) {
+    await answerReviewQuestions(questions)
+    answeredAt = head()
+  }
+  if (nits.length > 0) {
+    await fixNits(nits)
+    await healthy(fix, { escalations: r.escalations })
+  }
+  if (edits.length > 0) {
+    await r.close()
+    return r.outcome(await collect(t.reviewEditNotesCapture(r.round, edits, answeredAt)))
+  }
+  if (nits.length > 0) {
+    await r.close()
+    return { next: "rereview", carry: answeredAt }
+  }
+  return { next: "await", reviewed: answeredAt! }
+}
+
 const finish = async (
   reviewed: string,
   collectedAt: string | undefined,
-): Promise<ReviewOutcome> => {
+  escalations: EscalationCount,
+): Promise<Finish> => {
+  // Everything the human did is read before any agent turn runs, so a nit fix
+  // is never counted as a hand-edit.
   const round = head()
   const since = changesSince(reviewed)
   const edited = since.filter(isCodeEdit)
+  const baselineText = since.get(REVIEW)?.before ?? ""
   const record = read(REVIEW) ?? ""
   const { folded, settled } = afterCollect(collectedAt)
   // The review gate clears every tick before its commit, so a changed
   // REVIEW.md is a note, never a tick.
   const noted = since.some((c) => c.path === REVIEW)
+  const close = (): Promise<void> =>
+    run("review.closing", removeScript([REVIEW]), { label: "Closing the review", base: round })
   const outcome = (verdict: "signoff" | "feedback"): ReviewOutcome =>
     verdict === "signoff" ? { verdict } : { verdict, base: round, restoreFrom: reviewed, edited }
-  await run("review.closing", removeScript([REVIEW]), {
-    label: "Closing the review",
-    base: round,
-  })
-  if (settled) return outcome(folded ? "feedback" : "signoff")
-  if (edited.length > 0) return outcome(await collect(t.reviewEditsCapture(round)))
-  if (!noted || !(await actionable(record))) return outcome(folded ? "feedback" : "signoff")
-  return outcome(await collect(t.reviewNotesCapture(round)))
+  const unfolded = async (): Promise<Finish> => {
+    await close()
+    return outcome(folded ? "feedback" : "signoff")
+  }
+
+  const collectWith = async (capture: string): Promise<Finish> => {
+    await close()
+    return outcome(await collect(capture))
+  }
+  if (settled || (edited.length === 0 && !noted)) return unfolded()
+  if (edited.length > 0) return collectWith(t.reviewEditsCapture(round))
+  const notes = reviewNotes(baselineText, record)
+  if (notes.length === 0) return collectWith(t.reviewNotesCapture(round))
+  return routeNotes(notes, { round, escalations, close, outcome, unfolded })
 }
 
 /**
  * A reviewer writes `.gtd/REVIEW.md` over everything since `base`, a human
- * reviews and signs off or comments, and a comment is classified into
- * requirements for another lap.
+ * reviews and signs off or comments, and each note is judged: edits go to
+ * another planning lap, questions are answered in place, nits fixed in one
+ * batch, praise dropped.
  */
-export const review = async (base: string): Promise<ReviewOutcome> => {
+export const review = async (
+  base: string,
+  escalations: EscalationCount = { rounds: 0 },
+): Promise<ReviewOutcome> => {
+  let carry: string | undefined
   for (;;) {
-    await reviewing(base)
-    const reviewed = head()
-    const collectedAt = await converse(base)
-    if (collectedAt !== "missing") return finish(reviewed, collectedAt)
+    await reviewing(base, carry)
+    carry = undefined
+    let reviewed = head()
+    let collectedAt: string | undefined
+    for (;;) {
+      collectedAt = await converse(base, collectedAt)
+      if (collectedAt === "missing") break
+      const result = await finish(reviewed, collectedAt, escalations)
+      if (!("next" in result)) return result
+      if (result.next === "rereview") {
+        carry = result.carry
+        break
+      }
+      reviewed = result.reviewed
+    }
   }
 }
 
@@ -233,7 +311,7 @@ export const buildTail = (fixFirst: boolean, base: string): Promise<ReviewOutcom
       }
       const lap = lapped ? "clean" : await qualityLap()
       lapped = true
-      if (lap === "clean") return review(base)
+      if (lap === "clean") return review(base, escalations)
       if (await fixQualityFindings(escalations)) await healthy(fix, { escalations })
       else redFirst = true
     }

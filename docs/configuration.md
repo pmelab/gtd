@@ -741,10 +741,11 @@ or `GTD_<NAME>`:
   escalation is off.
 - **`specPreJudge`** (`0.9`) — `spec.pre`'s floor for skipping a package's
   review turn on a section already judged satisfied. Blank disables the skip.
-- **`reviewNoteActionable`** (`0.7`) — `build.review.triage`'s floor for
-  treating a review-note chunk as non-actionable (folded into a sign-off) rather
-  than spending a `build.review.collecting` turn on it. Blank disables the
-  dismissal: every chunk counts as actionable.
+- **`reviewNoteActionable`** (`0.7`) — `build.review.triage`'s floor a
+  non-`edit` verdict (`question`, `nit`, `praise`) on a review note must clear.
+  Below it, the note counts as `edit` and goes to `build.review.collecting` and
+  a replan. A note whose evidence was cut, or that got no verdict, also counts
+  as `edit`. Blank makes every note `edit`. Triage answers are keyed `note-<n>`.
 - **`architectureSkipMinP`** (`0.85`) — the confidence `architecture-pre`'s "no
   architecture pass needed" answer needs before a plan skips straight to one
   package. Blank means the full architecture pass always runs.

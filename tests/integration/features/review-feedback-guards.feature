@@ -123,21 +123,21 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.triage"
 
     # Only `.gtd/REVIEW.md` changed this round (no hand-edit outside
-    # `.gtd/`) — closing removes it, and `triage`'s own noul judges it.
+    # `.gtd/`) — `triage` judges each note with a four-way verdict.
+    When I run gtd judge answer with stdin:
+      """
+      [{"id": "note-1", "answer": "edit", "p": 0.95}]
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.closing"
+
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → build.review.triage"
-
-    When I run gtd judge answer with stdin:
-      """
-      [{"id": "chunk-1", "answer": true, "p": 0.95}]
-      """
-    Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.triage → build.review.collecting"
+    And the last commit subject is "gtd(check): build.review.closing → build.review.collecting"
 
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
