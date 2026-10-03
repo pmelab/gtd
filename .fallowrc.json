@@ -27,7 +27,11 @@
     "evals/gtd.config.ts",
     // A workflow module: the loader reads its default and named exports off
     // the module namespace, and other workflows import its helpers.
-    "src/workflows/unified.ts"
+    "src/workflows/unified.ts",
+    // The Claude Code mod: Claude Code loads it by the path hooks/hooks.json names.
+    "claude/hooks/register.tsx",
+    // Run by .releaserc.json's prepareCmd, which no package.json script names.
+    "scripts/sync-plugin-version.mjs"
   ],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste worth refactoring.
@@ -54,6 +58,8 @@
   // `tests/tooling/turbo.test.ts`'s own "keeps browser-only web-client packages out of
   // dependencies" test pins this the other way from fallow's own default heuristic.
   "ignoreDependencies": [
+    // The mod API Claude Code provides to a loaded mod; no package to install.
+    "claude-code",
     "jiti",
     "@stryker-mutator/core",
     "@stryker-mutator/vitest-runner",
@@ -72,5 +78,19 @@
     // the Radix step it claims. fallow only sees imports, so without this it
     // reports the package as unused.
     "@radix-ui/colors"
-  ]
+  ],
+  "health": {
+    "thresholdOverrides": [
+      {
+        "files": ["claude/hooks/register.tsx"],
+        "maxCrap": 210,
+        "reason": "The mod's glue to Claude Code runs only inside Claude Code, so no vitest run covers it and every CRAP score here is the uncovered worst case. The ceiling stops it from growing; logic belongs in the tested modules beside it."
+      },
+      {
+        "files": ["claude/hooks/drive.ts", "claude/hooks/ship.ts", "claude/hooks/handoff.ts"],
+        "maxCrap": 60,
+        "reason": "claude/hooks/*.test.ts cover these helpers through their exported callers; fallow's estimate without coverage data counts only exports as reached."
+      }
+    ]
+  }
 }
