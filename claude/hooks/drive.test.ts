@@ -1,4 +1,4 @@
-import { describe, expect, test } from "claude-code/testing"
+import { describe, expect, test } from "vitest"
 
 import { drive } from "./drive"
 import type { Beat, Io, Landing } from "./drive"
