@@ -465,20 +465,18 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.triage"
 
-    # build.review.closing: removes REVIEW.md. A note-only round is a
-    # JUDGMENT call, not a fact — it goes to `triage`'s own noul.
+    # triage: landed untouched, with no verdict — a skipped judgment treats
+    # every note as an `edit`, so it still goes to closing, then collecting.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.closing"
+
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → build.review.triage"
-
-    # triage: landed untouched, with no verdict — a skipped judgment defaults
-    # every chunk to actionable, so it still hands off to collecting.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.triage → build.review.collecting"
+    And the last commit subject is "gtd(check): build.review.closing → build.review.collecting"
 
     # build.review.collecting: JUDGES the round NON-actionable (only an
     # approving remark) — changes nothing -> straight to sign-off, landing
@@ -570,10 +568,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [x] ./src/thing.ts#1
       looks great, nice work
       """
-    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
+    And gtd lands "gtd(human): build.review.await-review → build.review.triage"
+    And gtd lands "gtd(judge): build.review.triage → build.review.closing"
     And the file ".gtd/REVIEW.md" is deleted
-    And gtd lands "gtd(check): build.review.closing → build.review.triage"
-    And gtd lands "gtd(judge): build.review.triage → build.review.collecting"
+    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Export doubled
@@ -1793,7 +1791,7 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd next
     Then it succeeds
     And stdout contains "**Sign off** — leave no comment"
-    And stdout contains "**Request changes** — leave a comment"
+    And stdout contains "**Leave notes** — a note on a"
     And stdout contains "Deleting `.gtd/REVIEW.md` is refused."
 
   @inmem

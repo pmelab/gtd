@@ -83,19 +83,19 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       - [x] ./src/calc.ts#1-1
       new add function — also handle negatives
       """
-    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
+    And gtd lands "gtd(human): build.review.await-review → build.review.triage"
     And I mark the current commit as "review-commit"
+    When I run gtd judge answer with stdin:
+      """
+      [{"id": "note-1", "answer": "edit", "p": 0.95}]
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.closing"
     When I run gtd next with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → build.review.triage"
-    When I run gtd judge answer with stdin:
-      """
-      [{"id": "chunk-1", "answer": true, "p": 0.95}]
-      """
-    Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.triage → build.review.collecting"
+    And the last commit subject is "gtd(check): build.review.closing → build.review.collecting"
     When I run gtd next
     Then it succeeds
     And stdout contains the hash of "review-commit"

@@ -104,4 +104,43 @@ describe("the bundled workflow's steps declare skills", () => {
     expect(request.options.skills).toEqual([])
     expect(request.prompt).not.toContain("Load whatever's listed here")
   })
+
+  it("answerReviewQuestions answers inline in .gtd/REVIEW.md as the reviewer, with reviewSkills", async () => {
+    const request = await capture(() =>
+      steps.answerReviewQuestions([{ id: "note-1", anchor: "calc ./a.ts#1-1", text: "why?" }]),
+    )
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.name).toBe("review.answer-review-questions")
+    expect(request.options).toMatchObject({
+      file: ".gtd/REVIEW.md",
+      mode: "review",
+      skills: ["code-review-and-quality"],
+    })
+    expect(request.prompt).toContain("note-1 — calc ./a.ts#1-1")
+    expect(request.prompt).toContain("`A: ` line")
+    expect(request.prompt).toContain("gtd check review .gtd/REVIEW.md")
+  })
+
+  it("fixNits fixes every nit in one turn and leaves .gtd/REVIEW.md alone", async () => {
+    const request = await capture(() =>
+      steps.fixNits([
+        { id: "note-1", anchor: "calc ./a.ts#1-1", text: "typo" },
+        { id: "note-2", anchor: "calc ./a.ts#2-2", text: "semicolon" },
+      ]),
+    )
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.name).toBe("review.fix-nits")
+    expect(request.options.skills).toEqual(["incremental-implementation", "code-simplification"])
+    expect(request.prompt).toContain("typo")
+    expect(request.prompt).toContain("semicolon")
+    expect(request.prompt).toContain("Leave `.gtd/REVIEW.md` untouched")
+  })
+
+  it("reviewing names the carry-over commit only when given one", async () => {
+    const bare = await capture(() => steps.reviewing("base"))
+    const carried = await capture(() => steps.reviewing("base", "abc1234"))
+    if (bare.kind !== "agent" || carried.kind !== "agent") throw new Error("unreachable")
+    expect(bare.prompt).not.toContain("Carry-over")
+    expect(carried.prompt).toContain("Carry-over: commit `abc1234`")
+  })
 })

@@ -7,6 +7,7 @@ import type {
 } from "./SteeringFormat.js"
 import { qaDescriptor } from "./qa.js"
 import { reviewDescriptor } from "./review.js"
+export { reviewNotes, type ReviewNote } from "./review.js"
 
 export type { InlineNode } from "./Inline.js"
 

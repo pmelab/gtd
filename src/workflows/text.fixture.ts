@@ -1,4 +1,9 @@
-import { installContext, type CodeThreadInfo, type StepRequest } from "../flows/index.js"
+import {
+  installContext,
+  type CodeThreadInfo,
+  type FlowContext,
+  type StepRequest,
+} from "../flows/index.js"
 import { defaults } from "./vars.js"
 
 export interface TextContext {
@@ -13,27 +18,34 @@ const unavailable = (): never => {
   throw new Error("not available while rendering a text outside a replay")
 }
 
+/** The fixed replay context texts render against; steps, refusals and scopes are unavailable unless overridden. */
+export const fixtureContext = (
+  context: TextContext = {},
+  overrides: Partial<FlowContext> = {},
+): FlowContext => ({
+  step: unavailable,
+  refuse: unavailable,
+  pushScope: unavailable,
+  popScope: unavailable,
+  read: context.read ?? (() => undefined),
+  glob: () => [],
+  changes: () => [],
+  changesSince: unavailable,
+  matches: () => false,
+  sections: () => [],
+  sectionBodies: () => [],
+  openQuestions: () => [],
+  threads: () => [],
+  codeThreads: () => context.codeThreads ?? [],
+  vars: { ...defaults, ...context.vars },
+  head: () => context.head ?? "",
+  start: () => context.start ?? "",
+  ...overrides,
+})
+
 /** Evaluate one of the bundled workflow's texts the way replay would, against a fixed context. */
 export const renderText = <T>(text: () => T, context: TextContext = {}): T => {
-  installContext({
-    step: unavailable,
-    refuse: unavailable,
-    pushScope: unavailable,
-    popScope: unavailable,
-    read: context.read ?? (() => undefined),
-    glob: () => [],
-    changes: () => [],
-    changesSince: unavailable,
-    matches: () => false,
-    sections: () => [],
-    sectionBodies: () => [],
-    openQuestions: () => [],
-    threads: () => [],
-    codeThreads: () => context.codeThreads ?? [],
-    vars: { ...defaults, ...context.vars },
-    head: () => context.head ?? "",
-    start: () => context.start ?? "",
-  })
+  installContext(fixtureContext(context))
   try {
     return text()
   } finally {
@@ -47,28 +59,14 @@ export const captureStep = async (
   context: TextContext = {},
 ): Promise<StepRequest> => {
   let captured: StepRequest | undefined
-  installContext({
-    step: (request) => {
-      captured = request
-      return Promise.resolve()
-    },
-    refuse: unavailable,
-    pushScope: unavailable,
-    popScope: unavailable,
-    read: context.read ?? (() => undefined),
-    glob: () => [],
-    changes: () => [],
-    changesSince: unavailable,
-    matches: () => false,
-    sections: () => [],
-    sectionBodies: () => [],
-    openQuestions: () => [],
-    threads: () => [],
-    codeThreads: () => context.codeThreads ?? [],
-    vars: { ...defaults, ...context.vars },
-    head: () => context.head ?? "",
-    start: () => context.start ?? "",
-  })
+  installContext(
+    fixtureContext(context, {
+      step: (request) => {
+        captured = request
+        return Promise.resolve()
+      },
+    }),
+  )
   try {
     await fn()
   } finally {

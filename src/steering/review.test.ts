@@ -1702,3 +1702,83 @@ describe("review view — threads", () => {
     expect(other!.thread).toBeUndefined()
   })
 })
+
+describe("reviewNotes", async () => {
+  const { reviewNotes } = await import("./review.js")
+  const doc = (chunkBody: string, extra = ""): string =>
+    [
+      "# Review: abc1234",
+      "",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk one",
+      "",
+      chunkBody,
+      "",
+      "- [ ] ./src/a.ts#1-3",
+      extra,
+    ].join("\n")
+  const base = doc("Prose.")
+
+  it("identical texts yield nothing", () => {
+    expect(reviewNotes(base, base)).toEqual([])
+  })
+
+  it("a pointer note added", () => {
+    const after = doc("Prose.").replace("#1-3", "#1-3 rename this")
+    expect(reviewNotes(base, after)).toEqual([
+      {
+        id: "note-1",
+        kind: "pointer",
+        anchor: "Chunk one ./src/a.ts#1-3",
+        before: "",
+        text: "rename this",
+      },
+    ])
+  })
+
+  it("a pointer note extended carries the reviewer's text as before", () => {
+    const was = base.replace("#1-3", "#1-3 why")
+    const after = base.replace("#1-3", "#1-3 why not")
+    const [n] = reviewNotes(was, after)
+    expect(n).toMatchObject({ kind: "pointer", before: "why", text: "why not" })
+  })
+
+  it("a footnote added", () => {
+    const after = base.replace("#1-3", "#1-3[^n1]") + "\n[^n1]: please split\n"
+    expect(reviewNotes(base, after)).toEqual([
+      {
+        id: "note-1",
+        kind: "footnote",
+        anchor: "- [ ] ./src/a.ts#1-3[^n1]",
+        before: "",
+        text: "please split",
+      },
+    ])
+  })
+
+  it("a thread footnote never appears", () => {
+    const after = base.replace("#1-3", "#1-3[^t1]") + "\n[^t1]:\n    - H: why?\n"
+    expect(reviewNotes(base, after)).toEqual([])
+  })
+
+  it("chunk prose added", () => {
+    const [n] = reviewNotes(base, doc("Prose. Also this is wrong."))
+    expect(n).toMatchObject({ kind: "chunk", anchor: "Chunk one", before: "Prose." })
+  })
+
+  it("a baseline already holding an answered note excludes it", () => {
+    const answered = base.replace("#1-3", "#1-3 why?\n  A: because")
+    expect(reviewNotes(answered, answered)).toEqual([])
+    const more = answered.replace("#1-3", "#1-3[^n2]") + "\n[^n2]: another\n"
+    expect(reviewNotes(answered, more).map((n) => n.kind)).toEqual(["footnote"])
+  })
+
+  it("ids run in document order", () => {
+    const after = base.replace("#1-3", "#1-3 a[^n1]") + "\n[^n1]: b\n"
+    expect(reviewNotes(base, after).map((n) => [n.id, n.kind])).toEqual([
+      ["note-1", "pointer"],
+      ["note-2", "footnote"],
+    ])
+  })
+})

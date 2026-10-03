@@ -158,15 +158,47 @@ export const fixQuality = (): Promise<void> =>
     allowEmpty: true,
   })
 
-/** Write `.gtd/REVIEW.md` over everything since `base`. */
-export const reviewing = (base: string): Promise<void> =>
-  t.agentWithSkills("review.reviewing", vars.reviewSkills, t.buildReviewReviewingPrompt(base), {
-    label: "Reviewing",
+/** Write `.gtd/REVIEW.md` over everything since `base`, carrying the answers of commit `carry` when given. */
+export const reviewing = (base: string, carry?: string): Promise<void> =>
+  t.agentWithSkills(
+    "review.reviewing",
+    vars.reviewSkills,
+    t.buildReviewReviewingPrompt(base, carry),
+    {
+      label: "Reviewing",
+      file: REVIEW,
+      mode: "review",
+      model: planner(),
+      system: t.reviewerSystem(),
+      base,
+    },
+  )
+
+/** Answer every `question` note inline in `.gtd/REVIEW.md`. */
+export const answerReviewQuestions = (notes: readonly t.NoteInput[]): Promise<void> =>
+  t.agentWithSkills(
+    "review.answer-review-questions",
+    vars.reviewSkills,
+    t.buildReviewAnswerQuestionsPrompt(notes),
+    {
+      label: "Answering your questions",
+      file: REVIEW,
+      mode: "review",
+      model: planner(),
+      system: t.reviewerSystem(),
+    },
+  )
+
+/**
+ * Fix every `nit` note in one turn. Its name puts it in the `build.review`
+ * conversation, which has one identity — so it runs as the reviewer, not the coder.
+ */
+export const fixNits = (notes: readonly t.NoteInput[]): Promise<void> =>
+  t.agentWithSkills("review.fix-nits", vars.reviewFixSkills, t.buildReviewFixNitsPrompt(notes), {
+    label: "Fixing your nits",
     file: REVIEW,
-    mode: "review",
     model: planner(),
     system: t.reviewerSystem(),
-    base,
   })
 
 export const awaitReview = (base: string): Promise<void> =>

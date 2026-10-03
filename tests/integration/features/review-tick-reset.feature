@@ -94,14 +94,9 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.triage"
     And ".gtd/REVIEW.md" does not contain "[x]"
     And ".gtd/REVIEW.md" contains "needs error handling too"
-    When I run gtd next with "--json"
-    And I execute the printed check script
-    And I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → build.review.triage"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "needs error handling too"

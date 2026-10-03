@@ -19,6 +19,7 @@ import {
   threadReplyActions,
   noteLookup,
   parseFootnotes,
+  parseThreads,
 } from "./Footnotes.js"
 import {
   blockEndLine,
@@ -1072,4 +1073,94 @@ export const reviewDescriptor: SteeringFormat = {
   apply: reviewApply,
   clearTicks: reviewClearTicks,
   openThreads: openThreadsOf,
+}
+
+/** One thing the human added to a review document since the baseline. */
+export interface ReviewNote {
+  readonly id: string
+  readonly kind: "pointer" | "footnote" | "chunk"
+  /** The chunk title plus the pointer (path + range), or the footnote's marker line. */
+  readonly anchor: string
+  /** The reviewer's text at this spot; empty when the note is new. */
+  readonly before: string
+  /** The human's text. */
+  readonly text: string
+}
+
+const pointerLabel = (f: ReviewFile): string =>
+  `${f.path}${f.line === undefined ? "" : `#${f.line}${f.rangeEnd === undefined ? "" : `-${f.rangeEnd}`}`}`
+
+type Found = { line: number; note: Omit<ReviewNote, "id"> }
+
+const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] =>
+  chunk.description === (prior?.description ?? "")
+    ? []
+    : [
+        {
+          line: chunk.headingLine,
+          note: {
+            kind: "chunk",
+            anchor: chunk.title,
+            before: prior?.description ?? "",
+            text: chunk.description,
+          },
+        },
+      ]
+
+const pointerNotes = (chunk: Changeset, prior: Changeset | undefined): Found[] =>
+  chunk.files.flatMap((file): Found[] => {
+    const label = pointerLabel(file)
+    const was = prior?.files.find((f) => pointerLabel(f) === label)
+    if (file.note === undefined || file.note === (was?.note ?? "")) return []
+    return [
+      {
+        line: file.sourceLine,
+        note: {
+          kind: "pointer",
+          anchor: `${chunk.title} ${label}`,
+          before: was?.note ?? "",
+          text: file.note,
+        },
+      },
+    ]
+  })
+
+const footnoteNotes = (before: string, after: string): Found[] => {
+  const lines = after.split(/\r?\n/)
+  const threadNames = new Set(parseThreads(after).map((t) => t.name))
+  const knownNames = new Set(parseFootnotes(before).definitions.map((d) => d.name))
+  const parsed = parseFootnotes(after)
+  const markerOf = new Map(parsed.markers.map((m) => [m.name, m.line]))
+  return parsed.definitions
+    .filter((def) => !threadNames.has(def.name) && !knownNames.has(def.name))
+    .map((def) => {
+      const at = markerOf.get(def.name)
+      return {
+        line: def.line,
+        note: {
+          kind: "footnote",
+          anchor: at === undefined ? `[^${def.name}]` : (lines[at] ?? "").trim(),
+          before: "",
+          text: def.body,
+        },
+      }
+    })
+}
+
+/**
+ * Every note the human added to `after` relative to `before`, in document
+ * order: pointer notes, one-shot footnotes (never `H:`/`A:` threads) and
+ * chunk prose.
+ */
+export const reviewNotes = (before: string, after: string): readonly ReviewNote[] => {
+  if (before === after) return []
+  const oldChunks = new Map(parseReviewDoc(before).changesets.map((c) => [c.title, c]))
+  const found = [
+    ...parseReviewDoc(after).changesets.flatMap((chunk) => {
+      const prior = oldChunks.get(chunk.title)
+      return [...chunkNote(chunk, prior), ...pointerNotes(chunk, prior)]
+    }),
+    ...footnoteNotes(before, after),
+  ]
+  return found.sort((a, b) => a.line - b.line).map((f, i) => ({ id: `note-${i + 1}`, ...f.note }))
 }

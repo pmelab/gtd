@@ -217,7 +217,7 @@ Feature: Review conversation — a question gets an answer at the same gate, not
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → build.review.triage"
+    And the last commit subject is "gtd(check): build.review.closing → build.review.collecting"
 
   Scenario: folds from an in-loop collect survive a judged-approving last round
     Given ".gtd/REVIEW.md" is modified to:
@@ -269,19 +269,19 @@ Feature: Review conversation — a question gets an answer at the same gate, not
       ## calc
 
       - [ ] ./src/calc.ts#1
-      new add function
-
-      Looks good.
+      new add function — looks good
       """
-    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
-    And the file ".gtd/REVIEW.md" is deleted
-    And gtd lands "gtd(check): build.review.closing → build.review.triage"
+    And gtd lands "gtd(human): build.review.await-review → build.review.triage"
     When I run gtd judge answer with stdin:
       """
-      [{"id": "chunk-1", "answer": false, "p": 0.99}]
+      [{"id": "note-1", "answer": "praise", "p": 0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.triage → re-unwind"
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.closing"
+    Given the file ".gtd/REVIEW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.closing → re-unwind"
     And ".gtd/REQUIREMENTS.md" exists
 
   Scenario: a collecting turn that leaves a thread ending in "H:" is refused
