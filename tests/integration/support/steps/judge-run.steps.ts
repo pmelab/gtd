@@ -1,5 +1,7 @@
+import { chmodSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
+import { join } from "node:path"
 import { Given, When } from "quickpickle"
 import type { GtdWorld } from "../world.js"
 
@@ -26,3 +28,12 @@ Given(
     world.closers.push(() => new Promise<void>((resolve) => server.close(() => resolve())))
   },
 )
+
+// Writes the docstring as an executable into the `@live` PATH shim dir, so the
+// scenario text shows the whole fake `claude`.
+Given("an executable {string} on PATH with:", (world: GtdWorld, name: string, body: string) => {
+  if (world.pathShimDir === undefined) throw new Error("no PATH shim dir: this step is @live only")
+  const file = join(world.pathShimDir, name)
+  writeFileSync(file, `#!/bin/sh\n${String(body)}\n`)
+  chmodSync(file, 0o755)
+})

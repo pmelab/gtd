@@ -39,13 +39,19 @@ while :; do
     # you re-ran us resting here: you either edited something or accepted by
     # editing nothing, so land the opening beat either way. Later beats are
     # gates we just produced and you have not read yet — hand off. A judge
-    # gate's own \`--json=judge\` is non-empty here; the message: itself
-    # already tells you to run \`gtd judge answer\` and paste a verdict, so
-    # this reference driver just displays it and stops like any other
-    # message — it never calls the network. An aware driver would read
-    # \`--json=judge\` here instead and route it to an LLM (see "Judge gates"
-    # below).
+    # gate's own \`--json=judge\` is non-empty here: pipe it through
+    # \`gtd judge run\` and land the verdict via \`gtd judge answer\`. POSIX sh has
+    # no pipefail, so the verdict is captured first and only piped on when
+    # \`gtd judge run\` succeeded; on failure its stderr reaches you and we fall
+    # through to the human hand-off below.
     message)
+      if [ -n "$(gtd next --json=judge)" ] &&
+        verdict="$(gtd judge --json | gtd judge run)"; then
+        script="$(printf '%s\\n' "$verdict" | gtd judge answer --json=script)"
+        printf '%s\\n' "$script" | sh
+        beat=$((beat + 1))
+        continue
+      fi
       [ "$beat" = 1 ] || {
         gtd next
         exit 0

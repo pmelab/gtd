@@ -380,6 +380,8 @@ const runJudgeRunCommand = (
         runJudge({
           provider: command.provider,
           answers: command.answers,
+          model: command.model,
+          cwd: host.scratchDir,
           env: host.env,
           input,
         }),

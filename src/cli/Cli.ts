@@ -86,8 +86,9 @@ export type Command =
   | { readonly kind: "judgeAnswer" }
   | {
       readonly kind: "judgeRun"
-      readonly provider: "fixed" | "jev"
+      readonly provider?: "fixed" | "jev" | "llm"
       readonly answers?: string
+      readonly model?: string
     }
 
 /**
@@ -253,12 +254,15 @@ const FLAGS: readonly FlagRow[] = [
     repeatable: false,
     scope: (kind) => kind === "judgeRun",
     decode: ([raw]) =>
-      raw === "fixed" || raw === "jev"
+      raw === "fixed" || raw === "jev" || raw === "llm"
         ? Either.right(raw)
-        : Either.left(`gtd: --provider must be one of fixed, jev — got "${raw ?? ""}"`),
+        : Either.left(`gtd: --provider must be one of fixed, jev, llm — got "${raw ?? ""}"`),
     scopeError: "gtd: --provider is only valid for `gtd judge run`",
     valueHint: "<name>",
-    help: ["(gtd judge run only, required) the answerer: fixed | jev"],
+    help: [
+      "(gtd judge run only) the answerer: fixed | jev | llm;",
+      "omitted: jev when TYPESAFE_API_KEY is set, else llm",
+    ],
   },
   {
     name: "--answers",
@@ -291,14 +295,17 @@ const FLAGS: readonly FlagRow[] = [
     name: "--model",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "land",
+    scope: (kind) => kind === "land" || kind === "judgeRun",
     decode: ([raw]) =>
       raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
         ? Either.left("gtd: --model must be a non-empty, single-line value")
         : Either.right(raw),
-    scopeError: "gtd: --model is only valid for `gtd land` — an entry is not a metered agent turn",
+    scopeError: "gtd: --model is only valid for `gtd land` (with --cost) or `gtd judge run`",
     valueHint: "<name>",
-    help: ["(gtd land only, with --cost) tag that cost's model"],
+    help: [
+      "(gtd land, with --cost) tag that cost's model",
+      "(gtd judge run, llm answerer) the claude model; default haiku",
+    ],
   },
   {
     name: "--entry",
@@ -680,9 +687,12 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "stdin, write a verdict [{ id, answer, p }] on stdout — what",
       "`gtd judge answer` decodes. --provider fixed answers from",
       "--answers <path> or GTD_JUDGE_ANSWERS; questions the file",
-      "does not cover are left out. Needs no repository. Exits 1",
-      "on an unreadable or malformed answers file, with nothing",
-      "on stdout",
+      "does not cover are left out. --provider jev asks TypeSafe",
+      "(TYPESAFE_API_KEY). --provider llm asks the `claude` CLI",
+      "on PATH (Claude Code only), model haiku unless --model.",
+      "No --provider: jev when TYPESAFE_API_KEY is set, else llm.",
+      "Needs no repository. Exits 1 when it cannot answer every",
+      "question, with nothing on stdout",
     ],
   },
 ]
@@ -1063,7 +1073,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--host"?: string
     readonly "--self-signed"?: boolean
     readonly "--dev"?: boolean
-    readonly "--provider"?: "fixed" | "jev"
+    readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
   }
 
@@ -1130,18 +1140,23 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   }
 
   if (kind === "judgeRun") {
-    if (bag["--provider"] === undefined) {
-      return usagePlan("gtd judge run: --provider <fixed|jev> is required", jsonSeen)
-    }
-    if (bag["--provider"] === "jev" && bag["--answers"] !== undefined) {
+    const provider = bag["--provider"]
+    if (provider !== "fixed" && bag["--answers"] !== undefined) {
       return usagePlan("gtd judge run: --answers is only valid with --provider fixed", jsonSeen)
+    }
+    if ((provider === "fixed" || provider === "jev") && bag["--model"] !== undefined) {
+      return usagePlan(
+        "gtd judge run: --model is only valid with --provider llm (or when it is auto-selected)",
+        jsonSeen,
+      )
     }
     return {
       kind: "command",
       command: {
         kind: "judgeRun",
-        provider: bag["--provider"],
+        ...(provider !== undefined ? { provider } : {}),
         ...(bag["--answers"] !== undefined ? { answers: bag["--answers"] } : {}),
+        ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
       },
       json,
       verbose,

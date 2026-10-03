@@ -813,10 +813,28 @@ describe("parseArgv — gtd judge run", () => {
     expect(plan.kind === "command" && plan.command).toEqual({ kind: "judgeRun", provider: "jev" })
   })
 
+  it("parses --provider llm with --model", () => {
+    const plan = parse("judge", "run", "--provider=llm", "--model", "sonnet")
+    expect(plan.kind === "command" && plan.command).toEqual({
+      kind: "judgeRun",
+      provider: "llm",
+      model: "sonnet",
+    })
+  })
+
+  it("parses no --provider (auto), with or without --model", () => {
+    const bare = parse("judge", "run")
+    expect(bare.kind === "command" && bare.command).toEqual({ kind: "judgeRun" })
+    const model = parse("judge", "run", "--model=x")
+    expect(model.kind === "command" && model.command).toEqual({ kind: "judgeRun", model: "x" })
+  })
+
   it.each([
-    [["judge", "run"], "--provider"],
-    [["judge", "run", "--provider", "nope"], "must be one of"],
-    [["judge", "run", "--provider", "jev", "--answers", "a.json"], "--answers"],
+    [["judge", "run", "--provider", "nope"], "must be one of fixed, jev, llm"],
+    [["judge", "run", "--answers", "a.json"], "--answers is only valid with --provider fixed"],
+    [["judge", "run", "--provider", "jev", "--model", "x"], "--model"],
+    [["judge", "run", "--provider", "fixed", "--model", "x"], "--model"],
+    [["next", "--model", "x"], "`gtd land` (with --cost) or `gtd judge run`"],
     [["judge", "run", "--provider", "fixed", "--json"], "--json is only valid"],
     [["judge", "run", "--provider", "fixed", "--answers="], "requires a value"],
     [["judge", "--provider", "fixed"], "only valid for `gtd judge run`"],

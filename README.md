@@ -335,9 +335,11 @@ noted in steps 2, 3, and 4 below.
      straight from your answers to a single built package, with no technical
      plan shown to you at all.
 
-   A driver built only to run this loop (not to answer judgments) still handles
-   every one of these correctly: it shows you the message and stops, same as any
-   other question.
+   The reference driver answers this judgment itself (`gtd judge run`, auto
+   selection); if that fails it shows you the message and stops, same as any
+   other question. **The `llm` provider's `p` is self-reported by the model, not
+   a measured probability, so a confidently wrong haiku verdict can skip a
+   question you would have asked.**
 
 3. **You wait.** The work is split into packages and built one at a time, each
    one checked against your test suite and fixed until it passes, then reviewed
@@ -349,8 +351,12 @@ noted in steps 2, 3, and 4 below.
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
    between `gtd judge --json` and `gtd judge answer`;
    `gtd judge run --provider jev` asks TypeSafe's Jev instead, with the key in
-   `TYPESAFE_API_KEY` and `JEV_BASE_URL` optionally overriding the endpoint, and
-   exits 1 with nothing on stdout when it cannot answer every question):
+   `TYPESAFE_API_KEY` and `JEV_BASE_URL` optionally overriding the endpoint;
+   `gtd judge run --provider llm` asks the `claude` CLI on `PATH` (Claude Code
+   users only; model `haiku`, `--model <name>` overrides) and reuses its login.
+   With no `--provider`, `gtd judge run` picks jev when `TYPESAFE_API_KEY` is
+   set and non-empty, else llm — never falling back across them. Either exits 1
+   with nothing on stdout when it cannot answer every question):
    - Every red round after the first: was the failure identical, new, or
      progress?
    - Before spending a review turn on a package: does the code already satisfy
@@ -358,9 +364,12 @@ noted in steps 2, 3, and 4 below.
    - After a review turn raises concerns: would each one actually violate the
      spec if left unaddressed, or is it a nit?
 
-   A driver built only to run this loop (not to answer judgments) still handles
-   every one of these correctly: it shows you the message and stops, same as any
-   other question.
+   The reference driver answers these itself (`gtd judge run`, auto selection:
+   jev when `TYPESAFE_API_KEY` is set, else `llm` via `claude`, default model
+   haiku, `--model <name>` overrides); if that fails it shows you the message
+   and stops. **The `llm` provider's `p` is self-reported by the model, not a
+   measured probability, so a confidently wrong verdict can clear the 0.9/0.7
+   floors and skip a gate unattended.**
 
    Once the last package is built, the whole change goes through a qualitative
    review lap before you see anything: one configured skill per turn, each

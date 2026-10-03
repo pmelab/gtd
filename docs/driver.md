@@ -330,18 +330,17 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 `gtd next --json` emits 20 keys (17 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`/`skills`); a real driver
-reads 8 of the 20. The minimal driver below is the reference for exactly which:
+reads 9 of the 20. The minimal driver below is the reference for exactly which:
 `kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
-`session.id`/`session.resume`), `model`, `system`, and `validate` — every
-`--json=<path>` selector its `case` arms touch. The remaining 12 (`state`,
+`session.id`/`session.resume`), `model`, `system`, `validate`, and `judge` —
+every `--json=<path>` selector its `case` arms touch. The remaining 11 (`state`,
 `actor`, `label`, `memory`, `file`, `mode`, `changes`, `next`, `cost`,
-`costByModel`, `judge`, `skills`) are read only by a human looking at plain
-output, or by a driver author deciding what to log, preload, or route to a judge
-model (see "Judge gates" below) — no `case` arm in THIS reference driver
-branches on them. This is a property of what a driver NEEDS, not a smaller wire:
-every key stays on every `gtd next --json` line, unconditionally, so
-`--json=<path>` keeps resolving the same way for a human poking at one field as
-for the reference driver reading eight of them in a loop.
+`costByModel`, `skills`) are read only by a human looking at plain output, or by
+a driver author deciding what to log or preload — no `case` arm in THIS
+reference driver branches on them. This is a property of what a driver NEEDS,
+not a smaller wire: every key stays on every `gtd next --json` line,
+unconditionally, so `--json=<path>` keeps resolving the same way for a human
+poking at one field as for the reference driver reading nine of them in a loop.
 
 (`gtd land --json` is a separate command with its own seven-key document —
 `script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a `gtd next`
@@ -407,13 +406,19 @@ while :; do
     # you re-ran us resting here: you either edited something or accepted by
     # editing nothing, so land the opening beat either way. Later beats are
     # gates we just produced and you have not read yet — hand off. A judge
-    # gate's own `--json=judge` is non-empty here; the message: itself
-    # already tells you to run `gtd judge answer` and paste a verdict, so
-    # this reference driver just displays it and stops like any other
-    # message — it never calls the network. An aware driver would read
-    # `--json=judge` here instead and route it to an LLM (see "Judge gates"
-    # below).
+    # gate's own `--json=judge` is non-empty here: pipe it through
+    # `gtd judge run` and land the verdict via `gtd judge answer`. POSIX sh has
+    # no pipefail, so the verdict is captured first and only piped on when
+    # `gtd judge run` succeeded; on failure its stderr reaches you and we fall
+    # through to the human hand-off below.
     message)
+      if [ -n "$(gtd next --json=judge)" ] &&
+        verdict="$(gtd judge --json | gtd judge run)"; then
+        script="$(printf '%s\n' "$verdict" | gtd judge answer --json=script)"
+        printf '%s\n' "$script" | sh
+        beat=$((beat + 1))
+        continue
+      fi
       [ "$beat" = 1 ] || {
         gtd next
         exit 0
@@ -493,35 +498,33 @@ re-invocation authored and which therefore lands like any other decision (see
 [Driving the loop](#driving-the-loop) above — this is the one place the driver,
 not gtd, decides, because "has the human read this gate" is run-scoped knowledge
 gtd deliberately does not keep). A judge gate is a `message` rest whose own
-`--json=judge` is non-empty — this reference driver never reads that field at
-all (it is UNAWARE of judge gates by design) and just displays the message
-(which itself tells you to run `gtd judge answer`) and stops; it never calls the
-network, and landing that gate with no verdict ever recorded resolves every
-answer to `undefined`, which a workflow routes to its conservative branch (see
-[Judge gates](#judge-gates-an-aware-drivers-env-var-mapping) below for what an
-aware driver does instead). `capture` lands a human's already-made edit
-outright, no display needed; `script` reads its content off `--json=content`
-(the raw script, not plain `gtd next`'s prose) and runs it; `prompt` pipes plain
-`gtd next`'s own output to the agent over stdin, with
-`session.id`/`session.resume`/`model`/`system`/`validate` read as separate
-`--json=<path>` calls and mapped onto the agent's session flags — trying
-`resume`'s hinted flag first and falling back to the other on failure, since the
-session id is derived, not remembered (see [Driving the loop](#driving-the-loop)
-above) — and its own `validate` script's output re-prompted verbatim on failure
-(the driver owns only the retry cap). Every optional value (`model`, `system`,
-`validate`, `session.resume`, `idle`, `settled`) is read into a shell variable
-that command substitution always assigns — even to the empty string when the
-field is absent — so `set -u` never aborts on it; the guards
-(`${var:-}`/`${var:+...}`) still matter for VALUE, not for `set -u`: an absent
-field prints nothing, so an unguarded `--model "$model"` on an absent field
-would pass `--model ""` and silently override the harness's own default, which
-`${model:+--model "$model"}` avoids by omitting the flag entirely when `model`
-is empty. Every landed turn is executed — and reported — by the emitted script
-itself, read off `gtd land --json=script`, captured then piped to `sh`;
-`settled`/`idle` are read from the same untouched tree first, per the ordering
-rule above. `settled` ends a run that has nothing left to do: a no-op at a
-`script` rest settles right where it rests (stop immediately, nothing more to
-read), while an ordinary landing that finishes the whole process instead
+`--json=judge` is non-empty — this reference driver pipes it through
+`gtd judge run` and `gtd judge answer` (see
+[Judge gates](#judge-gates-an-aware-drivers-env-var-mapping)), with the verdict
+captured first because POSIX `sh` has no `pipefail`; if `gtd judge run` fails,
+the driver falls back to the human hand-off, leaving the gate to you. `capture`
+lands a human's already-made edit outright, no display needed; `script` reads
+its content off `--json=content` (the raw script, not plain `gtd next`'s prose)
+and runs it; `prompt` pipes plain `gtd next`'s own output to the agent over
+stdin, with `session.id`/`session.resume`/`model`/`system`/`validate` read as
+separate `--json=<path>` calls and mapped onto the agent's session flags —
+trying `resume`'s hinted flag first and falling back to the other on failure,
+since the session id is derived, not remembered (see
+[Driving the loop](#driving-the-loop) above) — and its own `validate` script's
+output re-prompted verbatim on failure (the driver owns only the retry cap).
+Every optional value (`model`, `system`, `validate`, `session.resume`, `idle`,
+`settled`) is read into a shell variable that command substitution always
+assigns — even to the empty string when the field is absent — so `set -u` never
+aborts on it; the guards (`${var:-}`/`${var:+...}`) still matter for VALUE, not
+for `set -u`: an absent field prints nothing, so an unguarded `--model "$model"`
+on an absent field would pass `--model ""` and silently override the harness's
+own default, which `${model:+--model "$model"}` avoids by omitting the flag
+entirely when `model` is empty. Every landed turn is executed — and reported —
+by the emitted script itself, read off `gtd land --json=script`, captured then
+piped to `sh`; `settled`/`idle` are read from the same untouched tree first, per
+the ordering rule above. `settled` ends a run that has nothing left to do: a
+no-op at a `script` rest settles right where it rests (stop immediately, nothing
+more to read), while an ordinary landing that finishes the whole process instead
 resolves `idle` on the FOLLOWING beat's own `gtd next --json=idle` read — the
 reference driver reads once more (a plain `gtd next`) only to DISPLAY that
 gate's own message, the decision to stop already made from `settled`/`idle`
@@ -547,18 +550,19 @@ A judge gate is a `judge()` step (actor `judge`) and a `kind: "message"` rest
 whose `--json=judge` field is non-empty — the rendered JSON document
 `{ state, questions: [...] }` the pending judgment asks about. The gtd engine
 never calls a model — `gtd judge run` is an answerer a driver chooses to pipe
-through: the reference driver above only displays the step's `message` (which
-tells you to run `gtd judge answer` and paste a verdict) and stops. An AWARE
-driver — one built to answer a judge gate automatically — instead reads
-`--json=judge`, pipes that document to a judgment model such as TypeSafe's Jev,
-and pipes the verdict it gets back into `gtd judge answer --json=script` on
+through. The reference driver above is an aware driver: it reads `--json=judge`
+and, when non-empty, pipes `gtd judge --json | gtd judge run` into
+`gtd judge answer --json=script | sh`, with no `--provider` (auto selection,
+below). If `gtd judge run` fails it stops at the gate for you, as for any
+message. A driver that wants a different judgment model pipes the same document
+to it and the verdict it gets back into `gtd judge answer --json=script` on
 stdin.
 
 Whose-turn-is-it status reporting (like the herdr wrapper above) should treat
 `actor` as an ALLOWLIST, not a denylist: stand down — report the run as resting
 on someone, same as any ordinary human gate — on any actor the driver doesn't
 specifically know how to advance, rather than assuming idle/done on everything
-that isn't `human`. `judge` is exactly such a case: an unaware driver that only
+that isn't `human`. `judge` is exactly such a case: a driver that only
 recognises `agent`/`check` halts there correctly with no edit, while a driver
 that special-cased `!== "human"` as "nothing owed" would silently skip past a
 pending judgment.
@@ -585,6 +589,22 @@ verdict's `p` is the confidence in the answer given: a `noul` at 0.1 is `"no"`
 at `p` 0.9. On any failure — no key, a non-200, an unreadable response, a
 question it cannot translate, or a verdict missing some questions — it exits 1,
 prints why on stderr and writes nothing on stdout, so the judgment stays yours.
+
+`gtd judge run --provider llm` answers by running `claude -p` (the Claude Code
+CLI, on `PATH`), reusing its existing login — no key to configure. The model
+defaults to `haiku`; `--model <name>` overrides it. Failure follows the same
+contract: exit 1, why on stderr, nothing on stdout.
+
+With no `--provider`, `gtd judge run` picks `jev` when `TYPESAFE_API_KEY` is set
+and non-empty — the keyed speed-up — and `llm` otherwise. It never falls back
+from one to the other: a failing jev does not retry through `claude`.
+
+**Calibration risk: the `llm` provider's `p` is self-reported by the model, not
+a measured probability.** Workflows gate on `p` floors (0.9 / 0.7), and a model
+that states `p` 0.95 on a wrong answer clears them. Because the reference driver
+answers gates with auto selection, every user of the paste has `haiku` (or jev)
+answering judge gates unattended out of the box; if a wrong verdict skipping a
+human gate is unacceptable, route judge gates to yourself instead.
 
 If your environment carries the key under `TYPESAFE_AI_KEY` (a name some setup
 flows use), map it yourself — e.g. `export TYPESAFE_API_KEY="$TYPESAFE_AI_KEY"`.
