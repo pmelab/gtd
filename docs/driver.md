@@ -221,12 +221,24 @@ falls back to the `gtd` on your `PATH`.
   nothing pending it only tells you how to start.
 - At every human rest the mod starts `gtd ui` for that step and asks in Claude
   Code's own question dialog, which is the state herdr, the desktop app and
-  Remote Control show as waiting on you. The question carries the `gtd ui` URL.
-  **Proceed** lands what you changed and drives on; handing the turn back from
-  `gtd ui` itself does the same. Proceeding without a change at a gate that
-  needs one lands nothing, and the question says so.
-- **Not yet** or Escape leaves the gate open; the band above the prompt keeps a
-  **Proceed** button.
+  Remote Control show as waiting on you. The question carries the `gtd ui` URL,
+  which is also printed as its own transcript line. **I'm done, continue** lands
+  what you changed and drives on; handing the turn back from `gtd ui` itself
+  does the same, and a question it leaves open says it is out of date.
+  Continuing without a change at a gate that needs one lands nothing, and the
+  question says so.
+- **Not now** or Escape leaves the gate open; the band above the prompt keeps a
+  **Continue** button.
+- Each step prints one line to the transcript and the status line, so a long
+  check is visibly running. A rest, a finish or a failure also raises a push
+  notification, which reaches your phone over Remote Control while you are away
+  from the terminal.
+- From a phone, where no dialog is drawn, reply `continue`, `not now` or
+  `hand off @user` at an open gate; the mod acts on it and the model never sees
+  it.
+- Saving the plugin's own files reloads it. A reload in the middle of an agent
+  step waits for that agent and lands its work instead of starting it again; a
+  reload at a gate opens its question again.
 - `/gtd fix` enters at `fix-precheck`, repairing a red baseline as its own
   reviewed commit. `/gtd review [base]` enters at `review-gate.check` with
   `reviewBase` set to the merge-base with `base` (the default branch unless
@@ -238,8 +250,8 @@ falls back to the `gtd` on your `PATH`.
   process to a new `gtd/<timestamp>` branch when you are on the default one),
   opens a draft pull request for the hand-off, or refreshes the open one, and
   assigns it to `@user` in place of its previous assignees. Without a user it is
-  left for anyone. Every human and judge gate's question also offers **Throw**,
-  which asks for the handle.
+  left for anyone. Every human and judge gate's question also offers **Hand off
+  to someone else**, which asks for the handle.
 - `/gtd catch <pr|branch>` checks the thrown branch out with `gh pr checkout`,
   assigns it to you, and shows you the gate it waits at, with the same dialog;
   it never lands that gate before you have seen it. Agent conversations do not
@@ -251,9 +263,9 @@ falls back to the `gtd` on your `PATH`.
   text; nothing reviews them before they are published. `/gtd ship -n` prints
   the commit message and what would happen to the pull request, and writes
   nothing. It needs `gh`, a clean tree, and a branch other than the default.
-  When a process finishes on such a branch, the mod offers **Ship it** in the
-  question dialog. On a thrown draft, ship writes the title and description
-  properly and marks the pull request ready for review.
+  When a process finishes on such a branch, the question dialog offers **Yes,
+  open the pull request**. On a thrown draft, ship writes the title and
+  description properly and marks the pull request ready for review.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone.
@@ -266,8 +278,8 @@ falls back to the `gtd` on your `PATH`.
   conversation never takes a turn because a beat finished.
 - A judge gate is answered with `gtd judge run --provider jev` when
   `TYPESAFE_API_KEY` (or `TYPESAFE_AI_KEY`) is set. Otherwise the dialog asks
-  you, and **Proceed** lands it unanswered, which routes the workflow its
-  cautious way.
+  you, and **Continue with the safe choice** lands it unanswered, which routes
+  the workflow its cautious way.
 - Script and check beats append to the log `gtd next --json` names.
 
 ## Writing your own driver

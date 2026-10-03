@@ -117,4 +117,16 @@ describe("drive", () => {
     expect(await drive(io)).toMatchObject({ kind: "stopped" })
     expect(calls).toEqual([])
   })
+
+  test("after a reload, the turn that already ran is landed, not repeated", async () => {
+    const { io, calls } = fake(
+      [
+        { kind: "prompt", memory: "build#a", content: "do it" },
+        { kind: "prompt", memory: "build#a" },
+      ],
+      [{ script: "commit" }, { script: "next", settled: true }],
+    )
+    await drive(io, "build#a")
+    expect(calls).toEqual(["land", "sh:commit", "turn:build#a:false:", "land", "sh:next"])
+  })
 })
