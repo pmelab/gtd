@@ -4,6 +4,7 @@ import type { EngineInterface, Register } from "claude-code"
 import type { Run, Stop } from "../types"
 import { drive, isTrue } from "./drive"
 import type { Beat, Io, Landing, TurnEnd } from "./drive"
+import { catchFrom, throwTo } from "./handoff"
 import { ship } from "./ship"
 import type { ShipIo } from "./ship"
 
@@ -247,14 +248,81 @@ async function openGate($: $) {
   const r = await read($, run)
   if (token !== gateToken || !r.stop) return
   try {
-    const answer = await $.ui.ask(question(r), { header: "gtd", options: [PROCEED, "Not yet"] })
-    if (answer === PROCEED && token === gateToken) await proceed($)
+    const answer = await $.ui.ask(question(r), {
+      header: "gtd",
+      options: [PROCEED, THROW, "Not yet"],
+    })
+    if (token !== gateToken) return
+    if (answer === PROCEED) await proceed($)
+    if (answer === THROW) await askThrow($)
   } catch {
     // dismissed: the band above the prompt still offers Proceed
   }
 }
 
 const SHIP = "Ship it"
+const THROW = "Throw"
+
+async function askThrow($: $) {
+  try {
+    const answer = await $.ui.ask(
+      "Throw this state to whom? Type their GitHub handle under Other, or leave it to anyone.",
+      { header: "gtd", options: ["Anyone", "Cancel"] },
+    )
+    if (answer !== "Cancel") await throwNow($, answer === "Anyone" ? undefined : answer.trim())
+  } catch {
+    // dismissed: nothing thrown
+  }
+}
+
+async function throwNow($: $, target: string | undefined) {
+  if ((await read($, run)).isRunning) return $.ui.log("Stop the loop first: /gtd stop.")
+  closeUi()
+  gateToken++
+  const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
+  $.ui.status("gtd: throwing…")
+  const rest = {
+    state: b.state,
+    label: b.label,
+    content: b.content,
+    isIdle: b.state === "idle" && isTrue(b.idle),
+  }
+  const thrown = await throwTo(shipIo($), rest, target, new Date().toISOString()).catch(
+    (err: unknown) => ({ ok: false, text: String(err) }),
+  )
+  $.ui.status(undefined)
+  for (const line of thrown.text.split("\n")) $.ui.log(line)
+  if (thrown.ok) {
+    await update($, run, (r) => ({
+      ...r,
+      url: undefined,
+      uiNote: undefined,
+      stop: { kind: "stopped" as const, text: thrown.text },
+    }))
+  } else if ((await read($, run)).stop?.kind === "gate") {
+    // Nothing left: the person is still at the gate they tried to throw.
+    void openGate($)
+  }
+}
+
+// Picks the process up where it was thrown: a rest that waits on a person is
+// shown to the catcher first, never landed unseen.
+async function catchNow($: $, ref: string) {
+  if ((await read($, run)).isRunning) return "Stop the loop first: /gtd stop."
+  const caught = await catchFrom(shipIo($), ref)
+  if (!caught.ok) return caught.text
+  await findRoot($)
+  const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
+  if (b.kind === "message") {
+    const stop: Stop = { kind: "gate", text: b.content ?? "", state: b.state, label: b.label }
+    if (b.judge) stop.isJudge = true
+    await update($, run, (r) => ({ ...r, stop, isRepeat: false }))
+    void openGate($)
+  } else {
+    await start($)
+  }
+  return caught.text
+}
 
 // A finished process on a feature branch is one answer away from its pull request.
 async function offerShip($: $, token: number) {
@@ -392,7 +460,8 @@ export const register: Register = (on) => {
     await $.command.register({
       name: "gtd",
       description: "Drive gtd until it rests on you; pass requirements to start a new process",
-      argumentHint: "[requirements | stop | status | ship [-n]]",
+      argumentHint:
+        "[requirements | stop | status | ship [-n] | throw [@user] | catch <pr|branch>]",
       immediate: true,
     })
     return next(e)
@@ -407,6 +476,15 @@ export const register: Register = (on) => {
     const problem = await preflight($)
     if (problem) return { text: problem }
     if (arg === "status") return { text: await gtd($, ["next"]) }
+    const [verb = "", ...rest] = arg.split(/\s+/)
+    if (verb === "throw") {
+      void throwNow($, rest[0])
+      return {}
+    }
+    if (verb === "catch") {
+      if (!rest[0]) return { text: "Name the pull request or branch: /gtd catch <number|branch>." }
+      return { text: await catchNow($, rest[0]) }
+    }
     if (arg === "ship" || arg === "ship -n" || arg === "ship --dry-run") {
       void shipNow($, arg !== "ship")
       return {}
@@ -460,7 +538,7 @@ export const register: Register = (on) => {
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const r = await read($, run)
     if (!r.isRunning && !r.stop) return next(e)
-    const { Box, Button, Link, Text } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
     const where = r.label ? `${r.state} (${r.label})` : (r.state ?? "")
     if (r.isRunning) {
       return (
@@ -482,7 +560,7 @@ export const register: Register = (on) => {
           <Button key="go" label="Proceed" variant="primary" onPress={() => proceed($)} />
           <Button key="dismiss" label="Dismiss" role="dismiss" onPress={() => dismiss($)} />
         </Box>
-        {r.url && <Link href={r.url} label={`gtd ui: ${r.url}`} />}
+        {r.url && <Text dimColor>gtd ui: {r.url}</Text>}
         {!r.url && r.uiNote && <Text dimColor>gtd ui: {r.uiNote}</Text>}
         {isBad && <Text dimColor>{stop.text.split("\n").slice(0, 8).join("\n")}</Text>}
       </Box>
