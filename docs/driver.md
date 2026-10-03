@@ -277,9 +277,11 @@ falls back to the `gtd` on your `PATH`.
 - A subagent's hand-back is dropped before it reaches the session, so the main
   conversation never takes a turn because a beat finished.
 - A judge gate is answered with `gtd judge run --provider jev` when
-  `TYPESAFE_API_KEY` (or `TYPESAFE_AI_KEY`) is set. Otherwise the dialog asks
-  you, and **Continue with the safe choice** lands it unanswered, which routes
-  the workflow its cautious way.
+  `TYPESAFE_API_KEY` (or `TYPESAFE_AI_KEY`) is set. Otherwise a small subagent
+  answers it with the same prompt gtd's `llm` provider sends, on
+  `GTD_JUDGE_MODEL` (haiku by default), with no `claude -p`. Only when neither
+  produces a complete verdict does the dialog ask you, and **Continue with the
+  safe choice** lands it unanswered, which routes the workflow its cautious way.
 - Script and check beats append to the log `gtd next --json` names.
 
 ## Writing your own driver
