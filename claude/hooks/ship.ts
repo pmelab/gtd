@@ -52,7 +52,7 @@ export function costTrailers(log: string) {
 
 // `gtd summary` is the only place gtd names the process's start parent.
 // `gtd base` is the review anchor and would squash only part of the process.
-export const summaryRange = (summary: string) =>
+const summaryRange = (summary: string) =>
   /git log ([0-9a-f]{7,40})\.\.([0-9a-f]{7,40})/.exec(summary)?.slice(1, 3)
 
 const COMMIT_FORMAT = `
@@ -129,6 +129,22 @@ export async function ship(io: ShipIo, isDry: boolean): Promise<Shipped> {
 type Git = (...args: string[]) => Promise<string>
 type Ok = (...args: string[]) => Promise<boolean>
 
+// The process's own commits, base exclusive, and only while it ends at HEAD;
+// a string is why ship refuses to squash.
+async function processRange(git: Git, summary: string) {
+  const range = summaryRange(summary)
+  if (!range) return "The gtd summary names no commit range, so ship refuses to guess a base."
+  const base = await git("rev-parse", "--verify", `${range[0]}^{commit}`)
+  const tip = await git("rev-parse", "--verify", `${range[1]}^{commit}`)
+  if (!base || !tip) return "The gtd summary's range does not resolve in this repository."
+  if (tip !== (await git("rev-parse", "HEAD"))) {
+    return `The process tip (${short(tip)}) is not HEAD: something landed since.`
+  }
+  const count = Number(await git("rev-list", "--count", `${base}..HEAD`))
+  if (!count) return `Nothing to squash: ${short(base)}..HEAD is empty.`
+  return { base, tip, count }
+}
+
 async function squash(
   io: ShipIo,
   git: Git,
@@ -141,16 +157,9 @@ async function squash(
     io.log(`No gtd process at HEAD, so nothing is squashed; ${branch} is described as it stands.`)
     return { ok: true, text: "" }
   }
-  const range = summaryRange(summary.out)
-  if (!range) return fail("The gtd summary names no commit range, so ship refuses to guess a base.")
-  const base = await git("rev-parse", "--verify", `${range[0]}^{commit}`)
-  const tip = await git("rev-parse", "--verify", `${range[1]}^{commit}`)
-  if (!base || !tip) return fail("The gtd summary's range does not resolve in this repository.")
-  if (tip !== (await git("rev-parse", "HEAD"))) {
-    return fail(`The process tip (${short(tip)}) is not HEAD: something landed since.`)
-  }
-  const count = Number(await git("rev-list", "--count", `${base}..HEAD`))
-  if (!count) return fail(`Nothing to squash: ${short(base)}..HEAD is empty.`)
+  const range = await processRange(git, summary.out)
+  if (typeof range === "string") return fail(range)
+  const { base, tip, count } = range
 
   // gtd churns its own steering files every process, so `.gtd/` alone is no change.
   if (await ok("diff", "--quiet", base, "HEAD", "--", ":(exclude).gtd/")) {

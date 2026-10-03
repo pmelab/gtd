@@ -291,6 +291,7 @@ Then, in any repository:
 ```
 
 That starts a process from your requirements and drives it until it needs you.
+`/gtd fix` and `/gtd review [base]` take the two side doors described below.
 Every human rest opens Claude Code's own question dialog, with a link to
 `gtd ui` for the step; review there, then answer **Proceed**. When the process
 finishes, **Ship it** (or `/gtd ship`) squashes it into one commit and opens the

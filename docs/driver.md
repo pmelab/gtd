@@ -227,6 +227,11 @@ falls back to the `gtd` on your `PATH`.
   needs one lands nothing, and the question says so.
 - **Not yet** or Escape leaves the gate open; the band above the prompt keeps a
   **Proceed** button.
+- `/gtd fix` enters at `fix-precheck`, repairing a red baseline as its own
+  reviewed commit. `/gtd review [base]` enters at `review-gate.check` with
+  `reviewBase` set to the merge-base with `base` (the default branch unless
+  named), reviewing everything since. Both run the script `gtd --entry` prints,
+  then drive like `/gtd`.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
 - `/gtd throw [@user]` hands the process to someone else. It needs a clean tree:
   proceed or stash a half-made answer first. It pushes the branch (moving the
