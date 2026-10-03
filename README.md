@@ -276,10 +276,10 @@ the full protocol.
 ### Or drive it from inside Claude Code
 
 The gtd mod runs the same loop inside an interactive Claude Code session
-(2.1.287 or later), without `claude -p`. Install it once, next to the gtd CLI:
+(2.1.287 or later), without `claude -p`. The plugin is the npm package itself,
+so it brings its own gtd; it needs only `node` and `npm` on your `PATH`:
 
 ```sh
-npm install -g @pmelab/gtd
 claude plugin marketplace add pmelab/gtd
 claude plugin install gtd@gtd
 ```

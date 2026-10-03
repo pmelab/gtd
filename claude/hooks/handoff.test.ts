@@ -1,4 +1,4 @@
-import { describe, expect, test } from "claude-code/testing"
+import { describe, expect, test } from "vitest"
 
 import { catchFrom, throwTo } from "./handoff"
 import { ship, THROWN } from "./ship"

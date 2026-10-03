@@ -417,7 +417,44 @@ function question(r: Run) {
 }
 
 // Turns a missing CLI or a wrong directory into an instruction, not a stack trace.
+// The plugin is gtd's own npm package, so it runs the gtd it ships and the mod
+// and the CLI never disagree. A checkout without a build falls back to PATH.
+// The plugin install fetches no dependencies, so they arrive here, once per
+// version, beside the bundle that resolves them.
+async function adoptOwnGtd($: $) {
+  const dir = $.plugin.root
+  if (!(await $.fs.exists(`${dir}/dist/gtd.bundle.mjs`))) return undefined
+  if (!(await $.fs.exists(`${dir}/node_modules/effect`))) {
+    $.ui.status("gtd: installing its runtime, once per version…")
+    try {
+      const npm = await $.process.run(
+        [
+          "npm",
+          "install",
+          "--omit=dev",
+          "--omit=peer",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund",
+          "--no-package-lock",
+        ],
+        { cwd: dir, timeoutMs: TEN_MINUTES },
+      )
+      if (npm.exitCode !== 0) return `Installing gtd's runtime failed:\n${npm.stderr.trim()}`
+    } catch {
+      return "gtd needs node and npm on your PATH."
+    } finally {
+      $.ui.status(undefined)
+    }
+  }
+  const path = (await $.env.get("PATH")) ?? ""
+  if (!path.startsWith(`${dir}/bin:`)) await $.env.set("PATH", `${dir}/bin:${path}`)
+  return undefined
+}
+
 async function preflight($: $) {
+  const setup = await adoptOwnGtd($)
+  if (setup) return setup
   try {
     const v = (await $.process.run(["gtd", "--version"])).stdout.trim()
     const [major = 0, minor = 0] = v.split(".").map(Number)
@@ -498,7 +535,7 @@ export const register: Register = (on) => {
     }
     await start($)
     return {}
-  })
+  }).catch(($, e, next) => ({ text: `gtd: ${next.error.message}` }))
 
   on("turn.complete", ($, e, next) => {
     if (e.agentId && ours.has(e.agentId)) {

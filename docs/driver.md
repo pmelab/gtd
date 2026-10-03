@@ -191,19 +191,27 @@ than the state itself.
 
 ### Inside Claude Code: the gtd mod
 
-The gtd repository is also a Claude Code plugin marketplace. Its `gtd` plugin is
-a mod that drives this same protocol from an interactive session, with no
-`claude -p`. It needs Claude Code 2.1.287 or later and gtd 15.6 or later on your
-`PATH`:
+The gtd repository is also a Claude Code plugin marketplace, and the
+`@pmelab/gtd` npm package is its `gtd` plugin: a mod that drives this same
+protocol from an interactive session, with no `claude -p`. It needs Claude Code
+2.1.287 or later and `node` and `npm` on your `PATH`:
 
 ```sh
-npm install -g @pmelab/gtd
 claude plugin marketplace add pmelab/gtd
 claude plugin install gtd@gtd
 ```
 
-To try a checkout instead, load it for one session with
-`claude --plugin-dir /path/to/gtd/claude`.
+The plugin runs the gtd of its own package version, so mod and CLI always match.
+The first `/gtd` after an install or update fetches gtd's runtime dependencies
+into the plugin's folder, once. Inside the session the plugin's `gtd` comes
+first on `PATH`, so agent beats and scripts run that same version; a global
+`npm install -g @pmelab/gtd` is only for your own terminal. An update to a
+version whose workflow changed can strand a process already underway, as with
+any gtd upgrade: finish or ship it before updating.
+
+To try a checkout instead, build it (`npm run build`) and load the repository
+for one session: `claude --plugin-dir /path/to/gtd`. A checkout without a build
+falls back to the `gtd` on your `PATH`.
 
 - `/gtd <requirements>` starts a new process: the requirements become the
   steering file the idle rest names (`.gtd/TODO.md`), and the opening beat

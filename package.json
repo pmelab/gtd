@@ -16,7 +16,14 @@
     "src/workflows/",
     "README.md",
     "LICENSE",
-    "schema.json"
+    "schema.json",
+    ".claude-plugin/plugin.json",
+    "hooks/",
+    "bin/",
+    "claude/hooks/",
+    "claude/types/",
+    "!claude/**/*.test.ts",
+    "skills/"
   ],
   "publishConfig": {
     "access": "public",

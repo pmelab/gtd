@@ -1,4 +1,4 @@
-import { describe, expect, test } from "claude-code/testing"
+import { describe, expect, test } from "vitest"
 
 import { cleanReply, costTrailers, ship } from "./ship"
 import type { Ran, ShipIo } from "./ship"

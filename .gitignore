@@ -59,4 +59,4 @@ evals/results.json
 src/web/generated.html
 
 # engine-generated mod typings
-claude/.claude-plugin/types/
+.claude-plugin/types/
