@@ -4,6 +4,7 @@ import type { EngineInterface, Register } from "claude-code"
 import type { Run, Stop } from "../types"
 import { drive, isTrue } from "./drive"
 import type { Beat, Io, Landing, TurnEnd } from "./drive"
+import { enter } from "./entry"
 import { catchFrom, throwTo } from "./handoff"
 import { ship } from "./ship"
 import type { ShipIo } from "./ship"
@@ -305,6 +306,13 @@ async function throwNow($: $, target: string | undefined) {
   }
 }
 
+async function enterNow($: $, door: "fix" | "review", base: string | undefined) {
+  if ((await read($, run)).isRunning) return "Stop the loop first: /gtd stop."
+  const entered = await enter(shipIo($), door, base)
+  if (entered.ok) await start($)
+  return entered.text
+}
+
 // Picks the process up where it was thrown: a rest that waits on a person is
 // shown to the catcher first, never landed unseen.
 async function catchNow($: $, ref: string) {
@@ -483,6 +491,47 @@ async function dismiss($: $) {
   await update($, run, (r) => ({ ...r, stop: undefined, url: undefined, uiNote: undefined }))
 }
 
+// `/gtd [verb] …`; anything that is not a verb is a new process's requirements.
+async function command($: $, arg: string): Promise<string | undefined> {
+  if (arg === "stop") {
+    stopRequested = true
+    return "Stopping after the current beat."
+  }
+  const problem = await preflight($)
+  if (problem) return problem
+  const [verb = "", ...rest] = arg.split(/\s+/)
+  switch (verb) {
+    case "status":
+      return gtd($, ["next"])
+    case "fix":
+    case "review":
+      return enterNow($, verb, rest[0])
+    case "throw":
+      void throwNow($, rest[0])
+      return undefined
+    case "catch":
+      return rest[0]
+        ? catchNow($, rest[0])
+        : "Name the pull request or branch: /gtd catch <number|branch>."
+    case "ship":
+      void shipNow($, rest[0] === "-n" || rest[0] === "--dry-run")
+      return undefined
+    case "":
+      return resume($)
+    default:
+      return begin($, arg)
+  }
+}
+
+async function resume($: $) {
+  const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
+  if (b.state === "idle" && isTrue(b.idle)) {
+    return "Nothing is in progress. Start a process with /gtd <requirements>, or sketch the change in .gtd/TODO.md and run /gtd."
+  }
+  await start($)
+  return undefined
+}
+
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     for (const id of await read($, agents)) ours.add(id)
@@ -498,43 +547,15 @@ export const register: Register = (on) => {
       name: "gtd",
       description: "Drive gtd until it rests on you; pass requirements to start a new process",
       argumentHint:
-        "[requirements | stop | status | ship [-n] | throw [@user] | catch <pr|branch>]",
+        "[requirements | fix | review [base] | stop | status | ship [-n] | throw [@user] | catch <pr|branch>]",
       immediate: true,
     })
     return next(e)
   })
 
   on("command.run", { command: "gtd" }, async ($, e) => {
-    const arg = e.args.trim()
-    if (arg === "stop") {
-      stopRequested = true
-      return { text: "Stopping after the current beat." }
-    }
-    const problem = await preflight($)
-    if (problem) return { text: problem }
-    if (arg === "status") return { text: await gtd($, ["next"]) }
-    const [verb = "", ...rest] = arg.split(/\s+/)
-    if (verb === "throw") {
-      void throwNow($, rest[0])
-      return {}
-    }
-    if (verb === "catch") {
-      if (!rest[0]) return { text: "Name the pull request or branch: /gtd catch <number|branch>." }
-      return { text: await catchNow($, rest[0]) }
-    }
-    if (arg === "ship" || arg === "ship -n" || arg === "ship --dry-run") {
-      void shipNow($, arg !== "ship")
-      return {}
-    }
-    if (arg) return { text: await begin($, arg) }
-    const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
-    if (b.state === "idle" && isTrue(b.idle)) {
-      return {
-        text: "Nothing is in progress. Start a process with /gtd <requirements>, or sketch the change in .gtd/TODO.md and run /gtd.",
-      }
-    }
-    await start($)
-    return {}
+    const text = await command($, e.args.trim())
+    return text ? { text } : {}
   }).catch(($, e, next) => ({ text: `gtd: ${next.error.message}` }))
 
   on("turn.complete", ($, e, next) => {
@@ -587,22 +608,30 @@ export const register: Register = (on) => {
       )
     }
     const stop = r.stop as Stop
-    const isBad = stop.kind === "error" || stop.kind === "stalled"
+    const ui = r.url ?? r.uiNote
+    const detail = TONE[stop.kind] === "red" ? stop.text.split("\n").slice(0, 8).join("\n") : ""
     return (
       <Box flexDirection="column">
         <Box gap={1}>
-          <Text color={isBad ? "red" : stop.kind === "done" ? "green" : "yellow"} bold>
+          <Text color={TONE[stop.kind]} bold>
             gtd {headline(stop)}
           </Text>
           <Button key="go" label="Proceed" variant="primary" onPress={() => proceed($)} />
           <Button key="dismiss" label="Dismiss" role="dismiss" onPress={() => dismiss($)} />
         </Box>
-        {r.url && <Text dimColor>gtd ui: {r.url}</Text>}
-        {!r.url && r.uiNote && <Text dimColor>gtd ui: {r.uiNote}</Text>}
-        {isBad && <Text dimColor>{stop.text.split("\n").slice(0, 8).join("\n")}</Text>}
+        {ui && <Text dimColor>gtd ui: {ui}</Text>}
+        {detail && <Text dimColor>{detail}</Text>}
       </Box>
     )
   })
+}
+
+const TONE: Record<Stop["kind"], string> = {
+  error: "red",
+  stalled: "red",
+  done: "green",
+  gate: "yellow",
+  stopped: "yellow",
 }
 
 const headline = (s: Stop) => {
