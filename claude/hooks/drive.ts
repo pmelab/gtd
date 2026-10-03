@@ -62,7 +62,9 @@ const failed = (b: Beat, text: string): Acted => ({ stop: { kind: "error", text,
 
 // The reference sh driver from docs/driver.md, beat for beat. gtd decides;
 // this only executes what `gtd next` and `gtd land` print.
-export async function drive(io: Io): Promise<Stop> {
+// `landTurn` names a memory scope whose agent turn already ran (a reload cut
+// the loop off while it did): the opening prompt beat lands it, not repeats it.
+export async function drive(io: Io, landTurn?: string): Promise<Stop> {
   // A judge gate answered on the previous beat that rests on the same state
   // again moved nothing: hand it to the human rather than pay for it twice.
   let judged: string | undefined
@@ -74,7 +76,7 @@ export async function drive(io: Io): Promise<Stop> {
     // decision, and an `acceptClean` first step must get to fire.
     if (beat > 1 && isTrue(b.idle)) return { kind: "done", text: await io.plain(), ...where(b) }
 
-    const acted = await act(io, b, beat, judged)
+    const acted = await act(io, b, beat, judged, beat === 1 ? landTurn : undefined)
     if (acted.stop) return acted.stop
     judged = acted.verdict ? b.state : undefined
     const landed = await land(io, b, acted.verdict)
@@ -82,7 +84,13 @@ export async function drive(io: Io): Promise<Stop> {
   }
 }
 
-async function act(io: Io, b: Beat, beat: number, judged: string | undefined): Promise<Acted> {
+async function act(
+  io: Io,
+  b: Beat,
+  beat: number,
+  judged: string | undefined,
+  landTurn: string | undefined,
+): Promise<Acted> {
   switch (b.kind) {
     case "stalled":
       return { stop: { kind: "stalled", text: b.content ?? "", ...where(b) } }
@@ -94,7 +102,7 @@ async function act(io: Io, b: Beat, beat: number, judged: string | undefined): P
       await io.sh(b.content ?? "", b.log)
       return {}
     case "prompt":
-      return agent(io, b)
+      return agent(io, b, landTurn)
     default:
       return failed(b, `unknown beat kind '${b.kind}'`)
   }
@@ -106,29 +114,37 @@ async function message(io: Io, b: Beat, beat: number, judged: string | undefined
   // Any later beat is a gate this run produced and the human has not read yet.
   const stop: Stop = { kind: "gate", text: b.content ?? "", ...where(b) }
   if (b.judge) stop.isJudge = true
+  if (b.file) stop.file = b.file
   return { stop }
 }
 
-async function agent(io: Io, b: Beat): Promise<Acted> {
+async function agent(io: Io, b: Beat, landTurn: string | undefined): Promise<Acted> {
   const memory = b.memory ?? b.session?.id ?? b.state ?? "root"
-  const t = await io.turn({
-    memory,
-    resume: isTrue(b.session?.resume),
-    prompt: b.content ?? "",
-    label: b.label,
-    model: b.model || undefined,
-    system: b.system || undefined,
-  })
+  const t =
+    landTurn === memory
+      ? ({ ok: true } as const)
+      : await io.turn({
+          memory,
+          resume: isTrue(b.session?.resume),
+          prompt: b.content ?? "",
+          label: b.label,
+          model: b.model || undefined,
+          system: b.system || undefined,
+        })
   if (!t.ok) return failed(b, t.why)
-  for (let fixes = 0; b.validate; fixes++) {
-    const v = await io.check(b.validate)
-    if (v.ok) break
+  return b.validate ? validated(io, b, b.validate, memory) : {}
+}
+
+// The step's own validator; its findings go back to the same conversation.
+async function validated(io: Io, b: Beat, validate: string, memory: string): Promise<Acted> {
+  for (let fixes = 0; ; fixes++) {
+    const v = await io.check(validate)
+    if (v.ok) return {}
     if (fixes >= MAX_FIXES)
       return failed(b, `validation still failing after ${fixes} fixes\n${v.out}`)
     const f = await io.resume(memory, v.out)
     if (!f.ok) return failed(b, f.why)
   }
-  return {}
 }
 
 async function land(io: Io, b: Beat, verdict: string | undefined): Promise<Stop | undefined> {

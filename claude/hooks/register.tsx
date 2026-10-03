@@ -8,6 +8,26 @@ import { enter } from "./entry"
 import { catchFrom, throwTo } from "./handoff"
 import { ship } from "./ship"
 import type { ShipIo } from "./ship"
+import {
+  ANYONE,
+  beatLine,
+  CANCEL,
+  CLOSE,
+  CONTINUE,
+  gateOptions,
+  HANDOFF,
+  handoffQuestion,
+  headline,
+  LATER,
+  parseReply,
+  pushText,
+  question,
+  SAFE,
+  SHIP,
+  shipQuestion,
+  STALE,
+  TONE,
+} from "./wording"
 
 type $ = EngineInterface
 
@@ -24,6 +44,8 @@ let gateUi: { stop(): void } | undefined
 // bumped per rest, so an answer or hand-back for an older rest is ignored
 let gateToken = 0
 let lastGate: { state?: string; head: string } | undefined
+// the question dialog this mod has open, to mark it stale once gtd moves on
+let openAsk: { token: number; text: string } | undefined
 
 let stopRequested = false
 const ours = new Set<string>()
@@ -68,11 +90,18 @@ async function persona($: $, system: string) {
 }
 
 async function send($: $, agentId: string, text: string) {
+  // A turn that ended while nothing waited on it must not end this one.
+  ended.delete(agentId)
   const end = turnEnd(agentId)
   const sent = await $.session.send({ to: { agentId }, text })
   if (sent.isDelivered) return end
   waiting.delete(agentId)
   return undefined
+}
+
+async function settle($: $, end: TurnEnd) {
+  await update($, run, (r) => ({ ...r, inflight: undefined }))
+  return end
 }
 
 function io($: $): Io {
@@ -117,8 +146,10 @@ function io($: $): Io {
     turn: async (t) => {
       const known = (await read($, scopes))[t.memory]
       if (t.resume && known) {
-        const end = await send($, known, t.prompt)
-        if (end) return end
+        const end = send($, known, t.prompt)
+        await update($, run, (r) => ({ ...r, inflight: { agentId: known, memory: t.memory } }))
+        const ended = await end
+        if (ended) return settle($, ended)
       }
       // No live conversation for this scope (fresh scope, or this session never
       // held it): start one, as the sh driver falls back to `--session-id`.
@@ -134,7 +165,8 @@ function io($: $): Io {
       ours.add(id)
       await update($, agents, (list) => [...list, id].slice(-200))
       await update($, scopes, (s) => ({ ...s, [t.memory]: id }))
-      return turnEnd(id)
+      await update($, run, (r) => ({ ...r, inflight: { agentId: id, memory: t.memory } }))
+      return settle($, await turnEnd(id))
     },
     resume: async (memory, text) => {
       const id = (await read($, scopes))[memory]
@@ -142,6 +174,10 @@ function io($: $): Io {
       return end ?? { ok: false, why: `no live subagent for ${memory}` }
     },
     progress: (beat, b) => {
+      // The band is not drawn everywhere (Remote Control, the mobile app):
+      // the status line and one transcript line per step say it too.
+      $.ui.status(beatLine(beat, b))
+      $.ui.log(beatLine(beat, b))
       void update($, run, (r) => ({ ...r, beat, state: b.state, label: b.label }))
     },
     stopped: () => stopRequested,
@@ -157,13 +193,14 @@ async function head($: $) {
   return (await $.process.run(["git", "rev-parse", "HEAD"], { cwd: root })).stdout.trim()
 }
 
-async function start($: $) {
+async function start($: $, landTurn?: string) {
   if ((await read($, run)).isRunning) return
   closeUi()
+  moveOn($)
   stopRequested = false
   await findRoot($)
   await update($, run, () => ({ isRunning: true, beat: 0 }))
-  void drive(io($))
+  void drive(io($), landTurn)
     .catch((err: unknown): Stop => ({ kind: "error", text: String(err) }))
     .then(async (stop) => {
       const at = { state: stop.state, head: await head($) }
@@ -171,8 +208,10 @@ async function start($: $) {
         stop.kind === "gate" && at.state === lastGate?.state && at.head === lastGate?.head
       lastGate = at
       await update($, run, (r) => ({ ...r, isRunning: false, stop, isRepeat }))
-      $.ui.toast(`gtd: ${headline(stop)}`)
+      $.ui.status(undefined)
+      $.ui.toast(headline(stop))
       if (stop.kind === "gate" || stop.kind === "done") await openGate($)
+      else await push($, stop)
     })
 }
 
@@ -197,10 +236,8 @@ function closeUi() {
   gateUi = undefined
 }
 
-const PROCEED = "Proceed"
-
 // `gtd ui` serves exactly one rest and exits 0 once the person hands the turn
-// back from the web client; that hand-back proceeds as the Proceed answer does.
+// back from the web client; that hand-back continues the process as Continue does.
 function serveUi($: $, token: number) {
   let isKilled = false
   let ready = () => {}
@@ -248,40 +285,54 @@ async function openGate($: $) {
   if (!stop?.isJudge) await Promise.race([serveUi($, token), $.clock.sleep(8000)])
   const r = await read($, run)
   if (token !== gateToken || !r.stop) return
+  await push($, r.stop, r.url)
+  // Also a transcript line: Remote Control and the phone show no dialog.
+  if (r.url) $.ui.log(`Open in your browser: ${r.url}`)
+  const answer = await ask($, token, question(r), gateOptions(r.stop))
+  if (token !== gateToken) return
+  if (answer === CONTINUE || answer === SAFE) await proceed($)
+  if (answer === HANDOFF) await askThrow($)
+}
+
+// The engine's own dialog; undefined when dismissed. Remembered, so it can be
+// marked out of date once gtd moves on without it (a mod cannot close it).
+async function ask($: $, token: number, text: string, options: string[]) {
+  openAsk = { token, text }
   try {
-    const answer = await $.ui.ask(question(r), {
-      header: "gtd",
-      options: [PROCEED, THROW, "Not yet"],
-    })
-    if (token !== gateToken) return
-    if (answer === PROCEED) await proceed($)
-    if (answer === THROW) await askThrow($)
+    return await $.ui.ask(text, { header: "gtd", options })
   } catch {
-    // dismissed: the band above the prompt still offers Proceed
+    return undefined
+  } finally {
+    if (openAsk?.text === text) openAsk = undefined
   }
 }
 
-const SHIP = "Ship it"
-const THROW = "Throw"
+// A gate is news even when nobody watches the terminal: a push reaches the
+// phone over Remote Control, and the engine drops it while the person is here.
+async function push($: $, stop: Stop, url?: string) {
+  const repo = root.split("/").pop() ?? "gtd"
+  try {
+    await $.tool.call({
+      tool: "PushNotification",
+      message: pushText(stop, repo, url),
+      status: "proactive",
+    })
+  } catch {
+    // no push channel: the dialog and the band still say it
+  }
+}
 
 async function askThrow($: $) {
-  try {
-    const answer = await $.ui.ask(
-      "Throw this state to whom? Type their GitHub handle under Other, or leave it to anyone.",
-      { header: "gtd", options: ["Anyone", "Cancel"] },
-    )
-    if (answer !== "Cancel") await throwNow($, answer === "Anyone" ? undefined : answer.trim())
-  } catch {
-    // dismissed: nothing thrown
-  }
+  const answer = await ask($, gateToken, handoffQuestion, [ANYONE, CANCEL])
+  if (answer && answer !== CANCEL) await throwNow($, answer === ANYONE ? undefined : answer.trim())
 }
 
 async function throwNow($: $, target: string | undefined) {
   if ((await read($, run)).isRunning) return $.ui.log("Stop the loop first: /gtd stop.")
   closeUi()
-  gateToken++
+  moveOn($)
   const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
-  $.ui.status("gtd: throwing…")
+  $.ui.status("handing off…")
   const rest = {
     state: b.state,
     label: b.label,
@@ -339,15 +390,9 @@ async function offerShip($: $, token: number) {
   ).stdout.trim()
   const summary = await $.process.run(["gtd", "summary"], { cwd: root })
   if (summary.exitCode !== 0 || ["main", "master", "HEAD"].includes(branch)) return
-  try {
-    const answer = await $.ui.ask(
-      `gtd finished the process on ${branch}. Ship it: squash it into one commit, push, and open or refresh the pull request?`,
-      { header: "gtd", options: [SHIP, "Not yet"] },
-    )
-    if (answer === SHIP && token === gateToken) await shipNow($, false)
-  } catch {
-    // dismissed: /gtd ship does the same later
-  }
+  await push($, { kind: "done", text: "", label: `ready to open a pull request for ${branch}` })
+  const answer = await ask($, token, shipQuestion(branch), [SHIP, LATER])
+  if (answer === SHIP && token === gateToken) await shipNow($, false)
 }
 
 // Ship's text turns need git to read the process, so they run as a subagent.
@@ -403,25 +448,14 @@ function shipIo($: $): ShipIo {
 
 async function shipNow($: $, isDry: boolean) {
   await dismiss($)
-  $.ui.status(isDry ? "gtd: previewing ship…" : "gtd: shipping…")
+  $.ui.status(isDry ? "previewing the pull request…" : "opening the pull request…")
   const shipped = await ship(shipIo($), isDry).catch((err: unknown) => ({
     ok: false,
     text: String(err),
   }))
   $.ui.status(undefined)
   for (const line of shipped.text.split("\n")) $.ui.log(line)
-  $.ui.toast(shipped.ok ? "gtd: shipped" : "gtd: ship failed")
-}
-
-function question(r: Run) {
-  const stop = r.stop as Stop
-  const where = stop.label ?? stop.state ?? "a gate"
-  if (stop.isJudge) {
-    return `gtd stopped at a judge gate: ${where}. No TYPESAFE_API_KEY is set, so Proceed lands it unanswered and the workflow takes its cautious route. Proceed?`
-  }
-  const ui = r.url ? `Review it in gtd ui: ${r.url}` : "Edit the files it names in your editor."
-  const again = r.isRepeat ? "Nothing changed, so gtd still waits here. " : ""
-  return `${again}gtd waits on you: ${where}. ${ui} Proceed when you are done?`
+  $.ui.toast(shipped.ok ? "pull request ready" : "opening the pull request failed")
 }
 
 // Turns a missing CLI or a wrong directory into an instruction, not a stack trace.
@@ -433,7 +467,7 @@ async function adoptOwnGtd($: $) {
   const dir = $.plugin.root
   if (!(await $.fs.exists(`${dir}/dist/gtd.bundle.mjs`))) return undefined
   if (!(await $.fs.exists(`${dir}/node_modules/effect`))) {
-    $.ui.status("gtd: installing its runtime, once per version…")
+    $.ui.status("installing gtd's runtime, once per version…")
     try {
       const npm = await $.process.run(
         [
@@ -478,17 +512,37 @@ async function preflight($: $) {
   return undefined
 }
 
-async function proceed($: $) {
+// A new rest, or none: answers to the old one no longer count, and its dialog
+// is redrawn as out of date.
+function moveOn($: $) {
   gateToken++
+  $.ui.invalidate("ui.render")
+}
+
+async function proceed($: $) {
+  moveOn($)
   closeUi()
   await update($, run, (r) => ({ ...r, stop: undefined, url: undefined, uiNote: undefined }))
   await start($)
 }
 
 async function dismiss($: $) {
-  gateToken++
+  moveOn($)
   closeUi()
   await update($, run, (r) => ({ ...r, stop: undefined, url: undefined, uiNote: undefined }))
+}
+
+const DROPPED = "gtd subagent notice"
+
+// A reply typed on a phone at an open gate (Remote Control draws no dialog);
+// returns why it was taken off the model's hands, or nothing.
+async function phoneReply($: $, text: string) {
+  const r = await read($, run)
+  const reply = r.stop?.kind === "gate" ? parseReply(text) : undefined
+  if (!reply) return undefined
+  if (reply.act === "continue") void proceed($)
+  if (reply.act === "handoff") void throwNow($, reply.to)
+  return "gtd: answered the open question"
 }
 
 // `/gtd [verb] …`; anything that is not a verb is a new process's requirements.
@@ -532,17 +586,28 @@ async function resume($: $) {
   return undefined
 }
 
+// A turn a reload cut off keeps running as a subagent; wait for it, then land
+// it rather than start it again.
+async function resumeAfterReload($: $, inflight: Run["inflight"]) {
+  await findRoot($)
+  const agent = inflight && (await $.agent.list()).find((a) => a.id === inflight.agentId)
+  if (agent?.status === "running") {
+    $.ui.status("picking up where gtd left off…")
+    $.clock.after(5000, () => void resumeAfterReload($, inflight))
+    return
+  }
+  await update($, run, (r) => ({ ...r, isRunning: false, inflight: undefined }))
+  await start($, inflight?.memory)
+}
+
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     for (const id of await read($, agents)) ours.add(id)
-    // A reload drops the loop mid-beat; gtd re-derives everything from git.
-    if ((await read($, run)).isRunning) {
-      await update($, run, (r) => ({
-        ...r,
-        isRunning: false,
-        stop: { kind: "stopped" as const, text: "mod reloaded mid-run" },
-      }))
-    }
+    // A reload drops the loop mid-beat and closes an open dialog; gtd keeps
+    // its state in git, so pick both up again.
+    const was = await read($, run)
+    if (was.isRunning) void resumeAfterReload($, was.inflight)
+    else if (was.stop?.kind === "gate") void findRoot($).then(() => openGate($))
     await $.command.register({
       name: "gtd",
       description: "Drive gtd until it rests on you; pass requirements to start a new process",
@@ -556,7 +621,7 @@ export const register: Register = (on) => {
   on("command.run", { command: "gtd" }, async ($, e) => {
     const text = await command($, e.args.trim())
     return text ? { text } : {}
-  }).catch(($, e, next) => ({ text: `gtd: ${next.error.message}` }))
+  }).catch(($, e, next) => ({ text: next.error.message }))
 
   on("turn.complete", ($, e, next) => {
     if (e.agentId && ours.has(e.agentId)) {
@@ -583,12 +648,40 @@ export const register: Register = (on) => {
 
   // A subagent's hand-back arrives as a prompt to the main session, whose model
   // would then act on it. gtd reads the turn's result from git instead.
-  on("prompt.submit", ($, e, next) => {
-    if (!e.origin || e.origin.kind === "composer" || e.origin.kind === "bridge") return next(e)
+  on("prompt.submit", async ($, e, next) => {
+    if (e.origin?.kind === "bridge") {
+      const done = await phoneReply($, e.text)
+      return done ? { drop: done } : next(e)
+    }
+    if (!e.origin || e.origin.kind === "composer") return next(e)
     if ([...ours].some((id) => e.text.includes(`from="${id}"`))) {
-      return { drop: "gtd subagent notice" }
+      return { drop: DROPPED }
     }
     return next(e)
+  })
+
+  // A dialog gtd has moved past still waits for an answer; say it is stale.
+  on("ui.render", { component: "AskUserQuestion" }, ($, e, next) => {
+    const [first] = e.props.questions as { question?: string }[]
+    if (!openAsk || openAsk.token === gateToken || first?.question !== openAsk.text) return next(e)
+    return next({
+      ...e,
+      props: {
+        ...e.props,
+        questions: [
+          {
+            ...first,
+            question: STALE,
+            header: "gtd",
+            multiSelect: false,
+            options: [
+              { label: CLOSE, description: "Nothing happens." },
+              { label: LATER, description: "Nothing happens." },
+            ],
+          },
+        ],
+      },
+    })
   })
 
   on("agent.offer", ($, e, next) => (e.agent.startsWith("gtd:") ? { isOffered: false } : next(e)))
@@ -597,18 +690,17 @@ export const register: Register = (on) => {
     const r = await read($, run)
     if (!r.isRunning && !r.stop) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
-    const where = r.label ? `${r.state} (${r.label})` : (r.state ?? "")
     if (r.isRunning) {
       return (
         <Box gap={1}>
-          <Text color="cyan">gtd ▸ {where || "starting"}</Text>
-          <Text dimColor>beat {r.beat}</Text>
+          <Text color="cyan">gtd ▸ {r.label ?? r.state ?? "starting"}</Text>
+          <Text dimColor>step {r.beat}</Text>
           <Button key="stop" label="Stop" onPress={() => void (stopRequested = true)} />
         </Box>
       )
     }
     const stop = r.stop as Stop
-    const ui = r.url ?? r.uiNote
+    const ui = r.url ? `Open in your browser: ${r.url}` : r.uiNote && `No browser view: ${r.uiNote}`
     const detail = TONE[stop.kind] === "red" ? stop.text.split("\n").slice(0, 8).join("\n") : ""
     return (
       <Box flexDirection="column">
@@ -616,34 +708,12 @@ export const register: Register = (on) => {
           <Text color={TONE[stop.kind]} bold>
             gtd {headline(stop)}
           </Text>
-          <Button key="go" label="Proceed" variant="primary" onPress={() => proceed($)} />
+          <Button key="go" label="Continue" variant="primary" onPress={() => proceed($)} />
           <Button key="dismiss" label="Dismiss" role="dismiss" onPress={() => dismiss($)} />
         </Box>
-        {ui && <Text dimColor>gtd ui: {ui}</Text>}
+        {ui && <Text dimColor>{ui}</Text>}
         {detail && <Text dimColor>{detail}</Text>}
       </Box>
     )
   })
-}
-
-const TONE: Record<Stop["kind"], string> = {
-  error: "red",
-  stalled: "red",
-  done: "green",
-  gate: "yellow",
-  stopped: "yellow",
-}
-
-const headline = (s: Stop) => {
-  const where = s.label ? `${s.state} (${s.label})` : (s.state ?? "")
-  switch (s.kind) {
-    case "gate":
-      return `● your turn — ${where}`
-    case "done":
-      return `✔ ${where || "settled"}`
-    case "stopped":
-      return `■ ${s.text}`
-    default:
-      return `✘ ${s.kind} — ${where}`
-  }
 }

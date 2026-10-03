@@ -4,6 +4,8 @@ export type Stop = {
   state?: string
   label?: string
   isJudge?: boolean
+  // the steering file the rest asks a person to edit
+  file?: string
 }
 
 export type Run = {
@@ -18,6 +20,8 @@ export type Run = {
   uiNote?: string
   // the same gate came back with nothing landed since
   isRepeat?: boolean
+  // the agent turn in flight, so a reload can land it instead of repeating it
+  inflight?: { agentId: string; memory: string }
 }
 
 declare module "claude-code" {
