@@ -8,7 +8,7 @@ import { enter } from "./entry"
 import { JUDGE_SYSTEM, judgePrompt, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
-import { ship } from "./ship"
+import { READ_ONLY_GIT, ship } from "./ship"
 import type { ShipIo } from "./ship"
 import {
   ANYONE,
@@ -50,6 +50,12 @@ let lastGate: { state?: string; head: string } | undefined
 let openAsk: { token: number; text: string } | undefined
 
 let stopRequested = false
+// Set before the first await of `start`, so two Continue presses arriving
+// together cannot both pass the isRunning check and start two drivers.
+let isDriving = false
+let isShipping = false
+// subagents answering into a file: what each may touch (see tool.call)
+const delegates = new Map<string, { file: string; mayRun: RegExp | undefined }>()
 const ours = new Set<string>()
 const waiting = new Map<string, (end: TurnEnd) => void>()
 const ended = new Map<string, TurnEnd>()
@@ -126,8 +132,11 @@ function io($: $): Io {
       return (await child.result).code ?? 1
     },
     check: async (script) => {
-      const r = await $.process.run(["sh", "-c", script], { cwd: root, timeoutMs: TEN_MINUTES })
-      return { ok: r.exitCode === 0, out: (r.stdout + r.stderr).trim() }
+      // Streamed for the same reason: a validator may outlast run's cap.
+      const child = $.process.spawn({ argv: ["sh", "-c", script], cwd: root })
+      let out = ""
+      for await (const chunk of child) out += chunk.text
+      return { ok: (await child.result).code === 0, out: out.trim() }
     },
     judge: async () => {
       const key = (await $.env.get("TYPESAFE_API_KEY")) ?? (await $.env.get("TYPESAFE_AI_KEY"))
@@ -196,7 +205,8 @@ async function head($: $) {
 }
 
 async function start($: $, landTurn?: string) {
-  if ((await read($, run)).isRunning) return
+  if (isDriving) return
+  isDriving = true
   closeUi()
   moveOn($)
   stopRequested = false
@@ -205,6 +215,7 @@ async function start($: $, landTurn?: string) {
   void drive(io($), landTurn)
     .catch((err: unknown): Stop => ({ kind: "error", text: String(err) }))
     .then(async (stop) => {
+      isDriving = false
       const at = { state: stop.state, head: await head($) }
       const isRepeat =
         stop.kind === "gate" && at.state === lastGate?.state && at.head === lastGate?.head
@@ -399,7 +410,14 @@ async function offerShip($: $, token: number) {
 
 // Ship's text turns need git to read the process, so they run as a subagent.
 // Its answer is a file, not its hand-back: a hand-back never reaches a mod.
-type Delegate = { name: string; description: string; system: string; tools: string[] }
+// `mayRun`: the only shell commands the subagent may run; none when absent.
+type Delegate = {
+  name: string
+  description: string
+  system: string
+  tools: string[]
+  mayRun?: RegExp
+}
 
 const SHIPPER: Delegate = {
   name: "shipper",
@@ -408,6 +426,9 @@ const SHIPPER: Delegate = {
   system:
     "You write commit messages and pull-request descriptions for gtd's ship command. Read the repository with git and the file tools as the instructions ask. Never modify the repository: no commits, no checkouts, no pushes.",
   tools: ["Bash", "Read", "Grep", "Glob", "Write", "Skill"],
+  // It reads commit messages anyone on the branch wrote: read-only git, and
+  // no shell syntax to chain anything else onto it.
+  mayRun: READ_ONLY_GIT,
 }
 
 // gtd's llm judge persona; writing its answer file is its one tool.
@@ -423,8 +444,7 @@ const JUDGE: Delegate = {
 // worktree is not `.git`.
 async function delegate($: $, who: Delegate, prompt: string, model: string, delivery: string) {
   const gitDir = await $.process.run(["git", "rev-parse", "--absolute-git-dir"], { cwd: root })
-  const file = `${gitDir.stdout.trim()}/gtd-${who.name}-reply`
-  await $.process.run(["rm", "-f", file])
+  const file = `${gitDir.stdout.trim()}/gtd-${who.name}-${crypto.randomUUID()}`
   if (!personas.has(who.name)) {
     await $.agent.register({
       name: who.name,
@@ -445,11 +465,15 @@ async function delegate($: $, who: Delegate, prompt: string, model: string, deli
   const id = spawned.agentId
   if (!id) return undefined
   ours.add(id)
-  if (!(await turnEnd(id)).ok) return undefined
+  delegates.set(id, { file, mayRun: who.mayRun })
+  const ended = await turnEnd(id)
+  delegates.delete(id)
   try {
-    return await $.fs.read(file)
+    return ended.ok ? await $.fs.read(file) : undefined
   } catch {
     return undefined
+  } finally {
+    await $.process.run(["rm", "-f", file])
   }
 }
 
@@ -494,12 +518,15 @@ function shipIo($: $): ShipIo {
 }
 
 async function shipNow($: $, isDry: boolean) {
+  if (isShipping) return $.ui.log("A pull request is already being prepared.")
+  isShipping = true
   await dismiss($)
   $.ui.status(isDry ? "previewing the pull request…" : "opening the pull request…")
   const shipped = await ship(shipIo($), isDry).catch((err: unknown) => ({
     ok: false,
     text: String(err),
   }))
+  isShipping = false
   $.ui.status(undefined)
   for (const line of shipped.text.split("\n")) $.ui.log(line)
   $.ui.toast(shipped.ok ? "pull request ready" : "opening the pull request failed")
@@ -686,6 +713,15 @@ export const register: Register = (on) => {
   // would still be writing the tree gtd is committing.
   on("tool.call", ($, e, next) => {
     if (!e.agentId || !ours.has(e.agentId)) return next(e)
+    const delegate = delegates.get(e.agentId)
+    if (delegate) {
+      if (e.tool === "Write" && e.file_path !== delegate.file) {
+        return { deny: `Write only your answer, to ${delegate.file}.` }
+      }
+      if (e.tool === "Bash" && !delegate.mayRun?.test(e.command.trim())) {
+        return { deny: "Only read-only git commands, without shell syntax, are allowed here." }
+      }
+    }
     if (e.tool === "Bash") {
       return next({ ...e, run_in_background: false, timeout: e.timeout ?? TEN_MINUTES })
     }
