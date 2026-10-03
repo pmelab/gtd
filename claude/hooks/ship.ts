@@ -212,17 +212,8 @@ async function pullRequest(
   if (mergeBase === (await git("rev-parse", "HEAD")))
     return fail(`HEAD is an ancestor of ${baseRef}: nothing to describe.`)
 
-  // A pull request describes what the remote branch holds. The squash rewrote
-  // the branch, so an existing origin/<branch> needs --force-with-lease.
-  if (!(await ok("rev-parse", "--verify", "--quiet", `origin/${branch}`))) {
-    io.log(`Pushing ${branch} to origin…`)
-    if (!(await ok("push", "--set-upstream", "origin", branch))) return fail("git push failed.")
-  } else if (!(await ok("merge-base", "--is-ancestor", "HEAD", `origin/${branch}`))) {
-    io.log(`Pushing ${branch} to origin…`)
-    if (!(await ok("push", "--force-with-lease", "origin", branch))) {
-      return fail(`git push failed: origin/${branch} moved. Fetch and reconcile first.`)
-    }
-  }
+  const pushed = await pushBranch(io, branch)
+  if (pushed) return fail(pushed)
 
   const view = await io.run(["gh", "pr", "view", "--json", "number,title,body,url,state"])
   if (view.code !== 0) return createPr(io, git, branch, baseBranch, baseRef, mergeBase)
@@ -234,8 +225,32 @@ async function pullRequest(
   }
   if (existing.state !== "OPEN")
     return fail(`The pull request for ${branch} is ${existing.state}, not open.`)
+  // A thrown draft only ever described a hand-off: ship writes it properly.
+  if (existing.body?.includes(THROWN)) {
+    return createPr(io, git, branch, baseBranch, baseRef, mergeBase, existing)
+  }
   return updatePr(io, git, ok, branch, mergeBase, existing)
 }
+
+// A pull request describes what the remote branch holds. A squash rewrote the
+// branch, so an existing origin/<branch> needs --force-with-lease. Returns why
+// the push failed, or nothing.
+export async function pushBranch(io: ShipIo, branch: string) {
+  const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
+  if (!(await ok("rev-parse", "--verify", "--quiet", `origin/${branch}`))) {
+    io.log(`Pushing ${branch} to origin…`)
+    if (!(await ok("push", "--set-upstream", "origin", branch))) return "git push failed."
+  } else if (!(await ok("merge-base", "--is-ancestor", "HEAD", `origin/${branch}`))) {
+    io.log(`Pushing ${branch} to origin…`)
+    if (!(await ok("push", "--force-with-lease", "origin", branch))) {
+      return `git push failed: origin/${branch} moved. Fetch and reconcile first.`
+    }
+  }
+  return undefined
+}
+
+// Marks a draft pull request `/gtd throw` opened for a hand-off.
+export const THROWN = "<!-- gtd:thrown -->"
 
 async function createPr(
   io: ShipIo,
@@ -244,9 +259,14 @@ async function createPr(
   baseBranch: string,
   baseRef: string,
   mergeBase: string,
+  thrown?: { number: number; url: string },
 ) {
   const count = await git("rev-list", "--count", `${mergeBase}..HEAD`)
-  io.log(`No pull request for ${branch} yet: describing ${count} commit(s)…`)
+  io.log(
+    thrown
+      ? `#${thrown.number} was thrown as a draft: describing ${count} commit(s) properly…`
+      : `No pull request for ${branch} yet: describing ${count} commit(s)…`,
+  )
   const prompt = `Write the title and description for a pull request, from the commits below.
 
 Format, exactly:
@@ -281,6 +301,19 @@ ${await git("diff", "--stat", `${mergeBase}..HEAD`)}`
   if (!out) return fail("The pull-request turn produced nothing.")
   const [title = "", ...rest] = out.split("\n")
   const body = rest.join("\n").replace(/^\s*\n/, "")
+  const head = await git("rev-parse", "HEAD")
+  if (thrown) {
+    const n = String(thrown.number)
+    const edited = await io.run(
+      ["gh", "pr", "edit", n, "--title", title, "--body-file", "-"],
+      body + "\n",
+    )
+    if (edited.code !== 0)
+      return fail(`gh pr edit failed; the pull request is unchanged.\n${edited.err}`)
+    await io.run(["gh", "pr", "ready", n])
+    await io.run(["git", "config", "--local", `branch.${branch}.prSyncHead`, head])
+    return { ok: true, text: `Rewrote ${thrown.url} and marked it ready for review.` }
+  }
   const created = await io.run(
     [
       "gh",

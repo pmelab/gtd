@@ -299,7 +299,10 @@ That starts a process from your requirements and drives it until it needs you.
 Every human rest opens Claude Code's own question dialog, with a link to
 `gtd ui` for the step; review there, then answer **Proceed**. When the process
 finishes, **Ship it** (or `/gtd ship`) squashes it into one commit and opens the
-pull request. See
+pull request. A process can change hands at any gate: **Throw** (or
+`/gtd throw @dev`) opens a draft pull request assigned to them, and
+`/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
+requirements can hand the architecture to someone else. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own

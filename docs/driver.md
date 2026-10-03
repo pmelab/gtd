@@ -220,6 +220,17 @@ To try a checkout instead, load it for one session with
 - **Not yet** or Escape leaves the gate open; the band above the prompt keeps a
   **Proceed** button.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
+- `/gtd throw [@user]` hands the process to someone else. It needs a clean tree:
+  proceed or stash a half-made answer first. It pushes the branch (moving the
+  process to a new `gtd/<timestamp>` branch when you are on the default one),
+  opens a draft pull request for the hand-off, or refreshes the open one, and
+  assigns it to `@user` in place of its previous assignees. Without a user it is
+  left for anyone. Every human and judge gate's question also offers **Throw**,
+  which asks for the handle.
+- `/gtd catch <pr|branch>` checks the thrown branch out with `gh pr checkout`,
+  assigns it to you, and shows you the gate it waits at, with the same dialog;
+  it never lands that gate before you have seen it. Agent conversations do not
+  travel: each memory scope starts fresh for the catcher.
 - `/gtd ship` squashes the finished process into one commit, pushes the branch,
   and opens its pull request, or appends to the open one's description when
   something changed at the level of its motivation, solution or decisions. A
@@ -228,7 +239,8 @@ To try a checkout instead, load it for one session with
   the commit message and what would happen to the pull request, and writes
   nothing. It needs `gh`, a clean tree, and a branch other than the default.
   When a process finishes on such a branch, the mod offers **Ship it** in the
-  question dialog.
+  question dialog. On a thrown draft, ship writes the title and description
+  properly and marks the pull request ready for review.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone.
