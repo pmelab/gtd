@@ -277,7 +277,9 @@ async function offerShip($: $, token: number) {
 // Ship's text turns need git to read the process, so they run as a subagent.
 // Its answer is a file, not its hand-back: a hand-back never reaches a mod.
 async function writer($: $, prompt: string) {
-  const file = `${root}/.git/gtd-ship-reply.md`
+  // In a linked worktree `.git` is a file; the git dir is elsewhere.
+  const gitDir = await $.process.run(["git", "rev-parse", "--absolute-git-dir"], { cwd: root })
+  const file = `${gitDir.stdout.trim()}/gtd-ship-reply.md`
   await $.process.run(["rm", "-f", file])
   if (!personas.has("shipper")) {
     await $.agent.register({
