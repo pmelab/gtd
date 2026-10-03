@@ -904,8 +904,8 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # `.gtd/FEEDBACK.md` yet), but the SECOND red round finds one and lands
     # on `build.health.judge` instead of straight back at `build.fix` — a
     # `message` rest, per package 01 Task 6's human fallback. This reference
-    # driver is UNAWARE (never calls `gtd judge answer`), so it just displays
-    # that gate's `message:` and stops — exactly the package's own second
+    # driver's judge arm calls `gtd judge run`, but the stub fails the judge
+    # call, so it falls back to displaying that gate's `message:` and stopping — exactly the package's own second
     # acceptance scenario, exercised here against the real bundled workflow.
     Given a test project
     And the workflow
@@ -929,14 +929,52 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Then it succeeds
     And stdout contains "Judging the retry"
     And stdout contains "Run `gtd judge answer`"
+    And stderr contains "gtd judge run"
     And the git log contains "build.health.check → build.health.judge"
     And the git log does not contain "build.health.check → build.review"
     And the last commit body does not contain "Gtd-Judge:"
+  Scenario: The judge arm answers a judge gate through claude and lands the verdict
+    # Same still-red suite as above, but the stub answers the judge call: the
+    # paste pipes `gtd judge run` (auto selection, no key, so `llm`) through
+    # `gtd judge answer`, which lands the gate with a `Gtd-Judge:` trailer.
+    Given a test project
+    And the workflow
+    And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Classify the change"*)
+          echo '{"type":"result","is_error":false,"structured_output":{"verdict":{"answer":"identical","p":0.95}}}'
+          ;;
+        *"this round's failing check output"*)
+          printf 'what is failing: boom.\nwhy earlier attempts failed: same root cause.\na suggested approach: fix the actual bug.\n' > .gtd/ESCALATION.md
+          ;;
+        *"the failing test output"*)
+          echo x >> scratch.txt
+          ;;
+        *)
+          echo "readme-driver test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run gtd with args "--entry fix-precheck"
+    Then it succeeds
+    Given the driver pasted from docs/driver.md
+    When I run the driver from the docs
+    Then it succeeds
+    And the git log contains "build.health.judge → build.health.describe"
+    When I run in the shell:
+      """
+      git log --format=%B | grep -q "Gtd-Judge:"
+      """
+    Then it succeeds
+
 
   Scenario: A still-red suite still escalates after 3 fix attempts even when every judge round is skipped — the retry cap, not the judgment, ends the loop
     # The fix cap escalates a suite that never goes green REGARDLESS of what
-    # the judge rounds do. This reference driver is UNAWARE and never answers
-    # a verdict, so every `build.health.judge` round lands its clean-tree
+    # the judge rounds do. The stub fails the judge call, so
+    # every `build.health.judge` round lands its clean-tree
     # fallback (the skipped-judgment path) instead — proving the cap fires
     # even when NO judgment is ever recorded, not just when one is.
     Given a test project
@@ -945,6 +983,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And a stub agent script that responds to prompts with:
       """
       case "$GTD_LOOP_PROMPT" in
+        *"Classify the change"*)
+          echo "stub: judge refused" >&2
+          exit 1
+          ;;
         *"this round's failing check output"*)
           printf 'what is failing: boom.\nwhy earlier attempts failed: same root cause.\na suggested approach: fix the actual bug.\n' > .gtd/ESCALATION.md
           ;;
@@ -976,6 +1018,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Then it succeeds
     And stdout contains "Edit it"
     And stdout contains ".gtd/ESCALATION.md"
+    And stderr contains "gtd judge run"
     And the git log contains "build.health.judge → build.health.describe"
     And the git log contains "build.health.describe → build.health.stop"
     And the last commit body does not contain "Gtd-Judge:"

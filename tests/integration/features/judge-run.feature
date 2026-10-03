@@ -229,3 +229,97 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): review → matched"
+
+  # The `llm` provider, against a fake `claude` on PATH (no real model).
+  @live
+  Scenario: llm | judge answer round-trips and lands the confident branch
+    Given an executable "claude" on PATH with:
+      """
+      cat >/dev/null
+      echo '{"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}'
+      """
+    When I run gtd land
+    Then it succeeds
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run --provider llm | gtd judge answer --json=script | sh
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): review → confident"
+
+  @live
+  Scenario: no --provider with an empty TYPESAFE_API_KEY answers through claude
+    Given an environment variable "TYPESAFE_API_KEY" set to ""
+    And an executable "claude" on PATH with:
+      """
+      cat >/dev/null
+      echo '{"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}'
+      """
+    When I run gtd land
+    Then it succeeds
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run | gtd judge answer --json=script | sh
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): review → confident"
+
+  @live
+  Scenario: no --provider with TYPESAFE_API_KEY set answers through jev, not claude
+    Given an environment variable "TYPESAFE_API_KEY" set to "k"
+    And a judge stub server answering 200 with:
+      """
+      {"answers":{"q1":{"type":"noul","noul":0.9},"q2":{"type":"noul","noul":0.1}}}
+      """
+    And an executable "claude" on PATH with:
+      """
+      cat >/dev/null
+      echo '{"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}'
+      """
+    When I run gtd land
+    Then it succeeds
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run | gtd judge answer --json=script | sh
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): review → conservative"
+
+  @live
+  Scenario: --model reaches claude's argv
+    Given an environment variable "TYPESAFE_API_KEY" set to ""
+    And an executable "claude" on PATH with:
+      """
+      cat >/dev/null
+      case "$*" in
+        *"--model sonnet"*) a=yes ;;
+        *) a=no ;;
+      esac
+      echo '{"type":"result","is_error":false,"structured_output":{"q1":{"answer":"'$a'","p":0.9},"q2":{"answer":"'$a'","p":0.8}}}'
+      """
+    When I run gtd land
+    Then it succeeds
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run --model sonnet | gtd judge answer --json=script | sh
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): review → confident"
+
+  @live
+  Scenario: a failing claude exits 1 with empty stdout
+    Given an executable "claude" on PATH with:
+      """
+      cat >/dev/null
+      echo "no login" >&2
+      exit 1
+      """
+    When I run gtd land
+    Then it succeeds
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run --provider llm
+      """
+    Then the exit code is 1
+    And stdout is empty
+    And stderr contains "claude exited 1: no login"

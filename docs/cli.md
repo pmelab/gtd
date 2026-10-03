@@ -150,9 +150,12 @@ Commands:
                    stdin, write a verdict [{ id, answer, p }] on stdout — what
                    `gtd judge answer` decodes. --provider fixed answers from
                    --answers <path> or GTD_JUDGE_ANSWERS; questions the file
-                   does not cover are left out. Needs no repository. Exits 1
-                   on an unreadable or malformed answers file, with nothing
-                   on stdout
+                   does not cover are left out. --provider jev asks TypeSafe
+                   (TYPESAFE_API_KEY). --provider llm asks the `claude` CLI
+                   on PATH (Claude Code only), model haiku unless --model.
+                   No --provider: jev when TYPESAFE_API_KEY is set, else llm.
+                   Needs no repository. Exits 1 when it cannot answer every
+                   question, with nothing on stdout
   version          Print version and exit
   help             Print this help and exit
 
@@ -180,12 +183,14 @@ Options:
   --dev            (gtd ui only) run against local development sources
                    instead of the packaged build
   --provider=<name>
-                   (gtd judge run only, required) the answerer: fixed | jev
+                   (gtd judge run only) the answerer: fixed | jev | llm;
+                   omitted: jev when TYPESAFE_API_KEY is set, else llm
   --answers=<path> (gtd judge run --provider fixed only) a JSON verdict array
                    [{ id, answer, p }]; else the GTD_JUDGE_ANSWERS env var
                    (inline JSON) is read
   --cost=<n>       (gtd land only) record the invocation's token cost
-  --model=<name>   (gtd land only, with --cost) tag that cost's model
+  --model=<name>   (gtd land, with --cost) tag that cost's model
+                   (gtd judge run, llm answerer) the claude model; default haiku
   --entry <state>  (with no command at all) start a brand new process,
                    handing <state> to the workflow as its entry —
                    authenticated as human
@@ -268,9 +273,10 @@ each command's own help entry).
 `install` is described on its own above: it writes nothing and installs
 knowledge into the calling agent's context, not files on disk.
 
-`--json`, `--cost=<n>`, `--model=<name>` (the latter two only for `gtd land`),
-`--entry <state>` (no other command at all), and `--var <name>=<value>` (with
-`--entry`, repeatable) are the only long options the compiled bundle recognizes.
+`--json`, `--cost=<n>`, `--model=<name>` (`--cost` only for `gtd land`;
+`--model` for `gtd land` with `--cost`, or `gtd judge run`), `--entry <state>`
+(no other command at all), and `--var <name>=<value>` (with `--entry`,
+repeatable) are the only long options the compiled bundle recognizes.
 `--entry`/`--var` accept both the `--flag=value` and the space-separated
 `--flag value` form. Any other `--` option (including a typo like `--jsn`) is
 rejected with a usage error rather than silently ignored, so a mistyped flag can
@@ -279,8 +285,9 @@ duplicate `--var` name, or `--cost`/`--model`/`--entry` combined with another
 command are all usage errors too — landing and entering are different verbs, so
 `gtd land --entry <state>` is a usage error, not a synonym. A bare
 `--cost`/`--model` with no value, a non-numeric or negative `--cost`, an empty
-`--model`, `--model` without `--cost`, or `--cost`/`--model` on any command
-other than `gtd land` are all usage errors.
+`--model`, `--model` without `--cost` on `gtd land`, `--cost` on any command
+other than `gtd land`, or `--model` on any command other than `gtd land` and
+`gtd judge run` are all usage errors.
 
 ### `gtd next`'s `Next:`/`next`
 
