@@ -273,6 +273,34 @@ this with your environment. See
 [Driving the loop](https://github.com/pmelab/gtd/blob/main/docs/driver.md) for
 the full protocol.
 
+### Or drive it from inside Claude Code
+
+The gtd mod runs the same loop inside an interactive Claude Code session
+(2.1.287 or later), without `claude -p`. The plugin is the npm package itself,
+so it brings its own gtd; it needs only `node` and `npm` on your `PATH`:
+
+```sh
+claude plugin marketplace add pmelab/gtd
+claude plugin install gtd@gtd
+```
+
+Then, in any repository:
+
+```
+/gtd Add a --json flag to the export command
+```
+
+That starts a process from your requirements and drives it until it needs you.
+`/gtd fix` and `/gtd review [base]` take the two side doors described below.
+Every human rest opens Claude Code's own question dialog, with a link to
+`gtd ui` for the step; review there, then answer **I'm done, continue**. When
+the process finishes, **Yes, open the pull request** (or `/gtd ship`) squashes
+it into one commit and opens it. A process can change hands at any gate: **Hand
+off to someone else** (or `/gtd throw @dev`) opens a draft pull request assigned
+to them, and `/gtd catch <pr>` picks it up exactly where it waits, so whoever
+wrote the requirements can hand the architecture to someone else. See
+[Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
+
 ### Then let an agent build your own
 
 But lets be honest, who reads documentation these days. Paste this into your

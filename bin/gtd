@@ -1,0 +1,3 @@
+#!/bin/sh
+# The gtd this plugin ships, on the Bash tool's PATH while the plugin is enabled.
+exec node "$(dirname "$0")/../dist/gtd.bundle.mjs" "$@"

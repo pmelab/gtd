@@ -24,7 +24,7 @@ export default defineConfig({
         plugins: [rawMd(), ensureWebClient()],
         test: {
           name: "unit",
-          include: ["src/**/*.test.ts", "tests/tooling/*.test.ts"],
+          include: ["src/**/*.test.ts", "tests/tooling/*.test.ts", "claude/**/*.test.ts"],
           exclude: ["**/*.integration.test.ts"],
           testTimeout: 30_000,
           hookTimeout: 30_000,

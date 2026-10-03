@@ -57,3 +57,6 @@ evals/results.json
 # src/web/index.html + the browser bundle — never committed, mirroring
 # schema.json above
 src/web/generated.html
+
+# engine-generated mod typings
+.claude-plugin/types/

@@ -189,6 +189,105 @@ Optionally,
 sets a value renderable as `$summary` in an Agent sidebar row, if you want more
 than the state itself.
 
+### Inside Claude Code: the gtd mod
+
+The gtd repository is also a Claude Code plugin marketplace, and the
+`@pmelab/gtd` npm package is its `gtd` plugin: a mod that drives this same
+protocol from an interactive session, with no `claude -p`. It needs Claude Code
+2.1.287 or later and `node` and `npm` on your `PATH`:
+
+```sh
+claude plugin marketplace add pmelab/gtd
+claude plugin install gtd@gtd
+```
+
+The plugin runs the gtd of its own package version, so mod and CLI always match.
+The first `/gtd` after an install or update fetches gtd's runtime dependencies
+into the plugin's folder, once. Inside the session the plugin's `gtd` comes
+first on `PATH`, so agent beats and scripts run that same version; a global
+`npm install -g @pmelab/gtd` is only for your own terminal. An update to a
+version whose workflow changed can strand a process already underway, as with
+any gtd upgrade: finish or ship it before updating.
+
+To try a checkout instead, build it (`npm run build`) and load the repository
+for one session: `claude --plugin-dir /path/to/gtd`. A checkout without a build
+falls back to the `gtd` on your `PATH`.
+
+- `/gtd <requirements>` starts a new process: the requirements become the
+  steering file the idle rest names (`.gtd/TODO.md`), and the opening beat
+  captures them. It refuses while another process is underway.
+- `/gtd` drives beats until the process rests on you, exactly as the minimal
+  driver below does: the opening beat lands, a later gate stops. At idle with
+  nothing pending it only tells you how to start.
+- At every human rest the mod starts `gtd ui` for that step and asks in Claude
+  Code's own question dialog, which is the state herdr, the desktop app and
+  Remote Control show as waiting on you. The question carries the `gtd ui` URL,
+  which is also printed as its own transcript line. **I'm done, continue** lands
+  what you changed and drives on; handing the turn back from `gtd ui` itself
+  does the same, and a question it leaves open says it is out of date.
+  Continuing without a change at a gate that needs one lands nothing, and the
+  question says so.
+- **Not now** or Escape leaves the gate open; the band above the prompt keeps a
+  **Continue** button.
+- Each step prints one line to the transcript and the status line, so a long
+  check is visibly running. A rest, a finish or a failure also raises a push
+  notification, which reaches your phone over Remote Control while you are away
+  from the terminal.
+- From a phone, where no dialog is drawn, reply `continue`, `not now` or
+  `hand off @user` at an open gate; the mod acts on it and the model never sees
+  it.
+- Saving the plugin's own files reloads it. A reload in the middle of an agent
+  step waits for that agent and lands its work instead of starting it again; a
+  reload at a gate opens its question again.
+- `/gtd fix` enters at `fix-precheck`, repairing a red baseline as its own
+  reviewed commit. `/gtd review [base]` enters at `review-gate.check` with
+  `reviewBase` set to the merge-base with `base` (the default branch unless
+  named), reviewing everything since. Both run the script `gtd --entry` prints,
+  then drive like `/gtd`.
+- `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
+- `/gtd throw [@user]` hands the process to someone else. It needs a clean tree:
+  proceed or stash a half-made answer first. It pushes the branch (moving the
+  process to a new `gtd/<timestamp>` branch when you are on the default one),
+  opens a draft pull request for the hand-off, or refreshes the open one, and
+  assigns it to `@user` in place of its previous assignees. Without a user it is
+  left for anyone. Every human and judge gate's question also offers **Hand off
+  to someone else**, which asks for the handle.
+- `/gtd catch <pr|branch>` checks the thrown branch out with `gh pr checkout`,
+  assigns it to you, and shows you the gate it waits at, with the same dialog;
+  it never lands that gate before you have seen it. Agent conversations do not
+  travel: each memory scope starts fresh for the catcher.
+- `/gtd ship` squashes the finished process into one commit, pushes the branch,
+  and opens its pull request, or appends to the open one's description when
+  something changed at the level of its motivation, solution or decisions. A
+  subagent writes the commit message (from `gtd summary`) and the pull-request
+  text; nothing reviews them before they are published. Ship refuses while the
+  process is still underway. The commit message keeps a `BREAKING CHANGE:`
+  footer when the change is breaking, and the writer may run only read-only
+  `git` commands and write only its own answer, since it reads commit messages
+  anyone on the branch wrote. `/gtd ship -n` prints the commit message and what
+  would happen to the pull request, and writes nothing. It needs `gh`, a clean
+  tree, and a branch other than the default. When a process finishes on such a
+  branch, the question dialog offers **Yes, open the pull request**. On a thrown
+  draft, ship writes the title and description properly and marks the pull
+  request ready for review.
+- Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
+  the same subagent for as long as the session lives; a new session starts the
+  scope fresh, as the minimal driver does when a remembered session is gone.
+- A step's `system` becomes the subagent's whole system prompt, and its `model`
+  the subagent's model.
+- **The mod's subagents run with `bypassPermissions`**, the equivalent of the
+  minimal driver's `--dangerously-skip-permissions`. Shell commands they run are
+  kept in the foreground, with a 10-minute timeout.
+- A subagent's hand-back is dropped before it reaches the session, so the main
+  conversation never takes a turn because a beat finished.
+- A judge gate is answered with `gtd judge run --provider jev` when
+  `TYPESAFE_API_KEY` (or `TYPESAFE_AI_KEY`) is set. Otherwise a small subagent
+  answers it with the same prompt gtd's `llm` provider sends, on
+  `GTD_JUDGE_MODEL` (haiku by default), with no `claude -p`. Only when neither
+  produces a complete verdict does the dialog ask you, and **Continue with the
+  safe choice** lands it unanswered, which routes the workflow its cautious way.
+- Script and check beats append to the log `gtd next --json` names.
+
 ## Writing your own driver
 
 Run `gtd install` to print this whole chapter's protocol as a complete,
