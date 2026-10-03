@@ -690,9 +690,10 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "does not cover are left out. --provider jev asks TypeSafe",
       "(TYPESAFE_API_KEY). --provider llm asks the `claude` CLI",
       "on PATH (Claude Code only), model haiku unless --model.",
-      "No --provider: jev when TYPESAFE_API_KEY is set, else llm.",
-      "Needs no repository. Exits 1 when it cannot answer every",
-      "question, with nothing on stdout",
+      "No --provider: jev when TYPESAFE_API_KEY is set and no",
+      "--model is given, else llm. Needs no repository. jev and",
+      "llm exit 1 when they cannot answer every question, with",
+      "nothing on stdout",
     ],
   },
 ]
