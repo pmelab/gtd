@@ -408,13 +408,13 @@ while :; do
     # gates we just produced and you have not read yet — hand off. A judge
     # gate's own `--json=judge` is non-empty here: pipe it through
     # `gtd judge run` and land the verdict via `gtd judge answer`. POSIX sh has
-    # no pipefail, so the verdict is captured first and only piped on when
-    # `gtd judge run` succeeded; on failure its stderr reaches you and we fall
-    # through to the human hand-off below.
+    # no pipefail, so each step is captured first and only piped on when it
+    # succeeded; if `gtd judge run` fails or `gtd judge answer` rejects the
+    # verdict, its stderr reaches you and we fall through to the human hand-off.
     message)
       if [ -n "$(gtd next --json=judge)" ] &&
-        verdict="$(gtd judge --json | gtd judge run)"; then
-        script="$(printf '%s\n' "$verdict" | gtd judge answer --json=script)"
+        verdict="$(gtd judge --json | gtd judge run)" &&
+        script="$(printf '%s\n' "$verdict" | gtd judge answer --json=script)"; then
         printf '%s\n' "$script" | sh
         beat=$((beat + 1))
         continue

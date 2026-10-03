@@ -355,8 +355,9 @@ noted in steps 2, 3, and 4 below.
    `gtd judge run --provider llm` asks the `claude` CLI on `PATH` (Claude Code
    users only; model `haiku`, `--model <name>` overrides) and reuses its login.
    With no `--provider`, `gtd judge run` picks jev when `TYPESAFE_API_KEY` is
-   set and non-empty, else llm — never falling back across them. Either exits 1
-   with nothing on stdout when it cannot answer every question):
+   set and non-empty and no `--model` is given, else llm — never falling back
+   across them; `--model` with `--provider fixed`/`jev` is refused. jev and llm
+   exit 1 with nothing on stdout when they cannot answer every question):
    - Every red round after the first: was the failure identical, new, or
      progress?
    - Before spending a review turn on a package: does the code already satisfy

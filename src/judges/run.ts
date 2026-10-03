@@ -18,8 +18,15 @@ const fail = (message: string): never => {
 
 /** The only place auto selection lives; it never falls back across providers. */
 const answererFor = ({ provider, answers, env, model, cwd }: RunJudgeInput): Answerer => {
+  if (model !== undefined && provider !== undefined && provider !== "llm")
+    return fail(`--model only applies to --provider llm, not ${provider}`)
   if (provider === "fixed") return fixed({ answersPath: answers, env })
-  if (provider === "jev" || (provider === undefined && env["TYPESAFE_API_KEY"])) return jev({ env })
+  // An explicit --model asks for the llm, so it outranks a configured jev key.
+  if (
+    provider === "jev" ||
+    (provider === undefined && model === undefined && env["TYPESAFE_API_KEY"])
+  )
+    return jev({ env })
   return llm({ env, cwd, model })
 }
 

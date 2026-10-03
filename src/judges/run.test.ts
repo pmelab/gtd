@@ -51,4 +51,29 @@ describe("runJudge", () => {
     ).rejects.toThrow(/gtd judge run: jev request failed/)
     expect(existsSync(marker)).toBe(false)
   })
+
+  it("refuses --model alongside a provider that is not the llm", async () => {
+    await expect(
+      runJudge({
+        provider: "jev",
+        model: "sonnet",
+        env: { TYPESAFE_API_KEY: "k" },
+        input: doc,
+        cwd,
+      }),
+    ).rejects.toThrow("gtd judge run: --model only applies to --provider llm, not jev")
+  })
+
+  it("auto selects the llm when --model is given, even with TYPESAFE_API_KEY set", async () => {
+    const dir = shimDir(`echo '${answer}'`)
+    expect(
+      await runJudge({
+        provider: undefined,
+        model: "sonnet",
+        env: { PATH: `${dir}:/bin:/usr/bin`, TYPESAFE_API_KEY: "k" },
+        input: doc,
+        cwd,
+      }),
+    ).toBe('[{"id":"q","answer":"yes","p":0.8}]\n')
+  })
 })
