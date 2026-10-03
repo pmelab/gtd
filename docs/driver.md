@@ -189,6 +189,62 @@ Optionally,
 sets a value renderable as `$summary` in an Agent sidebar row, if you want more
 than the state itself.
 
+### Inside Claude Code: the gtd mod
+
+The gtd repository is also a Claude Code plugin marketplace. Its `gtd` plugin is
+a mod that drives this same protocol from an interactive session, with no
+`claude -p`. It needs Claude Code 2.1.287 or later and gtd 15.6 or later on your
+`PATH`:
+
+```sh
+npm install -g @pmelab/gtd
+claude plugin marketplace add pmelab/gtd
+claude plugin install gtd@gtd
+```
+
+To try a checkout instead, load it for one session with
+`claude --plugin-dir /path/to/gtd/claude`.
+
+- `/gtd <requirements>` starts a new process: the requirements become the
+  steering file the idle rest names (`.gtd/TODO.md`), and the opening beat
+  captures them. It refuses while another process is underway.
+- `/gtd` drives beats until the process rests on you, exactly as the minimal
+  driver below does: the opening beat lands, a later gate stops. At idle with
+  nothing pending it only tells you how to start.
+- At every human rest the mod starts `gtd ui` for that step and asks in Claude
+  Code's own question dialog, which is the state herdr, the desktop app and
+  Remote Control show as waiting on you. The question carries the `gtd ui` URL.
+  **Proceed** lands what you changed and drives on; handing the turn back from
+  `gtd ui` itself does the same. Proceeding without a change at a gate that
+  needs one lands nothing, and the question says so.
+- **Not yet** or Escape leaves the gate open; the band above the prompt keeps a
+  **Proceed** button.
+- `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
+- `/gtd ship` squashes the finished process into one commit, pushes the branch,
+  and opens its pull request, or appends to the open one's description when
+  something changed at the level of its motivation, solution or decisions. A
+  subagent writes the commit message (from `gtd summary`) and the pull-request
+  text; nothing reviews them before they are published. `/gtd ship -n` prints
+  the commit message and what would happen to the pull request, and writes
+  nothing. It needs `gh`, a clean tree, and a branch other than the default.
+  When a process finishes on such a branch, the mod offers **Ship it** in the
+  question dialog.
+- Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
+  the same subagent for as long as the session lives; a new session starts the
+  scope fresh, as the minimal driver does when a remembered session is gone.
+- A step's `system` becomes the subagent's whole system prompt, and its `model`
+  the subagent's model.
+- **The mod's subagents run with `bypassPermissions`**, the equivalent of the
+  minimal driver's `--dangerously-skip-permissions`. Shell commands they run are
+  kept in the foreground, with a 10-minute timeout.
+- A subagent's hand-back is dropped before it reaches the session, so the main
+  conversation never takes a turn because a beat finished.
+- A judge gate is answered with `gtd judge run --provider jev` when
+  `TYPESAFE_API_KEY` (or `TYPESAFE_AI_KEY`) is set. Otherwise the dialog asks
+  you, and **Proceed** lands it unanswered, which routes the workflow its
+  cautious way.
+- Script and check beats append to the log `gtd next --json` names.
+
 ## Writing your own driver
 
 Run `gtd install` to print this whole chapter's protocol as a complete,

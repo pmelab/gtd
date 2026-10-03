@@ -1,0 +1,12 @@
+{
+  "name": "gtd",
+  "description": "gtd's Claude Code integration",
+  "owner": { "name": "Philipp Melab" },
+  "plugins": [
+    {
+      "name": "gtd",
+      "source": "./claude",
+      "description": "Drive gtd inside Claude Code: /gtd <requirements> starts a process, agent beats run as subagents, every human rest asks you in place"
+    }
+  ]
+}

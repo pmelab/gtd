@@ -273,6 +273,30 @@ this with your environment. See
 [Driving the loop](https://github.com/pmelab/gtd/blob/main/docs/driver.md) for
 the full protocol.
 
+### Or drive it from inside Claude Code
+
+The gtd mod runs the same loop inside an interactive Claude Code session
+(2.1.287 or later), without `claude -p`. Install it once, next to the gtd CLI:
+
+```sh
+npm install -g @pmelab/gtd
+claude plugin marketplace add pmelab/gtd
+claude plugin install gtd@gtd
+```
+
+Then, in any repository:
+
+```
+/gtd Add a --json flag to the export command
+```
+
+That starts a process from your requirements and drives it until it needs you.
+Every human rest opens Claude Code's own question dialog, with a link to
+`gtd ui` for the step; review there, then answer **Proceed**. When the process
+finishes, **Ship it** (or `/gtd ship`) squashes it into one commit and opens the
+pull request. See
+[Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
+
 ### Then let an agent build your own
 
 But lets be honest, who reads documentation these days. Paste this into your
