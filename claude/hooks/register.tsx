@@ -713,12 +713,12 @@ export const register: Register = (on) => {
   // would still be writing the tree gtd is committing.
   on("tool.call", ($, e, next) => {
     if (!e.agentId || !ours.has(e.agentId)) return next(e)
-    const delegate = delegates.get(e.agentId)
-    if (delegate) {
-      if (e.tool === "Write" && e.file_path !== delegate.file) {
-        return { deny: `Write only your answer, to ${delegate.file}.` }
+    const delegated = delegates.get(e.agentId)
+    if (delegated) {
+      if (e.tool === "Write" && e.file_path !== delegated.file) {
+        return { deny: `Write only your answer, to ${delegated.file}.` }
       }
-      if (e.tool === "Bash" && !delegate.mayRun?.test(e.command.trim())) {
+      if (e.tool === "Bash" && !delegated.mayRun?.test(e.command.trim())) {
         return { deny: "Only read-only git commands, without shell syntax, are allowed here." }
       }
     }
