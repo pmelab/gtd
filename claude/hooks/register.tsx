@@ -233,7 +233,11 @@ async function start($: $, landTurn?: string) {
 async function begin($: $, requirements: string) {
   await findRoot($)
   const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
-  if (b.state !== "idle" || !isTrue(b.idle)) {
+  if (b.state === "idle" && !isTrue(b.idle)) {
+    const paths = (b.changes ?? []).map((c) => c.path).join(", ")
+    return `The working tree has uncommitted changes (${paths}); gtd would start from those. Commit, stash or revert them, or run /gtd to start from them.`
+  }
+  if (b.state !== "idle") {
     return `A gtd process is already underway at ${b.state}. Run /gtd to continue it.`
   }
   const file = b.file ?? ".gtd/TODO.md"
