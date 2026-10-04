@@ -447,6 +447,40 @@ describe("ConfigService", () => {
     }
   })
 
+  it("rejects a `skills:` key that only matches an inherited object property, like `toString`", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `skills:\n  toString: [x]\n`)
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain(
+        '"skills.toString" names a step this workflow does not declare',
+      )
+    }
+  })
+
+  it("reports an unknown `skills:` key once per layer that carries it", async () => {
+    const child = join(projectDir, "a")
+    mkdirSync(child, { recursive: true })
+    const ancestorFile = join(projectDir, ".gtdrc.yaml")
+    const childFile = join(child, ".gtdrc.yaml")
+    writeFileSync(ancestorFile, `skills:\n  no.such.step: [x]\n`)
+    writeFileSync(childFile, `skills:\n  no.such.step: [y]\n`)
+
+    const exit = await runExit(
+      Effect.flatMap(ConfigService, (c) => c.load),
+      child,
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const message = String(Cause.squash(exit.cause))
+      expect(message).toContain(`${ancestorFile}: skills.no.such.step: `)
+      expect(message).toContain(`${childFile}: skills.no.such.step: `)
+    }
+  })
+
   it("rejects an unknown top-level key as an excess property, naming the key and its layer's file", async () => {
     const configFile = join(projectDir, ".gtdrc.yaml")
     writeFileSync(configFile, `testCommand: "npm test"\n`)

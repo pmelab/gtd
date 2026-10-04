@@ -29,8 +29,8 @@ export interface CompiledConfig {
   readonly ui?: UiConfig
   /** The `.gtdrc` `skills:` map, shape-validated but NOT yet checked against the workflow's own step names — that check needs the loaded workflow, so it runs in `../workflow/load.ts` instead. */
   readonly rcSkills: Record<string, readonly string[]>
-  /** `rcSkills`' own per-key origin — the layer that last set that key — for the unknown-step-name diagnostic `load.ts` raises once it knows the workflow's names. */
-  readonly skillsOrigin: Record<string, string>
+  /** Every well-shaped `skills:` key of every layer, with that layer's origin — so `load.ts`'s unknown-step-name check reports each file, not just the innermost. */
+  readonly skillsKeys: readonly { readonly key: string; readonly origin: string }[]
   /** Every finding across every layer — sorted (origin outermost→innermost, then config path) and deduped. */
   readonly diagnostics: readonly Diagnostic[]
 }
@@ -103,7 +103,8 @@ const compileSkillsMap = (
     )
     return { skills: {}, diagnostics }
   }
-  const skills: Record<string, readonly string[]> = {}
+  // Null prototype: a `__proto__` key must stay an ordinary (reportable) entry.
+  const skills: Record<string, readonly string[]> = Object.create(null)
   for (const [key, value] of Object.entries(raw)) {
     if (!isStringArray(value)) {
       diagnostics.push(
@@ -339,13 +340,16 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
   diagnostics.push(...withOrigin(deadSkillsVarDiagnostics(mergedConfig["vars"]), lookupIn))
   const { modes: rcModes, diagnostics: modesDiagnostics } = compileModesMap(mergedConfig["modes"])
   diagnostics.push(...withOrigin(modesDiagnostics, lookupIn))
-  const { skills: rcSkills, diagnostics: skillsDiagnostics } = compileSkillsMap(
-    mergedConfig["skills"],
-  )
-  diagnostics.push(...withOrigin(skillsDiagnostics, lookupIn))
-  const skillsOrigin = Object.fromEntries(
-    Object.keys(rcSkills).map((key) => [key, lookupIn(["skills", key])]),
-  )
+  // Validated per layer, before merging: a nearer layer's good entry must not
+  // hide an outer layer's broken one.
+  const skillsKeys: { key: string; origin: string }[] = []
+  for (const layer of layers) {
+    if (!isPlainObject(layer.value)) continue
+    const own = compileSkillsMap(layer.value["skills"])
+    diagnostics.push(...own.diagnostics.map((d) => ({ ...d, origin: layer.origin })))
+    skillsKeys.push(...Object.keys(own.skills).map((key) => ({ key, origin: layer.origin })))
+  }
+  const { skills: rcSkills } = compileSkillsMap(mergedConfig["skills"])
   const seeded = Object.fromEntries(
     BUILT_IN_MODE_NAMES.map((name) => [name, { validate: seededValidateCommand(name) }]),
   )
@@ -354,7 +358,7 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
     modes: mergeModes(seeded, rcModes),
     ...(ui !== undefined ? { ui } : {}),
     rcSkills,
-    skillsOrigin,
+    skillsKeys,
     diagnostics: dedupeDiagnostics(sortDiagnostics(diagnostics, layerOrder)),
   }
 }

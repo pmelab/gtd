@@ -173,13 +173,13 @@ export const load: Effect.Effect<
   // custom workflow's step names are never known to the schema — see
   // ConfigSchema's `skills` annotation.
   const knownSkillNames = Object.keys(loaded.skills).sort()
-  const unknownSkillDiagnostics = Object.keys(compiled.rcSkills)
-    .filter((key) => !(key in loaded.skills))
-    .map((key) => ({
+  const unknownSkillDiagnostics = compiled.skillsKeys
+    .filter(({ key }) => !Object.hasOwn(loaded.skills, key))
+    .map(({ key, origin }) => ({
       severity: "error" as const,
       path: ["skills", key],
       message: `"skills.${key}" names a step this workflow does not declare — known step names: ${knownSkillNames.join(", ")}`,
-      origin: compiled.skillsOrigin[key] ?? BUILT_IN_ORIGIN,
+      origin,
     }))
   const diagnostics = dedupeDiagnostics(
     sortDiagnostics(
