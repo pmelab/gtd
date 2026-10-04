@@ -15,6 +15,7 @@ export type Beat = {
   system?: string
   validate?: string
   judge?: unknown
+  changes?: { status: string; path: string }[]
   session?: { id?: string; resume?: boolean | string }
 }
 
