@@ -53,3 +53,34 @@ describe("compileConfig: skills: shape validation", () => {
     expect(compiled.diagnostics).toEqual([])
   })
 })
+
+describe("compileConfig: skills: across layers", () => {
+  it("reports an outer layer's malformed entry even when a nearer layer sets a good one", () => {
+    const compiled = compileConfig([
+      layer({ skills: { "build.fix": "oops" } }, "/outer/.gtdrc"),
+      layer({ skills: { "build.fix": ["x"] } }, "/inner/.gtdrc"),
+    ])
+    expect(compiled.rcSkills).toEqual({ "build.fix": ["x"] })
+    expect(compiled.diagnostics.map((d) => d.origin)).toEqual(["/outer/.gtdrc"])
+  })
+
+  it("reports the same malformed entry once per layer that carries it", () => {
+    const compiled = compileConfig([
+      layer({ skills: { "build.fix": "oops" } }, "/outer/.gtdrc"),
+      layer({ skills: { "build.fix": "oops" } }, "/inner/.gtdrc"),
+    ])
+    expect(compiled.diagnostics.map((d) => d.origin)).toEqual(["/outer/.gtdrc", "/inner/.gtdrc"])
+  })
+
+  it("lists every layer's keys with their origin, and keeps a __proto__ key as a plain entry", () => {
+    const compiled = compileConfig([
+      layer({ skills: { "build.fix": ["x"] } }, "/outer/.gtdrc"),
+      layer({ skills: JSON.parse('{"build.fix": ["y"], "__proto__": ["z"]}') }, "/inner/.gtdrc"),
+    ])
+    expect(compiled.skillsKeys).toEqual([
+      { key: "build.fix", origin: "/outer/.gtdrc" },
+      { key: "build.fix", origin: "/inner/.gtdrc" },
+      { key: "__proto__", origin: "/inner/.gtdrc" },
+    ])
+  })
+})
