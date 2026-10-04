@@ -26,7 +26,10 @@ for the settings most projects tune.
 Also install all three skill sources the bundled workflow names in its prompts —
 none is optional. See
 [Setup](https://github.com/pmelab/gtd/blob/main/docs/setup.md) for the list, the
-install flags, and the never-install-the-plugin caveat.
+install flags, and the never-install-the-plugin caveat. Each bundled agent step
+has its own addressable `.gtdrc` `skills:` entry — see
+[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#the-skills-key)
+to repoint one to a set your own harness has instead.
 
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
 > is a TypeScript module, and every gtd command that looks at workflow state —

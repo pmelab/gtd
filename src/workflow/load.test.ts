@@ -513,6 +513,63 @@ describe("ConfigService", () => {
     expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
   })
 
+  it("expands a `$NAME` in `vars:` from the environment (host.env, not process.env)", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  model: $BUILD_MODEL\n`)
+
+    const cfg = await getConfig(undefined, { BUILD_MODEL: "smart" })
+
+    expect(cfg.rcVars).toEqual({ model: "smart" })
+  })
+
+  it("an unset `$NAME` in `.gtdrc` fails the load naming the config path", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  model: $BUILD_MODEL\n`)
+
+    await expect(getConfig()).rejects.toThrow(/vars\.model.*"\$BUILD_MODEL".*not set/)
+  })
+
+  it("keeps `modes.*.format`/`validate` and `ui.format`'s `$GTD_FILE` untouched", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [
+        `modes:`,
+        `  adr:`,
+        `    format: "prettier --write $GTD_FILE"`,
+        `    validate: "adr-lint $GTD_FILE"`,
+        `ui:`,
+        `  format: "oxfmt --write $GTD_FILE"`,
+        ``,
+      ].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.workflow.modes["adr"]).toEqual({
+      format: "prettier --write $GTD_FILE",
+      validate: "adr-lint $GTD_FILE",
+    })
+    expect(cfg.ui).toEqual({ format: "oxfmt --write $GTD_FILE" })
+  })
+
+  it("an outer layer's unset `$MISSING` still errors even when an inner layer overrides that same value", async () => {
+    const child = join(projectDir, "a", "b")
+    mkdirSync(child, { recursive: true })
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: $MISSING\n`)
+    writeFileSync(join(child, ".gtdrc.yaml"), `vars:\n  greeting: overridden\n`)
+
+    await expect(getConfig(child)).rejects.toThrow(/"\$MISSING".*not set/)
+  })
+
+  it("never interpolates the workflow's own `defaults` export (it is code, not `.gtdrc`)", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [minimalWorkflow("first"), `export const defaults = { greeting: "$LITERAL" }`, ``].join("\n"),
+    )
+
+    const cfg = await getConfig(undefined, { LITERAL: "should-never-appear" })
+
+    expect(cfg.workflowVars).toEqual({ greeting: "$LITERAL" })
+  })
+
   it("`load` — the effectful half of the src/workflow/ boundary — is directly usable without going through ConfigService", async () => {
     writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("direct-load"))
 

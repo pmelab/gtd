@@ -465,6 +465,8 @@ const replayFor = (
         ? treeFromRecord({})
         : commitTree(setup.workspace, setup.run.diffBase),
     budgetBytes: setup.budget,
+    skills: setup.def.skills,
+    configuredSkills: setup.def.configuredSkills,
     ...(pending !== undefined ? { pending } : {}),
   })
 
@@ -810,6 +812,8 @@ export const entryRefusal = (
         vars,
         start: "",
         budgetBytes: rest.setup.budget,
+        skills: rest.def.skills,
+        configuredSkills: rest.def.configuredSkills,
       }),
     )
     if (outcome.kind === "refused") return outcome.message

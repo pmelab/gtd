@@ -32,6 +32,7 @@ import * as t from "./text.js"
 
 export { threads, type ThreadInfo } from "../flows/index.js"
 export { defaults } from "./vars.js"
+export { skills } from "./skills.js"
 export { agentWithSkills } from "./text.js"
 export * from "./steps.js"
 export * from "./health.js"

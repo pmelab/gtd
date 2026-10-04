@@ -61,6 +61,10 @@ export interface ReplayInput {
   readonly startTree?: TreeView
   readonly budgetBytes: number
   readonly pending?: PendingTurn
+  /** Every step's resolved skill list, keyed by full name — `Workflow.ts`'s `WorkflowDefinition.skills`. Read for the prompt preamble (`skillsFor`) and as the bundled fallback a request's own `skills` option and `configuredSkills` both take precedence over. */
+  readonly skills?: Readonly<Record<string, readonly string[]>>
+  /** The `.gtdrc`-sourced SUBSET of `skills` — `WorkflowDefinition.configuredSkills`. Injected into every `agent` request at the scoped full name it already computes, overriding any `skills` the flow itself passed. Kept apart from `skills` so a bundled default (even an unset one) never outranks a request's own explicit list — only a `.gtdrc` entry does. */
+  readonly configuredSkills?: Readonly<Record<string, readonly string[]>>
 }
 
 export type StepKind = Exclude<StepRequest["kind"], "restart">
@@ -310,8 +314,28 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
 
   const judgeCuts = new WeakMap<object, readonly string[]>()
 
+  // Three-way precedence: a `.gtdrc` entry (`configuredSkills`) beats the
+  // request's own `skills` option, which beats the workflow's bundled
+  // default (`skills`) — reached only once neither of the other two applies.
+  // Kept apart from `resolve` so an unset bundled default (`build.quality
+  // .reviewing`'s own case) never silently blanks a step's own list.
+  const resolveSkills = (
+    name: string,
+    ownSkills: readonly string[] | undefined,
+  ): readonly string[] | undefined => {
+    const resolved = input.configuredSkills?.[name] ?? ownSkills ?? input.skills?.[name]
+    // An empty resolved list — whether a `.gtdrc` entry blanked it or
+    // nothing resolved at all — collapses to `undefined` here, not `[]`:
+    // `resolve`'s wire `skills` option and `optional()` in `Edge.ts` both
+    // drop only `undefined`, so a surviving `[]` would still ride onto the
+    // wire as a present-but-empty field instead of the absent one Task 3
+    // requires.
+    return resolved !== undefined && resolved.length === 0 ? undefined : resolved
+  }
+
   const resolve = (
     request: Exclude<StepRequest, { kind: "restart" }>,
+    name: string,
   ): Exclude<StepRequest, { kind: "restart" }> => {
     if (request.kind === "agent") {
       const persona: { model?: string; system?: string } = {}
@@ -319,7 +343,19 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         if (s.model !== undefined) persona.model = s.model
         if (s.system !== undefined) persona.system = s.system
       }
-      return { ...request, options: { ...persona, ...request.options } }
+      return {
+        ...request,
+        options: {
+          ...persona,
+          ...request.options,
+          // Always explicitly overwritten, even to `undefined`: a
+          // conditional spread (`...(skills !== undefined ? {skills} : {})`)
+          // would leave `request.options.skills` standing whenever
+          // `resolveSkills` collapses an explicitly-blanked `.gtdrc` entry
+          // to `undefined` — the one case that must clear it, not skip it.
+          skills: resolveSkills(name, request.options.skills),
+        },
+      }
     }
     if (request.kind === "judge") {
       const { evidence, truncated } = budgeted(request.evidence, input.budgetBytes)
@@ -334,7 +370,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     const name = scoped(request.name)
     const occurrence = (occurrences.get(name) ?? 0) + 1
     occurrences.set(name, occurrence)
-    const resolved = resolve(request)
+    const resolved = resolve(request, name)
     const reached: ReachedStep = {
       id: { name, occurrence },
       name,
@@ -512,6 +548,13 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         }),
     vars: input.vars,
     start: () => input.start,
+    // Shares `resolveSkills` with the wire resolver (`resolve`, above) so a
+    // step's prompt preamble and its wire `skills` field can never drift:
+    // `reviewQuality`'s per-turn lens (passed as `ownSkills` here, the same
+    // `options.skills` the wire sees) is what the preamble falls back to
+    // when `build.quality.reviewing` has no bundled or configured entry —
+    // rather than going bare while the wire still carries the lens.
+    skillsFor: (localName, ownSkills) => resolveSkills(scoped(localName), ownSkills) ?? [],
     // At the rest, trailing attempts sit above the last step commit: the head a
     // prompt names is the commit the process actually stands on.
     head: () => {

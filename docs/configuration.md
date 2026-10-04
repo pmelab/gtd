@@ -234,21 +234,28 @@ The script renderers (`checkScript`, `revertScript`, `restoreScript`,
 
 `@pmelab/gtd/workflow` is the bundled workflow itself: its default export is the
 flow gtd runs without a `gtd.config.ts`, and every part of it is a named export
-another workflow can import — its `defaults`, `summary` and `base`, the phases
-(`ordinaryStart`, `unwind`, `planAndBuild`, `design`, `architecturePass`,
-`architecture`, `packages`, `buildTail`, `review`, `qualityLap`, `healthy`,
-`gate`, …) and every single step (`triage`, `build`, `fix`, `reviewing`,
-`collecting`, …). A step's name is relative to the `scope()` it runs in — the
-bundled workflow's `scope("build", …)` around `healthy` is what makes
-`build.health.check` — and the full names are part of gtd's versioned API: they
-never change outside a major release, because a rename strands every process
-resting on the old name.
+another workflow can import — its `defaults`, `summary`, `base` and `skills`,
+the phases (`ordinaryStart`, `unwind`, `planAndBuild`, `design`,
+`architecturePass`, `architecture`, `packages`, `buildTail`, `review`,
+`qualityLap`, `healthy`, `gate`, …) and every single step (`triage`, `build`,
+`fix`, `reviewing`, `collecting`, …). A step's name is relative to the `scope()`
+it runs in — the bundled workflow's `scope("build", …)` around `healthy` is what
+makes `build.health.check` — and the full names are part of gtd's versioned API:
+they never change outside a major release, because a rename strands every
+process resting on the old name.
+
+Re-export `skills` alongside `steering`: it is what makes the bundled steps' own
+names addressable by a `.gtdrc` `skills:` entry in THIS config (see
+[The `skills:` key](#the-skills-key)) — dropping it from the re-export list, the
+way dropping any other named export does, silently empties it instead of keeping
+the bundled defaults, because the loader reads a missing export as `{}`, not as
+"inherit the bundled module's".
 
 ```ts
 import { start } from "@pmelab/gtd/flows"
 import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
 
-export { defaults, summary, base, steering } from "@pmelab/gtd/workflow"
+export { defaults, summary, base, steering, skills } from "@pmelab/gtd/workflow"
 
 export default async ({ entry }) =>
   entry === "hotfix"
@@ -432,6 +439,9 @@ Supported filenames (searched in this order):
   `review` modes.
 - **`ui`** (object, optional) — `gtd ui`'s own settings. See
   [The `ui:` key](#the-ui-key).
+- **`skills`** (object, optional) — a flat step full-name -> skill-name array
+  map, one entry per agent step whose skill list you want to change. See
+  [The `skills:` key](#the-skills-key).
 - **`$schema`** (string, optional) — ignored by gtd. Point it at the published
   schema for editor autocompletion (this is what `gtd init` writes):
 
@@ -456,6 +466,39 @@ before your first `gtd land`. `gtd init` takes no argument and refuses to
 overwrite an existing config; it may also run in a plain parent directory (not a
 git repository) to seed a shared config a nested repository picks up.
 
+### Environment interpolation
+
+Every string leaf of a `.gtdrc` layer — `vars`, `modes`, `ui`, nested inside an
+array or not — expands `$NAME` and `${NAME}` from the process environment before
+gtd reads it further:
+
+```yaml
+# .gtdrc
+vars:
+  plannerModel: $BUILD_MODEL
+```
+
+`$$` is the escape for a literal `$` (`$$5` becomes `$5`); any other `$` not
+followed by a valid name — a trailing `$`, `$1`, `$-` — is left exactly as
+written, so `plannerModel: smart` and a price in a label both survive untouched.
+A name that resolves is substituted once; the substituted text is never
+re-scanned for more `$NAME` syntax, so a value coming from the environment can
+never smuggle in config syntax of its own. A name with no matching environment
+variable fails the load with exit 1, naming the config path and the file:
+
+```
+gtd config:
+  - /path/to/repo/.gtdrc.json: vars.plannerModel: "$BUILD_MODEL" references environment variable "BUILD_MODEL", which is not set
+```
+
+Two values are exempt, because gtd hands them to `bash`, where `$` is already
+the shell's own: `modes:`' `format`/`validate` commands and `ui.format` (see
+[the `format:`/`validate:` exemption](#modes) and [the `ui:` key](#the-ui-key)).
+A `$GTD_FILE` inside either keeps working unchanged. `--var` values and a
+workflow's own `defaults` export are outside this pass entirely — a `--var` is
+typed into a shell that already expands `$` itself, and `defaults` is code, not
+`.gtdrc`.
+
 ### Modes
 
 A mode is a pair of shell commands over one steering file, both optional:
@@ -473,6 +516,11 @@ Quote it (`"$GTD_FILE"`) so a path with spaces stays one argument. The
 `$GTD_FILE` instead. `format:` normalizes the file in place; `validate:` reports
 findings, and exits zero only when there are none. A step names a mode with
 `{ file, mode }`.
+
+Both `format:` and `validate:` are exempt from
+[environment interpolation](#environment-interpolation): `$GTD_FILE` (and any
+other `$NAME` written here) reaches `bash` untouched, since the shell already
+expands it.
 
 #### Built-in steering formats are ordinary modes
 
@@ -641,10 +689,57 @@ there is no fleet to discover:
   runs at all. gtd ships no formatter — bring your own (`oxfmt`, `prettier`, a
   script). A non-zero exit or a missing binary never reverts the write or
   refuses it — the phone is told which command ran and what it exited with, and
-  the bytes it already wrote stay on disk either way.
+  the bytes it already wrote stay on disk either way. `format` is exempt from
+  [environment interpolation](#environment-interpolation), the same as a mode's
+  own `format:`/`validate:` — `$GTD_FILE` reaches `bash` untouched.
 
 Flags (`--host`, `--port`, `--self-signed`) always override the matching `ui:`
 value; see `docs/cli.md`'s `ui` row for the full flag list.
+
+### The `skills:` key
+
+A flat map, full step name -> array of skill names. An entry REPLACES the named
+step's bundled (or custom-workflow-declared) skill list wholesale — it never
+merges into it — and also feeds the `skills` key `gtd next --json` reports at
+that step (see [Writing your own driver](./driver.md#writing-your-own-driver));
+`[]` means no skills at all for that step, and no skills preamble either.
+
+```yaml
+# .gtdrc
+skills:
+  packages.item.fix-suite: [debugging-and-error-recovery]
+  build.fix: [debugging-and-error-recovery, my-org-runbook]
+```
+
+The bundled workflow's sixteen addressable full names:
+
+`design.triage`, `architecture.author`, `architecture.decompose`,
+`packages.item.building`, `packages.item.fix-suite`, `packages.item.fix-spec`,
+`packages.item.spec.review`, `packages.item.health.describe`, `build.fix`,
+`build.health.describe`, `build.quality.reviewing`, `build.fix-quality`,
+`build.review.reviewing`, `build.review.answer-review-questions`,
+`build.review.fix-nits`, `build.review.collecting`. A custom workflow's own
+steps are addressable too, through its own `skills` export (see
+[Reusing the bundled workflow](#reusing-the-bundled-workflow)); the schema can
+validate an entry's VALUE (an array of strings) but never its KEY, since step
+names come from the workflow actually in play, not a fixed set gtd ships — there
+is no editor autocompletion of step names here.
+
+A key naming a step the workflow in play does not declare is a load error, exit
+1, listing the known names. Keying config on a step's full name widens what
+renaming a step breaks: today a rename strands every process resting on the old
+name; now it also orphans every `.gtdrc` `skills:` entry naming it — such an
+entry becomes an unknown key and exits 1, with no further hint that a rename
+happened.
+
+`qualityReviews` (a `vars:` entry, not a `skills:` one — see
+[Variables](#variables)) and a `build.quality.reviewing` entry are a pair:
+`qualityReviews` decides how many quality-lap turns run, one per lens. By
+default each turn's own skill IS that turn's lens; a `build.quality.reviewing`
+entry REPLACES the lens on every one of those turns with the configured list
+instead, leaving the prompt body's own mention of that turn's lens untouched
+(that mention is what makes otherwise-identical turns tell apart) even though
+the lens no longer loads as a skill once overridden.
 
 ### Validation and errors
 
@@ -665,6 +760,38 @@ process rests at it:
 ```
 gtd config: step "idle": mode "adrs" is not a mode this workflow knows (qa, review)
 ```
+
+A `skills:` key naming a step no layer's workflow declares fails the same way,
+listing the known names (see [The `skills:` key](#the-skills-key)):
+
+```
+gtd config:
+  - /path/to/repo/.gtdrc.json: skills.buld.fix: "skills.buld.fix" names a step this workflow does not declare — known step names: design.triage, architecture.author, …
+```
+
+A `vars:` entry naming one of the nine `*Skills` vars this key replaced —
+`triageSkills`, `architectureSkills`, `decomposeSkills`, `buildSkills`,
+`fixSkills`, `reviewFixSkills`, `reviewSkills`, `specReviewSkills`,
+`escalateSkills` — fails the load too, naming the `skills:` step key(s) that
+replace it:
+
+| dead `vars:` name    | replacement `skills:` key(s)                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| `triageSkills`       | `design.triage`                                                                             |
+| `architectureSkills` | `architecture.author`                                                                       |
+| `decomposeSkills`    | `architecture.decompose`                                                                    |
+| `buildSkills`        | `packages.item.building`                                                                    |
+| `fixSkills`          | `packages.item.fix-suite`, `build.fix`                                                      |
+| `reviewFixSkills`    | `packages.item.fix-spec`, `build.fix-quality`, `build.review.fix-nits`                      |
+| `reviewSkills`       | `build.review.reviewing`, `build.review.answer-review-questions`, `build.review.collecting` |
+| `specReviewSkills`   | `packages.item.spec.review`                                                                 |
+| `escalateSkills`     | `packages.item.health.describe`, `build.health.describe`                                    |
+
+This check is scoped to `.gtdrc` `vars:` alone — gtd never scans the environment
+for it, so a `GTD_BUILDSKILLS` (or any other `GTD_<NAME>` that used to override
+one of the nine) produces neither an error nor a warning. It simply does
+nothing: the var it named is gone, so it matches no declared name and is ignored
+the same way any other stray `GTD_<NAME>` is.
 
 The same problem carried by several `.gtdrc` layers prints one line per file: a
 nearer layer overriding the value does not silence the outer layer's line,
@@ -711,14 +838,14 @@ GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
 
 The bundled workflow puts a preamble naming the skills an agent step loads (its
-`*Skills` var) ahead of that step's prompt; blanking one `*Skills` var switches
-it off for that step. A preamble in a workflow of your own must carry three
-clauses, or it is unsafe: load only what your harness has and skip the rest
-silently; THE STEP'S OWN FILE FORMAT AND COMPLETION CONDITION OUTRANK ANYTHING A
-SKILL SAYS; never turn the turn interactive, because no one is at a keyboard.
-The precedence clause is load-bearing — the preamble sits above the step's own
-format prose, so a skill that reflows the steering file changes which branch the
-flow takes next.
+`.gtdrc` `skills:` entry — see [The `skills:` key](#the-skills-key)) ahead of
+that step's prompt; an empty entry switches it off for that step. A preamble in
+a workflow of your own must carry three clauses, or it is unsafe: load only what
+your harness has and skip the rest silently; THE STEP'S OWN FILE FORMAT AND
+COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn the turn
+interactive, because no one is at a keyboard. The precedence clause is
+load-bearing — the preamble sits above the step's own format prose, so a skill
+that reflows the steering file changes which branch the flow takes next.
 
 ### The bundled workflow's variables
 
@@ -730,11 +857,6 @@ or `GTD_<NAME>`:
   sh-compatible.
 - **`plannerModel`** (`smart`) / **`coderModel`** (`base`) — the `model` hints
   of the planning/reviewing steps and of the building/fixing steps.
-- **`*Skills`** — the skill names each agent step loads; see
-  [Setup](./setup.md#using-a-different-skill-set). Setting one also determines
-  what `gtd next --json`'s `skills` key carries at that step (see
-  [Writing your own driver](./driver.md#writing-your-own-driver)); blanking it
-  empties that key for the step too.
 - **`judgeIdenticalMinP`** (`0.7`) — the confidence an "identical failure"
   verdict at `health.judge` needs before a red streak escalates early. Blank,
   non-numeric or non-finite means it can never be cleared, so the early
@@ -752,10 +874,15 @@ or `GTD_<NAME>`:
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.
-- **`qualityReviews`** (`owasp-security, ponytail-review, test-audit`) — the
-  quality lap `build.quality` runs ahead of the human review, one
-  comma-separated skill per turn. Every round pays for it, so extend the list
-  only as far as that is worth paying for; blanking it disables the lap. See
+- **`qualityReviews`** (`owasp-security, ponytail-review, test-audit`) — sets
+  the quality lap `build.quality` runs ahead of the human review: one turn per
+  comma-separated lens, in order. It is the one skill control still living under
+  `vars:` rather than `skills:` — it decides the turn COUNT. By default each
+  turn's own skill is that turn's lens; a `build.quality.reviewing` entry (see
+  [The `skills:` key](#the-skills-key)) replaces the lens on EVERY one of those
+  turns with the configured list instead, though the prompt body still names the
+  lens each turn is for. Every round pays for it, so extend the list only as far
+  as that is worth paying for; blanking it disables the lap. See
   [Setup](./setup.md#extending-the-quality-review-lap).
 - **`reviewBase`** (empty) — the commitish `--entry review-gate.check` reviews
   from.

@@ -8,7 +8,6 @@ import {
   buildReviewCollectingPrompt,
   designGateAnswerMessage,
   designTriagePrompt,
-  splitSkills,
   summaryPrompt,
   withSkills,
 } from "./text.js"
@@ -30,42 +29,36 @@ describe("withSkills", () => {
   })
 })
 
-describe("splitSkills", () => {
-  it("splits on comma, trims each name, drops empty entries", () => {
-    expect(splitSkills("a, b")).toEqual(["a", "b"])
-    expect(splitSkills(" a ,, b ")).toEqual(["a", "b"])
-  })
-
-  it("returns [] for undefined, empty, or blank input", () => {
-    expect(splitSkills(undefined)).toEqual([])
-    expect(splitSkills("")).toEqual([])
-    expect(splitSkills("   ")).toEqual([])
-  })
-})
-
 describe("agentWithSkills", () => {
-  const capture = (fn: () => Promise<void>) => captureStep(fn)
+  const capture = (fn: () => Promise<void>, skills?: Readonly<Record<string, readonly string[]>>) =>
+    captureStep(fn, skills !== undefined ? { skills } : {})
 
-  it("produces a byte-identical preamble to withSkills for a comma-free name list", async () => {
-    const skills = "code-review, testing"
-    const viaHelper = await capture(() => agentWithSkills("name", skills, "do-the-work"))
-    if (viaHelper.kind !== "agent") throw new Error("unreachable")
-    expect(viaHelper.prompt).toBe(withSkills(skills, "do-the-work"))
-  })
-
-  it("passes the skills list, split, as the option, alongside the preamble", async () => {
-    const request = await capture(() =>
-      agentWithSkills("name", "code-review, testing", "do-the-work"),
-    )
+  it("puts skillsFor(name)'s list, joined, in the preamble", async () => {
+    const request = await capture(() => agentWithSkills("name", "do-the-work"), {
+      name: ["code-review", "testing"],
+    })
     if (request.kind !== "agent") throw new Error("unreachable")
-    expect(request.options.skills).toEqual(["code-review", "testing"])
+    expect(request.prompt).toBe(withSkills("code-review, testing", "do-the-work"))
   })
 
-  it("leaves the prompt bare and the option an empty array when skills is undefined", async () => {
-    const request = await capture(() => agentWithSkills("name", undefined, "do-the-work"))
+  it("passes no skills option itself — the replay resolver fills the wire field", async () => {
+    const request = await capture(() => agentWithSkills("name", "do-the-work"))
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.options.skills).toBeUndefined()
+  })
+
+  it("leaves the prompt bare when the name resolves to no configured skills", async () => {
+    const request = await capture(() => agentWithSkills("name", "do-the-work"), { name: [] })
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.prompt).toBe("do-the-work")
-    expect(request.options.skills).toEqual([])
+  })
+
+  it("still accepts an explicit options.skills of its own, untouched", async () => {
+    const request = await capture(() =>
+      agentWithSkills("name", "do-the-work", { skills: ["own-skill"] }),
+    )
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.options.skills).toEqual(["own-skill"])
   })
 })
 

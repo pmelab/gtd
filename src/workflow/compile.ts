@@ -27,6 +27,10 @@ export interface CompiledConfig {
   /** The built-in modes (qa/review, with gtd's own validators) merged with every layer's `modes:`, per half. */
   readonly modes: Record<string, ModeDef>
   readonly ui?: UiConfig
+  /** The `.gtdrc` `skills:` map, shape-validated but NOT yet checked against the workflow's own step names — that check needs the loaded workflow, so it runs in `../workflow/load.ts` instead. */
+  readonly rcSkills: Record<string, readonly string[]>
+  /** `rcSkills`' own per-key origin — the layer that last set that key — for the unknown-step-name diagnostic `load.ts` raises once it knows the workflow's names. */
+  readonly skillsOrigin: Record<string, string>
   /** Every finding across every layer — sorted (origin outermost→innermost, then config path) and deduped. */
   readonly diagnostics: readonly Diagnostic[]
 }
@@ -76,6 +80,83 @@ const compileVarsMap = (
     vars[key] = String(value)
   }
   return { vars, diagnostics }
+}
+
+const isStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((entry) => typeof entry === "string")
+
+/** A flat `step full name -> skill list` map; a malformed value is a load error and is dropped. */
+const compileSkillsMap = (
+  raw: unknown,
+): {
+  readonly skills: Record<string, readonly string[]>
+  readonly diagnostics: readonly Diagnostic[]
+} => {
+  const diagnostics: Diagnostic[] = []
+  if (raw === undefined) return { skills: {}, diagnostics }
+  if (!isPlainObject(raw)) {
+    diagnostics.push(
+      err(
+        ["skills"],
+        `"skills" must be a mapping of step name -> array of skill names, got ${describeType(raw)}`,
+      ),
+    )
+    return { skills: {}, diagnostics }
+  }
+  const skills: Record<string, readonly string[]> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isStringArray(value)) {
+      diagnostics.push(
+        err(
+          ["skills", key],
+          `"skills.${key}" must be an array of skill names (strings), got ${describeType(value)}`,
+        ),
+      )
+      continue
+    }
+    skills[key] = value
+  }
+  return { skills, diagnostics }
+}
+
+/**
+ * The nine `*Skills` workflow vars this package deletes, each naming the
+ * `.gtdrc` `skills:` step key(s) that replace it — four of the nine fan out to
+ * several keys, because a var once shared between steps now addresses
+ * them independently. Deliberately the only place gtd special-cases a var
+ * name by string; meant to be deleted a major release after this ships.
+ */
+const DEAD_SKILLS_VARS: Readonly<Record<string, readonly string[]>> = {
+  triageSkills: ["design.triage"],
+  architectureSkills: ["architecture.author"],
+  decomposeSkills: ["architecture.decompose"],
+  buildSkills: ["packages.item.building"],
+  fixSkills: ["packages.item.fix-suite", "build.fix"],
+  reviewFixSkills: ["packages.item.fix-spec", "build.fix-quality", "build.review.fix-nits"],
+  reviewSkills: [
+    "build.review.reviewing",
+    "build.review.answer-review-questions",
+    "build.review.collecting",
+  ],
+  specReviewSkills: ["packages.item.spec.review"],
+  escalateSkills: ["packages.item.health.describe", "build.health.describe"],
+}
+
+/** `vars:` entries naming one of the nine deleted `*Skills` vars — scoped to `.gtdrc` `vars:` only; there is no environment scan anywhere in this check, so a `GTD_BUILDSKILLS` gets neither this diagnostic nor any other. */
+const deadSkillsVarDiagnostics = (rawVars: unknown): readonly Diagnostic[] => {
+  if (!isPlainObject(rawVars)) return []
+  const diagnostics: Diagnostic[] = []
+  for (const key of Object.keys(rawVars)) {
+    const replacement = DEAD_SKILLS_VARS[key]
+    if (replacement === undefined) continue
+    diagnostics.push(
+      err(
+        ["vars", key],
+        `"vars.${key}" was removed — skills are now configured per step, under the "skills:" key, addressed by: ${replacement.join(", ")}`,
+      ),
+    )
+  }
+  return diagnostics
 }
 
 const MODE_COMMAND_KEYS = ["format", "validate"] as const
@@ -255,8 +336,16 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
   const ui = mergedConfig["ui"] as UiConfig | undefined
   const { vars: rcVars, diagnostics: varsDiagnostics } = compileVarsMap(mergedConfig["vars"])
   diagnostics.push(...withOrigin(varsDiagnostics, lookupIn))
+  diagnostics.push(...withOrigin(deadSkillsVarDiagnostics(mergedConfig["vars"]), lookupIn))
   const { modes: rcModes, diagnostics: modesDiagnostics } = compileModesMap(mergedConfig["modes"])
   diagnostics.push(...withOrigin(modesDiagnostics, lookupIn))
+  const { skills: rcSkills, diagnostics: skillsDiagnostics } = compileSkillsMap(
+    mergedConfig["skills"],
+  )
+  diagnostics.push(...withOrigin(skillsDiagnostics, lookupIn))
+  const skillsOrigin = Object.fromEntries(
+    Object.keys(rcSkills).map((key) => [key, lookupIn(["skills", key])]),
+  )
   const seeded = Object.fromEntries(
     BUILT_IN_MODE_NAMES.map((name) => [name, { validate: seededValidateCommand(name) }]),
   )
@@ -264,6 +353,8 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
     rcVars,
     modes: mergeModes(seeded, rcModes),
     ...(ui !== undefined ? { ui } : {}),
+    rcSkills,
+    skillsOrigin,
     diagnostics: dedupeDiagnostics(sortDiagnostics(diagnostics, layerOrder)),
   }
 }

@@ -67,6 +67,13 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Add a `greet()` export returning a friendly string.
       """
+    # design.triage's prompt names its bundled skill pair — grounds
+    # `skills.ts`'s "design.triage" key against the real scoped name design.triage
+    # actually resolves to (not merely a fixture default), so a rename of
+    # `scope("design")` desyncing the map would fail here, not just silently.
+    When I run gtd next
+    Then stdout contains "spec-driven-development, planning-and-task-breakdown"
+
     # No open questions in REQUIREMENTS.md, so the flow skips the human stop
     # at design.gate.answer and goes straight on to architecture-pre
     When I run gtd land
@@ -89,6 +96,9 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd next
     Then it succeeds
     And stdout contains "is an open question, not a"
+    # architecture.author's prompt names its bundled skills — same grounding
+    # as design.triage's check above, for the top-level architecture scope.
+    And stdout contains "api-and-interface-design, documentation-and-adrs, ponytail"
 
     # architecture.author: a COLD read of REQUIREMENTS.md — develops the how,
     # deletes the requirements file once folded in
@@ -108,6 +118,11 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose"
     And the git log contains "design.gate.answer"
     And the git log contains "architecture.gate.answer"
+
+    # architecture.decompose's prompt names its bundled skills — grounds the
+    # second architecture-scope key the same way.
+    When I run gtd next
+    Then stdout contains "incremental-implementation, planning-and-task-breakdown"
 
     # decompose writes the package; the flow itself picks the lexically first
     # one to build
@@ -160,6 +175,11 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
 
+    # packages.item.spec.review's prompt names its bundled skills — grounds
+    # this step's own map key against the real scoped name it resolves to.
+    When I run gtd next
+    Then stdout contains "code-review-and-quality, spec-driven-development"
+
     Given a file ".gtd/SPEC_FEEDBACK.md" with:
       """
       ## Missing doc comment
@@ -169,6 +189,11 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix-spec"
+
+    # packages.item.fix-spec's prompt names its bundled skills — same
+    # grounding, for the pair that shared the deleted reviewFixSkills var.
+    When I run gtd next
+    Then stdout contains "incremental-implementation, code-simplification"
 
     Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
     When I run gtd land
@@ -212,6 +237,11 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.reviewing → build.review.reviewing"
+
+    # build.review.reviewing's prompt names its bundled skill — grounds this
+    # step's own map key against the real scoped name it resolves to.
+    When I run gtd next
+    Then stdout contains "code-review-and-quality"
 
     Given a file ".gtd/REVIEW.md" with:
       """
@@ -327,6 +357,11 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.closing → build.review.collecting"
+
+    # build.review.collecting's prompt names its bundled skill — grounds this
+    # step's own map key against the real scoped name it resolves to.
+    When I run gtd next
+    Then stdout contains "code-review-and-quality"
 
     # build.review.collecting: CLASSIFIES the round straight into
     # REQUIREMENTS.md (never an instruction list for a builder) -> the root's
@@ -1237,6 +1272,102 @@ Feature: The bundled unified workflow — one flow, end to end
     And ".gtd/FEEDBACK.md" does not exist
 
   @inmem
+  Scenario: the same escalation loop, reached under packages.item instead of build — packages.item.fix-suite and packages.item.health.describe get their own bundled skills, same as build's
+    # `healthy()` (src/workflows/health.ts) is the one shared loop both
+    # `packages.item`'s per-package fix suite and `build`'s own fix loop call
+    # — the same escalation shape as "repeated check failures escalate..."
+    # below, under the other scope it also resolves under (see skills.ts's
+    # comment on `packages.item.health.describe` / `build.health.describe`).
+    # Round 2 here does judge its retry (this is the loop's genuine first
+    # call, so `previous` is already set going into round 2) — unlike that
+    # scenario's round 2, which inherits state from the `fix-precheck` entry
+    # it starts from instead of a fresh first call.
+    Given a test project
+    And the workflow
+    And gtd enters "start-gate.check"
+    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Widget factory
+
+      Add a widget factory.
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
+    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And a file ".gtd/ARCHITECTURE.md" with:
+      """
+      Technical plan: src/widget.ts exports a factory.
+      """
+    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget factory. Independent tasks:
+      - [ ] add src/widget.ts
+      """
+    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = () => "w"
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 1 failed
+      """
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix-suite"
+    # packages.item.fix-suite's prompt names its bundled skill.
+    When I run gtd next
+    Then stdout contains "debugging-and-error-recovery"
+
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-1.md" with:
+      """
+      fixed attempt 1
+      """
+    And gtd lands "gtd(agent): packages.item.fix-suite → packages.item.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 2 failed
+      """
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.health.judge"
+    And gtd lands "gtd(judge): packages.item.health.judge → packages.item.fix-suite"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-2.md" with:
+      """
+      fixed attempt 2
+      """
+    And gtd lands "gtd(agent): packages.item.fix-suite → packages.item.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 3 failed
+      """
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.health.judge"
+    And gtd lands "gtd(judge): packages.item.health.judge → packages.item.fix-suite"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-3.md" with:
+      """
+      fixed attempt 3
+      """
+    And gtd lands "gtd(agent): packages.item.fix-suite → packages.item.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 4 failed
+      """
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.health.judge"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(judge): packages.item.health.judge → packages.item.health.describe"
+    # packages.item.health.describe's prompt names its bundled skill — the
+    # same list build.health.describe's own rename guard (below) checks,
+    # grounding BOTH full names this shared escalation loop can resolve to.
+    When I run gtd next
+    Then stdout contains "debugging-and-error-recovery"
+
+  @inmem
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached, writing a fix-design document a human can edit before the next fix turn
     Given a test project
     And the workflow
@@ -1285,8 +1416,11 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
+    # build.health.describe's prompt names its bundled skill — grounds this
+    # step's own map key against the real scoped name it resolves to.
     When I run gtd next
     Then it succeeds
+    And stdout contains "debugging-and-error-recovery"
     And stdout contains ".gtd/FEEDBACK.md"
     And stdout contains "git log -p -- .gtd/FEEDBACK.md"
     And stdout contains ".gtd/ESCALATION.md"

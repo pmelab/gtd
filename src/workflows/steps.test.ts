@@ -5,107 +5,114 @@ import * as steps from "./steps.js"
 
 const capture = (
   fn: () => Promise<void>,
-  vars: Readonly<Record<string, string>> = {},
-): Promise<StepRequest> => captureStep(fn, { vars })
+  skills?: Readonly<Record<string, readonly string[]>>,
+): Promise<StepRequest> => captureStep(fn, skills !== undefined ? { skills } : {})
 
-const agentSkills = (request: StepRequest): readonly string[] | undefined => {
+const agentPrompt = (request: StepRequest): string => {
+  if (request.kind !== "agent") throw new Error(`expected an agent step, got ${request.kind}`)
+  return request.prompt
+}
+
+// The preamble (`agentPrompt`) reflects `skillsFor`'s resolved map — but the
+// WIRE `skills` field a request actually carries is whatever `options.skills`
+// the step itself passed; `Replay.ts`'s `resolve()` only overrides it from
+// `.gtdrc` (never reachable here — this fixture skips replay entirely). Most
+// bundled steps pass no `skills` option of their own, so this is normally
+// `undefined`; `reviewQuality` is the one step that does.
+const agentSkillsOption = (request: StepRequest): readonly string[] | undefined => {
   if (request.kind !== "agent") throw new Error(`expected an agent step, got ${request.kind}`)
   return request.options.skills
 }
 
-describe("the bundled workflow's steps declare skills", () => {
-  it("triage declares triageSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.triage("base")))).toEqual([
-      "spec-driven-development",
-      "planning-and-task-breakdown",
-    ])
+describe("the bundled workflow's steps declare skills — a bundled step's rendered prompt carries its bundled skills.ts preamble", () => {
+  it("triage carries design.triage's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.triage("base")))
+    expect(prompt).toContain("spec-driven-development, planning-and-task-breakdown")
   })
 
-  it("author declares architectureSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.author()))).toEqual([
-      "api-and-interface-design",
-      "documentation-and-adrs",
-      "ponytail",
-    ])
+  it("author carries architecture.author's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.author()))
+    expect(prompt).toContain("api-and-interface-design, documentation-and-adrs, ponytail")
   })
 
-  it("decompose declares decomposeSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.decompose()))).toEqual([
-      "incremental-implementation",
-      "planning-and-task-breakdown",
-    ])
+  it("decompose carries architecture.decompose's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.decompose()))
+    expect(prompt).toContain("incremental-implementation, planning-and-task-breakdown")
   })
 
-  it("build declares buildSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.build("pkg")))).toEqual([
-      "test-driven-development",
-      "incremental-implementation",
-    ])
+  it("build carries packages.item.building's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.build("pkg")))
+    expect(prompt).toContain("test-driven-development, incremental-implementation")
   })
 
-  it("fixSuite declares fixSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.fixSuite()))).toEqual([
-      "debugging-and-error-recovery",
-    ])
+  it("fixSuite carries packages.item.fix-suite's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.fixSuite()))
+    expect(prompt).toContain("debugging-and-error-recovery")
   })
 
-  it("fixSpec declares reviewFixSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.fixSpec("pkg")))).toEqual([
-      "incremental-implementation",
-      "code-simplification",
-    ])
+  it("fixSpec carries packages.item.fix-spec's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.fixSpec("pkg")))
+    expect(prompt).toContain("incremental-implementation, code-simplification")
   })
 
-  it("reviewPackage declares specReviewSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.reviewPackage("pkg")))).toEqual([
-      "code-review-and-quality",
-      "spec-driven-development",
-    ])
+  it("reviewPackage carries packages.item.spec.review's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.reviewPackage("pkg")))
+    expect(prompt).toContain("code-review-and-quality, spec-driven-development")
   })
 
-  it("fix declares fixSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.fix()))).toEqual(["debugging-and-error-recovery"])
+  it("fix carries build.fix's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.fix()))
+    expect(prompt).toContain("debugging-and-error-recovery")
   })
 
-  it("describeEscalation declares escalateSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.describeEscalation()))).toEqual([
-      "debugging-and-error-recovery",
-    ])
+  it("describeEscalation carries health.describe's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.describeEscalation()))
+    expect(prompt).toContain("debugging-and-error-recovery")
   })
 
-  it("reviewQuality declares exactly the one lens handed to it, not split further", async () => {
-    expect(agentSkills(await capture(() => steps.reviewQuality("owasp-security")))).toEqual([
-      "owasp-security",
-    ])
+  it("reviewQuality's preamble falls back to the lens itself by default — build.quality.reviewing bundles no fixed skills of its own", async () => {
+    const prompt = agentPrompt(await capture(() => steps.reviewQuality("owasp-security")))
+    expect(prompt).toContain("missing one: owasp-security")
   })
 
-  it("fixQuality declares reviewFixSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.fixQuality()))).toEqual([
-      "incremental-implementation",
-      "code-simplification",
-    ])
+  it("reviewQuality's own wire skills option IS the lens by default — the same list its preamble now names, never one without the other", async () => {
+    const request = await capture(() => steps.reviewQuality("owasp-security"))
+    expect(agentSkillsOption(request)).toEqual(["owasp-security"])
   })
 
-  it("reviewing declares reviewSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.reviewing("base")))).toEqual([
-      "code-review-and-quality",
-    ])
+  it("reviewQuality's preamble reflects a configured build.quality.reviewing entry, every turn, regardless of lens", async () => {
+    const prompt = agentPrompt(
+      await capture(() => steps.reviewQuality("owasp-security"), {
+        "quality.reviewing": ["my-org-checklist"],
+      }),
+    )
+    expect(prompt).toContain("my-org-checklist")
+    // The body still names the lens — what makes N otherwise identical prompts distinguishable.
+    expect(prompt).toContain("owasp-security")
   })
 
-  it("collecting declares reviewSkills, split", async () => {
-    expect(agentSkills(await capture(() => steps.collecting("capture")))).toEqual([
-      "code-review-and-quality",
-    ])
+  it("fixQuality carries build.fix-quality's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.fixQuality()))
+    expect(prompt).toContain("incremental-implementation, code-simplification")
   })
 
-  it("a blanked *Skills var leaves that step's skills empty, and its rendered prompt bare", async () => {
-    const request = await capture(() => steps.fix(), { fixSkills: "" })
+  it("reviewing carries build.review.reviewing's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.reviewing("base")))
+    expect(prompt).toContain("code-review-and-quality")
+  })
+
+  it("collecting carries build.review.collecting's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.collecting("capture")))
+    expect(prompt).toContain("code-review-and-quality")
+  })
+
+  it("an empty configured list leaves that step's skills empty, and its rendered prompt bare", async () => {
+    const request = await capture(() => steps.fix(), { fix: [] })
     if (request.kind !== "agent") throw new Error("unreachable")
-    expect(request.options.skills).toEqual([])
     expect(request.prompt).not.toContain("Load whatever's listed here")
   })
 
-  it("answerReviewQuestions answers inline in .gtd/REVIEW.md as the reviewer, with reviewSkills", async () => {
+  it("answerReviewQuestions answers inline in .gtd/REVIEW.md as the reviewer, with its bundled skills", async () => {
     const request = await capture(() =>
       steps.answerReviewQuestions([{ id: "note-1", anchor: "calc ./a.ts#1-1", text: "why?" }]),
     )
@@ -114,8 +121,8 @@ describe("the bundled workflow's steps declare skills", () => {
     expect(request.options).toMatchObject({
       file: ".gtd/REVIEW.md",
       mode: "review",
-      skills: ["code-review-and-quality"],
     })
+    expect(request.prompt).toContain("code-review-and-quality")
     expect(request.prompt).toContain("note-1 — calc ./a.ts#1-1")
     expect(request.prompt).toContain("`A: ` line")
     expect(request.prompt).toContain("gtd check review .gtd/REVIEW.md")
@@ -130,7 +137,7 @@ describe("the bundled workflow's steps declare skills", () => {
     )
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.name).toBe("review.fix-nits")
-    expect(request.options.skills).toEqual(["incremental-implementation", "code-simplification"])
+    expect(request.prompt).toContain("incremental-implementation, code-simplification")
     expect(request.prompt).toContain("typo")
     expect(request.prompt).toContain("semicolon")
     expect(request.prompt).toContain("Leave `.gtd/REVIEW.md` untouched")

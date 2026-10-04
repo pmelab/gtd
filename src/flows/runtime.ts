@@ -138,6 +138,15 @@ export interface FlowContext {
   readonly vars: Readonly<Record<string, string>>
   readonly head: () => string
   readonly start: () => string
+  /**
+   * The skill list `localName` (scoped from here, same as `agent()`) resolves
+   * to — for a prompt preamble. `ownSkills`, when given, is the same
+   * precedence tier as a call's own `skills` option: it stands in for the
+   * bundled default when there isn't one, but a `.gtdrc` entry still beats
+   * it. Shares its resolution with `agent()`'s own wire resolver (both read
+   * `Workflow.ts`'s `configuredSkills`/`skills`), so the two can never drift.
+   */
+  readonly skillsFor: (localName: string, ownSkills?: readonly string[]) => readonly string[]
 }
 
 const CONTEXT_KEY = Symbol.for("@pmelab/gtd/flow-context")
@@ -242,6 +251,10 @@ export const head = (): string => ctx().head()
 
 /** The process's diff base: the commit before it began, or the base `gtd --entry` fixed. */
 export const start = (): string => ctx().start()
+
+/** The skill list `localName` (scoped from here, same as `agent()`) resolves to — for a prompt preamble. See `FlowContext.skillsFor` for `ownSkills`. */
+export const skillsFor = (localName: string, ownSkills?: readonly string[]): readonly string[] =>
+  ctx().skillsFor(localName, ownSkills)
 
 /** The merged workflow variables. */
 export const vars: Readonly<Record<string, string>> = new Proxy(

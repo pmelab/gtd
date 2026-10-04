@@ -17,15 +17,15 @@ The bundled workflow's build/fix/review steps name skills from these sets in
 their prompts instead of spelling out their technique in prose. Without a source
 installed, your harness has nothing to load at the steps that name it, and the
 prompt carries no prose standing in for it. gtd itself never installs, resolves,
-or verifies any of this — a repo can also repoint any of the bundled `*Skills`
-config vars to name a different set its own harness has instead, or blank one to
-drop the skill names from that step.
+or verifies any of this — a repo can also repoint any step's configured skill
+list (`.gtdrc` `skills:`, see below) to name a different set its own harness has
+instead, or set it to `[]` to drop the skill names from that step.
 
 **Install the skills, never the ponytail plugin** — its hooks inject into every
-turn and bypass the per-step skill variables above.
+turn and bypass the per-step `skills:` key above.
 
-A name missing from a `*Skills` var is skipped silently and costs nothing. A
-missing `qualityReviews` entry does not share that rule — see
+A name missing from a step's configured list is skipped silently and costs
+nothing. A missing `qualityReviews` entry does not share that rule — see
 [Extending the quality-review lap](#extending-the-quality-review-lap) below. Two
 of the three default lenses (`ponytail-review`, `test-audit`) come from sources
 a reader has no reason to already have, so the default configuration wastes
@@ -33,61 +33,53 @@ turns per quality lap until all three are installed.
 
 ### Using a different skill set
 
-Two routes, and they combine:
+Every bundled agent step has its own addressable full name — see
+[Configuration](./configuration.md#the-skills-key) for the full list and its
+validation rules. Two routes, and they combine:
 
-- **Instead of the bundled set** — repoint the `*Skills` var for the step you
-  want to change. There are nine: `triageSkills`, `architectureSkills`,
-  `decomposeSkills`, `buildSkills`, `fixSkills`, `reviewFixSkills`,
-  `reviewSkills`, `specReviewSkills`, `escalateSkills`. Each is an ordinary
-  workflow var, overridable per repo via `.gtdrc`. It also feeds the `skills`
-  key on `gtd next --json` at that step — a driver that reads it can preload the
-  same names (see [Writing your own driver](./driver.md)):
+- **Instead of the bundled set** — repoint the step's `.gtdrc` `skills:` entry.
+  It also feeds the `skills` key on `gtd next --json` at that step — a driver
+  that reads it can preload the same names (see
+  [Writing your own driver](./driver.md)):
 
   ```yaml
-  # .gtdrc — build steps load your own skill instead of the bundled pair
-  vars:
-    buildSkills: my-org-tdd-skill
+  # .gtdrc — packages.item.building loads your own skill instead of the bundled pair
+  skills:
+    packages.item.building: [my-org-tdd-skill]
   ```
 
-  or, highest precedence, via the matching `GTD_<NAME>` environment variable:
-
-  ```bash
-  GTD_BUILDSKILLS="my-org-tdd-skill" gtd next
-  ```
-
-- **In addition to the bundled set** — there is no append mechanism: an override
-  REPLACES the var's default, it never adds to it. Wanting the bundled skills
-  plus your own means writing the whole list — bundled names included — into
-  your own value:
+- **In addition to the bundled set** — there is no append mechanism: an entry
+  REPLACES the step's bundled list, it never adds to it. Wanting the bundled
+  skills plus your own means writing the whole list — bundled names included —
+  into your own value:
 
   ```yaml
   # .gtdrc — keep the bundled pair, add one more
-  vars:
-    buildSkills:
-      test-driven-development, incremental-implementation, my-org-tdd-skill
+  skills:
+    packages.item.building:
+      [test-driven-development, incremental-implementation, my-org-tdd-skill]
   ```
 
-  The cost of this route: a later gtd release that changes `buildSkills`'
-  bundled default is silently lost to you, because your override already
-  replaced it — you keep whatever list you wrote until you edit it again.
+  The cost of this route: a later gtd release that changes
+  `packages.item.building`'s bundled default is silently lost to you, because
+  your override already replaced it — you keep whatever list you wrote until you
+  edit it again.
 
 Both routes share the same safety rules:
 
-- The value is prose gtd never splits or validates — a comma-separated list is
-  convention only, not a parsed format.
 - A skill name your harness does not have is skipped silently by the preamble.
   An over-long list costs nothing.
 - A skill carrying `disable-model-invocation: true` is skipped just as silently
   — the agent cannot load it at all, only a human can, by slash command. Naming
-  one in a `*Skills` var is a no-op with no error. This is the trap most likely
-  to bite when picking your own set: check the skill's frontmatter before
-  relying on it here.
+  one in `skills:` is a no-op with no error. This is the trap most likely to
+  bite when picking your own set: check the skill's frontmatter before relying
+  on it here.
 
 ### Extending the quality-review lap
 
 `qualityReviews` (default `owasp-security, ponytail-review, test-audit`) is a
-skill set too, but a different shape from the `*Skills` vars above: each entry
-is its own full turn, not a list handed to one step. Extend it for a
+skill set too, but a different shape from a step's `skills:` entry above: each
+entry is its own full turn, not a list handed to one step. Extend it for a
 project-specific concern — a company security checklist, a house style skill —
 the same way as any other var, via `.gtdrc`:
 
@@ -104,15 +96,23 @@ or, highest precedence, via the matching `GTD_<NAME>` environment variable:
 GTD_QUALITYREVIEWS="owasp-security, ponytail-review, test-audit, acme-security-checklist" gtd next
 ```
 
-Unlike the `*Skills` vars, gtd DOES split this one — on every comma, one lens
-per entry — because each entry is its own turn rather than prose handed verbatim
-to one step. Keep entries free of commas and of characters that don't belong in
-a filename: each trimmed entry becomes part of a queued review file's name. It
-does NOT share the `*Skills` vars' "costs nothing" rule for a name your harness
-lacks: `reviewing` still burns its own full turn with no lens loaded, since the
-queue file exists whether or not anything can load it — a typo costs a whole
-turn, silently. Blanking the whole var, in contrast, does switch the lap off
-outright. See [Configuration](configuration.md) for the cost of extending it.
+Unlike a step's `skills:` entry, gtd DOES split this one — on every comma, one
+lens per entry — because each entry is its own turn rather than one step's skill
+list. Keep entries free of commas and of characters that don't belong in a
+filename: each trimmed entry becomes part of a queued review file's name. It
+does NOT share `skills:`'s "costs nothing" rule for a name your harness lacks:
+`reviewing` still burns its own full turn with no lens loaded, since the queue
+file exists whether or not anything can load it — a typo costs a whole turn,
+silently. Blanking the whole var, in contrast, does switch the lap off outright.
+
+`qualityReviews` and `.gtdrc` `skills: { build.quality.reviewing: [...] }` are a
+pair, not alternatives: `qualityReviews` decides how many turns the lap runs
+(one per lens, in order); by default, each turn's own skill IS that turn's lens.
+A `build.quality.reviewing` entry REPLACES the lens on every one of those turns
+with the configured list instead — the prompt body still names which lens the
+turn is for, but that lens no longer loads as a skill once overridden. Setting
+one without the other is rarely what you want. See
+[Configuration](configuration.md) for the cost of extending it.
 
 ## Repository requirements
 
