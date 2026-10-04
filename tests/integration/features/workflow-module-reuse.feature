@@ -3,9 +3,12 @@ Feature: a gtd.config.ts builds on the bundled workflow through @pmelab/gtd/work
 
   `@pmelab/gtd/workflow` is the bundled workflow as a module: its default export
   is the flow gtd runs without a `gtd.config.ts`, and its phases, steps,
-  `defaults`, `summary`, `base` and `steering` are named exports. A workflow of its own can
-  re-export what it keeps and compose the rest, and the steps it reuses keep
-  their full names.
+  `defaults`, `summary`, `base`, `steering` and `skills` are named exports. A
+  workflow of its own can re-export what it keeps and compose the rest, and the
+  steps it reuses keep their full names — `skills` included, since dropping it
+  from the re-export list the way dropping any other named export does
+  silently empties every reused step's skill list instead of keeping the
+  bundled defaults.
 
   Background:
     Given a test project
@@ -14,7 +17,7 @@ Feature: a gtd.config.ts builds on the bundled workflow through @pmelab/gtd/work
       import { start } from "@pmelab/gtd/flows"
       import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
 
-      export { defaults, summary, base, steering } from "@pmelab/gtd/workflow"
+      export { defaults, summary, base, steering, skills } from "@pmelab/gtd/workflow"
 
       export default async ({ entry }) =>
         entry === "hotfix" ? afterTail(await buildTail(true, start())) : bundled({ entry })
@@ -41,3 +44,25 @@ Feature: a gtd.config.ts builds on the bundled workflow through @pmelab/gtd/work
     When I run gtd with args "--entry hotfix --var testCommand=true"
     Then it succeeds
     And the last commit subject is "gtd(human): hotfix"
+
+  Scenario: the re-exported skills export keeps build.fix's bundled skill list — the re-export, not a literal, is what resolves it here
+    When I run gtd with args "--entry hotfix"
+    Then it succeeds
+    And the last commit subject is "gtd(human): hotfix"
+    When I run gtd next with "--json=skills"
+    Then it succeeds
+    And stdout contains "\"debugging-and-error-recovery\""
+
+  Scenario: a .gtdrc skills: entry addresses build.fix through the re-exported skills, the same as it would in the bundled workflow itself
+    Given a gtd config file at ".gtdrc" with:
+      """
+      skills:
+        build.fix: [my-org-runbook]
+      """
+    When I run gtd with args "--entry hotfix"
+    Then it succeeds
+    And the last commit subject is "gtd(human): hotfix"
+    When I run gtd next with "--json=skills"
+    Then it succeeds
+    And stdout contains "\"my-org-runbook\""
+    And stdout does not contain "debugging-and-error-recovery"

@@ -33,6 +33,14 @@ const modesJsonSchema = {
   },
 } as const
 
+/** The `skills:` shape: full step name -> its skill list (`compileSkillsMap`). An entry REPLACES the step's bundled list wholesale, never adds to it — and the schema can validate an entry's VALUE but never its KEY, since step names come from the workflow in play, not a fixed set. */
+const skillsJsonSchema = {
+  type: "object",
+  description:
+    "Flat step full-name -> skill-name array map. Each entry REPLACES the named step's bundled skill list wholesale (never merges into it); [] means no skills at all for that step, and no preamble. A key naming a step the workflow in play does not declare is a load error listing the known names — the schema itself cannot validate a key, only a value's shape.",
+  additionalProperties: { type: "array", items: { type: "string" } },
+} as const
+
 /**
  * A real (not `Unknown`) schema, unlike `vars`/`modes`: it is a flat settings
  * struct with no per-mode map to compile, so its JSON Schema derives from the
@@ -75,6 +83,7 @@ export const ConfigSchema = Schema.Struct({
   vars: Schema.optional(Schema.Unknown.annotations({ jsonSchema: varsJsonSchema })),
   modes: Schema.optional(Schema.Unknown.annotations({ jsonSchema: modesJsonSchema })),
   ui: Schema.optional(UiSchema),
+  skills: Schema.optional(Schema.Unknown.annotations({ jsonSchema: skillsJsonSchema })),
 })
 
 /** The decoded `ui:` shape — `gtd ui` and its CLI flags read `port`/`host`/`cert`/`key` off this. */

@@ -104,6 +104,11 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.reviewing → build.fix-quality"
 
+    # build.fix-quality's prompt names its bundled skills — grounds this
+    # step's own map key against the real scoped name it resolves to.
+    When I run gtd next
+    Then stdout contains "incremental-implementation, code-simplification"
+
     # fix-quality resolves the finding, deletes .gtd/QUALITY.md, and hands
     # back to the health check — never straight to the human review.
     Given the file ".gtd/QUALITY.md" is deleted

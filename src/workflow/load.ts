@@ -10,6 +10,7 @@ import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
 import { compileConfig, type ConfigLayer } from "./compile.js"
+import { interpolate } from "./interpolate.js"
 import { resolveVars } from "./vars.js"
 import { ConfigDiscovery, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
@@ -82,6 +83,7 @@ const dropOptionalUndefinedArtifacts = <
  */
 const decodeLevel = (
   level: ConfigLevel,
+  env: Readonly<Record<string, string | undefined>>,
 ): Effect.Effect<{
   readonly layer: ConfigLayer | undefined
   readonly diagnostics: readonly Diagnostic[]
@@ -117,9 +119,10 @@ const decodeLevel = (
       }))
       return { layer: undefined, diagnostics }
     }
+    const interpolated = interpolate(result.right, env)
     return {
-      layer: { origin: level.filepath, dir: dirname(level.filepath), value: result.right },
-      diagnostics: [],
+      layer: { origin: level.filepath, dir: dirname(level.filepath), value: interpolated.value },
+      diagnostics: interpolated.diagnostics.map((d) => ({ ...d, origin: level.filepath })),
     }
   })
 
@@ -148,7 +151,7 @@ export const load: Effect.Effect<
   const discovery = yield* ConfigDiscovery
   const levels = yield* discovery.levels(host.root, host.home)
   for (const level of levels) yield* narrator.narrate(`config: layer ${level.filepath}`)
-  const decoded = yield* Effect.forEach(levels, decodeLevel)
+  const decoded = yield* Effect.forEach(levels, (level) => decodeLevel(level, host.env))
   const layers = decoded.flatMap((d) => (d.layer !== undefined ? [d.layer] : []))
   const decodeDiagnostics = decoded.flatMap((d) => d.diagnostics)
 
@@ -165,8 +168,24 @@ export const load: Effect.Effect<
     ...levels.map((level) => level.filepath),
     ...(module ? [module.filepath] : []),
   ]
+  // A `skills:` key naming a step the loaded workflow's own `skills` export
+  // does not declare: checked here, only once `loaded` exists, because a
+  // custom workflow's step names are never known to the schema — see
+  // ConfigSchema's `skills` annotation.
+  const knownSkillNames = Object.keys(loaded.skills).sort()
+  const unknownSkillDiagnostics = Object.keys(compiled.rcSkills)
+    .filter((key) => !(key in loaded.skills))
+    .map((key) => ({
+      severity: "error" as const,
+      path: ["skills", key],
+      message: `"skills.${key}" names a step this workflow does not declare — known step names: ${knownSkillNames.join(", ")}`,
+      origin: compiled.skillsOrigin[key] ?? BUILT_IN_ORIGIN,
+    }))
   const diagnostics = dedupeDiagnostics(
-    sortDiagnostics([...decodeDiagnostics, ...compiled.diagnostics], layerOrder),
+    sortDiagnostics(
+      [...decodeDiagnostics, ...compiled.diagnostics, ...unknownSkillDiagnostics],
+      layerOrder,
+    ),
   )
 
   const fatal = diagnostics.filter((d) => d.severity === "error")
@@ -191,6 +210,8 @@ export const load: Effect.Effect<
       base: loaded.base,
       steering: loaded.steering,
       modes: compiled.modes,
+      skills: loaded.skills,
+      configuredSkills: compiled.rcSkills,
       initial,
     },
     workflowVars: { ...loaded.defaults },
@@ -202,7 +223,10 @@ export const load: Effect.Effect<
   }
 })
 
-interface LoadedModule extends Pick<WorkflowDefinition, "flow" | "summary" | "base" | "steering"> {
+interface LoadedModule extends Pick<
+  WorkflowDefinition,
+  "flow" | "summary" | "base" | "steering" | "skills"
+> {
   readonly defaults: Readonly<Record<string, string>>
   readonly origin: string
   /**
@@ -288,6 +312,24 @@ const stringRecord = (
   return value as Readonly<Record<string, string>>
 }
 
+const isStringArray = (v: unknown): v is readonly string[] =>
+  Array.isArray(v) && v.every((entry) => typeof entry === "string")
+
+/** Read a module's optional `skills` export: full step name -> skill list, mirroring `stringRecord` for the vars-shaped exports. */
+const skillsRecord = (
+  exports: Record<string, unknown>,
+): Readonly<Record<string, readonly string[]>> => {
+  const value = exports["skills"] ?? {}
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Object.values(value).some((entry) => !isStringArray(entry))
+  ) {
+    throw new Error(`the "skills" export is not a record of skill-name arrays`)
+  }
+  return value as Readonly<Record<string, readonly string[]>>
+}
+
 const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T | undefined => {
   const value = exports[name]
   if (value === undefined) return undefined
@@ -316,6 +358,7 @@ const fromModule = (
     flow: flow as WorkflowDefinition["flow"],
     defaults: stringRecord(exports, "defaults"),
     steering: stringRecord(exports, "steering"),
+    skills: skillsRecord(exports),
     summary: optionalFunction(exports, "summary"),
     base: optionalFunction(exports, "base"),
     origin,

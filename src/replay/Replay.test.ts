@@ -549,3 +549,88 @@ describe("replay", () => {
     expect(outcome.kind === "failed" && outcome.message).toContain("not a step")
   })
 })
+
+// `resolve()`'s three-way skills precedence: a `.gtdrc` entry
+// (`configuredSkills`) beats a step's own `skills` option, which in turn
+// beats the workflow's bundled default (`skills`) — reached only when
+// neither of the other two is set. `build.quality.reviewing`'s bundled `[]`
+// is exactly the case a two-way rule (config vs. bundled only) gets wrong:
+// it would beat a step's own explicit list even with no `.gtdrc` entry at all.
+describe("replay: skills resolution", () => {
+  const oneStep = async () => {
+    await agent("step", "prompt", { skills: ["own"] })
+  }
+
+  const wireSkills = async (resolved: {
+    skills?: Record<string, readonly string[]>
+    configuredSkills?: Record<string, readonly string[]>
+  }): Promise<readonly string[] | undefined> => {
+    const outcome = await replay({
+      flow: oneStep,
+      episode: new History().episode(),
+      vars: {},
+      start: hashOf(0),
+      budgetBytes: 1024,
+      ...resolved,
+    })
+    if (outcome.kind !== "rest" || outcome.rest.request.kind !== "agent") {
+      throw new Error(`expected an agent rest, got ${JSON.stringify(outcome)}`)
+    }
+    return outcome.rest.request.options.skills
+  }
+
+  it("keeps the step's own skills option when neither a bundled nor a configured entry is set", async () => {
+    expect(await wireSkills({})).toEqual(["own"])
+  })
+
+  it("falls back to the bundled default only when the step passes no skills option of its own", async () => {
+    const noOwnSkills = async () => {
+      await agent("step", "prompt")
+    }
+    const outcome = await replay({
+      flow: noOwnSkills,
+      episode: new History().episode(),
+      vars: {},
+      start: hashOf(0),
+      budgetBytes: 1024,
+      skills: { step: ["bundled"] },
+    })
+    if (outcome.kind !== "rest" || outcome.rest.request.kind !== "agent")
+      throw new Error("expected a rest")
+    expect(outcome.rest.request.options.skills).toEqual(["bundled"])
+  })
+
+  it("an unset bundled entry (build.quality.reviewing's own case: no key at all) does not blank a step's own skills option", async () => {
+    expect(await wireSkills({ skills: {} })).toEqual(["own"])
+  })
+
+  it("a configured entry overrides the step's own skills option, even when a bundled default also exists", async () => {
+    expect(
+      await wireSkills({
+        skills: { step: ["bundled"] },
+        configuredSkills: { step: ["configured"] },
+      }),
+    ).toEqual(["configured"])
+  })
+
+  it("a configured EMPTY list still overrides the step's own skills option — the blanking route — and the wire option itself goes absent, not []", async () => {
+    expect(await wireSkills({ configuredSkills: { step: [] } })).toBeUndefined()
+  })
+
+  it("a bundled EMPTY entry, with no configured entry and no own skills option, resolves absent too", async () => {
+    const noOwnSkills = async () => {
+      await agent("step", "prompt")
+    }
+    const outcome = await replay({
+      flow: noOwnSkills,
+      episode: new History().episode(),
+      vars: {},
+      start: hashOf(0),
+      budgetBytes: 1024,
+      skills: { step: [] },
+    })
+    if (outcome.kind !== "rest" || outcome.rest.request.kind !== "agent")
+      throw new Error("expected a rest")
+    expect(outcome.rest.request.options.skills).toBeUndefined()
+  })
+})

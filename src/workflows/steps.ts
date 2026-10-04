@@ -21,7 +21,7 @@ const coder = (): string => vars.coderModel ?? ""
 
 /** Turn the sketch since `base` into `.gtd/REQUIREMENTS.md`. */
 export const triage = (base: string): Promise<void> =>
-  t.agentWithSkills("triage", vars.triageSkills, t.designTriagePrompt(base), {
+  t.agentWithSkills("triage", t.designTriagePrompt(base), {
     label: "Triaging the change",
     file: REQUIREMENTS,
     mode: "qa",
@@ -30,7 +30,7 @@ export const triage = (base: string): Promise<void> =>
   })
 
 export const author = (): Promise<void> =>
-  t.agentWithSkills("author", vars.architectureSkills, t.architectureAuthorPrompt(), {
+  t.agentWithSkills("author", t.architectureAuthorPrompt(), {
     label: "Refining the technical plan",
     file: ARCHITECTURE,
     mode: "qa",
@@ -39,7 +39,7 @@ export const author = (): Promise<void> =>
   })
 
 export const decompose = (): Promise<void> =>
-  t.agentWithSkills("decompose", vars.decomposeSkills, t.architectureDecomposePrompt(), {
+  t.agentWithSkills("decompose", t.architectureDecomposePrompt(), {
     label: "Decomposing into packages",
     model: planner(),
     system: t.architectSystem(),
@@ -66,14 +66,14 @@ export const answerTechnicalQuestions = (): Promise<void> =>
 // ── Packages ────────────────────────────────────────────────────────────────
 
 export const build = (pkg: string): Promise<void> =>
-  t.agentWithSkills("building", vars.buildSkills, t.packagesItemBuildingPrompt(pkg), {
+  t.agentWithSkills("building", t.packagesItemBuildingPrompt(pkg), {
     label: "Building",
     model: coder(),
     system: t.builderSystem(),
   })
 
 export const fixSuite = (): Promise<void> =>
-  t.agentWithSkills("fix-suite", vars.fixSkills, t.packagesItemFixSuitePrompt(), {
+  t.agentWithSkills("fix-suite", t.packagesItemFixSuitePrompt(), {
     label: "Fixing the check",
     file: FEEDBACK,
     model: coder(),
@@ -81,7 +81,7 @@ export const fixSuite = (): Promise<void> =>
   })
 
 export const fixSpec = (pkg: string): Promise<void> =>
-  t.agentWithSkills("fix-spec", vars.reviewFixSkills, t.packagesItemFixSpecPrompt(pkg), {
+  t.agentWithSkills("fix-spec", t.packagesItemFixSpecPrompt(pkg), {
     label: "Fixing review feedback",
     file: SPEC_FEEDBACK,
     model: coder(),
@@ -90,22 +90,17 @@ export const fixSpec = (pkg: string): Promise<void> =>
 
 /** Review `pkg` against its spec, focused on the `failing` sections the pre-judge could not clear. */
 export const reviewPackage = (pkg: string, failing: readonly string[] = []): Promise<void> =>
-  t.agentWithSkills(
-    "spec.review",
-    vars.specReviewSkills,
-    t.packagesItemSpecReviewPrompt(pkg, failing),
-    {
-      label: "Reviewing the package",
-      model: planner(),
-      system: t.specReviewerSystem(),
-      allowEmpty: true,
-    },
-  )
+  t.agentWithSkills("spec.review", t.packagesItemSpecReviewPrompt(pkg, failing), {
+    label: "Reviewing the package",
+    model: planner(),
+    system: t.specReviewerSystem(),
+    allowEmpty: true,
+  })
 
 // ── Keeping the suite green ─────────────────────────────────────────────────
 
 export const fix = (): Promise<void> =>
-  t.agentWithSkills("fix", vars.fixSkills, t.buildFixPrompt(), {
+  t.agentWithSkills("fix", t.buildFixPrompt(), {
     label: "Fixing the check",
     file: FEEDBACK,
     model: coder(),
@@ -113,7 +108,7 @@ export const fix = (): Promise<void> =>
   })
 
 export const describeEscalation = (): Promise<void> =>
-  t.agentWithSkills("health.describe", vars.escalateSkills, t.healthDescribePrompt(), {
+  t.agentWithSkills("health.describe", t.healthDescribePrompt(), {
     label: "Describing the escalation",
     file: FEEDBACK,
     model: coder(),
@@ -139,18 +134,24 @@ export const escalationExhausted = (): Promise<void> =>
 
 // ── Quality and review ──────────────────────────────────────────────────────
 
-/** One quality review, through the skill `lens`. */
+/**
+ * One quality review, through the skill `lens`. `lens` rides as this turn's
+ * own `skills` option — a `.gtdrc` `build.quality.reviewing` entry still
+ * overrides it (config beats a flow-supplied list same as any other step),
+ * but absent one the lens itself is what the turn loads by default.
+ */
 export const reviewQuality = (lens: string): Promise<void> =>
-  t.agentWithSkills("quality.reviewing", lens, t.buildQualityReviewingPrompt(lens), {
+  t.agentWithSkills("quality.reviewing", t.buildQualityReviewingPrompt(lens), {
     label: "Reviewing (one quality lens)",
     file: QUALITY,
     model: planner(),
     system: t.reviewerSystem(),
     allowEmpty: true,
+    skills: [lens],
   })
 
 export const fixQuality = (): Promise<void> =>
-  t.agentWithSkills("fix-quality", vars.reviewFixSkills, t.buildFixQualityPrompt(), {
+  t.agentWithSkills("fix-quality", t.buildFixQualityPrompt(), {
     label: "Fixing quality findings",
     file: QUALITY,
     model: coder(),
@@ -160,41 +161,31 @@ export const fixQuality = (): Promise<void> =>
 
 /** Write `.gtd/REVIEW.md` over everything since `base`, carrying the answers of commit `carry` when given. */
 export const reviewing = (base: string, carry?: string): Promise<void> =>
-  t.agentWithSkills(
-    "review.reviewing",
-    vars.reviewSkills,
-    t.buildReviewReviewingPrompt(base, carry),
-    {
-      label: "Reviewing",
-      file: REVIEW,
-      mode: "review",
-      model: planner(),
-      system: t.reviewerSystem(),
-      base,
-    },
-  )
+  t.agentWithSkills("review.reviewing", t.buildReviewReviewingPrompt(base, carry), {
+    label: "Reviewing",
+    file: REVIEW,
+    mode: "review",
+    model: planner(),
+    system: t.reviewerSystem(),
+    base,
+  })
 
 /** Answer every `question` note inline in `.gtd/REVIEW.md`. */
 export const answerReviewQuestions = (notes: readonly t.NoteInput[]): Promise<void> =>
-  t.agentWithSkills(
-    "review.answer-review-questions",
-    vars.reviewSkills,
-    t.buildReviewAnswerQuestionsPrompt(notes),
-    {
-      label: "Answering your questions",
-      file: REVIEW,
-      mode: "review",
-      model: planner(),
-      system: t.reviewerSystem(),
-    },
-  )
+  t.agentWithSkills("review.answer-review-questions", t.buildReviewAnswerQuestionsPrompt(notes), {
+    label: "Answering your questions",
+    file: REVIEW,
+    mode: "review",
+    model: planner(),
+    system: t.reviewerSystem(),
+  })
 
 /**
  * Fix every `nit` note in one turn. Its name puts it in the `build.review`
  * conversation, which has one identity — so it runs as the reviewer, not the coder.
  */
 export const fixNits = (notes: readonly t.NoteInput[]): Promise<void> =>
-  t.agentWithSkills("review.fix-nits", vars.reviewFixSkills, t.buildReviewFixNitsPrompt(notes), {
+  t.agentWithSkills("review.fix-nits", t.buildReviewFixNitsPrompt(notes), {
     label: "Fixing your nits",
     file: REVIEW,
     model: planner(),
@@ -219,16 +210,11 @@ export const reviewMissing = (round: string): Promise<void> =>
 
 /** Turn the review round `capture` describes into `.gtd/REQUIREMENTS.md`, or change nothing. */
 export const collecting = (capture: string): Promise<void> =>
-  t.agentWithSkills(
-    "review.collecting",
-    vars.reviewSkills,
-    t.buildReviewCollectingPrompt(capture),
-    {
-      label: "Collecting your feedback",
-      file: REQUIREMENTS,
-      mode: "qa",
-      model: planner(),
-      system: t.reviewerSystem(),
-      allowEmpty: true,
-    },
-  )
+  t.agentWithSkills("review.collecting", t.buildReviewCollectingPrompt(capture), {
+    label: "Collecting your feedback",
+    file: REQUIREMENTS,
+    mode: "qa",
+    model: planner(),
+    system: t.reviewerSystem(),
+    allowEmpty: true,
+  })

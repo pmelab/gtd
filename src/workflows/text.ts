@@ -2,6 +2,7 @@ import {
   agent,
   codeThreads,
   head,
+  skillsFor,
   start,
   vars,
   type AgentOptions,
@@ -36,31 +37,23 @@ export const withSkills = (skills: string | undefined, prompt: string): string =
   return `${skillsPreamble.replaceAll("{skills}", skills)}\n\n${prompt}`
 }
 
-/** `skills:` split on `,`, each name trimmed, empty entries dropped — `[]` for `undefined`, `""`, or blank. */
-export const splitSkills = (raw: string | undefined): readonly string[] =>
-  (raw ?? "")
-    .split(",")
-    .map((name) => name.trim())
-    .filter((name) => name.length > 0)
-
 /**
- * An `agent()` step declaring `skills`: the raw, comma-separated var feeds
- * both the `skills` option (the wire's `skills` key, split) and, re-joined
- * with `", "`, `withSkills`'s preamble — one declaration, so the two can
- * never drift apart.
+ * An `agent()` step whose preamble names its resolved skills: `skillsFor`
+ * resolves `name` (scoped from here, same as `agent()`'s own resolver) for
+ * the preamble prose, passing `options.skills` through as `ownSkills` — the
+ * same precedence tier `agent()`'s own wire resolver gives a call's own
+ * `skills` option, so a step that declares one (`reviewQuality`'s per-turn
+ * lens) gets it in the preamble too, not just on the wire, whenever no
+ * bundled or configured entry outranks it. Both reads share one resolver
+ * (`Replay.ts`'s `resolveSkills`), so the preamble and the wire can't drift
+ * apart.
  */
 export const agentWithSkills = (
   name: string,
-  skills: string | undefined,
   prompt: string,
   options: AgentOptions = {},
-): Promise<void> => {
-  const list = splitSkills(skills)
-  return agent(name, withSkills(list.join(", "), prompt), {
-    ...options,
-    skills: list,
-  })
-}
+): Promise<void> =>
+  agent(name, withSkills(skillsFor(name, options.skills).join(", "), prompt), options)
 
 export const unwindFailure = (commit: string): string =>
   `gtd could not unwind ${commit} out of your working tree.`
@@ -814,10 +807,13 @@ every commit is machine-authored.
   high-level architectural changes — never which files changed; \`git
   diff --stat\` is for that, not this message
 - If the range removes or renames a documented config key, CLI flag, or
-  workflow state — a public surface, not an internal one — add a literal
-  \`BREAKING CHANGE:\` footer naming what disappears. A \`!\` on the type
-  prefix alone (\`feat!:\`/\`refactor!:\`) is NOT enough: this repo's own
-  commit-analyzer has missed that marker before, cutting no release
+  workflow state, OR makes a previously-accepted config value now fail to
+  load (a stricter validation, an escape a value must now spell differently)
+  — a public surface, not an internal one, either way — add a literal
+  \`BREAKING CHANGE:\` footer naming what breaks and, for the second case,
+  the exact escape or rewrite a committed \`.gtdrc\` needs. A \`!\` on the
+  type prefix alone (\`feat!:\`/\`refactor!:\`) is NOT enough: this repo's
+  own commit-analyzer has missed that marker before, cutting no release
   until a follow-up commit carried the literal footer instead
 
 The process's entry commit is \`${it.entryCommit}\`. ${human}Inspect the range: \`git log ${it.processBase}..${it.processTip}\`
