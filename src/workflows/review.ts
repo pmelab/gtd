@@ -17,7 +17,7 @@ import {
   type Change,
   type JudgeQuestion,
 } from "../flows/index.js"
-import { reviewNotes, stripCodeThreads, type ReviewNote } from "../steering/index.js"
+import { reviewNotes, reviewRisks, stripCodeThreads, type ReviewNote } from "../steering/index.js"
 import { escalation, FIX_CAP, healthy, type EscalationCount } from "./health.js"
 import {
   answerReviewQuestions,
@@ -26,6 +26,7 @@ import {
   fix,
   fixNits,
   fixQuality,
+  fixRisks,
   QUALITY,
   REQUIREMENTS,
   REVIEW,
@@ -43,8 +44,8 @@ export const qualityLenses = (): readonly string[] =>
     .filter((lens) => lens.length > 0)
 
 /**
- * One review turn per lens over the whole change, each appending what it
- * finds blocking to `.gtd/QUALITY.md`. Resolves `"findings"` when that file
+ * One review turn per lens over the whole change, each appending every
+ * finding to `.gtd/QUALITY.md`. Resolves `"findings"` when that file
  * has any.
  */
 export const qualityLap = async (): Promise<"clean" | "findings"> => {
@@ -270,6 +271,20 @@ const finish = async (
   return routeNotes(notes, { round, escalations, close, outcome, unfolded })
 }
 
+/** Write the review; if it marks risks, fix them, keep green, and write it again — once, so the re-review's own risks reach the human unfixed. */
+const reviewOnce = async (
+  base: string,
+  carry: string | undefined,
+  escalations: EscalationCount,
+): Promise<void> => {
+  await reviewing(base, carry)
+  const risks = reviewRisks(read(REVIEW) ?? "")
+  if (risks.length === 0) return
+  await fixRisks(risks)
+  await healthy(fix, { escalations })
+  await reviewing(base, carry)
+}
+
 /**
  * A reviewer writes `.gtd/REVIEW.md` over everything since `base`, a human
  * reviews and signs off or comments, and each note is judged: edits go to
@@ -282,7 +297,7 @@ export const review = async (
 ): Promise<ReviewOutcome> => {
   let carry: string | undefined
   for (;;) {
-    await reviewing(base, carry)
+    await reviewOnce(base, carry, escalations)
     carry = undefined
     let reviewed = head()
     let collectedAt: string | undefined

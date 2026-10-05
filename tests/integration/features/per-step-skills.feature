@@ -242,7 +242,7 @@ Feature: the per-step "skills:" key
     # other.
     When I run gtd next
     Then it succeeds
-    And stdout contains "missing one: owasp-security"
+    And stdout contains "missing one: code-review-and-quality"
     When I run gtd next with "--json=skills"
     Then it succeeds
-    And stdout contains "\"owasp-security\""
+    And stdout contains "\"code-review-and-quality\""

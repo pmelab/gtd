@@ -26,7 +26,7 @@ import { skills } from "./skills.js"
 //   - build.review.answer-review-questions, build.review.fix-nits — NOT yet
 //     e2e-grounded; only steps.test.ts's preamble checks, which use local names
 describe("the bundled workflow's skills map", () => {
-  it("declares exactly the sixteen bundled agent steps, by full name", () => {
+  it("declares exactly the seventeen bundled agent steps, by full name", () => {
     expect(Object.keys(skills).sort()).toEqual(
       [
         "design.triage",
@@ -44,6 +44,7 @@ describe("the bundled workflow's skills map", () => {
         "build.review.reviewing",
         "build.review.answer-review-questions",
         "build.review.fix-nits",
+        "build.review.fix-risks",
         "build.review.collecting",
       ].sort(),
     )

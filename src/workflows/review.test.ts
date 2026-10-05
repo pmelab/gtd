@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { installContext, type Change, type JudgeAnswer, type StepRequest } from "../flows/index.js"
 import { review, type ReviewOutcome } from "./review.js"
+import { unified } from "./index.js"
 import { fixtureContext } from "./text.fixture.js"
 
 afterEach(() => installContext(undefined))
@@ -30,6 +31,8 @@ interface Drive {
   readonly vars?: Readonly<Record<string, string>>
   /** The REVIEW.md the human leaves; defaults to `notes` laid over the baseline. */
   readonly after?: string
+  /** The REVIEW.md each `review.reviewing` turn writes, in order; also raises the review-turn stop to one past the last. */
+  readonly reviewDocs?: readonly (string | undefined)[]
 }
 
 interface Run {
@@ -51,7 +54,10 @@ const drive = async (d: Drive): Promise<Run> => {
   let reviews = 0
   const effects: Record<string, () => void> = {
     "review.reviewing": () => {
-      if (++reviews > 1) throw new Stop()
+      const docs = d.reviewDocs
+      if (++reviews > (docs?.length ?? 0) + (docs === undefined ? 1 : 0)) throw new Stop()
+      const written = docs?.[reviews - 1]
+      if (written !== undefined) files.set(REVIEW, written)
     },
     "review.await-review": () => {
       if (++awaits > 1) throw new Stop()
@@ -103,6 +109,65 @@ const drive = async (d: Drive): Promise<Run> => {
 }
 
 const verdict = (answer: string, p = 0.9): JudgeAnswer => ({ answer, p })
+
+describe("the risk-fix pass", () => {
+  const risky = doc(["Risk: drops the carry", "sub"])
+  const clean = doc(["add — fine", "sub"])
+
+  it("a marked risk is fixed, kept green, re-reviewed, then rests at the gate", async () => {
+    const run = await drive({ notes: [], reviewDocs: [risky, clean] })
+    expect(run.log.slice(0, 5)).toEqual([
+      "review.reviewing",
+      "review.fix-risks",
+      "health.check",
+      "review.reviewing",
+      "review.await-review",
+    ])
+    expect(run.prompts.get("review.fix-risks")).toContain("risk-1")
+    expect(run.prompts.get("review.fix-risks")).toContain("Risk: drops the carry")
+    expect(run.prompts.get("review.fix-risks")).toContain("Leave `.gtd/REVIEW.md` untouched")
+  })
+
+  it("a risk the re-review still marks goes to the gate with no second fix", async () => {
+    const run = await drive({ notes: [], reviewDocs: [risky, risky] })
+    expect(run.log.filter((n) => n === "review.fix-risks")).toHaveLength(1)
+    expect(run.log.slice(0, 5)).toEqual([
+      "review.reviewing",
+      "review.fix-risks",
+      "health.check",
+      "review.reviewing",
+      "review.await-review",
+    ])
+  })
+
+  it("no marker means no fix-risks step", async () => {
+    const run = await drive({ notes: [], reviewDocs: [clean] })
+    expect(run.log).not.toContain("review.fix-risks")
+    expect(run.log[0]).toBe("review.reviewing")
+    expect(run.log[1]).toBe("review.await-review")
+  })
+
+  it("a nit re-review round gets its own single pass", async () => {
+    const run = await drive({
+      notes: ["add — typo", "sub", "mul"],
+      answers: { "note-1": verdict("nit") },
+      reviewDocs: [undefined, risky, clean],
+    })
+    expect(run.log).toEqual([
+      "review.reviewing",
+      "review.await-review",
+      "review.triage",
+      "review.fix-nits",
+      "health.check",
+      "review.closing",
+      "review.reviewing",
+      "review.fix-risks",
+      "health.check",
+      "review.reviewing",
+      "review.await-review",
+    ])
+  })
+})
 
 describe("review verdict routing", () => {
   const notes = ["add — typo", "sub", "mul"]
@@ -243,5 +308,26 @@ describe("review verdict routing", () => {
       answers: { "note-2": verdict("nit") },
     })
     expect(run.result).toMatchObject({ verdict: "feedback", edited: [] })
+  })
+})
+
+describe("the default quality lenses", () => {
+  it("are the six lenses in the settled order", () => {
+    expect(unified.defaults.qualityReviews!.split(",").map((l) => l.trim())).toEqual([
+      "correctness",
+      "owasp-security",
+      "ponytail-review",
+      "test-audit",
+      "conventions",
+      "spec-challenge",
+    ])
+  })
+
+  it("expose builtInLenses through the public workflow module", () => {
+    expect(Object.keys(unified.builtInLenses).sort()).toEqual([
+      "conventions",
+      "correctness",
+      "spec-challenge",
+    ])
   })
 })

@@ -409,14 +409,16 @@ noted in steps 2, 3, and 4 below.
    floors and skip a gate unattended.**
 
    Once the last package is built, the whole change goes through a qualitative
-   review lap before you see anything: one configured skill per turn, each
-   looking at the change from its own angle (a security checklist, a
-   simplification pass) and fixing what it finds once, with no re-review after
-   the fix. The per-package review above only judges that package against its
-   own spec; this lap is where code quality is looked at, and every round pays
-   for it. It never replaces step 4 — your review stays the final gate, and
-   nothing here skips it. The `gtd --entry fix-precheck` side door (below)
-   repairs a red baseline through this same lap.
+   review lap before you see anything: six lenses, one turn each, in order —
+   `correctness`, `owasp-security`, `ponytail-review`, `test-audit`,
+   `conventions`, `spec-challenge`. Each traces the change from its own angle
+   and records every finding, blocking or not; one fix turn then fixes ALL of
+   them once, with no re-review after the fix. A clean turn means approval only
+   when that lens found nothing at all. The per-package review above only judges
+   that package against its own spec; this lap is where code quality is looked
+   at, and every round pays for it. It never replaces step 4 — your review stays
+   the final gate, and nothing here skips it. The `gtd --entry fix-precheck`
+   side door (below) repairs a red baseline through this same lap.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes
@@ -428,20 +430,25 @@ noted in steps 2, 3, and 4 below.
    attempt anywhere new.
 
 4. **You review.** You get a review document listing what changed and what to
-   look at. Tick the boxes to approve, or write what is wrong. Approving ends
-   the process; feedback is judged note by note, each as `edit`, `question`,
-   `nit` or `praise`. An `edit` sends the process back to step 2 for a fresh
-   plan — it never patches over a design you rejected. A `question` is answered
-   inline under your note and the process stops at the review again — no new
-   plan. A `nit` is fixed in one batch, the suite must go green (a red one gets
-   fix turns first), then a fresh review of the change stops at the review
-   again. `praise` is dropped; a round of only praise signs off. When a round
-   mixes them, questions are answered and nits fixed first, then the edits are
-   planned — risk: the planning lap may redo nit fixes it touches. A hand-edit
-   to code always plans a lap. Only a confident non-`edit` verdict skips the
-   replan — a note whose evidence was cut, or that got no verdict, counts as
-   `edit`. The same `gtd judge answer` / conservative-default shape as step 3's
-   own judged points.
+   look at. Before you see it, an automatic risk-fix pass
+   (`build.review.fix-risks`) runs. Any risk the reviewer names (a note opening
+   with `Risk:`) is fixed first, the suite kept green, and the review rewritten
+   — once per review round, so a risk the rewrite still names reaches you
+   unfixed; risk: a fix lands with no check that the risk was real. Tick the
+   boxes to approve, or write what is wrong. Approving ends the process;
+   feedback is judged note by note, each as `edit`, `question`, `nit` or
+   `praise`. An `edit` sends the process back to step 2 for a fresh plan — it
+   never patches over a design you rejected. A `question` is answered inline
+   under your note and the process stops at the review again — no new plan. A
+   `nit` is fixed in one batch, the suite must go green (a red one gets fix
+   turns first), then a fresh review of the change stops at the review again.
+   `praise` is dropped; a round of only praise signs off. When a round mixes
+   them, questions are answered and nits fixed first, then the edits are planned
+   — risk: the planning lap may redo nit fixes it touches. A hand-edit to code
+   always plans a lap. Only a confident non-`edit` verdict skips the replan — a
+   note whose evidence was cut, or that got no verdict, counts as `edit`. The
+   same `gtd judge answer` / conservative-default shape as step 3's own judged
+   points.
 
 You never talk to it. Every exchange is a file in `.gtd/` that you edit in your
 own editor, and every answer you give is a commit. Your test suite is the gate

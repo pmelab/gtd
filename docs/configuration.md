@@ -768,19 +768,19 @@ skills:
   build.fix: [debugging-and-error-recovery, my-org-runbook]
 ```
 
-The bundled workflow's sixteen addressable full names:
+The bundled workflow's seventeen addressable full names:
 
 `design.triage`, `architecture.author`, `architecture.decompose`,
 `packages.item.building`, `packages.item.fix-suite`, `packages.item.fix-spec`,
 `packages.item.spec.review`, `packages.item.health.describe`, `build.fix`,
 `build.health.describe`, `build.quality.reviewing`, `build.fix-quality`,
 `build.review.reviewing`, `build.review.answer-review-questions`,
-`build.review.fix-nits`, `build.review.collecting`. A custom workflow's own
-steps are addressable too, through its own `skills` export (see
-[Reusing the bundled workflow](#reusing-the-bundled-workflow)); the schema can
-validate an entry's VALUE (an array of strings) but never its KEY, since step
-names come from the workflow actually in play, not a fixed set gtd ships — there
-is no editor autocompletion of step names here.
+`build.review.fix-nits`, `build.review.fix-risks`, `build.review.collecting`. A
+custom workflow's own steps are addressable too, through its own `skills` export
+(see [Reusing the bundled workflow](#reusing-the-bundled-workflow)); the schema
+can validate an entry's VALUE (an array of strings) but never its KEY, since
+step names come from the workflow actually in play, not a fixed set gtd ships —
+there is no editor autocompletion of step names here.
 
 A key naming a step the workflow in play does not declare is a load error, exit
 1, listing the known names. Keying config on a step's full name widens what
@@ -981,15 +981,20 @@ Overridable through `.gtdrc` (`vars:` or `env:`, by kind) or `GTD_<NAME>`.
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.
-- **`qualityReviews`** (`owasp-security, ponytail-review, test-audit`) — sets
-  the quality lap `build.quality` runs ahead of the human review: one turn per
-  comma-separated lens, in order. It is the one skill control still living under
-  `vars:` rather than `skills:` — it decides the turn COUNT. By default each
-  turn's own skill is that turn's lens; a `build.quality.reviewing` entry (see
-  [The `skills:` key](#the-skills-key)) replaces the lens on EVERY one of those
-  turns with the configured list instead, though the prompt body still names the
-  lens each turn is for. Every round pays for it, so extend the list only as far
-  as that is worth paying for; blanking it disables the lap. See
+- **`qualityReviews`**
+  (`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
+  — sets the quality lap `build.quality` runs ahead of the human review: one
+  turn per comma-separated lens, in order. It is the one skill control still
+  living under `vars:` rather than `skills:` — it decides the turn COUNT. By
+  default each turn's own skill is that turn's lens; a `build.quality.reviewing`
+  entry (see [The `skills:` key](#the-skills-key)) replaces the lens on EVERY
+  one of those turns with the configured list instead, though the prompt body
+  still names the lens each turn is for. Every round pays for it, so extend the
+  list only as far as that is worth paying for — each lens adds about 1–1.5 min
+  and about $0.5 per run; blanking it disables the lap. `correctness` (loads
+  `code-review-and-quality`), `conventions` and `spec-challenge` are built-in
+  lenses whose brief rides in the prompt; every finding any lens writes,
+  blocking or not, is fixed by the one fix turn. See
   [Setup](./setup.md#extending-the-quality-review-lap).
 - **`reviewBase`** (empty) — the commitish `--entry review-gate.check` reviews
   from.

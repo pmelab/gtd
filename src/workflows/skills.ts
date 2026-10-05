@@ -33,5 +33,6 @@ export const skills: Readonly<Record<string, readonly string[]>> = {
   "build.review.reviewing": ["code-review-and-quality"],
   "build.review.answer-review-questions": ["code-review-and-quality"],
   "build.review.fix-nits": ["incremental-implementation", "code-simplification"],
+  "build.review.fix-risks": ["debugging-and-error-recovery", "incremental-implementation"],
   "build.review.collecting": ["code-review-and-quality"],
 }

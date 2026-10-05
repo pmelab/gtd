@@ -27,9 +27,11 @@ turn and bypass the per-step `skills:` key above.
 A name missing from a step's configured list is skipped silently and costs
 nothing. A missing `qualityReviews` entry does not share that rule — see
 [Extending the quality-review lap](#extending-the-quality-review-lap) below. Two
-of the three default lenses (`ponytail-review`, `test-audit`) come from sources
-a reader has no reason to already have, so the default configuration wastes
-turns per quality lap until all three are installed.
+of the default lenses (`ponytail-review`, `test-audit`) come from sources a
+reader has no reason to already have, so the default configuration wastes turns
+per quality lap until they are installed. `correctness` needs
+`code-review-and-quality` (already in `addyosmani/agent-skills`); `conventions`
+and `spec-challenge` need no skill.
 
 ### Using a different skill set
 
@@ -77,33 +79,39 @@ Both routes share the same safety rules:
 
 ### Extending the quality-review lap
 
-`qualityReviews` (default `owasp-security, ponytail-review, test-audit`) is a
-skill set too, but a different shape from a step's `skills:` entry above: each
-entry is its own full turn, not a list handed to one step. Extend it for a
+`qualityReviews` (default
+`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
+is a skill set too, but a different shape from a step's `skills:` entry above:
+each entry is its own full turn, not a list handed to one step. Extend it for a
 project-specific concern — a company security checklist, a house style skill —
 the same way as any other var, via `.gtdrc`:
 
 ```yaml
-# .gtdrc — keep the bundled trio, add a company checklist
+# .gtdrc — keep the bundled six, add a company checklist
 vars:
   qualityReviews:
-    owasp-security, ponytail-review, test-audit, acme-security-checklist
+    correctness, owasp-security, ponytail-review, test-audit, conventions,
+    spec-challenge, acme-security-checklist
 ```
 
 or, highest precedence, via the matching `GTD_<NAME>` environment variable:
 
 ```bash
-GTD_QUALITYREVIEWS="owasp-security, ponytail-review, test-audit, acme-security-checklist" gtd next
+GTD_QUALITYREVIEWS="correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, acme-security-checklist" gtd next
 ```
 
 Unlike a step's `skills:` entry, gtd DOES split this one — on every comma, one
 lens per entry — because each entry is its own turn rather than one step's skill
 list. Keep entries free of commas and of characters that don't belong in a
-filename: each trimmed entry becomes part of a queued review file's name. It
-does NOT share `skills:`'s "costs nothing" rule for a name your harness lacks:
-`reviewing` still burns its own full turn with no lens loaded, since the queue
-file exists whether or not anything can load it — a typo costs a whole turn,
-silently. Blanking the whole var, in contrast, does switch the lap off outright.
+filename: each trimmed entry becomes part of a queued review file's name. The
+built-in names `correctness`, `conventions` and `spec-challenge` are lenses gtd
+defines itself — a brief rides in the prompt, no skill needed — and are exempt
+from the warning below; a user skill of the same name is shadowed. For any other
+name, it does NOT share `skills:`'s "costs nothing" rule for a name your harness
+lacks: `reviewing` still burns its own full turn with no lens loaded, since the
+queue file exists whether or not anything can load it — a typo costs a whole
+turn, silently. Blanking the whole var, in contrast, does switch the lap off
+outright.
 
 `qualityReviews` and `.gtdrc` `skills: { build.quality.reviewing: [...] }` are a
 pair, not alternatives: `qualityReviews` decides how many turns the lap runs

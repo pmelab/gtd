@@ -3,7 +3,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   `build.quality` sits between the green health check and the human review
   tail: one `build.quality.reviewing` agent turn per comma-separated
   `qualityReviews` lens, in the order listed, each naming its own lens and
-  APPENDING any blocking finding to `.gtd/QUALITY.md`. Once every lens has
+  APPENDING every finding, blocking or not, to `.gtd/QUALITY.md`. Once every lens has
   had its turn, a non-empty `.gtd/QUALITY.md` routes to `build.fix-quality`;
   otherwise the lap hands straight on to `build.review.reviewing`. The lap
   runs once per build tail: after its findings are fixed and the suite is
@@ -17,7 +17,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   routing is under test.
 
   @inmem
-  Scenario: three lenses each get one reviewing turn in listed order, then the clean lap hands straight on to the human review
+  Scenario: six lenses each get one reviewing turn in listed order, then the clean lap hands straight on to the human review
     Given a test project
     And the workflow
     And gtd enters "fix-precheck"
@@ -36,14 +36,21 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.quality.reviewing"
 
-    # The bundled lenses, in order: owasp-security, ponytail-review, test-audit.
+    # The bundled lenses, in order: correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge.
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "`correctness`"
+
+    # A clean reviewing turn under this lens — nothing found.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "`owasp-security`"
-    And stdout does not contain "`ponytail-review`"
-    And stdout does not contain "`test-audit`"
+    And stdout does not contain "`correctness`"
 
-    # A clean reviewing turn under the owasp-security lens — nothing blocking.
+    # A clean reviewing turn under this lens — nothing found.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.reviewing"
@@ -51,21 +58,36 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Then it succeeds
     And stdout contains "`ponytail-review`"
     And stdout does not contain "`owasp-security`"
-    And stdout does not contain "`test-audit`"
 
-    # A clean reviewing turn under the ponytail-review lens too.
+    # A clean reviewing turn under this lens — nothing found.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "`test-audit`"
-    And stdout does not contain "`owasp-security`"
     And stdout does not contain "`ponytail-review`"
 
-    # A clean reviewing turn under the final, test-audit lens: with
-    # .gtd/QUALITY.md never written, the lap hands straight on to the human
-    # review tail, never fix-quality.
+    # A clean reviewing turn under this lens — nothing found.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "`conventions`"
+    And stdout does not contain "`test-audit`"
+
+    # A clean reviewing turn under this lens — nothing found.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "`spec-challenge`"
+    And stdout does not contain "`conventions`"
+
+    # The final lens is clean too: with .gtd/QUALITY.md never written, the
+    # lap hands straight on to the human review tail, never fix-quality.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.reviewing → build.review.reviewing"
@@ -180,3 +202,81 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.reviewing → build.fix-quality"
     And ".gtd/QUALITY.md" contains "A blocking finding"
+
+  @inmem
+  Scenario: conventions loads no skill and its brief reaches the prompt
+    Given a test project
+    And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to "conventions"
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failed
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    When I run gtd land
+    Then it succeeds
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "AGENTS.md"
+    And stdout contains "quote the"
+    And stdout does not contain "Load whatever's listed here"
+
+  @inmem
+  Scenario: correctness loads code-review-and-quality
+    Given a test project
+    And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failed
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    When I run gtd land
+    Then it succeeds
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "missing one: code-review-and-quality"
+    And stdout contains "partial-failure"
+
+  @inmem
+  Scenario: a non-blocking finding still routes to build.fix-quality
+    Given a test project
+    And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to "ponytail-review"
+    And gtd enters "fix-precheck"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failed
+      """
+    And gtd lands "gtd(check): fix-precheck → build.fix"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And gtd lands "gtd(agent): build.fix → build.health.check"
+    When I run gtd land
+    Then it succeeds
+    Given a file ".gtd/QUALITY.md" with:
+      """
+      ## Nit: `thing` could be inlined
+
+      Minor style note, not blocking.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing → build.fix-quality"

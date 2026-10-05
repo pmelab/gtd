@@ -16,7 +16,8 @@ export const defaults: Readonly<Record<string, string>> = {
   // `./review.ts`) rather than naming one step's skill list, so it is a
   // setting — pairing with `build.quality.reviewing`'s entry in
   // `./skills.ts`, which replaces the lens on every one of those turns.
-  qualityReviews: "owasp-security, ponytail-review, test-audit",
+  qualityReviews:
+    "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge",
 }
 
 /** Environment settings. */
