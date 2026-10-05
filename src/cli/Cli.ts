@@ -5,7 +5,12 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Cause, Effect, Either, Layer } from "effect"
 import { GtdUsageError, Narrator, renderFailure } from "../Commentary.js"
-import { ConfigDiscovery, ConfigService } from "../workflow/index.js"
+import {
+  ConfigDiscovery,
+  ConfigService,
+  isSettingName,
+  SETTING_NAME_RULE,
+} from "../workflow/index.js"
 import { GitService, Host, Workspace } from "../platform/index.js"
 // `program.ts` imports only `import type { Command }` from THIS module — a
 // type-only edge, erased at compile time — so this module's own (real, value)
@@ -342,6 +347,11 @@ const FLAGS: readonly FlagRow[] = [
         }
         const name = raw.slice(0, eq)
         const value = raw.slice(eq + 1)
+        if (!isSettingName(name)) {
+          return Either.left(
+            `gtd: --var ${JSON.stringify(name)} is not a valid setting name — ${SETTING_NAME_RULE}`,
+          )
+        }
         if (/[\r\n]/.test(value)) {
           return Either.left(`gtd: --var ${name} must be a single-line value`)
         }

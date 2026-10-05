@@ -11,7 +11,7 @@ import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
 import { compileConfig, type CompiledConfig, type ConfigLayer } from "./compile.js"
 import { interpolate } from "./interpolate.js"
-import { resolveVars } from "./vars.js"
+import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
 import { ConfigDiscovery, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
@@ -229,12 +229,7 @@ export const load: Effect.Effect<
   )
   yield* failOnErrors(diagnostics)
 
-  const initial = yield* firstStep(
-    loaded,
-    resolveVars(loaded.defaults, compiled.rcVars, {}, host.env),
-    resolveVars(loaded.envDefaults, compiled.rcEnv, {}, host.env),
-    headTree(yield* Workspace),
-  )
+  const initial = yield* firstStep(loaded, headTree(yield* Workspace))
   return {
     workflow: {
       flow: loaded.flow,
@@ -434,6 +429,17 @@ const fromModule = (
   }
   const defaults = stringRecord(exports, "defaults")
   const envDefaults = stringRecord(exports, "envDefaults")
+  for (const [exportName, record] of [
+    ["defaults", defaults],
+    ["envDefaults", envDefaults],
+  ] as const) {
+    const bad = Object.keys(record).find((name) => !isSettingName(name))
+    if (bad !== undefined) {
+      throw new Error(
+        `the "${exportName}" export declares ${JSON.stringify(bad)}, not a valid setting name — ${SETTING_NAME_RULE}`,
+      )
+    }
+  }
   const both = Object.keys(defaults).filter((name) => Object.hasOwn(envDefaults, name))
   if (both.length > 0) {
     throw new Error(
@@ -492,6 +498,44 @@ const watchedEmptyTree = (): { readonly tree: TreeView; readonly read: () => boo
   }
 }
 
+/** An empty settings record that logs every read: a named `get`/`has`, or an enumeration. */
+const watchedEmptySettings = (): {
+  readonly settings: Readonly<Record<string, string>>
+  readonly names: ReadonlySet<string>
+  readonly enumerated: () => boolean
+} => {
+  const names = new Set<string>()
+  let enumerated = false
+  const settings = new Proxy<Record<string, string>>(
+    {},
+    {
+      get: (_target, key) => {
+        if (typeof key === "string") names.add(key)
+        return undefined
+      },
+      has: (_target, key) => {
+        if (typeof key === "string") names.add(key)
+        return false
+      },
+      ownKeys: () => {
+        enumerated = true
+        return []
+      },
+    },
+  )
+  return { settings, names, enumerated: () => enumerated }
+}
+
+const settingReads = (kind: string, watch: ReturnType<typeof watchedEmptySettings>): string[] => {
+  const reads: string[] = []
+  if (watch.names.size > 0) {
+    const sorted = [...watch.names].sort().map((name) => JSON.stringify(name))
+    reads.push(`the ${kind} setting${sorted.length > 1 ? "s" : ""} ${sorted.join(", ")}`)
+  }
+  if (watch.enumerated()) reads.push(`every ${kind} setting`)
+  return reads
+}
+
 const replayToFirstStep = (
   loaded: LoadedModule,
   vars: Readonly<Record<string, string>>,
@@ -522,21 +566,31 @@ const replayToFirstStep = (
 /**
  * The default entry's first step — where a finished process waits — found the
  * only way a flow can be read: by replaying it over an empty history. Episode
- * boundaries are that step's commits, so it must not move with the tree: a
- * flow that reads the repository before reaching it is replayed again over
- * HEAD, and must reach the same step there.
+ * boundaries are that step's commits, so it must depend on neither a setting
+ * (edited mid-process, it would move the boundary before pinned values are
+ * read) nor the tree: a flow that reads the repository before reaching it is
+ * replayed again over HEAD, and must reach the same step there.
  */
-const firstStep = (
-  loaded: LoadedModule,
-  vars: Readonly<Record<string, string>>,
-  env: Readonly<Record<string, string>>,
-  head: TreeView,
-): Effect.Effect<string, GtdError> =>
+const firstStep = (loaded: LoadedModule, head: TreeView): Effect.Effect<string, GtdError> =>
   Effect.gen(function* () {
     const empty = watchedEmptyTree()
-    const name = yield* replayToFirstStep(loaded, vars, env, empty.tree)
+    const vars = watchedEmptySettings()
+    const env = watchedEmptySettings()
+    const outcome = yield* Effect.either(
+      replayToFirstStep(loaded, vars.settings, env.settings, empty.tree),
+    )
+    const reads = [...settingReads("process", vars), ...settingReads("environment", env)]
+    if (reads.length > 0) {
+      return yield* Effect.fail(
+        new GtdError(
+          `gtd config:\n  - ${loaded.origin}: the flow's first step on an ordinary start reads ${reads.join(" and ")} — that step is where a finished process waits, so it must not depend on a setting`,
+        ),
+      )
+    }
+    if (outcome._tag === "Left") return yield* Effect.fail(outcome.left)
+    const name = outcome.right
     if (!empty.read()) return name
-    const atHead = yield* replayToFirstStep(loaded, vars, env, head)
+    const atHead = yield* replayToFirstStep(loaded, vars.settings, env.settings, head)
     if (atHead === name) return name
     return yield* Effect.fail(
       new GtdError(

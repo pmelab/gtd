@@ -38,23 +38,7 @@ When(
   },
 )
 
-// Only `signalAliveAtSend` is asserted — a genuine signal death and a
-// provably-backpressured write are mutually exclusive for `gtd next`:
-// `runCli` issues its `stdout.write` and completes in the same synchronous
-// step (`Cli.ts`'s `Effect.map`), so `NodeRuntime.runMain`'s fiber has
-// already exited and detached its own SIGINT/SIGTERM listener (`runtime.js`)
-// by the time any byte is observable on this end. A signal landing that late
-// is silently swallowed by `main.ts`'s leftover `process.once` and the child
-// just exits normally — not what "the reported exit status is …" expects.
-// Asserting `signalAliveAtSend` still proves the scenario's premise: the
-// signal hit a live, still-computing process, not one that had already
-// raced to a natural exit. See package `01`'s Design amendment.
-//
-// Note this stays a WEAKER claim than "the signal landed inside the window":
-// the OS process is still alive for a moment after the fiber detaches its
-// listeners, so a swallowed signal can satisfy this step. That gap is what
-// `spawnGtdNextAndSignal`'s retry exists to absorb — it is not closable from
-// this side of the process boundary.
+// The child is parked at the harness's `git log --first-parent` gate when signalled (`world.ts#spawnGtdNextAndSignal`).
 Then("the child was still alive when the signal landed", (world: GtdWorld) => {
   assert.notStrictEqual(
     world.signalAliveAtSend,
@@ -75,14 +59,9 @@ Then("the reported exit status is {int}", (world: GtdWorld, expected: number) =>
     undefined,
     'No signal was ever sent. Run a step like "I send SIGINT to a spawned gtd next" first.',
   )
-  const attempts = world.signalSendAttempts
-  const missed =
-    exit!.signal === null && exit!.code === 0
-      ? ` The child exited normally, so every one of the ${String(attempts)} attempts signalled after the runtime had already detached its handlers — the window was missed, which is not the same as the re-raise contract being broken.`
-      : ""
   assert.strictEqual(
     exit!.status,
     expected,
-    `Expected exit status ${expected}. Got status ${exit!.status} (code=${String(exit!.code)}, signal=${String(exit!.signal)}) after ${String(attempts)} attempt(s).${missed}`,
+    `Expected exit status ${expected}. Got status ${exit!.status} (code=${String(exit!.code)}, signal=${String(exit!.signal)}).`,
   )
 })

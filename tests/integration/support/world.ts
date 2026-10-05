@@ -16,6 +16,8 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  chmodSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -38,13 +40,9 @@ const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 // Exported so hooks.ts's PATH shim execs this SAME bundle, never a globally-installed gtd.
 export const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 
-// How long after `spawn` the signal-death scenarios wait before signalling,
-// and how many times they retry a signal that missed the window. Both are
-// tuned against a measured ~520ms `gtd next` whose cost is Node startup, not
-// the fixture's pad — `sendSignalToOneSpawnedGtdNext` carries the numbers and
-// the reason the delay must not be tuned DOWN.
-const SIGNAL_SEND_DELAY_MS = 300
-const SIGNAL_SEND_ATTEMPTS = 5
+// The gate shim's marker poll: how often, and how long before giving up.
+const GIT_GATE_POLL_INTERVAL_MS = 10
+const GIT_GATE_TIMEOUT_MS = 10_000
 
 // How long a spawned `gtd ui`'s poll loop waits for its printed bound/serve
 // URL before giving up — a real spawn shells out further (a self-signed cert
@@ -203,6 +201,37 @@ const fingerprintFiles = (root: string): FileFingerprint[] =>
     return { path, size: stat.size, mtimeMs: stat.mtimeMs }
   })
 
+/** Writes a `git` shim into `dir` that parks the first `git log --first-parent` call (recording its pid in `$GTD_TEST_GIT_GATE`) and execs the real git, resolved to an absolute path now, otherwise. */
+function writeGitGateShim(dir: string): void {
+  const realGit = execSync("command -v git", { encoding: "utf-8" }).trim()
+  const shim = join(dir, "git")
+  writeFileSync(
+    shim,
+    `#!/bin/sh
+if [ -n "$GTD_TEST_GIT_GATE" ] && [ ! -e "$GTD_TEST_GIT_GATE" ]; then
+  case " $* " in
+    *" log "*"--first-parent"*)
+      echo $$ > "$GTD_TEST_GIT_GATE"
+      exec sleep 30
+      ;;
+  esac
+fi
+exec ${JSON.stringify(realGit)} "$@"
+`,
+  )
+  chmodSync(shim, 0o755)
+}
+
+/** Polls for the gate's pid marker; false on timeout. */
+async function waitForGateMarker(marker: string): Promise<boolean> {
+  const deadline = Date.now() + GIT_GATE_TIMEOUT_MS
+  while (!existsSync(marker) || readFileSync(marker, "utf-8").trim() === "") {
+    if (Date.now() > deadline) return false
+    await delay(GIT_GATE_POLL_INTERVAL_MS)
+  }
+  return true
+}
+
 /** The POSIX-style `$?` for a `(code, signal)` exit pair: 128 + the signal's number on a signal death, `code` otherwise. */
 const signalExitStatus = (code: number | null, signal: NodeJS.Signals | null): number =>
   signal !== null ? 128 + (osConstants.signals[signal] ?? 0) : (code ?? 0)
@@ -274,8 +303,6 @@ export class GtdWorld extends QuickPickleWorld {
     | undefined = undefined
   /** Whether the spawned `gtd next` was still alive (neither exited nor already signalled) the instant before `spawnGtdNextAndSignal` sent its signal — proves the process was actually there to interrupt, not racing its own natural exit. `@live` only. */
   signalAliveAtSend: boolean | undefined = undefined
-  /** How many spawn-and-signal attempts `spawnGtdNextAndSignal` needed before one landed inside the window (1 when the first did). Surfaced so an all-attempts-missed run reports the miss rather than a bare wrong status. `@live` only. */
-  signalSendAttempts: number | undefined = undefined
   /** Baseline byte count `runGtdNextRedirectedAndPiped`'s piped count is compared against, to prove a large artifact is never truncated. `@live` only. */
   directRedirectByteCount: number | undefined = undefined
   /** Byte count reaching a deliberately slow pipe consumer, set alongside `directRedirectByteCount`. `@live` only. */
@@ -672,100 +699,57 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * `@live` only — spawns `gtd next` directly against a prompt padded past
-   * the OS pipe buffer, so its `stdout` write blocks with nothing draining
-   * the pipe, guaranteeing the process is still alive when the signal
-   * arrives. Delivers `signal` to the spawned process itself, not a shell
-   * wrapper — a signal sent to a wrapper's pid never reaches a plain
-   * (non-`exec`'d) child.
+   * `@live` only — spawns `gtd next` behind a per-spawn `git` shim that parks
+   * the first `git log --first-parent` call (the async `commitHistory` read),
+   * signals the child once the shim's marker proves it is parked there, then
+   * records how it died. Delivers `signal` to the spawned process itself.
    *
-   * `code === null && signal` set is what distinguishes a re-raised signal
-   * from a `process.exit(130)` that reuses the same number, even though both
-   * read back the same POSIX `status`.
+   * The gate is an ASYNC child process on purpose: the fiber is suspended, so
+   * the runtime's signal listener runs, interrupts it and `main.ts` re-raises.
+   * A sync git call would block the main thread. The marker exists only after
+   * `main.ts` registered its listeners, so a default-disposition death cannot
+   * pass for the re-raise. `code === null && signal` set distinguishes a
+   * re-raised signal from a `process.exit(130)`.
    */
+  // fallow-ignore-next-line complexity
   async spawnGtdNextAndSignal(signal: NodeJS.Signals): Promise<void> {
-    for (let attempt = 1; attempt <= SIGNAL_SEND_ATTEMPTS; attempt += 1) {
-      await this.sendSignalToOneSpawnedGtdNext(signal)
-      this.signalSendAttempts = attempt
-      // A swallowed signal did not TEST the contract, it missed the window
-      // entirely — retry rather than report it as a violation. See
-      // `sendSignalToOneSpawnedGtdNext` for why the window is narrow and why
-      // no wall-clock delay can be chosen that always lands inside it. A
-      // genuinely broken re-raise fails every attempt, so this never converts
-      // a real regression into a pass; it only discards invalid trials.
-      if (!this.lastSignalWasSwallowed()) return
-    }
-  }
-
-  /** True when the last attempt's child exited normally (status 0) despite having been alive when the signal was sent — the documented late-landing miss, not a contract violation. */
-  private lastSignalWasSwallowed(): boolean {
-    return (
-      this.signalAliveAtSend === true &&
-      this.lastSignalExit?.signal === null &&
-      this.lastSignalExit.code === 0
-    )
-  }
-
-  /**
-   * One spawn-and-signal attempt. Sets `signalAliveAtSend` and
-   * `lastSignalExit`; `spawnGtdNextAndSignal` decides whether the attempt
-   * counted.
-   *
-   * WHY THIS RACES AT ALL, measured rather than assumed: `gtd next` against
-   * this fixture takes ~520ms end to end, and that cost is almost entirely
-   * Node's own startup and bundle evaluation — padding `.gtd/NEXT.md` from
-   * 200_000 to 1_000_000 bytes moved it by ~15ms. The pad does NOT hold the
-   * process open the way this harness once claimed; it is the interpreter
-   * boot that does. So the usable window runs from "main.ts's `process.once`
-   * listeners are registered" to "`NodeRuntime.runMain`'s fiber tears down
-   * and detaches them", and `SIGNAL_SEND_DELAY_MS` aims at the middle of it
-   * with roughly a fifth of a second of slack on either side. A loaded or
-   * fast runner is enough to miss.
-   *
-   * Landing LATE is silent: `main.ts`'s leftover `process.once` handler only
-   * records the signal, so a post-teardown signal neither kills the process
-   * nor re-raises — the child just exits 0. Landing EARLY is worse, and is
-   * why this delay must never be tuned down toward zero chasing stability: a
-   * signal arriving before those listeners exist gets Node's DEFAULT
-   * disposition, which also dies with status 143 — the assertion would pass
-   * while proving nothing about the re-raise contract this scenario exists
-   * for. Retrying a miss is therefore the only safe direction to stabilize
-   * in.
-   */
-  private async sendSignalToOneSpawnedGtdNext(signal: NodeJS.Signals): Promise<void> {
+    const gateDir = mkdtempSync(join(tmpdir(), "gtd-git-gate-"))
+    const marker = join(gateDir, "marker")
+    writeGitGateShim(gateDir)
+    const env = this.spawnEnv()
+    env["PATH"] = `${gateDir}:${env["PATH"] ?? ""}`
+    env["GTD_TEST_GIT_GATE"] = marker
     const child = spawn(process.execPath, [GTD_BIN, "next"], {
       cwd: this.repoDir,
-      env: this.spawnEnv(),
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     })
-    // `close`, not `exit`: `exit` fires as soon as the OS process dies, which
-    // can race ahead of the stdio streams still draining buffered data into
-    // Node — waiting for `close` instead means the drains below (whatever
-    // they turn out to catch) have actually run before this resolves.
+    // `close`, not `exit`: waits for stdio to drain.
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
       (resolve) => {
         child.once("close", (code, sig) => resolve({ code, signal: sig }))
       },
     )
-    await new Promise<void>((resolve) => child.once("spawn", () => resolve()))
-    await delay(SIGNAL_SEND_DELAY_MS)
-    // Nothing reads `stdout`/`stderr` before this point, keeping the ordering
-    // honest. Sending the signal any later than this — e.g. waiting for
-    // `stdout` to show buffered bytes — is provably too late to observe:
-    // `runCli`'s own completion (issuing the `stdout.write` and setting
-    // `exitCode`) is one synchronous step (`Cli.ts`'s `Effect.map`), so by
-    // the time a byte is ever observable on this end the fiber has already
-    // torn down.
-    this.signalAliveAtSend = child.exitCode === null && child.signalCode === null
-    child.kill(signal)
-    // `.resume()` alone (no `data` listener) is the standard drain-and-discard
-    // idiom: it pulls the stream into flowing mode so a still-pending write
-    // can finish, without this harness caring what the bytes are — see the
-    // package's Design amendment for why a byte count here proves nothing.
-    child.stdout?.resume()
-    child.stderr?.resume()
-    const { code, signal: died } = await exited
-    this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
+    try {
+      if (!(await waitForGateMarker(marker))) {
+        child.kill("SIGKILL")
+        await exited
+        assert.fail("gtd next never reached `git log --first-parent`")
+      }
+      this.signalAliveAtSend = child.exitCode === null && child.signalCode === null
+      child.kill(signal)
+      child.stdout?.resume()
+      child.stderr?.resume()
+      const { code, signal: died } = await exited
+      this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
+    } finally {
+      try {
+        process.kill(Number(readFileSync(marker, "utf-8").trim()), "SIGKILL")
+      } catch {
+        // marker absent or sleep already gone
+      }
+      rmSync(gateDir, { recursive: true, force: true })
+    }
   }
 
   /**
@@ -778,8 +762,7 @@ export class GtdWorld extends QuickPickleWorld {
    * successful bind non-deterministic in CI (no tailnet needed, no fixed
    * port to collide on) — genuinely binds, prints its `https://` URL once
    * ready (polled for, since certificate generation's own subprocess cost
-   * makes a fixed delay flaky the same way `spawnGtdNextAndSignal`'s 300ms
-   * never has to account for a subprocess of its own), then dies exactly
+   * makes a fixed delay flaky), then dies exactly
    * like `spawnGtdNextAndSignal` — same signal, same re-raise contract,
    * same `lastSignalExit`/"the reported exit status is {int}" step this
    * reuses verbatim.

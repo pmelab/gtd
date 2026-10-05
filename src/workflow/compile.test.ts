@@ -84,3 +84,19 @@ describe("compileConfig: skills: across layers", () => {
     ])
   })
 })
+
+describe("compileConfig: setting names", () => {
+  it.each(["vars", "env"] as const)(
+    "refuses a %s: key outside the setting-name rule, keeping the raw key out of the path",
+    (keyName) => {
+      const compiled = compileConfig([layer({ [keyName]: { "a=b": "1", "x\ny": "2", ok_1: "3" } })])
+      const found = compiled.diagnostics.filter((d) => d.severity === "error")
+      expect(found.map((d) => d.path)).toEqual([[keyName], [keyName]])
+      expect(found.map((d) => d.message).join("\n")).toContain(
+        `"${keyName}" key "a=b" is not a valid setting name — a setting name is a letter or "_", then letters, digits or "_"`,
+      )
+      expect(found.map((d) => d.message).join("\n")).toContain(JSON.stringify("x\ny"))
+      expect(keyName === "vars" ? compiled.rcVars : compiled.rcEnv).toEqual({ ok_1: "3" })
+    },
+  )
+})

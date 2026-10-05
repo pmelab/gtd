@@ -19,10 +19,16 @@ Feature: `$NAME` interpolation over every `.gtdrc` string value
       import { human, vars } from "@pmelab/gtd/flows"
 
       export default async () => {
-        await human(vars.plannerModel)
+        await human("idle", { message: "start" })
+        await human("second", { message: vars.plannerModel })
       }
       """
     And an environment variable "BUILD_MODEL" set to "opus"
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → second"
     When I run gtd next
     Then it succeeds
     And stdout contains "opus"
@@ -97,9 +103,15 @@ Feature: `$NAME` interpolation over every `.gtdrc` string value
       import { human, vars } from "@pmelab/gtd/flows"
 
       export default async () => {
-        await human(vars.price)
+        await human("idle", { message: "start" })
+        await human("second", { message: vars.price })
       }
       """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → second"
     When I run gtd next
     Then it succeeds
     And stdout contains "$5"
@@ -116,9 +128,15 @@ Feature: `$NAME` interpolation over every `.gtdrc` string value
       import { human, vars } from "@pmelab/gtd/flows"
 
       export default async () => {
-        await human(vars.label)
+        await human("idle", { message: "start" })
+        await human("second", { message: vars.label })
       }
       """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → second"
     When I run gtd next
     Then it succeeds
     And stdout contains "5$"

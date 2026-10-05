@@ -137,3 +137,79 @@ Feature: process settings are pinned at process start, environment settings are 
     When I run gtd land
     Then it fails
     And stderr contains "process setting \"route\" spans several lines"
+
+  Scenario: a first step that branches on a process setting fails to load, naming it
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, vars } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human(vars.route === "fast" ? "fast-idle" : "slow-idle")
+      }
+
+      export const defaults = { route: "fast" }
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "reads the process setting \"route\""
+    And the last commit subject is "chore: add gtd.config.ts"
+
+  Scenario: a first step that reads an environment setting fails to load, naming it
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, env } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: `check with ${env.checker}` })
+      }
+
+      export const envDefaults = { checker: "make check" }
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "reads the environment setting \"checker\""
+    And the last commit subject is "chore: add gtd.config.ts"
+
+  Scenario: a .gtdrc vars: key outside the setting-name rule is refused
+    Given a file ".gtdrc" with:
+      """
+      vars:
+        "a=b": "1"
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "not a valid setting name"
+    And the last commit subject is "chore: add gtd.config.ts"
+
+  Scenario: a .gtdrc env: key containing a space is refused
+    Given a file ".gtdrc" with:
+      """
+      env:
+        "a b": "1"
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "not a valid setting name"
+    And the last commit subject is "chore: add gtd.config.ts"
+
+  Scenario: a workflow defaults key outside the setting-name rule is refused
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle")
+      }
+
+      export const defaults = { "a=b": "1" }
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "the \"defaults\" export declares \"a=b\", not a valid setting name"
+    And the last commit subject is "chore: add gtd.config.ts"
+
+  Scenario: a --var name outside the setting-name rule is a usage error
+    When I run gtd with "--entry" and "working" and "--var" and "a b=1"
+    Then it fails
+    And stderr contains "--var \"a b\" is not a valid setting name"
+    And the last commit subject is "chore: add gtd.config.ts"

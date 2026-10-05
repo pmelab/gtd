@@ -208,6 +208,13 @@ When("I run gtd with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd(arg)
 })
 
+When(
+  "I run gtd with {string} and {string} and {string} and {string}",
+  async (world: GtdWorld, a: string, b: string, c: string, d: string) => {
+    await world.runGtd(a, b, c, d)
+  },
+)
+
 When("I run gtd land", async (world: GtdWorld) => {
   await world.runGtd("land")
 })

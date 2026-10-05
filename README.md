@@ -21,7 +21,9 @@ npm install -g @pmelab/gtd
 
 Or run without installing (prefix every `gtd` below with `npx`) — see
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
-for the settings most projects tune.
+for the settings most projects tune. A process setting's value is committed to
+Git history; keep secrets in an environment setting (see
+[Settings](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#settings)).
 
 Also install all three skill sources the bundled workflow names in its prompts —
 none is optional. See
