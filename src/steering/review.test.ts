@@ -1782,3 +1782,48 @@ describe("reviewNotes", async () => {
     ])
   })
 })
+
+describe("reviewRisks", async () => {
+  const { reviewRisks } = await import("./review.js")
+  const doc = (description: string, pointers: string[]): string =>
+    [
+      "# Review: abc1234",
+      "",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Chunk one",
+      "",
+      description,
+      "",
+      ...pointers,
+    ].join("\n")
+
+  it("returns every Risk: pointer note in order with risk-<n> ids", () => {
+    const risks = reviewRisks(
+      doc("Prose.", [
+        "- [ ] ./src/a.ts#1-3 — Risk: first",
+        "- [ ] ./src/b.ts#4-6 — plain note",
+        "- [ ] ./src/c.ts#7-9 — Risk: second",
+      ]),
+    )
+    expect(risks).toEqual([
+      { id: "risk-1", anchor: "Chunk one ./src/a.ts#1-3", text: "Risk: first" },
+      { id: "risk-2", anchor: "Chunk one ./src/c.ts#7-9", text: "Risk: second" },
+    ])
+  })
+
+  it("ignores Risk: in a chunk description or mid-note", () => {
+    expect(
+      reviewRisks(
+        doc("Risk: in prose.", [
+          "- [ ] ./src/a.ts#1-3 — no Risk: here",
+          "- [ ] ./src/b.ts#1-3 — no risk here",
+        ]),
+      ),
+    ).toEqual([])
+  })
+
+  it("no marker yields an empty list", () => {
+    expect(reviewRisks(doc("Prose.", ["- [ ] ./src/a.ts#1-3 — fine"]))).toEqual([])
+  })
+})

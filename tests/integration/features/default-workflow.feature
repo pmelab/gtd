@@ -222,17 +222,32 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.closing → build.quality.reviewing"
 
-    # A clean lens turn (owasp-security) — nothing blocking, so no .gtd/QUALITY.md.
+    # A clean lens turn (correctness) — nothing found, so no .gtd/QUALITY.md.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.reviewing"
 
-    # The second lens (ponytail-review) is clean too.
+    # A clean lens turn (owasp-security) — nothing found, so no .gtd/QUALITY.md.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.reviewing"
 
-    # The third and final lens (test-audit) is clean too -> the lap has no
+    # A clean lens turn (ponytail-review) — nothing found, so no .gtd/QUALITY.md.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing"
+
+    # A clean lens turn (test-audit) — nothing found, so no .gtd/QUALITY.md.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing"
+
+    # A clean lens turn (conventions) — nothing found, so no .gtd/QUALITY.md.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.reviewing"
+
+    # The sixth and final lens (spec-challenge) is clean too -> the lap has no
     # findings, straight on to human review.
     When I run gtd land
     Then it succeeds
@@ -311,6 +326,9 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(judge): packages.item.spec.pre → packages.item.spec.review
       gtd(agent): packages.item.spec.review → packages.item.closing
       gtd(check): packages.item.closing → build.quality.reviewing
+      gtd(agent): build.quality.reviewing
+      gtd(agent): build.quality.reviewing
+      gtd(agent): build.quality.reviewing
       gtd(agent): build.quality.reviewing
       gtd(agent): build.quality.reviewing
       gtd(agent): build.quality.reviewing → build.review.reviewing

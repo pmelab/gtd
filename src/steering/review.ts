@@ -1164,3 +1164,17 @@ export const reviewNotes = (before: string, after: string): readonly ReviewNote[
   ]
   return found.sort((a, b) => a.line - b.line).map((f, i) => ({ id: `note-${i + 1}`, ...f.note }))
 }
+
+/** Pointer notes the reviewer opened with `Risk:`, in document order — the ones the workflow fixes before the human gate. */
+export const reviewRisks = (
+  content: string,
+): readonly { id: string; anchor: string; text: string }[] =>
+  parseReviewDoc(content)
+    .changesets.flatMap((chunk) =>
+      chunk.files.flatMap((file) =>
+        file.note?.startsWith("Risk:")
+          ? [{ anchor: `${chunk.title} ${pointerLabel(file)}`, text: file.note }]
+          : [],
+      ),
+    )
+    .map((r, i) => ({ id: `risk-${i + 1}`, ...r }))

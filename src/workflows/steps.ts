@@ -134,6 +134,18 @@ export const escalationExhausted = (): Promise<void> =>
 
 // ── Quality and review ──────────────────────────────────────────────────────
 
+export interface BuiltInLens {
+  readonly skills: readonly string[]
+  readonly brief: string
+}
+
+/** Lenses the workflow defines itself, not bundled skills: `skills/` is not in the npm package, and a missing lens skill burns a turn silently. */
+export const builtInLenses: Readonly<Record<string, BuiltInLens>> = {
+  correctness: { skills: ["code-review-and-quality"], brief: t.correctnessBrief },
+  conventions: { skills: [], brief: t.conventionsBrief },
+  "spec-challenge": { skills: [], brief: t.specChallengeBrief },
+}
+
 /**
  * One quality review, through the skill `lens`. `lens` rides as this turn's
  * own `skills` option — a `.gtdrc` `build.quality.reviewing` entry still
@@ -141,14 +153,18 @@ export const escalationExhausted = (): Promise<void> =>
  * but absent one the lens itself is what the turn loads by default.
  */
 export const reviewQuality = (lens: string): Promise<void> =>
-  t.agentWithSkills("quality.reviewing", t.buildQualityReviewingPrompt(lens), {
-    label: "Reviewing (one quality lens)",
-    file: QUALITY,
-    model: planner(),
-    system: t.reviewerSystem(),
-    allowEmpty: true,
-    skills: [lens],
-  })
+  t.agentWithSkills(
+    "quality.reviewing",
+    t.buildQualityReviewingPrompt(lens, builtInLenses[lens]?.brief),
+    {
+      label: "Reviewing (one quality lens)",
+      file: QUALITY,
+      model: planner(),
+      system: t.reviewerSystem(),
+      allowEmpty: true,
+      skills: builtInLenses[lens]?.skills ?? [lens],
+    },
+  )
 
 export const fixQuality = (): Promise<void> =>
   t.agentWithSkills("fix-quality", t.buildFixQualityPrompt(), {
@@ -190,6 +206,16 @@ export const fixNits = (notes: readonly t.NoteInput[]): Promise<void> =>
     file: REVIEW,
     model: planner(),
     system: t.reviewerSystem(),
+  })
+
+/** Fix the `Risk:`-marked notes the reviewer named. Shares the `build.review` conversation like `fixNits`; an empty turn means the risk was judged false. */
+export const fixRisks = (notes: readonly t.NoteInput[]): Promise<void> =>
+  t.agentWithSkills("review.fix-risks", t.buildReviewFixRisksPrompt(notes), {
+    label: "Fixing the reviewer's risks",
+    file: REVIEW,
+    model: planner(),
+    system: t.reviewerSystem(),
+    allowEmpty: true,
   })
 
 export const awaitReview = (base: string): Promise<void> =>

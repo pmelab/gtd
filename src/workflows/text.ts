@@ -505,28 +505,70 @@ ${agentConduct}`
 
 export const buildFixQualityPrompt = (): string =>
   `${stateFileRules}
-- Read \`.gtd/QUALITY.md\` — one \`## \` chunk per quality dimension
-  that found something blocking. Merge duplicate findings across
-  dimensions FIRST, then fix every chunk
+- Read \`.gtd/QUALITY.md\` — one \`## \` chunk per finding a quality
+  dimension wrote. Merge duplicate findings across dimensions
+  FIRST, then fix every finding in every chunk, blocking or not
 - When findings conflict, missing test signal beats line count —
   a test is never deleted to satisfy a simplification finding
 - Delete \`.gtd/QUALITY.md\` once every finding is resolved
 - Leave everything else uncommitted and finish your turn
 `
 
-export const buildQualityReviewingPrompt = (lens: string): string =>
+/** Brief for a lens the workflow defines itself; a lens with none is just a skill of that name. */
+export const correctnessBrief = `- Trace partial-failure and retry paths: what a step that fails
+  after saving an id leaves behind, and whether the retry resumes
+  it or starts over
+- Check validation done before an external side effect — its
+  format, not just its presence
+- Check invariants that parallel write paths share: every path
+  that writes the same data must enforce what the main path
+  enforces
+- New mock behaviour without a contract test against the live
+  behaviour (mock/live drift) is a finding`
+
+export const conventionsBrief = `- Read every \`AGENTS.md\` and \`CLAUDE.md\` in the repository root
+  and in each touched file's directory ancestry, end to end, plus
+  every file they pull in by \`@path\`
+- Every violation of them in the change is a finding — quote the
+  rule it breaks`
+
+export const specChallengeBrief = `- Find this process's planning documents in history:
+  \`git log <start>..HEAD\` (\`<start>\` is the commit above) over the steering directory
+  (\`.gtd/\`), then \`git show\` the last version of the
+  requirements, architecture and package files
+- Flag a spec decision that conflicts with a system invariant — an
+  existing test, a documented constraint, or a data invariant
+  other code relies on — naming the decision and the invariant
+- With no planning documents in history, write nothing`
+
+export const buildQualityReviewingPrompt = (lens: string, brief?: string): string =>
   `${stateFileRules}
 - The only state file this turn writes is \`.gtd/QUALITY.md\` — no
   other files for notes or output
 - Review the whole assembled change, from \`${start()}\`
   to the working tree, through this ONE quality lens only —
-  \`${lens}\`, already loaded as this turn's own skill
-- Where you find something blocking, APPEND a \`## \` chunk to
-  \`.gtd/QUALITY.md\` describing it — never overwrite what an
-  earlier dimension already wrote there
-- Write nothing when nothing is blocking under this lens — a
+  \`${lens}\`
+- Trace, do not skim: follow the order of external calls against
+  the resume/retry logic. On a large change, read the touched code
+  paths, not just the diff hunks
+- A test counts as coverage only if it would fail with the guarded
+  behaviour removed — decide that by reasoning, never by running a
+  mutation-testing tool. A test that pins a bug is a finding, not
+  praise
+- APPEND every finding you have, blocking or not, as a \`## \`
+  chunk to \`.gtd/QUALITY.md\` — never overwrite what an earlier
+  dimension already wrote there
+- Write nothing only when this lens found nothing at all — then a
   clean turn IS this dimension's approval
-- Touch no other state file, and leave everything uncommitted
+${
+  brief
+    ? `
+This lens's brief:
+${brief}
+
+`
+    : ""
+}- Touch no other state file, and leave everything uncommitted
 `
 
 export const reviewerSystem = (): string =>
@@ -639,6 +681,17 @@ export const buildReviewFixNitsPrompt = (notes: readonly NoteInput[]): string =>
 - Leave everything uncommitted and finish your turn
 
 The nit notes are:
+
+${notesCapture(notes)}`
+
+export const buildReviewFixRisksPrompt = (notes: readonly NoteInput[]): string =>
+  `${stateFileRules}
+- Fix every risk below in this one turn, all together
+- Where a risk is behavioural, add a test that fails without the fix
+- Leave \`.gtd/REVIEW.md\` untouched — the re-review rewrites it
+- Leave everything uncommitted and finish your turn
+
+The risk notes are:
 
 ${notesCapture(notes)}`
 
@@ -766,6 +819,14 @@ review the changes:
 
       - [ ] ./path/to/file.ts#42-70 — what this hunk does
         and here is more detail, continued below it
+
+  Open a hunk's note with \`Risk:\` only for a concrete defect
+  the change introduces, never a style remark — each such note is
+  fixed automatically before the human sees the review. On the
+  re-review after a fix, describe what the fix changed under the
+  hunk it touched, and re-mark only a risk the fix did not resolve:
+
+      - [ ] ./path/to/file.ts#42-70 — Risk: what is wrong
 
   A note sitting entirely on the line(s) beneath the pointer is
   also valid. Either way, the note must never start with a bare \`./path\` token

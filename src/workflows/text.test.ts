@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
+  buildReviewReviewingPrompt,
   agentWithSkills,
   architectureAuthorPrompt,
   architectureGateAnswerMessage,
   buildFixQualityPrompt,
+  buildQualityReviewingPrompt,
   buildReviewAwaitReviewMessage,
   buildReviewCollectingPrompt,
   designGateAnswerMessage,
@@ -116,6 +118,37 @@ describe("buildFixQualityPrompt", () => {
   })
 })
 
+describe("buildFixQualityPrompt scope", () => {
+  it("fixes every finding, blocking or not", () => {
+    const prompt = renderText(() => buildFixQualityPrompt())
+    expect(prompt).toContain("fix every finding in every chunk, blocking or not")
+    expect(prompt).not.toContain("found something blocking")
+  })
+})
+
+describe("buildQualityReviewingPrompt", () => {
+  const prompt = renderText(() => buildQualityReviewingPrompt("x"))
+  it("traces, reads touched paths on a large change, and judges tests by reasoning", () => {
+    expect(prompt).toContain("Trace, do not skim")
+    expect(prompt).toContain("order of external calls against")
+    expect(prompt).toContain("read the touched code")
+    expect(prompt).toContain("would fail with the guarded")
+    expect(prompt).toContain("never by running a")
+    expect(prompt).toContain("pins a bug is a finding")
+  })
+  it("writes every finding and approves only when nothing was found", () => {
+    expect(prompt).toContain("APPEND every finding you have, blocking or not")
+    expect(prompt).toContain("only when this lens found nothing at all")
+    expect(prompt).not.toContain("Write nothing when nothing is blocking")
+  })
+  it("adds a brief block only when given one", () => {
+    expect(prompt).not.toContain("This lens's brief")
+    expect(renderText(() => buildQualityReviewingPrompt("x", "BRIEF-TEXT"))).toContain(
+      "This lens's brief:\nBRIEF-TEXT",
+    )
+  })
+})
+
 describe("summaryPrompt", () => {
   it("puts the total and every model's cost on a line of its own", () => {
     const prompt = summaryPrompt({
@@ -196,5 +229,15 @@ describe("code threads in prompts", () => {
       expect(message).toContain("gtd check --open-threads")
       expect(message).toContain("phone UI does not show them")
     }
+  })
+})
+
+describe("buildReviewReviewingPrompt risk marking", () => {
+  it("states the Risk: marker rule and the re-review rule", () => {
+    const prompt = renderText(() => buildReviewReviewingPrompt("base"))
+    expect(prompt).toContain("Open a hunk's note with `Risk:` only for a concrete defect")
+    expect(prompt).toContain("never a style remark")
+    expect(prompt).toContain("describe what the fix changed under the")
+    expect(prompt).toContain("re-mark only a risk the fix did not resolve")
   })
 })

@@ -91,6 +91,46 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
     expect(prompt).toContain("owasp-security")
   })
 
+  it("correctness loads code-review-and-quality and carries all four trace points", async () => {
+    const request = await capture(() => steps.reviewQuality("correctness"))
+    expect(agentSkillsOption(request)).toEqual(["code-review-and-quality"])
+    const body = JSON.stringify(request)
+    for (const point of [
+      "partial-failure",
+      "format, not just its presence",
+      "parallel write paths",
+      "contract test",
+    ])
+      expect(body).toContain(point)
+  })
+
+  it.each(["conventions", "spec-challenge"])(
+    "%s sends no skills and carries its brief",
+    async (lens) => {
+      const request = await capture(() => steps.reviewQuality(lens))
+      expect(agentSkillsOption(request)).toEqual([])
+      expect(JSON.stringify(request)).toContain(
+        steps.builtInLenses[lens]!.brief.split("\n")[0]!.slice(0, 40),
+      )
+    },
+  )
+
+  it("an unknown lens loads itself as a skill, with no brief", async () => {
+    const request = await capture(() => steps.reviewQuality("my-lens"))
+    expect(agentSkillsOption(request)).toEqual(["my-lens"])
+    expect(JSON.stringify(request)).not.toContain("This lens's brief")
+  })
+
+  it("a configured build.quality.reviewing entry replaces a built-in lens's skills; the brief stays", async () => {
+    const prompt = agentPrompt(
+      await capture(() => steps.reviewQuality("conventions"), {
+        "quality.reviewing": ["my-org-checklist"],
+      }),
+    )
+    expect(prompt).toContain("my-org-checklist")
+    expect(prompt).toContain("AGENTS.md")
+  })
+
   it("fixQuality carries build.fix-quality's bundled skills", async () => {
     const prompt = agentPrompt(await capture(() => steps.fixQuality()))
     expect(prompt).toContain("incremental-implementation, code-simplification")
@@ -140,6 +180,19 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
     expect(request.prompt).toContain("incremental-implementation, code-simplification")
     expect(request.prompt).toContain("typo")
     expect(request.prompt).toContain("semicolon")
+    expect(request.prompt).toContain("Leave `.gtd/REVIEW.md` untouched")
+  })
+
+  it("fixRisks fixes every risk, tolerates an empty turn, and leaves .gtd/REVIEW.md alone", async () => {
+    const request = await capture(() =>
+      steps.fixRisks([{ id: "risk-1", anchor: "calc ./a.ts#1-1", text: "Risk: drops it" }]),
+    )
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.name).toBe("review.fix-risks")
+    expect(request.options).toMatchObject({ allowEmpty: true })
+    expect(request.prompt).toContain("debugging-and-error-recovery, incremental-implementation")
+    expect(request.prompt).toContain("risk-1 — calc ./a.ts#1-1")
+    expect(request.prompt).toContain("Risk: drops it")
     expect(request.prompt).toContain("Leave `.gtd/REVIEW.md` untouched")
   })
 
