@@ -5,6 +5,7 @@ import type { Run, Stop } from "../types"
 import { drive, isTrue } from "./drive"
 import type { Beat, Io, Landing, TurnEnd } from "./drive"
 import { enter } from "./entry"
+import { subagentModel } from "./models"
 import { JUDGE_SYSTEM, judgePrompt, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
@@ -21,8 +22,8 @@ import {
   handoffQuestion,
   headline,
   LATER,
-  parseReply,
   pushText,
+  runningLine,
   question,
   SAFE,
   SHIP,
@@ -50,6 +51,8 @@ let lastGate: { state?: string; head: string } | undefined
 let openAsk: { token: number; text: string } | undefined
 
 let stopRequested = false
+// when the current step began, for the band's elapsed time
+let stepStartedAt = Date.now()
 // Set before the first await of `start`, so two Continue presses arriving
 // together cannot both pass the isRunning check and start two drivers.
 let isDriving = false
@@ -168,7 +171,10 @@ function io($: $): Io {
         subagentType: t.system ? await persona($, t.system) : "general-purpose",
         prompt: t.prompt,
         description: t.label || "gtd",
-        model: t.model,
+        model: subagentModel(t.model, {
+          smart: await $.env.get("GTD_PLANNERMODEL"),
+          base: await $.env.get("GTD_CODERMODEL"),
+        }),
         cwd: root,
       })
       const id = spawned.agentId
@@ -187,6 +193,7 @@ function io($: $): Io {
     progress: (beat, b) => {
       // The band is not drawn everywhere (Remote Control, the mobile app):
       // the status line and one transcript line per step say it too.
+      stepStartedAt = Date.now()
       $.ui.status(beatLine(beat, b))
       $.ui.log(beatLine(beat, b))
       void update($, run, (r) => ({ ...r, beat, state: b.state, label: b.label }))
@@ -253,8 +260,9 @@ function closeUi() {
   gateUi = undefined
 }
 
-// `gtd ui` serves exactly one rest and exits 0 once the person hands the turn
-// back from the web client; that hand-back continues the process as Continue does.
+// `gtd ui` serves exactly one rest. Its exit never continues the process, not
+// even a hand-back from the web page: only the mod's own question or the band's
+// Continue does, so a person always decides in Claude Code itself.
 function serveUi($: $, token: number) {
   let isKilled = false
   let ready = () => {}
@@ -279,8 +287,10 @@ function serveUi($: $, token: number) {
       }
       const { code } = await child.result
       if (isKilled || token !== gateToken) return
-      if (code === 0) return await proceed($)
-      const uiNote = err.trim().replace(/^gtd ui: /, "") || `exited ${code}`
+      const uiNote =
+        code === 0
+          ? "the browser view closed"
+          : err.trim().replace(/^gtd ui: /, "") || `exited ${code}`
       await update($, run, (r) => ({ ...r, url: undefined, uiNote }))
     } catch (x) {
       if (!isKilled) await update($, run, (r) => ({ ...r, url: undefined, uiNote: String(x) }))
@@ -612,15 +622,8 @@ async function dismiss($: $) {
 
 const DROPPED = "gtd subagent notice"
 
-// A reply typed on a phone at an open gate (Remote Control draws no dialog);
-// returns why it was taken off the model's hands, or nothing.
-async function phoneReply($: $, text: string) {
-  const r = await read($, run)
-  const reply = r.stop?.kind === "gate" ? parseReply(text) : undefined
-  if (!reply) return undefined
-  if (reply.act === "continue") void proceed($)
-  if (reply.act === "handoff") void throwNow($, reply.to)
-  return "gtd: answered the open question"
+async function refreshBand($: $) {
+  if ((await read($, run)).isRunning) $.ui.invalidate("ui.render")
 }
 
 // `/gtd [verb] …`; anything that is not a verb is a new process's requirements.
@@ -680,6 +683,8 @@ async function resumeAfterReload($: $, inflight: Run["inflight"]) {
 
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
+    // The band's elapsed time ticks while a step runs.
+    $.clock.every(10_000, () => void refreshBand($))
     for (const id of await read($, agents)) ours.add(id)
     // A reload drops the loop mid-beat and closes an open dialog; gtd keeps
     // its state in git, so pick both up again.
@@ -722,7 +727,7 @@ export const register: Register = (on) => {
       if (e.tool === "Write" && e.file_path !== delegated.file) {
         return { deny: `Write only your answer, to ${delegated.file}.` }
       }
-      if (e.tool === "Bash" && !delegated.mayRun?.test(e.command.trim())) {
+      if (e.tool === "Bash" && !delegated.mayRun?.test(String(e.command).trim())) {
         return { deny: "Only read-only git commands, without shell syntax, are allowed here." }
       }
     }
@@ -736,11 +741,7 @@ export const register: Register = (on) => {
   // A subagent's hand-back arrives as a prompt to the main session, whose model
   // would then act on it. gtd reads the turn's result from git instead.
   on("prompt.submit", async ($, e, next) => {
-    if (e.origin?.kind === "bridge") {
-      const done = await phoneReply($, e.text)
-      return done ? { drop: done } : next(e)
-    }
-    if (!e.origin || e.origin.kind === "composer") return next(e)
+    if (!e.origin || e.origin.kind === "composer" || e.origin.kind === "bridge") return next(e)
     if ([...ours].some((id) => e.text.includes(`from="${id}"`))) {
       return { drop: DROPPED }
     }
@@ -778,10 +779,13 @@ export const register: Register = (on) => {
     if (!r.isRunning && !r.stop) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     if (r.isRunning) {
+      // Shaped like Claude's own spinner line, the one herdr reads as working
+      // (its `live_turn_working` rule): an idle prompt would say idle.
       return (
         <Box gap={1}>
-          <Text color="cyan">gtd ▸ {r.label ?? r.state ?? "starting"}</Text>
-          <Text dimColor>step {r.beat}</Text>
+          <Text color="cyan">
+            {runningLine(r.label ?? r.state ?? "starting", r.beat, Date.now() - stepStartedAt)}
+          </Text>
           <Button key="stop" label="Stop" onPress={() => void (stopRequested = true)} />
         </Box>
       )

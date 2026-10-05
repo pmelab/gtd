@@ -62,6 +62,15 @@ export const TONE: Record<Stop["kind"], string> = {
   stopped: "yellow",
 }
 
+// The band while a step runs, in the shape of Claude's own spinner line,
+// `✳ Thinking… (12s · …)`, which herdr reads as working. The "… (<n>[smh] ·"
+// part is what its rule needs: the band row ends in the engine's own toggle.
+export function runningLine(label: string, beat: number, elapsedMs: number) {
+  const s = Math.max(0, Math.floor(elapsedMs / 1000))
+  const took = s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`
+  return `✳ gtd ▸ ${label}… (${took} · step ${beat})`
+}
+
 // One line per beat, for the status line and the transcript.
 export const beatLine = (beat: number, b: Beat) => `▸ ${step(b)} · step ${beat}`
 
@@ -69,18 +78,5 @@ export const beatLine = (beat: number, b: Beat) => `▸ ${step(b)} · step ${bea
 export function pushText(stop: Stop, repo: string, url?: string) {
   const at = `${repo}: ${headline(stop).replace(/^\S+ /, "")}`
   if (stop.kind !== "gate") return at
-  return url ? `${at}. Open: ${url}` : `${at}. Reply "continue" when you're done.`
-}
-
-export type Reply = { act: "continue" } | { act: "later" } | { act: "handoff"; to?: string }
-
-// A reply typed from a phone (Remote Control) at an open gate, which has no
-// buttons there. Anything else is ordinary chat for the model.
-export function parseReply(text: string): Reply | undefined {
-  const t = text.trim().toLowerCase()
-  if (/^(continue|done|go|proceed|ok)\b/.test(t)) return { act: "continue" }
-  if (/^(not now|later|wait)\b/.test(t)) return { act: "later" }
-  const handoff = /^(?:hand\s*off|throw)(?:\s+to)?(?:\s+@?([\w-]+))?\s*$/.exec(t)
-  if (handoff) return { act: "handoff", to: handoff[1] }
-  return undefined
+  return url ? `${at}. Open: ${url}` : at
 }
