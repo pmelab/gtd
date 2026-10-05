@@ -73,6 +73,30 @@ describe("throw", () => {
     expect(ran().some((c) => c.startsWith("gh pr create"))).toBe(false)
   })
 
+  test("a pull request opened for review keeps its description and stays ready", async () => {
+    const pr = { number: 9, url: "u", state: "OPEN", body: "the motivation", assignees: [] }
+    const { io, ran } = repo({
+      "git rev-parse --abbrev-ref HEAD": { out: "gtd/x\n" },
+      "gh pr view gtd/x --json number,url,state,body,assignees": { out: JSON.stringify(pr) },
+    })
+    expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({ ok: true })
+    expect(ran()).not.toContain("gh pr edit 9 --body-file -")
+    expect(ran()).not.toContain("gh pr ready 9 --undo")
+  })
+
+  test("refuses when origin holds commits HEAD lacks", async () => {
+    const { io, ran } = repo({
+      "git rev-parse --abbrev-ref HEAD": { out: "gtd/x\n" },
+      "git merge-base --is-ancestor origin/gtd/x HEAD": { code: 1 },
+    })
+    expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({
+      ok: false,
+      text: expect.stringMatching(/has commits HEAD lacks/),
+    })
+    expect(ran()).toContain("git fetch --prune origin")
+    expect(ran().some((c) => c.startsWith("git push") || c.startsWith("gh pr"))).toBe(false)
+  })
+
   test("only landed state travels", async () => {
     const { io, ran } = repo({ "git status --porcelain": { out: " M .gtd/QA.md\n" } })
     expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({ ok: false })

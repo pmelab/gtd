@@ -236,8 +236,11 @@ falls back to the `gtd` on your `PATH`.
   or a failure raises Claude Code's push notification, which it sends only while
   you are away from the terminal.
 - Saving the plugin's own files reloads it. A reload in the middle of an agent
-  step waits for that agent and lands its work instead of starting it again; a
-  reload at a gate opens its question again.
+  step waits for that agent and lands its work instead of starting it again,
+  unless the agent failed or was killed: then the step runs again. A reload in
+  the middle of a script stops the loop, since the script may have partly run;
+  check the tree, then **Continue** runs it again. A reload at a gate opens its
+  question again.
 - `/gtd fix` enters at `fix-precheck`, repairing a red baseline as its own
   reviewed commit. `/gtd review [base]` enters at `review-gate.check` with
   `reviewBase` set to the merge-base with `base` (the default branch unless
@@ -245,12 +248,14 @@ falls back to the `gtd` on your `PATH`.
   then drive like `/gtd`.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
 - `/gtd throw [@user]` hands the process to someone else. It needs a clean tree:
-  proceed or stash a half-made answer first. It pushes the branch (moving the
-  process to a new `gtd/<timestamp>` branch when you are on the default one),
-  opens a draft pull request for the hand-off, or refreshes the open one, and
-  assigns it to `@user` in place of its previous assignees. Without a user it is
-  left for anyone. Every human and judge gate's question also offers **Hand off
-  to someone else**, which asks for the handle.
+  proceed or stash a half-made answer first, and refuses when `origin` holds
+  commits your branch lacks. It pushes the branch (moving the process to a new
+  `gtd/<timestamp>` branch when you are on the default one), opens a draft pull
+  request for the hand-off, or refreshes a thrown one (a pull request already
+  open for review keeps its description and stays ready), and assigns it to
+  `@user` in place of its previous assignees. Without a user it is left for
+  anyone. Every human and judge gate's question also offers **Hand off to
+  someone else**, which asks for the handle.
 - `/gtd catch <pr|branch>` checks the thrown branch out with `gh pr checkout`,
   assigns it to you, and shows you the gate it waits at, with the same dialog;
   it never lands that gate before you have seen it. Agent conversations do not
