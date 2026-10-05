@@ -5,9 +5,9 @@ import {
   gateOptions,
   HANDOFF,
   headline,
-  parseReply,
   pushText,
   question,
+  runningLine,
   SAFE,
 } from "./wording"
 
@@ -48,14 +48,17 @@ describe("wording", () => {
     expect(pushText(gate, "llm-judge", "https://x/")).toBe(
       "llm-judge: needs your input — Awaiting your review. Open: https://x/",
     )
-    expect(pushText(gate, "llm-judge")).toContain('Reply "continue"')
+    expect(pushText(gate, "llm-judge")).toBe("llm-judge: needs your input — Awaiting your review")
   })
 
-  test("typed phone replies at a gate", () => {
-    expect(parseReply("Continue")).toEqual({ act: "continue" })
-    expect(parseReply("not now")).toEqual({ act: "later" })
-    expect(parseReply("hand off to @dev")).toEqual({ act: "handoff", to: "dev" })
-    expect(parseReply("hand off")).toEqual({ act: "handoff", to: undefined })
-    expect(parseReply("why did the tests fail?")).toBeUndefined()
+  test("the running band reads as working to herdr", () => {
+    // herdr's live_turn_working rule for Claude (agent-detection claude.toml)
+    const working =
+      /^\s*[\u002A\u00B7\u2722\u2733\u2736\u273B\u273D]\s+\S.*…(?:\s+\(\d+[smh](?:\s|·)|\s*$)/
+    for (const ms of [5_000, 180_000, 7_200_000]) {
+      const line = runningLine("Checking the baseline", 3, ms)
+      expect(working.test(`${line}   [ Stop ]   [-]`)).toBe(true)
+    }
+    expect(runningLine("Building", 2, 65_000)).toBe("✳ gtd ▸ Building… (1m · step 2)")
   })
 })

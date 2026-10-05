@@ -220,22 +220,21 @@ falls back to the `gtd` on your `PATH`.
   driver below does: the opening beat lands, a later gate stops. At idle with
   nothing pending it only tells you how to start.
 - At every human rest the mod starts `gtd ui` for that step and asks in Claude
-  Code's own question dialog, which is the state herdr, the desktop app and
-  Remote Control show as waiting on you. The question carries the `gtd ui` URL,
-  which is also printed as its own transcript line. **I'm done, continue** lands
-  what you changed and drives on; handing the turn back from `gtd ui` itself
-  does the same, and a question it leaves open says it is out of date.
-  Continuing without a change at a gate that needs one lands nothing, and the
-  question says so.
+  Code's own question dialog: herdr marks the pane as waiting on you, and Collie
+  shows the question as tappable answers. The question carries the `gtd ui` URL,
+  which is also printed as its own transcript line. Only an answer in that
+  dialog, or the band's **Continue**, moves the process on: **I'm done,
+  continue** lands what you changed and drives on. Handing the turn back from
+  `gtd ui` itself, or closing it, leaves the gate open. Continuing without a
+  change at a gate that needs one lands nothing, and the question says so.
 - **Not now** or Escape leaves the gate open; the band above the prompt keeps a
   **Continue** button.
-- Each step prints one line to the transcript and the status line, so a long
-  check is visibly running. A rest, a finish or a failure also raises a push
-  notification, which reaches your phone over Remote Control while you are away
-  from the terminal.
-- From a phone, where no dialog is drawn, reply `continue`, `not now` or
-  `hand off @user` at an open gate; the mod acts on it and the model never sees
-  it.
+- While a step runs, the band above the prompt reads like Claude Code's own
+  spinner, `✳ gtd ▸ Checking the baseline… (3m · step 3)`, so herdr shows the
+  pane as working, even while the session itself waits on a test run. Each step
+  also prints one line to the transcript and the status line. A rest, a finish
+  or a failure raises Claude Code's push notification, which it sends only while
+  you are away from the terminal.
 - Saving the plugin's own files reloads it. A reload in the middle of an agent
   step waits for that agent and lands its work instead of starting it again; a
   reload at a gate opens its question again.
