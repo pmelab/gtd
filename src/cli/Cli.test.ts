@@ -431,6 +431,18 @@ describe("parseArgv — entry/var flag details (formerly parseEntryFlags/takeFla
     if (plan.kind === "usage") expect(plan.message).toContain("--var a")
   })
 
+  it("a --var name outside the setting-name rule is a usage error naming it", () => {
+    for (const raw of ["a b=1", "a-b=1", "1a=1", "a\nb=1"]) {
+      const plan = parseArgv(["node", "gtd.js", "--entry", "e", "--var", raw])
+      expect(plan.kind).toBe("usage")
+      if (plan.kind === "usage") {
+        expect(plan.message).toContain(
+          `--var ${JSON.stringify(raw.slice(0, raw.indexOf("=")))} is not a valid setting name`,
+        )
+      }
+    }
+  })
+
   it("a multiline --var value is a usage error", () => {
     const plan = parseArgv(["node", "gtd.js", "--entry", "e", "--var", "a=1\n2"])
     expect(plan.kind).toBe("usage")

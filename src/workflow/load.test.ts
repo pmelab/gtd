@@ -256,22 +256,69 @@ describe("ConfigService", () => {
     await expect(getConfig()).rejects.toThrow(message)
   })
 
-  it("finds the first step with the GTD_<NAME> overrides every command sees", async () => {
+  const firstStepWorkflow = (body: string) =>
+    [
+      `import { human, vars, env } from "@pmelab/gtd/flows"`,
+      `export default async () => {`,
+      `  ${body}`,
+      `}`,
+      ``,
+    ].join("\n")
+
+  it.each([
+    [
+      "a vars read",
+      `await human(vars.route === "x" ? "a" : "b")`,
+      'reads the process setting "route"',
+    ],
+    ["an env read", `await human(env.checker ?? "b")`, 'reads the environment setting "checker"'],
+    [
+      "several reads, sorted",
+      `await human(("z" in vars) || vars.b ? "a" : "b")`,
+      'reads the process settings "b", "z"',
+    ],
+    [
+      "an enumeration",
+      `await human(Object.keys(vars).length > 0 ? "a" : "b")`,
+      "reads every process setting",
+    ],
+    [
+      "an env enumeration",
+      `await human(Object.keys(env).length > 0 ? "a" : "b")`,
+      "reads every environment setting",
+    ],
+    [
+      "a read only in the message",
+      `await human("x", { message: \`m \${vars.route}\` })`,
+      'reads the process setting "route"',
+    ],
+  ])("refuses a first step that depends on a setting: %s", async (_name, body, expected) => {
+    writeFileSync(join(projectDir, "gtd.config.ts"), firstStepWorkflow(body))
+
+    await expect(getConfig()).rejects.toThrow(expected)
+    await expect(getConfig()).rejects.toThrow(/must not depend on a setting/)
+  })
+
+  it("refuses a workflow default whose name is not a valid setting name", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [
-        `import { human, vars } from "@pmelab/gtd/flows"`,
-        `export const defaults = { first: "from-default" }`,
-        `export default async () => {`,
-        `  await human(vars.first)`,
-        `}`,
-        ``,
+        minimalWorkflow("first"),
+        `export const defaults = { "a=b": "1" }`,
+        `export const envDefaults = { "c d": "1" }`,
       ].join("\n"),
     )
+    await expect(getConfig()).rejects.toThrow(
+      'the "defaults" export declares "a=b", not a valid setting name — a setting name is a letter or "_", then letters, digits or "_"',
+    )
+  })
 
-    const cfg = await getConfig(undefined, { GTD_FIRST: "from-env" })
-
-    expect(cfg.workflow.initial).toBe("from-env")
+  it("refuses an envDefaults name that is not a valid setting name", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [minimalWorkflow("first"), `export const envDefaults = { "c d": "1" }`].join("\n"),
+    )
+    await expect(getConfig()).rejects.toThrow('the "envDefaults" export declares "c d"')
   })
 
   it("refuses a flow whose first step depends on the repository's files", async () => {

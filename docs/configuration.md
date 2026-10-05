@@ -389,6 +389,11 @@ replays to the steps its commits name, gtd refuses loudly with a **divergence**
 error and tells you to run `gtd abandon`. Finish or abandon an in-flight process
 before changing the workflow under it.
 
+**Breaking change.** BREAKING CHANGE: a workflow whose first step reads a
+process or environment setting (any vars/env access, enumeration included) fails
+to load; a setting name outside [A-Za-z_][A-Za-z0-9_]* — in workflow
+defaults/envDefaults, .gtdrc vars:/env:, or --var — fails to load or is refused.
+
 ### Rules for flow code
 
 Flow code is re-run on every gtd command, replaying the process's history, so it
@@ -413,13 +418,15 @@ and code at the module's top level are exempt — they may do anything.
 - **Shape**: the default export must be the flow, and it must reach a step on an
   ordinary start — that step is where a finished process waits. A flow that
   reaches none fails the load, and so does one whose first step changes with the
-  repository's files: process settings, `GTD_<NAME>` overrides included, may
-  pick it, and the step may read files for its content.
+  repository's files, and so does one whose first step reads a setting — any
+  `vars` or `env` access before it rests, `GTD_<NAME>` overrides included, an
+  enumeration too, and a setting named only in its message, label or model. The
+  step may read files for its content.
 - **Environment settings stay out of branches**: `env` is read live on every
   call, so branching on it can send a running process to a different step than
   its history recorded — a divergence. Read `env` only where it cannot change
   the next step: step options such as `model`, prompt text, and `run()` bodies.
-  gtd cannot enforce this; branch on `vars`.
+  gtd enforces this for the first step only; branch on `vars` elsewhere.
 
 ### Summary
 
@@ -878,6 +885,18 @@ A workflow's settings come in two kinds, told apart by what they may change.
 
 A workflow declares process settings in `defaults` and environment settings in
 `envDefaults`; a name in both is a load error.
+
+A setting name is a letter or `_`, then letters, digits or `_`
+(`[A-Za-z_][A-Za-z0-9_]*`), in `defaults`, `envDefaults`, `.gtdrc` `vars:` and
+`env:`, and `--var`: any other name fails the load, or is refused as a usage
+error for `--var`. The flow's first step — where a finished process waits — may
+not read a setting at all, process or environment (any `vars`/`env` access,
+enumeration included); such a workflow fails the load, naming the setting.
+
+**A process setting's value is committed to Git history in its `Gtd-Var:`
+trailer and stays there. A secret belongs in an environment setting
+(`envDefaults`, `env:`, or `GTD_<NAME>` for an `env` name), which is never
+recorded.** A `GTD_<NAME>` export of a process setting is recorded too.
 
 **Process settings** are resolved once, at process start, from four layers,
 **later wins**, and recorded as sorted `Gtd-Var:` trailers on the process's

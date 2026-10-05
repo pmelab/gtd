@@ -1,3 +1,4 @@
+import { isSettingName, SETTING_NAME_RULE } from "./vars.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 import { BUILT_IN_MODE_NAMES } from "../steering/index.js"
 import type { ModeDef } from "../Workflow.js"
@@ -78,6 +79,15 @@ const compileVarsMap = (
   }
   const vars: Record<string, string> = {}
   for (const [key, value] of Object.entries(raw)) {
+    if (!isSettingName(key)) {
+      diagnostics.push(
+        err(
+          [keyName],
+          `"${keyName}" key ${JSON.stringify(key)} is not a valid setting name — ${SETTING_NAME_RULE}`,
+        ),
+      )
+      continue
+    }
     if (!isScalar(value)) {
       diagnostics.push(
         err(
