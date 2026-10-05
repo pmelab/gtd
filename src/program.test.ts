@@ -95,7 +95,7 @@ export const defaults = { greeting: "hello" }
     const before = repo.commitHistory().length
     const { stdout, exitCode } = await run(repo, "--entry", "side-entry")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain(commitAll("gtd(human): side-entry"))
+    expect(stdout).toContain(commitAll("gtd(human): side-entry\n\nGtd-Var: greeting=hello"))
     expect(repo.commitHistory()).toHaveLength(before)
   })
 

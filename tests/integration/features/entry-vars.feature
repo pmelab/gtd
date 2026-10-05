@@ -1,14 +1,11 @@
 @inmem
-Feature: "--var" persistence across a whole process, overridden by the environment
+Feature: "--var" persistence across a whole process, pinned against the environment
 
-  A `--var <name>=<value>` supplied at `gtd --entry <state>` is recorded as a
-  `Gtd-Var: <name>=<value>` trailer on the process's FIRST (oldest) commit and
-  re-parsed on every subsequent turn (`Edge.ts`'s `parseEntryVarTrailers`/
-  `resolveVars`) — it is a fixed override for the WHOLE process, not just the
-  entry turn itself. `resolveVars`'s layering is `{...workflowVars, ...rcVars,
-  ...entryVars}`, then for each resulting var name, a
-  `GTD_<NAME-UPPERCASED>` environment variable — if set — OVERRIDES it: the
-  environment always wins, even over an explicit `--var`.
+  A `--var <name>=<value>` supplied at `gtd --entry <state>` is resolved with
+  every other process setting (defaults, `.gtdrc` `vars:`, `--var`,
+  `GTD_<NAME>`) and recorded as `Gtd-Var: <name>=<value>` trailers on the
+  process's FIRST commit. Every later `gtd` call reads those trailers back, so
+  a `GTD_<NAME>` exported afterwards does not change the running process.
 
   Background:
     Given a test project
@@ -55,12 +52,22 @@ Feature: "--var" persistence across a whole process, overridden by the environme
     Then it succeeds
     And stdout contains "Greeting: hello"
 
-  Scenario: a "GTD_" environment variable overrides a "--var" value supplied at entry
+  Scenario: a "GTD_" environment variable exported after entry does not override the pinned "--var" value
     When I run gtd with args "--entry announcing --var greeting=hello"
     Then it succeeds
     And the last commit subject is "gtd(human): announcing"
     Given an environment variable "GTD_GREETING" set to "fromenv"
     When I run gtd next
     Then it succeeds
+    And stdout contains "Greeting: hello"
+    And stdout does not contain "Greeting: fromenv"
+
+  Scenario: a "GTD_" environment variable present at entry is pinned along with the other process settings
+    Given an environment variable "GTD_GREETING" set to "fromenv"
+    When I run gtd with args "--entry announcing --var greeting=hello"
+    Then it succeeds
+    And the last commit body contains "Gtd-Var: greeting=fromenv"
+    Given an environment variable "GTD_GREETING" set to "later"
+    When I run gtd next
+    Then it succeeds
     And stdout contains "Greeting: fromenv"
-    And stdout does not contain "Greeting: hello"

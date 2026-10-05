@@ -147,7 +147,7 @@ describe("currentRun", () => {
       trace: [],
       costEntries: [],
       judgeVerdicts: [],
-      entryVars: {},
+      pinnedVars: {},
       headTurn: undefined,
       closingHash: undefined,
       episode: { base: boundary, commits: [] },
@@ -192,11 +192,13 @@ describe("currentRun", () => {
     expect(run.trace).toEqual([{ state: "building", hash: next, actor: "human" }])
   })
 
-  it("a trailer-less gtd(human): <entry> commit opens a manual entry's episode as its first commit", async () => {
+  it("a step-less gtd(human): <entry> commit opens a manual entry's episode as its first commit", async () => {
     const repo = repoWith(LINEAR)
     const before = headOf(repo)
     const opening = await enter(repo, "side")
-    expect(repo.lastCommitMessage()).toBe("gtd(human): side")
+    expect(repo.lastCommitMessage()).toBe(
+      "gtd(human): side\n\nGtd-Var: base=\nGtd-Var: reviewer=nobody",
+    )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
     expect(run.entry).toBe("side")
@@ -334,15 +336,15 @@ export default async ({ entry }) => {
     expect(run.diffBase).toBe(boundary)
   })
 
-  it("reads entryVars off a manual entry's opening commit", async () => {
+  it("reads pinnedVars off a manual entry's opening commit", async () => {
     const repo = repoWith(LINEAR)
     await enter(repo, "side", "base=main", "reviewer=alice")
     await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
-    expect(run.entryVars).toEqual({ base: "main", reviewer: "alice" })
+    expect(run.pinnedVars).toEqual({ base: "main", reviewer: "alice" })
   })
 
-  it("a default-entry episode has no entryVars, even when its first commit carries Gtd-Var", async () => {
+  it("a default-entry episode pins the Gtd-Var trailers of its first commit", async () => {
     const repo = repoWith(LINEAR)
     commit(
       repo,
@@ -356,7 +358,7 @@ export default async ({ entry }) => {
       { "a.txt": "a\n" },
     )
     const run = await provide(currentRun, repo)
-    expect(run.entryVars).toEqual({})
+    expect(run.pinnedVars).toEqual({ reviewer: "alice" })
   })
 
   describe("headTurn", () => {
@@ -746,16 +748,71 @@ export const defaults = { testCommand: "npm test", reviewer: "nobody" }
     expect(rest.vars.testCommand).toBe("npm run entry")
   })
 
-  it("GTD_<NAME> beats every other layer", async () => {
+  it("GTD_<NAME> beats .gtdrc while nothing is pinned", async () => {
+    const rest = await provide(currentRest, seeded(), { GTD_TESTCOMMAND: "echo env-wins" })
+    expect(rest.vars.testCommand).toBe("echo env-wins")
+  })
+
+  it("a pinned value beats a GTD_<NAME> exported later, and .gtdrc edited later", async () => {
     const repo = seeded()
     await enter(repo, "side", "testCommand=npm run entry")
-    const rest = await provide(currentRest, repo, { GTD_TESTCOMMAND: "echo env-wins" })
-    expect(rest.vars.testCommand).toBe("echo env-wins")
+    repo.writeFile(".gtdrc.yaml", "vars:\n  testCommand: npm run edited\n")
+    const rest = await provide(currentRest, repo, { GTD_TESTCOMMAND: "echo env-late" })
+    expect(rest.vars.testCommand).toBe("npm run entry")
+  })
+
+  it("an entry pins every process setting, so a later default change is ignored", async () => {
+    const repo = seeded()
+    await enter(repo, "side")
+    const run = await provide(currentRun, repo)
+    expect(run.pinnedVars).toEqual({ reviewer: "nobody", testCommand: "npm run rc" })
   })
 
   it("ignores a GTD_ env var naming no declared var", async () => {
     const rest = await provide(currentRest, seeded(), { GTD_BRANDNEW: "hello" })
     expect(Object.keys(rest.vars).sort()).toEqual(["reviewer", "testCommand"])
+  })
+})
+
+describe("environment settings", () => {
+  const ENVV = `import { agent, human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await agent("working", "w")
+}
+
+export const defaults = { floor: "0.7" }
+export const envDefaults = { testCommand: "npm test" }
+`
+  const seeded = () => repoWith(ENVV, { ".gtdrc.yaml": "env:\n  testCommand: npm run rc\n" })
+
+  it("resolve from envDefaults, .gtdrc env: and GTD_<NAME>, and never reach vars", async () => {
+    const repo = seeded()
+    expect((await provide(currentRest, repo)).env).toEqual({ testCommand: "npm run rc" })
+    const rest = await provide(currentRest, repo, { GTD_TESTCOMMAND: "echo env" })
+    expect(rest.env.testCommand).toBe("echo env")
+    expect(rest.vars).toEqual({ floor: "0.7" })
+  })
+
+  it("are read live mid-process: an edited .gtdrc env: applies, and nothing is recorded", async () => {
+    const repo = seeded()
+    await land(repo, { "a.txt": "a\n" })
+    repo.writeFile(".gtdrc.yaml", "env:\n  testCommand: npm run edited\n")
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("working")
+    expect(rest.env.testCommand).toBe("npm run edited")
+    expect((await provide(currentRun, repo)).pinnedVars).toEqual({ floor: "0.7" })
+  })
+
+  it("an ordinary start's first commit pins every process setting, sorted by name", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    expect(repo.lastCommitMessage()).toContain(
+      "\n\nGtd-Step: idle#1\nGtd-Var: base=\nGtd-Var: reviewer=nobody",
+    )
+    await land(repo)
+    expect((await provide(currentRun, repo)).pinnedVars).toEqual({ base: "", reviewer: "nobody" })
   })
 })
 

@@ -1,8 +1,5 @@
 {
   "$schema": "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json",
-  "vars": {
-    "testCommand": "npm test"
-  },
   "modes": {
     "qa": {
       "format": "npx oxfmt --no-error-on-unmatched-pattern --write \"$GTD_FILE\"",

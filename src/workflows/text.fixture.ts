@@ -5,10 +5,11 @@ import {
   type StepRequest,
 } from "../flows/index.js"
 import { skills as bundledSkills } from "./skills.js"
-import { defaults } from "./vars.js"
+import { defaults, envDefaults } from "./vars.js"
 
 export interface TextContext {
   readonly vars?: Readonly<Record<string, string>>
+  readonly env?: Readonly<Record<string, string>>
   readonly head?: string
   readonly start?: string
   readonly codeThreads?: readonly CodeThreadInfo[]
@@ -73,6 +74,7 @@ export const fixtureContext = (
   threads: () => [],
   codeThreads: () => context.codeThreads ?? [],
   vars: { ...defaults, ...context.vars },
+  env: { ...envDefaults, ...context.env },
   head: () => context.head ?? "",
   start: () => context.start ?? "",
   skillsFor: skillsForOf(context),

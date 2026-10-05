@@ -181,10 +181,17 @@ ref so `gtd restore` can bring them back — written only when `gtd abandon`
 rewinds an in-flight process. `gtd land` never moves HEAD, so it never writes
 this ref.
 
-**Vars**: Flat string values flow code reads as `vars` — the workflow's own
-defaults, then `.gtdrc` `vars:`, then an entry's `--var`, then `GTD_<NAME>`. gtd
-blesses no names: `testCommand` is the bundled workflow's data, not a key gtd
-interprets.
+**Process setting**: A flat string value flow code reads as `vars` and may
+branch on — the workflow's `defaults`, then `.gtdrc` `vars:`, then an entry's
+`--var`, then `GTD_<NAME>`. Resolved once at process start and recorded in the
+process's first commit; a later edit does not reach the running process. gtd
+blesses no names. Avoid: "Vars".
+
+**Environment setting**: A flat string value flow code reads as `env`, only
+where it cannot change the next step — the workflow's `envDefaults`, then
+`.gtdrc` `env:`, then `GTD_<NAME>`. Read live on every call, never recorded;
+`testCommand` is the bundled workflow's data, not a key gtd interprets. Avoid:
+"Vars", "env var" (that is a shell variable).
 
 ### Bundled workflow
 

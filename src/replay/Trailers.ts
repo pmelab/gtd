@@ -153,7 +153,9 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
   const lines: string[] = []
   if (spec.step !== undefined) lines.push(`Gtd-Step: ${formatStepId(spec.step)}`)
   if (spec.reviewBase !== undefined) lines.push(`Gtd-Review-Base: ${spec.reviewBase}`)
-  for (const [name, value] of Object.entries(spec.vars ?? {}))
+  for (const [name, value] of Object.entries(spec.vars ?? {}).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  ))
     lines.push(`Gtd-Var: ${name}=${value}`)
   if (spec.cost !== undefined) {
     lines.push(

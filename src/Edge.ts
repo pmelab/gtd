@@ -7,7 +7,13 @@ import {
   type GitOperations,
   type WorkspaceOps,
 } from "./platform/index.js"
-import { ConfigDiscovery, ConfigService, resolveVars } from "./workflow/index.js"
+import {
+  ConfigDiscovery,
+  ConfigService,
+  multilineSetting,
+  resolveVars,
+  type ConfigOperations,
+} from "./workflow/index.js"
 import {
   formatSubject,
   parseCommitMessage,
@@ -112,8 +118,8 @@ export interface ProcessRun {
   readonly trace: readonly TraceEntry[]
   readonly costEntries: readonly CostEntry[]
   readonly judgeVerdicts: readonly JudgeVerdictEntry[]
-  /** The opening commit's `Gtd-Var` trailers. */
-  readonly entryVars: Record<string, string>
+  /** The process settings recorded in the process's first commit (empty for a process started before pinning existed). */
+  readonly pinnedVars: Record<string, string>
   /** HEAD's own gtd commit, when it is one — `empty` is whether it changed nothing. */
   readonly headTurn:
     | {
@@ -177,7 +183,7 @@ const runOf = (
     trace: processCommits.map((c, i) => traceEntryOf(c.hash, parsed[i]!)),
     costEntries: parsed.flatMap(costEntriesOf),
     judgeVerdicts: parsed.flatMap((m) => m.judge),
-    entryVars: location.entry === undefined ? {} : { ...first?.vars },
+    pinnedVars: { ...first?.vars },
     headTurn: headTurnOf(head),
     closingHash,
     episode: {
@@ -402,6 +408,26 @@ const pendingTree = (
 // ── Variables ───────────────────────────────────────────────────────────────
 
 /**
+ * The one resolver of both setting kinds. Process settings: the recorded
+ * (pinned) value wins per name, anything unrecorded resolves live — the
+ * fallback for a process started before pinning existed. Environment settings
+ * are always live. `entryOverrides` are `--var` values, passed only while a
+ * process is being entered.
+ */
+const settingsFor = (
+  config: Pick<ConfigOperations, "workflowVars" | "rcVars" | "workflowEnv" | "rcEnv">,
+  pinnedVars: Readonly<Record<string, string>>,
+  hostEnv: Readonly<Record<string, string | undefined>>,
+  entryOverrides: Readonly<Record<string, string>> = {},
+): { readonly vars: Record<string, string>; readonly env: Record<string, string> } => ({
+  vars: {
+    ...resolveVars(config.workflowVars, config.rcVars, entryOverrides, hostEnv),
+    ...pinnedVars,
+  },
+  env: resolveVars(config.workflowEnv, config.rcEnv, {}, hostEnv),
+})
+
+/**
  * `judgeBudgetBytes` is the one var that refuses rather than disabling its
  * mechanism when blanked: without a bound the judge payload is rejected
  * anyway. Absent falls back to a conservative default.
@@ -425,6 +451,7 @@ interface ReplaySetup {
   readonly def: WorkflowDefinition
   readonly run: ProcessRun
   readonly vars: Record<string, string>
+  readonly env: Record<string, string>
   readonly budget: number
   readonly workspace: WorkspaceOps
   /**
@@ -459,6 +486,7 @@ const replayFor = (
     flow: setup.def.flow,
     episode: { entry: setup.run.entry, base: setup.base, commits: setup.episode },
     vars: setup.vars,
+    env: setup.env,
     start: setup.run.diffBase,
     startTree:
       setup.run.diffBase === EMPTY_TREE
@@ -669,6 +697,7 @@ interface Rest extends ResolvedRest {
   readonly trace: readonly ReachedStep[]
   readonly run: ProcessRun
   readonly vars: Record<string, string>
+  readonly env: Record<string, string>
   readonly changes: readonly PendingChange[]
   readonly memory: string | undefined
   readonly memoryResumed: boolean
@@ -699,7 +728,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const host = yield* Host
     const def = config.workflow
     const run = yield* computeProcessRun(git, def, ref)
-    const vars = resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env)
+    const { vars, env } = settingsFor(config, run.pinnedVars, host.env)
     const budget = yield* Effect.try({
       try: () => judgeBudgetBytes(vars),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -727,6 +756,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       def,
       run,
       vars,
+      env,
       budget,
       workspace,
       base,
@@ -772,6 +802,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       trace: outcome.trace,
       run,
       vars,
+      env,
       changes,
       memory: memory.key,
       memoryResumed: memory.resumed,
@@ -799,7 +830,7 @@ export const entryRefusal = (
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
     const host = yield* Host
-    const vars = resolveVars(config.workflowVars, config.rcVars, entryVars, host.env)
+    const { vars, env } = settingsFor(config, {}, host.env, entryVars)
     const workspace = rest.setup.workspace
     const outcome = yield* Effect.promise(() =>
       replay({
@@ -810,6 +841,7 @@ export const entryRefusal = (
           commits: [],
         },
         vars,
+        env,
         start: "",
         budgetBytes: rest.setup.budget,
         skills: rest.def.skills,
@@ -897,6 +929,50 @@ const reviewGateRewrite = (def: StepDef): Rewrite | undefined => {
   return { path: def.file, apply: (content) => reviewFormat.clearTicks(content) }
 }
 
+const multilineRefusal = (vars: Record<string, string>): Landing | undefined => {
+  const multiline = multilineSetting(vars)
+  return multiline === undefined
+    ? undefined
+    : {
+        kind: "refusal",
+        message: `gtd: process setting "${multiline}" spans several lines — a process setting is pinned in a commit trailer and must be a single line`,
+      }
+}
+
+const landingTarget = (
+  outcome: Awaited<ReturnType<typeof replayFor>>,
+  rest: Rest,
+): Effect.Effect<StateName | Landing, Error> => {
+  if (outcome.kind === "refused")
+    return Effect.succeed({ kind: "refusal", message: outcome.message })
+  if (outcome.kind === "divergence" || outcome.kind === "failed") {
+    return Effect.fail(new Error(outcome.message))
+  }
+  return Effect.succeed(outcome.kind === "rest" ? outcome.rest.name : rest.def.initial)
+}
+
+const landingTo = (rest: Rest, to: StateName): Landing => {
+  if (rest.changes.length === 0 && rest.stepDef.kind === "script" && to === rest.state) {
+    return { kind: "noop", settled: true }
+  }
+  // The landing that leaves the flow's first step starts the process: it
+  // pins the process settings every later invocation reads back.
+  const starts = noProcessUnderway(rest) && to !== rest.def.initial
+  const refused = starts ? multilineRefusal(rest.vars) : undefined
+  if (refused !== undefined) return refused
+  return {
+    kind: "commit",
+    to,
+    spec: {
+      actor: rest.actor,
+      from: rest.state,
+      to,
+      step: rest.step.id,
+      ...(starts ? { vars: rest.vars } : {}),
+    },
+  }
+}
+
 /**
  * What landing the pending turn at `rest` does — a pure decision from a
  * replay with the working tree as the pending turn. The target step is
@@ -919,19 +995,9 @@ const decideLanding = (
         ...(verdicts !== undefined ? { verdicts } : {}),
       }),
     )
-    if (outcome.kind === "refused") return { kind: "refusal", message: outcome.message }
-    if (outcome.kind === "divergence" || outcome.kind === "failed") {
-      return yield* Effect.fail(new Error(outcome.message))
-    }
-    const to = outcome.kind === "rest" ? outcome.rest.name : rest.def.initial
-    if (rest.changes.length === 0 && rest.stepDef.kind === "script" && to === rest.state) {
-      return { kind: "noop", settled: true }
-    }
-    return {
-      kind: "commit",
-      to,
-      spec: { actor: rest.actor, from: rest.state, to, step: rest.step.id },
-    }
+    const to = yield* landingTarget(outcome, rest)
+    if (typeof to !== "string") return to
+    return landingTo(rest, to)
   })
 
 /** Where landing the pending turn would leave the process, or `undefined` when it would land nothing. */
@@ -979,6 +1045,6 @@ export const summaryFor = (
         .map((entry) => ({ hash: entry.hash, state: entry.state })),
       processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
       processCostByModel: costByModel(run.costEntries),
-      vars: resolveVars(config.workflowVars, config.rcVars, run.entryVars, host.env),
+      ...settingsFor(config, run.pinnedVars, host.env),
     })
   })

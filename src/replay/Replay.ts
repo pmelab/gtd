@@ -54,7 +54,10 @@ export interface PendingTurn {
 export interface ReplayInput {
   readonly flow: Flow
   readonly episode: Episode
+  /** Process settings: flow code may branch on these. */
   readonly vars: Readonly<Record<string, string>>
+  /** Environment settings: read live, so flow code must not let them change the next step. */
+  readonly env: Readonly<Record<string, string>>
   /** The process's diff base — what `start()` returns. */
   readonly start: string
   /** `start`'s tree, for a diff base outside the episode (an entered process's review base predates its opening commit). */
@@ -547,6 +550,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
           }))
         }),
     vars: input.vars,
+    env: input.env,
     start: () => input.start,
     // Shares `resolveSkills` with the wire resolver (`resolve`, above) so a
     // step's prompt preamble and its wire `skills` field can never drift:

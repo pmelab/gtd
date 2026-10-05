@@ -12,11 +12,12 @@ description: >-
 
 A gtd workflow is **plain async TypeScript**: a `gtd.config.ts` at the
 repository root default-exports the **flow**, one async function that awaits
-**steps** built from `@pmelab/gtd/flows`; optional `defaults`, `summary`, `base`
-and `steering` (steering file → mode, for the LSP) exports sit beside it, and
-any other export is a helper gtd ignores. Every step is a commit; gtd finds
-where a process rests by **replaying** the flow over the episode's commits, so
-the git history IS the state and nothing is stored anywhere else.
+**steps** built from `@pmelab/gtd/flows`; optional `defaults` (process
+settings), `envDefaults` (environment settings), `summary`, `base` and
+`steering` (steering file → mode, for the LSP) exports sit beside it, and any
+other export is a helper gtd ignores. Every step is a commit; gtd finds where a
+process rests by **replaying** the flow over the episode's commits, so the git
+history IS the state and nothing is stored anywhere else.
 
 Your job is to produce or edit that module so it loads cleanly and does what the
 user wants. Driving a workflow once it exists is a separate concern — that is
@@ -38,7 +39,13 @@ by importing what you keep and writing only what changes:
 import { start } from "@pmelab/gtd/flows"
 import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
 
-export { defaults, summary, base, steering } from "@pmelab/gtd/workflow"
+export {
+  defaults,
+  envDefaults,
+  summary,
+  base,
+  steering,
+} from "@pmelab/gtd/workflow"
 
 export default async ({ entry }) =>
   entry === "hotfix"
@@ -100,10 +107,12 @@ left, never the live working tree): `read(path)`, `glob(pattern)`,
 `changes(glob?)` (what the last step changed: `{ path, status, before, after }`
 per path, `status` one of `"added"`/`"modified"`/`"deleted"`, plus `paths` and
 `get(path)`), `sections(text)` (`## ` headings), `openQuestions(text)` (a `qa`
-document's unanswered questions), `vars`, `head()` (the commit the flow stands
-on) and `start()` (the process's diff base). State a flow needs across steps — a
-counter, the previous report, a review round's base — lives in local variables;
-replay rebuilds them.
+document's unanswered questions), `vars` (process settings, pinned at process
+start — safe to branch on), `env` (environment settings, read live — only for
+prompt text, step options and `run()` bodies, never a branch), `head()` (the
+commit the flow stands on) and `start()` (the process's diff base). State a flow
+needs across steps — a counter, the previous report, a review round's base —
+lives in local variables; replay rebuilds them.
 
 Composition: `scope(name, fn)` prefixes step names (`build.fix`) and sets their
 **memory scope** (one scope = one agent conversation = one model/system — mixing
@@ -125,8 +134,9 @@ landing — call it right after the step whose turn you reject.
   to `<name>` (`undefined` on an ordinary start). Branch on it, and `refuse()`
   names you don't accept; a flow that never reads `entry` accepts none. An
   `export const base = (entry, vars) => commitish | undefined` fixes an entered
-  process's diff base. `--var <name>=<value>` only overrides names the
-  workflow's `defaults` or `.gtdrc` `vars:` declare.
+  process's diff base. `--var <name>=<value>` only pins process settings: names
+  the workflow's `defaults` or `.gtdrc` `vars:` declare — never an environment
+  setting.
 
 ## Landing rules you are designing for
 
@@ -146,7 +156,7 @@ Branch on what the step left, not on who acted:
 ```ts
 await run(
   "check",
-  `${vars.testCommand} > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md`,
+  `${env.testCommand} > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md`,
 )
 if (read(".gtd/FEEDBACK.md") !== undefined) {
   await agent("fix", "Fix what .gtd/FEEDBACK.md reports, then delete it.", {

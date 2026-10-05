@@ -129,6 +129,7 @@ describe("summaryPrompt", () => {
         { model: "base", cost: 7 },
       ],
       vars: {},
+      env: {},
     })
     expect(prompt).toContain("Token cost: 12\n- smart: 5\n- base: 7\n\nPrint the closing message")
   })

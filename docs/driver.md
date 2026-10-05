@@ -225,9 +225,9 @@ Every script gtd emits — `gtd land --json=script`, `gtd --entry <state>`,
 format/validate script `gtd validate` prints — is POSIX `sh`, portable to
 `dash`: a driver may run any of them with any POSIX-compliant shell, not
 specifically bash. The same convention extends to the bundled workflow's
-`testCommand` variable (what its checks run through `sh -c`): it is expected to
-be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION only — gtd never
-inspects or validates `testCommand`'s shell dialect itself.
+`testCommand` environment setting (what its checks run through `sh -c`): it is
+expected to be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION only
+— gtd never inspects or validates `testCommand`'s shell dialect itself.
 
 A `script` beat's content is the whole script, rendered from values the flow
 already decided — for the bundled workflow, its checks (which run
@@ -597,7 +597,11 @@ contract: exit 1, why on stderr, nothing on stdout.
 
 With no `--provider`, `gtd judge run` picks `jev` when `TYPESAFE_API_KEY` is set
 and non-empty — the keyed speed-up — and `llm` otherwise. It never falls back
-from one to the other: a failing jev does not retry through `claude`.
+from one to the other: a failing jev does not retry through `claude`. A repo can
+pin the choice without editing the driver: a `judge: { provider, model }` key in
+`.gtdrc`, overridden per field by the `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL`
+environment variables, with the `--provider` / `--model` flags winning over
+both.
 
 **Calibration risk: the `llm` provider's `p` is self-reported by the model, not
 a measured probability.** Workflows gate on `p` floors (0.9 / 0.7), and a model

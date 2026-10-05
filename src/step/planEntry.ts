@@ -1,7 +1,7 @@
 import { Effect } from "effect"
-import { Narrator } from "../Commentary.js"
+import { GtdUsageError, Narrator } from "../Commentary.js"
 import { GitService, Host, Workspace } from "../platform/index.js"
-import { ConfigDiscovery, ConfigService, resolveVars } from "../workflow/index.js"
+import { ConfigDiscovery, ConfigService, multilineSetting, resolveVars } from "../workflow/index.js"
 import { formatCommitMessage, formatSubject } from "../replay/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
 import type { LandStep } from "./LandStep.js"
@@ -31,9 +31,39 @@ type Refused = Extract<EntryOutcome, { kind: "refusal" }>
 
 const refusal = (message: string): Refused => ({ kind: "refusal", message })
 
+const checkOverrides = (
+  commandLabel: string,
+  varOverrides: Record<string, string>,
+  declaredNames: readonly string[],
+  envNames: readonly string[],
+): Effect.Effect<EntryOutcome | undefined, Error> =>
+  Effect.gen(function* () {
+    const environmentOnly = Object.keys(varOverrides).filter(
+      (n) => !declaredNames.includes(n) && envNames.includes(n),
+    )
+    if (environmentOnly.length > 0) {
+      return yield* Effect.fail(
+        new GtdUsageError(
+          `${commandLabel}: --var pins process settings only; ${environmentOnly.join(", ")} ${
+            environmentOnly.length === 1 ? "is an environment setting" : "are environment settings"
+          } — set it under "env:" in .gtdrc or with a GTD_<NAME> environment variable`,
+        ),
+      )
+    }
+    const undeclared = Object.keys(varOverrides).filter((n) => !declaredNames.includes(n))
+    if (undeclared.length > 0) {
+      return refusal(
+        `${commandLabel}: --var name(s) not declared by this workflow: ${undeclared.join(
+          ", ",
+        )} — declared: ${declaredNames.length > 0 ? declaredNames.join(", ") : "(none)"}`,
+      )
+    }
+    return undefined
+  })
+
 /**
  * `gtd --entry <name>`: start a brand NEW process at a workflow entry, writing
- * an opening commit that carries zero or more `Gtd-Var:` trailers, plus a
+ * an opening commit that carries every process setting as a `Gtd-Var:` trailer, plus a
  * `Gtd-Review-Base:` trailer when the entry fixes the process's diff base.
  * All validation is a REFUSAL, not an Effect failure.
  */
@@ -65,18 +95,23 @@ export const planEntry = (
 
     const config = yield* (yield* ConfigService).load
     const declaredNames = Object.keys({ ...config.workflowVars, ...config.rcVars })
-    const undeclared = Object.keys(varOverrides).filter((n) => !declaredNames.includes(n))
-    if (undeclared.length > 0) {
-      return refusal(
-        `${commandLabel}: --var name(s) not declared by this workflow: ${undeclared.join(
-          ", ",
-        )} — declared: ${declaredNames.length > 0 ? declaredNames.join(", ") : "(none)"}`,
-      )
-    }
+    const overrideRefusal = yield* checkOverrides(
+      commandLabel,
+      varOverrides,
+      declaredNames,
+      Object.keys({ ...config.workflowEnv, ...config.rcEnv }),
+    )
+    if (overrideRefusal !== undefined) return overrideRefusal
 
     let base: string | undefined
     const baseOf = current.def.base
     const vars = resolveVars(config.workflowVars, config.rcVars, varOverrides, (yield* Host).env)
+    const multiline = multilineSetting(vars)
+    if (multiline !== undefined) {
+      return refusal(
+        `${commandLabel}: process setting "${multiline}" spans several lines — a process setting is pinned in a commit trailer and must be a single line`,
+      )
+    }
     const template = yield* Effect.try({
       try: () => baseOf?.(name, vars),
       catch: (e) => new Error(`${commandLabel}: ${e instanceof Error ? e.message : String(e)}`),
@@ -92,7 +127,7 @@ export const planEntry = (
       actor,
       to: name,
       ...(base !== undefined ? { reviewBase: base } : {}),
-      vars: varOverrides,
+      vars,
     })
     const steps: readonly LandStep[] = [
       { kind: "gitWrite", write: { kind: "commitAll", message } },

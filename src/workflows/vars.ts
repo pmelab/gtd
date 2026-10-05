@@ -1,21 +1,27 @@
-// The bundled workflow's variable defaults. `.gtdrc` `vars:`, `--var` and
-// `GTD_<NAME>` override any of them.
+// The bundled workflow's settings, in two kinds. A process setting changes
+// which step comes next, so it is pinned for the whole process at its start;
+// an environment setting only changes how a step runs on this machine, so it
+// is read live on every invocation. `.gtdrc` `vars:`/`env:`, `--var` (process
+// settings only) and `GTD_<NAME>` override either.
+
+/** Process settings. */
 export const defaults: Readonly<Record<string, string>> = {
-  testCommand: "npm test",
-  plannerModel: "smart",
-  coderModel: "base",
   reviewBase: "",
   judgeBudgetBytes: "32768",
   judgeIdenticalMinP: "0.7",
   specPreJudge: "0.9",
   reviewNoteActionable: "0.7",
   architectureSkipMinP: "0.85",
-  // The per-step skill lists formerly declared here as `*Skills` vars now
-  // live in `./skills.ts`, addressed per step by `.gtdrc` `skills:`.
-  // `qualityReviews` is the one exception: it fans out into one turn per
-  // entry (`qualityLenses`, in `./review.ts`) rather than naming one step's
-  // skill list, so it stays a var — pairing with `build.quality.reviewing`'s
-  // entry in `./skills.ts`, which replaces the lens on every one of those
-  // turns.
+  // `qualityReviews` fans out into one turn per entry (`qualityLenses`, in
+  // `./review.ts`) rather than naming one step's skill list, so it is a
+  // setting — pairing with `build.quality.reviewing`'s entry in
+  // `./skills.ts`, which replaces the lens on every one of those turns.
   qualityReviews: "owasp-security, ponytail-review, test-audit",
+}
+
+/** Environment settings. */
+export const envDefaults: Readonly<Record<string, string>> = {
+  testCommand: "npm test",
+  plannerModel: "smart",
+  coderModel: "base",
 }

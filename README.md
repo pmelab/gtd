@@ -359,8 +359,11 @@ noted in steps 2, 3, and 4 below.
    users only; model `haiku`, `--model <name>` overrides) and reuses its login.
    With no `--provider`, `gtd judge run` picks jev when `TYPESAFE_API_KEY` is
    set and non-empty and no `--model` is given, else llm — never falling back
-   across them; `--model` with `--provider fixed`/`jev` is refused. jev and llm
-   exit 1 with nothing on stdout when they cannot answer every question):
+   across them; a `.gtdrc` `judge: { provider, model }` key and the
+   `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment variables choose the
+   judge without editing the driver (flags win over both); `--model` with
+   `--provider fixed`/`jev` is refused. jev and llm exit 1 with nothing on
+   stdout when they cannot answer every question):
    - Every red round after the first: was the failure identical, new, or
      progress?
    - Before spending a review turn on a package: does the code already satisfy
