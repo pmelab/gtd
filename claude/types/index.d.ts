@@ -22,6 +22,8 @@ export type Run = {
   isRepeat?: boolean
   // the agent turn in flight, so a reload can land it instead of repeating it
   inflight?: { agentId: string; memory: string }
+  // a script (beat or landing) is running, so a reload must not run it again
+  isScripting?: boolean
 }
 
 declare module "claude-code" {

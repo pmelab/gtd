@@ -156,3 +156,14 @@ async function land(io: Io, b: Beat, verdict: string | undefined): Promise<Stop 
   const text = isTrue(l.idle) ? await io.plain() : l.subject || "settled"
   return { kind: "done", text, ...where(b) }
 }
+
+// What a reload that cut the loop off does next. Only a turn the agent
+// finished lands; any other end runs it again. A script cut off may have run
+// partly, and running it again is not safe to assume, so a person decides.
+export type Reloaded = "wait" | "land" | "rerun" | "halt"
+
+export function afterReload(cut: { isScripting?: boolean; agentStatus?: string }): Reloaded {
+  if (cut.isScripting) return "halt"
+  if (cut.agentStatus === "running") return "wait"
+  return cut.agentStatus === "completed" ? "land" : "rerun"
+}

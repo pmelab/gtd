@@ -32,6 +32,9 @@ export function question(r: Run) {
 export const STALE =
   "This question is out of date: gtd has already moved on. Choose Close to dismiss it."
 
+export const RELOAD_CUT_SCRIPT =
+  "a reload cut a script off mid-run — check the working tree, then Continue to run it again"
+
 export const handoffQuestion =
   "Who should take over from here? Type their GitHub username, or let anyone on the team pick it up."
 

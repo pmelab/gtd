@@ -30,6 +30,8 @@ export async function throwTo(
   }
   const on = await throwBranch(io, now)
   if (typeof on === "string") return fail(on)
+  const behind = await remoteAhead(io, on.branch)
+  if (behind) return fail(behind)
   const pushed = await pushBranch(io, on.branch)
   if (pushed) return fail(pushed)
   const at = rest.label ? `${rest.state} (${rest.label})` : (rest.state ?? "a gate")
@@ -46,6 +48,17 @@ export async function throwTo(
     `Thrown ${to} at **${at}**. Catch it with \`/gtd catch ${on.branch}\`.\n`,
   )
   return { ok: true, text: `Thrown ${to}: ${pr.url}` }
+}
+
+// The catcher checks out what origin holds, so a throw describing local HEAD
+// must not leave origin elsewhere: fetch first, a stale tracking ref can hide
+// a teammate's commits or a rewind. Returns why the throw refuses, or nothing.
+async function remoteAhead(io: ShipIo, branch: string) {
+  const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
+  if (!(await ok("fetch", "--prune", "origin"))) return "git fetch failed."
+  if (!(await ok("rev-parse", "--verify", "--quiet", `origin/${branch}`))) return undefined
+  if (await ok("merge-base", "--is-ancestor", `origin/${branch}`, "HEAD")) return undefined
+  return `origin/${branch} has commits HEAD lacks. Pull or catch them first, then throw.`
 }
 
 // The branch to throw, moving the process off the default branch onto a new
@@ -82,8 +95,8 @@ ${content.slice(0, 6000)}
 </details>
 `
 
-// Opens the hand-off's draft, or turns the open pull request back into one; a
-// string is why that failed.
+// Opens the hand-off's draft, or refreshes a thrown one; a string is why that
+// failed.
 async function draft(
   io: ShipIo,
   branch: string,
@@ -125,10 +138,12 @@ async function draft(
   }
   const pr = JSON.parse(view.out) as Pr
   if (pr.state !== "OPEN") return `The pull request for ${branch} is ${pr.state}, not open.`
-  // A pull request someone opened for review keeps its own description.
-  if (pr.body?.includes(THROWN))
+  // A pull request someone opened for review keeps its own description and
+  // stays ready: only ship marks a draft ready again, and only a thrown one.
+  if (pr.body?.includes(THROWN)) {
     await io.run(["gh", "pr", "edit", String(pr.number), "--body-file", "-"], body)
-  await io.run(["gh", "pr", "ready", String(pr.number), "--undo"])
+    await io.run(["gh", "pr", "ready", String(pr.number), "--undo"])
+  }
   return pr
 }
 

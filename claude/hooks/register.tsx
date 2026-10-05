@@ -2,7 +2,7 @@ import { atom, read, update } from "claude-code"
 import type { EngineInterface, Register } from "claude-code"
 
 import type { Run, Stop } from "../types"
-import { drive, isTrue } from "./drive"
+import { afterReload, drive, isTrue } from "./drive"
 import type { Beat, Io, Landing, TurnEnd } from "./drive"
 import { enter } from "./entry"
 import { subagentModel } from "./models"
@@ -25,6 +25,7 @@ import {
   pushText,
   runningLine,
   question,
+  RELOAD_CUT_SCRIPT,
   SAFE,
   SHIP,
   shipQuestion,
@@ -130,9 +131,12 @@ function io($: $): Io {
       const argv = log
         ? ["sh", "-c", 'sh -c "$1" >>"$2" 2>&1', "gtd", script, log]
         : ["sh", "-c", script]
+      await update($, run, (r) => ({ ...r, isScripting: true }))
       const child = $.process.spawn({ argv, cwd: root })
       for await (const _ of child);
-      return (await child.result).code ?? 1
+      const code = (await child.result).code ?? 1
+      await update($, run, (r) => ({ ...r, isScripting: false }))
+      return code
     },
     check: async (script) => {
       // Streamed for the same reason: a validator may outlast run's cap.
@@ -669,16 +673,30 @@ async function resume($: $) {
 
 // A turn a reload cut off keeps running as a subagent; wait for it, then land
 // it rather than start it again.
-async function resumeAfterReload($: $, inflight: Run["inflight"]) {
+async function resumeAfterReload($: $, was: Run) {
   await findRoot($)
+  const { inflight } = was
   const agent = inflight && (await $.agent.list()).find((a) => a.id === inflight.agentId)
-  if (agent?.status === "running") {
+  const next = afterReload({ isScripting: was.isScripting, agentStatus: agent?.status })
+  if (next === "wait") {
     $.ui.status("picking up where gtd left off…")
-    $.clock.after(5000, () => void resumeAfterReload($, inflight))
+    $.clock.after(5000, () => void resumeAfterReload($, was))
     return
   }
-  await update($, run, (r) => ({ ...r, isRunning: false, inflight: undefined }))
-  await start($, inflight?.memory)
+  await update($, run, (r) => ({ ...r, isRunning: false, inflight: undefined, isScripting: false }))
+  if (next === "halt") {
+    const stop: Stop = {
+      kind: "stopped",
+      text: RELOAD_CUT_SCRIPT,
+      state: was.state,
+      label: was.label,
+    }
+    await update($, run, (r) => ({ ...r, stop }))
+    $.ui.status(undefined)
+    $.ui.toast(headline(stop))
+    return
+  }
+  await start($, next === "land" ? inflight?.memory : undefined)
 }
 
 export const register: Register = (on) => {
@@ -689,7 +707,7 @@ export const register: Register = (on) => {
     // A reload drops the loop mid-beat and closes an open dialog; gtd keeps
     // its state in git, so pick both up again.
     const was = await read($, run)
-    if (was.isRunning) void resumeAfterReload($, was.inflight)
+    if (was.isRunning) void resumeAfterReload($, was)
     else if (was.stop?.kind === "gate") void findRoot($).then(() => openGate($))
     await $.command.register({
       name: "gtd",

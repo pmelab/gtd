@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import { drive } from "./drive"
+import { afterReload, drive } from "./drive"
 import type { Beat, Io, Landing } from "./drive"
 
 const fake = (beats: Beat[], landings: Landing[] = [], over: Partial<Io> = {}) => {
@@ -128,5 +128,18 @@ describe("drive", () => {
     )
     await drive(io, "build#a")
     expect(calls).toEqual(["land", "sh:commit", "turn:build#a:false:", "land", "sh:next"])
+  })
+})
+
+describe("after a reload", () => {
+  test("lands only a turn the agent finished", () => {
+    expect(afterReload({ agentStatus: "completed" })).toBe("land")
+    expect(afterReload({ agentStatus: "running" })).toBe("wait")
+    for (const agentStatus of ["failed", "killed", "aborted", undefined])
+      expect(afterReload({ agentStatus })).toBe("rerun")
+  })
+
+  test("never runs a cut-off script again on its own", () => {
+    expect(afterReload({ isScripting: true, agentStatus: "completed" })).toBe("halt")
   })
 })
