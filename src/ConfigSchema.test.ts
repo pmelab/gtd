@@ -5,10 +5,10 @@ import { ConfigSchema } from "./ConfigSchema.js"
 type JsonObject = Record<string, unknown>
 
 describe("ConfigSchema — the published shape", () => {
-  it("publishes vars, modes, ui and skills", () => {
+  it("publishes vars, env, judge, modes, ui and skills", () => {
     const schema = JSONSchema.make(ConfigSchema) as unknown as JsonObject
     const properties = schema["properties"] as JsonObject
-    expect(Object.keys(properties)).toEqual(["vars", "modes", "ui", "skills"])
+    expect(Object.keys(properties)).toEqual(["vars", "env", "judge", "modes", "ui", "skills"])
   })
 })
 
@@ -69,5 +69,31 @@ describe("ConfigSchema — top-level `ui:`", () => {
       expect(typeof prop["description"], `property "${key}"`).toBe("string")
       expect((prop["description"] as string).length, `property "${key}"`).toBeGreaterThan(0)
     }
+  })
+})
+
+describe("ConfigSchema — top-level `judge:`", () => {
+  const decode = (input: unknown) =>
+    Schema.decodeUnknownSync(ConfigSchema)(input, { onExcessProperty: "error" })
+
+  it("decodes a provider and a model", () => {
+    expect(decode({ judge: { provider: "llm", model: "haiku" } }).judge).toEqual({
+      provider: "llm",
+      model: "haiku",
+    })
+  })
+
+  it("rejects an unknown key", () => {
+    expect(() => decode({ judge: { speed: "fast" } })).toThrow()
+  })
+
+  it("rejects a provider outside fixed|jev|llm", () => {
+    expect(() => decode({ judge: { provider: "gpt" } })).toThrow()
+  })
+
+  it("accepts `env:` as an open scalar map", () => {
+    expect(decode({ env: { testCommand: "make test" } }).env).toEqual({
+      testCommand: "make test",
+    })
   })
 })

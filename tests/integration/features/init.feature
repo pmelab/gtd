@@ -1,5 +1,5 @@
 @live
-Feature: gtd init — seed a minimal .gtdrc.json (default vars + formatting)
+Feature: gtd init — seed a minimal .gtdrc.json (default env + formatting)
 
   `gtd init` (see src/program.ts) writes a MINIMAL `.gtdrc.json` seeding the
   default variables a fresh project usually changes (the test command) and a
@@ -20,7 +20,8 @@ Feature: gtd init — seed a minimal .gtdrc.json (default vars + formatting)
     And stdout contains "commit"
     And ".gtdrc.json" exists
     And ".gtdrc.json" contains "\"$schema\""
-    And ".gtdrc.json" contains "\"vars\""
+    And ".gtdrc.json" contains "\"env\""
+    And ".gtdrc.json" does not contain "\"vars\""
     And ".gtdrc.json" contains "\"testCommand\""
     And ".gtdrc.json" contains "npm test"
     # A ready-to-edit top-level `modes:` block seeds a Prettier formatter for the

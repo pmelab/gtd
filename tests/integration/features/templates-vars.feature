@@ -1,10 +1,12 @@
 @inmem
-Feature: "vars" — the three-layer merged variable map every workflow sees
+Feature: "vars" and "env" — the merged setting maps every workflow sees
 
   Pins the merged `vars` map: a workflow's own `defaults` export, overridden by a top-level `.gtdrc` `vars:`
-  key, overridden by a `GTD_<NAME>` environment variable — later wins. Flow
-  code reads the result through `vars`, for prompt text and for a step's
-  `model` alike.
+  key, overridden by a `GTD_<NAME>` environment variable — later wins, as of
+  the process's start (it is pinned then). The `env` map layers the same way
+  from `envDefaults` and `.gtdrc` `env:`, but is read live on every call. Flow
+  code reads the results through `vars` and `env`, for prompt text and for a
+  step's `model` alike.
 
   Scenario: a workflow-declared "vars:" value renders into a prompt through `vars`
     Given a test project
@@ -78,8 +80,8 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
       """
       a note
       """
-    And gtd lands "gtd(human): idle → working"
     And an environment variable "GTD_REVIEWER" set to "carol"
+    And gtd lands "gtd(human): idle → working"
     When I run gtd next
     Then it succeeds
     And stdout contains "Assigned reviewer: carol"
@@ -181,7 +183,7 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     When I run gtd next
     Then it fails
 
-  Scenario: the bundled template resolves a planner-tier state's model from "vars.plannerModel"
+  Scenario: the bundled template resolves a planner-tier state's model from "env.plannerModel"
     Given a test project
     And the workflow
     And gtd enters "start-gate.check"
@@ -195,7 +197,7 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     And stdout contains "\"state\":\"design.triage\""
     And stdout contains "\"model\":\"smart\""
 
-  Scenario: the bundled template resolves a coder-tier state's model from "vars.coderModel"
+  Scenario: the bundled template resolves a coder-tier state's model from "env.coderModel"
     Given a test project
     And the workflow
     And gtd enters "start-gate.check"
@@ -239,3 +241,38 @@ Feature: "vars" — the three-layer merged variable map every workflow sees
     Then it succeeds
     And stdout contains "\"model\":\"opus\""
     And stdout does not contain "\"model\":\"smart\""
+
+  Scenario: "env" layers envDefaults, then ".gtdrc" env:, then "GTD_<NAME>", live on every call
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, env, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("working", `Runner: ${env.runner}`)
+      }
+
+      export const envDefaults = { runner: "alice" }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Runner: alice"
+    Given a file ".gtdrc" with:
+      """
+      env:
+        runner: bob
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Runner: bob"
+    Given an environment variable "GTD_RUNNER" set to "carol"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Runner: carol"
+    And stdout does not contain "bob"

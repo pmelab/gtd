@@ -1,4 +1,4 @@
-import { human, vars } from "../flows/index.js"
+import { env, human } from "../flows/index.js"
 import * as t from "./text.js"
 
 // The bundled workflow's single steps. A step's name is relative to the
@@ -14,8 +14,8 @@ export const REVIEW = ".gtd/REVIEW.md"
 export const QUALITY = ".gtd/QUALITY.md"
 export const SPEC_FEEDBACK = ".gtd/SPEC_FEEDBACK.md"
 
-const planner = (): string => vars.plannerModel ?? ""
-const coder = (): string => vars.coderModel ?? ""
+const planner = (): string => env.plannerModel ?? ""
+const coder = (): string => env.coderModel ?? ""
 
 // ── Planning ────────────────────────────────────────────────────────────────
 

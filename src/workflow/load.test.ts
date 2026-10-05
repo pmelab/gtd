@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GtdError, Narrator } from "../Commentary.js"
-import { ConfigDiscovery, ConfigService, configPresentAt, load } from "./index.js"
+import { ConfigDiscovery, ConfigService, configPresentAt, load, loadRcConfig } from "./index.js"
 import { GitService, Host, Workspace } from "../platform/index.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 
@@ -78,17 +78,87 @@ describe("ConfigService", () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.initial).toBe("idle")
-    expect(cfg.workflowVars["testCommand"]).toBe("npm test")
+    expect(cfg.workflowEnv["testCommand"]).toBe("npm test")
+    expect(cfg.workflowVars["testCommand"]).toBeUndefined()
     expect(cfg.rcVars).toEqual({})
+    expect(cfg.rcEnv).toEqual({})
   })
 
   it("a config with a top-level `vars:` but no gtd.config.ts uses the built-in default", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "custom-test"\n`)
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  qualityReviews: "a, b"\n`)
 
     const cfg = await getConfig()
 
     expect(cfg.workflow.initial).toBe("idle")
-    expect(cfg.rcVars).toEqual({ testCommand: "custom-test" })
+    expect(cfg.rcVars).toEqual({ qualityReviews: "a, b" })
+  })
+
+  it("a config with a top-level `env:` lands in rcEnv", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  testCommand: "custom-test"\n`)
+
+    const cfg = await getConfig()
+
+    expect(cfg.rcEnv).toEqual({ testCommand: "custom-test" })
+    expect(cfg.rcVars).toEqual({})
+  })
+
+  it("an environment setting under `vars:` is a load error naming env:", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "custom-test"\n`)
+
+    await expect(getConfig()).rejects.toThrow(
+      `"vars.testCommand" is an environment setting — move it under "env:"`,
+    )
+  })
+
+  it("a process setting under `env:` is a load error naming vars:", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  qualityReviews: "a"\n`)
+
+    await expect(getConfig()).rejects.toThrow(
+      `"env.qualityReviews" is a process setting — move it under "vars:"`,
+    )
+  })
+
+  it("a name under both `vars:` and `env:` is an error even when no workflow declares it", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  stray: a\nenv:\n  stray: b\n`)
+
+    await expect(getConfig()).rejects.toThrow(`"stray" is declared under both "vars:" and "env:"`)
+  })
+
+  it("a workflow declaring a name in both defaults and envDefaults fails to load", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      `${minimalWorkflow("first")}export const defaults = { x: "1" }\nexport const envDefaults = { x: "2" }\n`,
+    )
+
+    await expect(getConfig()).rejects.toThrow(`"x" declared in both "defaults" and "envDefaults"`)
+  })
+
+  it("a non-scalar `env:` entry is rejected like under vars:", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  bad: [1]\n`)
+
+    await expect(getConfig()).rejects.toThrow(`"env.bad" must be a string, number, or boolean`)
+  })
+
+  it("layers `judge:` per field, the inner .gtdrc winning", async () => {
+    const inner = join(projectDir, "inner")
+    mkdirSync(inner)
+    execSync("git init -q", { cwd: inner })
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `judge:\n  provider: jev\n  model: outer\n`)
+    writeFileSync(join(inner, ".gtdrc.yaml"), `judge:\n  model: inner\n`)
+    const compiled = await run(loadRcConfig, inner)
+    expect(compiled.judge).toEqual({ provider: "jev", model: "inner" })
+  })
+
+  it("loadRcConfig loads without a repository or gtd.config.ts", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `judge:\n  provider: fixed\n`)
+    writeFileSync(join(projectDir, "gtd.config.ts"), `throw new Error("never evaluated")\n`)
+    const compiled = await run(loadRcConfig, projectDir)
+    expect(compiled.judge).toEqual({ provider: "fixed" })
+  })
+
+  it("loadRcConfig fails on any .gtdrc error", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `judge:\n  provider: gpt\n`)
+    await expect(run(loadRcConfig, projectDir)).rejects.toThrow(/provider/)
   })
 
   it("layers a top-level `modes:` key over the built-in modes", async () => {

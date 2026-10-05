@@ -136,6 +136,7 @@ export interface FlowContext {
   readonly threads: (text: string) => readonly ThreadInfo[]
   readonly codeThreads: () => readonly CodeThreadInfo[]
   readonly vars: Readonly<Record<string, string>>
+  readonly env: Readonly<Record<string, string>>
   readonly head: () => string
   readonly start: () => string
   /**
@@ -256,19 +257,31 @@ export const start = (): string => ctx().start()
 export const skillsFor = (localName: string, ownSkills?: readonly string[]): readonly string[] =>
   ctx().skillsFor(localName, ownSkills)
 
-/** The merged workflow variables. */
-export const vars: Readonly<Record<string, string>> = new Proxy(
-  {},
-  {
-    get: (_target, key) => (typeof key === "string" ? ctx().vars[key] : undefined),
-    has: (_target, key) => typeof key === "string" && key in ctx().vars,
-    ownKeys: () => Object.keys(ctx().vars),
-    getOwnPropertyDescriptor: (_target, key) =>
-      typeof key === "string" && key in ctx().vars
-        ? { enumerable: true, configurable: true, value: ctx().vars[key] }
-        : undefined,
-  },
-)
+const settingsProxy = (
+  read: () => Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> =>
+  new Proxy(
+    {},
+    {
+      get: (_target, key) => (typeof key === "string" ? read()[key] : undefined),
+      has: (_target, key) => typeof key === "string" && key in read(),
+      ownKeys: () => Object.keys(read()),
+      getOwnPropertyDescriptor: (_target, key) =>
+        typeof key === "string" && key in read()
+          ? { enumerable: true, configurable: true, value: read()[key] }
+          : undefined,
+    },
+  )
+
+/** The process settings: pinned at process start, so flow code may branch on them. */
+export const vars: Readonly<Record<string, string>> = settingsProxy(() => ctx().vars)
+
+/**
+ * The environment settings: resolved live on every invocation. Flow code must
+ * read them only where they cannot change the next step (step options, script
+ * bodies) — replay cannot enforce this.
+ */
+export const env: Readonly<Record<string, string>> = settingsProxy(() => ctx().env)
 
 // ── Text utilities ──────────────────────────────────────────────────────────
 
@@ -343,6 +356,7 @@ export interface SummaryContext {
   readonly processCost: number
   readonly processCostByModel: readonly { readonly model: string; readonly cost: number }[]
   readonly vars: Readonly<Record<string, string>>
+  readonly env: Readonly<Record<string, string>>
 }
 
 /** `gtd summary`'s prompt — a workflow module's optional `summary` export. */

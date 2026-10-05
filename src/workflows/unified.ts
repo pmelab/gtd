@@ -31,7 +31,7 @@ import * as t from "./text.js"
 // re-exported below.
 
 export { threads, type ThreadInfo } from "../flows/index.js"
-export { defaults } from "./vars.js"
+export { defaults, envDefaults } from "./vars.js"
 export { skills } from "./skills.js"
 export { agentWithSkills } from "./text.js"
 export * from "./steps.js"

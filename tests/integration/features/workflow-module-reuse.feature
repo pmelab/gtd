@@ -17,7 +17,7 @@ Feature: a gtd.config.ts builds on the bundled workflow through @pmelab/gtd/work
       import { start } from "@pmelab/gtd/flows"
       import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
 
-      export { defaults, summary, base, steering, skills } from "@pmelab/gtd/workflow"
+      export { defaults, envDefaults, summary, base, steering, skills } from "@pmelab/gtd/workflow"
 
       export default async ({ entry }) =>
         entry === "hotfix" ? afterTail(await buildTail(true, start())) : bundled({ entry })
@@ -41,9 +41,10 @@ Feature: a gtd.config.ts builds on the bundled workflow through @pmelab/gtd/work
     And the last commit subject is "gtd(agent): build.fix → build.health.check"
 
   Scenario: the bundled defaults are the reusing workflow's own
-    When I run gtd with args "--entry hotfix --var testCommand=true"
+    When I run gtd with args "--entry hotfix --var judgeBudgetBytes=65536"
     Then it succeeds
     And the last commit subject is "gtd(human): hotfix"
+    And the last commit body contains "Gtd-Var: judgeBudgetBytes=65536"
 
   Scenario: the re-exported skills export keeps build.fix's bundled skill list — the re-export, not a literal, is what resolves it here
     When I run gtd with args "--entry hotfix"

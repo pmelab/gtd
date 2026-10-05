@@ -33,6 +33,14 @@ describe("the commit-message codec", () => {
     expect(parsed.vars).toEqual({ reviewBase: "main=x" })
   })
 
+  it("writes Gtd-Var trailers sorted by name, whatever the insertion order", () => {
+    const one = formatCommitMessage({ actor: "human", to: "x", vars: { b: "2", a: "1", c: "" } })
+    const two = formatCommitMessage({ actor: "human", to: "x", vars: { c: "", a: "1", b: "2" } })
+    expect(one).toBe(two)
+    expect(one).toBe("gtd(human): x\n\nGtd-Var: a=1\nGtd-Var: b=2\nGtd-Var: c=")
+    expect(parseCommitMessage(one).vars).toEqual({ a: "1", b: "2", c: "" })
+  })
+
   it("skips a malformed trailer instead of failing", () => {
     const parsed = parseCommitMessage("gtd(judge): a → b\n\nGtd-Judge: {not json\nGtd-Step: nope")
     expect(parsed.judge).toEqual([])

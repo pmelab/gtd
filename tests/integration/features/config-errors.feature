@@ -105,3 +105,15 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     And stderr contains "gtd config:"
     And stderr contains ".gtdrc: testCommand: "
     And stderr contains "\"testCommand\" is unexpected"
+
+  Scenario: the bundled testCommand under vars: fails to load, naming env:
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      vars:
+        testCommand: make test
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "gtd config:"
+    And stderr contains "\"vars.testCommand\" is an environment setting — move it under \"env:\""

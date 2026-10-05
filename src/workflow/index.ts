@@ -1,6 +1,12 @@
 // The config boundary: discovery of `.gtdrc` levels and `gtd.config.ts`,
 // their decode and compile, and the loaded workflow.
-export { load, ConfigService, configPresentAt } from "./load.js"
+export {
+  load,
+  loadRcConfig,
+  ConfigService,
+  configPresentAt,
+  type ConfigOperations,
+} from "./load.js"
 export {
   ConfigDiscovery,
   parseConfigLevel,
@@ -9,5 +15,5 @@ export {
   walkUp,
 } from "./discovery.js"
 export { formatDiagnostic } from "./Diagnostic.js"
-export { resolveVars } from "./vars.js"
+export { resolveVars, multilineSetting } from "./vars.js"
 export { renderInitScaffold } from "./init.js"

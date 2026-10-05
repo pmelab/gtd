@@ -323,3 +323,74 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Then the exit code is 1
     And stdout is empty
     And stderr contains "claude exited 1: no login"
+
+  # `judge:` in `.gtdrc`, then GTD_JUDGE_PROVIDER, then the flag — per field.
+  @inmem
+  Scenario: without flags, the provider comes from the .gtdrc judge: key
+    Given a gtd config file at ".gtdrc" with:
+      """
+      judge:
+        provider: fixed
+      """
+    And an environment variable "GTD_JUDGE_ANSWERS" set to "[{\"id\":\"q1\",\"answer\":true,\"p\":0.9}]"
+    When I run gtd with args "judge run" and stdin:
+      """
+      {"state":{},"questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}
+      """
+    Then it succeeds
+    And stdout contains "\"id\":\"q1\""
+
+  @inmem
+  Scenario: GTD_JUDGE_PROVIDER beats the .gtdrc judge: provider
+    Given a gtd config file at ".gtdrc" with:
+      """
+      judge:
+        provider: fixed
+      """
+    And an environment variable "GTD_JUDGE_PROVIDER" set to "jev"
+    When I run gtd with args "judge run" and stdin:
+      """
+      {"state":{},"questions":[]}
+      """
+    Then it fails
+    And stderr contains "--provider jev needs TYPESAFE_API_KEY"
+
+  @inmem
+  Scenario: a --provider flag beats both GTD_JUDGE_PROVIDER and judge:
+    Given a gtd config file at ".gtdrc" with:
+      """
+      judge:
+        provider: jev
+      """
+    And an environment variable "GTD_JUDGE_PROVIDER" set to "jev"
+    And an environment variable "GTD_JUDGE_ANSWERS" set to "[{\"id\":\"q1\",\"answer\":true,\"p\":0.9}]"
+    When I run gtd with args "judge run --provider fixed" and stdin:
+      """
+      {"state":{},"questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}
+      """
+    Then it succeeds
+    And stdout contains "\"id\":\"q1\""
+
+  @inmem
+  Scenario: a model from judge: with a non-llm provider is the resolved-pair error
+    Given a gtd config file at ".gtdrc" with:
+      """
+      judge:
+        model: sonnet
+      """
+    When I run gtd with args "judge run --provider jev" and stdin:
+      """
+      {"state":{},"questions":[]}
+      """
+    Then it fails
+    And stderr contains "a model only applies to provider llm, not jev"
+
+  @inmem
+  Scenario: an invalid GTD_JUDGE_PROVIDER names the variable and exits 1
+    Given an environment variable "GTD_JUDGE_PROVIDER" set to "gpt"
+    When I run gtd with args "judge run" and stdin:
+      """
+      {"state":{},"questions":[]}
+      """
+    Then the exit code is 1
+    And stderr contains "GTD_JUDGE_PROVIDER"

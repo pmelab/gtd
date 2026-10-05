@@ -1,10 +1,10 @@
 import {
   agent,
   codeThreads,
+  env,
   head,
   skillsFor,
   start,
-  vars,
   type AgentOptions,
   type SummaryContext,
 } from "../flows/index.js"
@@ -195,7 +195,7 @@ ${questionBarReturn}
   never re-open one. A genuinely open PRODUCT point may still
   raise a fresh \`## Open Questions\` entry: the product gate sits
   on this path exactly as on the first lap
-- Before grouping anything, run \`${vars.testCommand}\`
+- Before grouping anything, run \`${env.testCommand}\`
   yourself — a loop-back runs no green-baseline gate, so the
   tree may already be red (reverting the edit can undo a fix it
   made). If red, make that breakage the first concern, ahead of

@@ -7,8 +7,8 @@ Usage: gtd [command] [options]
 
 Commands:
   init             Scaffold a minimal .gtdrc.json for this repo, seeding the
-                   default variables you are most likely to change (the test
-                   command) and a Prettier formatting suggestion. gtd runs its
+                   environment setting you are most likely to change (the test
+                   command, under env:) and a Prettier formatting suggestion. gtd runs its
                    built-in workflow by default, so no workflow is written —
                    write a gtd.config.ts only to customize the workflow itself.
                    Takes no argument. Run once per repo; refuses if a gtd
@@ -153,8 +153,11 @@ Commands:
                    does not cover are left out. --provider jev asks TypeSafe
                    (TYPESAFE_API_KEY). --provider llm asks the `claude` CLI
                    on PATH (Claude Code only), model haiku unless --model.
-                   No --provider: jev when TYPESAFE_API_KEY is set and no
-                   --model is given, else llm. Needs no repository. jev and
+                   No --provider: GTD_JUDGE_PROVIDER, then .gtdrc judge:
+                   provider, else jev when TYPESAFE_API_KEY is set and no
+                   model is given, else llm; --model likewise falls back to
+                   GTD_JUDGE_MODEL, then judge: model. Needs no repository,
+                   only .gtdrc files. jev and
                    llm exit 1 when they cannot answer every question, with
                    nothing on stdout
   version          Print version and exit
@@ -185,20 +188,23 @@ Options:
                    instead of the packaged build
   --provider=<name>
                    (gtd judge run only) the answerer: fixed | jev | llm;
-                   omitted: jev when TYPESAFE_API_KEY is set, else llm
+                   omitted: GTD_JUDGE_PROVIDER, then .gtdrc judge:, then jev
+                   when TYPESAFE_API_KEY is set, else llm
   --answers=<path> (gtd judge run --provider fixed only) a JSON verdict array
                    [{ id, answer, p }]; else the GTD_JUDGE_ANSWERS env var
                    (inline JSON) is read
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land, with --cost) tag that cost's model
-                   (gtd judge run, llm answerer) the claude model; default haiku
+                   (gtd judge run, llm answerer) the claude model; omitted:
+                   GTD_JUDGE_MODEL, then .gtdrc judge:, then haiku
   --entry <state>  (with no command at all) start a brand new process,
                    handing <state> to the workflow as its entry —
                    authenticated as human
   --var <name>=<value>
-                   (with --entry; repeatable) supply a fixed variable
-                   override for the new process; the name must already be
-                   declared by the workflow's defaults or the .gtdrc vars:
+                   (with --entry; repeatable) pin a process setting for the
+                   new process; the name must already be declared by the
+                   workflow's defaults or the .gtdrc vars: (environment
+                   settings are not pinnable)
   --open-questions (gtd check only) ignore <mode>'s structural findings and
                    instead run the qa open-questions predicate over <file>,
                    printing each unanswered question one per line and exiting

@@ -96,12 +96,12 @@ Feature: flow branches read their paths from "vars"
       """
       a note
       """
+    And an environment variable "GTD_OUTFILE" set to "ENV_OUT.md"
     And gtd lands "gtd(human): idle → working"
     And a file "ENV_OUT.md" with:
       """
       the env-repointed output
       """
-    And an environment variable "GTD_OUTFILE" set to "ENV_OUT.md"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → captured"

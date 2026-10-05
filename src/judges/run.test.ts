@@ -61,7 +61,7 @@ describe("runJudge", () => {
         input: doc,
         cwd,
       }),
-    ).rejects.toThrow("gtd judge run: --model only applies to --provider llm, not jev")
+    ).rejects.toThrow("gtd judge run: a model only applies to provider llm, not jev")
   })
 
   it("auto selects the llm when --model is given, even with TYPESAFE_API_KEY set", async () => {
@@ -75,5 +75,44 @@ describe("runJudge", () => {
         cwd,
       }),
     ).toBe('[{"id":"q","answer":"yes","p":0.8}]\n')
+  })
+})
+
+describe("runJudge with a configured judge:", () => {
+  it("uses the configured provider when no flag or variable is given", async () => {
+    expect(
+      await runJudge({
+        provider: undefined,
+        configured: { provider: "fixed" },
+        env,
+        input: doc,
+        cwd,
+      }),
+    ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
+  })
+  it("layers per field: a flag provider with a configured model", async () => {
+    const dir = shimDir(
+      `echo '${JSON.stringify({ structured_output: { q: { answer: "yes", p: 0.8 } } })}'`,
+    )
+    expect(
+      await runJudge({
+        provider: "llm",
+        configured: { provider: "jev", model: "rc" },
+        env: { PATH: `${dir}:/bin:/usr/bin` },
+        input: doc,
+        cwd,
+      }),
+    ).toBe('[{"id":"q","answer":"yes","p":0.8}]\n')
+  })
+  it("empty GTD_JUDGE_* values count as unset", async () => {
+    expect(
+      await runJudge({
+        provider: undefined,
+        configured: { provider: "fixed" },
+        env: { ...env, GTD_JUDGE_PROVIDER: "", GTD_JUDGE_MODEL: "" },
+        input: doc,
+        cwd,
+      }),
+    ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
   })
 })

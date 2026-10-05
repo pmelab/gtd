@@ -1,6 +1,7 @@
 import {
   answered,
   check,
+  env,
   human,
   judge,
   numeric,
@@ -17,7 +18,7 @@ export const FIX_CAP = 3
 
 /** Run the suite as step `name`; resolves `true` when it passed. A failure is in `.gtd/FEEDBACK.md`. */
 export const baseline = (name: string, label = "Checking the baseline"): Promise<boolean> =>
-  check(name, vars.testCommand ?? "", { report: FEEDBACK, label })
+  check(name, env.testCommand ?? "", { report: FEEDBACK, label })
 
 /** How many escalation rounds a run of red checks has spent — reset once the suite goes green. */
 export interface EscalationCount {
@@ -95,7 +96,7 @@ export const healthy = async (
   let fixes = options.fixesSoFar ?? 0
   let previous: string | undefined
   for (;;) {
-    const green = await check("health.check", vars.testCommand ?? "", {
+    const green = await check("health.check", env.testCommand ?? "", {
       report: FEEDBACK,
       label: "Running checks",
       // Swept only on green: an unresolved analysis survives every retry.

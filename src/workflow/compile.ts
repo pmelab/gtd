@@ -1,7 +1,7 @@
 import { seededValidateCommand } from "../SteeringFormats.js"
 import { BUILT_IN_MODE_NAMES } from "../steering/index.js"
 import type { ModeDef } from "../Workflow.js"
-import type { UiConfig } from "../ConfigSchema.js"
+import type { JudgeConfig, UiConfig } from "../ConfigSchema.js"
 import {
   BUILT_IN_ORIGIN,
   dedupeDiagnostics,
@@ -24,6 +24,12 @@ export interface ConfigLayer {
 
 export interface CompiledConfig {
   readonly rcVars: Record<string, string>
+  readonly rcEnv: Record<string, string>
+  /** Every well-shaped `vars:` key of every layer, with that layer's origin — so `load.ts`'s wrong-kind check names each file. */
+  readonly varsKeys: readonly { readonly key: string; readonly origin: string }[]
+  /** The same, for `env:`. */
+  readonly envKeys: readonly { readonly key: string; readonly origin: string }[]
+  readonly judge?: JudgeConfig
   /** The built-in modes (qa/review, with gtd's own validators) merged with every layer's `modes:`, per half. */
   readonly modes: Record<string, ModeDef>
   readonly ui?: UiConfig
@@ -57,12 +63,16 @@ const err = (path: readonly (string | number)[], message: string): Diagnostic =>
 /** A flat `name -> scalar` map; a malformed value is a load error and is dropped. */
 const compileVarsMap = (
   raw: unknown,
+  keyName: "vars" | "env",
 ): { readonly vars: Record<string, string>; readonly diagnostics: readonly Diagnostic[] } => {
   const diagnostics: Diagnostic[] = []
   if (raw === undefined) return { vars: {}, diagnostics }
   if (!isPlainObject(raw)) {
     diagnostics.push(
-      err(["vars"], `"vars" must be a mapping of name -> scalar value, got ${describeType(raw)}`),
+      err(
+        [keyName],
+        `"${keyName}" must be a mapping of name -> scalar value, got ${describeType(raw)}`,
+      ),
     )
     return { vars: {}, diagnostics }
   }
@@ -71,8 +81,8 @@ const compileVarsMap = (
     if (!isScalar(value)) {
       diagnostics.push(
         err(
-          ["vars", key],
-          `"vars.${key}" must be a string, number, or boolean, got ${describeType(value)}`,
+          [keyName, key],
+          `"${keyName}.${key}" must be a string, number, or boolean, got ${describeType(value)}`,
         ),
       )
       continue
@@ -315,9 +325,18 @@ const withOrigin = (
   lookup: (path: readonly (string | number)[]) => string,
 ): Diagnostic[] => diagnostics.map((d) => ({ ...d, origin: lookup(d.path) }))
 
+const layerKeys = (
+  layers: readonly ConfigLayer[],
+  name: "vars" | "env",
+): { key: string; origin: string }[] =>
+  layers.flatMap((layer) => {
+    const own = isPlainObject(layer.value) ? layer.value[name] : undefined
+    return isPlainObject(own) ? Object.keys(own).map((key) => ({ key, origin: layer.origin })) : []
+  })
+
 /**
  * Merge every layer outermost→innermost and compile what a `.gtdrc` may carry:
- * `vars`, `modes` and `ui`. A workflow is defined only in `gtd.config.ts`, so a
+ * `vars`, `env`, `judge`, `modes` and `ui`. A workflow is defined only in `gtd.config.ts`, so a
  * leftover `workflow:` key is an error pointing there. Pure and total.
  */
 export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig => {
@@ -335,8 +354,16 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
   const lookupIn = (path: readonly (string | number)[]): string => originAt(originTree, path)
 
   const ui = mergedConfig["ui"] as UiConfig | undefined
-  const { vars: rcVars, diagnostics: varsDiagnostics } = compileVarsMap(mergedConfig["vars"])
+  const judge = mergedConfig["judge"] as JudgeConfig | undefined
+  const { vars: rcVars, diagnostics: varsDiagnostics } = compileVarsMap(
+    mergedConfig["vars"],
+    "vars",
+  )
   diagnostics.push(...withOrigin(varsDiagnostics, lookupIn))
+  const { vars: rcEnv, diagnostics: envDiagnostics } = compileVarsMap(mergedConfig["env"], "env")
+  diagnostics.push(...withOrigin(envDiagnostics, lookupIn))
+  const varsKeys = layerKeys(layers, "vars")
+  const envKeys = layerKeys(layers, "env")
   diagnostics.push(...withOrigin(deadSkillsVarDiagnostics(mergedConfig["vars"]), lookupIn))
   const { modes: rcModes, diagnostics: modesDiagnostics } = compileModesMap(mergedConfig["modes"])
   diagnostics.push(...withOrigin(modesDiagnostics, lookupIn))
@@ -355,6 +382,10 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
   )
   return {
     rcVars,
+    rcEnv,
+    varsKeys,
+    envKeys,
+    ...(judge !== undefined ? { judge } : {}),
     modes: mergeModes(seeded, rcModes),
     ...(ui !== undefined ? { ui } : {}),
     rcSkills,

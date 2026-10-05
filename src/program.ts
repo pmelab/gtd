@@ -4,6 +4,7 @@ import { Narrator } from "./Commentary.js"
 import {
   configPresentAt,
   ConfigDiscovery,
+  loadRcConfig,
   ConfigService,
   formatDiagnostic,
   renderInitScaffold,
@@ -371,14 +372,16 @@ const readStdin = (): Effect.Effect<string, Error> =>
 const runJudgeRunCommand = (
   command: Extract<Command, { kind: "judgeRun" }>,
   out: ArtifactOut,
-): Effect.Effect<void, Error, Host> =>
+): Effect.Effect<void, Error, Host | Narrator | ConfigDiscovery> =>
   Effect.gen(function* () {
     const host = yield* Host
+    const { judge } = yield* loadRcConfig
     const input = yield* readStdin()
     const verdict = yield* Effect.tryPromise({
       try: () =>
         runJudge({
           provider: command.provider,
+          configured: judge,
           answers: command.answers,
           model: command.model,
           cwd: host.scratchDir,

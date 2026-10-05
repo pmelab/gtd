@@ -114,7 +114,10 @@ describe("planEntry", () => {
     if (plan.kind !== "entry") throw new Error(`expected entry, got ${plan.kind}`)
     expect(plan.subject).toBe("gtd(human): working")
     expect(plan.steps).toEqual([
-      { kind: "gitWrite", write: { kind: "commitAll", message: "gtd(human): working" } },
+      {
+        kind: "gitWrite",
+        write: { kind: "commitAll", message: "gtd(human): working\n\nGtd-Var: base=" },
+      },
       { kind: "outcome", outcome: { kind: "commit", subject: "gtd(human): working" } },
     ])
   })

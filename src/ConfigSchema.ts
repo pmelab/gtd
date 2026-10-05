@@ -4,7 +4,15 @@ import { Schema } from "effect"
 const varsJsonSchema = {
   type: "object",
   description:
-    "Flat name -> scalar map merged into the workflow's vars. Scalars are coerced to strings.",
+    "Flat name -> scalar map merged into the workflow's process settings (defaults), pinned for the whole process at its start. Scalars are coerced to strings.",
+  additionalProperties: { type: ["string", "number", "boolean"] },
+} as const
+
+/** The `env:` shape: environment settings, read live on every invocation and never pinned to a process. */
+const envJsonSchema = {
+  type: "object",
+  description:
+    "Flat name -> scalar map merged into the workflow's environment settings (envDefaults) — values that change how a step runs on this machine, like the test command or a model hint. Read fresh on every gtd call, never pinned to a process. GTD_<NAME> environment variables override these entries. Scalars are coerced to strings.",
   additionalProperties: { type: ["string", "number", "boolean"] },
 } as const
 
@@ -79,12 +87,33 @@ const UiSchema = Schema.Struct({
   ),
 }).annotations({ description: "Settings for `gtd ui`: where it listens, and optional TLS." })
 
+const JudgeSchema = Schema.Struct({
+  provider: Schema.optional(
+    Schema.Literal("fixed", "jev", "llm").annotations({
+      description:
+        "Judge provider `gtd judge run` uses when no --provider flag and no GTD_JUDGE_PROVIDER is set. Absent means auto: jev when TYPESAFE_API_KEY is set, otherwise llm.",
+    }),
+  ),
+  model: Schema.optional(
+    Schema.String.annotations({
+      description:
+        "Model for provider llm, used when no --model flag and no GTD_JUDGE_MODEL is set. Pairing it with another provider is an error.",
+    }),
+  ),
+}).annotations({
+  description: "Which judge `gtd judge run` uses, when no flag or GTD_JUDGE_* variable says.",
+})
+
 export const ConfigSchema = Schema.Struct({
   vars: Schema.optional(Schema.Unknown.annotations({ jsonSchema: varsJsonSchema })),
+  env: Schema.optional(Schema.Unknown.annotations({ jsonSchema: envJsonSchema })),
+  judge: Schema.optional(JudgeSchema),
   modes: Schema.optional(Schema.Unknown.annotations({ jsonSchema: modesJsonSchema })),
   ui: Schema.optional(UiSchema),
   skills: Schema.optional(Schema.Unknown.annotations({ jsonSchema: skillsJsonSchema })),
 })
+
+export type JudgeConfig = Schema.Schema.Type<typeof JudgeSchema>
 
 /** The decoded `ui:` shape — `gtd ui` and its CLI flags read `port`/`host`/`cert`/`key` off this. */
 export type UiConfig = Schema.Schema.Type<typeof UiSchema>

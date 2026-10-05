@@ -9,7 +9,7 @@ import { unified as builtInWorkflow } from "../workflows/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
-import { compileConfig, type ConfigLayer } from "./compile.js"
+import { compileConfig, type CompiledConfig, type ConfigLayer } from "./compile.js"
 import { interpolate } from "./interpolate.js"
 import { resolveVars } from "./vars.js"
 import { ConfigDiscovery, type ConfigLevel, type WorkflowModule } from "./discovery.js"
@@ -23,9 +23,12 @@ import {
 
 export interface ConfigOperations {
   readonly workflow: WorkflowDefinition
-  /** The workflow's own `vars:` defaults. */
+  /** The workflow's own process-setting defaults (`defaults`). */
   readonly workflowVars: Record<string, string>
   readonly rcVars: Record<string, string>
+  /** The workflow's own environment-setting defaults (`envDefaults`). */
+  readonly workflowEnv: Record<string, string>
+  readonly rcEnv: Record<string, string>
   /** The top-level `ui:` key, decoded as-is (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: UiConfig
   /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
@@ -126,26 +129,8 @@ const decodeLevel = (
     }
   })
 
-/**
- * Build the whole config pipeline — discover levels by walking `Host`'s
- * cwd→home chain (`ConfigDiscovery`, kept behind a `Context.Tag` since its
- * production implementation reads real disk through cosmiconfig directly,
- * incompatible with an in-memory `@inmem` `Workspace`), decode each level
- * individually against `ConfigSchema`, then hand every successfully-decoded
- * layer to the pure `compileWorkflow` boundary (`src/workflow/compile.ts`),
- * which does its own merging and `./`/`../` file-ref inlining (through
- * `Workspace`, which — unlike discovery — both production and an in-memory
- * scenario back identically). A decode failure never short-circuits the
- * whole load: every level's own findings — decode AND compile alike — are
- * sorted/deduped together (`levels`' own order is the layer order, decode
- * failures included) into ONE report, so a config broken at two ancestor
- * layers reports both instead of just the first one reached.
- */
-export const load: Effect.Effect<
-  ConfigOperations,
-  Error,
-  Narrator | Workspace | Host | ConfigDiscovery
-> = Effect.gen(function* () {
+/** Everything the `.gtdrc` half of a load reads, findings not yet judged. */
+const readRc = Effect.gen(function* () {
   const narrator = yield* Narrator
   const host = yield* Host
   const discovery = yield* ConfigDiscovery
@@ -153,9 +138,59 @@ export const load: Effect.Effect<
   for (const level of levels) yield* narrator.narrate(`config: layer ${level.filepath}`)
   const decoded = yield* Effect.forEach(levels, (level) => decodeLevel(level, host.env))
   const layers = decoded.flatMap((d) => (d.layer !== undefined ? [d.layer] : []))
-  const decodeDiagnostics = decoded.flatMap((d) => d.diagnostics)
+  return {
+    levels,
+    compiled: compileConfig(layers),
+    decodeDiagnostics: decoded.flatMap((d) => d.diagnostics),
+  }
+})
 
-  const compiled = compileConfig(layers)
+const failOnErrors = (diagnostics: readonly Diagnostic[]): Effect.Effect<void, GtdError> => {
+  const fatal = diagnostics.filter((d) => d.severity === "error")
+  if (fatal.length === 0) return Effect.void
+  // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
+  // prints `message` verbatim and would print a duplicated `detail` twice.
+  const lines = fatal.map(formatDiagnostic)
+  return Effect.fail(new GtdError(`gtd config:\n${lines.map((line) => `  - ${line}`).join("\n")}`))
+}
+
+/**
+ * The `.gtdrc` half of `load`: no repository, no `gtd.config.ts` evaluation.
+ * Any error diagnostic fails it.
+ */
+export const loadRcConfig: Effect.Effect<CompiledConfig, Error, Narrator | Host | ConfigDiscovery> =
+  Effect.gen(function* () {
+    const { levels, compiled, decodeDiagnostics } = yield* readRc
+    yield* failOnErrors(
+      dedupeDiagnostics(
+        sortDiagnostics(
+          [...decodeDiagnostics, ...compiled.diagnostics],
+          levels.map((level) => level.filepath),
+        ),
+      ),
+    )
+    return compiled
+  })
+
+/**
+ * Build the whole config pipeline — discover levels by walking `Host`'s
+ * cwd→home chain (`ConfigDiscovery`, kept behind a `Context.Tag` since its
+ * production implementation reads real disk through cosmiconfig directly,
+ * incompatible with an in-memory `@inmem` `Workspace`), decode each level
+ * individually against `ConfigSchema`, then compile every successfully-decoded
+ * layer (`src/workflow/compile.ts`). A decode failure never short-circuits the
+ * whole load: every level's own findings — decode AND compile alike — are
+ * sorted/deduped together into ONE report, so a config broken at two ancestor
+ * layers reports both instead of just the first one reached.
+ */
+export const load: Effect.Effect<
+  ConfigOperations,
+  Error,
+  Narrator | Workspace | Host | ConfigDiscovery
+> = Effect.gen(function* () {
+  const host = yield* Host
+  const discovery = yield* ConfigDiscovery
+  const { levels, compiled, decodeDiagnostics } = yield* readRc
   const module = yield* discovery.workflowModule(host.root, host.home)
   const loaded = yield* Effect.try({
     try: () => loadWorkflow(module),
@@ -183,24 +218,21 @@ export const load: Effect.Effect<
     }))
   const diagnostics = dedupeDiagnostics(
     sortDiagnostics(
-      [...decodeDiagnostics, ...compiled.diagnostics, ...unknownSkillDiagnostics],
+      [
+        ...decodeDiagnostics,
+        ...compiled.diagnostics,
+        ...unknownSkillDiagnostics,
+        ...wrongKindDiagnostics(loaded, compiled),
+      ],
       layerOrder,
     ),
   )
-
-  const fatal = diagnostics.filter((d) => d.severity === "error")
-  if (fatal.length > 0) {
-    // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
-    // prints `message` verbatim and would print a duplicated `detail` twice.
-    const lines = fatal.map(formatDiagnostic)
-    return yield* Effect.fail(
-      new GtdError(`gtd config:\n${lines.map((line) => `  - ${line}`).join("\n")}`),
-    )
-  }
+  yield* failOnErrors(diagnostics)
 
   const initial = yield* firstStep(
     loaded,
     resolveVars(loaded.defaults, compiled.rcVars, {}, host.env),
+    resolveVars(loaded.envDefaults, compiled.rcEnv, {}, host.env),
     headTree(yield* Workspace),
   )
   return {
@@ -216,6 +248,8 @@ export const load: Effect.Effect<
     },
     workflowVars: { ...loaded.defaults },
     rcVars: compiled.rcVars,
+    workflowEnv: { ...loaded.envDefaults },
+    rcEnv: compiled.rcEnv,
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
     warnings: diagnostics.filter((d) => d.severity === "warning"),
     configFiles: levels.map((level) => level.filepath),
@@ -223,11 +257,55 @@ export const load: Effect.Effect<
   }
 })
 
+/** A name under the wrong key (or under both) in a `.gtdrc` layer: each is an error at its own origin. */
+const wrongKindDiagnostics = (
+  loaded: LoadedModule,
+  compiled: CompiledConfig,
+): readonly Diagnostic[] => {
+  const error = (path: readonly string[], message: string, origin: string): Diagnostic => ({
+    severity: "error",
+    path,
+    message,
+    origin,
+  })
+  const diagnostics: Diagnostic[] = []
+  for (const { key, origin } of compiled.varsKeys) {
+    if (Object.hasOwn(loaded.envDefaults, key)) {
+      diagnostics.push(
+        error(
+          ["vars", key],
+          `"vars.${key}" is an environment setting — move it under "env:"`,
+          origin,
+        ),
+      )
+    }
+  }
+  for (const { key, origin } of compiled.envKeys) {
+    if (Object.hasOwn(loaded.defaults, key)) {
+      diagnostics.push(
+        error(["env", key], `"env.${key}" is a process setting — move it under "vars:"`, origin),
+      )
+    }
+    const inVars = compiled.varsKeys.some((v) => v.key === key)
+    if (inVars) {
+      diagnostics.push(
+        error(
+          ["env", key],
+          `"${key}" is declared under both "vars:" and "env:" — a setting is one kind or the other`,
+          origin,
+        ),
+      )
+    }
+  }
+  return diagnostics
+}
+
 interface LoadedModule extends Pick<
   WorkflowDefinition,
   "flow" | "summary" | "base" | "steering" | "skills"
 > {
   readonly defaults: Readonly<Record<string, string>>
+  readonly envDefaults: Readonly<Record<string, string>>
   readonly origin: string
   /**
    * Every real file this module's evaluation touched — `origin` itself plus
@@ -339,7 +417,7 @@ const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T 
 
 /**
  * Read a workflow module: the default export is the flow; `defaults`,
- * `summary`, `base` and `steering` are optional; any other export is ignored.
+ * `envDefaults`, `summary`, `base` and `steering` are optional; any other export is ignored.
  */
 const fromModule = (
   exported: unknown,
@@ -354,9 +432,18 @@ const fromModule = (
   if (typeof flow !== "function") {
     throw new Error("the default export is not a flow — export default an async function")
   }
+  const defaults = stringRecord(exports, "defaults")
+  const envDefaults = stringRecord(exports, "envDefaults")
+  const both = Object.keys(defaults).filter((name) => Object.hasOwn(envDefaults, name))
+  if (both.length > 0) {
+    throw new Error(
+      `${both.map((name) => `"${name}"`).join(", ")} declared in both "defaults" and "envDefaults" — a setting is a process setting or an environment setting, not both`,
+    )
+  }
   return {
     flow: flow as WorkflowDefinition["flow"],
-    defaults: stringRecord(exports, "defaults"),
+    defaults,
+    envDefaults,
     steering: stringRecord(exports, "steering"),
     skills: skillsRecord(exports),
     summary: optionalFunction(exports, "summary"),
@@ -408,6 +495,7 @@ const watchedEmptyTree = (): { readonly tree: TreeView; readonly read: () => boo
 const replayToFirstStep = (
   loaded: LoadedModule,
   vars: Readonly<Record<string, string>>,
+  env: Readonly<Record<string, string>>,
   tree: TreeView,
 ): Effect.Effect<string, GtdError> =>
   Effect.flatMap(
@@ -416,6 +504,7 @@ const replayToFirstStep = (
         flow: loaded.flow,
         episode: { entry: undefined, base: { hash: "", tree }, commits: [] },
         vars,
+        env,
         start: "",
         budgetBytes: Number.MAX_SAFE_INTEGER,
       }),
@@ -440,13 +529,14 @@ const replayToFirstStep = (
 const firstStep = (
   loaded: LoadedModule,
   vars: Readonly<Record<string, string>>,
+  env: Readonly<Record<string, string>>,
   head: TreeView,
 ): Effect.Effect<string, GtdError> =>
   Effect.gen(function* () {
     const empty = watchedEmptyTree()
-    const name = yield* replayToFirstStep(loaded, vars, empty.tree)
+    const name = yield* replayToFirstStep(loaded, vars, env, empty.tree)
     if (!empty.read()) return name
-    const atHead = yield* replayToFirstStep(loaded, vars, head)
+    const atHead = yield* replayToFirstStep(loaded, vars, env, head)
     if (atHead === name) return name
     return yield* Effect.fail(
       new GtdError(

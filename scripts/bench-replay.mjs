@@ -144,7 +144,7 @@ function buildRepo(dir, { backdropCount, episodeLength }) {
   const fi = new FastImport()
   fi.commit("chore: initial commit", {
     "README.md": "# bench-replay fixture\n",
-    ".gtdrc.json": JSON.stringify({ vars: { testCommand: "true" } }, null, 2) + "\n",
+    ".gtdrc.json": JSON.stringify({ env: { testCommand: "true" } }, null, 2) + "\n",
   })
   for (let i = 1; i <= backdropCount; i++) fi.commit(`chore: backdrop ${i}`)
   appendEpisode(fi, episodeLength)

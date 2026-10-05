@@ -1,9 +1,10 @@
 const PREFIX = "GTD_"
 
 /**
- * The merged vars, later wins: the workflow's own defaults, `.gtdrc` `vars:`,
- * the process's entry vars, then `GTD_<NAME>` for any name an earlier layer
- * declared (an env var never introduces a name).
+ * One kind of setting, later wins: the workflow's own defaults, the `.gtdrc`
+ * map (`vars:` or `env:`), `--var` overrides (process settings only; environment
+ * settings pass `{}`), then `GTD_<NAME>` for any name an earlier layer declared
+ * (a shell variable never introduces a name).
  */
 export const resolveVars = (
   workflowVars: Readonly<Record<string, string>>,
@@ -18,3 +19,9 @@ export const resolveVars = (
   }
   return merged
 }
+
+/** The first process setting whose value spans lines — a `Gtd-Var:` trailer cannot carry it. */
+export const multilineSetting = (vars: Readonly<Record<string, string>>): string | undefined =>
+  Object.keys(vars)
+    .sort()
+    .find((name) => /[\r\n]/.test(vars[name]!))
