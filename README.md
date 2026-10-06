@@ -468,7 +468,8 @@ thread: a footnote holding a `H:`/`A:` conversation. Threads show as a
 conversation under their block, question, chunk, or hunk, and one the agent
 answered last carries a "waiting on you" badge. Tap it to reply — your reply is
 added as a new `H:` entry; while the agent has yet to answer, reopening it edits
-your last entry instead. See
+your last entry instead. Tap an already-answered question to leave a note on it;
+the agent may overturn the answer. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 

@@ -71,21 +71,15 @@ const answeredQuestion = (index: number, title: string): SteeringViewNode => ({
   children: [],
 })
 
-/** A plan's own lead-prose node — `OpenQuestions.ts#questionsView` now prepends these to a document that ALSO has questions, so "Read the plan" has real content behind it (requirement 4/T5). */
+/** A plan's own lead-prose node, prepended ahead of the questions of a document that ALSO has questions. */
 const planNode = (line: number, title: string): SteeringViewNode => ({
   title,
   anchor: { kind: "paragraph", line },
 })
 
-/**
- * The "Read the plan" row must have an actual plan to read even when the
- * document ALSO has open/answered questions — before this fix, a `qa`
- * document's lead prose was dropped entirely from `view.nodes`, so the row
- * confirmed nothing.
- */
+/** A `qa` document's lead prose stays in `view.nodes` alongside its questions. */
 export const PlanProseRendersAlongsideQuestions: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [planNode(0, "This plan adds a thing."), openQuestion(0, "Which option?")],
@@ -101,7 +95,6 @@ export const PlanProseRendersAlongsideQuestions: Story = {
 
 export const AlreadyAnsweredSectionRendersBelowOpenQuestions: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [openQuestion(0, "Open one"), answeredQuestion(1, "Answered one")],
@@ -120,14 +113,13 @@ export const AlreadyAnsweredSectionRendersBelowOpenQuestions: Story = {
 /**
  * package 02, T3: `QuestionCard` wires `accent` on the open path only — an
  * open card gets the left accent rule plus the `surface` background, an
- * answered one (the inert `opacity-[0.85]` row) does not. Asserted on
+ * answered one does not. Asserted on
  * computed style alone, reading no heading text, so a regression that drops
  * `accent` from `Plan.tsx`'s open-question `<Card>` call — leaving
  * `Card.stories.tsx`'s own prop-level stories green — still fails here.
  */
 export const OpenQuestionCardRendersTheAccentTreatmentAnsweredDoesNot: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [openQuestion(0, "Open one"), answeredQuestion(1, "Answered one")],
@@ -140,6 +132,7 @@ export const OpenQuestionCardRendersTheAccentTreatmentAnsweredDoesNot: Story = {
     expect(openCard.borderLeftWidth).toBe("4px")
     expect(openCard.backgroundColor).toBe(token("surface"))
     expect(answeredCard.borderLeftWidth).not.toBe("4px")
+    expect(canvas.getByTestId("question-card-1").tagName).toBe("BUTTON")
   },
 }
 
@@ -152,7 +145,6 @@ export const OpenQuestionCardRendersTheAccentTreatmentAnsweredDoesNot: Story = {
  */
 export const OpenQuestionCardShowsAWrappedBodySummaryInFull: Story = {
   args: {
-    contentHash: "qa-card-detail-hash",
     isLoading: false,
     view: {
       nodes: [
@@ -183,7 +175,6 @@ export const OpenQuestionCardShowsAWrappedBodySummaryInFull: Story = {
  */
 export const OpenQuestionRendersAboveProseAnsweredBelowTrailingParagraphInOrder: Story = {
   args: {
-    contentHash: "layout-order-hash",
     isLoading: false,
     view: {
       nodes: [
@@ -221,7 +212,6 @@ export const OpenQuestionRendersAboveProseAnsweredBelowTrailingParagraphInOrder:
 
 export const DocumentWithNoOpenQuestionsRendersNoEmptyHeading: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [answeredQuestion(0, "Answered one")],
@@ -237,7 +227,6 @@ export const DocumentWithNoOpenQuestionsRendersNoEmptyHeading: Story = {
 /** The mirror of the story above — a document with open questions and NONE answered must not show an empty "Already answered" heading either. */
 export const DocumentWithNoAnsweredQuestionsRendersNoEmptyHeading: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [openQuestion(0, "Open one")],
@@ -269,7 +258,6 @@ export const DocumentWithNoAnsweredQuestionsRendersNoEmptyHeading: Story = {
  */
 export const DeckNavigationPastTheLastOpenQuestionNeverReachesAnAnsweredOne: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [openQuestion(0, "Open one"), answeredQuestion(1, "Answered one")],
@@ -297,7 +285,6 @@ export const DeckNavigationPastTheLastOpenQuestionNeverReachesAnAnsweredOne: Sto
  */
 export const AnAnswerSurvivesPagingNextThenBackThroughTheDeck: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [openQuestion(0, "First?"), openQuestion(1, "Second?")],
@@ -332,7 +319,6 @@ export const AnAnswerSurvivesPagingNextThenBackThroughTheDeck: Story = {
  */
 export const AnUnsavedFreeTextDraftDoesNotSurvivePagingAwayAndBack: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [openQuestion(0, "First?"), openQuestion(1, "Second?")],
@@ -364,7 +350,6 @@ export const AnUnsavedFreeTextDraftDoesNotSurvivePagingAwayAndBack: Story = {
 /** Package 03 Task 3: tapping the free-text Save button does not navigate — ending a view is Done's job, not Save's. */
 export const TappingFreeTextSaveStaysOnTheQuestionScreen: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [openQuestion(0, "First?")],
@@ -396,7 +381,6 @@ export const TappingFreeTextSaveStaysOnTheQuestionScreen: Story = {
  */
 export const TappingTheLastOpenQuestionCardOpensTheDeckOnThatQuestion: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [
@@ -415,9 +399,8 @@ export const TappingTheLastOpenQuestionCardOpensTheDeckOnThatQuestion: Story = {
   },
 }
 
-export const AnAnsweredCardIsNotDrillable: Story = {
+export const AnAnsweredCardOpensTheNoteSheet: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: {
       nodes: [answeredQuestion(0, "Answered one")],
@@ -425,11 +408,81 @@ export const AnAnsweredCardIsNotDrillable: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const card = canvas.getByTestId("question-card-0")
-    expect(card.tagName).not.toBe("BUTTON")
-    await fireEvent.click(card)
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("note-sheet")).toBeInTheDocument()
+    await expect(canvas.getByRole("dialog", { name: "Note" })).toBeInTheDocument()
     await expect(canvas.queryByTestId("question-screen")).not.toBeInTheDocument()
-    await expect(canvas.getByTestId("plan-screen")).toBeInTheDocument()
+  },
+}
+
+/** Saving the sheet an answered card opened writes a note at that question's own anchor — the index counts every question across both sections. */
+export const SavingANoteOnAnAnsweredQuestionWritesItsQuestionAnchor: StoryObj<typeof Plan> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: "## Open Questions\n\n### Open?\n\n## Answered Questions\n\n### Done?\n",
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: { nodes: [openQuestion(0, "Open?"), answeredQuestion(1, "Done?")] },
+          }),
+          writeNote: (input) => {
+            record(input)
+            return { ok: true }
+          },
+        }}
+      >
+        <PlanWriteCallRecorder args={args} onRegisterWriteNote={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_PLAN_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("question-card-1")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("question-card-1"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "reconsider this" },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("write-calls")).toHaveTextContent("reconsider this"),
+    )
+    await expect(canvas.getByTestId("write-calls")).toHaveTextContent(
+      JSON.stringify({ kind: "question", index: 1 }).slice(1, -1),
+    )
+  },
+}
+
+/** An answered node's thread shows in its card and in the opened sheet; the field starts empty because the agent spoke last. */
+export const AnAnsweredQuestionThreadShowsInTheCardAndTheSheet: Story = {
+  args: {
+    isLoading: false,
+    view: {
+      nodes: [
+        {
+          ...answeredQuestion(0, "Answered one"),
+          thread: {
+            name: "Answered one",
+            entries: [
+              { author: "me", text: "why this?" },
+              { author: "agent", text: "because of X" },
+            ],
+            waitingOn: "human",
+          },
+        },
+      ],
+    } satisfies SteeringView,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("answered-thread-0")).toHaveTextContent("because of X")
+    await fireEvent.click(canvas.getByTestId("question-card-0"))
+    await expect(canvas.getByTestId("note-sheet-thread")).toHaveTextContent("because of X")
+    await expect(canvas.getByTestId("note-sheet-textarea")).toHaveValue("")
   },
 }
 
@@ -442,7 +495,6 @@ const paragraphNode = (line: number, title: string, note?: string): SteeringView
 
 export const ProseOnlyFileRendersParagraphsAndNoQuestionList: Story = {
   args: {
-    contentHash: "prose-hash-1",
     isLoading: false,
     view: {
       nodes: [
@@ -485,7 +537,6 @@ export const ProseOnlyFileRendersParagraphsAndNoQuestionList: Story = {
  */
 export const PlanRendersEveryBlockKindWithStructureIntact: Story = {
   args: {
-    contentHash: "structured-plan-hash",
     isLoading: false,
     view: {
       nodes: [
@@ -548,7 +599,7 @@ export const NoteAttachesToAHeadingOnItsOwnLine: StoryObj<typeof Plan> = {
             ok: true,
             content: "Intro paragraph.\n\n\n\n## A heading\n",
             headSha: "abc123",
-            contentHash: "heading-note-hash",
+            contentHash: "deadbeef",
             view: {
               nodes: [
                 { title: "Intro paragraph.", anchor: { kind: "paragraph", line: 0 } },
@@ -596,7 +647,6 @@ export const NoteAttachesToAHeadingOnItsOwnLine: StoryObj<typeof Plan> = {
 /** Every block kind except `code` is a note target; a code block is neither a target nor a carrier of an inline note row (T3/T4's own reason: a marker there would corrupt the fence). */
 export const CodeBlockShowsNoNoteSeamEveryOtherKindDoes: Story = {
   args: {
-    contentHash: "code-seam-hash",
     isLoading: false,
     view: {
       nodes: [
@@ -626,7 +676,6 @@ export const CodeBlockShowsNoNoteSeamEveryOtherKindDoes: Story = {
 
 export const ParagraphNoteSeamOpensTheNoteSheetOnTheRealAnchor: Story = {
   args: {
-    contentHash: "prose-hash-2",
     isLoading: false,
     view: { nodes: [paragraphNode(0, "A paragraph worth commenting on.")] } satisfies SteeringView,
   },
@@ -646,7 +695,6 @@ export const ParagraphNoteSeamOpensTheNoteSheetOnTheRealAnchor: Story = {
 
 export const ParagraphAlreadyCarryingANoteOffersEditingNotASecondNote: Story = {
   args: {
-    contentHash: "prose-hash-3",
     isLoading: false,
     view: {
       nodes: [paragraphNode(0, "A paragraph with a note attached.", "the existing comment")],
@@ -671,7 +719,6 @@ export const ParagraphAlreadyCarryingANoteOffersEditingNotASecondNote: Story = {
  */
 export const AQuestionBodyParagraphsNoteSeamOpensSavesAndRendersInline: Story = {
   args: {
-    contentHash: "qa-body-note-hash",
     isLoading: false,
     view: {
       nodes: [
@@ -713,7 +760,6 @@ export const AQuestionBodyParagraphsNoteSeamOpensSavesAndRendersInline: Story = 
 /** A question with no body renders no body region at all — no stray `prose-paragraphs` container, no note target. */
 export const AQuestionWithNoBodyRendersNoBodyRegion: Story = {
   args: {
-    contentHash: "qa-no-body-hash",
     isLoading: false,
     view: { nodes: [openQuestion(0, "Which option?")] } satisfies SteeringView,
   },
@@ -724,39 +770,6 @@ export const AQuestionWithNoBodyRendersNoBodyRegion: Story = {
     await expect(canvas.queryByTestId("prose-paragraphs")).not.toBeInTheDocument()
   },
 }
-
-/** Toggles `PlanView`'s `contentHash` between two versions of "the same file" on a button click — so a story can prove the read-the-plan confirmation (keyed on `contentHash`) clears the moment the file is REWRITTEN, without needing Storybook's own arg-update machinery. */
-const RewritablePlan = () => {
-  const [rewritten, setRewritten] = useState(false)
-  const contentHash = rewritten ? "version-two-hash" : "version-one-hash"
-  return (
-    <div>
-      <button type="button" data-testid="rewrite-file" onClick={() => setRewritten(true)}>
-        Rewrite file
-      </button>
-      <PlanView
-        filePath=".gtd/PLAN.md"
-        contentHash={contentHash}
-        isLoading={false}
-        view={{ nodes: [] } satisfies SteeringView}
-      />
-    </div>
-  )
-}
-
-export const ReadThePlanConfirmationClearsWhenContentHashChanges: StoryObj<typeof RewritablePlan> =
-  {
-    render: () => <RewritablePlan />,
-    play: async ({ canvasElement }) => {
-      const canvas = within(canvasElement)
-      await fireEvent.click(canvas.getByTestId("read-plan-row"))
-      await waitFor(() => expect(canvas.getByTestId("read-plan-row")).toHaveTextContent("✓"))
-
-      // Rewriting the file (a different hash) must clear the confirmation.
-      await fireEvent.click(canvas.getByTestId("rewrite-file"))
-      await waitFor(() => expect(canvas.getByTestId("read-plan-row")).not.toHaveTextContent("✓"))
-    },
-  }
 
 /** A `useState`-backed recorder — see `Review.stories.tsx#WriteCallRecorder`'s identical doc comment for why a plain mutated array wouldn't trigger the re-render this needs. */
 const PlanWriteCallRecorder = ({
@@ -940,7 +953,6 @@ export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof P
               ok: true,
               content: "A paragraph worth commenting on.",
               headSha: readCalls === 1 ? "abc123" : "def456",
-              contentHash: "deadbeef",
               view: {
                 nodes: [
                   {
@@ -1144,7 +1156,7 @@ export const TheSavingThenSavedAnnouncementCarriesNoVisibleText: StoryObj<typeof
  * mid-expanded-refusal, and after the real 5000ms auto-collapse to the
  * failed marker — must shift no other element's geometry. `writeNote`'s own
  * resolver is held open by a manually-triggered `settle-write` button so the
- * story can sample `read-plan-row`'s own rect mid-`saving` and
+ * story can sample the leading paragraph's own rect mid-`saving` and
  * mid-`expanded`, before either transition would otherwise have already
  * finished; the fourth sample waits out the real auto-collapse timer (never
  * `Dismiss`, which CLEARS the indicator rather than collapsing it) so the
@@ -1165,9 +1177,10 @@ export const ShowingOrHidingTheSaveIndicatorShiftsNoOtherElement: StoryObj<typeo
             contentHash: "deadbeef",
             view: {
               nodes: [
+                { title: "A leading paragraph.", anchor: { kind: "paragraph", line: 0 } },
                 {
                   title: "A paragraph worth commenting on.",
-                  anchor: { kind: "paragraph", line: 0 },
+                  anchor: { kind: "paragraph", line: 2 },
                 },
               ],
             },
@@ -1198,21 +1211,24 @@ export const ShowingOrHidingTheSaveIndicatorShiftsNoOtherElement: StoryObj<typeo
   args: REAL_PLAN_ARGS,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    // `read-plan-row`, not `plan-screen` itself: the note write ADDS an
-    // optimistic note badge below the paragraph (unrelated to the
-    // indicator), which genuinely grows the scroll container — the read-row
-    // is the first, content-stable element, so ITS rect is what actually
-    // proves the indicator shifted nothing.
+    // The leading paragraph, not `plan-screen` itself: the note write ADDS an
+    // optimistic note badge below the SECOND paragraph (unrelated to the
+    // indicator), which genuinely grows the scroll container — the first
+    // paragraph is content-stable, so ITS rect is what actually proves the
+    // indicator shifted nothing.
     const rectOf = () => {
       const { top, left, width, height } = canvas
-        .getByTestId("read-plan-row")
+        .getByTestId("note-target-0")
         .getBoundingClientRect()
       return { top, left, width, height }
     }
-    await waitFor(() => expect(canvas.getByTestId("read-plan-row")).toBeInTheDocument())
+    await waitFor(() => expect(canvas.getByTestId("note-target-1")).toBeInTheDocument())
     const before = rectOf()
 
-    await openNoteSeamAndType(canvas, "worth flagging")
+    await fireEvent.doubleClick(canvas.getByTestId("note-target-1"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "worth flagging" },
+    })
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() =>
       expect(canvas.getByTestId("save-indicator-label")).toHaveTextContent("Saving…"),
@@ -1452,7 +1468,6 @@ const PlanDoneCallCounter = ({ view }: { readonly view: SteeringView }) => {
       <div data-testid="on-done-calls">{JSON.stringify(calls)}</div>
       <PlanView
         filePath=".gtd/PLAN.md"
-        contentHash="prose-hash-done"
         isLoading={false}
         view={view}
         onDone={() => {
@@ -1495,7 +1510,6 @@ export const TappingPlanDoneWithAnUnansweredOpenQuestionEndsTheTurnOnOneTap: Sto
 /** `deck-done` is untouched by this package — still renders inside the deck with its existing label, and the deck's last-item advance button still reads "Back to list". */
 export const DeckDoneStillRendersInsideTheDeckUnaffectedByPlanDone: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: { nodes: [openQuestion(0, "Which option?")] } satisfies SteeringView,
     onDone: () => Promise.resolve(),
@@ -1512,7 +1526,6 @@ export const DeckDoneStillRendersInsideTheDeckUnaffectedByPlanDone: Story = {
 /** A story with no `onDone` prop at all renders no `plan-done` control — matching every other optional callback on `PlanViewProps`. */
 export const NoOnDonePropRendersNoPlanDoneControl: Story = {
   args: {
-    contentHash: "prose-hash-no-done",
     isLoading: false,
     view: { nodes: [paragraphNode(0, "A prose-only plan.")] } satisfies SteeringView,
   },
@@ -2067,7 +2080,6 @@ export const RealContainerTapsDoneFromTheDeckWithNoNoteRendersHandedBackPanel: S
  */
 export const BackToListFromTheDeckReturnsToTheListAndWritesNothing: Story = {
   args: {
-    contentHash: "qa-sample-hash",
     isLoading: false,
     view: { nodes: [openQuestion(0, "Which option?")] } satisfies SteeringView,
     onDone: () => {
@@ -2368,7 +2380,6 @@ export const RealContainerRecoversAfterAContentHashRefusalRatherThanWedging: Sto
  */
 export const ADetailedPlanAtRealisticLength: Story = {
   args: {
-    contentHash: "detailed-plan-hash",
     isLoading: false,
     view: {
       nodes: [
@@ -2472,7 +2483,6 @@ export const ADetailedPlanAtRealisticLength: Story = {
  */
 export const MarkdownStructureIsColouredByRole: Story = {
   args: {
-    contentHash: "markdown-colour-hash",
     isLoading: false,
     view: {
       nodes: [
@@ -2507,6 +2517,7 @@ export const MarkdownStructureIsColouredByRole: Story = {
           anchor: { kind: "paragraph", line: 6 },
           block: { kind: "code", language: "ts", text: "const x = 1" },
         },
+        { title: "A plain paragraph.", anchor: { kind: "paragraph", line: 8 } },
       ],
     } satisfies SteeringView,
   },
@@ -2516,7 +2527,7 @@ export const MarkdownStructureIsColouredByRole: Story = {
     const subsection = canvas.getByText("Subsection")
     const link = canvas.getByText("docs")
     const code = canvas.getByText((_, element) => element?.tagName === "CODE")
-    const body = canvas.getByText("Read the plan")
+    const body = canvas.getByText("A plain paragraph.")
 
     const colors = [section, subsection, link, code, body].map(
       (element) => getComputedStyle(element).color,
@@ -2542,7 +2553,6 @@ export const MarkdownStructureIsColouredByRole: Story = {
  */
 export const DoubleTapAndEnterBothOpenTheNoteSheetButALinkDoesNot: Story = {
   args: {
-    contentHash: "gesture-hash",
     isLoading: false,
     view: {
       nodes: [
@@ -2602,7 +2612,6 @@ export const DoubleTapAndEnterBothOpenTheNoteSheetButALinkDoesNot: Story = {
  */
 export const ABlockWithANoteCarriesAColouredBadge: Story = {
   args: {
-    contentHash: "badge-hash",
     isLoading: false,
     view: {
       nodes: [

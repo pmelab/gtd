@@ -19,6 +19,11 @@ const sameAnchor = (a: SteeringAnchor, b: SteeringAnchor): boolean =>
 const flatten = (nodes: readonly SteeringViewNode[]): readonly SteeringViewNode[] =>
   nodes.flatMap((node) => [node, ...flatten(node.body ?? []), ...flatten(node.children ?? [])])
 
+export const nodeAt = (
+  nodes: readonly SteeringViewNode[],
+  anchor: SteeringAnchor,
+): SteeringViewNode | undefined => flatten(nodes).find((n) => sameAnchor(n.anchor, anchor))
+
 /**
  * The note text a sheet should open with. A `paragraph` anchor can name
  * either a top-level prose block OR a block riding in one of `body` (a
@@ -34,7 +39,7 @@ export const existingNoteFor = (
   anchor: SteeringAnchor,
   overrides: NoteOverrides,
 ): string | undefined => {
-  const node = flatten(nodes).find((n) => sameAnchor(n.anchor, anchor))
+  const node = nodeAt(nodes, anchor)
   if (anchor.kind === "paragraph") {
     const saved = overrides[anchor.line]
     if (saved !== undefined) return saved

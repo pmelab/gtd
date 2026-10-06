@@ -72,13 +72,14 @@ const doneNoteRequest = (
   contentHash: string,
   mode: string | undefined,
   text: string,
+  anchor: SteeringAnchor = { kind: "paragraph", line: 0 },
 ) => ({
   note: {
     filePath,
     expectedHeadSha: headSha,
     expectedContentHash: contentHash,
     mode,
-    anchor: { kind: "paragraph" as const, line: 0 },
+    anchor,
     text,
   },
 })
@@ -1168,6 +1169,7 @@ export class GtdWorld extends QuickPickleWorld {
     filePath: string,
     mode: string | undefined,
     text: string,
+    anchor?: SteeringAnchor,
   ): Promise<void> {
     const { boundUrl, exited } = await this.spawnBoundGtdUi()
 
@@ -1189,7 +1191,7 @@ export class GtdWorld extends QuickPickleWorld {
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],
       })
       await client.done.mutate(
-        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
+        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text, anchor),
       )
     } finally {
       this.restoreTlsReject(previousTlsReject)

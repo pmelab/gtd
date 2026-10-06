@@ -395,6 +395,47 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Then the file ".gtd/PLAN.md" contains "[x] Option A"
 
   @live
+  Scenario: a note on an already-answered question lands as a footnote on its heading
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file ".gtd/PLAN.md" with:
+      """
+      Sample plan.
+
+      ## Open Questions
+
+      ### Which option?
+
+      - [ ] Option A
+      - [ ] Option B
+
+      ## Answered Questions
+
+      ### Which colour?
+
+      - [x] Blue
+      - [ ] Red
+      """
+    When I hand off a note on question 1 of ".gtd/PLAN.md" in mode "qa" with the text "reconsider this" to a spawned gtd ui
+    Then the reported exit status is 0
+    And the file ".gtd/PLAN.md" contains "### Which colour?[^"
+    And the file ".gtd/PLAN.md" contains "- H: reconsider this"
+
+  @live
   Scenario: a page reload does not kill gtd ui — it survives and still hands off through done
     # No `pagehide` beacon exists any more (package 03 Task 8) to mistake a
     # reload for a close — a real GET against the served origin (the exact

@@ -22,7 +22,7 @@ describe("steeringViewFor", () => {
     const result = steeringViewFor("qa", QA_FORMAT.sample)
     // QA_FORMAT.sample also carries its own lead prose ("Sample plan. Add a
     // thing.") ahead of the question, projected as its own `undefined`-status
-    // paragraph node (requirement 4/T5's "Read the plan" row) — filtered out
+    // paragraph node — filtered out
     // here since this test is about QUESTION status specifically.
     const statuses = result.nodes.filter((n) => n.status !== undefined).map((n) => n.status)
     expect(statuses).toContain("open")

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import type { SteeringAnchor } from "../steering/index.js"
+import type { SteeringAnchor, SteeringViewThread } from "../steering/index.js"
 import { Button } from "./Button.js"
+import { Thread } from "./Thread.js"
 
 const ANCHOR_TITLE: Record<SteeringAnchor["kind"], string> = {
   chunk: "Note on this chunk",
@@ -11,10 +12,12 @@ const ANCHOR_TITLE: Record<SteeringAnchor["kind"], string> = {
 }
 
 export interface NoteSheetProps {
-  /** Which node the note attaches to — only `chunk`/`hunk`/`paragraph` open this sheet; a title label is all this component derives from the kind. */
+  /** Which node the note attaches to — `chunk`/`hunk`/`paragraph`, or the `question` of an already-answered question; a title label is all this component derives from the kind. */
   readonly anchor: SteeringAnchor
   /** The anchor's existing note text, when it already carries one — pre-fills the textarea for editing rather than starting a second note. */
   readonly note?: string
+  /** The anchor's existing conversation, shown above the field. */
+  readonly thread?: SteeringViewThread
   readonly onSave: (anchor: SteeringAnchor, text: string) => void
   readonly onDismiss: () => void
   /**
@@ -43,9 +46,9 @@ export interface NoteSheetProps {
 }
 
 /**
- * One reusable note sheet for all three note-carrying anchors (chunk, hunk,
- * paragraph — never `question`/`option`, those are answered by radio tick
- * elsewhere). Takes the anchor as a prop rather than reading a text
+ * One reusable note sheet for note-carrying anchors (chunk, hunk, paragraph,
+ * and the heading of an already-answered question — never `option`, and an
+ * open question is answered by radio tick elsewhere). Takes the anchor as a prop rather than reading a text
  * selection, so there is deliberately no `window.getSelection()` or
  * selection-range code anywhere in this file — no selection gesture is ever
  * required to place a note.
@@ -105,9 +108,11 @@ const SheetBody = ({
   title,
   label,
   text,
+  thread,
   onTextChange,
   textareaRef,
 }: {
+  readonly thread?: SteeringViewThread | undefined
   readonly title: string
   readonly label: string
   readonly text: string
@@ -119,6 +124,11 @@ const SheetBody = ({
         away again", rather than "the screen changed". */}
     <div aria-hidden="true" className="mx-auto mt-2 h-1 w-9 rounded-full bg-divider" />
     <h2 className="p-3 pb-0 text-body font-semibold">{title}</h2>
+    {thread !== undefined && (
+      <div className="min-h-0 overflow-auto px-3 pt-2">
+        <Thread thread={thread} testId="note-sheet-thread" />
+      </div>
+    )}
     <label htmlFor="note-sheet-textarea" className="block px-3 text-small text-muted">
       {label}
     </label>
@@ -205,6 +215,7 @@ const SheetFooter = ({
 export const NoteSheet = ({
   anchor,
   note,
+  thread,
   onSave,
   onDismiss,
   onDone,
@@ -256,6 +267,7 @@ export const NoteSheet = ({
           title={copy.title}
           label={copy.label}
           text={text}
+          thread={thread}
           onTextChange={setText}
           textareaRef={textareaRef}
         />

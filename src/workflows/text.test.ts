@@ -103,6 +103,25 @@ describe("the shared open-question instruction", () => {
   })
 })
 
+describe("answered-entry footnote exception", () => {
+  const exception = "carrying a human footnote on its"
+  it("is in the design return lap and loop-back, keeping the deleted-question rule", () => {
+    const prompt = renderText(() => designTriagePrompt("base"))
+    expect(prompt).toContain("Never re-raise a deleted question")
+    expect(prompt).toContain(`entry stays settled, except one ${exception}`)
+    expect(prompt).toContain(`stays settled, except\n  one ${exception}`)
+    expect(prompt).not.toContain("never re-open a settled")
+    expect(prompt).not.toContain("never re-open one")
+  })
+
+  it("is in the architecture return lap and keeps the first-lap settled line", () => {
+    const prompt = renderText(() => architectureAuthorPrompt())
+    expect(prompt).toContain(`entry stays settled, except one ${exception}`)
+    expect(prompt).not.toContain("never re-open a settled")
+    expect(prompt).toMatch(/treat every decision[\s\S]*as settled — never re-open it/)
+  })
+})
+
 describe("architectureAuthorPrompt", () => {
   it("qualifies the PERMISSIVE default with a settled-requirements exception", () => {
     const prompt = renderText(() => architectureAuthorPrompt())

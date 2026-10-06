@@ -942,8 +942,8 @@ const isInsideQuestionSpan = (spans: ReadonlyMap<number, number>, line: number):
 }
 
 /**
- * Every top-level block FIRST — the phone's "Read the plan" row needs a plan,
- * and without this a document with any question would drop its intro prose —
+ * Every top-level block FIRST — without this a document with any question
+ * would drop its intro prose —
  * then every question as a container with its options as children. `title` is
  * the heading TEXT, never the first body line, which rides as `detail`. ONE
  * parse plus one block walk, never one parse per question.
