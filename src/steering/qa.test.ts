@@ -923,7 +923,7 @@ describe("qa.view", () => {
     expect(questionNodes[0]!.children!.map((o) => o.title)).toEqual(["Option A", "Option B"])
   })
 
-  it("prepends the plan's own lead prose (before '## Open Questions') as a paragraph node, ahead of every question (requirement 4/T5's 'Read the plan' row needs an actual plan to read)", () => {
+  it("prepends the plan's own lead prose (before '## Open Questions') as a paragraph node, ahead of every question", () => {
     const view = qa.view(CONTENT)
     expect(view.nodes[0]).toMatchObject({ title: "Plan.", anchor: { kind: "paragraph", line: 0 } })
     expect(view.nodes[0]!.status).toBeUndefined()
@@ -1743,6 +1743,33 @@ describe("qa.annotate", () => {
 
   it("accepts a question anchor", () => {
     expect(qa.annotate(CONTENT, { kind: "question", index: 0 }, "a real note").ok).toBe(true)
+  })
+
+  it("annotates the heading of an answered question, definition after the entry", () => {
+    const content = [
+      "## Open Questions",
+      "",
+      "### First?",
+      "",
+      "- [ ] Option A",
+      "",
+      "## Answered Questions",
+      "",
+      "### Second?",
+      "",
+      "- [x] Option B",
+      "",
+    ].join("\n")
+    const result = qa.annotate(content, { kind: "question", index: 1 }, "reconsider this")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const lines = applyEditsLocal(content, result.edits).split("\n")
+    const heading = lines.findIndex((l) => l.startsWith("### Second?"))
+    expect(lines[heading]).toMatch(/\[\^[^\]]+\]$/)
+    expect(lines[heading - 1]).not.toMatch(/\[\^/)
+    const def = lines.findIndex((l) => /^\[\^[^\]]+\]:/.test(l))
+    expect(def).toBeGreaterThan(heading)
+    expect(lines.slice(def).join("\n")).toContain("reconsider this")
   })
 
   it("accepts an option anchor", () => {

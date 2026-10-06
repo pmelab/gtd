@@ -180,13 +180,20 @@ export const questionBarReturn = `- This lap continues the same goal as the firs
   checkboxes
 - \`## Answered Questions\` is always the last \`##\` section — a moved
   question lands there, never wherever \`## Open Questions\` used to sit
-- Never re-raise a deleted question, and never re-open a settled
-  \`## Answered Questions\` entry
+- Never re-raise a deleted question. A settled \`## Answered Questions\`
+  entry stays settled, except one carrying a human footnote on its
+  \`### \` heading: that is the only entry that may change. Fold the note
+  in, then either rewrite the recorded answer in place (still under
+  \`## Answered Questions\`) or, when the note leaves the point genuinely
+  open, move it back to \`## Open Questions\` as a fresh fork with
+  options and the \`_your answer_\` slot. A note that only asks a
+  question follows the footnote rule: one \`- A:\` reply, answer unchanged
 - An answer may earn a follow-up: if it opens a genuinely new fork above
   the bar — one the answer itself created — raise it as a fresh \`##
   Open Questions\` entry on this same lap. Never restate a question
   already asked, and never treat this as licence to re-open a question
-  already settled under \`## Answered Questions\`
+  already settled under \`## Answered Questions\` that carries no
+  footnote on its heading
 - Recognise a silent lap from \`## Open Questions\` still present with
   nothing ticked and nothing else changed — the human's way of saying
   the gap is already closed. That lap ends the questions, whatever the

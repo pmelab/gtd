@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { Card, CardList } from "../Card.js"
@@ -6,7 +6,7 @@ import { Deck } from "../Deck.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
-import { existingNoteFor } from "../notes.js"
+import { existingNoteFor, nodeAt } from "../notes.js"
 import { messageForReadRefusal, SaveIndicator, useSaveIndicatorProps } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
 import type { CasTokens } from "../staleRetry.js"
@@ -21,29 +21,10 @@ import {
 import { Inline } from "./InlineRun.js"
 import { ProseBlocks } from "./ProseBlock.js"
 import { Question } from "./Question.js"
+import { Thread } from "../Thread.js"
 
 /** A write guarded by the store's own compare-and-swap retry — see `writeStore.ts#SaveArgs.write`'s own doc comment. */
 type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
-
-const readPlanStorageKey = (contentHash: string): string => `gtd:plan-read:${contentHash}`
-
-/** "Read the plan" confirmation, keyed on the SAME server-computed `contentHash` the compare-and-swap uses rather than a second client-only hash. A rewrite starts it unconfirmed again; `localStorage` survives a reload of the same file. */
-const usePlanReadConfirmation = (contentHash: string) => {
-  const [confirmed, setConfirmed] = useState(
-    () => localStorage.getItem(readPlanStorageKey(contentHash)) === "true",
-  )
-
-  useEffect(() => {
-    setConfirmed(localStorage.getItem(readPlanStorageKey(contentHash)) === "true")
-  }, [contentHash])
-
-  const confirm = () => {
-    localStorage.setItem(readPlanStorageKey(contentHash), "true")
-    setConfirmed(true)
-  }
-
-  return { confirmed, confirm }
-}
 
 /** A `qa`-view question node sets `status` (`"open"`/`"answered"`); a prose-only document's `view` has no such nodes at all. */
 const isQuestionNode = (node: SteeringViewNode): boolean => node.status !== undefined
@@ -70,35 +51,39 @@ const noteOverridesFrom = (
   return overrides
 }
 
-// fallow-ignore-next-line complexity
+const QuestionDetail = ({ node }: { readonly node: SteeringViewNode }) =>
+  node.detail !== undefined && node.detail.length > 0 ? (
+    <div className="text-small text-muted">
+      <Inline inline={node.detailInline} fallback={node.detail} />
+    </div>
+  ) : null
+
+const AnsweredThread = ({
+  node,
+  index,
+}: {
+  readonly node: SteeringViewNode
+  readonly index: number
+}) =>
+  node.status === "answered" && node.thread !== undefined ? (
+    <div className="mt-2">
+      <Thread thread={node.thread} testId={`answered-thread-${index}`} />
+    </div>
+  ) : null
+
 const QuestionCard = ({
   node,
   onOpen,
 }: {
   readonly node: SteeringViewNode
-  readonly onOpen?: () => void
+  readonly onOpen: () => void
 }) => {
-  const content = (
-    <>
-      <div className="font-semibold">{node.title}</div>
-      {node.detail !== undefined && node.detail.length > 0 && (
-        <div className="text-small text-muted">
-          <Inline inline={node.detailInline} fallback={node.detail} />
-        </div>
-      )}
-    </>
-  )
-  const testId = `question-card-${node.anchor.kind === "question" ? node.anchor.index : 0}`
-  if (onOpen === undefined) {
-    return (
-      <div data-testid={testId} className="border-b border-divider p-3 text-muted">
-        {content}
-      </div>
-    )
-  }
+  const index = node.anchor.kind === "question" ? node.anchor.index : 0
   return (
-    <Card testId={testId} onOpen={onOpen} accent>
-      {content}
+    <Card testId={`question-card-${index}`} onOpen={onOpen} accent={node.status === "open"}>
+      <div className="font-semibold">{node.title}</div>
+      <QuestionDetail node={node} />
+      <AnsweredThread node={node} index={index} />
     </Card>
   )
 }
@@ -106,7 +91,6 @@ const QuestionCard = ({
 export interface PlanViewProps {
   readonly view: SteeringView | undefined
   readonly filePath: string
-  readonly contentHash: string
   readonly isLoading: boolean
   readonly readError?: unknown
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite
@@ -125,18 +109,20 @@ const QuestionSection = ({
   nodes,
   allNodes,
   onOpen,
+  linkTitle = false,
 }: {
   readonly title: string
   readonly nodes: readonly SteeringViewNode[]
   readonly allNodes: readonly SteeringViewNode[]
-  readonly onOpen?: (index: number) => void
+  readonly onOpen: (index: number) => void
+  readonly linkTitle?: boolean
 }) => {
   if (nodes.length === 0) return null
   return (
     <section>
       <h2
         className={`mx-3 mt-4 mb-1 text-small font-semibold tracking-wide uppercase ${
-          onOpen !== undefined ? "text-link" : "text-muted"
+          linkTitle ? "text-link" : "text-muted"
         }`}
       >
         {title}
@@ -145,7 +131,7 @@ const QuestionSection = ({
         <QuestionCard
           key={allNodes.indexOf(node)}
           node={node}
-          {...(onOpen !== undefined ? { onOpen: () => onOpen(allNodes.indexOf(node)) } : {})}
+          onOpen={() => onOpen(allNodes.indexOf(node))}
         />
       ))}
     </section>
@@ -177,11 +163,17 @@ const PlanBody = ({
         nodes={openNodes}
         allNodes={openNodes}
         onOpen={onOpenQuestion}
+        linkTitle
       />
       {planNodes.length > 0 && (
         <ProseBlocks nodes={planNodes} noteOverrides={noteOverrides} onOpenNote={onOpenNote} />
       )}
-      <QuestionSection title="Already answered" nodes={answeredNodes} allNodes={answeredNodes} />
+      <QuestionSection
+        title="Already answered"
+        nodes={answeredNodes}
+        allNodes={answeredNodes}
+        onOpen={(index) => onOpenNote(answeredNodes[index]!)}
+      />
     </>
   )
 }
@@ -202,7 +194,7 @@ const deckDoneProps = (
 } => (onDone === undefined ? {} : { onDone, doneLabel: "Done", doneDisabled: busy })
 
 /**
- * Presentational plan-and-answer screen — takes its `view`/`contentHash` as
+ * Presentational plan-and-answer screen — takes its `view` as
  * props so `Plan.stories.tsx` can drive every shape with plain data; the
  * global storybook decorator supplies a fresh `WriteStoreProvider`, which is
  * the only thing this component needs to resolve its own note overrides and
@@ -212,7 +204,6 @@ const deckDoneProps = (
 export const PlanView = ({
   view,
   filePath,
-  contentHash,
   isLoading,
   readError,
   onSaveNote,
@@ -221,7 +212,6 @@ export const PlanView = ({
   onCommitAnswer,
   busy,
 }: PlanViewProps) => {
-  const { confirmed, confirm } = usePlanReadConfirmation(contentHash)
   const [deckIndex, setDeckIndex] = useState<number | undefined>(undefined)
   const [noteSheetAnchor, setNoteSheetAnchor] = useState<SteeringAnchor | undefined>(undefined)
   const overlay = useWriteStore((s) => s.overlay)
@@ -258,11 +248,14 @@ export const PlanView = ({
     noteSheetAnchor === undefined
       ? undefined
       : existingNoteFor(view.nodes, noteSheetAnchor, noteOverrides)
+  const sheetThread =
+    noteSheetAnchor?.kind === "question" ? nodeAt(view.nodes, noteSheetAnchor)?.thread : undefined
   const noteSheet =
     noteSheetAnchor === undefined ? null : (
       <NoteSheet
         anchor={noteSheetAnchor}
         {...(existingNote !== undefined ? { note: existingNote } : {})}
+        {...(sheetThread !== undefined ? { thread: sheetThread } : {})}
         onSave={(anchor, text) => {
           setNoteSheetAnchor(undefined)
           saveNote(anchor, text)
@@ -320,19 +313,6 @@ export const PlanView = ({
       <div data-testid="plan-screen" className="flex h-full min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
           <CardList>
-            <Card testId="read-plan-row" onOpen={confirm}>
-              <span className="flex items-center gap-2">
-                <span
-                  aria-hidden="true"
-                  className={`grid size-5 shrink-0 place-items-center rounded-full border text-small ${
-                    confirmed ? "border-accent text-accent" : "border-border"
-                  }`}
-                >
-                  {confirmed ? "✓" : ""}
-                </span>
-                <span className={confirmed ? "text-muted" : undefined}>Read the plan</span>
-              </span>
-            </Card>
             <PlanBody
               view={view}
               noteOverrides={noteOverrides}
@@ -422,10 +402,6 @@ const usePlanMutations = (
   return { onCommitAnswer, onSaveNote, onDoneNote, onDone, isDone: done.isSuccess }
 }
 
-const planViewDataProps = (
-  data: { readonly view?: SteeringView; readonly contentHash?: string } | undefined,
-) => ({ view: data?.view, contentHash: data?.contentHash ?? "" })
-
 /** `Plan`'s own inner render, a child of its `WriteStoreProvider` — reads the write store (`useSaveIndicatorProps`/`pendingCount`), which only a descendant of the provider can do. */
 const PlanInner = ({
   filePath,
@@ -455,7 +431,7 @@ const PlanInner = ({
         <HandedBackPanel />
       ) : (
         <PlanView
-          {...planViewDataProps(data)}
+          view={data?.view}
           filePath={filePath}
           isLoading={isLoading}
           readError={error}

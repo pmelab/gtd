@@ -191,8 +191,10 @@ ${questionBarReturn}
   \`git show ${base}\`. (On the first lap that hash
   is the process's own diff base, \`${start()}\` — this
   branch doesn't apply)
-- Every decision under \`## Answered Questions\` stays settled —
-  never re-open one. A genuinely open PRODUCT point may still
+- Every decision under \`## Answered Questions\` stays settled, except
+  one carrying a human footnote on its \`### \` heading — the human's
+  review-round edit is where such notes arrive; fold the note in and
+  rewrite the answer or move it back to \`## Open Questions\`. A genuinely open PRODUCT point may still
   raise a fresh \`## Open Questions\` entry: the product gate sits
   on this path exactly as on the first lap
 - Before grouping anything, run \`${env.testCommand}\`

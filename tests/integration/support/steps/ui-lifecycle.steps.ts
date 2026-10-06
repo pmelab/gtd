@@ -117,6 +117,13 @@ When(
   },
 )
 
+When(
+  "I hand off a note on question {int} of {string} in mode {string} with the text {string} to a spawned gtd ui",
+  async (world: GtdWorld, index: number, filePath: string, mode: string, text: string) => {
+    await world.spawnGtdUiAndHandOff(filePath, mode, text, { kind: "question", index })
+  },
+)
+
 // ── package 02's idle round trip — a real setValue write creating the sketch from scratch, then a real done with no note, against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndSketchThenHandOff) ──
 
 When(
