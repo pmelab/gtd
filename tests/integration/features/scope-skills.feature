@@ -254,3 +254,33 @@ Feature: skills are declared per scope
     Then it succeeds
     And stdout contains "missing one: ponytail-review"
     And stdout does not contain "my-org-checklist"
+
+  Scenario: a lens pinned from GTD_QUALITYREVIEWS at entry stays valid after the env is gone
+    Given a test project
+    And the workflow
+    And an environment variable "GTD_QUALITYREVIEWS" set to "my-lens"
+    And a gtd config file at ".gtdrc" with:
+      """
+      skills:
+        build.quality.my-lens: [my-org-checklist]
+      """
+    And gtd enters "fix-precheck"
+    And the environment variable "GTD_QUALITYREVIEWS" is unset
+    When I run gtd next
+    Then it succeeds
+    And stderr does not contain "is not a scope that runs a turn"
+
+  Scenario: a lens pinned from --var at entry stays valid for the rest of the process
+    Given a test project
+    And the workflow
+    And a gtd config file at ".gtdrc" with:
+      """
+      skills:
+        build.quality.my-lens: [my-org-checklist]
+      """
+    When I run gtd with args "--entry fix-precheck --var qualityReviews=my-lens"
+    Then it succeeds
+    And the last commit subject is "gtd(human): fix-precheck"
+    When I run gtd next
+    Then it succeeds
+    And stderr does not contain "is not a scope that runs a turn"

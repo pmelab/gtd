@@ -506,7 +506,7 @@ const runEntryCommand = (
   commandLabel: string,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const rest = yield* currentRest
+    const rest = yield* restAt(undefined, varOverrides)
     const plan = yield* planEntry(
       {
         def: rest.def,

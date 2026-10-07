@@ -807,8 +807,10 @@ becomes an unknown key and exits 1.
 lens is its own scope, keyed `build.quality.<lens>`. By default that scope's
 skills ARE the lens; a `build.quality.<lens>` entry REPLACES them with the
 configured list, leaving the prompt body's own mention of the lens untouched.
-Such a key is valid only while the lens is listed in `qualityReviews` — drop the
-lens and the key is a load error.
+Such a key is valid only while the lens is listed in `qualityReviews`, judged
+against the running process's recorded settings, or against live `.gtdrc`/env
+plus `--var` when no process is underway. A key added for a lens mid-process
+errors until that process finishes.
 
 ### Validation and errors
 
@@ -831,7 +833,8 @@ gtd config: step "idle": mode "adrs" is not a mode this workflow knows (qa, revi
 ```
 
 A `skills:` key that is not a scope running a turn fails the same way, listing
-the known scope keys (see [The `skills:` key](#the-skills-key)):
+the known scope keys. It is reported when gtd resolves the current state, not by
+every config read (see [The `skills:` key](#the-skills-key)):
 
 ```
 gtd config:

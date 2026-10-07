@@ -9,14 +9,9 @@ import { unified as builtInWorkflow } from "../workflows/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
-import {
-  compileConfig,
-  unknownSkillsKeyMessage,
-  type CompiledConfig,
-  type ConfigLayer,
-} from "./compile.js"
+import { compileConfig, type CompiledConfig, type ConfigLayer } from "./compile.js"
 import { interpolate } from "./interpolate.js"
-import { SETTING_NAME_RULE, isSettingName, resolveVars } from "./vars.js"
+import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
 import { ConfigDiscovery, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
@@ -150,7 +145,7 @@ const readRc = Effect.gen(function* () {
   }
 })
 
-const failOnErrors = (diagnostics: readonly Diagnostic[]): Effect.Effect<void, GtdError> => {
+export const failOnErrors = (diagnostics: readonly Diagnostic[]): Effect.Effect<void, GtdError> => {
   const fatal = diagnostics.filter((d) => d.severity === "error")
   if (fatal.length === 0) return Effect.void
   // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
@@ -208,28 +203,9 @@ export const load: Effect.Effect<
     ...levels.map((level) => level.filepath),
     ...(module ? [module.filepath] : []),
   ]
-  // A `skills:` key must name a scope the workflow's own `skills` export
-  // declares for the current vars: a custom workflow's scope names are never
-  // known to the schema, and the per-lens keys depend on `qualityReviews`.
-  const knownSkillScopes = Object.keys(
-    loaded.skills(resolveVars(loaded.defaults, compiled.rcVars, {}, host.env)),
-  ).sort()
-  const unknownSkillDiagnostics = compiled.skillsKeys
-    .filter(({ key }) => !knownSkillScopes.includes(key))
-    .map(({ key, origin }) => ({
-      severity: "error" as const,
-      path: ["skills", key],
-      message: unknownSkillsKeyMessage(key, knownSkillScopes),
-      origin,
-    }))
   const diagnostics = dedupeDiagnostics(
     sortDiagnostics(
-      [
-        ...decodeDiagnostics,
-        ...compiled.diagnostics,
-        ...unknownSkillDiagnostics,
-        ...wrongKindDiagnostics(loaded, compiled),
-      ],
+      [...decodeDiagnostics, ...compiled.diagnostics, ...wrongKindDiagnostics(loaded, compiled)],
       layerOrder,
     ),
   )
@@ -245,6 +221,8 @@ export const load: Effect.Effect<
       modes: compiled.modes,
       skills: loaded.skills,
       configuredSkills: compiled.rcSkills,
+      skillsKeys: compiled.skillsKeys,
+      skillsOrigin: module?.filepath ?? BUILT_IN_ORIGIN,
       initial,
     },
     workflowVars: { ...loaded.defaults },

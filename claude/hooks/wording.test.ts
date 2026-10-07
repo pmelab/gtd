@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 
 import {
+  restartLine,
   CONTINUE,
   gateOptions,
   HANDOFF,
@@ -61,4 +62,8 @@ describe("wording", () => {
     }
     expect(runningLine("Building", 2, 65_000)).toBe("✳ gtd ▸ Building… (1m · step 2)")
   })
+})
+
+test("restartLine names the scope and the cause", () => {
+  expect(restartLine("build")).toBe("build: skills or system changed — started a fresh subagent")
 })

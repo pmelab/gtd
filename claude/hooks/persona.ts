@@ -20,3 +20,9 @@ export async function personaSpec(t: Pick<Turn, "scope" | "system" | "skills">) 
     permissionMode: "bypassPermissions",
   }
 }
+
+export function resumable(entry: unknown, persona: string): string | undefined {
+  if (typeof entry !== "object" || entry === null) return undefined
+  const e = entry as { agentId?: unknown; persona?: unknown }
+  return typeof e.agentId === "string" && e.persona === persona ? e.agentId : undefined
+}

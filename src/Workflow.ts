@@ -62,6 +62,10 @@ export interface WorkflowDefinition {
   ) => Readonly<Record<string, readonly string[]>>
   /** `.gtdrc` `skills:` entries by scope full name; they outrank a `scope()` option, which outranks `skills`. */
   readonly configuredSkills: Readonly<Record<string, readonly string[]>>
+  /** Every well-shaped `.gtdrc` `skills:` key with its file, checked against `skills` once the process's settings are known. */
+  readonly skillsKeys: readonly { readonly key: string; readonly origin: string }[]
+  /** The file the `skills` export came from, for error reports. */
+  readonly skillsOrigin: string
   /** The flow's first step on an ordinary start — where a finished episode waits. */
   readonly initial: StateName
 }

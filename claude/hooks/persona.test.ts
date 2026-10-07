@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import { personaSpec } from "./persona"
+import { personaSpec, resumable } from "./persona"
 
 const base = { scope: "build", system: "sys", skills: ["a", "b"] }
 
@@ -37,5 +37,14 @@ describe("personaSpec", () => {
     const s = await personaSpec({ scope: "s", skills: [] })
     expect(s.prompt.length).toBeGreaterThan(0)
     expect(s.prompt).not.toContain("\n")
+  })
+})
+
+describe("resumable", () => {
+  test("id only when the persona matches", () => {
+    expect(resumable({ agentId: "a1", persona: "p-1" }, "p-1")).toBe("a1")
+    expect(resumable({ agentId: "a1", persona: "p-1" }, "p-2")).toBeUndefined()
+    expect(resumable("a1", "p-1")).toBeUndefined()
+    expect(resumable(undefined, "p-1")).toBeUndefined()
   })
 })
