@@ -115,10 +115,12 @@ needs across steps — a counter, the previous report, a review round's base —
 lives in local variables; replay rebuilds them.
 
 Composition: `scope(name, fn)` prefixes step names (`build.fix`) and sets their
-**memory scope** (one scope = one agent conversation = one model/system — mixing
-them inside a scope fails the process); `scope({ name?, model, system }, fn)`
-also sets defaults for agent steps inside. `refuse(message)` refuses the pending
-landing — call it right after the step whose turn you reject.
+**memory scope** (one scope = one agent conversation = one model/system/skills —
+mixing them inside a scope fails the process);
+`scope({ name?, model, system, skills }, fn)` also sets defaults for agent steps
+inside. Skills are declared per scope, never on `agent()`, and a driver
+restricts each turn to its scope's list where it can. `refuse(message)` refuses
+the pending landing — call it right after the step whose turn you reject.
 `@pmelab/gtd/flows` exports `requireProgress(file)`, `requireAnswers(file)` and
 `requireRevert(edited, base)`, three such checks ready-made.
 

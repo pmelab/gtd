@@ -37,23 +37,12 @@ export const withSkills = (skills: string | undefined, prompt: string): string =
   return `${skillsPreamble.replaceAll("{skills}", skills)}\n\n${prompt}`
 }
 
-/**
- * An `agent()` step whose preamble names its resolved skills: `skillsFor`
- * resolves `name` (scoped from here, same as `agent()`'s own resolver) for
- * the preamble prose, passing `options.skills` through as `ownSkills` — the
- * same precedence tier `agent()`'s own wire resolver gives a call's own
- * `skills` option, so a step that declares one (`reviewQuality`'s per-turn
- * lens) gets it in the preamble too, not just on the wire, whenever no
- * bundled or configured entry outranks it. Both reads share one resolver
- * (`Replay.ts`'s `resolveSkills`), so the preamble and the wire can't drift
- * apart.
- */
+/** An `agent()` step whose prompt opens with the preamble naming its scope's skills. */
 export const agentWithSkills = (
   name: string,
   prompt: string,
   options: AgentOptions = {},
-): Promise<void> =>
-  agent(name, withSkills(skillsFor(name, options.skills).join(", "), prompt), options)
+): Promise<void> => agent(name, withSkills(skillsFor(name).join(", "), prompt), options)
 
 export const unwindFailure = (commit: string): string =>
   `gtd could not unwind ${commit} out of your working tree.`
@@ -610,7 +599,7 @@ When you've been through the whole diff, run \`gtd land\`:
   - \`question\` — answered inline under the note in
     \`.gtd/REVIEW.md\` (**review.answer-review-questions**); the process
     rests at this gate again, no lap
-  - \`nit\` — fixed in one batched turn (**review.fix-nits**), then a
+  - \`nit\` — fixed in one batched turn (**review.fix.nits.fixing**), then a
     fresh review of the change rests at this gate again, no re-plan
   - \`praise\` — dropped; a round of only praise signs off
   When a round mixes \`edit\` with \`question\` or \`nit\`, questions get

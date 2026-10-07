@@ -33,10 +33,10 @@ export const evalSteps: Readonly<Record<string, () => Promise<void>>> = {
     scope("build", () => collecting(read(".gtd/REVIEW_RAW.md") ?? "")),
   "design.triage": () => scope("design", () => triage(start())),
   "architecture.author": () => scope("architecture", author),
-  "architecture.decompose": () => scope("architecture", decompose),
+  "architecture.decompose.decomposing": () => scope("architecture", decompose),
   "packages.item.building": inPackage(() => build(pkg())),
-  "packages.item.fix-suite": inPackage(fixSuite),
-  "packages.item.fix-spec": inPackage(() => fixSpec(pkg())),
+  "packages.item.fix.suite.fixing": inPackage(fixSuite),
+  "packages.item.fix.spec.fixing": inPackage(() => fixSpec(pkg())),
   "packages.item.spec.review": inPackage(() => reviewPackage(pkg())),
   "build.fix": () => scope("build", fix),
 }

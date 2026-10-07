@@ -45,4 +45,4 @@ Feature: the bundled workflow's health check runs "testCommand"
     Then ".gtd/FEEDBACK.md" does not exist
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → build.quality.correctness.reviewing"

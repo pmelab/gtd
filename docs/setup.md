@@ -13,18 +13,18 @@ is optional, all three are hard prerequisites:
   [`joshmanders/dotfiles`](https://github.com/joshmanders/dotfiles) — install
   with `npx -y skills add joshmanders/dotfiles --skill test-audit`
 
-The bundled workflow's build/fix/review steps name skills from these sets in
+The bundled workflow's build/fix/review scopes name skills from these sets in
 their prompts instead of spelling out their technique in prose. Without a source
 installed, your harness has nothing to load at the steps that name it, and the
 prompt carries no prose standing in for it. gtd itself never installs, resolves,
-or verifies any of this — a repo can also repoint any step's configured skill
+or verifies any of this — a repo can also repoint any scope's configured skill
 list (`.gtdrc` `skills:`, see below) to name a different set its own harness has
-instead, or set it to `[]` to drop the skill names from that step.
+instead, or set it to `[]` to drop the skill names from that scope.
 
 **Install the skills, never the ponytail plugin** — its hooks inject into every
-turn and bypass the per-step `skills:` key above.
+turn and bypass the per-scope `skills:` key above.
 
-A name missing from a step's configured list is skipped silently and costs
+A name missing from a scope's configured list is skipped silently and costs
 nothing. A missing `qualityReviews` entry does not share that rule — see
 [Extending the quality-review lap](#extending-the-quality-review-lap) below. Two
 of the default lenses (`ponytail-review`, `test-audit`) come from sources a
@@ -35,37 +35,37 @@ and `spec-challenge` need no skill.
 
 ### Using a different skill set
 
-Every bundled agent step has its own addressable full name — see
+Every bundled scope that runs agent turns has its own addressable full name, and
+a driver that can restrict a turn's skills passes that scope's list — see
 [Configuration](./configuration.md#the-skills-key) for the full list and its
 validation rules. Two routes, and they combine:
 
-- **Instead of the bundled set** — repoint the step's `.gtdrc` `skills:` entry.
-  It also feeds the `skills` key on `gtd next --json` at that step — a driver
-  that reads it can preload the same names (see
+- **Instead of the bundled set** — repoint the scope's `.gtdrc` `skills:` entry.
+  It also feeds the `skills` key on `gtd next --json` at that scope's turns — a
+  driver that reads it can preload the same names (see
   [Writing your own driver](./driver.md)):
 
   ```yaml
-  # .gtdrc — packages.item.building loads your own skill instead of the bundled pair
+  # .gtdrc — packages.item loads your own skill instead of the bundled pair
   skills:
-    packages.item.building: [my-org-tdd-skill]
+    packages.item: [my-org-tdd-skill]
   ```
 
 - **In addition to the bundled set** — there is no append mechanism: an entry
-  REPLACES the step's bundled list, it never adds to it. Wanting the bundled
+  REPLACES the scope's bundled list, it never adds to it. Wanting the bundled
   skills plus your own means writing the whole list — bundled names included —
   into your own value:
 
   ```yaml
   # .gtdrc — keep the bundled pair, add one more
   skills:
-    packages.item.building:
+    packages.item:
       [test-driven-development, incremental-implementation, my-org-tdd-skill]
   ```
 
-  The cost of this route: a later gtd release that changes
-  `packages.item.building`'s bundled default is silently lost to you, because
-  your override already replaced it — you keep whatever list you wrote until you
-  edit it again.
+  The cost of this route: a later gtd release that changes `packages.item`'s
+  bundled default is silently lost to you, because your override already
+  replaced it — you keep whatever list you wrote until you edit it again.
 
 Both routes share the same safety rules:
 
@@ -81,10 +81,10 @@ Both routes share the same safety rules:
 
 `qualityReviews` (default
 `correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
-is a skill set too, but a different shape from a step's `skills:` entry above:
-each entry is its own full turn, not a list handed to one step. Extend it for a
-project-specific concern — a company security checklist, a house style skill —
-the same way as any other var, via `.gtdrc`:
+is a skill set too, but a different shape from a scope's `skills:` entry above:
+each entry is its own full turn and its own scope, not a list handed to one
+scope. Extend it for a project-specific concern — a company security checklist,
+a house style skill — the same way as any other var, via `.gtdrc`:
 
 ```yaml
 # .gtdrc — keep the bundled six, add a company checklist
@@ -100,7 +100,7 @@ or, highest precedence, via the matching `GTD_<NAME>` environment variable:
 GTD_QUALITYREVIEWS="correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, acme-security-checklist" gtd next
 ```
 
-Unlike a step's `skills:` entry, gtd DOES split this one — on every comma, one
+Unlike a scope's `skills:` entry, gtd DOES split this one — on every comma, one
 lens per entry — because each entry is its own turn rather than one step's skill
 list. Keep entries free of commas and of characters that don't belong in a
 filename: each trimmed entry becomes part of a queued review file's name. The
@@ -113,13 +113,13 @@ queue file exists whether or not anything can load it — a typo costs a whole
 turn, silently. Blanking the whole var, in contrast, does switch the lap off
 outright.
 
-`qualityReviews` and `.gtdrc` `skills: { build.quality.reviewing: [...] }` are a
-pair, not alternatives: `qualityReviews` decides how many turns the lap runs
-(one per lens, in order); by default, each turn's own skill IS that turn's lens.
-A `build.quality.reviewing` entry REPLACES the lens on every one of those turns
-with the configured list instead — the prompt body still names which lens the
-turn is for, but that lens no longer loads as a skill once overridden. Setting
-one without the other is rarely what you want. See
+`qualityReviews` and `.gtdrc` `skills:` keys `build.quality.<lens>` are a pair,
+not alternatives: `qualityReviews` decides how many turns the lap runs (one per
+lens, in order), and each lens is its own scope, so its own skills. By default a
+lens scope's skills ARE the lens; a `build.quality.<lens>` entry REPLACES them
+with the configured list — the prompt body still names which lens the turn is
+for, but that lens no longer loads as a skill once overridden. The key is valid
+only while the lens is listed in `qualityReviews`. See
 [Configuration](configuration.md) for the cost of extending it.
 
 ## Repository requirements

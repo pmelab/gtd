@@ -3,9 +3,10 @@ import type { EngineInterface, Register } from "claude-code"
 
 import type { Run, Stop } from "../types"
 import { afterReload, drive, isTrue } from "./drive"
-import type { Beat, Io, Landing, TurnEnd } from "./drive"
+import type { Beat, Io, Landing, Turn, TurnEnd } from "./drive"
 import { enter } from "./entry"
 import { subagentModel } from "./models"
+import { personaSpec } from "./persona"
 import { JUDGE_SYSTEM, judgePrompt, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
@@ -82,23 +83,19 @@ async function gtd($: $, args: string[], stdin?: string) {
   return r.stdout
 }
 
-// One agent type per system prompt. A registered type's prompt replaces the
-// session's system prompt, as `--system-prompt` does for the sh driver.
-async function persona($: $, system: string) {
-  const bytes = new TextEncoder().encode(system)
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))
-  const name =
-    "p-" + Array.from(digest.slice(0, 6), (b) => b.toString(16).padStart(2, "0")).join("")
-  if (!personas.has(name)) {
+// One agent type per scope, system prompt and skill list. A registered type's
+// prompt replaces the session's system prompt, as `--system-prompt` does for
+// the sh driver.
+async function persona($: $, t: Pick<Turn, "scope" | "system" | "skills">) {
+  const spec = await personaSpec(t)
+  if (!personas.has(spec.name)) {
     await $.agent.register({
-      name,
+      ...spec,
       description: "gtd workflow persona, spawned by the gtd driver only",
-      prompt: system,
-      permissionMode: "bypassPermissions",
     })
-    personas.add(name)
+    personas.add(spec.name)
   }
-  return `gtd:${name}`
+  return `gtd:${spec.name}`
 }
 
 async function send($: $, agentId: string, text: string) {
@@ -172,7 +169,7 @@ function io($: $): Io {
       // No live conversation for this scope (fresh scope, or this session never
       // held it): start one, as the sh driver falls back to `--session-id`.
       const spawned = await $.agent.spawn({
-        subagentType: t.system ? await persona($, t.system) : "general-purpose",
+        subagentType: await persona($, t),
         prompt: t.prompt,
         description: t.label || "gtd",
         model: subagentModel(t.model, {

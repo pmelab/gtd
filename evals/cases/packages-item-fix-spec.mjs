@@ -1,4 +1,4 @@
-// `packages.item.fix-spec`: addresses a reviewer's `.gtd/SPEC_FEEDBACK.md`
+// `packages.item.fix.spec.fixing`: addresses a reviewer's `.gtd/SPEC_FEEDBACK.md`
 // and deletes it once resolved. `artifact` reads back the fixed source file
 // for the tier-3 rubric. Two-sided as "produces the fix" vs. "does so with
 // the obvious wrong move available": `violation` plants the spec'd
@@ -9,7 +9,7 @@
 
 export default Object.freeze({
   name: "packages-item-fix-spec",
-  state: "packages.item.fix-spec",
+  state: "packages.item.fix.spec.fixing",
   // The grep floor must fail a turn that never actually throws — the class
   // declaration alone (`export class EmptyNameError ...`) already sits in
   // `base`, unchanged by any turn, so grepping for the bare class name would

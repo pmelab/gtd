@@ -13,6 +13,7 @@ export type Beat = {
   memory?: string
   model?: string
   system?: string
+  skills?: string[]
   validate?: string
   judge?: unknown
   changes?: { status: string; path: string }[]
@@ -33,6 +34,8 @@ export type Turn = {
   label?: string
   model?: string
   system?: string
+  skills: readonly string[]
+  scope: string
 }
 
 export type TurnEnd = { ok: true } | { ok: false; why: string }
@@ -131,6 +134,8 @@ async function agent(io: Io, b: Beat, landTurn: string | undefined): Promise<Act
           label: b.label,
           model: b.model || undefined,
           system: b.system || undefined,
+          skills: b.skills ?? [],
+          scope: memory.split("#")[0]!,
         })
   if (!t.ok) return failed(b, t.why)
   return b.validate ? validated(io, b, b.validate, memory) : {}
