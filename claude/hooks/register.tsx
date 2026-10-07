@@ -6,7 +6,7 @@ import { afterReload, drive, isTrue } from "./drive"
 import type { Beat, Io, Landing, Turn, TurnEnd } from "./drive"
 import { enter } from "./entry"
 import { subagentModel } from "./models"
-import { personaSpec } from "./persona"
+import { personaSpec, resumable } from "./persona"
 import { JUDGE_SYSTEM, judgePrompt, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
@@ -26,6 +26,7 @@ import {
   pushText,
   runningLine,
   question,
+  restartLine,
   RELOAD_CUT_SCRIPT,
   SAFE,
   SHIP,
@@ -38,7 +39,10 @@ type $ = EngineInterface
 
 const run = atom({ plugin: "gtd", key: "run" } as const, { isRunning: false, beat: 0 } as Run)
 // memory scope (`<scope>#<hash7>`) -> the subagent holding that conversation
-const scopes = atom({ plugin: "gtd", key: "scopes" } as const, {} as Record<string, string>)
+const scopes = atom(
+  { plugin: "gtd", key: "scopes" } as const,
+  {} as Record<string, { agentId: string; persona: string }>,
+)
 const agents = atom({ plugin: "gtd", key: "agents" } as const, [] as string[])
 
 const TEN_MINUTES = 600_000
@@ -159,7 +163,10 @@ function io($: $): Io {
       }
     },
     turn: async (t) => {
-      const known = (await read($, scopes))[t.memory]
+      const entry = (await read($, scopes))[t.memory]
+      const name = (await personaSpec(t)).name
+      const known = resumable(entry, name)
+      if (t.resume && entry && !known) $.ui.log(restartLine(t.scope))
       if (t.resume && known) {
         const end = send($, known, t.prompt)
         await update($, run, (r) => ({ ...r, inflight: { agentId: known, memory: t.memory } }))
@@ -182,12 +189,12 @@ function io($: $): Io {
       if (!id) return { ok: false, why: spawned.deny ?? "subagent spawn refused" }
       ours.add(id)
       await update($, agents, (list) => [...list, id].slice(-200))
-      await update($, scopes, (s) => ({ ...s, [t.memory]: id }))
+      await update($, scopes, (s) => ({ ...s, [t.memory]: { agentId: id, persona: name } }))
       await update($, run, (r) => ({ ...r, inflight: { agentId: id, memory: t.memory } }))
       return settle($, await turnEnd(id))
     },
     resume: async (memory, text) => {
-      const id = (await read($, scopes))[memory]
+      const id = (await read($, scopes))[memory]?.agentId
       const end = id ? await send($, id, text) : undefined
       return end ?? { ok: false, why: `no live subagent for ${memory}` }
     },

@@ -28,6 +28,10 @@ export type Run = {
 
 declare module "claude-code" {
   interface PluginState {
-    gtd: { run: Run; scopes: Record<string, string>; agents: string[] }
+    gtd: {
+      run: Run
+      scopes: Record<string, { agentId: string; persona: string }>
+      agents: string[]
+    }
   }
 }

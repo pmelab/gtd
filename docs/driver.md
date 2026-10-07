@@ -276,7 +276,9 @@ falls back to the `gtd` on your `PATH`.
   request ready for review.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
-  scope fresh, as the minimal driver does when a remembered session is gone.
+  scope fresh, as the minimal driver does when a remembered session is gone. A
+  change to that scope's skills or system starts a fresh subagent on the next
+  beat, losing the scope's earlier conversation, and says so in the transcript.
 - A step's `system` becomes the subagent's whole system prompt, and its `model`
   the subagent's model. Each subagent sees only its scope's `skills`.
 - **The mod's subagents run with `bypassPermissions`**, the equivalent of the

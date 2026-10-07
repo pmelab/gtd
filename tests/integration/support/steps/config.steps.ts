@@ -103,3 +103,7 @@ Given(
     world.envVars[name] = value
   },
 )
+
+Given("the environment variable {string} is unset", (world: GtdWorld, name: string) => {
+  delete world.envVars[name]
+})

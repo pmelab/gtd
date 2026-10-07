@@ -12,6 +12,7 @@ import {
   ConfigService,
   multilineSetting,
   resolveVars,
+  resolveScopeSkills,
   type ConfigOperations,
 } from "./workflow/index.js"
 import {
@@ -453,6 +454,7 @@ interface ReplaySetup {
   readonly vars: Record<string, string>
   readonly env: Record<string, string>
   readonly budget: number
+  readonly skills: Record<string, readonly string[]>
   readonly workspace: WorkspaceOps
   /**
    * The episode's base tree and every commit's, built ONCE — after
@@ -493,7 +495,7 @@ const replayFor = (
         ? treeFromRecord({})
         : commitTree(setup.workspace, setup.run.diffBase),
     budgetBytes: setup.budget,
-    skills: setup.def.skills(setup.vars),
+    skills: setup.skills,
     configuredSkills: setup.def.configuredSkills,
     ...(pending !== undefined ? { pending } : {}),
   })
@@ -724,7 +726,10 @@ const costByModel = (entries: readonly CostEntry[]): ModelCost[] => {
 export type RestRequirements = ConfigRequirements
 
 /** Resolve the rest at `ref`, or at HEAD when `ref` is `undefined`. */
-export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, RestRequirements> =>
+export const restAt = (
+  ref: string | undefined,
+  entryOverrides: Readonly<Record<string, string>> = {},
+): Effect.Effect<Rest, Error, RestRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
@@ -732,7 +737,8 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const host = yield* Host
     const def = config.workflow
     const run = yield* computeProcessRun(git, def, ref)
-    const { vars, env } = settingsFor(config, run.pinnedVars, host.env)
+    const { vars, env } = settingsFor(config, run.pinnedVars, host.env, entryOverrides)
+    const skills = yield* resolveScopeSkills(def, vars)
     const budget = yield* Effect.try({
       try: () => judgeBudgetBytes(vars),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -762,6 +768,7 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       vars,
       env,
       budget,
+      skills,
       workspace,
       base,
       episode,
@@ -835,6 +842,7 @@ export const entryRefusal = (
     const config = yield* (yield* ConfigService).load
     const host = yield* Host
     const { vars, env } = settingsFor(config, {}, host.env, entryVars)
+    const skills = yield* resolveScopeSkills(rest.def, vars)
     const workspace = rest.setup.workspace
     const outcome = yield* Effect.promise(() =>
       replay({
@@ -848,7 +856,7 @@ export const entryRefusal = (
         env,
         start: "",
         budgetBytes: rest.setup.budget,
-        skills: rest.def.skills(vars),
+        skills,
         configuredSkills: rest.def.configuredSkills,
       }),
     )
