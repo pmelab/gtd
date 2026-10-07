@@ -14,15 +14,9 @@ export interface TextContext {
   readonly start?: string
   readonly codeThreads?: readonly CodeThreadInfo[]
   readonly read?: (path: string) => string | undefined
-  /**
-   * A PER-KEY `skillsFor` override, keyed by the LOCAL name a bundled step
-   * calls itself with (`captureStep`/`renderText` push no scopes, so a local
-   * name is also the only name here) — stands in for a `.gtdrc` entry, so
-   * only the key it names is overridden; every other step still falls back
-   * to the call's own `skills` option, then the bundled map (`./skills.ts`),
-   * so an existing step test keeps its skills without having to declare them
-   * itself.
-   */
+  /** The scope the step runs in (`"build.review"`); the fixture pushes no scopes, so this stands in for the caller's. */
+  readonly scope?: string
+  /** Stands in for `.gtdrc` `skills:`, keyed by scope full name. */
   readonly skills?: Readonly<Record<string, readonly string[]>>
 }
 
@@ -30,28 +24,19 @@ const unavailable = (): never => {
   throw new Error("not available while rendering a text outside a replay")
 }
 
-/** The bundled map is keyed by FULL name, but a bundled step calls itself by its own LOCAL name and this fixture pushes no scope to prefix it with — so the default lookup matches on the local name alone, or as the last `.`-separated segment of a bundled key. `health.describe`'s two bundled entries (`packages.item.health.describe`, `build.health.describe`) share one list, so the ambiguity this leaves resolves to the same answer either way. */
-const bundledSkillsFor = (localName: string): readonly string[] => {
-  const exact = bundledSkills[localName]
-  if (exact !== undefined) return exact
-  const suffix = `.${localName}`
-  const hit = Object.entries(bundledSkills).find(([key]) => key.endsWith(suffix))
-  return hit?.[1] ?? []
-}
-
-/**
- * Mirrors `Replay.ts`'s `resolveSkills` three-way precedence: `context.skills`
- * (a per-key override, standing in for `.gtdrc`) beats `ownSkills` (a call's
- * own `skills` option), which beats the bundled default — so a step test that
- * passes its own `skills` option (like `reviewQuality`'s lens) sees it in the
- * preamble too, the same as a real replay would.
- */
+/** Mirrors `Replay.ts`'s scope walk: for each prefix of the step's memory scope, innermost first, a `.gtdrc` entry, then the bundled export. */
 const skillsForOf =
   (context: TextContext) =>
-  (localName: string, ownSkills?: readonly string[]): readonly string[] => {
-    const configured = context.skills?.[localName]
-    if (configured !== undefined) return configured
-    return ownSkills ?? bundledSkillsFor(localName)
+  (localName: string): readonly string[] => {
+    const full = [context.scope, localName].filter((part) => part !== undefined && part !== "")
+    const parts = full.join(".").split(".").slice(0, -1)
+    const bundled = bundledSkills({ ...defaults, ...context.vars })
+    for (let n = parts.length; n >= 0; n--) {
+      const prefix = parts.slice(0, n).join(".")
+      const hit = context.skills?.[prefix] ?? bundled[prefix]
+      if (hit !== undefined) return hit
+    }
+    return []
   }
 
 /** The fixed replay context texts render against; steps, refusals and scopes are unavailable unless overridden. */

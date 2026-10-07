@@ -1,10 +1,11 @@
 Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
 
   `build.quality` sits between the green health check and the human review
-  tail: one `build.quality.reviewing` agent turn per comma-separated
-  `qualityReviews` lens, in the order listed, each naming its own lens and
+  tail: one `build.quality.<lens>.reviewing` agent turn per comma-separated
+  `qualityReviews` lens, in the order listed, each its own scope loading only its own
+  lens skill, naming its own lens and
   APPENDING every finding, blocking or not, to `.gtd/QUALITY.md`. Once every lens has
-  had its turn, a non-empty `.gtd/QUALITY.md` routes to `build.fix-quality`;
+  had its turn, a non-empty `.gtd/QUALITY.md` routes to `build.fix.quality.fixing`;
   otherwise the lap hands straight on to `build.review.reviewing`. The lap
   runs once per build tail: after its findings are fixed and the suite is
   green again, the human review follows directly.
@@ -34,26 +35,36 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → build.quality.correctness.reviewing"
 
     # The bundled lenses, in order: correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge.
     When I run gtd next
     Then it succeeds
     And stdout contains "`correctness`"
+    When I run gtd next with "--json=skills.0"
+    Then it succeeds
+    And stdout contains "code-review-and-quality"
+    When I run gtd next with "--json=skills"
+    Then it succeeds
+    And stdout does not contain "owasp-security"
 
     # A clean reviewing turn under this lens — nothing found.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.correctness.reviewing → build.quality.owasp-security.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "`owasp-security`"
     And stdout does not contain "`correctness`"
+    When I run gtd next with "--json=skills"
+    Then it succeeds
+    And stdout contains "owasp-security"
+    And stdout does not contain "code-review-and-quality"
 
     # A clean reviewing turn under this lens — nothing found.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.owasp-security.reviewing → build.quality.ponytail-review.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "`ponytail-review`"
@@ -62,7 +73,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     # A clean reviewing turn under this lens — nothing found.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.ponytail-review.reviewing → build.quality.test-audit.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "`test-audit`"
@@ -71,7 +82,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     # A clean reviewing turn under this lens — nothing found.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.test-audit.reviewing → build.quality.conventions.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "`conventions`"
@@ -80,20 +91,20 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     # A clean reviewing turn under this lens — nothing found.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "`spec-challenge`"
     And stdout does not contain "`conventions`"
 
     # The final lens is clean too: with .gtd/QUALITY.md never written, the
-    # lap hands straight on to the human review tail, never fix-quality.
+    # lap hands straight on to the human review tail, never build.fix.quality.fixing.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing → build.review.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing"
 
   @inmem
-  Scenario: a findings lap routes through fix-quality and the health check, then straight on to the human review
+  Scenario: a findings lap routes through build.fix.quality.fixing and the health check, then straight on to the human review
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security"
@@ -111,7 +122,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And gtd lands "gtd(agent): build.fix → build.health.check"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → build.quality.owasp-security.reviewing"
 
     # The reviewer found something blocking under this one lens and appends
     # a `## ` chunk, never overwriting the file.
@@ -124,19 +135,19 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing → build.fix-quality"
+    And the last commit subject is "gtd(agent): build.quality.owasp-security.reviewing → build.fix.quality.fixing"
 
-    # build.fix-quality's prompt names its bundled skills — grounds this
+    # build.fix.quality.fixing's prompt names its bundled skills — grounds this
     # step's own map key against the real scoped name it resolves to.
     When I run gtd next
     Then stdout contains "incremental-implementation, code-simplification"
 
-    # fix-quality resolves the finding, deletes .gtd/QUALITY.md, and hands
+    # build.fix.quality.fixing resolves the finding, deletes .gtd/QUALITY.md, and hands
     # back to the health check — never straight to the human review.
     Given the file ".gtd/QUALITY.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.fix-quality → build.health.check"
+    And the last commit subject is "gtd(agent): build.fix.quality.fixing → build.health.check"
 
     # Green again: the lap already ran this tail, so review follows directly.
     When I run gtd land
@@ -166,7 +177,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And the git log does not contain "build.quality"
 
   @live
-  Scenario: lenses are trimmed and reviewed one turn each, and a lens's finding routes to fix-quality
+  Scenario: lenses are trimmed and reviewed one turn each, and a lens's finding routes to build.fix.quality.fixing
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to " first-lens , second-lens "
@@ -182,7 +193,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
       export const thing = 1
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.quality.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.quality.first-lens.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "`first-lens`"
@@ -194,13 +205,13 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.first-lens.reviewing → build.quality.second-lens.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "`second-lens`"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing → build.fix-quality"
+    And the last commit subject is "gtd(agent): build.quality.second-lens.reviewing → build.fix.quality.fixing"
     And ".gtd/QUALITY.md" contains "A blocking finding"
 
   @inmem
@@ -253,7 +264,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And stdout contains "partial-failure"
 
   @inmem
-  Scenario: a non-blocking finding still routes to build.fix-quality
+  Scenario: a non-blocking finding still routes to build.fix.quality.fixing
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to "ponytail-review"
@@ -279,4 +290,30 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing → build.fix-quality"
+    And the last commit subject is "gtd(agent): build.quality.ponytail-review.reviewing → build.fix.quality.fixing"
+
+  @inmem
+  Scenario: a lens skills key loads only while the lens is in qualityReviews
+    Given a test project
+    And the workflow
+    And a gtd config file at ".gtdrc" with:
+      """
+      vars:
+        qualityReviews: "owasp-security"
+      skills:
+        build.quality.ponytail-review: [my-org-checklist]
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "gtd config:"
+    And stderr contains "\"skills.build.quality.ponytail-review\" is not a scope that runs a turn"
+
+    Given a gtd config file at ".gtdrc" with:
+      """
+      vars:
+        qualityReviews: "owasp-security, ponytail-review"
+      skills:
+        build.quality.ponytail-review: [my-org-checklist]
+      """
+    When I run gtd next
+    Then it succeeds

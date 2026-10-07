@@ -571,10 +571,61 @@ describe("ConfigService", () => {
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain(
-        '"skills.toString" names a step this workflow does not declare',
-      )
+      expect(String(exit.cause)).toContain('"skills.toString" is not a scope that runs a turn')
     }
+  })
+
+  describe("`skills:` keys are scope names", () => {
+    const loadError = async (rc: string, extra = ""): Promise<string> => {
+      writeFileSync(join(projectDir, ".gtdrc.yaml"), rc)
+      if (extra !== "") writeFileSync(join(projectDir, "gtd.config.ts"), extra)
+      const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+      expect(Exit.isFailure(exit)).toBe(true)
+      return Exit.isFailure(exit) ? String(Cause.squash(exit.cause)) : ""
+    }
+    const keyed = (key: string): string => `skills:\n  ${key}: [x]\n`
+
+    it("names the key and lists every known scope", async () => {
+      const message = await loadError(keyed("nope"))
+      expect(message).toContain('"skills.nope" is not a scope that runs a turn — known scopes: ')
+      expect(message).toContain("architecture, architecture.decompose, build,")
+    })
+
+    it("gives a group key the same plain error", async () => {
+      expect(await loadError(keyed("build.fix"))).toContain("known scopes: ")
+    })
+
+    it("accepts a scope key and keeps it in rcSkills", async () => {
+      writeFileSync(join(projectDir, ".gtdrc.yaml"), keyed("build.review"))
+      expect((await getConfig()).workflow.configuredSkills).toEqual({ "build.review": ["x"] })
+    })
+
+    it("validates a lens key only while the lens is in qualityReviews", async () => {
+      writeFileSync(
+        join(projectDir, ".gtdrc.yaml"),
+        `vars:\n  qualityReviews: "my-lens"\nskills:\n  build.quality.my-lens: [x]\n`,
+      )
+      expect((await getConfig()).workflow.configuredSkills).toEqual({
+        "build.quality.my-lens": ["x"],
+      })
+      expect(await loadError(keyed("build.quality.my-lens"))).toContain(
+        '"skills.build.quality.my-lens" is not a scope that runs a turn',
+      )
+    })
+
+    it("loads a skills export given as a record or as a function of the vars", async () => {
+      const flow = minimalWorkflow("first")
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `${flow}export const skills = { a: ["x"] }\n`,
+      )
+      expect(Object.keys((await getConfig()).workflow.skills({}))).toEqual(["a"])
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `${flow}export const skills = (vars) => ({ [vars.k ?? "none"]: ["x"] })\n`,
+      )
+      expect(Object.keys((await getConfig()).workflow.skills({ k: "b" }))).toEqual(["b"])
+    })
   })
 
   it("reports an unknown `skills:` key once per layer that carries it", async () => {

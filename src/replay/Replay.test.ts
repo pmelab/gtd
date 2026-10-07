@@ -553,90 +553,132 @@ describe("replay", () => {
   })
 })
 
-// `resolve()`'s three-way skills precedence: a `.gtdrc` entry
-// (`configuredSkills`) beats a step's own `skills` option, which in turn
-// beats the workflow's bundled default (`skills`) — reached only when
-// neither of the other two is set. `build.quality.reviewing`'s bundled `[]`
-// is exactly the case a two-way rule (config vs. bundled only) gets wrong:
-// it would beat a step's own explicit list even with no `.gtdrc` entry at all.
 describe("replay: skills resolution", () => {
-  const oneStep = async () => {
-    await agent("step", "prompt", { skills: ["own"] })
-  }
-
-  const wireSkills = async (resolved: {
+  interface Tiers {
     skills?: Record<string, readonly string[]>
     configuredSkills?: Record<string, readonly string[]>
-  }): Promise<readonly string[] | undefined> => {
-    const outcome = await replay({
-      flow: oneStep,
-      episode: new History().episode(),
-      vars: {},
-      env: {},
-      start: hashOf(0),
-      budgetBytes: 1024,
-      ...resolved,
-    })
-    if (outcome.kind !== "rest" || outcome.rest.request.kind !== "agent") {
-      throw new Error(`expected an agent rest, got ${JSON.stringify(outcome)}`)
-    }
-    return outcome.rest.request.options.skills
   }
 
-  it("keeps the step's own skills option when neither a bundled nor a configured entry is set", async () => {
-    expect(await wireSkills({})).toEqual(["own"])
-  })
-
-  it("falls back to the bundled default only when the step passes no skills option of its own", async () => {
-    const noOwnSkills = async () => {
-      await agent("step", "prompt")
-    }
+  const restOf = async (flow: Flow, tiers: Tiers = {}) => {
     const outcome = await replay({
-      flow: noOwnSkills,
+      flow,
       episode: new History().episode(),
       vars: {},
       env: {},
       start: hashOf(0),
       budgetBytes: 1024,
-      skills: { step: ["bundled"] },
+      ...tiers,
     })
-    if (outcome.kind !== "rest" || outcome.rest.request.kind !== "agent")
-      throw new Error("expected a rest")
-    expect(outcome.rest.request.options.skills).toEqual(["bundled"])
+    return outcome
+  }
+
+  const wireSkills = async (flow: Flow, tiers: Tiers = {}) => {
+    const outcome = await restOf(flow, tiers)
+    if (outcome.kind !== "rest") throw new Error(`expected a rest, got ${JSON.stringify(outcome)}`)
+    return outcome.rest.skills
+  }
+
+  type Body = () => Promise<void>
+  const inScope =
+    (options: { name: string; skills?: readonly string[] }, ...rest: Body[]): Flow =>
+    async () => {
+      await scope(options, async () => {
+        for (const f of rest) await f()
+      })
+    }
+  const step: Body = async () => {
+    await agent("step", "prompt")
+  }
+
+  it("rejects a skills option on agent()", async () => {
+    const outcome = await restOf(async () => {
+      await agent("step", "prompt", { skills: ["own"] } as never)
+    })
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      message: 'gtd: step "step": unknown key(s) skills in agent() options',
+    })
   })
 
-  it("an unset bundled entry (build.quality.reviewing's own case: no key at all) does not blank a step's own skills option", async () => {
-    expect(await wireSkills({ skills: {} })).toEqual(["own"])
+  it("reads the list a scope() option declares", async () => {
+    expect(await wireSkills(inScope({ name: "a", skills: ["own"] }, step))).toEqual(["own"])
   })
 
-  it("a configured entry overrides the step's own skills option, even when a bundled default also exists", async () => {
+  it("inherits a parent scope's list in a nested scope", async () => {
+    const flow = inScope({ name: "a", skills: ["parent"] }, async () => {
+      await scope("b", step)
+    })
+    expect(await wireSkills(flow)).toEqual(["parent"])
+  })
+
+  it("replaces the parent's list wholesale when a nested scope sets its own", async () => {
+    const flow = inScope({ name: "a", skills: ["parent"] }, async () => {
+      await scope({ name: "b", skills: ["child"] }, step)
+    })
+    expect(await wireSkills(flow)).toEqual(["child"])
+  })
+
+  it("falls back to the bundled export keyed by scope, walking up prefixes", async () => {
+    const flow = inScope({ name: "a" }, async () => {
+      await scope("b", step)
+    })
+    expect(await wireSkills(flow, { skills: { a: ["bundled"] } })).toEqual(["bundled"])
+    expect(await wireSkills(flow, { skills: { a: ["x"], "a.b": ["inner"] } })).toEqual(["inner"])
+  })
+
+  it("resolves an implicit dotted scope from its own export entry", async () => {
+    const flow = inScope({ name: "a" }, async () => {
+      await agent("review.reviewing", "prompt")
+    })
+    expect(await wireSkills(flow, { skills: { a: ["x"], "a.review": ["own"] } })).toEqual(["own"])
+  })
+
+  it("ranks .gtdrc above the scope() option above the export", async () => {
+    const flow = inScope({ name: "a", skills: ["option"] }, step)
+    expect(await wireSkills(flow, { skills: { a: ["bundled"] } })).toEqual(["option"])
     expect(
-      await wireSkills({
-        skills: { step: ["bundled"] },
-        configuredSkills: { step: ["configured"] },
-      }),
-    ).toEqual(["configured"])
+      await wireSkills(flow, { skills: { a: ["bundled"] }, configuredSkills: { a: ["rc"] } }),
+    ).toEqual(["rc"])
   })
 
-  it("a configured EMPTY list still overrides the step's own skills option — the blanking route — and the wire option itself goes absent, not []", async () => {
-    expect(await wireSkills({ configuredSkills: { step: [] } })).toBeUndefined()
+  it("lets a parent .gtdrc entry reach a nested scope with no list, but not one with its own", async () => {
+    const bare = inScope({ name: "a" }, async () => {
+      await scope("b", step)
+    })
+    const own = inScope({ name: "a" }, async () => {
+      await scope({ name: "b", skills: ["child"] }, step)
+    })
+    expect(await wireSkills(bare, { configuredSkills: { a: ["rc"] } })).toEqual(["rc"])
+    expect(await wireSkills(own, { configuredSkills: { a: ["rc"] } })).toEqual(["child"])
   })
 
-  it("a bundled EMPTY entry, with no configured entry and no own skills option, resolves absent too", async () => {
-    const noOwnSkills = async () => {
-      await agent("step", "prompt")
+  it("leaves an empty resolved list absent, never []", async () => {
+    const flow = inScope({ name: "a", skills: ["option"] }, step)
+    expect(await wireSkills(flow, { configuredSkills: { a: [] } })).toBeUndefined()
+    expect(await wireSkills(inScope({ name: "a" }, step), { skills: { a: [] } })).toBeUndefined()
+  })
+
+  it("fails two agent steps in one memory scope with different lists", async () => {
+    const flow: Flow = async () => {
+      await scope({ name: "a", skills: ["one"] }, async () => {
+        await agent("first", "prompt")
+      })
+      await scope({ name: "a", skills: ["two"] }, async () => {
+        await agent("second", "prompt")
+      })
     }
+    const history = new History()
+    history.land("agent", "a.first", 1, "a.second", { "x.txt": "x" })
     const outcome = await replay({
-      flow: noOwnSkills,
-      episode: new History().episode(),
+      flow,
+      episode: history.episode(),
       vars: {},
       env: {},
       start: hashOf(0),
       budgetBytes: 1024,
-      skills: { step: [] },
     })
-    if (outcome.kind !== "rest" || outcome.rest.request.kind !== "agent")
-      throw new Error("expected a rest")
-    expect(outcome.rest.request.options.skills).toBeUndefined()
+    expect(outcome.kind === "failed" && outcome.message).toContain(
+      "different model, system prompt or skills",
+    )
   })
 })

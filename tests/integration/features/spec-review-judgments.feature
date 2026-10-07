@@ -13,7 +13,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   There is no post-judge over the review's findings: `review` owns the
   severity bar itself and a round that finds only nits writes nothing, so
   the last scenario pins that a written `.gtd/SPEC_FEEDBACK.md` goes
-  straight to `fix-spec` with every finding intact.
+  straight to `packages.item.fix.spec.fixing` with every finding intact.
 
   @inmem
   Scenario: a skipped judgment (no verdict) always runs the full review — the fail-open default, even for a package with no `## ` sections at all
@@ -214,7 +214,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
     And stdout does not contain "Section C"
 
   @inmem
-  Scenario: a written .gtd/SPEC_FEEDBACK.md routes straight to fix-spec with every finding intact — no post-judge re-weighs them
+  Scenario: a written .gtd/SPEC_FEEDBACK.md routes straight to packages.item.fix.spec.fixing with every finding intact — no post-judge re-weighs them
     Given a test project
     And the workflow
     And gtd enters "start-gate.check"
@@ -257,7 +257,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix-spec"
+    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix.spec.fixing"
     And ".gtd/SPEC_FEEDBACK.md" contains "Missing null check"
     And ".gtd/SPEC_FEEDBACK.md" contains "Unhandled empty list"
 

@@ -240,7 +240,7 @@ BLOCK — absent at every other kind, a \`stalled\` beat included, by
 construction): \`session.id\`/\`session.resume\` — both DERIVED from history,
 never stored, so a plain peek is exactly as safe to call as a dispatch would
 be — and, when the state declares a validatable steering file, \`validate\`
-(the script that formats then validates it), and, when the step declares
+(the script that formats then validates it), and, when the turn's scope declares
 skills, \`skills\` (an array of the skill names, already trimmed and split —
 \`--json=skills.0\` reads the first). When set: \`model\`, \`memory\`,
 \`label\`, \`file\`, \`mode\`, \`edges\`, \`judge\` (the pending judgment's rendered
@@ -336,6 +336,12 @@ const DRIVER_OBLIGATIONS = `
     JSON, or it names a question id this judgment never asked) exits 2 — a
     caller-input error, retry with a corrected verdict, not obligation 3's
     "stop" — before anything is planned.
+11. When the chosen agent CLI can restrict which skills a turn sees (\`pi\`
+    can; \`claude -p\` cannot), the built driver MUST pass each prompt turn's
+    \`--json=skills\` (read per entry, \`skills.0\`, \`skills.1\`, …) so the
+    turn sees only those. An absent field means none. A CLI that cannot
+    restrict relies on the preamble gtd already puts in the prompt — the
+    reference body's \`claude -p\` does exactly that.
 `
 
 const RECOVERY = `
@@ -387,7 +393,8 @@ follow in the same numbered list.
    installed, and ask which one to drive with (default: \`claude\`). Accept
    a name that was not on the list; the probe is a convenience, not a
    restriction. The chosen CLI's own flags then replace the \`claude\` lines
-   in the reference body below — its session flags (obligation 5) and its
+   in the reference body below — its session flags (obligation 5), its
+   skill-restriction flag when it has one (obligation 11) and its
    permission model (question 5). Carry over the body's \`export\` block too:
    whatever the chosen CLI's own way is to **stop backgrounding commands and
    let a foreground command run for hours** — a turn ends when the CLI

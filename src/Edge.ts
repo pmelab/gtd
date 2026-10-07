@@ -493,7 +493,7 @@ const replayFor = (
         ? treeFromRecord({})
         : commitTree(setup.workspace, setup.run.diffBase),
     budgetBytes: setup.budget,
-    skills: setup.def.skills,
+    skills: setup.def.skills(setup.vars),
     configuredSkills: setup.def.configuredSkills,
     ...(pending !== undefined ? { pending } : {}),
   })
@@ -547,14 +547,18 @@ type RequestOf<K extends ReachedStep["request"]["kind"]> = Extract<
   { kind: K }
 >
 
-const promptDef = (common: StepCommon, request: RequestOf<"agent">): StepDef => ({
+const promptDef = (
+  common: StepCommon,
+  request: RequestOf<"agent">,
+  skills: readonly string[] | undefined,
+): StepDef => ({
   ...common,
   kind: "prompt",
   content: request.prompt,
   ...optional("model", request.options.model),
   ...optional("system", request.options.system),
   ...optional("allowEmpty", request.options.allowEmpty),
-  ...optional("skills", request.options.skills),
+  ...optional("skills", skills),
 })
 
 const scriptDef = (common: StepCommon, request: RequestOf<"run">): StepDef => ({
@@ -589,7 +593,7 @@ const stepDefOf = (step: ReachedStep): StepDef => {
   const common = commonOf(step)
   switch (request.kind) {
     case "agent":
-      return promptDef(common, request)
+      return promptDef(common, request, step.skills)
     case "run":
       return scriptDef(common, request)
     case "judge":
@@ -844,7 +848,7 @@ export const entryRefusal = (
         env,
         start: "",
         budgetBytes: rest.setup.budget,
-        skills: rest.def.skills,
+        skills: rest.def.skills(vars),
         configuredSkills: rest.def.configuredSkills,
       }),
     )

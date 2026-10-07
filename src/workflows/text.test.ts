@@ -33,11 +33,11 @@ describe("withSkills", () => {
 
 describe("agentWithSkills", () => {
   const capture = (fn: () => Promise<void>, skills?: Readonly<Record<string, readonly string[]>>) =>
-    captureStep(fn, skills !== undefined ? { skills } : {})
+    captureStep(fn, { scope: "a", ...(skills !== undefined ? { skills } : {}) })
 
-  it("puts skillsFor(name)'s list, joined, in the preamble", async () => {
+  it("puts the scope's list, joined, in the preamble", async () => {
     const request = await capture(() => agentWithSkills("name", "do-the-work"), {
-      name: ["code-review", "testing"],
+      a: ["code-review", "testing"],
     })
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.prompt).toBe(withSkills("code-review, testing", "do-the-work"))
@@ -46,21 +46,13 @@ describe("agentWithSkills", () => {
   it("passes no skills option itself — the replay resolver fills the wire field", async () => {
     const request = await capture(() => agentWithSkills("name", "do-the-work"))
     if (request.kind !== "agent") throw new Error("unreachable")
-    expect(request.options.skills).toBeUndefined()
+    expect(request.options).not.toHaveProperty("skills")
   })
 
-  it("leaves the prompt bare when the name resolves to no configured skills", async () => {
-    const request = await capture(() => agentWithSkills("name", "do-the-work"), { name: [] })
+  it("leaves the prompt bare when the scope resolves to an empty list", async () => {
+    const request = await capture(() => agentWithSkills("name", "do-the-work"), { a: [] })
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.prompt).toBe("do-the-work")
-  })
-
-  it("still accepts an explicit options.skills of its own, untouched", async () => {
-    const request = await capture(() =>
-      agentWithSkills("name", "do-the-work", { skills: ["own-skill"] }),
-    )
-    if (request.kind !== "agent") throw new Error("unreachable")
-    expect(request.options.skills).toEqual(["own-skill"])
   })
 })
 

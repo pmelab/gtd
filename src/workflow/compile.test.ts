@@ -13,7 +13,7 @@ describe("compileConfig: skills: shape validation", () => {
     expect(compiled.rcSkills).toEqual({})
     const found = compiled.diagnostics.find((d) => d.path.join(".") === "skills")
     expect(found?.message).toContain(
-      '"skills" must be a mapping of step name -> array of skill names',
+      '"skills" must be a mapping of scope name -> array of skill names',
     )
     expect(found?.message).toContain("got string")
   })

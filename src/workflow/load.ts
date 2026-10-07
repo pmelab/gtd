@@ -9,9 +9,14 @@ import { unified as builtInWorkflow } from "../workflows/index.js"
 import type { WorkflowDefinition } from "../Workflow.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
-import { compileConfig, type CompiledConfig, type ConfigLayer } from "./compile.js"
+import {
+  compileConfig,
+  unknownSkillsKeyMessage,
+  type CompiledConfig,
+  type ConfigLayer,
+} from "./compile.js"
 import { interpolate } from "./interpolate.js"
-import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
+import { SETTING_NAME_RULE, isSettingName, resolveVars } from "./vars.js"
 import { ConfigDiscovery, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
@@ -203,17 +208,18 @@ export const load: Effect.Effect<
     ...levels.map((level) => level.filepath),
     ...(module ? [module.filepath] : []),
   ]
-  // A `skills:` key naming a step the loaded workflow's own `skills` export
-  // does not declare: checked here, only once `loaded` exists, because a
-  // custom workflow's step names are never known to the schema — see
-  // ConfigSchema's `skills` annotation.
-  const knownSkillNames = Object.keys(loaded.skills).sort()
+  // A `skills:` key must name a scope the workflow's own `skills` export
+  // declares for the current vars: a custom workflow's scope names are never
+  // known to the schema, and the per-lens keys depend on `qualityReviews`.
+  const knownSkillScopes = Object.keys(
+    loaded.skills(resolveVars(loaded.defaults, compiled.rcVars, {}, host.env)),
+  ).sort()
   const unknownSkillDiagnostics = compiled.skillsKeys
-    .filter(({ key }) => !Object.hasOwn(loaded.skills, key))
+    .filter(({ key }) => !knownSkillScopes.includes(key))
     .map(({ key, origin }) => ({
       severity: "error" as const,
       path: ["skills", key],
-      message: `"skills.${key}" names a step this workflow does not declare — known step names: ${knownSkillNames.join(", ")}`,
+      message: unknownSkillsKeyMessage(key, knownSkillScopes),
       origin,
     }))
   const diagnostics = dedupeDiagnostics(
@@ -388,11 +394,7 @@ const stringRecord = (
 const isStringArray = (v: unknown): v is readonly string[] =>
   Array.isArray(v) && v.every((entry) => typeof entry === "string")
 
-/** Read a module's optional `skills` export: full step name -> skill list, mirroring `stringRecord` for the vars-shaped exports. */
-const skillsRecord = (
-  exports: Record<string, unknown>,
-): Readonly<Record<string, readonly string[]>> => {
-  const value = exports["skills"] ?? {}
+const checkSkillsRecord = (value: unknown): Readonly<Record<string, readonly string[]>> => {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -401,6 +403,16 @@ const skillsRecord = (
     throw new Error(`the "skills" export is not a record of skill-name arrays`)
   }
   return value as Readonly<Record<string, readonly string[]>>
+}
+
+/** Read a module's optional `skills` export — a scope full name -> skill list record, or a function of the vars returning one. */
+const skillsExport = (exports: Record<string, unknown>): WorkflowDefinition["skills"] => {
+  const value = exports["skills"] ?? {}
+  if (typeof value === "function") {
+    return (vars) => checkSkillsRecord((value as (v: typeof vars) => unknown)(vars))
+  }
+  const record = checkSkillsRecord(value)
+  return () => record
 }
 
 const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T | undefined => {
@@ -451,7 +463,7 @@ const fromModule = (
     defaults,
     envDefaults,
     steering: stringRecord(exports, "steering"),
-    skills: skillsRecord(exports),
+    skills: skillsExport(exports),
     summary: optionalFunction(exports, "summary"),
     base: optionalFunction(exports, "base"),
     origin,

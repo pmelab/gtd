@@ -278,7 +278,7 @@ falls back to the `gtd` on your `PATH`.
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone.
 - A step's `system` becomes the subagent's whole system prompt, and its `model`
-  the subagent's model.
+  the subagent's model. Each subagent sees only its scope's `skills`.
 - **The mod's subagents run with `bypassPermissions`**, the equivalent of the
   minimal driver's `--dangerously-skip-permissions`. Shell commands they run are
   kept in the foreground, with a 10-minute timeout.
@@ -368,13 +368,14 @@ script, whatever its exit code.
   itself neither creates nor truncates this file — a driver appends subprocess
   output to it and truncates once at the start of a run, exactly like the driver
   above does.
-- **`skills`** — an array of skill names, only ever carried at `kind: "prompt"`
-  (absent when the state declares none). A driver that reads it can preload the
-  named skills into the agent CLI, pass them as flags, or route the turn to a
-  subagent that already has them loaded. Reading it is an OPTIMIZATION, never an
-  obligation: a driver that ignores it still drives correctly, because the
-  preamble in `content` already names what the turn needs and does not depend on
-  `skills` being read.
+- **`skills`** — the skill names of the turn's memory scope, only ever carried
+  at `kind: "prompt"` (absent means none). A driver that can restrict a turn's
+  skills SHOULD pass exactly this list — restricting the agent to it is the
+  recommended use — or preload the named skills, pass them as flags, or route
+  the turn to a subagent that has only them loaded. Reading it is still not
+  required: a driver that ignores it drives correctly, because the preamble in
+  `content` already names what the turn needs and does not depend on `skills`
+  being read.
 
 Even a genuine no-op `gtd land` (a clean landing that completes nothing) has a
 PRINT-ONLY script under `--json=script`: no git write, just the same

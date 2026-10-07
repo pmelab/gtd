@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest"
 
 import { afterReload, drive } from "./drive"
-import type { Beat, Io, Landing } from "./drive"
+import type { Beat, Io, Landing, Turn } from "./drive"
 
 const fake = (beats: Beat[], landings: Landing[] = [], over: Partial<Io> = {}) => {
   const calls: string[] = []
@@ -63,6 +63,22 @@ describe("drive", () => {
       "resume:build#abc:fix line 3",
       "land",
       "sh:commit",
+    ])
+  })
+
+  test("a turn carries the beat's skills and the memory scope", async () => {
+    const turns: Turn[] = []
+    const run = async (skills?: string[]) => {
+      const { io } = fake([{ kind: "prompt", memory: "build#abc", skills }], [], {
+        turn: async (t) => (turns.push(t), { ok: true }),
+      })
+      await drive(io)
+    }
+    await run(["a", "b"])
+    await run()
+    expect(turns.map((t) => [t.skills, t.scope])).toEqual([
+      [["a", "b"], "build"],
+      [[], "build"],
     ])
   })
 

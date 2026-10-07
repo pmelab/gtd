@@ -3,7 +3,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
   `architecture-pre` renders one fixed noul (`architectureWarranted`) over
   the just-triaged `.gtd/REQUIREMENTS.md`, routing a confident "no" to
   `architecture-promote` (which writes the plan straight into a single
-  package file, skipping `architecture.author`/`architecture.decompose`
+  package file, skipping `architecture.author`/`architecture.decompose.decomposing`
   entirely) and everything else to the full architecture pass. Each
   scenario reaches it by the shortest real history — `--entry
   start-gate.check` and a triage turn writing a question-free plan.
@@ -36,7 +36,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
 
     # architecture-promote's own script (a real DRIVER's job) promotes
     # .gtd/REQUIREMENTS.md wholesale into a single package file — never
-    # split, architecture.decompose's own job, skipped here.
+    # split, architecture.decompose.decomposing's own job, skipped here.
     Given the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/packages/01-greeting-export.md" with:
       """
@@ -50,7 +50,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
     And the last commit subject is "gtd(check): architecture-promote → packages.item.building"
     And ".gtd/packages/01-greeting-export.md" exists
     And the git log does not contain "architecture.author"
-    And the git log does not contain "architecture.decompose"
+    And the git log does not contain "architecture.decompose.decomposing"
 
   @live
   Scenario: architecture-promote's real script — executed for real — slugifies the plan's own first heading and promotes .gtd/REQUIREMENTS.md wholesale into that single package file

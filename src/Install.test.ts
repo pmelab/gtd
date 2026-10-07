@@ -74,6 +74,18 @@ describe("renderBriefing", () => {
     expect(obligations).toContain("--json=judge")
   })
 
+  it("obligation 11 tells the driver to pass the turn's skills where the CLI can restrict them", () => {
+    const briefing = renderBriefing()
+    const obligations = briefing.slice(
+      briefing.indexOf("## Driver obligations"),
+      briefing.indexOf("## Recovery"),
+    )
+    const eleven = obligations.slice(obligations.indexOf("\n11. "))
+    expect(eleven).toContain("`pi`")
+    expect(eleven).toContain("`claude -p` cannot")
+    expect(eleven).toContain("--json=skills")
+  })
+
   it("instructs the agent to investigate the repo and ask before driving", () => {
     expect(renderBriefing()).toMatch(/investigate the repository and ask/i)
   })

@@ -64,7 +64,7 @@ const drive = async (d: Drive): Promise<Run> => {
     },
     "review.closing": () => void files.delete(REVIEW),
     "review.collecting": () => void files.set(REQUIREMENTS, "## Concern"),
-    "review.fix-nits": () => {
+    "review.fix.nits.fixing": () => {
       nitsFixed = true
     },
   }
@@ -118,22 +118,22 @@ describe("the risk-fix pass", () => {
     const run = await drive({ notes: [], reviewDocs: [risky, clean] })
     expect(run.log.slice(0, 5)).toEqual([
       "review.reviewing",
-      "review.fix-risks",
+      "review.fix.risks.fixing",
       "health.check",
       "review.reviewing",
       "review.await-review",
     ])
-    expect(run.prompts.get("review.fix-risks")).toContain("risk-1")
-    expect(run.prompts.get("review.fix-risks")).toContain("Risk: drops the carry")
-    expect(run.prompts.get("review.fix-risks")).toContain("Leave `.gtd/REVIEW.md` untouched")
+    expect(run.prompts.get("review.fix.risks.fixing")).toContain("risk-1")
+    expect(run.prompts.get("review.fix.risks.fixing")).toContain("Risk: drops the carry")
+    expect(run.prompts.get("review.fix.risks.fixing")).toContain("Leave `.gtd/REVIEW.md` untouched")
   })
 
   it("a risk the re-review still marks goes to the gate with no second fix", async () => {
     const run = await drive({ notes: [], reviewDocs: [risky, risky] })
-    expect(run.log.filter((n) => n === "review.fix-risks")).toHaveLength(1)
+    expect(run.log.filter((n) => n === "review.fix.risks.fixing")).toHaveLength(1)
     expect(run.log.slice(0, 5)).toEqual([
       "review.reviewing",
-      "review.fix-risks",
+      "review.fix.risks.fixing",
       "health.check",
       "review.reviewing",
       "review.await-review",
@@ -142,7 +142,7 @@ describe("the risk-fix pass", () => {
 
   it("no marker means no fix-risks step", async () => {
     const run = await drive({ notes: [], reviewDocs: [clean] })
-    expect(run.log).not.toContain("review.fix-risks")
+    expect(run.log).not.toContain("review.fix.risks.fixing")
     expect(run.log[0]).toBe("review.reviewing")
     expect(run.log[1]).toBe("review.await-review")
   })
@@ -157,11 +157,11 @@ describe("the risk-fix pass", () => {
       "review.reviewing",
       "review.await-review",
       "review.triage",
-      "review.fix-nits",
+      "review.fix.nits.fixing",
       "health.check",
       "review.closing",
       "review.reviewing",
-      "review.fix-risks",
+      "review.fix.risks.fixing",
       "health.check",
       "review.reviewing",
       "review.await-review",
@@ -250,12 +250,12 @@ describe("review verdict routing", () => {
       "review.await-review",
       "review.triage",
       "review.answer-review-questions",
-      "review.fix-nits",
+      "review.fix.nits.fixing",
       "health.check",
       "review.closing",
       "review.reviewing",
     ])
-    expect(run.prompts.get("review.fix-nits")).not.toContain("why?")
+    expect(run.prompts.get("review.fix.nits.fixing")).not.toContain("why?")
     expect(run.prompts.get("review.reviewing")).toContain("Carry-over: commit `c4`")
     expect(run.result).toBe("stopped")
   })
@@ -278,7 +278,7 @@ describe("review verdict routing", () => {
       "review.await-review",
       "review.triage",
       "review.answer-review-questions",
-      "review.fix-nits",
+      "review.fix.nits.fixing",
       "health.check",
       "review.closing",
       "review.collecting",

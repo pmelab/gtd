@@ -5,7 +5,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   answer: `edit`, `question`, `nit` or `praise`. An `edit` goes to
   `build.review.collecting` and a planning lap; a `question` is answered inline
   at the same gate (`build.review.answer-review-questions`); a `nit` is fixed in
-  one batch (`build.review.fix-nits`) and followed by a fresh review; `praise`
+  one batch (`build.review.fix.nits.fixing`) and followed by a fresh review; `praise`
   is dropped. Only a confident non-`edit` verdict on uncut evidence skips the
   lap — a cut, unanswered or below-floor note counts as `edit`.
 
@@ -390,7 +390,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       ]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.review.triage → build.review.fix-nits"
+    And the last commit subject is "gtd(judge): build.review.triage → build.review.fix.nits.fixing"
     Given "src/calc.ts" is modified to:
       """
       export const add = (a: number, b: number) => a + b;
@@ -399,7 +399,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.fix-nits → build.health.check"
+    And the last commit subject is "gtd(agent): build.review.fix.nits.fixing → build.health.check"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.closing"
@@ -586,7 +586,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.answer-review-questions → build.review.fix-nits"
+    And the last commit subject is "gtd(agent): build.review.answer-review-questions → build.review.fix.nits.fixing"
     Given "src/calc.ts" is modified to:
       """
       export const add = (a: number, b: number) => a + b
@@ -595,7 +595,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.fix-nits → build.health.check"
+    And the last commit subject is "gtd(agent): build.review.fix.nits.fixing → build.health.check"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.closing"

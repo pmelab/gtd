@@ -28,8 +28,9 @@ Git history; keep secrets in an environment setting (see
 Also install all three skill sources the bundled workflow names in its prompts —
 none is optional. See
 [Setup](https://github.com/pmelab/gtd/blob/main/docs/setup.md) for the list, the
-install flags, and the never-install-the-plugin caveat. Each bundled agent step
-has its own addressable `.gtdrc` `skills:` entry — see
+install flags, and the never-install-the-plugin caveat. Skills are declared per
+scope, and restricted per turn where the driver can; each bundled scope has its
+own addressable `.gtdrc` `skills:` entry — see
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#the-skills-key)
 to repoint one to a set your own harness has instead.
 
