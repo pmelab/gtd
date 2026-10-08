@@ -58,27 +58,11 @@
       "passed": 4,
       "total": 4
     },
-    "claude-opus-sonnet|packages-item-fix-spec|clean": {
-      "passed": 4,
-      "total": 4
-    },
-    "claude-opus-sonnet|packages-item-fix-spec|violation": {
-      "passed": 4,
-      "total": 4
-    },
     "claude-opus-sonnet|packages-item-fix-suite|clean": {
       "passed": 4,
       "total": 4
     },
     "claude-opus-sonnet|packages-item-fix-suite|violation": {
-      "passed": 4,
-      "total": 4
-    },
-    "claude-opus-sonnet|spec-review|clean": {
-      "passed": 4,
-      "total": 4
-    },
-    "claude-opus-sonnet|spec-review|violation": {
       "passed": 4,
       "total": 4
     }

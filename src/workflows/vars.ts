@@ -9,9 +9,7 @@ export const defaults: Readonly<Record<string, string>> = {
   reviewBase: "",
   judgeBudgetBytes: "32768",
   judgeIdenticalMinP: "0.7",
-  specPreJudge: "0.9",
   reviewNoteActionable: "0.7",
-  architectureSkipMinP: "0.85",
   // `qualityReviews` fans out into one turn per entry (`qualityLenses`, in
   // `./review.ts`) rather than naming one step's skill list, so it is a
   // setting — pairing with `build.quality.reviewing`'s entry in
@@ -23,6 +21,7 @@ export const defaults: Readonly<Record<string, string>> = {
 /** Environment settings. */
 export const envDefaults: Readonly<Record<string, string>> = {
   testCommand: "npm test",
+  fastTestCommand: "",
   plannerModel: "smart",
   coderModel: "base",
 }

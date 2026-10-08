@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   dedicated feature files — see refusals.feature, default-workflow.feature,
   retry.feature.
 
-  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> architecture-pre -> architecture.author -> architecture.decompose -> packages.item.building -> packages.item.health.check
+  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> architecture.author -> architecture.decompose -> packages.item.building -> packages.item.health.check
     Given a test project
     And the workflow
     And a file "src/feature.ts" with:
@@ -41,12 +41,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
-    # architecture-pre: no verdict piped -> the conservative default runs
-    # the full architecture pass.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): architecture-pre → architecture.author"
+    And the last commit subject is "gtd(human): design.gate.answer → architecture.author"
     Given the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
@@ -58,8 +53,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose"
-    Given the file ".gtd/ARCHITECTURE.md" is deleted
-    And a file ".gtd/packages/01-feature.md" with:
+    Given a file ".gtd/packages/01-feature.md" with:
       """
       Package: add the feature.
       """

@@ -41,7 +41,10 @@ Feature: gtd --entry <name> — start a brand new process the workflow opens for
     # disabled here, the gate hands straight on to build.review.reviewing.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
+    And the last commit subject is "gtd(check): review-gate.check → build.health.check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
     When I run gtd next
     Then it succeeds
     # The reviewing prompt NAMES the fixed base rather than inlining its diff.

@@ -12,7 +12,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   Every scenario reaches `build.health.check` through a real
   `--entry fix-precheck` history (a red precheck, then one fix turn) and
   fabricates each later turn's own resulting diff by hand — same convention
-  as `default-workflow.feature` and `spec-review-judgments.feature` — since
+  as `default-workflow.feature` — since
   no real driver runs a script or an agent in this harness; only gtd's own
   routing is under test.
 

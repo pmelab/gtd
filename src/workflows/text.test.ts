@@ -4,6 +4,7 @@ import {
   agentWithSkills,
   architectureAuthorPrompt,
   architectureGateAnswerMessage,
+  buildFixPrompt,
   buildFixQualityPrompt,
   buildQualityReviewingPrompt,
   buildReviewAwaitReviewMessage,
@@ -126,6 +127,65 @@ describe("architectureAuthorPrompt", () => {
   it("qualifies the PERMISSIVE default with a settled-requirements exception", () => {
     const prompt = renderText(() => architectureAuthorPrompt())
     expect(prompt).toContain("is an open question, not a")
+  })
+  it("names the four content sections in order and the entry forms", () => {
+    const prompt = renderText(() => architectureAuthorPrompt())
+    const at = ["## Interfaces", "## Call Stacks", "## E2E Scenarios", "## Unit Tests"].map((h) =>
+      prompt.indexOf(h),
+    )
+    expect(at.every((i) => i >= 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(prompt).toContain("- unit: <path>")
+    expect(prompt).toContain("- e2e: <path>")
+    expect(prompt).toContain("- chore: <path>")
+    expect(prompt).toContain("No e2e change.")
+  })
+})
+
+describe("buildFixPrompt with build context", () => {
+  const built = {
+    ranges: [
+      { pkg: "00-scenarios", from: "aaa1111", to: "bbb2222" },
+      { pkg: "01-engine", from: "bbb2222", to: "ccc3333" },
+    ],
+    scenarios: { added: ["tests/new.feature"], changed: ["tests/old.feature"] },
+  }
+
+  it("points at the architecture document", () => {
+    expect(renderText(() => buildFixPrompt(built))).toContain(".gtd/ARCHITECTURE.md")
+  })
+
+  it("lists new scenario paths as likely missing wiring", () => {
+    const prompt = renderText(() => buildFixPrompt(built))
+    expect(prompt).toContain("tests/new.feature")
+    expect(prompt).toContain("missing wiring")
+  })
+
+  it("lists changed or existing scenarios as regressions", () => {
+    const prompt = renderText(() => buildFixPrompt(built))
+    expect(prompt).toContain("regression")
+    expect(prompt).toContain("tests/old.feature")
+  })
+
+  it("lists one range line per package", () => {
+    const prompt = renderText(() => buildFixPrompt(built))
+    expect(prompt).toContain("git log --oneline aaa1111..bbb2222  # 00-scenarios")
+    expect(prompt).toContain("git log --oneline bbb2222..ccc3333  # 01-engine")
+  })
+
+  it("is today's prompt without a build context", () => {
+    const prompt = renderText(() => buildFixPrompt())
+    expect(renderText(() => buildFixPrompt(undefined))).toBe(prompt)
+    expect(prompt).toMatch(/\n- Leave everything uncommitted — do not commit\n$/)
+    expect(prompt).toContain("writes its own\n- Leave")
+    expect(prompt).not.toContain("ARCHITECTURE")
+    expect(prompt).not.toContain("git log --oneline")
+  })
+
+  it("starts each bullet on its own line", () => {
+    const prompt = renderText(() => buildFixPrompt(built))
+    expect(prompt).toMatch(/^- Read `\.gtd\/ARCHITECTURE\.md`/m)
+    expect(prompt).toMatch(/^- Leave everything uncommitted/m)
   })
 })
 

@@ -5,15 +5,13 @@ import { skills } from "./skills.js"
 // file alone only catches a LOCAL-name rename (the list literally changes);
 // it cannot catch a SCOPE rename (e.g. `scope("architecture")` renamed to
 // `scope("design.architecture")`), because it never runs the real flow — it
-// compares the map against itself. Every one of the sixteen keys has its
+// compares the map against itself. Every one of the fifteen keys has its
 // own e2e grounding closing that gap instead — each runs the actual scoped
 // name through replay, so a scope rename desyncs a preamble assertion there,
 // not just silently drops a step's skills (see AGENTS.md's "workflow is
 // code" rule: a step's full name is public API):
 //   - design.triage, architecture.author, architecture.decompose,
 //     packages.item.building — default-workflow.feature's main scenario
-//   - packages.item.spec.review, packages.item.fix-spec — the same
-//     scenario, continued
 //   - packages.item.fix-suite, packages.item.health.describe — the
 //     "escalation loop ... under packages.item" scenario
 //   - build.fix — state-skills.feature
@@ -26,7 +24,7 @@ import { skills } from "./skills.js"
 //   - build.review.answer-review-questions, build.review.fix-nits — NOT yet
 //     e2e-grounded; only steps.test.ts's preamble checks, which use local names
 describe("the bundled workflow's skills map", () => {
-  it("declares exactly the seventeen bundled agent steps, by full name", () => {
+  it("declares exactly the fifteen bundled agent steps, by full name", () => {
     expect(Object.keys(skills).sort()).toEqual(
       [
         "design.triage",
@@ -34,8 +32,6 @@ describe("the bundled workflow's skills map", () => {
         "architecture.decompose",
         "packages.item.building",
         "packages.item.fix-suite",
-        "packages.item.fix-spec",
-        "packages.item.spec.review",
         "packages.item.health.describe",
         "build.fix",
         "build.health.describe",
@@ -75,17 +71,9 @@ describe("the bundled workflow's skills map", () => {
     ])
     expect(skills["packages.item.fix-suite"]).toEqual(["debugging-and-error-recovery"])
     expect(skills["build.fix"]).toEqual(["debugging-and-error-recovery"])
-    expect(skills["packages.item.fix-spec"]).toEqual([
-      "incremental-implementation",
-      "code-simplification",
-    ])
     expect(skills["build.fix-quality"]).toEqual([
       "incremental-implementation",
       "code-simplification",
-    ])
-    expect(skills["packages.item.spec.review"]).toEqual([
-      "code-review-and-quality",
-      "spec-driven-development",
     ])
     expect(skills["build.review.reviewing"]).toEqual(["code-review-and-quality"])
     expect(skills["build.review.collecting"]).toEqual(["code-review-and-quality"])

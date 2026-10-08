@@ -103,3 +103,9 @@ Given(
     world.envVars[name] = value
   },
 )
+
+// Strips a variable from the live tier's inherited environment, so a scenario
+// that needs it absent does not depend on what the developer or driver exported.
+Given("an environment variable {string} is unset", (world: GtdWorld, name: string) => {
+  world.unsetEnvVars.push(name)
+})

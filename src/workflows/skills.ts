@@ -16,8 +16,6 @@ export const skills: Readonly<Record<string, readonly string[]>> = {
   "architecture.decompose": ["incremental-implementation", "planning-and-task-breakdown"],
   "packages.item.building": ["test-driven-development", "incremental-implementation"],
   "packages.item.fix-suite": ["debugging-and-error-recovery"],
-  "packages.item.fix-spec": ["incremental-implementation", "code-simplification"],
-  "packages.item.spec.review": ["code-review-and-quality", "spec-driven-development"],
   "packages.item.health.describe": ["debugging-and-error-recovery"],
   "build.fix": ["debugging-and-error-recovery"],
   "build.health.describe": ["debugging-and-error-recovery"],

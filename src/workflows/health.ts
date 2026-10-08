@@ -1,3 +1,4 @@
+import { dirname } from "node:path"
 import {
   answered,
   check,
@@ -5,6 +6,7 @@ import {
   human,
   judge,
   numeric,
+  quote,
   read,
   scope,
   vars,
@@ -13,12 +15,37 @@ import {
 import { describeEscalation, escalate, escalationExhausted, ESCALATION, FEEDBACK } from "./steps.js"
 import * as t from "./text.js"
 
+/** Written while `fastTestCommand` is unset; its presence rests the process at the check. */
+export const SETUP = ".gtd/SETUP.md"
+
+const SETUP_TEXT =
+  "The bundled workflow needs the `fastTestCommand` setting: the fast suite (everything but e2e).\nSet it under `env:` in `.gtdrc` or as GTD_FASTTESTCOMMAND."
+
+/** Shell lines for a check's preamble: unset (blank after trim) setting writes `SETUP` and skips the suite. */
+export const fastSuiteGuard = (): string[] =>
+  (env.fastTestCommand ?? "").trim() === ""
+    ? [
+        `mkdir -p ${quote(dirname(SETUP))}`,
+        `printf '%s\\n' ${quote(SETUP_TEXT)} > ${quote(SETUP)}`,
+        `printf '%s\\n' ${quote(SETUP_TEXT)} >&2`,
+        "exit 0",
+      ]
+    : [`rm -f ${quote(SETUP)}`]
+
 /** Fix turns a run of red checks gets before it escalates. */
 export const FIX_CAP = 3
 
 /** Run the suite as step `name`; resolves `true` when it passed. A failure is in `.gtd/FEEDBACK.md`. */
-export const baseline = (name: string, label = "Checking the baseline"): Promise<boolean> =>
-  check(name, env.testCommand ?? "", { report: FEEDBACK, label })
+export const baseline = async (name: string, label = "Checking the baseline"): Promise<boolean> => {
+  for (;;) {
+    const green = await check(name, env.testCommand ?? "", {
+      report: FEEDBACK,
+      label,
+      preamble: fastSuiteGuard(),
+    })
+    if (read(SETUP) === undefined) return green
+  }
+}
 
 /** How many escalation rounds a run of red checks has spent — reset once the suite goes green. */
 export interface EscalationCount {
@@ -81,6 +108,21 @@ export interface HealthOptions {
   readonly fixesSoFar?: number
   /** Escalation rounds shared with other callers in the same run of red checks. */
   readonly escalations?: EscalationCount
+  /** `fast` runs `fastTestCommand` (default `full`: `testCommand`). */
+  readonly suite?: "full" | "fast"
+  /** Paths removed on a green run. */
+  readonly sweepOnGreen?: readonly string[]
+}
+
+const runSuite = (options: HealthOptions): Promise<boolean> => {
+  const fast = options.suite === "fast"
+  return check("health.check", (fast ? env.fastTestCommand : env.testCommand) ?? "", {
+    report: FEEDBACK,
+    label: "Running checks",
+    // Swept only on green: an unresolved analysis survives every retry.
+    sweepOnGreen: [ESCALATION, ...(options.sweepOnGreen ?? [])],
+    ...(fast ? { preamble: fastSuiteGuard() } : {}),
+  })
 }
 
 /**
@@ -96,12 +138,9 @@ export const healthy = async (
   let fixes = options.fixesSoFar ?? 0
   let previous: string | undefined
   for (;;) {
-    const green = await check("health.check", env.testCommand ?? "", {
-      report: FEEDBACK,
-      label: "Running checks",
-      // Swept only on green: an unresolved analysis survives every retry.
-      sweepOnGreen: [ESCALATION],
-    })
+    const green = await runSuite(options)
+    // Unconfigured: straight back to the check, no fix turn or count.
+    if (options.suite === "fast" && read(SETUP) !== undefined) continue
     if (green) {
       escalations.rounds = 0
       return

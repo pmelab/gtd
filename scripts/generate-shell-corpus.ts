@@ -95,6 +95,15 @@ add(
 )
 
 add(
+  "flows.checkScript.preamble.sh",
+  checkScript("npm test", {
+    report: ".gtd/FEEDBACK.md",
+    stamp: "abc1234",
+    preamble: ['if [ -z "$SKIP" ]; then', "  exit 0", "fi"],
+  }),
+)
+
+add(
   "flows.revertScript.sh",
   revertScript(SAMPLE_HEAD, ".gtd/FEEDBACK.md", "gtd could not unwind it's sketch."),
 )

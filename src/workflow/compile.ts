@@ -141,8 +141,8 @@ const compileSkillsMap = (
 }
 
 /**
- * The nine `*Skills` workflow vars this package deletes, each naming the
- * `.gtdrc` `skills:` step key(s) that replace it — four of the nine fan out to
+ * The eight `*Skills` workflow vars this package deletes, each naming the
+ * `.gtdrc` `skills:` step key(s) that replace it — four of the eight fan out to
  * several keys, because a var once shared between steps now addresses
  * them independently. Deliberately the only place gtd special-cases a var
  * name by string; meant to be deleted a major release after this ships.
@@ -153,17 +153,16 @@ const DEAD_SKILLS_VARS: Readonly<Record<string, readonly string[]>> = {
   decomposeSkills: ["architecture.decompose"],
   buildSkills: ["packages.item.building"],
   fixSkills: ["packages.item.fix-suite", "build.fix"],
-  reviewFixSkills: ["packages.item.fix-spec", "build.fix-quality", "build.review.fix-nits"],
+  reviewFixSkills: ["build.fix-quality", "build.review.fix-nits"],
   reviewSkills: [
     "build.review.reviewing",
     "build.review.answer-review-questions",
     "build.review.collecting",
   ],
-  specReviewSkills: ["packages.item.spec.review"],
   escalateSkills: ["packages.item.health.describe", "build.health.describe"],
 }
 
-/** `vars:` entries naming one of the nine deleted `*Skills` vars — scoped to `.gtdrc` `vars:` only; there is no environment scan anywhere in this check, so a `GTD_BUILDSKILLS` gets neither this diagnostic nor any other. */
+/** `vars:` entries naming one of the eight deleted `*Skills` vars — scoped to `.gtdrc` `vars:` only; there is no environment scan anywhere in this check, so a `GTD_BUILDSKILLS` gets neither this diagnostic nor any other. */
 const deadSkillsVarDiagnostics = (rawVars: unknown): readonly Diagnostic[] => {
   if (!isPlainObject(rawVars)) return []
   const diagnostics: Diagnostic[] = []

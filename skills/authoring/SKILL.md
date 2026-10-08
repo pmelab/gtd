@@ -63,9 +63,9 @@ current directory is the whole workflow. If one already exists, read it and edit
 it in place.
 
 Prefer the bundled workflow's own parts over re-implementing them — `healthy`,
-`escalation`, `gate`, `design`, `architecturePass`, `packages`, `specReview`,
-`qualityLap`, `review`, `buildTail`, and single steps like `triage` or `fix`.
-Their full step names are versioned API.
+`escalation`, `gate`, `design`, `architecture`, `packages`, `qualityLap`,
+`review`, `buildTail`, and single steps like `triage` or `fix`. Their full step
+names are versioned API.
 
 Make one small change, **verify it loads** (see "Verify"), then make the next. A
 workflow that fails to load breaks every gtd command in the repository.
@@ -210,7 +210,7 @@ sign-off between the two:
 const planAndBuild = async (): Promise<void> => {
   for (;;) {
     await design()
-    await architecturePass()
+    await architecture()
     await human("approve-plan", {
       message:
         "The packages under .gtd/packages/ are ready. Edit them to adjust the plan, or change nothing — then run `gtd land` to start building.",
@@ -227,9 +227,8 @@ const planAndBuild = async (): Promise<void> => {
 `acceptClean: true` is what makes an untouched landing approve; without it the
 gate would wait for an edit. `approve-plan` sits in the `root` scope and is a
 new, unique name. Verify: `gtd next` loads without errors, and in a scratch
-repository a landing at `architecture.decompose` (or `architecture-promote`) now
-leads to `approve-plan`, and an untouched landing there to
-`packages.item.building`.
+repository a landing at `architecture.decompose` now leads to `approve-plan`,
+and an untouched landing there to `packages.item.building`.
 
 ## No migration
 

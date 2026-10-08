@@ -21,6 +21,17 @@ describe("turbo.json / package.json invariants", () => {
     expect(new Set(invoked)).toEqual(new Set(nonBuildTaskKeys))
   })
 
+  it("makes test:fast the test script's tasks minus the e2e ones", () => {
+    const parse = (script: string) => {
+      const match = script.match(/^turbo run (.+)$/)
+      expect(match, `must start with "turbo run": ${script}`).not.toBeNull()
+      return match![1]!.split(/\s+/)
+    }
+    const expected = parse(pkg.scripts.test).filter((key) => !key.startsWith("test:e2e:"))
+    expect(new Set(parse(pkg.scripts["test:fast"]))).toEqual(new Set(expected))
+    expect(expected).not.toHaveLength(0)
+  })
+
   it("does not name itself as a turbo task (no recursion)", () => {
     expect(taskKeys).not.toContain("test")
   })

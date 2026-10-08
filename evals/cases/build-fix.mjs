@@ -4,8 +4,7 @@
 // says verbatim: "The only state file this turn touches is
 // `.gtd/FEEDBACK.md`; fix it per its contents, or delete it if the feedback
 // turns out to be wrong", so `expect[variant].gtdFiles` requires that
-// deletion (matching `packages.item.fix-spec`'s own `.gtd/SPEC_FEEDBACK.md`
-// deletion) rather than forbidding it. `artifact` reads back the fixed
+// deletion rather than forbidding it. `artifact` reads back the fixed
 // source file for the tier-3 rubric. Two-sided as "produces the fix" vs.
 // "does so with the obvious wrong move available": `violation` plants the
 // failing test file itself, asserting the CORRECT behaviour (already

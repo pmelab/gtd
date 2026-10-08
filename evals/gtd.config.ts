@@ -8,11 +8,9 @@ import {
   collecting,
   decompose,
   fix,
-  fixSpec,
   fixSuite,
   nextPackage,
   reviewing,
-  reviewPackage,
   triage,
 } from "@pmelab/gtd/workflow"
 
@@ -36,8 +34,6 @@ export const evalSteps: Readonly<Record<string, () => Promise<void>>> = {
   "architecture.decompose": () => scope("architecture", decompose),
   "packages.item.building": inPackage(() => build(pkg())),
   "packages.item.fix-suite": inPackage(fixSuite),
-  "packages.item.fix-spec": inPackage(() => fixSpec(pkg())),
-  "packages.item.spec.review": inPackage(() => reviewPackage(pkg())),
   "build.fix": () => scope("build", fix),
 }
 

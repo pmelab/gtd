@@ -197,11 +197,13 @@ is how the bundled workflow is written.
 
 `@pmelab/gtd/flows` also exports a few helpers:
 
-- `check(name, command, { report, label?, sweep?, sweepOnGreen? })` — a `run`
-  step gtd renders for the driver: it removes `sweep`, runs `command` in a
-  subshell and, on failure, writes its output (stamped with the commit) to
-  `report`; on success it removes `report` and `sweepOnGreen`. Resolves `true`
-  unless the run wrote `report`
+- `check(name, command, { report, label?, sweep?, sweepOnGreen?, preamble? })` —
+  a `run` step gtd renders for the driver: it removes `sweep`, runs `command` in
+  a subshell and, on failure, writes its output (stamped with the commit) to
+  `report`; on success it removes `report` and `sweepOnGreen`. `preamble` is
+  shell lines run first, outside the output capture; an `exit 0` in them skips
+  the command and leaves `report` untouched. Resolves `true` unless the run
+  wrote `report`
 - `answered(answer, expected, minP)` — whether a judge answer is `expected` at a
   probability of at least `minP`
 - `numeric(value, fallback)` — a numeric var, or `fallback` when it is blank or
@@ -240,22 +242,22 @@ The script renderers (`checkScript`, `revertScript`, `restoreScript`,
 flow gtd runs without a `gtd.config.ts`, and every part of it is a named export
 another workflow can import — its `defaults`, `envDefaults`, `summary`, `base`
 and `skills`, the phases (`ordinaryStart`, `unwind`, `planAndBuild`, `design`,
-`architecturePass`, `architecture`, `packages`, `buildTail`, `review`,
-`qualityLap`, `healthy`, `gate`, …) and every single step (`triage`, `build`,
-`fix`, `reviewing`, `collecting`, …). A step's name is relative to the `scope()`
-it runs in — the bundled workflow's `scope("build", …)` around `healthy` is what
-makes `build.health.check` — and the full names are part of gtd's versioned API:
-they never change outside a major release, because a rename strands every
-process resting on the old name.
+`architecture`, `packages`, `buildTail`, `review`, `qualityLap`, `healthy`,
+`gate`, …) and every single step (`triage`, `build`, `fix`, `reviewing`,
+`collecting`, …). A step's name is relative to the `scope()` it runs in — the
+bundled workflow's `scope("build", …)` around `healthy` is what makes
+`build.health.check` — and the full names are part of gtd's versioned API: they
+never change outside a major release, because a rename strands every process
+resting on the old name.
 
 Re-export `envDefaults` alongside `defaults`: a workflow that re-exports only
-`defaults` loses `testCommand`, `plannerModel` and `coderModel`. Re-export
-`skills` alongside `steering`: it is what makes the bundled steps' own names
-addressable by a `.gtdrc` `skills:` entry in THIS config (see
-[The `skills:` key](#the-skills-key)) — dropping it from the re-export list, the
-way dropping any other named export does, silently empties it instead of keeping
-the bundled defaults, because the loader reads a missing export as `{}`, not as
-"inherit the bundled module's".
+`defaults` loses `testCommand`, `fastTestCommand`, `plannerModel` and
+`coderModel`. Re-export `skills` alongside `steering`: it is what makes the
+bundled steps' own names addressable by a `.gtdrc` `skills:` entry in THIS
+config (see [The `skills:` key](#the-skills-key)) — dropping it from the
+re-export list, the way dropping any other named export does, silently empties
+it instead of keeping the bundled defaults, because the loader reads a missing
+export as `{}`, not as "inherit the bundled module's".
 
 ```ts
 import { start } from "@pmelab/gtd/flows"
@@ -491,13 +493,14 @@ Any other top-level key is **rejected** — the workflow itself lives in
 `gtd.config.ts`, never in a `.gtdrc`.
 
 `gtd init` writes a minimal `.gtdrc.json`: the `$schema` line, the one variable
-most projects change (`env.testCommand`, defaulting to `npm test`), and a
-`modes:` block suggesting Prettier as the steering-file formatter
-(`npx prettier --write "$GTD_FILE"` for `qa` and `review` — format only, so gtd
-still validates them). Edit or drop any of it, then review and commit the file
-before your first `gtd land`. `gtd init` takes no argument and refuses to
-overwrite an existing config; it may also run in a plain parent directory (not a
-git repository) to seed a shared config a nested repository picks up.
+most projects change (`env.testCommand`, defaulting to `npm test`), an empty
+`env.fastTestCommand` to fill in (see below), and a `modes:` block suggesting
+Prettier as the steering-file formatter (`npx prettier --write "$GTD_FILE"` for
+`qa` and `review` — format only, so gtd still validates them). Edit or drop any
+of it, then review and commit the file before your first `gtd land`. `gtd init`
+takes no argument and refuses to overwrite an existing config; it may also run
+in a plain parent directory (not a git repository) to seed a shared config a
+nested repository picks up.
 
 ### Environment interpolation
 
@@ -768,19 +771,19 @@ skills:
   build.fix: [debugging-and-error-recovery, my-org-runbook]
 ```
 
-The bundled workflow's seventeen addressable full names:
+The bundled workflow's fifteen addressable full names:
 
 `design.triage`, `architecture.author`, `architecture.decompose`,
-`packages.item.building`, `packages.item.fix-suite`, `packages.item.fix-spec`,
-`packages.item.spec.review`, `packages.item.health.describe`, `build.fix`,
-`build.health.describe`, `build.quality.reviewing`, `build.fix-quality`,
-`build.review.reviewing`, `build.review.answer-review-questions`,
-`build.review.fix-nits`, `build.review.fix-risks`, `build.review.collecting`. A
-custom workflow's own steps are addressable too, through its own `skills` export
-(see [Reusing the bundled workflow](#reusing-the-bundled-workflow)); the schema
-can validate an entry's VALUE (an array of strings) but never its KEY, since
-step names come from the workflow actually in play, not a fixed set gtd ships —
-there is no editor autocompletion of step names here.
+`packages.item.building`, `packages.item.fix-suite`,
+`packages.item.health.describe`, `build.fix`, `build.health.describe`,
+`build.quality.reviewing`, `build.fix-quality`, `build.review.reviewing`,
+`build.review.answer-review-questions`, `build.review.fix-nits`,
+`build.review.fix-risks`, `build.review.collecting`. A custom workflow's own
+steps are addressable too, through its own `skills` export (see
+[Reusing the bundled workflow](#reusing-the-bundled-workflow)); the schema can
+validate an entry's VALUE (an array of strings) but never its KEY, since step
+names come from the workflow actually in play, not a fixed set gtd ships — there
+is no editor autocompletion of step names here.
 
 A key naming a step the workflow in play does not declare is a load error, exit
 1, listing the known names. Keying config on a step's full name widens what
@@ -826,11 +829,10 @@ gtd config:
   - /path/to/repo/.gtdrc.json: skills.buld.fix: "skills.buld.fix" names a step this workflow does not declare — known step names: design.triage, architecture.author, …
 ```
 
-A `vars:` entry naming one of the nine `*Skills` vars this key replaced —
+A `vars:` entry naming one of the eight `*Skills` vars this key replaced —
 `triageSkills`, `architectureSkills`, `decomposeSkills`, `buildSkills`,
-`fixSkills`, `reviewFixSkills`, `reviewSkills`, `specReviewSkills`,
-`escalateSkills` — fails the load too, naming the `skills:` step key(s) that
-replace it:
+`fixSkills`, `reviewFixSkills`, `reviewSkills`, `escalateSkills` — fails the
+load too, naming the `skills:` step key(s) that replace it:
 
 | dead `vars:` name    | replacement `skills:` key(s)                                                                |
 | -------------------- | ------------------------------------------------------------------------------------------- |
@@ -839,14 +841,13 @@ replace it:
 | `decomposeSkills`    | `architecture.decompose`                                                                    |
 | `buildSkills`        | `packages.item.building`                                                                    |
 | `fixSkills`          | `packages.item.fix-suite`, `build.fix`                                                      |
-| `reviewFixSkills`    | `packages.item.fix-spec`, `build.fix-quality`, `build.review.fix-nits`                      |
+| `reviewFixSkills`    | `build.fix-quality`, `build.review.fix-nits`                                                |
 | `reviewSkills`       | `build.review.reviewing`, `build.review.answer-review-questions`, `build.review.collecting` |
-| `specReviewSkills`   | `packages.item.spec.review`                                                                 |
 | `escalateSkills`     | `packages.item.health.describe`, `build.health.describe`                                    |
 
 This check is scoped to `.gtdrc` `vars:` alone — gtd never scans the environment
 for it, so a `GTD_BUILDSKILLS` (or any other `GTD_<NAME>` that used to override
-one of the nine) produces neither an error nor a warning. It simply does
+one of the eight) produces neither an error nor a warning. It simply does
 nothing: the var it named is gone, so it matches no declared name and is ignored
 the same way any other stray `GTD_<NAME>` is.
 
@@ -959,6 +960,9 @@ Overridable through `.gtdrc` (`vars:` or `env:`, by kind) or `GTD_<NAME>`.
 - **`testCommand`** (`npm test`) — the suite every health check and baseline
   gate runs. It is interpolated into a POSIX `sh` script, so keep it
   sh-compatible.
+- **`fastTestCommand`** (no default, required) — the fast suite: everything but
+  e2e. The package loop's health check runs it. While unset the workflow rests
+  at its entry check (see [`fastTestCommand`](#fasttestcommand)).
 - **`plannerModel`** (`smart`) / **`coderModel`** (`base`) — the `model` hints
   of the planning/reviewing steps and of the building/fixing steps.
 
@@ -968,16 +972,11 @@ Overridable through `.gtdrc` (`vars:` or `env:`, by kind) or `GTD_<NAME>`.
   verdict at `health.judge` needs before a red streak escalates early. Blank,
   non-numeric or non-finite means it can never be cleared, so the early
   escalation is off.
-- **`specPreJudge`** (`0.9`) — `spec.pre`'s floor for skipping a package's
-  review turn on a section already judged satisfied. Blank disables the skip.
 - **`reviewNoteActionable`** (`0.7`) — `build.review.triage`'s floor a
   non-`edit` verdict (`question`, `nit`, `praise`) on a review note must clear.
   Below it, the note counts as `edit` and goes to `build.review.collecting` and
   a replan. A note whose evidence was cut, or that got no verdict, also counts
   as `edit`. Blank makes every note `edit`. Triage answers are keyed `note-<n>`.
-- **`architectureSkipMinP`** (`0.85`) — the confidence `architecture-pre`'s "no
-  architecture pass needed" answer needs before a plan skips straight to one
-  package. Blank means the full architecture pass always runs.
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.
@@ -1016,8 +1015,8 @@ ships in gtd's bundle. This is a point-in-time derivation with no refresh
 mechanism — it will silently go stale as upstream moves on.
 
 - **The voice itself** is injected into every agent step that writes a
-  deliverable: the package files, `.gtd/SPEC_FEEDBACK.md`,
-  `.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md` and `.gtd/REVIEW.md`.
+  deliverable: the package files, `.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md`
+  and `.gtd/REVIEW.md`.
 - **A format contract** follows it for machine-read files: the format contract
   (headings, checkbox rows, marker lines) outranks the voice, and a violation
   refuses the turn. It is injected at the steps whose output a parser reads
@@ -1050,3 +1049,12 @@ file at the human gate never spends one. Both gates release straight into the
 caller's fix step (`build.fix` or `packages.item.fix-suite`), so the turn that
 consumes the document is the very next one. `.gtd/ESCALATION.md` is free-form
 prose with no mode of its own.
+
+## `fastTestCommand`
+
+Required environment setting for the bundled workflow: the fast suite (every
+test but e2e). Set it under `env:` in `.gtdrc` or as `GTD_FASTTESTCOMMAND`.
+There is no fallback to `testCommand`; a blank value counts as unset. While
+unset the workflow writes `.gtd/SETUP.md`, names the setting, and rests at its
+entry check, re-checking on every beat until it is filled. The package loop's
+health check runs the fast suite.

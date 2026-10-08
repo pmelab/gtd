@@ -331,3 +331,50 @@ describe("the default quality lenses", () => {
     ])
   })
 })
+
+describe("scenario wording in review's fix turns", () => {
+  const frozen = { at: "h1", texts: { "e2e/a.feature": "Given a" } }
+  const risky = doc(["Risk: drops the carry", "sub"])
+
+  it("a green-keeping fix after a risk fix that rewrites a scenario stops at review.scenario-wording", async () => {
+    const log: string[] = []
+    let red = false
+    let drifted = false
+    installContext(
+      fixtureContext(
+        {},
+        {
+          step: (request: StepRequest) => {
+            if (request.kind === "restart") return Promise.resolve()
+            log.push(request.name)
+            if (request.name === "health.check") red = !red && !drifted
+            if (request.name === "fix") drifted = true
+            if (request.name === "scenario-wording") throw new Stop()
+            return Promise.resolve()
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          read: (path) =>
+            path === REVIEW
+              ? risky
+              : path === "e2e/a.feature"
+                ? drifted
+                  ? "Given b"
+                  : "Given a"
+                : undefined,
+          changes: (): readonly Change[] =>
+            red
+              ? [{ path: ".gtd/FEEDBACK.md", status: "added", before: undefined, after: "red" }]
+              : [],
+          matches: (path, pattern) => path === pattern,
+          head: () => "h2",
+          start: () => "h0",
+        },
+      ),
+    )
+    await review("base", undefined, frozen).catch((e: unknown) => {
+      if (!(e instanceof Stop)) throw e
+    })
+    expect(log.slice(-2)).toEqual(["fix", "scenario-wording"])
+  })
+})

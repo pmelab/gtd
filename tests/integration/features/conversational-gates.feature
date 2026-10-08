@@ -25,7 +25,7 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
     And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
+    And the last commit subject is "gtd(human): design.gate.answer → architecture.author"
 
   Scenario: a clean re-run at the design gate is refused while a thread is open
     Given a file ".gtd/REQUIREMENTS.md" with:
@@ -209,8 +209,7 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       Add a `greet()` export.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     Given a file ".gtd/ARCHITECTURE.md" with:
       """
       ## Greeting export
@@ -234,8 +233,7 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       Add a `greet()` export.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     Given a file ".gtd/ARCHITECTURE.md" with:
       """
       ## Greeting export
@@ -277,8 +275,7 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       Add a `greet()` export.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     Given a file ".gtd/ARCHITECTURE.md" with:
       """
       ## Greeting export
@@ -375,8 +372,7 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       Add a `greet()` export.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       ## Greeting export
@@ -425,8 +421,7 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       Add a `greet()` export.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       ## Greeting export

@@ -2,8 +2,7 @@
 // package's build loop. `unified.yaml`'s shared `fixFeedbackPrompt` says
 // verbatim: "The only state file this turn touches is `.gtd/FEEDBACK.md`;
 // fix it per its contents, or delete it if the feedback turns out to be
-// wrong", so `expect[variant].gtdFiles` requires that deletion (matching
-// `packages.item.fix-spec`'s own `.gtd/SPEC_FEEDBACK.md` deletion) rather
+// wrong", so `expect[variant].gtdFiles` requires that deletion rather
 // than forbidding it. `artifact` reads back the fixed source file so the
 // tier-3 rubric can judge the actual code fix. Two-sided as "produces the
 // fix" vs. "does so with the obvious wrong move available": `violation`

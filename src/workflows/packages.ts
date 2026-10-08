@@ -1,109 +1,121 @@
 import {
-  answered,
-  changes,
   changesSince,
+  type Change,
   glob,
   head,
-  judge,
-  numeric,
   read,
   refuse,
   removeScript,
   run,
   scope,
-  sectionBodies,
-  vars,
-  wrote,
-  type JudgeQuestion,
 } from "../flows/index.js"
-import { packageDiff } from "./diff.js"
 import { healthy } from "./health.js"
-import { ARCHITECTURE, build, fixSpec, fixSuite, reviewPackage, SPEC_FEEDBACK } from "./steps.js"
-import * as t from "./text.js"
+import { freezeScenarios, guarded, type FrozenScenarios } from "./scenarios.js"
+import { build, fixSuite } from "./steps.js"
 
-const MAX_SECTIONS = 8
-const DIFF_KEY = "diff"
+/** Package 0: the e2e scenarios, written red. */
+export const SCENARIO_PACKAGE = ".gtd/packages/00-e2e-scenarios.md"
 
-const sectionQuestion = (id: string, title: string): JudgeQuestion => ({
-  id,
-  primitive: "noul",
-  instructions: `Is the requirement "${title}" — the "${id}" evidence — already fully satisfied by the code in the "${DIFF_KEY}" evidence?`,
-  criteria:
-    "Judge from the requirement text and the diff evidence alone. Only answer yes at a probability clearing the threshold below if genuinely confident nothing in this section is missing.",
-})
+export interface DeclaredTest {
+  readonly level: "unit" | "e2e"
+  readonly path: string
+}
+
+const TEST_LINE = /^\s*-\s+(unit|e2e):\s+`([^`]+)`/
+
+/** The `## Tests` entries of a package file; malformed lines are ignored. */
+export const declaredTests = (packageText: string): readonly DeclaredTest[] => {
+  const found: DeclaredTest[] = []
+  let inTests = false
+  for (const line of packageText.split("\n")) {
+    if (/^##\s/.test(line)) inTests = /^##\s+Tests\s*$/.test(line)
+    else if (inTests) {
+      const match = TEST_LINE.exec(line)
+      if (match) found.push({ level: match[1] as DeclaredTest["level"], path: match[2]! })
+    }
+  }
+  return found
+}
 
 /**
- * Review one freshly built package against its spec: a pre-judge per
- * section, then an agent review of the sections it did not confidently
- * clear. `since` is the commit the package's own build started from — the
- * pre-judge's evidence is a diff over exactly that range, never an earlier
- * package's commits. Resolves `true` when approved.
+ * Refuse the build turn unless every test `pkg` declares exists and is in the
+ * diff since `since`. The package text is read as of `since`, so a builder
+ * editing its own `## Tests` cannot dodge the guard; with `.gtd/SATISFIED.md`
+ * written, existing in the tree suffices.
  */
-export const specReview = async (pkg: string, since: string): Promise<boolean> => {
-  const found = sectionBodies(read(pkg) ?? "")
-  const titles = found.map((section) => section.title)
-  const judged = titles.length > 0 && titles.length <= MAX_SECTIONS
-  const evidence: Record<string, string> = {}
-  const questions: JudgeQuestion[] = []
-  if (judged) {
-    found.forEach(({ title, body }, i) => {
-      evidence[`section-${i + 1}`] = body
-      questions.push(sectionQuestion(`section-${i + 1}`, title))
-    })
-    // The diff's own even share of the budget: one key per section plus
-    // `diff` itself, so this cap equals what `budgeted` gives it below.
-    const capBytes = Math.floor(numeric(vars.judgeBudgetBytes, 32768) / (found.length + 1))
-    evidence[DIFF_KEY] = packageDiff(changesSince(since), capBytes)
-  }
-  const { answers, truncated } = await judge("spec.pre", {
-    questions,
-    evidence,
-    message: t.packagesItemSpecPreMessage(),
-    label: "Judging spec coverage",
-  })
-  // A section is cleared only by a confident yes on evidence that was not
-  // cut — its own body, or the diff every question is judged against.
-  const clearMinP = numeric(vars.specPreJudge, Infinity)
-  const failing = titles.filter((_, i) => {
-    const id = `section-${i + 1}`
-    return (
-      !judged ||
-      truncated.includes(id) ||
-      truncated.includes(DIFF_KEY) ||
-      !answered(answers[id], "yes", clearMinP)
+export const requireDeclaredTests = (pkg: string, since: string): void => {
+  const range = changesSince(since)
+  const text = range.get(pkg)?.before ?? read(pkg) ?? ""
+  const satisfied = read(".gtd/SATISFIED.md") !== undefined
+  const missing = declaredTests(text)
+    .map((test) => test.path)
+    .filter((path) =>
+      satisfied
+        ? read(path) === undefined
+        : range.get(path) === undefined ||
+          range.get(path)?.status === "deleted" ||
+          read(path) === undefined,
     )
-  })
-  if (titles.length > 0 && failing.length === 0) return true
-  await reviewPackage(pkg, failing)
-  if (wrote(SPEC_FEEDBACK)) return false
-  if (changes(SPEC_FEEDBACK).length > 0 || changes().length === 0) return true
-  return refuse(
-    "gtd land: no declared pattern matches the pending changes — write .gtd/SPEC_FEEDBACK.md to request changes, or change nothing to approve",
+  if (missing.length === 0) return
+  refuse(
+    `gtd land: declared-tests: ${pkg} declares tests that are ${satisfied ? "missing from the tree" : "not in the package's diff"} — write them first:\n${missing.map((path) => `  - ${path}`).join("\n")}`,
   )
 }
 
-/** Build `pkg`, keep the suite green, review it against its spec, and close it out, which removes it. */
-export const packageItem = async (pkg: string): Promise<void> => {
-  const since = head()
-  await build(pkg)
-  for (;;) {
-    await healthy(fixSuite)
-    if (await specReview(pkg, since)) break
-    await fixSpec(pkg)
-  }
-  // The spent technical plan goes with the first package built from it.
-  await run("closing", removeScript([pkg, SPEC_FEEDBACK, ".gtd/SATISFIED.md", ARCHITECTURE]), {
+export interface PackageRange {
+  readonly pkg: string
+  readonly from: string
+  readonly to: string
+}
+
+export interface BuiltPlan {
+  readonly ranges: readonly PackageRange[]
+  /** Paths package 0 added / modified outside `.gtd/`. */
+  readonly scenarios: { readonly added: readonly string[]; readonly changed: readonly string[] }
+  /** The wording snapshot after this run, to guard the tail and later laps. */
+  readonly frozen: FrozenScenarios | undefined
+}
+
+/** Build `pkg`, check its declared tests, keep the fast suite green, and close it out, which removes it. */
+export const packageItem = async (pkg: string, frozen?: FrozenScenarios): Promise<PackageRange> => {
+  const from = head()
+  await guarded(frozen, () => build(pkg))()
+  requireDeclaredTests(pkg, from)
+  await healthy(guarded(frozen, fixSuite), { suite: "fast" })
+  await run("closing", removeScript([pkg, ".gtd/SATISFIED.md"]), {
     label: "Closing out the package",
   })
+  return { pkg, from, to: head() }
 }
 
 /** The first queued package — the one a package step works on. */
 export const nextPackage = (): string | undefined => [...glob(".gtd/packages/*.md")].sort()[0]
 
+const outsideGtd = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
+
 /** Build every package file under `.gtd/packages/`, in name order. */
-export const packages = (): Promise<void> =>
+export const packages = (carried?: FrozenScenarios): Promise<BuiltPlan> =>
   scope("packages", async () => {
+    let frozen = carried
+    const ranges: PackageRange[] = []
+    // Captured right after package 0: a later diff to the tree would also hold what 01…N touch.
+    let touched: readonly Change[] = []
     for (let pkg = nextPackage(); pkg !== undefined; pkg = nextPackage()) {
-      await scope("item", () => packageItem(pkg))
+      const range = await scope("item", () =>
+        packageItem(pkg, pkg === SCENARIO_PACKAGE ? undefined : frozen),
+      )
+      ranges.push(range)
+      if (pkg === SCENARIO_PACKAGE) {
+        touched = changesSince(range.from).filter(
+          (c) => outsideGtd(c.path) && c.status !== "deleted",
+        )
+        frozen = freezeScenarios(
+          touched.filter((c) => c.path.endsWith(".feature")).map((c) => c.path),
+          frozen,
+        )
+      }
     }
+    const paths = (status: string): string[] =>
+      touched.filter((c) => c.status === status).map((c) => c.path)
+    return { ranges, scenarios: { added: paths("added"), changed: paths("modified") }, frozen }
   })
