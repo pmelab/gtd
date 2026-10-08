@@ -16,6 +16,18 @@
 // per `##` heading" turn happens to pass both — the fixture text and the
 // `challenge` in `evals/promptfooconfig.yaml` are what make the bundled
 // concern visibly tempting to re-split.
+// Both variants' architecture declares the same tests; e2e ones belong to
+// package 00, unit ones to any package's `## Tests`.
+const DECLARED_TESTS = {
+  scenarioPackage: ".gtd/packages/00-e2e-scenarios.md",
+  e2e: ["tests/features/signup.feature"],
+  unit: [
+    "src/pricing/discount.test.ts",
+    "src/profile/newsletter.test.ts",
+    "src/email/validate.test.ts",
+  ],
+}
+
 export default Object.freeze({
   name: "architecture-decompose",
   state: "architecture.decompose.decomposing",
@@ -115,6 +127,7 @@ merged: both center on \`src/email/validate.ts\`.
         matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 4 },
       },
       otherFiles: "none",
+      declaredTests: DECLARED_TESTS,
     },
     violation: {
       gtdFiles: {
@@ -122,6 +135,7 @@ merged: both center on \`src/email/validate.ts\`.
         matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 4 },
       },
       otherFiles: "none",
+      declaredTests: DECLARED_TESTS,
     },
   },
 })
