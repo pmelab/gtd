@@ -39,9 +39,9 @@ import {
 } from "./steps.js"
 import * as t from "./text.js"
 
-/** The lenses the quality lap reviews with, one turn each: the `qualityReviews` var, split on `,` and trimmed. Unlike a `skills:` entry, this fans out into one whole turn per entry rather than naming one step's skill list — see `build.quality.reviewing` in `./skills.ts` for the (separate) skills a lens turn itself loads. */
-export const qualityLenses = (): readonly string[] =>
-  (vars.qualityReviews ?? "")
+/** Split a `qualityReviews` value into its lenses: on `,`, trimmed, blanks dropped. */
+export const lensesOf = (value: string): readonly string[] =>
+  value
     .split(",")
     .map((lens) => lens.trim())
     .filter((lens) => lens.length > 0)
@@ -52,7 +52,7 @@ export const qualityLenses = (): readonly string[] =>
  * has any.
  */
 export const qualityLap = async (): Promise<"clean" | "findings"> => {
-  for (const lens of qualityLenses()) await reviewQuality(lens)
+  for (const lens of lensesOf(vars.qualityReviews ?? "")) await reviewQuality(lens)
   return (read(QUALITY) ?? "").length > 0 ? "findings" : "clean"
 }
 
@@ -63,7 +63,8 @@ export const fixQualityFindings = async (
 ): Promise<boolean> => {
   for (let turns = 0; turns < FIX_CAP; turns++) {
     await guarded(frozen, fixQuality)()
-    if (changes(QUALITY).some((c) => c.status === "deleted")) return true
+    // Not `changes()`: a wording gate after the fix would be the last step.
+    if (read(QUALITY) === undefined) return true
   }
   await escalation(escalations)
   return false
