@@ -38,7 +38,7 @@ export const declaredTests = (packageText: string): readonly DeclaredTest[] => {
 }
 
 /**
- * Refuse the build turn unless every test `pkg` declares exists and is in the
+ * Refuse a build or fix turn unless every test `pkg` declares exists and is in the
  * diff since `since`. The package text is read as of `since`, so a builder
  * editing its own `## Tests` cannot dodge the guard; with `.gtd/SATISFIED.md`
  * written, existing in the tree suffices.
@@ -79,9 +79,17 @@ export interface BuiltPlan {
 /** Build `pkg`, check its declared tests, keep the fast suite green, and close it out, which removes it. */
 export const packageItem = async (pkg: string, frozen?: FrozenScenarios): Promise<PackageRange> => {
   const from = head()
-  await guarded(frozen, () => build(pkg))()
-  requireDeclaredTests(pkg, from)
-  await healthy(guarded(frozen, fixSuite), { suite: "fast" })
+  // Rechecked after every fix too: a fix deleting a red declared test would
+  // otherwise green the suite. Before the wording gate, so it refuses the turn.
+  const declared = (turn: () => Promise<void>) => async () => {
+    await turn()
+    requireDeclaredTests(pkg, from)
+  }
+  await guarded(
+    frozen,
+    declared(() => build(pkg)),
+  )()
+  await healthy(guarded(frozen, declared(fixSuite)), { suite: "fast" })
   await run("closing", removeScript([pkg, ".gtd/SATISFIED.md"]), {
     label: "Closing out the package",
   })

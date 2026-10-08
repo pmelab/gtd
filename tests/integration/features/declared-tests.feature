@@ -132,3 +132,30 @@ Feature: A package's declared tests gate its build
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
+
+  Scenario: a suite fix that deletes a declared test is refused
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/widget.test.ts`
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And a file "lib/widget.test.ts" with:
+      """
+      export const widgetTest = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      lib/widget.test.ts failed
+      """
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix.suite.fixing"
+    And the file "lib/widget.test.ts" is deleted
+    And the file ".gtd/FEEDBACK.md" is deleted
+    When I run gtd land
+    Then it fails
+    And stderr contains "declared-tests"
+    And stderr contains "lib/widget.test.ts"
