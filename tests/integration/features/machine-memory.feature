@@ -897,7 +897,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     When I run gtd land
     Then it fails
-    And stderr contains "runs with a different model, system prompt or skills"
+    And stderr contains "runs with a different model, system prompt, skills or file access"
     And stderr contains "one scope is one conversation"
 
   Scenario: a step-level "memory:" option is rejected at load time — the scope is computed, so there is no authored label to honour or ignore

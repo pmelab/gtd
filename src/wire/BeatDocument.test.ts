@@ -189,6 +189,7 @@ describe("beatDocument / renderBeatJson", () => {
       "costByModel",
       "judge",
       "skills",
+      "access",
     ]) {
       expect(key in parsed).toBe(false)
     }
@@ -239,7 +240,31 @@ describe("beatDocument / renderBeatJson", () => {
       "costByModel",
       "judge",
       "skills",
+      "access",
     ])
+  })
+
+  it("emits access at kind prompt, null per side when unrestricted", () => {
+    const bare = JSON.parse(renderJsonLine({ kind: "prompt" })) as Record<string, unknown>
+    expect(bare.access).toEqual({ read: null, write: null })
+    const restricted = JSON.parse(
+      renderJsonLine({
+        rendered: rendered({ access: { read: null, write: [".gtd/REVIEW.md"] } }),
+        kind: "prompt",
+      }),
+    ) as Record<string, unknown>
+    expect(restricted.access).toEqual({ read: null, write: [".gtd/REVIEW.md"] })
+  })
+
+  it("omits access at every kind but prompt, even when the rest carries it", () => {
+    const withAccess = rendered({ access: { read: ["a"], write: ["b"] } })
+    for (const kind of BEAT_KINDS.filter((k) => k !== "prompt")) {
+      const parsed = JSON.parse(renderJsonLine({ rendered: withAccess, kind })) as Record<
+        string,
+        unknown
+      >
+      expect("access" in parsed).toBe(false)
+    }
   })
 
   it("ends with a trailing newline", () => {
@@ -435,6 +460,7 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         cost: 12,
         costByModel: [{ model: "opus", cost: 12 }],
         judge: '{"state":"build.fixing","questions":[]}',
+        access: { read: null, write: null },
       }) + "\n",
     )
   })

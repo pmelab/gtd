@@ -132,7 +132,7 @@ Feature: skills are declared per scope
       """
     When I run gtd land
     Then it fails
-    And stderr contains "runs with a different model, system prompt or skills"
+    And stderr contains "runs with a different model, system prompt, skills or file access"
 
   Scenario: an agent() skills option fails as an unknown agent() option
     Given a test project

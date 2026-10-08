@@ -83,6 +83,18 @@ export interface Changes extends ReadonlyArray<Change> {
   readonly get: (path: string) => Change | undefined
 }
 
+/** Glob arrays in the `glob()`/`changes()` dialect. A missing side is unrestricted, `[]` allows nothing; `write` grants no read. */
+export interface ScopeAccess {
+  readonly read?: readonly string[] | undefined
+  readonly write?: readonly string[] | undefined
+}
+
+/** A resolved access: `null` is an unrestricted side. */
+export interface AccessDef {
+  readonly read: readonly string[] | null
+  readonly write: readonly string[] | null
+}
+
 export interface ScopeOptions {
   /** Prefixes every step name inside, and so names their memory scope. */
   readonly name?: string | undefined
@@ -92,6 +104,8 @@ export interface ScopeOptions {
   readonly system?: string | undefined
   /** The skill names every agent step inside declares — `gtd next --json`'s `skills`. A nested scope inherits it unless it sets its own. */
   readonly skills?: readonly string[] | undefined
+  /** The file access every agent step inside runs with — `gtd next --json`'s `access`. A nested scope inherits it; its own replaces it wholesale. */
+  readonly access?: ScopeAccess | undefined
 }
 
 export type StepRequest =
@@ -141,6 +155,8 @@ export interface FlowContext {
   readonly start: () => string
   /** The skill list the memory scope `localName` lands in resolves to — the same resolver as the wire's `skills`. */
   readonly skillsFor: (localName: string) => readonly string[]
+  /** The folded access the memory scope `localName` lands in resolves to; `file` is the step's own steering file. */
+  readonly accessFor: (localName: string, file?: string) => AccessDef
 }
 
 const CONTEXT_KEY = Symbol.for("@pmelab/gtd/flow-context")
@@ -248,6 +264,10 @@ export const start = (): string => ctx().start()
 
 /** The skill list `localName` (scoped from here, same as `agent()`) resolves to — for a prompt preamble. */
 export const skillsFor = (localName: string): readonly string[] => ctx().skillsFor(localName)
+
+/** The folded access `localName` (scoped from here, same as `agent()`) resolves to — for a prompt preamble. */
+export const accessFor = (localName: string, file?: string): AccessDef =>
+  ctx().accessFor(localName, file)
 
 const settingsProxy = (
   read: () => Readonly<Record<string, string>>,

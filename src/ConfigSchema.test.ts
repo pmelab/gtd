@@ -5,10 +5,18 @@ import { ConfigSchema } from "./ConfigSchema.js"
 type JsonObject = Record<string, unknown>
 
 describe("ConfigSchema — the published shape", () => {
-  it("publishes vars, env, judge, modes, ui and skills", () => {
+  it("publishes vars, env, judge, modes, ui, skills and access", () => {
     const schema = JSONSchema.make(ConfigSchema) as unknown as JsonObject
     const properties = schema["properties"] as JsonObject
-    expect(Object.keys(properties)).toEqual(["vars", "env", "judge", "modes", "ui", "skills"])
+    expect(Object.keys(properties)).toEqual([
+      "vars",
+      "env",
+      "judge",
+      "modes",
+      "ui",
+      "skills",
+      "access",
+    ])
   })
 })
 

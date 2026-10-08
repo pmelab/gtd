@@ -2,6 +2,8 @@ import { atom, read, update } from "claude-code"
 import type { EngineInterface, Register } from "claude-code"
 
 import type { Run, Stop } from "../types"
+import { accessDenial } from "./access"
+import type { AccessDef } from "./access"
 import { afterReload, drive, isTrue } from "./drive"
 import type { Beat, Io, Landing, Turn, TurnEnd } from "./drive"
 import { enter } from "./entry"
@@ -66,6 +68,11 @@ let isShipping = false
 // subagents answering into a file: what each may touch (see tool.call)
 const delegates = new Map<string, { file: string; mayRun: RegExp | undefined }>()
 const ours = new Set<string>()
+// What each turn agent may read and write; reset on every spawn and resume,
+// since the steering file can differ per step.
+const accesses = new Map<string, AccessDef>()
+const setAccess = (id: string, a: AccessDef | undefined) =>
+  void (a ? accesses.set(id, a) : accesses.delete(id))
 const waiting = new Map<string, (end: TurnEnd) => void>()
 const ended = new Map<string, TurnEnd>()
 const personas = new Set<string>()
@@ -168,6 +175,7 @@ function io($: $): Io {
       const known = resumable(entry, name)
       if (t.resume && entry && !known) $.ui.log(restartLine(t.scope))
       if (t.resume && known) {
+        setAccess(known, t.access)
         const end = send($, known, t.prompt)
         await update($, run, (r) => ({ ...r, inflight: { agentId: known, memory: t.memory } }))
         const ended = await end
@@ -188,6 +196,7 @@ function io($: $): Io {
       const id = spawned.agentId
       if (!id) return { ok: false, why: spawned.deny ?? "subagent spawn refused" }
       ours.add(id)
+      setAccess(id, t.access)
       await update($, agents, (list) => [...list, id].slice(-200))
       await update($, scopes, (s) => ({ ...s, [t.memory]: { agentId: id, persona: name } }))
       await update($, run, (r) => ({ ...r, inflight: { agentId: id, memory: t.memory } }))
@@ -744,6 +753,9 @@ export const register: Register = (on) => {
   // would still be writing the tree gtd is committing.
   on("tool.call", ($, e, next) => {
     if (!e.agentId || !ours.has(e.agentId)) return next(e)
+    const access = accesses.get(e.agentId)
+    const denial = access && accessDenial(String(e.tool), e, access, root)
+    if (denial) return { deny: denial }
     const delegated = delegates.get(e.agentId)
     if (delegated) {
       if (e.tool === "Write" && e.file_path !== delegated.file) {

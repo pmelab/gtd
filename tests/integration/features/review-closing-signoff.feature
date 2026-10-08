@@ -66,6 +66,12 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
     # the diff, so a broken round can never be mistaken for an approval of
     # nothing.
     Given a test project
+    # The bundled access would refuse this reviewer's stray src/ write.
+    And a gtd config file at ".gtdrc" with:
+      """
+      access:
+        build.review: {}
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

@@ -34,6 +34,12 @@ own addressable `.gtdrc` `skills:` entry — see
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#the-skills-key)
 to repoint one to a set your own harness has instead.
 
+Each scope also declares which files its agent turns may read and write;
+`gtd land` refuses a turn that wrote outside its scope, and a driver can pass
+the read side to its agent. `read` is not a security boundary unless your driver
+enforces it at the OS level. See
+[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#file-access).
+
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
 > is a TypeScript module, and every gtd command that looks at workflow state —
 > `gtd next` and `gtd lsp` included, not just `gtd land` — evaluates it. Treat
