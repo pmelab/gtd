@@ -642,6 +642,12 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a revert that cannot apply is refused, not silently swallowed
     Given a test project
     And the workflow
+    # The bundled access would refuse the collecting turn's src/ write below.
+    And a gtd config file at ".gtdrc" with:
+      """
+      access:
+        build.review: {}
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:

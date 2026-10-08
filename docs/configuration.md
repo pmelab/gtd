@@ -191,7 +191,10 @@ while (true) {
   which replaces it wholesale. Skills belong to the memory scope, one list per
   scope: agent steps in one scope that resolve to different `model`, `system` or
   `skills` fail the process. `agent()` takes no `skills` option — passing one is
-  an error.
+  an error. `scope({ name, access }, fn)` declares the file access every agent
+  turn inside `fn` runs with; see [File access](#file-access). `agent()` takes
+  no `access` option either: narrower access for one step needs its own
+  `scope()`.
 - `refuse(message)` — refuse the pending landing: nothing lands, `gtd land`
   exits 1 with `message`, and the process stays where it rests. Call it right
   after a step whose turn left something the flow does not accept.
@@ -481,6 +484,8 @@ Supported filenames (searched in this order):
 - **`skills`** (object, optional) — a flat scope full-name -> skill-name array
   map, one entry per scope whose skill list you want to change. See
   [The `skills:` key](#the-skills-key).
+- **`access`** (object, optional) — a flat scope full-name ->
+  `{ read?, write? }` glob-array map. See [File access](#file-access).
 - **`$schema`** (string, optional) — ignored by gtd. Point it at the published
   schema for editor autocompletion (this is what `gtd init` writes):
 
@@ -811,6 +816,72 @@ Such a key is valid only while the lens is listed in `qualityReviews`, judged
 against the running process's recorded settings, or against live `.gtdrc`/env
 plus `--var` when no process is underway. A key added for a lens mid-process
 errors until that process finishes.
+
+### File access
+
+A scope can say which files its agent turns may read and write:
+
+```ts
+scope({ name: "review", access: { read: ["src/**", "docs/**"], write: [".gtd/REVIEW.md"] } }, …)
+```
+
+- `read` and `write` are lists of globs in the same dialect as `glob()` and
+  `changes()` (`*` stays inside one path segment, `**` crosses them).
+- A missing side is unrestricted; `[]` allows nothing on that side.
+- `read` and `write` are independent: a `write` glob grants no read.
+- A nested scope inherits its parent's access unless it sets its own, which
+  replaces the parent's wholesale (never merged). `{}` reopens everything a
+  parent restricted.
+- The step's own steering file is always included, on both sides, so a
+  restricted turn can still answer its prompt.
+- `agent()` takes no `access` option; narrower access for one step needs its own
+  `scope()`.
+
+`gtd next --json` reports the result as `access` on every prompt (see
+[Writing your own driver](./driver.md#writing-your-own-driver)).
+
+**`write` is enforced by gtd**: `gtd land` refuses a turn that changed a path
+outside it, exit 1, nothing lands. **`read` is not a security boundary unless
+the driver enforces it at the OS level**: gtd cannot see what an agent reads,
+and a prompt-level hint or a tool-level deny is bypassable by a shell command. A
+`write` restriction has one more gap: a write to a gitignored path never shows
+up in the tree gtd checks, so it escapes the landing check.
+
+#### The `access:` key
+
+`.gtdrc` takes a flat scope full-name -> `{ read?, write? }` map, one entry per
+scope whose access you want to change. An entry REPLACES the scope's declared
+access wholesale and reaches every nested scope that sets none of its own, like
+a `skills:` entry.
+
+```yaml
+# .gtdrc
+access:
+  build.review: { write: [".gtd/REVIEW.md", "docs/**"] }
+  design: {} # lift the bundled restriction
+```
+
+An entry key other than `read`/`write`, or a scope name that is not a scope
+running a turn, is a load error, exit 1; the message lists the known scopes. A
+custom workflow's own scopes are addressable through its `access` export (a
+record, or a function of the resolved vars, of scope -> `{ read?, write? }`).
+Precedence: `.gtdrc` entry, then a `scope()` option, then the workflow's
+`access` export.
+
+#### Bundled defaults
+
+Only planning and review scopes are restricted, and only on writes; no bundled
+scope restricts reads. Build and fix scopes carry no entry.
+
+| Scope                                             | `write`                                    |
+| ------------------------------------------------- | ------------------------------------------ |
+| `design`                                          | `[]`                                       |
+| `architecture`                                    | `.gtd/REQUIREMENTS.md`                     |
+| `architecture.decompose`                          | `.gtd/packages/**`, `.gtd/ARCHITECTURE.md` |
+| `packages.item.spec`                              | `.gtd/SPEC_FEEDBACK.md`                    |
+| `build.review`                                    | `.gtd/REVIEW.md`                           |
+| `build.review.fix.nits`, `build.review.fix.risks` | `{}` (reopened: fixes edit code)           |
+| `build.quality.<lens>`                            | `[]`                                       |
 
 ### Validation and errors
 

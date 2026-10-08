@@ -1,4 +1,4 @@
-import type { Actor, ContentKind, RenderedDemandSource, StateName } from "./types.js"
+import type { Actor, ContentKind, RenderedDemandSource, StateName, StepAccess } from "./types.js"
 
 /** The whole beat vocabulary a driver acts on — what to DO with a rest, not merely whether dispatching it is safe. */
 export type BeatKind = "capture" | "message" | "script" | "prompt" | "stalled"
@@ -80,17 +80,18 @@ export type Demand =
       readonly session: DemandSession | undefined
       readonly validate: string | undefined
       readonly skills: readonly string[] | undefined
+      readonly access: StepAccess
     }
 
 /**
  * Assemble one `Demand` — the ONLY place a rest's resolved content becomes
  * `Demand.content` (`stallDiagnosis` at `kind === "stalled"`, the rendered
- * content otherwise), and the only place `session`/`validate`/`skills` are
+ * content otherwise), and the only place `session`/`validate`/`skills`/`access` are
  * attached, which the `prompt` variant's own type makes impossible to do at
  * any other kind.
  */
 export const demandOf = (input: {
-  readonly rendered: Pick<RenderedDemandSource, "actor" | "content" | "state" | "skills">
+  readonly rendered: Pick<RenderedDemandSource, "actor" | "content" | "state" | "skills" | "access">
   readonly kind: BeatKind
   readonly session?: DemandSession
   readonly validate?: string
@@ -100,5 +101,8 @@ export const demandOf = (input: {
     kind === "stalled" ? stallDiagnosis(rendered.state, rendered.actor) : rendered.content
   const skills =
     rendered.skills !== undefined && rendered.skills.length > 0 ? rendered.skills : undefined
-  return kind === "prompt" ? { kind, content, session, validate, skills } : { kind, content }
+  const access = rendered.access ?? { read: null, write: null }
+  return kind === "prompt"
+    ? { kind, content, session, validate, skills, access }
+    : { kind, content }
 }

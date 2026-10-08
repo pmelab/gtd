@@ -86,6 +86,22 @@ describe("renderBriefing", () => {
     expect(eleven).toContain("--json=skills")
   })
 
+  it("obligation 12 tells the driver to map access onto the CLI's sandbox or container mounts", () => {
+    const briefing = renderBriefing()
+    const obligations = briefing.slice(
+      briefing.indexOf("## Driver obligations"),
+      briefing.indexOf("## Recovery"),
+    )
+    const twelve = obligations.slice(obligations.indexOf("\n12. "))
+    expect(twelve).toContain("--json=access.read")
+    expect(twelve).toContain("--json=access.write")
+    expect(twelve).toContain("workspace-write")
+    expect(twelve).toContain(":ro")
+    expect(twelve).toContain(":rw")
+    expect(twelve).toMatch(/cannot restrict/i)
+    expect(twelve).toMatch(/refusal/i)
+  })
+
   it("instructs the agent to investigate the repo and ask before driving", () => {
     expect(renderBriefing()).toMatch(/investigate the repository and ask/i)
   })

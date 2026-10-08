@@ -5,6 +5,8 @@ import {
   type JudgeAnswer,
   type JudgeQuestion,
   type FlowArgs,
+  type ScopeAccess,
+  type AccessDef,
   type ScopeOptions,
   type StepRequest,
   type Flow,
@@ -17,6 +19,7 @@ import {
   parseThreadsWithFindings,
   unansweredQuestions,
 } from "../steering/index.js"
+import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
 import { globMatches } from "./Glob.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
 import {
@@ -68,6 +71,10 @@ export interface ReplayInput {
   readonly skills?: Readonly<Record<string, readonly string[]>>
   /** `.gtdrc` `skills:` entries by scope full name; kept apart from `skills` so they outrank a `scope()` option while the bundled export does not. */
   readonly configuredSkills?: Readonly<Record<string, readonly string[]>>
+  /** Bundled access keyed by scope full name — the fallback beneath a `scope()` option and `configuredAccess`. */
+  readonly access?: Readonly<Record<string, ScopeAccess>>
+  /** `.gtdrc` `access:` entries by scope full name; they outrank a `scope()` option. */
+  readonly configuredAccess?: Readonly<Record<string, ScopeAccess>>
 }
 
 export type StepKind = Exclude<StepRequest["kind"], "restart">
@@ -89,6 +96,8 @@ export interface ReachedStep {
   readonly memoryScope: string
   /** The scope's resolved skill list, for an agent step; absent when none. */
   readonly skills?: readonly string[] | undefined
+  /** The scope's resolved access with the step's steering file and waiting code threads folded in, for an agent step. */
+  readonly access?: AccessDef | undefined
   /** The commit replay stood on when it reached this step. */
   readonly enteredAt: string
   /** Whether the judge budget cut this step's evidence. */
@@ -195,13 +204,18 @@ interface Identity {
   readonly model: string | undefined
   readonly system: string | undefined
   readonly skills: readonly string[] | undefined
+  /** Scope-level and unfolded: two steps differing only in steering file share a conversation. */
+  readonly access: ScopeAccess | undefined
 }
+
+const sameSkills = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean =>
+  (a?.length ?? 0) === (b?.length ?? 0) && (a ?? []).every((skill, i) => skill === b?.[i])
 
 const samePersona = (a: Identity, b: Identity): boolean =>
   a.model === b.model &&
   a.system === b.system &&
-  (a.skills?.length ?? 0) === (b.skills?.length ?? 0) &&
-  (a.skills ?? []).every((skill, i) => skill === b.skills?.[i])
+  sameSkills(a.skills, b.skills) &&
+  sameAccess(a.access, b.access)
 
 interface Position {
   readonly hash: string
@@ -323,24 +337,69 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
 
   const judgeCuts = new WeakMap<object, readonly string[]>()
 
-  // Skills resolve per memory scope `memory`: for each prefix of it, innermost
+  // Resolved per memory scope `memory`: for each prefix of it, innermost
   // first, a `.gtdrc` entry, then the innermost `scope()` call at that prefix
   // (an unnamed scope counts at its parent's prefix), then the bundled export.
-  // An empty result collapses to `undefined` so it is absent on the wire.
-  const resolveSkills = (memory: string): readonly string[] | undefined => {
-    const own = new Map<string, readonly string[]>()
+  const resolveScoped = <T>(
+    memory: string,
+    pick: (s: (typeof scopes)[number]) => T | undefined,
+    configured: Readonly<Record<string, T>> | undefined,
+    bundled: Readonly<Record<string, T>> | undefined,
+  ): T | undefined => {
+    const own = new Map<string, T>()
     const names: string[] = []
     for (const s of scopes) {
       if (s.name !== undefined) names.push(s.name)
-      if (s.skills !== undefined) own.set(names.join("."), s.skills)
+      const v = pick(s)
+      if (v !== undefined) own.set(names.join("."), v)
     }
     const parts = memory === "" ? [] : memory.split(".")
     const prefixes = parts.map((_, i) => parts.slice(0, parts.length - i).join(".")).concat("")
-    const hit = prefixes
-      .map((p) => input.configuredSkills?.[p] ?? own.get(p) ?? input.skills?.[p])
+    return prefixes
+      .map((p) => configured?.[p] ?? own.get(p) ?? bundled?.[p])
       .find((r) => r !== undefined)
+  }
+
+  // An empty result collapses to `undefined` so it is absent on the wire.
+  const resolveSkills = (memory: string): readonly string[] | undefined => {
+    const hit = resolveScoped(memory, (s) => s.skills, input.configuredSkills, input.skills)
     return hit === undefined || hit.length === 0 ? undefined : hit
   }
+
+  // `{}` is a hit meaning unrestricted.
+  const resolveAccess = (memory: string): ScopeAccess | undefined =>
+    resolveScoped(memory, (s) => s.access, input.configuredAccess, input.access)
+
+  const foldedAccessFor = (
+    scopeAccess: ScopeAccess | undefined,
+    file: string | undefined,
+  ): AccessDef => {
+    // Reading code threads parses every changed file: only a restricted side needs them.
+    const restricted = scopeAccess?.read !== undefined || scopeAccess?.write !== undefined
+    const threadPaths = restricted
+      ? context
+          .codeThreads()
+          .filter((t) => t.waitingOn === "agent")
+          .map((t) => t.path)
+      : []
+    return foldAccess(scopeAccess, file, threadPaths)
+  }
+
+  const scopeAccessFault = (): string | undefined => {
+    for (const [i, s] of scopes.entries()) {
+      if (s.access === undefined) continue
+      const fault = accessShapeFault(s.access)
+      if (fault === undefined) continue
+      const name = scopes
+        .slice(0, i + 1)
+        .flatMap((o) => (o.name === undefined ? [] : [o.name]))
+        .join(".")
+      return `gtd: scope "${name || "root"}": ${fault}`
+    }
+    return undefined
+  }
+
+  const unfoldedAccess = new WeakMap<ReachedStep, ScopeAccess | undefined>()
 
   const resolve = (
     request: Exclude<StepRequest, { kind: "restart" }>,
@@ -373,6 +432,8 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     const occurrence = (occurrences.get(name) ?? 0) + 1
     occurrences.set(name, occurrence)
     const resolved = resolve(request)
+    const memory = memoryScopeOf(name)
+    const scopeAccess = resolved.kind === "agent" ? resolveAccess(memory) : undefined
     const reached: ReachedStep = {
       id: { name, occurrence },
       name,
@@ -380,11 +441,17 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       actor: actorOfKind(resolved.kind),
       request: resolved,
       memoryScope: memoryScopeOf(name),
-      ...(resolved.kind === "agent" ? { skills: resolveSkills(memoryScopeOf(name)) } : {}),
+      ...(resolved.kind === "agent"
+        ? {
+            skills: resolveSkills(memory),
+            access: foldedAccessFor(scopeAccess, resolved.options.file),
+          }
+        : {}),
       enteredAt: position.hash,
       truncated: (judgeCuts.get(resolved) ?? []).length > 0,
       scopeCalls: namedScopeCalls(),
     }
+    if (resolved.kind === "agent") unfoldedAccess.set(reached, scopeAccess)
     trace.push(reached)
     return reached
   }
@@ -395,6 +462,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       model: step.request.options.model,
       system: step.request.options.system,
       skills: step.skills,
+      access: unfoldedAccess.get(step),
     }
     const seen = personas.get(step.memoryScope)
     if (seen === undefined) {
@@ -403,7 +471,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     }
     return samePersona(seen, identity)
       ? undefined
-      : `gtd: "${step.name}" runs with a different model, system prompt or skills than an earlier agent step in memory scope "${step.memoryScope || "root"}" — one scope is one conversation, and a conversation has one identity`
+      : `gtd: "${step.name}" runs with a different model, system prompt, skills or file access than an earlier agent step in memory scope "${step.memoryScope || "root"}" — one scope is one conversation, and a conversation has one identity`
   }
 
   const DIVERGED = "the workflow changed under this process; run `gtd abandon` to start over"
@@ -454,19 +522,22 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     return replyFor(step.request, input.pending.verdicts ?? [])
   }
 
+  // gtd.config.ts is loaded without a type check.
+  const requestFault = (request: Exclude<StepRequest, { kind: "restart" }>): string | undefined => {
+    if (request.kind === "run" && typeof request.body !== "string") {
+      return `gtd: step "${scoped(request.name)}": a run() body is a shell script string — decide in flow code, then render the script (see checkScript and friends)`
+    }
+    return request.kind === "agent" ? scopeAccessFault() : undefined
+  }
+
   const handleStep = async (request: StepRequest): Promise<unknown> => {
     if (outcome !== undefined) throw new Stop()
     if (request.kind === "restart") return finish(endOfFlow("restart"))
     if (typeof request.name !== "string" || request.name === "") {
       return finish({ kind: "failed", message: "gtd: a step was called without a name" })
     }
-    // gtd.config.ts is loaded without a type check.
-    if (request.kind === "run" && typeof request.body !== "string") {
-      return finish({
-        kind: "failed",
-        message: `gtd: step "${scoped(request.name)}": a run() body is a shell script string — decide in flow code, then render the script (see checkScript and friends)`,
-      })
-    }
+    const fault = requestFault(request)
+    if (fault !== undefined) return finish({ kind: "failed", message: fault })
     const step = reach(request)
     const blocker = blockerAt(step)
     return blocker === undefined ? answer(step) : finish(blocker)
@@ -554,6 +625,8 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     env: input.env,
     start: () => input.start,
     skillsFor: (localName) => resolveSkills(memoryScopeOf(scoped(localName))) ?? [],
+    accessFor: (localName, file) =>
+      foldedAccessFor(resolveAccess(memoryScopeOf(scoped(localName))), file),
     // At the rest, trailing attempts sit above the last step commit: the head a
     // prompt names is the commit the process actually stands on.
     head: () => {

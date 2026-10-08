@@ -242,7 +242,8 @@ never stored, so a plain peek is exactly as safe to call as a dispatch would
 be — and, when the state declares a validatable steering file, \`validate\`
 (the script that formats then validates it), and, when the turn's scope declares
 skills, \`skills\` (an array of the skill names, already trimmed and split —
-\`--json=skills.0\` reads the first). When set: \`model\`, \`memory\`,
+\`--json=skills.0\` reads the first), and always \`access\`
+(\`{read, write}\`, each an array of globs or \`null\` for unrestricted). When set: \`model\`, \`memory\`,
 \`label\`, \`file\`, \`mode\`, \`edges\`, \`judge\` (the pending judgment's rendered
 document). When a cost has been recorded (a prior \`gtd land --cost=<n>\`):
 \`cost\`, \`costByModel\`.
@@ -342,6 +343,13 @@ const DRIVER_OBLIGATIONS = `
     turn sees only those. An absent field means none. A CLI that cannot
     restrict relies on the preamble gtd already puts in the prompt — the
     reference body's \`claude -p\` does exactly that.
+12. Map each prompt turn's \`--json=access.read\` / \`--json=access.write\`
+    (arrays of globs, \`null\` = unrestricted) onto the chosen CLI's sandbox
+    (Codex \`workspace-write\` plus writable roots) or a container with
+    \`:ro\` / \`:rw\` bind mounts. \`access\` is a prompt-only field. A CLI
+    that cannot restrict relies on the preamble and gtd's landing check. When
+    \`gtd land\` refuses naming an access violation, re-prompt the turn with
+    the refusal text and land again, or stop.
 `
 
 const RECOVERY = `

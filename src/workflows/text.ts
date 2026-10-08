@@ -3,12 +3,14 @@ import {
   codeThreads,
   env,
   head,
+  accessFor,
   skillsFor,
   start,
   type AgentOptions,
   type SummaryContext,
 } from "../flows/index.js"
 import {
+  accessPreamble,
   skillsPreamble,
   styleBlock,
   styleFormatContract,
@@ -37,12 +39,16 @@ export const withSkills = (skills: string | undefined, prompt: string): string =
   return `${skillsPreamble.replaceAll("{skills}", skills)}\n\n${prompt}`
 }
 
-/** An `agent()` step whose prompt opens with the preamble naming its scope's skills. */
+/** An `agent()` step whose prompt opens with the preamble naming its scope's skills, then its restricted file access. */
 export const agentWithSkills = (
   name: string,
   prompt: string,
   options: AgentOptions = {},
-): Promise<void> => agent(name, withSkills(skillsFor(name).join(", "), prompt), options)
+): Promise<void> => {
+  const access = accessPreamble(accessFor(name, options.file))
+  const body = access === "" ? prompt : `${access}\n\n${prompt}`
+  return agent(name, withSkills(skillsFor(name).join(", "), body), options)
+}
 
 export const unwindFailure = (commit: string): string =>
   `gtd could not unwind ${commit} out of your working tree.`

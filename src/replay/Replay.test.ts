@@ -14,6 +14,7 @@ import {
   scope,
   threads,
   type Flow,
+  type ScopeAccess,
 } from "../flows/index.js"
 import type { Episode, ReplayOutcome } from "./Replay.js"
 import {
@@ -678,7 +679,163 @@ describe("replay: skills resolution", () => {
       budgetBytes: 1024,
     })
     expect(outcome.kind === "failed" && outcome.message).toContain(
-      "different model, system prompt or skills",
+      "different model, system prompt, skills or file access",
     )
+  })
+})
+
+describe("replay: access resolution", () => {
+  interface Tiers {
+    access?: Record<string, ScopeAccess>
+    configuredAccess?: Record<string, ScopeAccess>
+  }
+
+  const restOf = (flow: Flow, tiers: Tiers = {}, history = new History()) =>
+    replay({
+      flow,
+      episode: history.episode(),
+      vars: {},
+      env: {},
+      start: hashOf(0),
+      budgetBytes: 1024,
+      ...tiers,
+    })
+
+  const wireAccess = async (flow: Flow, tiers: Tiers = {}) => {
+    const outcome = await restOf(flow, tiers)
+    if (outcome.kind !== "rest") throw new Error(`expected a rest, got ${JSON.stringify(outcome)}`)
+    return outcome.rest.access
+  }
+
+  const step = async () => {
+    await agent("step", "prompt")
+  }
+
+  it("is unrestricted when nothing declares access", async () => {
+    expect(await wireAccess(async () => step())).toEqual({ read: null, write: null })
+  })
+
+  it("rejects an access option on agent()", async () => {
+    const outcome = await restOf(async () => {
+      await agent("step", "prompt", { access: { write: [] } } as never)
+    })
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      message: 'gtd: step "step": unknown key(s) access in agent() options',
+    })
+  })
+
+  it("reads a scope() access, adding the step's steering file to each restricted side", async () => {
+    const flow: Flow = async () => {
+      await scope({ name: "a", access: { read: ["docs/**"] } }, async () => {
+        await agent("step", "prompt", { file: ".gtd/NOTES.md" })
+      })
+    }
+    expect(await wireAccess(flow)).toEqual({
+      read: ["docs/**", ".gtd/NOTES.md"],
+      write: null,
+    })
+  })
+
+  it("keeps read and write independent: write grants no read", async () => {
+    const flow: Flow = async () => {
+      await scope({ name: "a", access: { write: ["src/**"] } }, step)
+    }
+    expect(await wireAccess(flow)).toEqual({ read: null, write: ["src/**"] })
+    const readOnly: Flow = async () => {
+      await scope({ name: "a", access: { read: ["docs/**"], write: ["src/**"] } }, step)
+    }
+    expect((await wireAccess(readOnly))?.read).toEqual(["docs/**"])
+  })
+
+  it("inherits a parent's access, replaces it wholesale, and reopens with {}", async () => {
+    const inherit: Flow = async () => {
+      await scope({ name: "a", access: { write: ["p/**"] } }, () => scope("b", step))
+    }
+    expect(await wireAccess(inherit)).toEqual({ read: null, write: ["p/**"] })
+    const replace: Flow = async () => {
+      await scope({ name: "a", access: { write: ["p/**"] } }, () =>
+        scope({ name: "b", access: { read: ["c/**"] } }, step),
+      )
+    }
+    expect(await wireAccess(replace)).toEqual({ read: ["c/**"], write: null })
+    const reopen: Flow = async () => {
+      await scope({ name: "a", access: { write: ["p/**"] } }, () =>
+        scope({ name: "b", access: {} }, step),
+      )
+    }
+    expect(await wireAccess(reopen)).toEqual({ read: null, write: null })
+  })
+
+  it("ranks .gtdrc above the scope() option above the export", async () => {
+    const flow: Flow = async () => {
+      await scope({ name: "a", access: { write: ["option"] } }, step)
+    }
+    expect((await wireAccess(flow, { access: { a: { write: ["bundled"] } } }))?.write).toEqual([
+      "option",
+    ])
+    expect(
+      (
+        await wireAccess(flow, {
+          access: { a: { write: ["bundled"] } },
+          configuredAccess: { a: { write: ["rc"] } },
+        })
+      )?.write,
+    ).toEqual(["rc"])
+    const bare: Flow = async () => {
+      await scope("a", () => scope("b", step))
+    }
+    expect((await wireAccess(bare, { configuredAccess: { a: { write: ["rc"] } } }))?.write).toEqual(
+      ["rc"],
+    )
+  })
+
+  it("adds a code thread waiting on the agent to the restricted sides", async () => {
+    const history = new History().land("human", "idle", 1, "a.step", {
+      "src/a.ts": "const a = 1\n// H: fix this\n",
+    })
+    const flow: Flow = async () => {
+      await human("idle")
+      await scope({ name: "a", access: { write: [] } }, step)
+    }
+    const outcome = await restOf(flow, {}, history)
+    if (outcome.kind !== "rest") throw new Error("expected a rest")
+    expect(outcome.rest.access).toEqual({ read: null, write: ["src/a.ts"] })
+  })
+
+  it("fails two agent steps in one memory scope with different scope access", async () => {
+    const flow: Flow = async () => {
+      await scope({ name: "a", access: { write: ["one"] } }, () => agent("first", "prompt"))
+      await scope({ name: "a", access: { write: ["two"] } }, () => agent("second", "prompt"))
+    }
+    const history = new History()
+    history.land("agent", "a.first", 1, "a.second", { "x.txt": "x" })
+    const outcome = await restOf(flow, {}, history)
+    expect(outcome.kind === "failed" && outcome.message).toContain(
+      "different model, system prompt, skills or file access",
+    )
+  })
+
+  it("does not conflict two steps that differ only in steering file", async () => {
+    const flow: Flow = async () => {
+      await scope({ name: "a", access: { write: [] } }, async () => {
+        await agent("first", "prompt", { file: ".gtd/ONE.md" })
+        await agent("second", "prompt", { file: ".gtd/TWO.md" })
+      })
+    }
+    const history = new History()
+    history.land("agent", "a.first", 1, "a.second", { "x.txt": "x" })
+    const outcome = await restOf(flow, {}, history)
+    expect(outcome.kind).toBe("rest")
+    if (outcome.kind === "rest") expect(outcome.rest.access?.write).toEqual([".gtd/TWO.md"])
+  })
+
+  it("fails a malformed scope() access, naming the scope", async () => {
+    const flow: Flow = async () => {
+      await scope({ name: "a", access: { write: "src/**" } as never }, () => scope("b", step))
+    }
+    const outcome = await restOf(flow)
+    expect(outcome).toMatchObject({ kind: "failed" })
+    expect(outcome.kind === "failed" && outcome.message).toContain('scope "a"')
   })
 })

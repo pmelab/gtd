@@ -1,9 +1,13 @@
 import {
   installContext,
   type CodeThreadInfo,
+  type AccessDef,
   type FlowContext,
+  type ScopeAccess,
   type StepRequest,
 } from "../flows/index.js"
+import { foldAccess } from "../replay/index.js"
+import { access as bundledAccess } from "./access.js"
 import { skills as bundledSkills } from "./skills.js"
 import { defaults, envDefaults } from "./vars.js"
 
@@ -18,6 +22,8 @@ export interface TextContext {
   readonly scope?: string
   /** Stands in for `.gtdrc` `skills:`, keyed by scope full name. */
   readonly skills?: Readonly<Record<string, readonly string[]>>
+  /** Stands in for `.gtdrc` `access:`, keyed by scope full name. */
+  readonly access?: Readonly<Record<string, ScopeAccess>>
 }
 
 const unavailable = (): never => {
@@ -37,6 +43,25 @@ const skillsForOf =
       if (hit !== undefined) return hit
     }
     return []
+  }
+
+/** The same walk for access, folded the way `Replay.ts` folds it. */
+const accessForOf =
+  (context: TextContext) =>
+  (localName: string, file?: string): AccessDef => {
+    const full = [context.scope, localName].filter((part) => part !== undefined && part !== "")
+    const parts = full.join(".").split(".").slice(0, -1)
+    const bundled = bundledAccess({ ...defaults, ...context.vars })
+    let hit: ScopeAccess | undefined
+    for (let n = parts.length; n >= 0 && hit === undefined; n--) {
+      const prefix = parts.slice(0, n).join(".")
+      hit = context.access?.[prefix] ?? bundled[prefix]
+    }
+    return foldAccess(
+      hit,
+      file,
+      (context.codeThreads ?? []).filter((t) => t.waitingOn === "agent").map((t) => t.path),
+    )
   }
 
 /** The fixed replay context texts render against; steps, refusals and scopes are unavailable unless overridden. */
@@ -63,6 +88,7 @@ export const fixtureContext = (
   head: () => context.head ?? "",
   start: () => context.start ?? "",
   skillsFor: skillsForOf(context),
+  accessFor: accessForOf(context),
   ...overrides,
 })
 

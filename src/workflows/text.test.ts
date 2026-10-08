@@ -56,6 +56,47 @@ describe("agentWithSkills", () => {
   })
 })
 
+describe("agentWithSkills access preamble", () => {
+  const capture = (
+    context: Parameters<typeof captureStep>[1],
+    options: Parameters<typeof agentWithSkills>[2] = {},
+  ) => captureStep(() => agentWithSkills("name", "do-the-work", options), context)
+
+  it("names each restricted side, after the skills preamble and before the prompt", async () => {
+    const request = await capture({
+      scope: "a",
+      skills: { a: ["testing"] },
+      access: { a: { read: ["docs/**"], write: ["out/**"] } },
+    })
+    if (request.kind !== "agent") throw new Error("unreachable")
+    const prompt = request.prompt
+    expect(prompt).toContain("- This turn may read only: docs/**")
+    expect(prompt).toContain(
+      "- This turn may write only: out/** — anything else is refused when the turn lands",
+    )
+    expect(prompt.indexOf("missing one: testing")).toBeLessThan(
+      prompt.indexOf("This turn may read only"),
+    )
+    expect(prompt.endsWith("\n\ndo-the-work")).toBe(true)
+  })
+
+  it("folds the steering file into the named globs", async () => {
+    const request = await capture(
+      { scope: "a", access: { a: { write: [] } } },
+      { file: ".gtd/NOTES.md" },
+    )
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.prompt).toContain("may write only: .gtd/NOTES.md —")
+    expect(request.prompt).not.toContain("may read only")
+  })
+
+  it("leaves the prompt byte-identical when both sides are unrestricted", async () => {
+    const request = await capture({ scope: "a", skills: { a: [] }, access: { a: {} } })
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.prompt).toBe("do-the-work")
+  })
+})
+
 describe("the shared open-question instruction", () => {
   it("leaves the option count to the agent, floored at two real options", () => {
     const prompt = renderText(() => designTriagePrompt("base"))

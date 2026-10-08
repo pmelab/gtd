@@ -2,6 +2,8 @@ import { isSettingName, SETTING_NAME_RULE } from "./vars.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 import { BUILT_IN_MODE_NAMES } from "../steering/index.js"
 import type { ModeDef } from "../Workflow.js"
+import type { ScopeAccess } from "../flows/index.js"
+import { accessShapeFault } from "../replay/index.js"
 import type { JudgeConfig, UiConfig } from "../ConfigSchema.js"
 import {
   BUILT_IN_ORIGIN,
@@ -38,6 +40,10 @@ export interface CompiledConfig {
   readonly rcSkills: Record<string, readonly string[]>
   /** Every well-shaped `skills:` key of every layer, with that layer's origin — so `load.ts`'s unknown-step-name check reports each file, not just the innermost. */
   readonly skillsKeys: readonly { readonly key: string; readonly origin: string }[]
+  /** The `.gtdrc` `access:` map, shape-validated; its keys are checked against the workflow's scopes in `skills.ts`. */
+  readonly access: Record<string, ScopeAccess>
+  /** Every well-shaped `access:` key of every layer, with that layer's origin. */
+  readonly accessKeys: readonly { readonly key: string; readonly origin: string }[]
   /** Every finding across every layer — sorted (origin outermost→innermost, then config path) and deduped. */
   readonly diagnostics: readonly Diagnostic[]
 }
@@ -139,6 +145,37 @@ const compileSkillsMap = (
   }
   return { skills, diagnostics }
 }
+
+/** A flat `scope full name -> { read?, write? }` map; a malformed value is a load error and is dropped. */
+const compileAccessMap = (
+  raw: unknown,
+): {
+  readonly access: Record<string, ScopeAccess>
+  readonly diagnostics: readonly Diagnostic[]
+} => {
+  const diagnostics: Diagnostic[] = []
+  if (raw === undefined) return { access: {}, diagnostics }
+  if (!isPlainObject(raw)) {
+    diagnostics.push(
+      err(
+        ["access"],
+        `"access" must be a mapping of scope name -> { read?, write? }, got ${describeType(raw)}`,
+      ),
+    )
+    return { access: {}, diagnostics }
+  }
+  const access: Record<string, ScopeAccess> = Object.create(null)
+  for (const [key, value] of Object.entries(raw)) {
+    const fault = accessShapeFault(value)
+    if (fault === undefined) access[key] = value as ScopeAccess
+    else diagnostics.push(err(["access", key], `"access.${key}": ${fault}`))
+  }
+  return { access, diagnostics }
+}
+
+/** The `.gtdrc` `access:` load-error message for a key that is not a known scope. */
+export const unknownAccessKeyMessage = (key: string, known: readonly string[]): string =>
+  `"access.${key}" is not a scope that runs a turn — known scopes: ${known.join(", ")}`
 
 /** The `.gtdrc` `skills:` load-error message for a key that is not a known scope. */
 export const unknownSkillsKeyMessage = (key: string, known: readonly string[]): string =>
@@ -350,6 +387,14 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
     skillsKeys.push(...Object.keys(own.skills).map((key) => ({ key, origin: layer.origin })))
   }
   const { skills: rcSkills } = compileSkillsMap(mergedConfig["skills"])
+  const accessKeys: { key: string; origin: string }[] = []
+  for (const layer of layers) {
+    if (!isPlainObject(layer.value)) continue
+    const own = compileAccessMap(layer.value["access"])
+    diagnostics.push(...own.diagnostics.map((d) => ({ ...d, origin: layer.origin })))
+    accessKeys.push(...Object.keys(own.access).map((key) => ({ key, origin: layer.origin })))
+  }
+  const { access: rcAccess } = compileAccessMap(mergedConfig["access"])
   const seeded = Object.fromEntries(
     BUILT_IN_MODE_NAMES.map((name) => [name, { validate: seededValidateCommand(name) }]),
   )
@@ -363,6 +408,8 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
     ...(ui !== undefined ? { ui } : {}),
     rcSkills,
     skillsKeys,
+    access: rcAccess,
+    accessKeys,
     diagnostics: dedupeDiagnostics(sortDiagnostics(diagnostics, layerOrder)),
   }
 }

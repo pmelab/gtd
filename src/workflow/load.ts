@@ -222,6 +222,9 @@ export const load: Effect.Effect<
       skills: loaded.skills,
       configuredSkills: compiled.rcSkills,
       skillsKeys: compiled.skillsKeys,
+      access: loaded.access,
+      configuredAccess: compiled.access,
+      accessKeys: compiled.accessKeys,
       skillsOrigin: module?.filepath ?? BUILT_IN_ORIGIN,
       initial,
     },
@@ -281,7 +284,7 @@ const wrongKindDiagnostics = (
 
 interface LoadedModule extends Pick<
   WorkflowDefinition,
-  "flow" | "summary" | "base" | "steering" | "skills"
+  "flow" | "summary" | "base" | "steering" | "skills" | "access"
 > {
   readonly defaults: Readonly<Record<string, string>>
   readonly envDefaults: Readonly<Record<string, string>>
@@ -393,6 +396,15 @@ const skillsExport = (exports: Record<string, unknown>): WorkflowDefinition["ski
   return () => record
 }
 
+/** Read a module's optional `access` export — a scope full name -> `{ read?, write? }` record, or a function of the vars returning one. */
+const accessExport = (exports: Record<string, unknown>): WorkflowDefinition["access"] => {
+  const value = exports["access"] ?? {}
+  if (typeof value === "function") {
+    return (vars) => (value as (v: typeof vars) => never)(vars)
+  }
+  return () => value as never
+}
+
 const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T | undefined => {
   const value = exports[name]
   if (value === undefined) return undefined
@@ -442,6 +454,7 @@ const fromModule = (
     envDefaults,
     steering: stringRecord(exports, "steering"),
     skills: skillsExport(exports),
+    access: accessExport(exports),
     summary: optionalFunction(exports, "summary"),
     base: optionalFunction(exports, "base"),
     origin,

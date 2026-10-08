@@ -54,6 +54,37 @@ describe("compileConfig: skills: shape validation", () => {
   })
 })
 
+describe("compileConfig: access: shape validation", () => {
+  it("accepts a well-shaped map and any key", () => {
+    const compiled = compileConfig([
+      layer({ access: { "no.such.scope": { write: ["a/**"] }, x: { read: [] }, y: {} } }),
+    ])
+    expect(compiled.diagnostics).toEqual([])
+    expect(Object.keys(compiled.access)).toEqual(["no.such.scope", "x", "y"])
+    expect(compiled.accessKeys.map((k) => k.key)).toEqual(["no.such.scope", "x", "y"])
+  })
+
+  it("rejects a non-object access:", () => {
+    const compiled = compileConfig([layer({ access: "nope" })])
+    expect(compiled.access).toEqual({})
+    expect(compiled.diagnostics.find((d) => d.path.join(".") === "access")?.message).toContain(
+      '"access" must be a mapping',
+    )
+  })
+
+  it("rejects a non-object entry, a non-array side and an unknown side, dropping the entry", () => {
+    const compiled = compileConfig([
+      layer({ access: { a: "x", b: { write: "x" }, c: { exec: [] }, d: { read: [1] } } }),
+    ])
+    expect(compiled.access).toEqual({})
+    const messages = compiled.diagnostics.map((d) => d.message).join("\n")
+    expect(messages).toContain('"access.a": access must be an object')
+    expect(messages).toContain('"access.b": access.write must be an array of glob strings')
+    expect(messages).toContain('"access.c": unknown access key "exec"')
+    expect(messages).toContain('"access.d": access.read must be an array of glob strings')
+  })
+})
+
 describe("compileConfig: skills: across layers", () => {
   it("reports an outer layer's malformed entry even when a nearer layer sets a good one", () => {
     const compiled = compileConfig([

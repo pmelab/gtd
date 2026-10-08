@@ -115,6 +115,24 @@ describe("demandOf", () => {
     expect(absent.skills).toBeUndefined()
   })
 
+  it("carries access at kind prompt, unrestricted on both sides when the source has none", () => {
+    const bare = demandOf({ rendered: rendered(), kind: "prompt" })
+    const restricted = demandOf({
+      rendered: rendered({ access: { read: ["docs/**"], write: [] } }),
+      kind: "prompt",
+    })
+    if (bare.kind !== "prompt" || restricted.kind !== "prompt") throw new Error("unreachable")
+    expect(bare.access).toEqual({ read: null, write: null })
+    expect(restricted.access).toEqual({ read: ["docs/**"], write: [] })
+  })
+
+  it("carries no access field at any non-prompt kind", () => {
+    for (const kind of BEAT_KINDS.filter((k) => k !== "prompt")) {
+      const demand = demandOf({ rendered: rendered({ access: { read: null, write: [] } }), kind })
+      expect("access" in demand).toBe(false)
+    }
+  })
+
   it("carries no skills field at any non-prompt kind, even when the rendered source has one", () => {
     for (const kind of BEAT_KINDS.filter((k) => k !== "prompt")) {
       const demand = demandOf({ rendered: rendered({ skills: ["a"] }), kind })
