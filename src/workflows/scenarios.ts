@@ -43,16 +43,38 @@ export const driftedScenarios = (frozen: FrozenScenarios): readonly string[] =>
 const lines = (text: string | undefined): string[] =>
   (text ?? "").split("\n").filter((l) => l !== "")
 
-/** Set difference of wording lines, not a diff: reordering alone shows nothing. */
-export const wordingDrift = (frozen: FrozenScenarios, path: string): t.WordingDrift => {
-  const before = lines(frozen.texts[path])
-  const after = lines(textOf(path))
-  return {
-    path,
-    removed: before.filter((l) => !after.includes(l)),
-    added: after.filter((l) => !before.includes(l)),
+/** `table[i][j]`: the longest common subsequence of `a[i..]` and `b[j..]`. */
+const lcsTable = (a: readonly string[], b: readonly string[]): number[][] => {
+  const table = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      table[i]![j] =
+        a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!)
+    }
   }
+  return table
 }
+
+/** Changed lines in file order, `- ` / `+ `-prefixed, so a moved or repeated step still shows. */
+const lineDiff = (a: readonly string[], b: readonly string[]): string[] => {
+  const table = lcsTable(a, b)
+  const out: string[] = []
+  let i = 0
+  let j = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++
+      j++
+    } else if (table[i + 1]![j]! >= table[i]![j + 1]!) out.push(`- ${a[i++]}`)
+    else out.push(`+ ${b[j++]}`)
+  }
+  return [...out, ...a.slice(i).map((l) => `- ${l}`), ...b.slice(j).map((l) => `+ ${l}`)]
+}
+
+export const wordingDrift = (frozen: FrozenScenarios, path: string): t.WordingDrift => ({
+  path,
+  lines: lineDiff(lines(frozen.texts[path]), lines(textOf(path))),
+})
 
 /** After a turn: stop at `scenario-wording` while wording drifted; accept moves the snapshot. */
 export const holdWording = async (frozen: FrozenScenarios | undefined): Promise<void> => {

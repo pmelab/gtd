@@ -886,20 +886,15 @@ Print the closing message and stop — this writes nothing itself.
 
 export interface WordingDrift {
   readonly path: string
-  readonly removed: readonly string[]
-  readonly added: readonly string[]
+  /** `- `/`+ `-prefixed, in file order. */
+  readonly lines: readonly string[]
 }
 
 export const scenarioWordingMessage = (at: string, drifted: readonly WordingDrift[]): string =>
   `The e2e scenario wording was frozen when package 0 landed, and the last
 turn changed it. Removed lines are marked \`-\`, added ones \`+\`:
 
-${drifted
-  .map(
-    ({ path, removed, added }) =>
-      `${path}\n${[...removed.map((l) => `- ${l}`), ...added.map((l) => `+ ${l}`)].join("\n")}`,
-  )
-  .join("\n\n")}
+${drifted.map(({ path, lines }) => `${path}\n${lines.join("\n")}`).join("\n\n")}
 
 To accept the change, land untouched.
 

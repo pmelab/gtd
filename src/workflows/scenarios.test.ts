@@ -135,6 +135,24 @@ describe("holdWording", () => {
     expect(message).toContain("partial accept")
   })
 
+  const shownDiff = async (before: string, after: string): Promise<string[]> => {
+    const frozen = { at: "h1", texts: { "a.feature": before } }
+    const [step] = await run(() => ({ "a.feature": after }), frozen)
+    if (step?.kind !== "human") throw new Error("expected a human step")
+    return (step.options.message ?? "").split("\n").filter((l) => /^[-+] /.test(l))
+  }
+
+  it("shows a moved step as one removal and one addition of it, in place", async () => {
+    expect(await shownDiff("Given a\nWhen b\nThen c", "When b\nGiven a\nThen c")).toEqual([
+      "- Given a",
+      "+ Given a",
+    ])
+  })
+
+  it("shows a repeated step as its added copy", async () => {
+    expect(await shownDiff("Given a\nThen c", "Given a\nGiven a\nThen c")).toEqual(["+ Given a"])
+  })
+
   it("accepts still-differing files by moving the snapshot to head", async () => {
     const frozen = { at: "h1", texts: { "a.feature": "Given a", "b.feature": "Given b" } }
     await run(() => ({ "a.feature": "Given a2", "b.feature": "Given b2" }), frozen)
