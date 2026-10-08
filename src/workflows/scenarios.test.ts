@@ -33,6 +33,35 @@ describe("scenarioText", () => {
   it("keeps changed wording", () => {
     expect(scenarioText("Given a")).not.toBe(scenarioText("Given b"))
   })
+
+  it.each([
+    ["a # line", "# Review: abc"],
+    ["an @ line", "@mention"],
+    ["a blank line", ""],
+  ])("keeps %s inside a doc string", (_, line) => {
+    const doc = (body: string[]) =>
+      ["Given a file with:", '  """', ...body.map((l) => (l === "" ? "" : `  ${l}`)), '  """'].join(
+        "\n",
+      )
+    expect(scenarioText(doc(["top", line, "end"]))).not.toBe(scenarioText(doc(["top", "end"])))
+  })
+
+  it("keeps indentation inside a doc string", () => {
+    const doc = (line: string) => ["Given a file with:", '  """', `  ${line}`, '  """'].join("\n")
+    expect(scenarioText(doc("  nested"))).not.toBe(scenarioText(doc("nested")))
+  })
+
+  it("ignores a doc string re-indented together with its delimiters", () => {
+    const at = (indent: string) =>
+      [
+        "Given a file with:",
+        `${indent}\`\`\``,
+        `${indent}# Review`,
+        `${indent}  - x`,
+        `${indent}\`\`\``,
+      ].join("\n")
+    expect(scenarioText(at("      "))).toBe(scenarioText(at("  ")))
+  })
 })
 
 describe("freezeScenarios", () => {
@@ -147,6 +176,10 @@ describe("holdWording", () => {
       "- Given a",
       "+ Given a",
     ])
+  })
+
+  it("shows a blank line added inside a doc string", async () => {
+    expect(await shownDiff('"""\na\nb\n"""', '"""\na\n\nb\n"""')).toEqual(["+ "])
   })
 
   it("shows a repeated step as its added copy", async () => {

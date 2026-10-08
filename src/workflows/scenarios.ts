@@ -7,13 +7,34 @@ export interface FrozenScenarios {
   texts: Record<string, string>
 }
 
-/** Gherkin wording only: lines trimmed; blank, `#` comment and `@` tag lines dropped. */
-export const scenarioText = (source: string): string =>
-  source
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "" && !line.startsWith("#") && !line.startsWith("@"))
-    .join("\n")
+const DOC_STRING = /^(\s*)("""|```)/
+
+/**
+ * Gherkin wording only: lines trimmed; blank, `#` comment and `@` tag lines
+ * dropped — except inside a doc string, whose content is test input: kept
+ * whole, indented relative to its opening delimiter (as Gherkin reads it).
+ */
+export const scenarioText = (source: string): string => {
+  const out: string[] = []
+  let doc: { readonly indent: number; readonly fence: string } | undefined
+  for (const line of source.split("\n")) {
+    const delimiter = DOC_STRING.exec(line)
+    if (doc === undefined && delimiter !== null) {
+      doc = { indent: delimiter[1]!.length, fence: delimiter[2]! }
+      out.push(line.trim())
+    } else if (doc !== undefined && line.trim().startsWith(doc.fence)) {
+      doc = undefined
+      out.push(line.trim())
+    } else if (doc !== undefined) {
+      const lead = line.length - line.trimStart().length
+      out.push(line.slice(Math.min(lead, doc.indent)).trimEnd())
+    } else {
+      const trimmed = line.trim()
+      if (trimmed !== "" && !trimmed.startsWith("#") && !trimmed.startsWith("@")) out.push(trimmed)
+    }
+  }
+  return out.join("\n")
+}
 
 const textOf = (path: string): string | undefined => {
   const source = read(path)
@@ -40,8 +61,9 @@ export const driftedScenarios = (frozen: FrozenScenarios): readonly string[] =>
     .filter(([path, text]) => textOf(path) !== text)
     .map(([path]) => path)
 
+// Blank lines survive only inside doc strings, where they are wording.
 const lines = (text: string | undefined): string[] =>
-  (text ?? "").split("\n").filter((l) => l !== "")
+  text === undefined || text === "" ? [] : text.split("\n")
 
 /** `table[i][j]`: the longest common subsequence of `a[i..]` and `b[j..]`. */
 const lcsTable = (a: readonly string[], b: readonly string[]): number[][] => {
