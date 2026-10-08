@@ -10,7 +10,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   lap — a cut, unanswered or below-floor note counts as `edit`.
 
   Every scenario reaches `build.review.await-review` by the shortest real
-  history — `--entry review-gate.check` with the quality lap disabled, then
+  history — `--workflow review` with the quality lap disabled, then
   one reviewer turn writing `.gtd/REVIEW.md`. `closing`'s own shell body is
   a script a real driver runs, never this in-memory harness — its effect is
   given by hand here.
@@ -27,7 +27,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       export const sub = (a: number, b: number) => a - b
       export const mul = (a: number, b: number) => a * b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -87,7 +87,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       export const sub = (a: number, b: number) => a - b
       export const mul = (a: number, b: number) => a * b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -151,7 +151,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       export const sub = (a: number, b: number) => a - b
       export const mul = (a: number, b: number) => a * b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -211,7 +211,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       export const sub = (a: number, b: number) => a - b
       export const mul = (a: number, b: number) => a * b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -270,7 +270,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       export const sub = (a: number, b: number) => a - b
       export const mul = (a: number, b: number) => a * b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -348,7 +348,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       export const sub = (a: number, b: number) => a - b
       export const mul = (a: number, b: number) => a * b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -434,7 +434,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       export const sub = (a: number, b: number) => a - b
       export const mul = (a: number, b: number) => a * b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -525,7 +525,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       export const sub = (a: number, b: number) => a - b
       export const mul = (a: number, b: number) => a * b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """

@@ -2,14 +2,13 @@ import {
   changes,
   head,
   human,
-  refuse,
   requireRevert,
   restoreScript,
   revertScript,
   run,
   start,
-  type EntryBase,
-  type FlowArgs,
+  type Doors,
+  type WorkflowBase,
   type Summary,
 } from "../flows/index.js"
 import { baseline, gate } from "./health.js"
@@ -19,13 +18,13 @@ import { buildTail, type ReviewOutcome } from "./review.js"
 import { ARCHITECTURE, FEEDBACK, REQUIREMENTS, REVIEW } from "./steps.js"
 import * as t from "./text.js"
 
-// gtd's built-in default workflow. Any change to the tree starts a process:
+// gtd's bundled workflows. Any change to the tree starts a process:
 // `idle` → `unwind` reverts the sketch (its intent survives in history) → a
 // green-baseline gate → design, architecture and one package per concern →
 // the quality lap → human review, which signs off (the episode ends back at
-// `idle`) or sends a full re-plan lap. `--entry fix-precheck`, `--entry
-// review-gate.check --var reviewBase=<commitish>` and `--entry
-// start-gate.check` enter the same flow further in.
+// `idle`) or sends a full re-plan lap. `feature` is that ordinary start;
+// `gtd --workflow fix` and `gtd --workflow review --var reviewBase=<commitish>`
+// enter the same build tail further in.
 //
 // Every part is exported for other workflows to compose; see the modules
 // re-exported below.
@@ -102,30 +101,34 @@ export const ordinaryStart = async (): Promise<void> => {
   await planAndBuild(start())
 }
 
-const ENTRIES = ["fix-precheck", "review-gate.check", "start-gate.check"]
-
-export default async function unified({ entry }: FlowArgs): Promise<void> {
-  if (entry === undefined) return ordinaryStart()
-  if (entry === "fix-precheck") {
-    if (await baseline("fix-precheck")) return
-    return afterTail(await buildTail(true, start()))
-  }
-  if (entry === "review-gate.check") {
-    await gate("review-gate", t.reviewGateBlockedMessage())
-    return afterTail(await buildTail(false, start()))
-  }
-  if (entry === "start-gate.check") {
-    await gate("start-gate", t.startGateBlockedMessage())
-    return planAndBuild(start())
-  }
-  refuse(
-    `"${entry}" is not an enterable state — enterable states:\n${ENTRIES.map((name) => `  ${name}`).join("\n")}`,
-  )
+/** Repair a red baseline through the build tail, as its own reviewed commit. */
+export const fix = async (): Promise<void> => {
+  if (await baseline("fix-precheck")) return
+  return afterTail(await buildTail(true, start()))
 }
+
+/** Pure review of everything since `reviewBase`. */
+export const review = async (): Promise<void> => {
+  await gate("review-gate", t.reviewGateBlockedMessage())
+  return afterTail(await buildTail(false, start()))
+}
+
+export const feature = ordinaryStart
+
+export default feature
 
 export const summary: Summary = t.summaryPrompt
 
 export const steering = { [REQUIREMENTS]: "qa", [ARCHITECTURE]: "qa", [REVIEW]: "review" }
 
-export const base: EntryBase = (entry, vars) =>
-  entry === "review-gate.check" ? (vars.reviewBase ?? "") : undefined
+export const base: WorkflowBase = (workflow, vars) =>
+  workflow === "review" ? (vars.reviewBase ?? "") : undefined
+
+export const doors: Doors = {
+  fix: { workflow: "fix" },
+  review: {
+    workflow: "review",
+    args: [{ name: "base", optional: true }],
+    vars: ({ base }) => (base === undefined ? {} : { reviewBase: base }),
+  },
+}

@@ -25,6 +25,7 @@ interface DocumentInput {
   readonly rendered?: RenderedDemandSource
   readonly kind: BeatKind
   readonly idle?: boolean
+  readonly initial?: boolean
   readonly log?: string
   readonly session?: { readonly id: string; readonly resume: boolean }
   readonly validate?: string
@@ -52,6 +53,8 @@ const statusInput = (
 ): Parameters<typeof statusOf>[0] => ({
   rendered: r,
   idle: input.idle ?? false,
+  initial: input.initial ?? false,
+  workflow: "feature",
   log: input.log ?? "log",
   changes: input.changes ?? [],
   next: input.next ?? null,
@@ -75,12 +78,29 @@ describe("beatDocument / renderBeatJson", () => {
       kind: "script",
       content: "fix it",
       idle: false,
+      initial: false,
       log: ".git/gtd-loop.log",
       state: "build.fixing",
       actor: "agent",
+      workflow: "feature",
       changes: [],
       next: null,
     })
+  })
+
+  it("carries initial independently of idle, always present", () => {
+    for (const [idle, initial] of [
+      [false, true],
+      [true, true],
+      [false, false],
+    ] as const) {
+      const parsed = JSON.parse(renderJsonLine({ kind: "script", idle, initial })) as Record<
+        string,
+        unknown
+      >
+      expect(parsed.idle).toBe(idle)
+      expect(parsed.initial).toBe(initial)
+    }
   })
 
   it("uses the stall diagnosis as content, never the rendered content, at kind stalled", () => {
@@ -209,6 +229,7 @@ describe("beatDocument / renderBeatJson", () => {
       rendered: r,
       kind: "prompt",
       idle: false,
+      initial: false,
       log: ".git/gtd-loop.log",
       session: { id: "8f2c", resume: true },
       validate: "gtd check qa 'TODO.md'",
@@ -222,6 +243,7 @@ describe("beatDocument / renderBeatJson", () => {
       "kind",
       "content",
       "idle",
+      "initial",
       "session",
       "model",
       "system",
@@ -229,6 +251,7 @@ describe("beatDocument / renderBeatJson", () => {
       "log",
       "state",
       "actor",
+      "workflow",
       "label",
       "memory",
       "file",
@@ -337,11 +360,13 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         kind: "capture",
         content: "fix it",
         idle: false,
+        initial: false,
         model: "opus",
         system: "You are a careful senior engineer.",
         log: ".git/gtd-loop.log",
         state: "build.fixing",
         actor: "agent",
+        workflow: "feature",
         label: "Fixing",
         memory: "build#a1b2c3d",
         file: "TODO.md",
@@ -362,11 +387,13 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         kind: "message",
         content: "fix it",
         idle: false,
+        initial: false,
         model: "opus",
         system: "You are a careful senior engineer.",
         log: ".git/gtd-loop.log",
         state: "build.fixing",
         actor: "agent",
+        workflow: "feature",
         label: "Fixing",
         memory: "build#a1b2c3d",
         file: "TODO.md",
@@ -387,11 +414,13 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         kind: "script",
         content: "fix it",
         idle: false,
+        initial: false,
         model: "opus",
         system: "You are a careful senior engineer.",
         log: ".git/gtd-loop.log",
         state: "build.fixing",
         actor: "agent",
+        workflow: "feature",
         label: "Fixing",
         memory: "build#a1b2c3d",
         file: "TODO.md",
@@ -419,6 +448,7 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         kind: "prompt",
         content: "fix it",
         idle: false,
+        initial: false,
         session: { id: "8f2c", resume: true },
         model: "opus",
         system: "You are a careful senior engineer.",
@@ -426,6 +456,7 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         log: ".git/gtd-loop.log",
         state: "build.fixing",
         actor: "agent",
+        workflow: "feature",
         label: "Fixing",
         memory: "build#a1b2c3d",
         file: "TODO.md",
@@ -446,11 +477,13 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         kind: "stalled",
         content: stallDiagnosis("build.fixing", "agent"),
         idle: false,
+        initial: false,
         model: "opus",
         system: "You are a careful senior engineer.",
         log: ".git/gtd-loop.log",
         state: "build.fixing",
         actor: "agent",
+        workflow: "feature",
         label: "Fixing",
         memory: "build#a1b2c3d",
         file: "TODO.md",
@@ -471,9 +504,11 @@ describe("golden: one byte-for-byte document per BeatKind", () => {
         kind: "script",
         content: "fix it",
         idle: false,
+        initial: false,
         log: ".git/gtd-loop.log",
         state: "build.fixing",
         actor: "agent",
+        workflow: "feature",
         changes: [],
         next: null,
       }) + "\n",

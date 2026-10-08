@@ -35,6 +35,18 @@ Feature: gtd install — the driver-building briefing
     When I run gtd with args "install --port 3"
     Then it fails
 
+  Scenario: the briefing installs one gtd-door script beside gtd-build and gtd-edit, and supersedes gtd-fix and gtd-review
+    Given a test project
+    When I run gtd with args "install"
+    Then it succeeds
+    And stdout contains "~/.local/bin/gtd-door"
+    And stdout contains "script=\"$(gtd door \"$@\")\""
+    And stdout contains "usage: gtd-door <name> [args...]"
+    And stdout does not contain "~/.local/bin/gtd-review"
+    And stdout does not contain "~/.local/bin/gtd-fix"
+    And stdout contains "superseded by `gtd-door`"
+    And stdout contains "ask before removing it"
+
   Scenario: the briefing names every field the current gtd next --json payload carries (drift guard)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:

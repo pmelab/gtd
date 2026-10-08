@@ -66,15 +66,14 @@ CURRENT unbroken run inside that scope started FROM. Dipping into a
 parent's run — an agent turn in `build.health`, then back to `build`, still
 resumes the SAME `build` conversation; entering a **sibling or unrelated** scope
 does start a fresh one. The bundled workflow's review tail is a worked example:
-it sits inside `build` (as `build.review.*`) so that a
-`gtd --entry fix-precheck` run — `build.fix` → `build.health.check` →
-`build.review.*` — stays inside one subtree. (An actionable review round breaks
-the run on purpose instead: it leaves `build` through the root-level `re-unwind`
-step and a full re-plan, since a hand-edit made during review is a sketch to
-reconsider, not a fix to build on.) The same steps placed under two different
-prefixes (`build.health` and `packages.item.health`) gets two different scopes,
-so a reviewer's turn never resumes an implementer's session as long as the two
-live in different scopes.
+it sits inside `build` (as `build.review.*`) so that a `gtd --workflow fix` run
+— `build.fix` → `build.health.check` → `build.review.*` — stays inside one
+subtree. (An actionable review round breaks the run on purpose instead: it
+leaves `build` through the root-level `re-unwind` step and a full re-plan, since
+a hand-edit made during review is a sketch to reconsider, not a fix to build
+on.) The same steps placed under two different prefixes (`build.health` and
+`packages.item.health`) gets two different scopes, so a reviewer's turn never
+resumes an implementer's session as long as the two live in different scopes.
 
 `gtd` itself stores NOTHING to make this work: `session.id` is
 `UUIDv5(<fixed gtd namespace>, <memory key>)` — a deterministic hash of the
@@ -241,11 +240,11 @@ falls back to the `gtd` on your `PATH`.
   the middle of a script stops the loop, since the script may have partly run;
   check the tree, then **Continue** runs it again. A reload at a gate opens its
   question again.
-- `/gtd fix` enters at `fix-precheck`, repairing a red baseline as its own
-  reviewed commit. `/gtd review [base]` enters at `review-gate.check` with
-  `reviewBase` set to the merge-base with `base` (the default branch unless
-  named), reviewing everything since. Both run the script `gtd --entry` prints,
-  then drive like `/gtd`.
+- `/gtd <door> [args]` starts a process through one of the doors `gtd doors`
+  lists, runs the script `gtd door` prints, then drives like `/gtd`. The bundled
+  doors are `fix` (repair a red baseline as its own reviewed commit) and
+  `review [base]` (a pure review of everything since the merge-base with `base`,
+  the default branch unless named).
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
 - `/gtd throw [@user]` hands the process to someone else. It needs a clean tree:
   proceed or stash a half-made answer first, and refuses when `origin` holds
@@ -309,28 +308,30 @@ the engine itself is a supported public surface, and anything below holds for
 any driver you write against it. gtd decides and prints; it never commits, never
 moves HEAD or a ref, and never writes the git index — every git write is in a
 script the driver runs. The five commands that change anything — `gtd land`,
-`gtd --entry <state>`, `gtd abandon`, `gtd restore`, and `gtd judge answer` —
-perform no git write when run: each one's `--json=script` form carries ONE POSIX
-sh script for YOU to execute — a leading comment ("gtd emitted this and did NOT
-run it — pipe it into `sh` to land the turn"), then the REQUIRED half verbatim,
-then, only when there's a presentation-only follow-up, a second comment
-("presentation only — safe to skip") and the OPTIONAL half wrapped in a subshell
-whose own non-zero exit is swallowed (reported to stderr as a warning, never
-turning a landed turn into a failing one). Plain `gtd land` (and plain
-`gtd judge answer`) is the one exception: it prints a human-readable sentence,
-never a script (see below) — a driver reads the script from `--json=script`
-instead. Printing gtd's output and never running it is not driving anything; a
-driver must pipe or execute what gtd prints — e.g. the capture-then-pipe form
-the reference driver below uses, via `gtd land --json=script`.
+`gtd --workflow <name>` (and `gtd door`), `gtd abandon`, `gtd restore`, and
+`gtd judge answer` — perform no git write when run: each one's `--json=script`
+form carries ONE POSIX sh script for YOU to execute — a leading comment ("gtd
+emitted this and did NOT run it — pipe it into `sh` to land the turn"), then the
+REQUIRED half verbatim, then, only when there's a presentation-only follow-up, a
+second comment ("presentation only — safe to skip") and the OPTIONAL half
+wrapped in a subshell whose own non-zero exit is swallowed (reported to stderr
+as a warning, never turning a landed turn into a failing one). Plain `gtd land`
+(and plain `gtd judge answer`) is the one exception: it prints a human-readable
+sentence, never a script (see below) — a driver reads the script from
+`--json=script` instead. Printing gtd's output and never running it is not
+driving anything; a driver must pipe or execute what gtd prints — e.g. the
+capture-then-pipe form the reference driver below uses, via
+`gtd land --json=script`.
 
-Every script gtd emits — `gtd land --json=script`, `gtd --entry <state>`,
-`gtd abandon`, `gtd restore`, `gtd judge answer --json=script`, and the
-format/validate script `gtd validate` prints — is POSIX `sh`, portable to
-`dash`: a driver may run any of them with any POSIX-compliant shell, not
-specifically bash. The same convention extends to the bundled workflow's
-`testCommand` environment setting (what its checks run through `sh -c`): it is
-expected to be POSIX sh-compatible too, but this is a DOCUMENTED CONVENTION only
-— gtd never inspects or validates `testCommand`'s shell dialect itself.
+Every script gtd emits — `gtd land --json=script`, `gtd --workflow <name>`,
+`gtd door <name>`, `gtd abandon`, `gtd restore`,
+`gtd judge answer --json=script`, and the format/validate script `gtd validate`
+prints — is POSIX `sh`, portable to `dash`: a driver may run any of them with
+any POSIX-compliant shell, not specifically bash. The same convention extends to
+the bundled workflow's `testCommand` environment setting (what its checks run
+through `sh -c`): it is expected to be POSIX sh-compatible too, but this is a
+DOCUMENTED CONVENTION only — gtd never inspects or validates `testCommand`'s
+shell dialect itself.
 
 A `script` beat's content is the whole script, rendered from values the flow
 already decided — for the bundled workflow, its checks (which run
@@ -341,17 +342,17 @@ what a script leaves is landed like any other check turn, by `gtd land`'s
 script, whatever its exit code.
 
 - **The required half** is everything that decides what lands in git — the
-  commit itself (`gtd land`, `gtd --entry <state>`, and `gtd judge answer`, the
-  last carrying one `Gtd-Judge:` trailer per answered question alongside its
-  ordinary commit), or the ref update and reset that undo a process
-  (`gtd abandon`, `gtd restore`) — and, last, a printed line naming what just
-  landed: a transition or capture's changed-file rows, or the abandon/restore
-  prose, resolved from the repository AFTER the write above it. Its own exit
-  code IS the printed script's exit code — skipping it means the turn never
-  lands, and you never see what it did. A resting step's own steering-mode
-  `format:`/`validate:` commands are NOT part of this script — they're a
-  separate driver contract via `gtd next --json`'s own `validate` field (see
-  `gtd install`'s obligation 6).
+  commit itself (`gtd land`, `gtd --workflow <name>`, `gtd door`, and
+  `gtd judge answer`, the last carrying one `Gtd-Judge:` trailer per answered
+  question alongside its ordinary commit), or the ref update and reset that undo
+  a process (`gtd abandon`, `gtd restore`) — and, last, a printed line naming
+  what just landed: a transition or capture's changed-file rows, or the
+  abandon/restore prose, resolved from the repository AFTER the write above it.
+  Its own exit code IS the printed script's exit code — skipping it means the
+  turn never lands, and you never see what it did. A resting step's own
+  steering-mode `format:`/`validate:` commands are NOT part of this script —
+  they're a separate driver contract via `gtd next --json`'s own `validate`
+  field (see `gtd install`'s obligation 6).
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
   fail) and the workflow is still driven correctly either way. No command
@@ -431,19 +432,20 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 20 keys (17 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 22 keys (19 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`/`skills`); a real driver
-reads 9 of the 20. The minimal driver below is the reference for exactly which:
+reads 9 of the 22. The minimal driver below is the reference for exactly which:
 `kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, `validate`, and `judge` —
-every `--json=<path>` selector its `case` arms touch. The remaining 11 (`state`,
-`actor`, `label`, `memory`, `file`, `mode`, `changes`, `next`, `cost`,
-`costByModel`, `skills`) are read only by a human looking at plain output, or by
-a driver author deciding what to log or preload — no `case` arm in THIS
-reference driver branches on them. This is a property of what a driver NEEDS,
-not a smaller wire: every key stays on every `gtd next --json` line,
-unconditionally, so `--json=<path>` keeps resolving the same way for a human
-poking at one field as for the reference driver reading nine of them in a loop.
+every `--json=<path>` selector its `case` arms touch. The remaining 13
+(`initial`, `state`, `actor`, `workflow`, `label`, `memory`, `file`, `mode`,
+`changes`, `next`, `cost`, `costByModel`, `skills`) are read only by a human
+looking at plain output, or by a driver author deciding what to log or preload —
+no `case` arm in THIS reference driver branches on them. This is a property of
+what a driver NEEDS, not a smaller wire: every key stays on every
+`gtd next --json` line, unconditionally, so `--json=<path>` keeps resolving the
+same way for a human poking at one field as for the reference driver reading
+nine of them in a loop.
 
 (`gtd land --json` is a separate command with its own seven-key document —
 `script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a `gtd next`
@@ -807,8 +809,8 @@ do not queue it, store it, or hand it to another worktree.
 ### Prerequisites
 
 - **A POSIX `sh`** (dash, ash, bash's own POSIX mode, etc.) — gtd's own emitted
-  scripts (`gtd land`, `gtd --entry <state>`, `gtd abandon`, `gtd restore`) are
-  POSIX sh; captured, then piped into it (see
+  scripts (`gtd land`, `gtd --workflow <name>`, `gtd door`, `gtd abandon`,
+  `gtd restore`) are POSIX sh; captured, then piped into it (see
   [Writing your own driver](#writing-your-own-driver) above).
 - **`gtd` on `PATH`** — a mode's seeded `validate:` command (the one gtd fills
   in for the built-in `qa`/`review` formats) is literally the string

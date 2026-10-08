@@ -102,7 +102,7 @@ export const startGateBlockedMessage = (): string =>
 \`.gtd/FEEDBACK.md\` holds the failing output.
 
 What each change does next (then run \`gtd land\`):
-- **Retry check** — edit the code and/or \`.gtd/FEEDBACK.md\` to fix the failing tests (**start-gate.check**). To repair the baseline as its own separate reviewed commit instead, abandon this start and run \`gtd --entry fix-precheck\` from a clean \`idle\`.
+- **Retry check** — edit the code and/or \`.gtd/FEEDBACK.md\` to fix the failing tests (**start-gate.check**). To repair the baseline as its own separate reviewed commit instead, abandon this start and run \`gtd --workflow fix\` from a clean \`idle\`.
 `
 
 export const reviewGateBlockedMessage = (): string =>

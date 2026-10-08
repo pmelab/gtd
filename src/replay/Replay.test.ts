@@ -81,9 +81,8 @@ class History {
     this.files = next
   }
 
-  episode(entry = "default"): Episode {
+  episode(): Episode {
     return {
-      entry,
       base: { hash: hashOf(0), tree: treeFromRecord({ "README.md": "# x\n" }) },
       commits: this.commits,
     }

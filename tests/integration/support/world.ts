@@ -87,10 +87,16 @@ const doneNoteRequest = (
 /**
  * Commands that print a `required`/`optional` script for a driver to run
  * instead of performing their git effect directly (`land`, `abandon`,
- * `restore`, bare `gtd --entry <state>`). Everything else is a read command
+ * `restore`, bare `gtd --workflow <name>`, `gtd door <name>`). Everything else is a read command
  * with nothing to drive.
  */
-const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "restore", "--entry"])
+const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set([
+  "land",
+  "abandon",
+  "restore",
+  "--workflow",
+  "door",
+])
 
 /**
  * `--json` (bare or `--json=<path>`) prints a structured document, not the
@@ -100,11 +106,11 @@ const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "r
 const requestsStructuredOutput = (args: readonly string[]): boolean =>
   args.some((a) => a === "--json" || a.startsWith("--json="))
 
-/** `--entry` takes both spellings, `--entry <state>` and `--entry=<state>`. */
+/** `--workflow` takes both spellings, `--workflow <name>` and `--workflow=<name>`. */
 const isWriteCommand = (args: readonly string[]): boolean => {
   if (requestsStructuredOutput(args)) return false
   const first = args[0] ?? ""
-  return WRITE_COMMAND_TOKENS.has(first) || first.startsWith("--entry=")
+  return WRITE_COMMAND_TOKENS.has(first) || first.startsWith("--workflow=")
 }
 
 /** `gtd land` exits `EXIT_OK` on any successful landing; only a refusal or usage error has nothing to drive. */

@@ -12,10 +12,9 @@ Feature: process settings are pinned at process start, environment settings are 
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, env, human, refuse, vars } from "@pmelab/gtd/flows"
+      import { agent, env, human, vars } from "@pmelab/gtd/flows"
 
-      export default async ({ entry }) => {
-        if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+      export default async () => {
         await human("idle", { message: "start" })
         await agent("working", "do the work")
         if (vars.route === "fast") {
@@ -209,7 +208,7 @@ Feature: process settings are pinned at process start, environment settings are 
     And the last commit subject is "chore: add gtd.config.ts"
 
   Scenario: a --var name outside the setting-name rule is a usage error
-    When I run gtd with "--entry" and "working" and "--var" and "a b=1"
+    When I run gtd with "--workflow" and "working" and "--var" and "a b=1"
     Then it fails
     And stderr contains "--var \"a b\" is not a valid setting name"
     And the last commit subject is "chore: add gtd.config.ts"

@@ -181,7 +181,7 @@ Feature: the per-step "skills:" key
         build.quality.reviewing: [my-org-checklist]
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security, ponytail-review"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -220,7 +220,7 @@ Feature: the per-step "skills:" key
   Scenario: with no build.quality.reviewing entry, a quality turn's own skill is the lens itself — on the wire AND in the preamble, never one without the other
     Given a test project
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed

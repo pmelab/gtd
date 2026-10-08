@@ -8,7 +8,7 @@
   },
   "exports": {
     "./flows": "./src/flows/index.ts",
-    "./workflow": "./src/workflows/unified.ts"
+    "./workflow": "./src/workflows/bundled.ts"
   },
   "files": [
     "dist/",

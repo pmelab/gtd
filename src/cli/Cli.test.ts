@@ -35,7 +35,7 @@ const FLAG_NAMES = [
   "--dev",
   "--cost",
   "--model",
-  "--entry",
+  "--workflow",
   "--var",
   "--open-questions",
   "--open-threads",
@@ -110,6 +110,7 @@ describe("parseArgv — scope", () => {
       ["land", "--json"],
       ["judge", "--json"],
       ["judge", "answer", "--json"],
+      ["doors", "--json"],
     ]) {
       const ok = parseArgv(["node", "gtd.js", ...args])
       expect(ok.kind).toBe("command")
@@ -124,7 +125,7 @@ describe("parseArgv — scope", () => {
       ["install", "--json"],
       ["abandon", "--json"],
       ["restore", "--json"],
-      ["--entry", "some-state", "--json"],
+      ["--workflow", "some-state", "--json"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("usage")
@@ -166,35 +167,35 @@ describe("parseArgv — scope", () => {
     }
   })
 
-  it("--var without --entry is rejected", () => {
+  it("--var without --workflow is rejected", () => {
     const plan = parseArgv(["node", "gtd.js", "land", "--var", "a=1"])
     expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toBe("gtd: --var requires --entry")
+    if (plan.kind === "usage") expect(plan.message).toBe("gtd: --var requires --workflow")
   })
 
-  it("--cost with --entry is rejected (landing and entering are different verbs)", () => {
-    const plan = parseArgv(["node", "gtd.js", "--entry", "foo", "--cost=5"])
+  it("--cost with --workflow is rejected (landing and starting are different verbs)", () => {
+    const plan = parseArgv(["node", "gtd.js", "--workflow", "foo", "--cost=5"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
   })
 
-  it("--model with --entry is rejected the same way", () => {
-    const plan = parseArgv(["node", "gtd.js", "--entry", "foo", "--model=gpt"])
+  it("--model with --workflow is rejected the same way", () => {
+    const plan = parseArgv(["node", "gtd.js", "--workflow", "foo", "--model=gpt"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
   })
 
-  it("--entry on `gtd land` (or any other command) is rejected — landing and entering are different verbs", () => {
+  it("--workflow on `gtd land` (or any other command) is rejected — landing and starting are different verbs", () => {
     for (const args of [
-      ["validate", "--entry", "e"],
-      ["land", "--entry", "e"],
+      ["validate", "--workflow", "e"],
+      ["land", "--workflow", "e"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("usage")
       if (plan.kind === "usage") {
         expect(plan.message).toBe(
-          "gtd: --entry is only valid with no other command — use the bare `gtd --entry <state>` " +
-            "form; landing and entering are different verbs",
+          "gtd: --workflow is only valid with no other command — use the bare `gtd --workflow <name>` " +
+            "form; landing and starting are different verbs",
         )
       }
     }
@@ -399,41 +400,42 @@ describe("parseArgv — bare/unknown command under --json", () => {
 })
 
 describe("parseArgv — entry/var flag details (formerly parseEntryFlags/takeFlagValues)", () => {
-  it("accepts --entry=<state> (= form)", () => {
-    const plan = parseArgv(["node", "gtd.js", "--entry=side-entry"])
+  it("accepts --workflow=<state> (= form)", () => {
+    const plan = parseArgv(["node", "gtd.js", "--workflow=side-entry"])
     expect(plan.kind).toBe("command")
     if (plan.kind === "command") {
       expect(plan.command).toEqual({
-        kind: "entry",
+        kind: "start",
         actor: "human",
-        state: "side-entry",
+        workflow: "side-entry",
         vars: {},
-        label: "gtd --entry side-entry",
+        label: "gtd --workflow side-entry",
       })
     }
   })
 
-  it("a bare --entry with no value is a usage error", () => {
-    const plan = parseArgv(["node", "gtd.js", "--entry"])
+  it("a bare --workflow with no value is a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "--workflow"])
     expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("--entry requires a value")
+    if (plan.kind === "usage") expect(plan.message).toContain("--workflow requires a value")
   })
 
-  it("a second --entry occurrence is a usage error (not last-wins)", () => {
-    const plan = parseArgv(["node", "gtd.js", "--entry", "a", "--entry", "b"])
+  it("a second --workflow occurrence is a usage error (not last-wins)", () => {
+    const plan = parseArgv(["node", "gtd.js", "--workflow", "a", "--workflow", "b"])
     expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("--entry may be given at most once")
+    if (plan.kind === "usage")
+      expect(plan.message).toContain("--workflow may be given at most once")
   })
 
   it("a duplicate --var NAME is a usage error", () => {
-    const plan = parseArgv(["node", "gtd.js", "--entry", "e", "--var", "a=1", "--var", "a=2"])
+    const plan = parseArgv(["node", "gtd.js", "--workflow", "e", "--var", "a=1", "--var", "a=2"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") expect(plan.message).toContain("--var a")
   })
 
   it("a --var name outside the setting-name rule is a usage error naming it", () => {
     for (const raw of ["a b=1", "a-b=1", "1a=1", "a\nb=1"]) {
-      const plan = parseArgv(["node", "gtd.js", "--entry", "e", "--var", raw])
+      const plan = parseArgv(["node", "gtd.js", "--workflow", "e", "--var", raw])
       expect(plan.kind).toBe("usage")
       if (plan.kind === "usage") {
         expect(plan.message).toContain(
@@ -444,25 +446,36 @@ describe("parseArgv — entry/var flag details (formerly parseEntryFlags/takeFla
   })
 
   it("a multiline --var value is a usage error", () => {
-    const plan = parseArgv(["node", "gtd.js", "--entry", "e", "--var", "a=1\n2"])
+    const plan = parseArgv(["node", "gtd.js", "--workflow", "e", "--var", "a=1\n2"])
     expect(plan.kind).toBe("usage")
   })
 })
 
-describe("parseArgv — the --entry selector", () => {
-  it("gtd --entry version parses to {kind:'entry', state:'version'} — the regression this RFC fixes", () => {
-    const plan = parseArgv(["node", "gtd.js", "--entry", "version"])
+describe("parseArgv — --entry is removed", () => {
+  it("is an ordinary unknown option, with no hint at --workflow", () => {
+    const plan = parseArgv(["node", "gtd.js", "--entry", "fix-precheck"])
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") {
+      expect(plan.message).toContain("--entry")
+      expect(plan.message).not.toContain("--workflow")
+    }
+  })
+})
+
+describe("parseArgv — the --workflow selector", () => {
+  it("gtd --workflow version parses to { kind: start, workflow: version } — the regression this RFC fixes", () => {
+    const plan = parseArgv(["node", "gtd.js", "--workflow", "version"])
     expect(plan.kind).toBe("command")
     if (plan.kind === "command") {
-      expect(plan.command).toMatchObject({ kind: "entry", state: "version" })
+      expect(plan.command).toMatchObject({ kind: "start", workflow: "version" })
     }
   })
 
-  it("gtd --entry help likewise parses to an entry command, not the help text", () => {
-    const plan = parseArgv(["node", "gtd.js", "--entry", "help"])
+  it("gtd --workflow help likewise parses to a start command, not the help text", () => {
+    const plan = parseArgv(["node", "gtd.js", "--workflow", "help"])
     expect(plan.kind).toBe("command")
     if (plan.kind === "command") {
-      expect(plan.command).toMatchObject({ kind: "entry", state: "help" })
+      expect(plan.command).toMatchObject({ kind: "start", workflow: "help" })
     }
   })
 })
@@ -671,7 +684,7 @@ describe("parseArgv — --verbose / -v (the -v/-V swap)", () => {
       ["land", "--verbose"],
       ["next", "--verbose", "--json"],
       ["check", "qa", "TODO.md", "--verbose"],
-      ["--entry", "some-state", "--verbose"],
+      ["--workflow", "some-state", "--verbose"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("command")
@@ -859,6 +872,61 @@ describe("parseArgv — gtd judge run", () => {
   })
 })
 
+describe("parseArgv — doors", () => {
+  const parse = (...args: string[]): CliPlan => parseArgv(["node", "gtd.js", ...args])
+
+  it("`gtd door <name>` carries the name and no args", () => {
+    const plan = parse("door", "fix")
+    expect(plan).toMatchObject({
+      kind: "command",
+      command: { kind: "door", name: "fix", args: [] },
+    })
+  })
+
+  it("`gtd door <name> a b` carries every positional after the name, in order", () => {
+    const plan = parse("door", "review", "v1.0", "extra")
+    expect(plan).toMatchObject({
+      kind: "command",
+      command: { kind: "door", name: "review", args: ["v1.0", "extra"] },
+    })
+  })
+
+  it("`gtd door` with no name is a usage error", () => {
+    const plan = parse("door")
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("gtd door: missing name argument")
+  })
+
+  it("`gtd doors` parses with every --json shape", () => {
+    expect(parse("doors")).toMatchObject({
+      kind: "command",
+      command: { kind: "doors" },
+      json: { kind: "off" },
+    })
+    expect(parse("doors", "--json")).toMatchObject({ json: { kind: "document" } })
+    expect(parse("doors", "--json=0.name")).toMatchObject({
+      json: { kind: "select", path: "0.name" },
+    })
+  })
+
+  it("`gtd doors` takes no argument", () => {
+    const plan = parse("doors", "extra")
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
+  })
+
+  it("`gtd door` rejects --json and --var — a door's vars come from its args", () => {
+    expect(parse("door", "fix", "--json").kind).toBe("usage")
+    expect(parse("door", "fix", "--var", "a=1").kind).toBe("usage")
+  })
+
+  it("help lists both commands", () => {
+    const help = renderHelp()
+    expect(help).toContain("door <name> [args...]")
+    expect(help).toMatch(/^ {2}doors\b/m)
+  })
+})
+
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
     expect(standaloneKinds()).toEqual(["lsp", "init", "check", "uncheck", "install", "judgeRun"])
@@ -873,7 +941,7 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("judgeRun")).toBe("none")
     for (const kind of [
       "land",
-      "entry",
+      "start",
       "abandon",
       "restore",
       "next",
@@ -881,6 +949,8 @@ describe("standaloneKinds / needsOf", () => {
       "ui",
       "judge",
       "judgeAnswer",
+      "door",
+      "doors",
     ] as const) {
       expect(needsOf(kind)).toBe("state")
     }
@@ -893,7 +963,7 @@ describe("renderHelp", () => {
     expect(help).toContain("Usage")
     expect(help).toContain("init ")
     expect(help).toContain("land")
-    expect(help).toContain("--entry <state>")
+    expect(help).toContain("--workflow <name>")
     expect(help).toContain("--var")
     expect(help).toContain("abandon")
     expect(help).toContain("restore")

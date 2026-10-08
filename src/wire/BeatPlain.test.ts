@@ -21,6 +21,8 @@ const documentFor = (kind: BeatKind, content: string, rest: Partial<RenderedDema
   const status = statusOf({
     rendered: r,
     idle: false,
+    initial: false,
+    workflow: "feature",
     log: "log",
     changes: [{ status: "M", path: "TODO.md" }],
     next: { target: "idle" },
@@ -30,7 +32,8 @@ const documentFor = (kind: BeatKind, content: string, rest: Partial<RenderedDema
   return beatDocument(demand, status)
 }
 
-const HEADER = "State: build.fixing\nAwaits: agent\nPending:\n  M TODO.md\nNext: → idle"
+const HEADER =
+  "State: build.fixing\nAwaits: agent\nWorkflow: feature\nPending:\n  M TODO.md\nNext: → idle"
 
 describe("renderBeatPlain", () => {
   it("prepends the run instruction, then shows header, blank line, content verbatim at kind script", () => {

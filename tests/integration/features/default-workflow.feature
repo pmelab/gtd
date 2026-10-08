@@ -347,7 +347,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const greet = "hello"
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -419,7 +419,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const greet = "hello"
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -492,7 +492,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const greet = "hello"
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -553,7 +553,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -601,7 +601,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -648,7 +648,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -709,7 +709,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: the design gate refuses an unanswered open question, then ticking loops back to triage
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -763,7 +772,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: the accept-all escape — deleting the whole Open Questions section is allowed and loops to triage to finalize
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -791,7 +809,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a ticked free-text slot with text is a valid answer at the technical gate; the placeholder alone is refused
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -858,7 +885,16 @@ Feature: The bundled unified workflow — one flow, end to end
     # architecture-pre with a question still open.
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -914,7 +950,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a self-answered question in ## Answered Questions never stops the process at design.gate.answer
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -1006,7 +1051,16 @@ Feature: The bundled unified workflow — one flow, end to end
     And the workflow
     # The prompt tells the author to work from REQUIREMENTS.md alone, even
     # though design's own turns sit right there in the history.
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -1040,7 +1094,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a question must clear the three-part bar, or the planner decides it itself
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next
     Then it succeeds
@@ -1066,7 +1129,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a package whose work already landed closes out via .gtd/SATISFIED.md
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -1131,7 +1203,16 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -1194,7 +1275,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const A = 1
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -1272,7 +1353,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # No quality lenses, so a green health check hands straight to the human
     # review tail — the quality lap itself is covered in its own feature.
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -1302,7 +1383,16 @@ Feature: The bundled unified workflow — one flow, end to end
     # it starts from instead of a fresh first call.
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -1389,7 +1479,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached, writing a fix-design document a human can edit before the next fix turn
     Given a test project
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 1 failed
@@ -1499,7 +1589,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: landing build.health.stop with a clean tree still hands the document to the next fix turn, and editing ESCALATION.md there does not spend a second escalation round
     Given a test project
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       the suite fails in the setup fixture
@@ -1588,7 +1678,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: landing build.health.stop with a genuinely clean tree still advances to build.fix — "land it untouched" as its message promises
     Given a test project
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       the suite fails in the setup fixture
@@ -1642,7 +1732,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the workflow
     # Round 1: the first escalation since the last green check routes on to
     # describe.
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       the suite fails in the setup fixture
@@ -1828,7 +1918,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -1859,7 +1949,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -1887,7 +1977,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -1928,7 +2018,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -1956,7 +2046,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -1988,7 +2078,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # clean review sign-off ends the process at `idle` — the episode
     # boundary a fresh process's replay starts after.
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       cycle 1 attempt 1 failed
@@ -2047,7 +2137,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # cycle 2 starts fresh after the sign-off boundary. If fix counts pooled
     # across it, this process's very first red check would already be over
     # the cap and escalate instead of fixing.
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       cycle 2 precheck failed
@@ -2077,7 +2167,16 @@ Feature: The bundled unified workflow — one flow, end to end
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "start"
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next with "--json"
     Then it succeeds
@@ -2114,7 +2213,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
     # build.* is entered through its own entry, off a fresh history.
     Given I hard-reset to "start"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       a failing test

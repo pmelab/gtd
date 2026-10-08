@@ -11,33 +11,38 @@ description: >-
 # Authoring a gtd workflow
 
 A gtd workflow is **plain async TypeScript**: a `gtd.config.ts` at the
-repository root default-exports the **flow**, one async function that awaits
-**steps** built from `@pmelab/gtd/flows`; optional `defaults` (process
-settings), `envDefaults` (environment settings), `summary`, `base` and
-`steering` (steering file → mode, for the LSP) exports sit beside it, and any
-other export is a helper gtd ignores. Every step is a commit; gtd finds where a
-process rests by **replaying** the flow over the episode's commits, so the git
-history IS the state and nothing is stored anywhere else.
+repository root exports **workflows** — every exported async function is one,
+named by its export, awaiting **steps** built from `@pmelab/gtd/flows`; the
+`default` export is the ordinary start. Optional reserved exports (`defaults`
+process settings, `envDefaults` environment settings, `summary`, `base`,
+`steering`, `skills`, `doors`) are shared by the file's workflows. **Never
+export a helper function you do not want startable** — it becomes a workflow.
+Every step is a commit; gtd finds where a process rests by **replaying** the
+flow over the episode's commits, so the git history IS the state and nothing is
+stored anywhere else.
 
 Your job is to produce or edit that module so it loads cleanly and does what the
 user wants. Driving a workflow once it exists is a separate concern — that is
 what a driver does.
 
 **Trust:** gtd evaluates `gtd.config.ts` on every command that resolves workflow
-state (`gtd next` and `gtd lsp` included). It is code the user's repository
-runs; write it with the same care as a build script.
+state (`gtd next`, `gtd lsp`, `gtd door` and `gtd doors` included). It is code
+the user's repository runs; write it with the same care as a build script.
 
 ## Golden rule: start from the bundled default, edit incrementally
 
 Do **not** write a workflow from a blank page unless the user wants something
-tiny. gtd ships one known-good workflow and runs it when no `gtd.config.ts` is
-found, and publishes it as `@pmelab/gtd/workflow`: its default export is that
-flow, and every phase and single step it is built from is a named export. Start
-by importing what you keep and writing only what changes:
+tiny. gtd ships three startable workflows (`feature`, `review`, `fix`) as named
+exports of `@pmelab/gtd/workflow` and runs them when no `gtd.config.ts` is
+found. Its default export is `feature` (the ordinary start), and every phase and
+single step they are built from is a named export too. Start by importing what
+you keep and writing only what changes. Import phases by name; **never
+`export *` from it** — every exported function of your file would become a
+startable workflow:
 
 ```ts
 import { start } from "@pmelab/gtd/flows"
-import bundled, { afterTail, buildTail } from "@pmelab/gtd/workflow"
+import { afterTail, buildTail, feature } from "@pmelab/gtd/workflow"
 
 export {
   defaults,
@@ -45,13 +50,19 @@ export {
   summary,
   base,
   steering,
+  skills,
 } from "@pmelab/gtd/workflow"
 
-export default async ({ entry }) =>
-  entry === "hotfix"
-    ? afterTail(await buildTail(true, start()))
-    : bundled({ entry })
+export default feature
+
+export async function hotfix() {
+  return afterTail(await buildTail(true, start()))
+}
+
+export const doors = { hotfix: { workflow: "hotfix" } }
 ```
+
+`gtd --workflow hotfix` (or `gtd door hotfix`) starts it.
 
 To change a phase itself, read its source in the npm package
 (`node_modules/@pmelab/gtd/src/workflows/`, or under `$(npm root -g)` for a
@@ -64,8 +75,8 @@ it in place.
 
 Prefer the bundled workflow's own parts over re-implementing them — `healthy`,
 `escalation`, `gate`, `design`, `architecturePass`, `packages`, `specReview`,
-`qualityLap`, `review`, `buildTail`, and single steps like `triage` or `fix`.
-Their full step names are versioned API.
+`qualityLap`, `buildTail`, and single steps like `triage` or `reviewing`. Their
+full step names are versioned API.
 
 Make one small change, **verify it loads** (see "Verify"), then make the next. A
 workflow that fails to load breaks every gtd command in the repository.
@@ -130,13 +141,14 @@ landing — call it right after the step whose turn you reject.
 - An episode ends when the flow returns or calls `restart()`; the next starts at
   the flow's first step on an ordinary start — that step is where a finished
   process waits (the bundled one is `human("idle", …)`).
-- `gtd --entry <name>` starts a process with the flow's `{ entry }` argument set
-  to `<name>` (`undefined` on an ordinary start). Branch on it, and `refuse()`
-  names you don't accept; a flow that never reads `entry` accepts none. An
-  `export const base = (entry, vars) => commitish | undefined` fixes an entered
-  process's diff base. `--var <name>=<value>` only pins process settings: names
-  the workflow's `defaults` or `.gtdrc` `vars:` declare — never an environment
-  setting.
+- `gtd --workflow <name>` starts a process on the exported workflow `<name>` (an
+  unknown name is a usage error); `gtd door <name> [args]` starts one through a
+  `doors` entry `{ workflow, args?, vars? }` (`gtd doors` lists them; bundled:
+  `fix`, `review [base]`; yours merge over them). An
+  `export const base = (workflow, vars) => commitish | undefined` fixes a
+  started process's diff base (blank = default-branch merge-base).
+  `--var <name>=<value>` only pins process settings: names the workflow's
+  `defaults` or `.gtdrc` `vars:` declare — never an environment setting.
 
 ## Landing rules you are designing for
 

@@ -472,7 +472,7 @@ const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | und
 }
 
 /**
- * `Emit.ts`'s `combinedScript` leading comment — `gtd land`/`gtd --entry`'s
+ * `Emit.ts`'s `combinedScript` leading comment — `gtd land`/`gtd --workflow`'s
  * whole plain-text artifact opens with this line ahead of the required
  * script, so recognizing it as a no-op (like the retry-helper function
  * definition) keeps the `@inmem` tier green.

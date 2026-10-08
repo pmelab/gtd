@@ -10,14 +10,23 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   true dotted-prefix match) doesn't break the ancestor's run; entering a
   sibling or unrelated scope does. These scenarios pin that end to end, via
   `gtd next --json`'s `.memory` field, against the REAL bundled workflow
-  (`src/workflows/unified.ts`), each reaching its steps by a real landed
+  (`src/workflows/bundled.ts`), each reaching its steps by a real landed
   history — not a synthetic config, since the whole point is the SHAPE of
   the actual shipped scopes.
 
   Scenario: memory is retained across a machine's own laps — design.triage resumes across a design.gate.answer turn in between
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next with "--json"
     Then it succeeds
@@ -63,7 +72,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   Scenario: memory is retained across an excursion into a child machine's own check/escalate/describe/stop — build.fix resumes across the whole detour
     Given a test project
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
@@ -147,7 +156,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -197,7 +215,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   Scenario: a fresh memory key per entry — two different packages each get their own distinct session at packages.item.building
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -247,12 +274,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a test project
     And the workflow
     # build.health and packages.item.health are both healthGate instances at
-    # different points in the tree (src/workflows/unified.ts) — the proof
+    # different points in the tree (src/workflows/bundled.ts) — the proof
     # below is that their computed memory keys never collide, even though
     # both land byte-identical FEEDBACK.md check output.
 
     Given an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
@@ -339,7 +366,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # turn — yet their computed keys never share a scope prefix.
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -390,7 +426,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
@@ -460,7 +496,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
@@ -557,7 +593,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
@@ -640,7 +676,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"build.review.reviewing\""
     And the json field "memory" differs from the one recorded as "the pre-loop-back builder's turn"
 
-  Scenario: gtd --entry fix-precheck's own build.fix session survives into the shared review tail — reviewing and collecting share the session even on the fix-precheck entry
+  Scenario: gtd --workflow fix's own build.fix session survives into the shared review tail — reviewing and collecting share the session even on the fix-precheck entry
     # The nesting's whole remaining point: on this entry, build.fix opens
     # build's own scope directly (no packages/design/architecture lap ever
     # runs), and every state from there to build.review.* —
@@ -662,7 +698,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # Blanks the queue so a green health check hands straight to the human
     # review tail — the quality lap itself is covered in its own feature.
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
 
@@ -756,7 +792,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # into decomposition, exactly as design's own laps resume each other.
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next with "--json"
     Then it succeeds
@@ -835,7 +880,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """

@@ -250,7 +250,7 @@ export const changesSince = (hash: string, pattern?: string): Changes => {
 /** The commit the process stands on at this point of the flow. */
 export const head = (): string => ctx().head()
 
-/** The process's diff base: the commit before it began, or the base `gtd --entry` fixed. */
+/** The process's diff base: the commit before it began, or the base `gtd --workflow` fixed. */
 export const start = (): string => ctx().start()
 
 /** The skill list `localName` (scoped from here, same as `agent()`) resolves to — for a prompt preamble. See `FlowContext.skillsFor` for `ownSkills`. */
@@ -336,17 +336,8 @@ export const openQuestions = (text: string): readonly OpenQuestion[] => ctx().op
 
 // ── The workflow ────────────────────────────────────────────────────────────
 
-export interface FlowArgs {
-  /** The name `gtd --entry <name>` started the process with; `undefined` for an ordinary start. */
-  readonly entry: string | undefined
-}
-
-/**
- * A workflow's one flow. A flow that never reads `entry` accepts no
- * `--entry`; one that does decides for itself which names it honours,
- * `refuse()`-ing the rest.
- */
-export type Flow = (args: FlowArgs) => Promise<void>
+/** A workflow's one flow. */
+export type Flow = () => Promise<void>
 
 export interface SummaryContext {
   readonly entryCommit: string
@@ -363,11 +354,25 @@ export interface SummaryContext {
 export type Summary = (context: SummaryContext) => string
 
 /**
- * A workflow module's optional `base` export: the commitish that fixes the
- * diff base of a process `gtd --entry <entry>` starts, or `undefined` for
- * none. Runs when the process is entered, with the vars `--var` sets.
+ * A workflow file's optional `base` export: the commitish that fixes the diff
+ * base of a process `gtd --workflow <workflow>` starts, or `undefined` for
+ * none. Runs when the process is started, with the vars `--var` sets.
  */
-export type EntryBase = (
-  entry: string,
+export type WorkflowBase = (
+  workflow: string,
   vars: Readonly<Record<string, string>>,
 ) => string | undefined
+
+/** A named shortcut: `gtd door <name> [args…]` starts `workflow` with the positional args mapped to process settings. */
+export interface Door {
+  readonly workflow: string
+  /** Static, so `gtd doors --json` can list them. */
+  readonly args?: readonly { readonly name: string; readonly optional?: boolean }[]
+  /** A pure function of the args: no git runs at declaration time. */
+  readonly vars?: (
+    args: Readonly<Record<string, string | undefined>>,
+  ) => Readonly<Record<string, string>>
+}
+
+/** A workflow module's reserved `doors` export. */
+export type Doors = Readonly<Record<string, Door>>

@@ -84,7 +84,7 @@ function toFailedResult(err: unknown): { exitCode: number; stdout: string; stder
   return { exitCode, stdout: e.stdout ?? "", stderr: e.stderr ?? "" }
 }
 
-// The bundled unified template's `vars.testCommand` override, rendered into
+// The bundled workflows's `vars.testCommand` override, rendered into
 // the REAL `checking`/`fix-precheck` script via the `GTD_<NAME>` env layer —
 // a workflow parameter for the gtd under test, not driver configuration.
 Given("GTD_TESTCOMMAND is set to {string}", (world: GtdWorld, value: string) => {

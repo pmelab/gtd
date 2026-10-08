@@ -2,7 +2,7 @@ Feature: gtd in a repository with no commits yet
 
   A gtd process derives workflow state from git history, so every
   state-deriving command — `land`, `next`, `validate`, `abandon`,
-  `restore`, and `--entry <state>` — requires a repository with at least one
+  `restore`, and `--workflow <name>` — requires a repository with at least one
   commit and refuses immediately, before emitting any script or touching
   anything, when there isn't one yet. The refusal states the requirement and
   the remedy verbatim and exits `1`; under `--json` the same message rides
@@ -67,9 +67,9 @@ Feature: gtd in a repository with no commits yet
     And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
   @inmem
-  Scenario: gtd --entry <state> refuses in a repository with no commits
+  Scenario: gtd --workflow <name> refuses in a repository with no commits
     Given a git repository with no commits
-    When I run gtd with args "--entry review-gate.check"
+    When I run gtd with args "--workflow review"
     Then it fails
     And the exit code is 1
     And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"

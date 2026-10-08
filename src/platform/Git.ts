@@ -18,6 +18,10 @@ export interface GitReaderOperations {
   readonly readRefOption: (ref: string) => Effect.Effect<Option.Option<string>, Error>
   /** Never fails (a non-zero exit reports `false`). */
   readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
+  /** The best common ancestor of `a` and `b`; `Option.none` when they share none or either does not resolve (never fails). */
+  readonly mergeBase: (a: string, b: string) => Effect.Effect<Option.Option<string>, Error>
+  /** `origin`'s default branch (`origin/main`, say) when the remote names one, else `main`. */
+  readonly defaultBranch: () => Effect.Effect<string, Error>
   readonly topLevel: () => Effect.Effect<string, Error>
   /**
    * The absolute, per-worktree git directory — not derived from
@@ -394,6 +398,19 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
         Effect.map(() => true),
         Effect.catchAll(() => Effect.succeed(false)),
+      ),
+
+    mergeBase: (a: string, b: string) =>
+      exec("git", "merge-base", a, b).pipe(
+        Effect.map((s) => Option.some(s.trim())),
+        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+      ),
+
+    defaultBranch: () =>
+      exec("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").pipe(
+        Effect.map((s) => s.trim()),
+        Effect.catchAll(() => Effect.succeed("")),
+        Effect.map((name) => (name === "" ? "main" : name)),
       ),
 
     topLevel: () => exec("git", "rev-parse", "--show-toplevel").pipe(Effect.map((s) => s.trim())),

@@ -78,8 +78,8 @@ describe("ConfigService", () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.initial).toBe("idle")
-    expect(cfg.workflowEnv["testCommand"]).toBe("npm test")
-    expect(cfg.workflowVars["testCommand"]).toBeUndefined()
+    expect(cfg.defaultWorkflow.env["testCommand"]).toBe("npm test")
+    expect(cfg.defaultWorkflow.vars["testCommand"]).toBeUndefined()
     expect(cfg.rcVars).toEqual({})
     expect(cfg.rcEnv).toEqual({})
   })
@@ -200,10 +200,13 @@ describe("ConfigService", () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.initial).toBe("first")
-    expect(cfg.workflowVars).toEqual({ greeting: "hi" })
+    expect(cfg.defaultWorkflow.vars).toEqual({ greeting: "hi" })
     expect(typeof cfg.workflow.summary).toBe("function")
     expect(typeof cfg.workflow.base).toBe("function")
-    expect(cfg.workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
+    expect(cfg.workflow.steering).toMatchObject({
+      ".gtd/PLAN.md": "qa",
+      ".gtd/REVIEW.md": "review",
+    })
   })
 
   it("workflowFiles names gtd.config.ts AND a sibling module it imports from — a caller watching only gtd.config.ts's own path misses that module's edits", async () => {
@@ -218,7 +221,7 @@ describe("ConfigService", () => {
 
     const cfg = await getConfig()
 
-    expect(cfg.workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
+    expect(cfg.workflow.steering[".gtd/PLAN.md"]).toBe("qa")
     expect(cfg.workflowFiles.map((f) => realpathSync(f))).toEqual(
       expect.arrayContaining([
         realpathSync(join(projectDir, "gtd.config.ts")),
@@ -374,10 +377,167 @@ describe("ConfigService", () => {
     expect(cfg.workflow.initial).toBe("child-idle")
   })
 
-  it("rejects a gtd.config.ts whose default export is not a flow", async () => {
+  it("rejects a gtd.config.ts whose default export is not a function", async () => {
     writeFileSync(join(projectDir, "gtd.config.ts"), `export default { nope: true }\n`)
 
-    await expect(getConfig()).rejects.toThrow(/the default export is not a flow/)
+    await expect(getConfig()).rejects.toThrow(/the default export is not a function/)
+  })
+
+  describe("named workflows", () => {
+    const flow = (first: string) => `async () => {\n  await human("${first}")\n}`
+    const header = `import { human } from "@pmelab/gtd/flows"\n`
+
+    it("with no config: the bundled feature, review and fix are startable, default is not", async () => {
+      const cfg = await getConfig()
+      expect(cfg.workflowNames).toEqual(["feature", "fix", "review"])
+      expect(cfg.defaultWorkflow.name).toBe("feature")
+      expect(cfg.workflowNamed("default")).toBeUndefined()
+      expect(cfg.workflowNamed("fix")?.def.initial).toBe("idle")
+    })
+
+    it("every exported function but the reserved names is a workflow, named by its export", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          header,
+          `export default ${flow("main")}`,
+          `export const hotfix = ${flow("hot")}`,
+          `export const defaults = { greeting: "hi" }`,
+          `export const summary = () => "sum"`,
+          `export const base = () => undefined`,
+          `export const steering = {}`,
+          `export const skills = {}`,
+          `export const notAFlow = 42`,
+          ``,
+        ].join("\n"),
+      )
+      const cfg = await getConfig()
+      expect(cfg.workflowNames).toEqual(["feature", "fix", "hotfix", "review"])
+      expect(cfg.defaultWorkflow.name).toBe("default")
+      expect(cfg.workflow.initial).toBe("main")
+      expect(cfg.workflowNamed("hotfix")?.vars).toEqual({ greeting: "hi" })
+    })
+
+    it("a repo with only a hotfix export keeps the bundled feature as the default", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [header, `export const hotfix = ${flow("hot")}`, ``].join("\n"),
+      )
+      const cfg = await getConfig()
+      expect(cfg.defaultWorkflow.name).toBe("feature")
+      expect(cfg.workflow.initial).toBe("idle")
+      expect(cfg.workflowNames).toEqual(["feature", "fix", "hotfix", "review"])
+    })
+
+    it("a repo export shadows the bundled one of the same name, and reads its own file's exports", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          header,
+          `export const review = ${flow("mine")}`,
+          `export const defaults = { greeting: "hi" }`,
+          ``,
+        ].join("\n"),
+      )
+      const cfg = await getConfig()
+      expect(cfg.workflowNamed("review")?.vars).toEqual({ greeting: "hi" })
+      expect(cfg.workflowNamed("fix")?.vars).not.toHaveProperty("greeting")
+      expect(cfg.workflowNamed("fix")?.env).toHaveProperty("testCommand")
+    })
+
+    it("a helper re-exported from the bundled module becomes a startable workflow", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [`export { unwind } from "@pmelab/gtd/workflow"`, ``].join("\n"),
+      )
+      expect((await getConfig()).workflowNames).toContain("unwind")
+    })
+
+    it("steering is the union of both files, repo winning on a path", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          header,
+          `export default ${flow("main")}`,
+          `export const steering = { ".gtd/REVIEW.md": "qa", ".gtd/X.md": "qa" }`,
+          ``,
+        ].join("\n"),
+      )
+      const steering = (await getConfig()).workflow.steering
+      expect(steering[".gtd/REVIEW.md"]).toBe("qa")
+      expect(steering[".gtd/X.md"]).toBe("qa")
+      expect(steering[".gtd/REQUIREMENTS.md"]).toBe("qa")
+    })
+  })
+
+  describe("doors", () => {
+    const flow = (first: string) => `async () => {\n  await human("${first}")\n}`
+    const header = `import { human } from "@pmelab/gtd/flows"\n`
+    const withDoors = (doors: string, extra = ""): void =>
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          header,
+          `export const hotfix = ${flow("hot")}`,
+          extra,
+          `export const doors = ${doors}`,
+          ``,
+        ].join("\n"),
+      )
+
+    it("with no config: the bundled fix and review doors, review taking an optional base", async () => {
+      const { doors } = await getConfig()
+      expect([...doors.keys()].sort()).toEqual(["fix", "review"])
+      expect(doors.get("fix")?.workflow).toBe("fix")
+      expect(doors.get("review")?.args).toEqual([{ name: "base", optional: true }])
+    })
+
+    it("a repo door is added to the bundled ones", async () => {
+      withDoors(`{ hot: { workflow: "hotfix", args: [{ name: "ticket" }] } }`)
+      const { doors } = await getConfig()
+      expect([...doors.keys()].sort()).toEqual(["fix", "hot", "review"])
+      expect(doors.get("hot")?.args).toEqual([{ name: "ticket" }])
+    })
+
+    it("a repo door wins over a bundled door of the same name", async () => {
+      withDoors(`{ review: { workflow: "hotfix" } }`)
+      expect((await getConfig()).doors.get("review")?.workflow).toBe("hotfix")
+    })
+
+    it("the reserved `doors` export is never a workflow", async () => {
+      withDoors(`{}`)
+      expect((await getConfig()).workflowNames).toEqual(["feature", "fix", "hotfix", "review"])
+    })
+
+    it("rejects a door name that is not lowercase-kebab", async () => {
+      withDoors(`{ Bad_Name: { workflow: "fix" } }`)
+      await expect(getConfig()).rejects.toThrow(/door "Bad_Name".*\^\[a-z\]\[a-z0-9-\]\*\$/)
+    })
+
+    it("rejects a door whose workflow is not in the merged catalogue", async () => {
+      withDoors(`{ go: { workflow: "nope" } }`)
+      await expect(getConfig()).rejects.toThrow(/door "go".*workflow "nope"/)
+    })
+
+    it("rejects a required arg after an optional one", async () => {
+      withDoors(`{ go: { workflow: "fix", args: [{ name: "a", optional: true }, { name: "b" }] } }`)
+      await expect(getConfig()).rejects.toThrow(/door "go".*"b".*after an optional/)
+    })
+
+    it("rejects duplicate arg names", async () => {
+      withDoors(`{ go: { workflow: "fix", args: [{ name: "a" }, { name: "a" }] } }`)
+      await expect(getConfig()).rejects.toThrow(/door "go".*duplicate arg "a"/)
+    })
+
+    it("rejects a `doors` export that is not a record", async () => {
+      withDoors(`[1]`)
+      await expect(getConfig()).rejects.toThrow(/the "doors" export is not a record/)
+    })
+
+    it("rejects a door that is not an object with a workflow name", async () => {
+      withDoors(`{ go: 3 }`)
+      await expect(getConfig()).rejects.toThrow(/door "go".*workflow/)
+    })
   })
 
   it("loads JSON config (gtd.config.json)", async () => {
@@ -718,7 +878,7 @@ describe("ConfigService", () => {
 
     const cfg = await getConfig(undefined, { LITERAL: "should-never-appear" })
 
-    expect(cfg.workflowVars).toEqual({ greeting: "$LITERAL" })
+    expect(cfg.defaultWorkflow.vars).toEqual({ greeting: "$LITERAL" })
   })
 
   it("`load` — the effectful half of the src/workflow/ boundary — is directly usable without going through ConfigService", async () => {

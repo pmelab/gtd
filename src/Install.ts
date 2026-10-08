@@ -125,23 +125,15 @@ f="\${f:-.gtd/TODO.md}"
 mkdir -p "$(dirname "$f")"
 exec "\${EDITOR:-vi}" "$f"`
 
-export const REVIEW_COMMAND = `#!/usr/bin/env sh
+export const DOOR_COMMAND = `#!/usr/bin/env sh
 set -eu
 GTD_BUILD=~/.local/bin/gtd-build
 if [ -z "\${1:-}" ]; then
-  echo "usage: gtd-review <commitish>" >&2
+  echo "usage: gtd-door <name> [args...]" >&2
   exit 2
 fi
 cd "$(git rev-parse --show-toplevel)"
-script="$(gtd --entry review-gate.check --var reviewBase="$1")"
-sh -c "$script"
-exec "$GTD_BUILD"`
-
-export const FIX_COMMAND = `#!/usr/bin/env sh
-set -eu
-GTD_BUILD=~/.local/bin/gtd-build
-cd "$(git rev-parse --show-toplevel)"
-script="$(gtd --entry fix-precheck)"
+script="$(gtd door "$@")"
 sh -c "$script"
 exec "$GTD_BUILD"`
 
@@ -232,7 +224,8 @@ exits 0, so read it in a shell variable and guard on emptiness
 adds the self-validation instruction at a validatable \`prompt\` rest, and a
 status-summary header at every OTHER kind; \`content\` itself never carries
 either), \`idle\` (\`true\` iff the resolved rest is the workflow's initial
-state with a clean tree), \`log\`, \`state\`, \`actor\`, \`changes\` (which
+state with a clean tree), \`initial\` (\`true\` iff no process is underway —
+the default workflow's first step, first visit — whatever the tree holds), \`log\`, \`state\`, \`actor\`, \`changes\` (which
 declared \`on\` pattern, if any, each pending change matches), \`next\` (the
 first declared \`on\` edge that would fire right now — \`{action?, pattern,
 target}\` — or \`null\` on no match). Only at \`kind: "prompt"\` (the DISPATCH
@@ -326,7 +319,7 @@ const DRIVER_OBLIGATIONS = `
     \`--json=judge\`, pipes that rendered \`{ state, questions }\` document to a
     judge model, and pipes ITS verdict (one \`{ id, answer, p }\` per pending
     question, as JSON on stdin) to \`gtd judge answer\` — the FIFTH command
-    that changes anything, alongside \`gtd land\`/\`gtd --entry\`/\`gtd
+    that changes anything, alongside \`gtd land\`/\`gtd --workflow\`/\`gtd
     abandon\`/\`gtd restore\`. It follows the exact same required-half /
     optional-half script contract as \`gtd land\` in obligation 8 above:
     read \`--json=script\` (and, if you want them, \`--json=settled\`/
@@ -358,10 +351,10 @@ const commandSuite = (): string =>
   `
 ## Building the user's command suite: interview first, then adapt
 
-The obligations above are the contract; the four command bodies below are one
+The obligations above are the contract; the three command bodies below are one
 WORKED EXAMPLE of it. Do not copy them blindly, and do not guess the user's
 setup — INVESTIGATE first, then INTERVIEW, then build a suite shaped by both.
-Hold ONE conversation, not four: the setup steps below come first, because a
+Hold ONE conversation, not three: the setup steps below come first, because a
 repo that is not set up yet cannot be driven, and the suite-shape questions
 follow in the same numbered list.
 
@@ -416,8 +409,8 @@ follow in the same numbered list.
    wrapped in \`# gtd-install: model exports\` / \`# gtd-install: end\`
    markers — NOT into \`.gtdrc\`. They stay per machine and are never
    committed, so one person's model choice binds nobody else on the repo.
-   Two consequences follow, both worth stating to the user: \`gtd-review\`
-   and \`gtd-fix\` inherit these exports only because they \`exec\`
+   Two consequences follow, both worth stating to the user: \`gtd-door\`
+   inherits these exports only because it \`exec\`s
    \`gtd-build\` — anything that drives beats without going through
    \`gtd-build\` sees the raw \`smart\`/\`base\` hints and fails; and \`GTD_*\` is
    the highest-precedence config layer, so these exports silently win over
@@ -432,11 +425,11 @@ follow in the same numbered list.
    obligations directly. Pick the runtime to match: bash, their language of
    choice, anything that reads \`--json=<path>\` and spawns subprocesses.
 9. **Where should the suite live, which editor should \`gtd-edit\` spawn, and
-   does anything need renaming?** Suggest \`~/.local/bin\` for all four —
-   \`gtd-build\`, \`gtd-edit\`, \`gtd-review\`, \`gtd-fix\` — and \`$EDITOR\` (never
+   does anything need renaming?** Suggest \`~/.local/bin\` for all three —
+   \`gtd-build\`, \`gtd-edit\`, \`gtd-door\` — and \`$EDITOR\` (never
    a hardcoded editor) for the one that opens files. The interview can
-   rename any of the four; whatever name is chosen for \`gtd-build\` is the
-   RESOLVED path baked into \`GTD_BUILD\` in the other two bodies below —
+   rename any of the three; whatever name is chosen for \`gtd-build\` is the
+   RESOLVED path baked into \`GTD_BUILD\` in the \`gtd-door\` body below —
    never the literal string \`gtd-build\`.
 
 Then build it, and verify safely before the first real drive:
@@ -445,9 +438,9 @@ check your kind dispatch against the table above, call them as often as you
 like. Nothing happens until you run an emitted script.
 
 The reference rendering in sh (no \`jq\`, no JSON parser at all — each
-\`--json=<path>\` call prints its one value directly). Two of the four bodies
-below share one convention: \`GTD_BUILD\` is set once, at the top, to the
-suite's resolved \`gtd-build\` path.
+\`--json=<path>\` call prints its one value directly). \`gtd-door\` takes the
+\`gtd-build\` path from one convention: \`GTD_BUILD\` is set once, at the top, to
+the suite's resolved \`gtd-build\` path.
 
 ### \`gtd-build\` — the driver loop
 
@@ -485,33 +478,25 @@ are ready. Default path: \`~/.local/bin/gtd-edit\`.
 ${EDIT_COMMAND}
 \`\`\`
 
-### \`gtd-review <commitish>\` — start a review round and drive it
+### \`gtd-door <name> [args...]\` — start a process through a door and drive it
 
-Runs \`gtd --entry review-gate.check --var reviewBase=<commitish>\`, captured
-by command substitution — never a pipe: a pipeline reports only its LAST
-command's exit status, so \`gtd --entry ... | sh\` under \`set -e\` would sail
-past a refusal and \`exec\` a loop over a process that was never started. It
-runs the captured script, then \`exec\`s the suite's RESOLVED \`gtd-build\`
-path — never the literal string \`gtd-build\`. This is one invocation that
-carries the review all the way to its next human gate, not just a starter:
-\`gtd-review\` on a RED baseline hands off to \`gtd-build\`, which halts at the
-blocked gate and prints it, rather than starting the review. Refuses with
-\`usage: gtd-review <commitish>\` on stderr and exit \`2\` when the commitish is
-missing — nothing was even attempted. Default path: \`~/.local/bin/gtd-review\`.
-
-\`\`\`bash
-${REVIEW_COMMAND}
-\`\`\`
-
-### \`gtd-fix\` — enter the fix process and drive it
-
-Runs \`gtd --entry fix-precheck\`, captured the same way, then \`exec\`s the
-suite's RESOLVED \`gtd-build\` path. \`gtd-fix\` on a GREEN suite is a no-op
+Runs \`gtd door <name> [args...]\`, captured by command substitution — never a
+pipe: a pipeline reports only its LAST command's exit status, so
+\`gtd door ... | sh\` under \`set -e\` would sail past a refusal and \`exec\` a
+loop over a process that was never started. It runs the captured script, then
+\`exec\`s the suite's RESOLVED \`gtd-build\` path — never the literal string
+\`gtd-build\`. This is one invocation that carries the process all the way to
+its next human gate, not just a starter: \`gtd-door review\` on a RED baseline
+hands off to \`gtd-build\`, which halts at the blocked gate and prints it,
+rather than starting the review; \`gtd-door fix\` on a GREEN suite is a no-op
 straight back to \`idle\` — the exec'd \`gtd-build\` exits immediately on it.
-Default path: \`~/.local/bin/gtd-fix\`.
+\`gtd doors\` lists the doors a repository offers (the bundled \`fix\` and
+\`review [base]\`, plus any its config declares). Refuses with
+\`usage: gtd-door <name> [args...]\` on stderr and exit \`2\` when the name is
+missing — nothing was even attempted. Default path: \`~/.local/bin/gtd-door\`.
 
 \`\`\`bash
-${FIX_COMMAND}
+${DOOR_COMMAND}
 \`\`\`
 ${REINSTALL}`
 
@@ -519,8 +504,8 @@ const REINSTALL = `
 ## Re-installing: detect and adapt, don't blindly overwrite
 
 A second install on a machine that already has a suite is not a fresh
-install — read each of the four suite paths before writing anything
-(\`gtd-build\`, \`gtd-edit\`, \`gtd-review\`, \`gtd-fix\`), and branch per path:
+install — read each of the three suite paths before writing anything
+(\`gtd-build\`, \`gtd-edit\`, \`gtd-door\`), and branch per path:
 
 - Absent — install it, as in a fresh install.
 - Present and content-equal to what this gtd version would emit — say so,
@@ -542,10 +527,16 @@ markers is unchanged, and re-asks nothing — the resolved model names are
 per machine, so without this exemption every single re-install would
 report drift on the one command everybody has.
 
-This check scopes to exactly the four suite paths above. \`gtd-loop\` is
+This check scopes to exactly the three suite paths above, plus the superseded
+pair below. \`gtd-loop\` is
 outside it entirely — never read, never diffed, never touched by it in any
 way — an existing \`gtd-loop\` survives untouched beside the new
 \`gtd-build\`, and cleaning it up is the human's own call.
+
+\`gtd-fix\` and \`gtd-review\` are superseded by \`gtd-door\` (\`gtd-door fix\`,
+\`gtd-door review [base]\`). When either is still present beside the suite,
+name it to the user as superseded and ask before removing it — never remove
+one unasked.
 `
 
 const EDITOR_INTEGRATION = `
@@ -595,7 +586,7 @@ const PREREQUISITES = `
 ## Prerequisites and portability
 
 - A POSIX \`sh\` (dash, ash, bash's own POSIX mode, etc.) — gtd's own emitted
-  scripts (\`gtd land --json=script\`, \`gtd --entry <state>\`, \`gtd abandon\`,
+  scripts (\`gtd land --json=script\`, \`gtd --workflow <name>\`, \`gtd abandon\`,
   \`gtd restore\`, \`gtd judge answer --json=script\`) are POSIX sh; captured,
   then piped into it (see obligation 8 above). Reading
   \`gtd next --json=<path>\`/\`gtd land --json=<path>\`'s own output needs

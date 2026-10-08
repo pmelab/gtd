@@ -79,6 +79,22 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
     Then it succeeds
     And stdout matches "^true\n$"
 
+  Scenario: gtd next --json=initial is true at the initial rest even with a dirty tree, where idle is false
+    Given a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json=initial"
+    Then it succeeds
+    And stdout matches "^true\n$"
+    When I run gtd next with "--json=idle"
+    Then it succeeds
+    And stdout matches "^false\n$"
+    When I run gtd land
+    And I run gtd next with "--json=initial"
+    Then it succeeds
+    And stdout matches "^false\n$"
+
   Scenario: gtd next --json=next prints nothing (never the string "null") when no on: pattern matches
     When I run gtd next with "--json=next"
     Then it succeeds

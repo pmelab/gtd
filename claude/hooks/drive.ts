@@ -5,6 +5,7 @@ import type { Stop } from "../types"
 export type Beat = {
   kind: string
   idle?: boolean | string
+  initial?: boolean | string
   state?: string
   label?: string
   file?: string

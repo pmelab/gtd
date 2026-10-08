@@ -12,7 +12,7 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
     Given a test project
     And the workflow
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "4"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       the precheck failed
@@ -66,7 +66,7 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
     And the workflow
     # 40 bytes across two reports keeps only each one's "shared tail line".
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "40"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       the precheck failed
@@ -112,7 +112,7 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
   Scenario: two genuinely identical reports still reach the identical verdict and escalate
     Given a test project
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       the precheck failed

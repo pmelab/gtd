@@ -15,7 +15,7 @@ import { execSync, execFileSync } from "node:child_process"
 // loudly (`deps.alwaysBundle` in `tsdown.config.ts`), a guard alongside the
 // `TEST_DOUBLE_SENTINEL` check.
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Option } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { Narrator } from "../Commentary.js"
 import { GitService, Host, type GitOperations } from "../platform/index.js"
@@ -264,6 +264,8 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "resolveRef",
   "readRefOption",
   "isAncestor",
+  "mergeBase",
+  "defaultBranch",
   "topLevel",
   "gitDir",
   "gitCommonDir",
@@ -296,7 +298,7 @@ const PATHOLOGICAL_PATHS: ReadonlyArray<{ label: string; path: string }> = [
 ]
 
 /**
- * Exercise all 19 `GitOperations` methods identically against `makeTier()` —
+ * Exercise all 21 `GitOperations` methods identically against `makeTier()` —
  * called once per tier by `src/platform/Git.test.ts`. A capability-gated group
  * (`t.capabilities.X`) is skipped, not faked, on a tier that can't support it.
  */
@@ -670,6 +672,41 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
 
     it("is false (never a failure) for a nonexistent ref", async () => {
       expect(await runGit(t, (g) => g.isAncestor("totally-invalid-ref", "HEAD"))).toBe(false)
+    })
+  })
+
+  describe("mergeBase", () => {
+    it("is the fork point of two diverged tips", async () => {
+      const base = t.observe.resolveRef("HEAD")
+      t.seed.updateRef("refs/gtd/side", base)
+      t.seed.commit("feat: main-branch-work", { "m.txt": "m" })
+      const mainTip = t.observe.resolveRef("HEAD")
+      await runGit(t, (g) => g.mixedResetTo(base))
+      t.seed.writeFile("s.txt", "s")
+      t.seed.stageAll()
+      t.seed.commit("feat: side-branch-work", {})
+      const sideTip = t.observe.resolveRef("HEAD")
+      const found = await runGit(t, (g) => g.mergeBase(mainTip, sideTip))
+      expect(found).toEqual(Option.some(base))
+    })
+
+    it("is the ancestor itself when one tip is the other's ancestor", async () => {
+      const base = t.observe.resolveRef("HEAD")
+      t.seed.commit("feat: second", { "b.txt": "b" })
+      const found = await runGit(t, (g) => g.mergeBase(base, "HEAD"))
+      expect(found).toEqual(Option.some(base))
+    })
+
+    it("is none (never a failure) for a nonexistent ref", async () => {
+      expect(await runGit(t, (g) => g.mergeBase("totally-invalid-ref", "HEAD"))).toEqual(
+        Option.none(),
+      )
+    })
+  })
+
+  describe("defaultBranch", () => {
+    it("falls back to main when no remote names a default", async () => {
+      expect(await runGit(t, (g) => g.defaultBranch())).toBe("main")
     })
   })
 

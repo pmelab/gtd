@@ -5,8 +5,9 @@ import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../Commentary.js"
 import { replay, type TreeView } from "../replay/index.js"
 import * as flows from "../flows/index.js"
-import { unified as builtInWorkflow } from "../workflows/index.js"
-import type { WorkflowDefinition } from "../Workflow.js"
+import { bundled as builtInWorkflow } from "../workflows/index.js"
+import type { StateMode, WorkflowDefinition } from "../Workflow.js"
+import type { Door, Flow } from "../flows/index.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
 import { compileConfig, type CompiledConfig, type ConfigLayer } from "./compile.js"
@@ -21,13 +22,25 @@ import {
   type Diagnostic,
 } from "./Diagnostic.js"
 
+/** A startable workflow, resolved with its own file's setting defaults. */
+export interface ResolvedWorkflow {
+  readonly name: string
+  readonly def: WorkflowDefinition
+  readonly vars: Record<string, string>
+  readonly env: Record<string, string>
+}
+
 export interface ConfigOperations {
+  /** The default workflow: what an ordinary start runs. */
   readonly workflow: WorkflowDefinition
-  /** The workflow's own process-setting defaults (`defaults`). */
-  readonly workflowVars: Record<string, string>
+  /** The default, resolved like a named one; its name is what status shows: `"default"` for a repo's own, else `"feature"`. */
+  readonly defaultWorkflow: ResolvedWorkflow
+  /** Every name `gtd --workflow` accepts, sorted — never `"default"`. */
+  readonly workflowNames: readonly string[]
+  readonly workflowNamed: (name: string) => ResolvedWorkflow | undefined
+  /** Every door `gtd door` accepts: bundled ∪ repo, the repo winning on a name. A door's `workflow` resolves through `workflowNamed`. */
+  readonly doors: ReadonlyMap<string, Door>
   readonly rcVars: Record<string, string>
-  /** The workflow's own environment-setting defaults (`envDefaults`). */
-  readonly workflowEnv: Record<string, string>
   readonly rcEnv: Record<string, string>
   /** The top-level `ui:` key, decoded as-is (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: UiConfig
@@ -193,7 +206,7 @@ export const load: Effect.Effect<
   const { levels, compiled, decodeDiagnostics } = yield* readRc
   const module = yield* discovery.workflowModule(host.root, host.home)
   const loaded = yield* Effect.try({
-    try: () => loadWorkflow(module),
+    try: () => loadWorkflows(module),
     catch: (e) =>
       new GtdError(
         `gtd config:\n  - ${module?.filepath ?? BUILT_IN_ORIGIN}: ${e instanceof Error ? e.message : String(e)}`,
@@ -203,13 +216,16 @@ export const load: Effect.Effect<
     ...levels.map((level) => level.filepath),
     ...(module ? [module.filepath] : []),
   ]
-  // A `skills:` key naming a step the loaded workflow's own `skills` export
-  // does not declare: checked here, only once `loaded` exists, because a
-  // custom workflow's step names are never known to the schema — see
-  // ConfigSchema's `skills` annotation.
-  const knownSkillNames = Object.keys(loaded.skills).sort()
+  // A `skills:` key naming a step no loaded file's `skills` export declares:
+  // checked here, only once `loaded` exists, because a custom workflow's step
+  // names are never known to the schema — see ConfigSchema's `skills` annotation.
+  const allSkills = Object.assign({}, ...loaded.files.map((f) => f.skills)) as Record<
+    string,
+    readonly string[]
+  >
+  const knownSkillNames = Object.keys(allSkills).sort()
   const unknownSkillDiagnostics = compiled.skillsKeys
-    .filter(({ key }) => !Object.hasOwn(loaded.skills, key))
+    .filter(({ key }) => !Object.hasOwn(allSkills, key))
     .map(({ key, origin }) => ({
       severity: "error" as const,
       path: ["skills", key],
@@ -222,41 +238,69 @@ export const load: Effect.Effect<
         ...decodeDiagnostics,
         ...compiled.diagnostics,
         ...unknownSkillDiagnostics,
-        ...wrongKindDiagnostics(loaded, compiled),
+        ...wrongKindDiagnostics(loaded.files, compiled),
       ],
       layerOrder,
     ),
   )
   yield* failOnErrors(diagnostics)
 
-  const initial = yield* firstStep(loaded, headTree(yield* Workspace))
+  const initial = yield* firstStep(loaded.default, headTree(yield* Workspace))
+  // Repo steering wins on a path.
+  const steering = Object.assign({}, ...loaded.files.map((f) => f.steering)) as Record<
+    string,
+    StateMode
+  >
+  const define = (entry: LoadedWorkflow): WorkflowDefinition => ({
+    flow: entry.flow,
+    summary: entry.file.summary,
+    base: entry.file.base,
+    steering,
+    modes: compiled.modes,
+    skills: entry.file.skills,
+    configuredSkills: compiled.rcSkills,
+    initial,
+  })
+  const names = [...loaded.catalogue.keys()].sort()
+  const resolve = (name: string, entry: LoadedWorkflow): ResolvedWorkflow => ({
+    name,
+    def: define(entry),
+    vars: { ...entry.file.defaults },
+    env: { ...entry.file.envDefaults },
+  })
+  const defaultWorkflow = resolve(loaded.default.name, loaded.default)
   return {
-    workflow: {
-      flow: loaded.flow,
-      summary: loaded.summary,
-      base: loaded.base,
-      steering: loaded.steering,
-      modes: compiled.modes,
-      skills: loaded.skills,
-      configuredSkills: compiled.rcSkills,
-      initial,
+    workflow: defaultWorkflow.def,
+    defaultWorkflow,
+    workflowNames: names,
+    doors: loaded.doors,
+    workflowNamed: (name) => {
+      const entry = loaded.catalogue.get(name)
+      return entry === undefined ? undefined : resolve(name, entry)
     },
-    workflowVars: { ...loaded.defaults },
     rcVars: compiled.rcVars,
-    workflowEnv: { ...loaded.envDefaults },
     rcEnv: compiled.rcEnv,
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
     warnings: diagnostics.filter((d) => d.severity === "warning"),
     configFiles: levels.map((level) => level.filepath),
-    workflowFiles: loaded.dependencyFiles,
+    workflowFiles: loaded.files.flatMap((f) => f.dependencyFiles),
   }
 })
 
 /** A name under the wrong key (or under both) in a `.gtdrc` layer: each is an error at its own origin. */
 const wrongKindDiagnostics = (
-  loaded: LoadedModule,
+  files: readonly LoadedFile[],
   compiled: CompiledConfig,
 ): readonly Diagnostic[] => {
+  // Wrong only when no file declares the name as the kind it was given under:
+  // a repo may declare as a process setting a name the bundled file declares
+  // as an environment setting.
+  const isEnvOnly = (key: string): boolean =>
+    files.some((f) => Object.hasOwn(f.envDefaults, key)) &&
+    !files.some((f) => Object.hasOwn(f.defaults, key))
+  const isVarOnly = (key: string): boolean =>
+    files.some((f) => Object.hasOwn(f.defaults, key)) &&
+    !files.some((f) => Object.hasOwn(f.envDefaults, key))
   const error = (path: readonly string[], message: string, origin: string): Diagnostic => ({
     severity: "error",
     path,
@@ -265,7 +309,7 @@ const wrongKindDiagnostics = (
   })
   const diagnostics: Diagnostic[] = []
   for (const { key, origin } of compiled.varsKeys) {
-    if (Object.hasOwn(loaded.envDefaults, key)) {
+    if (isEnvOnly(key)) {
       diagnostics.push(
         error(
           ["vars", key],
@@ -276,7 +320,7 @@ const wrongKindDiagnostics = (
     }
   }
   for (const { key, origin } of compiled.envKeys) {
-    if (Object.hasOwn(loaded.defaults, key)) {
+    if (isVarOnly(key)) {
       diagnostics.push(
         error(["env", key], `"env.${key}" is a process setting — move it under "vars:"`, origin),
       )
@@ -295,24 +339,35 @@ const wrongKindDiagnostics = (
   return diagnostics
 }
 
-interface LoadedModule extends Pick<
-  WorkflowDefinition,
-  "flow" | "summary" | "base" | "steering" | "skills"
-> {
+interface LoadedFile extends Pick<WorkflowDefinition, "summary" | "base" | "steering" | "skills"> {
   readonly defaults: Readonly<Record<string, string>>
   readonly envDefaults: Readonly<Record<string, string>>
   readonly origin: string
   /**
    * Every real file this module's evaluation touched — `origin` itself plus
    * any relative import it (transitively) resolved on disk, in NO particular
-   * order. Empty for the built-in workflow (no file backs it). A caller that
-   * needs to know when this workflow's DEFINITION might have changed (the
-   * LSP's steering-map memo) must watch this whole set, not just `origin`:
-   * `gtd.config.ts` re-exporting a sibling module's `steering`/steps is a
-   * documented pattern (`docs/configuration.md`), and jiti resolves that
-   * import off disk same as any other require.
+   * order. Empty for the bundled module (no file backs it). A caller that
+   * needs to know when a workflow's DEFINITION might have changed (the LSP's
+   * steering-map memo) must watch this whole set, not just `origin`: a
+   * `gtd.config.ts` re-exporting a sibling module is a documented pattern,
+   * and jiti resolves that import off disk same as any other require.
    */
   readonly dependencyFiles: readonly string[]
+}
+
+interface LoadedWorkflow {
+  readonly flow: Flow
+  readonly file: LoadedFile
+}
+
+interface Loaded {
+  /** The bundled file first, then the repo's when there is one. */
+  readonly files: readonly LoadedFile[]
+  /** Every startable workflow, repo over bundled. */
+  readonly catalogue: ReadonlyMap<string, LoadedWorkflow>
+  readonly doors: ReadonlyMap<string, Door>
+  /** What an ordinary start runs. */
+  readonly default: LoadedWorkflow & { readonly name: string }
 }
 
 type JitiInstance = {
@@ -410,23 +465,23 @@ const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T 
   return value as T
 }
 
-/**
- * Read a workflow module: the default export is the flow; `defaults`,
- * `envDefaults`, `summary`, `base` and `steering` are optional; any other export is ignored.
- */
-const fromModule = (
-  exported: unknown,
+const RESERVED_EXPORTS: ReadonlySet<string> = new Set([
+  "default",
+  "summary",
+  "base",
+  "defaults",
+  "envDefaults",
+  "steering",
+  "skills",
+  "doors",
+])
+
+/** A module's per-file exports: `defaults`, `envDefaults`, `steering`, `skills`, `summary`, `base`. */
+const fileFrom = (
+  exports: Record<string, unknown>,
   origin: string,
   dependencyFiles: readonly string[],
-): LoadedModule => {
-  const exports = (typeof exported === "object" && exported !== null ? exported : {}) as Record<
-    string,
-    unknown
-  >
-  const flow = exports.default
-  if (typeof flow !== "function") {
-    throw new Error("the default export is not a flow — export default an async function")
-  }
+): LoadedFile => {
   const defaults = stringRecord(exports, "defaults")
   const envDefaults = stringRecord(exports, "envDefaults")
   for (const [exportName, record] of [
@@ -447,7 +502,6 @@ const fromModule = (
     )
   }
   return {
-    flow: flow as WorkflowDefinition["flow"],
     defaults,
     envDefaults,
     steering: stringRecord(exports, "steering"),
@@ -459,20 +513,134 @@ const fromModule = (
   }
 }
 
+const DOOR_NAME_RULE = /^[a-z][a-z0-9-]*$/
+
+/** Why one door's `args` are malformed, or `undefined` when they are well-formed. */
+const argsProblem = (args: unknown): string | undefined => {
+  if (args === undefined) return undefined
+  if (!Array.isArray(args)) return `has "args" that is not an array`
+  const seen = new Set<string>()
+  let optional = false
+  for (const arg of args as readonly { name?: unknown; optional?: unknown }[]) {
+    if (typeof arg?.name !== "string") return `has an arg without a "name"`
+    if (seen.has(arg.name)) return `declares duplicate arg "${arg.name}"`
+    seen.add(arg.name)
+    if (arg.optional === true) optional = true
+    else if (optional) return `declares required arg "${arg.name}" after an optional one`
+  }
+  return undefined
+}
+
+/** Why one door is malformed, or `undefined` when it is well-formed. */
+const doorProblem = (name: string, door: unknown): string | undefined => {
+  if (!DOOR_NAME_RULE.test(name)) {
+    return `is not a valid door name — it must match ${DOOR_NAME_RULE}`
+  }
+  const { workflow, args, vars } = (door ?? {}) as Partial<Door>
+  if (typeof workflow !== "string") return `must be an object with a "workflow" name`
+  const varsOk = vars === undefined || typeof vars === "function"
+  return argsProblem(args) ?? (varsOk ? undefined : `has "vars" that is not a function`)
+}
+
+/** A module's `doors` export, shape-checked; the workflow names are checked later, against the merged catalogue. */
+const doorsFrom = (exports: Record<string, unknown>): ReadonlyMap<string, Door> => {
+  const value = exports["doors"]
+  if (value === undefined) return new Map()
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`the "doors" export is not a record of doors`)
+  }
+  for (const [name, door] of Object.entries(value)) {
+    const problem = doorProblem(name, door)
+    if (problem !== undefined) throw new Error(`door "${name}" ${problem}`)
+  }
+  return new Map(Object.entries(value) as [string, Door][])
+}
+
+/** Merge bundled and repo doors (repo wins), then check each names a workflow the merged catalogue holds. */
+const mergeDoors = (
+  bundled: ReadonlyMap<string, Door>,
+  repo: ReadonlyMap<string, Door>,
+  catalogue: ReadonlyMap<string, LoadedWorkflow>,
+): ReadonlyMap<string, Door> => {
+  const doors = new Map([...bundled, ...repo].sort(([a], [b]) => a.localeCompare(b)))
+  for (const [name, door] of doors) {
+    if (!catalogue.has(door.workflow)) {
+      throw new Error(
+        `door "${name}" names workflow "${door.workflow}", which is not startable — known: ${[...catalogue.keys()].sort().join(", ")}`,
+      )
+    }
+  }
+  return doors
+}
+
+const namespaceOf = (exported: unknown): Record<string, unknown> =>
+  (typeof exported === "object" && exported !== null ? exported : {}) as Record<string, unknown>
+
 /**
- * Evaluate `gtd.config.ts`, or take the bundled default. `cache` is jiti's
- * OWN per-call module cache (unrelated to the instance's `moduleCache:
- * false` — that governs reuse ACROSS calls, this one is populated fresh
- * DURING this one) — passing an empty object in has the side effect of
- * collecting every real file jiti resolved evaluating this module, module
- * AND every relative import it pulled in, transitively. Virtual modules
- * (`@pmelab/gtd/flows`) never touch it — no real file backs them.
+ * The bundled module is never scanned: its helper exports stay helpers, and
+ * exactly these three are startable.
  */
-const loadWorkflow = (module: WorkflowModule | undefined): LoadedModule => {
-  if (module === undefined) return fromModule(builtInWorkflow, BUILT_IN_ORIGIN, [])
+const loadBundled = (): {
+  file: LoadedFile
+  catalogue: Map<string, LoadedWorkflow>
+  doors: ReadonlyMap<string, Door>
+} => {
+  const file = fileFrom(namespaceOf(builtInWorkflow), BUILT_IN_ORIGIN, [])
+  const { feature, review, fix } = builtInWorkflow
+  return {
+    file,
+    doors: doorsFrom(namespaceOf(builtInWorkflow)),
+    catalogue: new Map([
+      ["feature", { flow: feature, file }],
+      ["review", { flow: review, file }],
+      ["fix", { flow: fix, file }],
+    ]),
+  }
+}
+
+/**
+ * Evaluate `gtd.config.ts` and overlay it on the bundled workflows. Every
+ * exported function of the repo file but the reserved names is a workflow
+ * named by its export. `cache` is jiti's OWN per-call module cache (unrelated
+ * to the instance's `moduleCache: false`) — passing an empty object in has
+ * the side effect of collecting every real file jiti resolved evaluating this
+ * module, module AND every relative import it pulled in, transitively.
+ */
+const loadWorkflows = (module: WorkflowModule | undefined): Loaded => {
+  const bundled = loadBundled()
+  const bundledDefault = {
+    flow: builtInWorkflow.default,
+    file: bundled.file,
+    name: "feature",
+  }
+  if (module === undefined) {
+    return {
+      files: [bundled.file],
+      catalogue: bundled.catalogue,
+      doors: mergeDoors(bundled.doors, new Map(), bundled.catalogue),
+      default: bundledDefault,
+    }
+  }
   const cache: Record<string, unknown> = {}
-  const exported = jiti().evalModule(module.source, { filename: module.filepath, cache })
-  return fromModule(exported, module.filepath, Object.keys(cache))
+  const exports = namespaceOf(
+    jiti().evalModule(module.source, { filename: module.filepath, cache }),
+  )
+  const file = fileFrom(exports, module.filepath, Object.keys(cache))
+  const catalogue = new Map(bundled.catalogue)
+  for (const [name, value] of Object.entries(exports)) {
+    if (RESERVED_EXPORTS.has(name) || typeof value !== "function") continue
+    catalogue.set(name, { flow: value as Flow, file })
+  }
+  const flow = exports.default
+  if (flow !== undefined && typeof flow !== "function") {
+    throw new Error("the default export is not a function")
+  }
+  return {
+    files: [bundled.file, file],
+    catalogue,
+    doors: mergeDoors(bundled.doors, doorsFrom(exports), catalogue),
+    default: flow === undefined ? bundledDefault : { flow: flow as Flow, file, name: "default" },
+  }
 }
 
 // The repository's HEAD, read lazily.
@@ -537,7 +705,7 @@ const settingReads = (kind: string, watch: ReturnType<typeof watchedEmptySetting
 }
 
 const replayToFirstStep = (
-  loaded: LoadedModule,
+  loaded: Loaded["default"],
   vars: Readonly<Record<string, string>>,
   env: Readonly<Record<string, string>>,
   tree: TreeView,
@@ -546,7 +714,7 @@ const replayToFirstStep = (
     Effect.promise(() =>
       replay({
         flow: loaded.flow,
-        episode: { entry: undefined, base: { hash: "", tree }, commits: [] },
+        episode: { base: { hash: "", tree }, commits: [] },
         vars,
         env,
         start: "",
@@ -559,7 +727,7 @@ const replayToFirstStep = (
         outcome.kind === "failed" || outcome.kind === "refused"
           ? outcome.message.replace(/^gtd: /, "")
           : "the default entry must begin at a step — that step is where a finished process waits"
-      return Effect.fail(new GtdError(`gtd config:\n  - ${loaded.origin}: ${problem}`))
+      return Effect.fail(new GtdError(`gtd config:\n  - ${loaded.file.origin}: ${problem}`))
     },
   )
 
@@ -571,7 +739,7 @@ const replayToFirstStep = (
  * read) nor the tree: a flow that reads the repository before reaching it is
  * replayed again over HEAD, and must reach the same step there.
  */
-const firstStep = (loaded: LoadedModule, head: TreeView): Effect.Effect<string, GtdError> =>
+const firstStep = (loaded: Loaded["default"], head: TreeView): Effect.Effect<string, GtdError> =>
   Effect.gen(function* () {
     const empty = watchedEmptyTree()
     const vars = watchedEmptySettings()
@@ -583,7 +751,7 @@ const firstStep = (loaded: LoadedModule, head: TreeView): Effect.Effect<string, 
     if (reads.length > 0) {
       return yield* Effect.fail(
         new GtdError(
-          `gtd config:\n  - ${loaded.origin}: the flow's first step on an ordinary start reads ${reads.join(" and ")} — that step is where a finished process waits, so it must not depend on a setting`,
+          `gtd config:\n  - ${loaded.file.origin}: the flow's first step on an ordinary start reads ${reads.join(" and ")} — that step is where a finished process waits, so it must not depend on a setting`,
         ),
       )
     }
@@ -594,7 +762,7 @@ const firstStep = (loaded: LoadedModule, head: TreeView): Effect.Effect<string, 
     if (atHead === name) return name
     return yield* Effect.fail(
       new GtdError(
-        `gtd config:\n  - ${loaded.origin}: the flow's first step on an ordinary start depends on the repository's files ("${name}" without them, "${atHead}" at HEAD) — that step is where a finished process waits, so it must not change as files do`,
+        `gtd config:\n  - ${loaded.file.origin}: the flow's first step on an ordinary start depends on the repository's files ("${name}" without them, "${atHead}" at HEAD) — that step is where a finished process waits, so it must not change as files do`,
       ),
     )
   })

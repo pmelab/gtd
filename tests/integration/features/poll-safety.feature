@@ -18,7 +18,16 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
   Scenario: repeated reads at a resting prompt turn change nothing — session, memory, and model all stay put
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And the git index has settled
     And I snapshot the repository
@@ -37,7 +46,16 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
   Scenario: repeated reads at a settled gate change nothing
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -73,6 +91,6 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
     Given a test project
     And the git index has settled
     And I snapshot the repository
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     And the repository snapshot has changed

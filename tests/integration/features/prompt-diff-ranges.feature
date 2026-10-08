@@ -21,7 +21,16 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       export const db = {}
       """
     And I mark the current commit as "process-start"
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -60,7 +69,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       """
       export const add = (a: number, b: number) => a + b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """

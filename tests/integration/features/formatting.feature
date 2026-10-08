@@ -149,7 +149,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
 
   Scenario: prettier plugged into the bundled default's qa mode via a top-level modes: key formats the agent-authored requirements at design.triage, when gtd validate runs it first
     # No `workflow:` re-declaration: the bundled default already gives
-    # `design.triage` `mode: qa` (see src/workflows/unified.ts); a top-level `modes:` key
+    # `design.triage` `mode: qa` (see src/workflows/bundled.ts); a top-level `modes:` key
     # alone is enough to plug a formatter into it. `gtd land` itself no
     # longer runs the format command (package 2, Requirement A) — a driver
     # wanting the file wrapped first runs `gtd validate` ahead of `gtd land`.
@@ -165,7 +165,16 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       This is a deliberately long single prose line for the requirements file that clearly exceeds the eighty character print width.
       """
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd with args "validate"
     Then it succeeds
@@ -187,7 +196,16 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
         qa:
           format: "npx prettier --write $GTD_FILE"
       """
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -226,7 +244,16 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       This is a deliberately long single prose line for the requirements file that clearly exceeds the eighty character print width.
       """
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd with args "validate"
     Then it succeeds

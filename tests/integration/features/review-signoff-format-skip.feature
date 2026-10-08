@@ -40,7 +40,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       """
       export const add = (a: number, b: number) => a + b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """

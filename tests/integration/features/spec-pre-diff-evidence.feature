@@ -9,7 +9,16 @@ Feature: packages.item.spec.pre's evidence carries the package's own diff, filte
   Scenario: a package build that touches both a source file and a lockfile hands the judge the source hunks and none of the lockfile
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """

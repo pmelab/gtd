@@ -119,10 +119,12 @@ Given("the file {string} is deleted", (world: GtdWorld, path: string) => {
 // ── Committed history (one step = one commit) ────────────────────────────────
 
 // The workhorse commit builder: stage exactly `path` with the given content
-// and commit it under the verbatim subject.
+// and commit it under the message; a literal `\n` in it is a line break, so a
+// scenario can spell out trailers (`...\n\nGtd-Step: fix-precheck#1`).
 Given(
   "a commit {string} that adds {string} with:",
-  (world: GtdWorld, message: string, path: string, content: string) => {
+  (world: GtdWorld, rawMessage: string, path: string, content: string) => {
+    const message = rawMessage.replaceAll("\\n", "\n")
     const normalized = content.endsWith("\n") ? content : content + "\n"
     if (world.tier === "inmem") {
       world.repo!.writeFile(path, normalized)

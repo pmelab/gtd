@@ -41,44 +41,44 @@ Feature: Refusals — no-match steps commit nothing
     And stderr contains "M COMMIT_MSG.md"
     And the commit count is unchanged
 
-  Scenario: a bare "--entry" with no value is a usage error
+  Scenario: a bare "--workflow" with no value is a usage error
     Given a test project
     And the workflow
-    When I run gtd with args "--entry"
+    When I run gtd with args "--workflow"
     Then it fails
-    And stderr contains "--entry requires a value"
+    And stderr contains "--workflow requires a value"
 
-  Scenario: a second "--entry" occurrence is a usage error, not last-wins
+  Scenario: a second "--workflow" occurrence is a usage error, not last-wins
     Given a test project
     And the workflow
-    When I run gtd with args "--entry review-gate.check --entry fix-precheck"
+    When I run gtd with args "--workflow review --workflow fix"
     Then it fails
-    And stderr contains "--entry may be given at most once"
+    And stderr contains "--workflow may be given at most once"
 
   Scenario: a duplicate "--var" name is a usage error, not last-wins
     Given a test project
     And the workflow
-    When I run gtd with args "--entry review-gate.check --var reviewBase=a --var reviewBase=b"
+    When I run gtd with args "--workflow review --var reviewBase=a --var reviewBase=b"
     Then it fails
     And stderr contains "specified more than once"
 
-  Scenario: "--var" given with no "--entry" is a usage error
+  Scenario: "--var" given with no "--workflow" is a usage error
     Given a test project
     And the workflow
     When I run gtd with args "--var reviewBase=a"
     Then it fails
-    And stderr contains "--var requires --entry"
+    And stderr contains "--var requires --workflow"
 
-  Scenario: "--cost" combined with "--entry" is a usage error
+  Scenario: "--cost" combined with "--workflow" is a usage error
     Given a test project
     And the workflow
-    When I run gtd with args "--entry review-gate.check --cost=5"
+    When I run gtd with args "--workflow review --cost=5"
     Then it fails
     And stderr contains "is only valid for `gtd land`"
 
-  Scenario: "--model" combined with "--entry" is a usage error
+  Scenario: "--model" combined with "--workflow" is a usage error
     Given a test project
     And the workflow
-    When I run gtd with args "--entry review-gate.check --cost=5 --model=gpt"
+    When I run gtd with args "--workflow review --cost=5 --model=gpt"
     Then it fails
     And stderr contains "is only valid for `gtd land`"

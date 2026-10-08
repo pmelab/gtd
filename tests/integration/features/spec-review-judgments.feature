@@ -2,7 +2,7 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
 
   `packages.item.spec.pre` renders one `noul` per `## ` section of the
   package the current build is judged against. Each scenario reaches it
-  by the shortest real history: `--entry start-gate.check`, a one-line
+  by the shortest real history: an ordinary start (sketch, unwind), a one-line
   triage, `architecture-pre` judged "no" so `architecture-promote` turns
   the plan straight into the one package under test, then building and
   a green health check. The flow itself reads the answers: a
@@ -19,7 +19,16 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: a skipped judgment (no verdict) always runs the full review — the fail-open default, even for a package with no `## ` sections at all
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -53,7 +62,16 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: every section answered high-confidence "yes" clears, no review turn spent
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -102,7 +120,16 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: only one of three sections answered — a partial verdict never approves; the unanswered sections default to failing
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -155,7 +182,16 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: two of three sections answered "no"/low-confidence confine the reviewer to exactly those two
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -217,7 +253,16 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: a written .gtd/SPEC_FEEDBACK.md routes straight to fix-spec with every finding intact — no post-judge re-weighs them
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -265,7 +310,16 @@ Feature: specReview's pre-judge (.gtd/packages/02-spec-review-judgments.md)
   Scenario: a review that writes no .gtd/SPEC_FEEDBACK.md approves the package outright — silence is the only approval
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """

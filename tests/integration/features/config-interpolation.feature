@@ -12,7 +12,7 @@ Feature: `$NAME` interpolation over every `.gtdrc` string value
     And a gtd config file at ".gtdrc" with:
       """
       vars:
-        plannerModel: $BUILD_MODEL
+        greeting: $BUILD_MODEL
       """
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -20,7 +20,7 @@ Feature: `$NAME` interpolation over every `.gtdrc` string value
 
       export default async () => {
         await human("idle", { message: "start" })
-        await human("second", { message: vars.plannerModel })
+        await human("second", { message: vars.greeting })
       }
       """
     And an environment variable "BUILD_MODEL" set to "opus"
@@ -38,12 +38,12 @@ Feature: `$NAME` interpolation over every `.gtdrc` string value
     And a gtd config file at ".gtdrc" with:
       """
       vars:
-        plannerModel: $BUILD_MODEL
+        greeting: $BUILD_MODEL
       """
     When I run gtd next
     Then it fails
     And stderr contains "gtd config:"
-    And stderr contains "vars.plannerModel"
+    And stderr contains "vars.greeting"
     And stderr contains "\"$BUILD_MODEL\""
     And stderr contains "not set"
 

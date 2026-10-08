@@ -4,7 +4,6 @@ import {
   type Change,
   type JudgeAnswer,
   type JudgeQuestion,
-  type FlowArgs,
   type ScopeOptions,
   type StepRequest,
   type Flow,
@@ -36,11 +35,9 @@ export interface EpisodeCommit {
 /**
  * The commits one episode consists of. `base` is where the first step starts
  * reading from: the commit before the episode, or an entered process's opening
- * commit — which completes no step and so is never in `commits`. `entry` is the
- * name `gtd --entry` opened it with, `undefined` for an ordinary start.
+ * commit — which completes no step and so is never in `commits`.
  */
 export interface Episode {
-  readonly entry: string | undefined
   readonly base: { readonly hash: string; readonly tree: TreeView }
   readonly commits: readonly EpisodeCommit[]
 }
@@ -102,8 +99,6 @@ export type ReplayOutcome =
       readonly trace: readonly ReachedStep[]
       /** The step the pending turn completed, when one was supplied. */
       readonly landed: ReachedStep | undefined
-      /** Whether the flow looked at its `entry` argument on the way here. */
-      readonly entryRead: boolean
     }
   | {
       readonly kind: "ended"
@@ -231,13 +226,6 @@ const unknownOptions = (step: ReachedStep): string | undefined => {
 }
 
 export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
-  let entryRead = false
-  const args: FlowArgs = {
-    get entry() {
-      entryRead = true
-      return input.episode.entry
-    },
-  }
   const commits: readonly ParsedCommit[] = input.episode.commits.map((c) => ({
     ...c,
     parsed: parseCommitMessage(c.message),
@@ -445,7 +433,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     const commit = commits[cursor]
     if (commit !== undefined) return consumeCommit(step, commit)
     if (input.pending === undefined || pendingUsed) {
-      return finish({ kind: "rest", rest: step, trace, landed, entryRead })
+      return finish({ kind: "rest", rest: step, trace, landed })
     }
     pendingUsed = true
     landed = step
@@ -571,7 +559,9 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
 
   installContext(context)
   try {
-    const flowDone = input.flow(args).then(
+    // A pre-upgrade flow destructuring `{ entry }` reads `undefined` (an
+    // ordinary start) instead of crashing.
+    const flowDone = (input.flow as (a: object) => Promise<void>)({}).then(
       () => {
         if (outcome === undefined && trace.length === 0) {
           outcome = { kind: "failed", message: "gtd: the flow returned without reaching any step" }

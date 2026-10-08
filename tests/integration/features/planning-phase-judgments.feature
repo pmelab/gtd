@@ -5,8 +5,7 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
   `architecture-promote` (which writes the plan straight into a single
   package file, skipping `architecture.author`/`architecture.decompose`
   entirely) and everything else to the full architecture pass. Each
-  scenario reaches it by the shortest real history — `--entry
-  start-gate.check` and a triage turn writing a question-free plan.
+  scenario reaches it by the shortest real history — an ordinary `feature` start and a triage turn writing a question-free plan.
   `architecture-promote`'s own shell body is a workflow-authored script a
   real DRIVER runs (never this test harness) — its effect is given by hand.
 
@@ -14,7 +13,16 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
   Scenario: a trivial, one-concern plan judged not to warrant an architecture pass reaches the package queue without an architecture turn
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -55,7 +63,16 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
   @live
   Scenario: architecture-promote's real script — executed for real — slugifies the plan's own first heading and promotes .gtd/REQUIREMENTS.md wholesale into that single package file
     Given a test project
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -92,7 +109,16 @@ Feature: Planning-phase judgments (.gtd/packages/04-planning-phase-judgments.md)
     Given a test project
     And the workflow
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "40"
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """

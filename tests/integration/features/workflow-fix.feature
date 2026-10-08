@@ -1,8 +1,8 @@
 @inmem
-Feature: gtd --entry fix-precheck — start a process that goes straight into repairing failing tests
+Feature: gtd --workflow fix — start a process that goes straight into repairing failing tests
 
-  The bundled unified template declares `entry: true` on `fix-precheck`.
-  `gtd --entry fix-precheck` (always authenticated as `human`) starts a BRAND
+  The bundled `fix` workflow starts at `fix-precheck`.
+  `gtd --workflow fix` (always authenticated as `human`) starts a BRAND
   NEW process there — resting at the initial state is required, but the
   working tree need not be clean: whatever it carries is CAPTURED into the
   entry commit (`commitAllWithPrefix`), exactly like an ordinary `gtd land`.
@@ -18,14 +18,14 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     Given a test project
     And the workflow
 
-  Scenario: gtd --entry fix-precheck enters at the fix-precheck gate
-    When I run gtd with args "--entry fix-precheck"
+  Scenario: gtd --workflow fix enters at the fix-precheck gate
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
 
   Scenario: a green suite lands an ordinary commit back to idle — nothing to fix, but HEAD never moves backward
     Given I record the commit count
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
     # A clean tree at the gate = tests pass = nothing to fix -> idle. `land`
@@ -45,7 +45,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     # Blanks the queue so a green health check hands straight to the human
     # review tail — the quality lap itself is covered in its own feature.
     Given an environment variable "GTD_QUALITYREVIEWS" set to ""
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
     Given a file ".gtd/FEEDBACK.md" with:
@@ -75,7 +75,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
       not committed yet
       """
     And I record the commit count
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
 
@@ -86,7 +86,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
       """
     And I run gtd land
     And I record the commit count
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it fails
     And stderr contains "a process is already underway"
     And the commit count is unchanged

@@ -1,11 +1,10 @@
 Feature: The green-baseline entry gate — every entry runs the suite before starting
 
-  The bundled unified template gates EVERY entry on a green test baseline
+  The bundled `feature`, `review` and `fix` workflows gate EVERY start on a green test baseline
   (STATES.md §10): `idle` has a single edge into `unwind`, which reverts the
-  entry commit's diff out of the working tree before `start-gate.check`
+  opening commit's diff out of the working tree before `start-gate.check`
   ever runs. By the time the gate's own suite run happens, the working tree
-  already IS the baseline, so all three entries (`start-gate`, `review-gate`,
-  `gtd --entry fix-precheck`) now share the exact same plain rule: block on
+  already IS the baseline, so all three workflows (`feature`, `review`, `fix`) now share the exact same plain rule: block on
   any red tree, full stop. A red run halts at the human `start-gate.blocked`
   gate that loops back to the check once the human repairs the failures — the
   same shape as `escalate`.
@@ -45,7 +44,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     When I run gtd next
     Then it succeeds
     And stdout contains "test baseline is red"
-    And stdout contains "gtd --entry fix-precheck"
+    And stdout contains "gtd --workflow fix"
     Given the file ".gtd/FEEDBACK.md" is deleted
     And a file "src/baseline-fix.ts" with:
       """

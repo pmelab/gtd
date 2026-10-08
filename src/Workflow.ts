@@ -1,4 +1,4 @@
-import type { EntryBase, Flow, Summary } from "./flows/index.js"
+import type { WorkflowBase, Flow, Summary } from "./flows/index.js"
 import type { Actor, ContentKind, StateMode, StateName } from "./wire/index.js"
 
 export type { Actor, ContentKind, StateMode, StateName }
@@ -51,7 +51,7 @@ export interface StepDef {
 export interface WorkflowDefinition {
   readonly flow: Flow
   readonly summary?: Summary | undefined
-  readonly base?: EntryBase | undefined
+  readonly base?: WorkflowBase | undefined
   /** Steering files by path, with their mode — what the LSP knows before a step declaring one is reached. */
   readonly steering: Readonly<Record<string, StateMode>>
   /** Every mode a step may name: the built-in registry merged with `.gtdrc` `modes:`. */

@@ -9,15 +9,10 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { createRequire } from "node:module"
 import { describe, expect, it } from "vitest"
-import {
-  EDIT_COMMAND,
-  FIX_COMMAND,
-  MINIMAL_DRIVER,
-  REVIEW_COMMAND,
-  renderBriefing,
-} from "./Install.js"
+import { EDIT_COMMAND, DOOR_COMMAND, MINIMAL_DRIVER, renderBriefing } from "./Install.js"
 
-const FOUR_SUITE_PATHS = ["gtd-build", "gtd-edit", "gtd-review", "gtd-fix"]
+const SUITE_PATHS = ["gtd-build", "gtd-edit", "gtd-door"]
+const SUPERSEDED_PATHS = ["gtd-fix", "gtd-review"]
 
 const _require = createRequire(import.meta.url)
 const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
@@ -116,30 +111,31 @@ describe("renderBriefing", () => {
     expect(EDIT_COMMAND).not.toMatch(/jq/)
   })
 
-  it("names all four default command paths", () => {
+  it("names all three default command paths, and no longer the superseded pair as suite members", () => {
     const briefing = renderBriefing()
     expect(briefing).toContain("~/.local/bin/gtd-build")
     expect(briefing).toContain("~/.local/bin/gtd-edit")
-    expect(briefing).toContain("~/.local/bin/gtd-review")
-    expect(briefing).toContain("~/.local/bin/gtd-fix")
+    expect(briefing).toContain("~/.local/bin/gtd-door")
+    expect(briefing).not.toContain("~/.local/bin/gtd-review")
+    expect(briefing).not.toContain("~/.local/bin/gtd-fix")
   })
 
-  it("contains the review-gate and fix-precheck entry invocations, exec'ing the loop", () => {
+  it("contains the door invocation, exec'ing the loop", () => {
     const briefing = renderBriefing()
-    expect(briefing).toContain("--entry review-gate.check --var reviewBase=")
-    expect(briefing).toContain("--entry fix-precheck")
+    expect(briefing).toContain('gtd door "$@"')
+    expect(briefing).toContain("gtd doors")
     expect(briefing).toMatch(/exec.{0,20}GTD_BUILD/s)
   })
 
-  it("states gtd-fix on a green suite is a no-op straight back to idle", () => {
-    expect(renderBriefing()).toMatch(/gtd-fix.{0,80}green.{0,80}no-op.{0,40}idle/is)
+  it("states gtd-door fix on a green suite is a no-op straight back to idle", () => {
+    expect(renderBriefing()).toMatch(/gtd-door fix.{0,80}green.{0,80}no-op.{0,40}idle/is)
   })
 
-  it("states gtd-review on a red baseline hands off to the loop, halting at the blocked gate", () => {
-    expect(renderBriefing()).toMatch(/gtd-review.{0,120}red.{0,120}blocked gate/is)
+  it("states gtd-door review on a red baseline hands off to the loop, halting at the blocked gate", () => {
+    expect(renderBriefing()).toMatch(/gtd-door review.{0,120}red.{0,120}blocked gate/is)
   })
 
-  it("states both new commands exec the RESOLVED loop path, not the literal string gtd-build", () => {
+  it("states the door command execs the RESOLVED loop path, not the literal string gtd-build", () => {
     expect(renderBriefing()).toMatch(/RESOLVED.{0,60}gtd-build.{0,80}never the literal string/is)
   })
 
@@ -162,9 +158,9 @@ describe("renderBriefing", () => {
     expect(briefing).toMatch(/NOT into.{0,20}\.gtdrc/is)
   })
 
-  it("states gtd-review/gtd-fix inherit exports only via exec, and GTD_* is highest precedence", () => {
+  it("states gtd-door inherits exports only via exec, and GTD_* is highest precedence", () => {
     const briefing = renderBriefing()
-    expect(briefing).toMatch(/inherit.{0,60}exports only because they.{0,10}exec/is)
+    expect(briefing).toMatch(/gtd-door.{0,20}inherits.{0,60}exports only because it.{0,10}exec/is)
     expect(briefing).toMatch(/GTD_\*.{0,40}highest-precedence/is)
   })
 
@@ -188,20 +184,20 @@ describe("renderBriefing", () => {
 })
 
 describe("REINSTALL", () => {
-  it("comes after all four command subsections, and before PREREQUISITES", () => {
+  it("comes after all three command subsections, and before PREREQUISITES", () => {
     const briefing = renderBriefing()
-    const fixIndex = briefing.lastIndexOf("### `gtd-fix`")
-    const reinstallIndex = briefing.indexOf("read each of the four suite paths")
+    const fixIndex = briefing.lastIndexOf("### `gtd-door")
+    const reinstallIndex = briefing.indexOf("read each of the three suite paths")
     const prereqIndex = briefing.indexOf("## Prerequisites and portability")
     expect(fixIndex).toBeGreaterThan(-1)
     expect(reinstallIndex).toBeGreaterThan(fixIndex)
     expect(prereqIndex).toBeGreaterThan(reinstallIndex)
   })
 
-  it("instructs reading each of the four suite paths before writing anything", () => {
+  it("instructs reading each of the three suite paths before writing anything", () => {
     const briefing = renderBriefing()
-    expect(briefing).toMatch(/read each of the four suite paths.{0,40}before writing/is)
-    for (const name of FOUR_SUITE_PATHS) expect(briefing).toContain(name)
+    expect(briefing).toMatch(/read each of the three suite paths.{0,40}before writing/is)
+    for (const name of SUITE_PATHS) expect(briefing).toContain(name)
   })
 
   it("states the three-way branch: absent, content-equal, and different", () => {
@@ -244,9 +240,16 @@ describe("REINSTALL", () => {
     expect(briefing).toMatch(/every.{0,20}re-install.{0,40}report(s|ing)? drift/is)
   })
 
-  it("scopes the check to exactly the four suite paths", () => {
+  it("scopes the check to exactly the three suite paths, plus the superseded pair", () => {
     const briefing = renderBriefing()
-    expect(briefing).toMatch(/exactly the four suite paths/i)
+    expect(briefing).toMatch(/exactly the three suite paths/i)
+  })
+
+  it("names gtd-fix and gtd-review as superseded by gtd-door, and asks before removing them", () => {
+    const collapsed = renderBriefing().replace(/\s+/g, " ")
+    for (const name of SUPERSEDED_PATHS) expect(collapsed).toContain(`\`${name}\``)
+    expect(collapsed).toMatch(/superseded by `gtd-door`/)
+    expect(collapsed).toMatch(/ask before removing it/i)
   })
 
   it("never names gtd-loop as something to read, diff, delete, or remove", () => {
@@ -277,7 +280,7 @@ describe("REINSTALL", () => {
 describe("EDITOR_INTEGRATION", () => {
   it("comes after the command suite and before PREREQUISITES", () => {
     const briefing = renderBriefing()
-    const fixIndex = briefing.lastIndexOf("### `gtd-fix`")
+    const fixIndex = briefing.lastIndexOf("### `gtd-door")
     const editorIndex = briefing.indexOf("## Editor integration")
     const prereqIndex = briefing.indexOf("## Prerequisites and portability")
     expect(fixIndex).toBeGreaterThan(-1)
@@ -357,72 +360,38 @@ describe("EDITOR_INTEGRATION", () => {
   })
 })
 
-describe("REVIEW_COMMAND", () => {
+describe("DOOR_COMMAND", () => {
   it("is POSIX sh with no jq or bashisms", () => {
-    expect(REVIEW_COMMAND).toMatch(/^#!\/usr\/bin\/env sh\n/)
-    expect(REVIEW_COMMAND).toContain("set -eu")
-    expect(REVIEW_COMMAND).not.toMatch(/jq/)
+    expect(DOOR_COMMAND).toMatch(/^#!\/usr\/bin\/env sh\n/)
+    expect(DOOR_COMMAND).toContain("set -eu")
+    expect(DOOR_COMMAND).not.toMatch(/jq/)
   })
 
   it("carries GTD_BUILD at top and execs it as the last line", () => {
-    expect(REVIEW_COMMAND).toMatch(
+    expect(DOOR_COMMAND).toMatch(
       /^#!\/usr\/bin\/env sh\nset -eu\nGTD_BUILD=~\/\.local\/bin\/gtd-build\n/,
     )
-    expect(REVIEW_COMMAND.trimEnd().endsWith('exec "$GTD_BUILD"')).toBe(true)
+    expect(DOOR_COMMAND.trimEnd().endsWith('exec "$GTD_BUILD"')).toBe(true)
   })
 
   it("cds to the repository root before any gtd call", () => {
-    const cdIndex = REVIEW_COMMAND.indexOf('cd "$(git rev-parse --show-toplevel)"')
-    const gtdIndex = REVIEW_COMMAND.indexOf("gtd --entry")
+    const cdIndex = DOOR_COMMAND.indexOf('cd "$(git rev-parse --show-toplevel)"')
+    const gtdIndex = DOOR_COMMAND.indexOf("gtd door")
     expect(cdIndex).toBeGreaterThan(-1)
     expect(gtdIndex).toBeGreaterThan(cdIndex)
   })
 
-  it("runs gtd --entry review-gate.check with reviewBase from $1", () => {
-    expect(REVIEW_COMMAND).toContain("gtd --entry review-gate.check --var reviewBase=")
-    expect(REVIEW_COMMAND).toContain('"$1"')
+  it("hands every argument to gtd door", () => {
+    expect(DOOR_COMMAND).toContain('gtd door "$@"')
   })
 
   it("captures the emitted script via command substitution, never a pipe into sh", () => {
-    expect(REVIEW_COMMAND).toMatch(/script="\$\(gtd --entry review-gate\.check[\s\S]*?\)"/)
-    expect(REVIEW_COMMAND).toContain('sh -c "$script"')
-    expect(REVIEW_COMMAND).not.toMatch(/gtd --entry[^\n]*\|\s*sh/)
+    expect(DOOR_COMMAND).toContain('script="$(gtd door "$@")"')
+    expect(DOOR_COMMAND).toContain('sh -c "$script"')
+    expect(DOOR_COMMAND).not.toMatch(/gtd door[^\n]*\|\s*sh/)
   })
 
-  it("prints usage to stderr and exits 2 when $1 is missing", () => {
-    expect(REVIEW_COMMAND).toContain("usage: gtd-review <commitish>")
-    expect(REVIEW_COMMAND).toMatch(/usage: gtd-review <commitish>" >&2\n\s*exit 2/)
-  })
-})
-
-describe("FIX_COMMAND", () => {
-  it("is POSIX sh with no jq or bashisms", () => {
-    expect(FIX_COMMAND).toMatch(/^#!\/usr\/bin\/env sh\n/)
-    expect(FIX_COMMAND).toContain("set -eu")
-    expect(FIX_COMMAND).not.toMatch(/jq/)
-  })
-
-  it("carries GTD_BUILD at top and execs it as the last line", () => {
-    expect(FIX_COMMAND).toMatch(
-      /^#!\/usr\/bin\/env sh\nset -eu\nGTD_BUILD=~\/\.local\/bin\/gtd-build\n/,
-    )
-    expect(FIX_COMMAND.trimEnd().endsWith('exec "$GTD_BUILD"')).toBe(true)
-  })
-
-  it("cds to the repository root before any gtd call", () => {
-    const cdIndex = FIX_COMMAND.indexOf('cd "$(git rev-parse --show-toplevel)"')
-    const gtdIndex = FIX_COMMAND.indexOf("gtd --entry")
-    expect(cdIndex).toBeGreaterThan(-1)
-    expect(gtdIndex).toBeGreaterThan(cdIndex)
-  })
-
-  it("runs gtd --entry fix-precheck with no argument", () => {
-    expect(FIX_COMMAND).toContain("gtd --entry fix-precheck")
-  })
-
-  it("captures the emitted script via command substitution, never a pipe into sh", () => {
-    expect(FIX_COMMAND).toContain('script="$(gtd --entry fix-precheck)"')
-    expect(FIX_COMMAND).toContain('sh -c "$script"')
-    expect(FIX_COMMAND).not.toMatch(/gtd --entry[^\n]*\|\s*sh/)
+  it("prints usage to stderr and exits 2 when no name is given", () => {
+    expect(DOOR_COMMAND).toMatch(/usage: gtd-door <name> \[args\.\.\.\]" >&2\n\s*exit 2/)
   })
 })

@@ -409,6 +409,24 @@ export class InMemRepo {
     this.index = new Map(this.getCommit(hash)?.files ?? new Map())
   }
 
+  /** `hash` and its first-parent ancestors, nearest first. */
+  private chainFrom(hash: string): string[] {
+    const chain: string[] = []
+    for (let cur: string | null = hash; cur !== null; cur = this.getCommit(cur)?.parent ?? null) {
+      chain.push(cur)
+    }
+    return chain
+  }
+
+  /** The nearest commit on both first-parent chains, or `null`. */
+  mergeBase(a: string, b: string): string | null {
+    const ha = this.resolveRef(a)
+    const hb = this.resolveRef(b)
+    if (!ha || !hb) return null
+    const onA = new Set(this.chainFrom(ha))
+    return this.chainFrom(hb).find((hash) => onA.has(hash)) ?? null
+  }
+
   /** True iff `a` is an ancestor of (or equal to) `b` on the first-parent chain. */
   isAncestor(a: string, b: string): boolean {
     const ha = this.resolveRef(a)

@@ -17,7 +17,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
         build.fix: [code-review, testing]
       """
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
@@ -36,7 +36,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
         build.fix: []
       """
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
@@ -54,7 +54,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
         build.fix: [code-review, testing]
       """
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
@@ -76,7 +76,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
         build.fix: []
       """
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
@@ -90,7 +90,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
     Given a test project
     And the workflow
     And an environment variable "GTD_FIXSKILLS" set to "code-review, testing"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined

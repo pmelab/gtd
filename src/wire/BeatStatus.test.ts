@@ -12,6 +12,8 @@ const rendered = (overrides: Partial<RenderedDemandSource> = {}): RenderedDemand
 const baseInput = (overrides: Partial<RenderedDemandSource> = {}) => ({
   rendered: rendered(overrides),
   idle: false,
+  initial: false,
+  workflow: "feature",
   log: "log",
   changes: [],
   next: null,
@@ -38,12 +40,15 @@ describe("statusOf", () => {
     const status = statusOf({
       rendered: rendered(),
       idle: true,
+      initial: true,
+      workflow: "feature",
       log: ".git/gtd-loop.log",
       changes: [{ status: "M", path: "TODO.md" }],
       next: { target: "idle" },
       cost: 12,
       costByModel: [{ model: "opus", cost: 12 }],
     })
+    expect(status.workflow).toBe("feature")
     expect(status.idle).toBe(true)
     expect(status.log).toBe(".git/gtd-loop.log")
     expect(status.changes).toEqual([{ status: "M", path: "TODO.md" }])

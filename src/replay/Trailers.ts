@@ -62,6 +62,8 @@ export interface CommitMessage {
   readonly subject: string
   readonly parsed: ParsedSubject | undefined
   readonly step: StepId | undefined
+  /** Written only on a process's opening commit. */
+  readonly workflow: string | undefined
   readonly judge: readonly JudgeVerdict[]
   readonly vars: Readonly<Record<string, string>>
   readonly reviewBase: string | undefined
@@ -92,6 +94,7 @@ const VAR_RE = /^([^=\s]+)=(.*)$/
 
 interface Trailers {
   step: StepId | undefined
+  workflow: string | undefined
   reviewBase: string | undefined
   readonly judge: JudgeVerdict[]
   readonly vars: Record<string, string>
@@ -101,6 +104,9 @@ interface Trailers {
 const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) => void>> = {
   "Gtd-Step": (value, into) => {
     into.step ??= parseStepId(value)
+  },
+  "Gtd-Workflow": (value, into) => {
+    if (value !== "") into.workflow ??= value
   },
   "Gtd-Judge": (value, into) => {
     const parsed = parseJson(value)
@@ -124,6 +130,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
   const subject = (newline === -1 ? message : message.slice(0, newline)).trim()
   const trailers: Trailers = {
     step: undefined,
+    workflow: undefined,
     reviewBase: undefined,
     judge: [],
     vars: {},
@@ -142,6 +149,7 @@ export interface CommitSpec {
   readonly to: string
   readonly from?: string
   readonly step?: StepId
+  readonly workflow?: string
   readonly reviewBase?: string
   readonly vars?: Readonly<Record<string, string>>
   readonly cost?: { readonly cost: number; readonly model?: string }
@@ -152,6 +160,7 @@ export interface CommitSpec {
 export const formatCommitMessage = (spec: CommitSpec): string => {
   const lines: string[] = []
   if (spec.step !== undefined) lines.push(`Gtd-Step: ${formatStepId(spec.step)}`)
+  if (spec.workflow !== undefined) lines.push(`Gtd-Workflow: ${spec.workflow}`)
   if (spec.reviewBase !== undefined) lines.push(`Gtd-Review-Base: ${spec.reviewBase}`)
   for (const [name, value] of Object.entries(spec.vars ?? {}).sort(([a], [b]) =>
     a < b ? -1 : a > b ? 1 : 0,

@@ -13,7 +13,16 @@ Feature: A section the judge budget cuts fails open (package 02)
     Given a test project
     And the workflow
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "320"
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -78,7 +87,7 @@ Feature: A section the judge budget cuts fails open (package 02)
       """
       export const add = (a: number, b: number) => a + b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
