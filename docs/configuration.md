@@ -8,7 +8,7 @@ gtd reads two kinds of configuration, both optional:
 - **`.gtdrc`** — per-repository tuning of whatever workflow is active: process
   settings (`vars`), environment settings (`env`), the judge `gtd judge run`
   uses (`judge`), steering-file modes (`modes`), `gtd ui` settings (`ui`) and
-  per-step skills (`skills`). Nothing else.
+  per-scope skills (`skills`). Nothing else.
 
 > **Trust: `gtd.config.ts` is code, and gtd runs it.** Because the workflow is a
 > TypeScript module, every gtd command that resolves workflow state evaluates
@@ -113,7 +113,6 @@ Every step takes an options object; all keys are optional.
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                 |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                          |
 | `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).            |
-| `skills`      | `agent`              | The skill names this turn declares, already split (`readonly string[]`, not a comma string) — what `gtd next --json`'s `skills` key carries.       |
 | `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit. |
 | `base`        | all                  | The commit this step reviews changes since — what `gtd base` prints while the process rests here. Without it, the process's `start()`.             |
 
@@ -186,6 +185,16 @@ while (true) {
   conversation. Steps with no prefix share the `root` scope.
   `scope({ name, model, system }, fn)` also gives every agent step inside `fn`
   that `model`/`system` unless it sets its own; `name` is optional there.
+  `scope({ name, skills }, fn)` declares the skill names (`readonly string[]`)
+  every agent turn inside `fn` carries — what `gtd next --json`'s `skills` key
+  reports. A nested scope inherits its parent's list unless it sets its own,
+  which replaces it wholesale. Skills belong to the memory scope, one list per
+  scope: agent steps in one scope that resolve to different `model`, `system` or
+  `skills` fail the process. `agent()` takes no `skills` option — passing one is
+  an error. `scope({ name, access }, fn)` declares the file access every agent
+  turn inside `fn` runs with; see [File access](#file-access). `agent()` takes
+  no `access` option either: narrower access for one step needs its own
+  `scope()`.
 - `refuse(message)` — refuse the pending landing: nothing lands, `gtd land`
   exits 1 with `message`, and the process stays where it rests. Call it right
   after a step whose turn left something the flow does not accept.
@@ -253,7 +262,7 @@ resting on the old name.
 Re-export `envDefaults` alongside `defaults`: a workflow that re-exports only
 `defaults` loses `testCommand`, `fastTestCommand`, `plannerModel` and
 `coderModel`. Re-export `skills` alongside `steering`: it is what makes the
-bundled steps' own names addressable by a `.gtdrc` `skills:` entry in THIS
+bundled workflow's scope names addressable by a `.gtdrc` `skills:` entry in THIS
 config (see [The `skills:` key](#the-skills-key)) — dropping it from the
 re-export list, the way dropping any other named export does, silently empties
 it instead of keeping the bundled defaults, because the loader reads a missing
@@ -474,9 +483,11 @@ Supported filenames (searched in this order):
   `review` modes.
 - **`ui`** (object, optional) — `gtd ui`'s own settings. See
   [The `ui:` key](#the-ui-key).
-- **`skills`** (object, optional) — a flat step full-name -> skill-name array
-  map, one entry per agent step whose skill list you want to change. See
+- **`skills`** (object, optional) — a flat scope full-name -> skill-name array
+  map, one entry per scope whose skill list you want to change. See
   [The `skills:` key](#the-skills-key).
+- **`access`** (object, optional) — a flat scope full-name ->
+  `{ read?, write? }` glob-array map. See [File access](#file-access).
 - **`$schema`** (string, optional) — ignored by gtd. Point it at the published
   schema for editor autocompletion (this is what `gtd init` writes):
 
@@ -758,48 +769,121 @@ judge:
 
 ### The `skills:` key
 
-A flat map, full step name -> array of skill names. An entry REPLACES the named
-step's bundled (or custom-workflow-declared) skill list wholesale — it never
-merges into it — and also feeds the `skills` key `gtd next --json` reports at
-that step (see [Writing your own driver](./driver.md#writing-your-own-driver));
-`[]` means no skills at all for that step, and no skills preamble either.
+A flat map, scope full name -> array of skill names. Skills are declared per
+SCOPE (`scope({ name, skills }, …)`), not per step: every agent turn in a scope
+carries that scope's list. An entry REPLACES the scope's bundled (or
+custom-workflow-declared) list wholesale — it never merges into it — and also
+feeds the `skills` key `gtd next --json` reports at each turn in that scope (see
+[Writing your own driver](./driver.md#writing-your-own-driver)); `[]` means no
+skills at all for that scope, and no skills preamble either.
 
 ```yaml
 # .gtdrc
 skills:
-  packages.item.fix-suite: [debugging-and-error-recovery]
-  build.fix: [debugging-and-error-recovery, my-org-runbook]
+  packages.item.fix.suite: [debugging-and-error-recovery]
+  build: [debugging-and-error-recovery, my-org-runbook]
 ```
 
-The bundled workflow's fifteen addressable full names:
+The bundled workflow's addressable scope full names:
 
-`design.triage`, `architecture.author`, `architecture.decompose`,
-`packages.item.building`, `packages.item.fix-suite`,
-`packages.item.health.describe`, `build.fix`, `build.health.describe`,
-`build.quality.reviewing`, `build.fix-quality`, `build.review.reviewing`,
-`build.review.answer-review-questions`, `build.review.fix-nits`,
-`build.review.fix-risks`, `build.review.collecting`. A custom workflow's own
-steps are addressable too, through its own `skills` export (see
-[Reusing the bundled workflow](#reusing-the-bundled-workflow)); the schema can
-validate an entry's VALUE (an array of strings) but never its KEY, since step
-names come from the workflow actually in play, not a fixed set gtd ships — there
-is no editor autocompletion of step names here.
+`design`, `architecture`, `architecture.decompose`, `packages.item`,
+`packages.item.fix.suite`, `packages.item.health`, `build`, `build.health`,
+`build.fix.quality`, `build.review`, `build.review.fix.nits`,
+`build.review.fix.risks`, and one `build.quality.<lens>` per `qualityReviews`
+entry.
 
-A key naming a step the workflow in play does not declare is a load error, exit
-1, listing the known names. Keying config on a step's full name widens what
-renaming a step breaks: today a rename strands every process resting on the old
-name; now it also orphans every `.gtdrc` `skills:` entry naming it — such an
-entry becomes an unknown key and exits 1, with no further hint that a rename
-happened.
+A nested scope with no entry of its own inherits its parent's list, so a key on
+a parent reaches every scope beneath it that sets none. The group scopes
+`packages.item.fix`, `build.fix`, `build.review.fix` and `build.quality` run no
+turn and carry no key. A custom workflow's own scopes are addressable through
+its own `skills` export (see
+[Reusing the bundled workflow](#reusing-the-bundled-workflow)); the export may
+be a function of the resolved vars, and must list every scope holding an agent
+step. The schema can validate an entry's VALUE (an array of strings) but never
+its KEY, since scope names come from the workflow actually in play — there is no
+editor autocompletion of scope names here.
+
+A key that is not a scope running a turn is a load error, exit 1 — a group scope
+such as `build.fix`, or a step name rather than its scope. The message lists the
+known scope keys. Keying config on a scope's full name widens what renaming a
+scope breaks: it also orphans every `.gtdrc` `skills:` entry naming it, which
+becomes an unknown key and exits 1.
 
 `qualityReviews` (a `vars:` entry, not a `skills:` one — see
-[Settings](#settings)) and a `build.quality.reviewing` entry are a pair:
-`qualityReviews` decides how many quality-lap turns run, one per lens. By
-default each turn's own skill IS that turn's lens; a `build.quality.reviewing`
-entry REPLACES the lens on every one of those turns with the configured list
-instead, leaving the prompt body's own mention of that turn's lens untouched
-(that mention is what makes otherwise-identical turns tell apart) even though
-the lens no longer loads as a skill once overridden.
+[Settings](#settings)) and the `build.quality.<lens>` keys are a pair:
+`qualityReviews` decides how many quality-lap turns run, one per lens, and each
+lens is its own scope, keyed `build.quality.<lens>`. By default that scope's
+skills ARE the lens; a `build.quality.<lens>` entry REPLACES them with the
+configured list, leaving the prompt body's own mention of the lens untouched.
+Such a key is valid only while the lens is listed in `qualityReviews`, judged
+against the running process's recorded settings, or against live `.gtdrc`/env
+plus `--var` when no process is underway. A key added for a lens mid-process
+errors until that process finishes.
+
+### File access
+
+A scope can say which files its agent turns may read and write:
+
+```ts
+scope({ name: "review", access: { read: ["src/**", "docs/**"], write: [".gtd/REVIEW.md"] } }, …)
+```
+
+- `read` and `write` are lists of globs in the same dialect as `glob()` and
+  `changes()` (`*` stays inside one path segment, `**` crosses them).
+- A missing side is unrestricted; `[]` allows nothing on that side.
+- `read` and `write` are independent: a `write` glob grants no read.
+- A nested scope inherits its parent's access unless it sets its own, which
+  replaces the parent's wholesale (never merged). `{}` reopens everything a
+  parent restricted.
+- The step's own steering file is always included, on both sides, so a
+  restricted turn can still answer its prompt.
+- `agent()` takes no `access` option; narrower access for one step needs its own
+  `scope()`.
+
+`gtd next --json` reports the result as `access` on every prompt (see
+[Writing your own driver](./driver.md#writing-your-own-driver)).
+
+**`write` is enforced by gtd**: `gtd land` refuses a turn that changed a path
+outside it, exit 1, nothing lands. **`read` is not a security boundary unless
+the driver enforces it at the OS level**: gtd cannot see what an agent reads,
+and a prompt-level hint or a tool-level deny is bypassable by a shell command. A
+`write` restriction has one more gap: a write to a gitignored path never shows
+up in the tree gtd checks, so it escapes the landing check.
+
+#### The `access:` key
+
+`.gtdrc` takes a flat scope full-name -> `{ read?, write? }` map, one entry per
+scope whose access you want to change. An entry REPLACES the scope's declared
+access wholesale and reaches every nested scope that sets none of its own, like
+a `skills:` entry.
+
+```yaml
+# .gtdrc
+access:
+  build.review: { write: [".gtd/REVIEW.md", "docs/**"] }
+  design: {} # lift the bundled restriction
+```
+
+An entry key other than `read`/`write`, or a scope name that is not a scope
+running a turn, is a load error, exit 1; the message lists the known scopes. A
+custom workflow's own scopes are addressable through its `access` export (a
+record, or a function of the resolved vars, of scope -> `{ read?, write? }`).
+Precedence: `.gtdrc` entry, then a `scope()` option, then the workflow's
+`access` export.
+
+#### Bundled defaults
+
+Only planning and review scopes are restricted, and only on writes; no bundled
+scope restricts reads. Build and fix scopes carry no entry.
+
+| Scope                                             | `write`                                    |
+| ------------------------------------------------- | ------------------------------------------ |
+| `design`                                          | `[]`                                       |
+| `architecture`                                    | `.gtd/REQUIREMENTS.md`                     |
+| `architecture.decompose`                          | `.gtd/packages/**`, `.gtd/ARCHITECTURE.md` |
+| `build.review`                                    | `.gtd/REVIEW.md`                           |
+| `build.review.fix.nits`, `build.review.fix.risks` | `{}` (reopened: fixes edit code)           |
+| `build.quality.<lens>`                            | `[]`                                       |
 
 ### Validation and errors
 
@@ -821,35 +905,14 @@ process rests at it:
 gtd config: step "idle": mode "adrs" is not a mode this workflow knows (qa, review)
 ```
 
-A `skills:` key naming a step no layer's workflow declares fails the same way,
-listing the known names (see [The `skills:` key](#the-skills-key)):
+A `skills:` key that is not a scope running a turn fails the same way, listing
+the known scope keys. It is reported when gtd resolves the current state, not by
+every config read (see [The `skills:` key](#the-skills-key)):
 
 ```
 gtd config:
-  - /path/to/repo/.gtdrc.json: skills.buld.fix: "skills.buld.fix" names a step this workflow does not declare — known step names: design.triage, architecture.author, …
+  - /path/to/repo/.gtdrc.json: skills.build.fix: "skills.build.fix" is not a scope that runs a turn — known scopes: architecture, architecture.decompose, build, …
 ```
-
-A `vars:` entry naming one of the eight `*Skills` vars this key replaced —
-`triageSkills`, `architectureSkills`, `decomposeSkills`, `buildSkills`,
-`fixSkills`, `reviewFixSkills`, `reviewSkills`, `escalateSkills` — fails the
-load too, naming the `skills:` step key(s) that replace it:
-
-| dead `vars:` name    | replacement `skills:` key(s)                                                                |
-| -------------------- | ------------------------------------------------------------------------------------------- |
-| `triageSkills`       | `design.triage`                                                                             |
-| `architectureSkills` | `architecture.author`                                                                       |
-| `decomposeSkills`    | `architecture.decompose`                                                                    |
-| `buildSkills`        | `packages.item.building`                                                                    |
-| `fixSkills`          | `packages.item.fix-suite`, `build.fix`                                                      |
-| `reviewFixSkills`    | `build.fix-quality`, `build.review.fix-nits`                                                |
-| `reviewSkills`       | `build.review.reviewing`, `build.review.answer-review-questions`, `build.review.collecting` |
-| `escalateSkills`     | `packages.item.health.describe`, `build.health.describe`                                    |
-
-This check is scoped to `.gtdrc` `vars:` alone — gtd never scans the environment
-for it, so a `GTD_BUILDSKILLS` (or any other `GTD_<NAME>` that used to override
-one of the eight) produces neither an error nor a warning. It simply does
-nothing: the var it named is gone, so it matches no declared name and is ignored
-the same way any other stray `GTD_<NAME>` is.
 
 A setting under the wrong key is a load error naming the right one, with no
 deprecation window and no silent routing:
@@ -943,12 +1006,12 @@ GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
 
 The bundled workflow puts a preamble naming the skills an agent step loads (its
-`.gtdrc` `skills:` entry — see [The `skills:` key](#the-skills-key)) ahead of
-that step's prompt; an empty entry switches it off for that step. A preamble in
-a workflow of your own must carry three clauses, or it is unsafe: load only what
-your harness has and skip the rest silently; THE STEP'S OWN FILE FORMAT AND
-COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn the turn
-interactive, because no one is at a keyboard. The precedence clause is
+scope's `.gtdrc` `skills:` entry — see [The `skills:` key](#the-skills-key))
+ahead of that step's prompt; an empty entry switches it off for that scope. A
+preamble in a workflow of your own must carry three clauses, or it is unsafe:
+load only what your harness has and skip the rest silently; THE STEP'S OWN FILE
+FORMAT AND COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn the
+turn interactive, because no one is at a keyboard. The precedence clause is
 load-bearing — the preamble sits above the step's own format prose, so a skill
 that reflows the steering file changes which branch the flow takes next.
 
@@ -984,13 +1047,13 @@ Overridable through `.gtdrc` (`vars:` or `env:`, by kind) or `GTD_<NAME>`.
   (`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
   — sets the quality lap `build.quality` runs ahead of the human review: one
   turn per comma-separated lens, in order. It is the one skill control still
-  living under `vars:` rather than `skills:` — it decides the turn COUNT. By
-  default each turn's own skill is that turn's lens; a `build.quality.reviewing`
-  entry (see [The `skills:` key](#the-skills-key)) replaces the lens on EVERY
-  one of those turns with the configured list instead, though the prompt body
-  still names the lens each turn is for. Every round pays for it, so extend the
-  list only as far as that is worth paying for — each lens adds about 1–1.5 min
-  and about $0.5 per run; blanking it disables the lap. `correctness` (loads
+  living under `vars:` rather than `skills:` — it decides the turn COUNT. Each
+  lens is its own scope, keyed `build.quality.<lens>`; by default that scope's
+  skills ARE the lens, and a `build.quality.<lens>` entry (see
+  [The `skills:` key](#the-skills-key)) replaces them, valid only while the lens
+  is listed here. Every round pays for it, so extend the list only as far as
+  that is worth paying for — each lens adds about 1–1.5 min and about $0.5 per
+  run; blanking it disables the lap. `correctness` (loads
   `code-review-and-quality`), `conventions` and `spec-challenge` are built-in
   lenses whose brief rides in the prompt; every finding any lens writes,
   blocking or not, is fixed by the one fix turn. See
@@ -1046,9 +1109,9 @@ counting escalation rounds since the last green check:
 
 A round is one `health.describe` turn since the last green check; editing the
 file at the human gate never spends one. Both gates release straight into the
-caller's fix step (`build.fix` or `packages.item.fix-suite`), so the turn that
-consumes the document is the very next one. `.gtd/ESCALATION.md` is free-form
-prose with no mode of its own.
+caller's fix step (`build.fix` or `packages.item.fix.suite.fixing`), so the turn
+that consumes the document is the very next one. `.gtd/ESCALATION.md` is
+free-form prose with no mode of its own.
 
 ## `fastTestCommand`
 

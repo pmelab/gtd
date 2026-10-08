@@ -9,6 +9,10 @@ Feature: A package's declared tests gate its build
   Background:
     Given a test project
     And the workflow
+    And a file "lib/existing.test.ts" with:
+      """
+      export const existingTest = 1
+      """
     And gtd enters "start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
@@ -23,7 +27,7 @@ Feature: A package's declared tests gate its build
       Technical plan for the widget. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
 
   Scenario: decompose may not delete the architecture document
     Given the file ".gtd/ARCHITECTURE.md" is deleted
@@ -44,7 +48,7 @@ Feature: A package's declared tests gate its build
 
       - unit: `lib/widget.test.ts`
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1
@@ -55,24 +59,20 @@ Feature: A package's declared tests gate its build
     And stderr contains "lib/widget.test.ts"
 
   Scenario: a build that deletes a declared test is refused
-    Given a file "lib/widget.test.ts" with:
-      """
-      export const widgetTest = 1
-      """
-    And a file ".gtd/packages/01-widget.md" with:
+    Given a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget.
 
       ## Tests
 
-      - unit: `lib/widget.test.ts`
+      - unit: `lib/existing.test.ts`
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
-    And the file "lib/widget.test.ts" is deleted
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And the file "lib/existing.test.ts" is deleted
     When I run gtd land
     Then it fails
     And stderr contains "declared-tests"
-    And stderr contains "lib/widget.test.ts"
+    And stderr contains "lib/existing.test.ts"
 
   Scenario: a build whose diff holds every declared test advances to the health check
     Given a file ".gtd/packages/01-widget.md" with:
@@ -84,7 +84,7 @@ Feature: A package's declared tests gate its build
       - unit: `lib/widget.test.ts`
       - e2e: `spec/widget.feature`
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "lib/widget.test.ts" with:
       """
       export const widgetTest = 1
@@ -106,7 +106,7 @@ Feature: A package's declared tests gate its build
 
       - unit: `lib/widget.test.ts`
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And ".gtd/packages/01-widget.md" is modified to:
       """
       Package: the widget.
@@ -116,22 +116,18 @@ Feature: A package's declared tests gate its build
     And stderr contains "lib/widget.test.ts"
 
   Scenario: with SATISFIED.md written, a declared test already in the tree suffices
-    Given a file "lib/widget.test.ts" with:
-      """
-      export const widgetTest = 1
-      """
-    And a file ".gtd/packages/01-widget.md" with:
+    Given a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget.
 
       ## Tests
 
-      - unit: `lib/widget.test.ts`
+      - unit: `lib/existing.test.ts`
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file ".gtd/SATISFIED.md" with:
       """
-      - [x] lib/widget.test.ts — already present
+      - [x] lib/existing.test.ts — already present
       """
     When I run gtd land
     Then it succeeds

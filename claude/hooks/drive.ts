@@ -1,4 +1,6 @@
+import { ACCESS_REFUSAL } from "../../src/wire/constants.js"
 import type { Stop } from "../types"
+import type { AccessDef } from "./access"
 
 // The subset of `gtd next --json` this driver reads. Absent optional fields
 // are simply missing; booleans may arrive as strings.
@@ -13,7 +15,9 @@ export type Beat = {
   memory?: string
   model?: string
   system?: string
+  skills?: string[]
   validate?: string
+  access?: AccessDef
   judge?: unknown
   changes?: { status: string; path: string }[]
   session?: { id?: string; resume?: boolean | string }
@@ -33,6 +37,9 @@ export type Turn = {
   label?: string
   model?: string
   system?: string
+  skills: readonly string[]
+  scope: string
+  access?: AccessDef
 }
 
 export type TurnEnd = { ok: true } | { ok: false; why: string }
@@ -80,7 +87,7 @@ export async function drive(io: Io, landTurn?: string): Promise<Stop> {
     const acted = await act(io, b, beat, judged, beat === 1 ? landTurn : undefined)
     if (acted.stop) return acted.stop
     judged = acted.verdict ? b.state : undefined
-    const landed = await land(io, b, acted.verdict)
+    const landed = await land(io, b, acted.verdict, true)
     if (landed) return landed
   }
 }
@@ -120,7 +127,7 @@ async function message(io: Io, b: Beat, beat: number, judged: string | undefined
 }
 
 async function agent(io: Io, b: Beat, landTurn: string | undefined): Promise<Acted> {
-  const memory = b.memory ?? b.session?.id ?? b.state ?? "root"
+  const memory = memoryOf(b)
   const t =
     landTurn === memory
       ? ({ ok: true } as const)
@@ -131,6 +138,9 @@ async function agent(io: Io, b: Beat, landTurn: string | undefined): Promise<Act
           label: b.label,
           model: b.model || undefined,
           system: b.system || undefined,
+          skills: b.skills ?? [],
+          scope: memory.split("#")[0]!,
+          access: b.access,
         })
   if (!t.ok) return failed(b, t.why)
   return b.validate ? validated(io, b, b.validate, memory) : {}
@@ -148,13 +158,46 @@ async function validated(io: Io, b: Beat, validate: string, memory: string): Pro
   }
 }
 
-async function land(io: Io, b: Beat, verdict: string | undefined): Promise<Stop | undefined> {
-  const l = await io.land(verdict)
+const memoryOf = (b: Beat) => b.memory ?? b.session?.id ?? b.state ?? "root"
+
+// A prompt beat whose turn wrote outside its access gets one recovery turn
+// with the refusal text; a second refusal is an error, not another loop.
+async function land(
+  io: Io,
+  b: Beat,
+  verdict: string | undefined,
+  mayRecover: boolean,
+): Promise<Stop | undefined> {
+  let l: Landing
+  try {
+    l = await io.land(verdict)
+  } catch (e) {
+    const text = e instanceof Error ? e.message : String(e)
+    if (b.kind !== "prompt" || !text.includes(ACCESS_REFUSAL)) throw e
+    if (!mayRecover) return { kind: "error", text, ...where(b) }
+    return recover(io, b, verdict, text)
+  }
   const code = await io.sh(l.script, b.log)
   if (code !== 0) return { kind: "error", text: `landing script exited ${code}`, ...where(b) }
   if (!isTrue(l.settled)) return undefined
   const text = isTrue(l.idle) ? await io.plain() : l.subject || "settled"
   return { kind: "done", text, ...where(b) }
+}
+
+async function recover(
+  io: Io,
+  b: Beat,
+  verdict: string | undefined,
+  text: string,
+): Promise<Stop | undefined> {
+  const memory = memoryOf(b)
+  const r = await io.resume(memory, text)
+  if (!r.ok) return { kind: "error", text: r.why, ...where(b) }
+  if (b.validate) {
+    const v = await validated(io, b, b.validate, memory)
+    if (v.stop) return v.stop
+  }
+  return land(io, b, verdict, false)
 }
 
 // What a reload that cut the loop off does next. Only a turn the agent

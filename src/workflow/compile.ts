@@ -2,6 +2,8 @@ import { isSettingName, SETTING_NAME_RULE } from "./vars.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 import { BUILT_IN_MODE_NAMES } from "../steering/index.js"
 import type { ModeDef } from "../Workflow.js"
+import type { ScopeAccess } from "../flows/index.js"
+import { accessShapeFault } from "../replay/index.js"
 import type { JudgeConfig, UiConfig } from "../ConfigSchema.js"
 import {
   BUILT_IN_ORIGIN,
@@ -38,6 +40,10 @@ export interface CompiledConfig {
   readonly rcSkills: Record<string, readonly string[]>
   /** Every well-shaped `skills:` key of every layer, with that layer's origin — so `load.ts`'s unknown-step-name check reports each file, not just the innermost. */
   readonly skillsKeys: readonly { readonly key: string; readonly origin: string }[]
+  /** The `.gtdrc` `access:` map, shape-validated; its keys are checked against the workflow's scopes in `skills.ts`. */
+  readonly access: Record<string, ScopeAccess>
+  /** Every well-shaped `access:` key of every layer, with that layer's origin. */
+  readonly accessKeys: readonly { readonly key: string; readonly origin: string }[]
   /** Every finding across every layer — sorted (origin outermost→innermost, then config path) and deduped. */
   readonly diagnostics: readonly Diagnostic[]
 }
@@ -105,7 +111,7 @@ const compileVarsMap = (
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((entry) => typeof entry === "string")
 
-/** A flat `step full name -> skill list` map; a malformed value is a load error and is dropped. */
+/** A flat `scope full name -> skill list` map; a malformed value is a load error and is dropped. */
 const compileSkillsMap = (
   raw: unknown,
 ): {
@@ -118,7 +124,7 @@ const compileSkillsMap = (
     diagnostics.push(
       err(
         ["skills"],
-        `"skills" must be a mapping of step name -> array of skill names, got ${describeType(raw)}`,
+        `"skills" must be a mapping of scope name -> array of skill names, got ${describeType(raw)}`,
       ),
     )
     return { skills: {}, diagnostics }
@@ -140,44 +146,40 @@ const compileSkillsMap = (
   return { skills, diagnostics }
 }
 
-/**
- * The eight `*Skills` workflow vars this package deletes, each naming the
- * `.gtdrc` `skills:` step key(s) that replace it — four of the eight fan out to
- * several keys, because a var once shared between steps now addresses
- * them independently. Deliberately the only place gtd special-cases a var
- * name by string; meant to be deleted a major release after this ships.
- */
-const DEAD_SKILLS_VARS: Readonly<Record<string, readonly string[]>> = {
-  triageSkills: ["design.triage"],
-  architectureSkills: ["architecture.author"],
-  decomposeSkills: ["architecture.decompose"],
-  buildSkills: ["packages.item.building"],
-  fixSkills: ["packages.item.fix-suite", "build.fix"],
-  reviewFixSkills: ["build.fix-quality", "build.review.fix-nits"],
-  reviewSkills: [
-    "build.review.reviewing",
-    "build.review.answer-review-questions",
-    "build.review.collecting",
-  ],
-  escalateSkills: ["packages.item.health.describe", "build.health.describe"],
-}
-
-/** `vars:` entries naming one of the eight deleted `*Skills` vars — scoped to `.gtdrc` `vars:` only; there is no environment scan anywhere in this check, so a `GTD_BUILDSKILLS` gets neither this diagnostic nor any other. */
-const deadSkillsVarDiagnostics = (rawVars: unknown): readonly Diagnostic[] => {
-  if (!isPlainObject(rawVars)) return []
+/** A flat `scope full name -> { read?, write? }` map; a malformed value is a load error and is dropped. */
+const compileAccessMap = (
+  raw: unknown,
+): {
+  readonly access: Record<string, ScopeAccess>
+  readonly diagnostics: readonly Diagnostic[]
+} => {
   const diagnostics: Diagnostic[] = []
-  for (const key of Object.keys(rawVars)) {
-    const replacement = DEAD_SKILLS_VARS[key]
-    if (replacement === undefined) continue
+  if (raw === undefined) return { access: {}, diagnostics }
+  if (!isPlainObject(raw)) {
     diagnostics.push(
       err(
-        ["vars", key],
-        `"vars.${key}" was removed — skills are now configured per step, under the "skills:" key, addressed by: ${replacement.join(", ")}`,
+        ["access"],
+        `"access" must be a mapping of scope name -> { read?, write? }, got ${describeType(raw)}`,
       ),
     )
+    return { access: {}, diagnostics }
   }
-  return diagnostics
+  const access: Record<string, ScopeAccess> = Object.create(null)
+  for (const [key, value] of Object.entries(raw)) {
+    const fault = accessShapeFault(value)
+    if (fault === undefined) access[key] = value as ScopeAccess
+    else diagnostics.push(err(["access", key], `"access.${key}": ${fault}`))
+  }
+  return { access, diagnostics }
 }
+
+/** The `.gtdrc` `access:` load-error message for a key that is not a known scope. */
+export const unknownAccessKeyMessage = (key: string, known: readonly string[]): string =>
+  `"access.${key}" is not a scope that runs a turn — known scopes: ${known.join(", ")}`
+
+/** The `.gtdrc` `skills:` load-error message for a key that is not a known scope. */
+export const unknownSkillsKeyMessage = (key: string, known: readonly string[]): string =>
+  `"skills.${key}" is not a scope that runs a turn — known scopes: ${known.join(", ")}`
 
 const MODE_COMMAND_KEYS = ["format", "validate"] as const
 
@@ -373,7 +375,6 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
   diagnostics.push(...withOrigin(envDiagnostics, lookupIn))
   const varsKeys = layerKeys(layers, "vars")
   const envKeys = layerKeys(layers, "env")
-  diagnostics.push(...withOrigin(deadSkillsVarDiagnostics(mergedConfig["vars"]), lookupIn))
   const { modes: rcModes, diagnostics: modesDiagnostics } = compileModesMap(mergedConfig["modes"])
   diagnostics.push(...withOrigin(modesDiagnostics, lookupIn))
   // Validated per layer, before merging: a nearer layer's good entry must not
@@ -386,6 +387,14 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
     skillsKeys.push(...Object.keys(own.skills).map((key) => ({ key, origin: layer.origin })))
   }
   const { skills: rcSkills } = compileSkillsMap(mergedConfig["skills"])
+  const accessKeys: { key: string; origin: string }[] = []
+  for (const layer of layers) {
+    if (!isPlainObject(layer.value)) continue
+    const own = compileAccessMap(layer.value["access"])
+    diagnostics.push(...own.diagnostics.map((d) => ({ ...d, origin: layer.origin })))
+    accessKeys.push(...Object.keys(own.access).map((key) => ({ key, origin: layer.origin })))
+  }
+  const { access: rcAccess } = compileAccessMap(mergedConfig["access"])
   const seeded = Object.fromEntries(
     BUILT_IN_MODE_NAMES.map((name) => [name, { validate: seededValidateCommand(name) }]),
   )
@@ -399,6 +408,8 @@ export const compileConfig = (layers: readonly ConfigLayer[]): CompiledConfig =>
     ...(ui !== undefined ? { ui } : {}),
     rcSkills,
     skillsKeys,
+    access: rcAccess,
+    accessKeys,
     diagnostics: dedupeDiagnostics(sortDiagnostics(diagnostics, layerOrder)),
   }
 }

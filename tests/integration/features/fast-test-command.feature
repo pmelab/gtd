@@ -29,7 +29,7 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
   Scenario: an unset fastTestCommand makes the printed check script write SETUP.md
     Given a test project
     And the workflow
-    And an environment variable "GTD_FASTTESTCOMMAND" is unset
+    And the environment variable "GTD_FASTTESTCOMMAND" is unset
     And gtd enters "start-gate.check"
     When I run gtd next with "--json"
     And I execute the printed check script
@@ -56,12 +56,12 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
       Technical plan for the widget. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1

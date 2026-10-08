@@ -16,6 +16,22 @@ Feature: gtd install — the driver-building briefing
     And the commit count is unchanged
     And the git status is clean
 
+  Scenario: the briefing obliges a skill-restricting driver to pass each turn's skills
+    Given a test project
+    When I run gtd with args "install"
+    Then it succeeds
+    And stdout contains "11. When the chosen agent CLI can restrict which skills a turn sees"
+    And stdout contains "--json=skills"
+    And stdout contains "`claude -p` cannot"
+
+  Scenario: the briefing obliges a sandboxing driver to map each turn's access
+    Given a test project
+    When I run gtd with args "install"
+    Then it succeeds
+    And stdout contains "12. Map each prompt turn's `--json=access.read`"
+    And stdout contains "workspace-write"
+    And stdout contains ":ro"
+
   Scenario: succeeds in a repository with no commits — there is no workflow state to resolve
     Given a git repository with no commits
     When I run gtd with args "install"

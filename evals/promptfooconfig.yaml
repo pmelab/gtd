@@ -219,7 +219,7 @@ tests:
       - type: javascript
         value: file://asserts/packages-item-building.mjs
 
-  # ── packages.item.fix-suite — fixing a red suite inside a package build ──
+  # ── packages.item.fix.suite.fixing — fixing a red suite inside a package build ──
   - description: "packages-item-fix-suite:violation"
     vars:
       case: packages-item-fix-suite

@@ -18,7 +18,7 @@
 // concern visibly tempting to re-split.
 export default Object.freeze({
   name: "architecture-decompose",
-  state: "architecture.decompose",
+  state: "architecture.decompose.decomposing",
   base: {
     "src/pricing/discount.ts": `export const discountedPrice = (price: number): number => price
 `,

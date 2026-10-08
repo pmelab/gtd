@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   dedicated feature files — see refusals.feature, default-workflow.feature,
   retry.feature.
 
-  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> architecture.author -> architecture.decompose -> packages.item.building -> packages.item.health.check
+  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> architecture.author -> architecture.decompose.decomposing -> packages.item.building -> packages.item.health.check
     Given a test project
     And the workflow
     And a file "src/feature.ts" with:
@@ -52,7 +52,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     And the last commit subject is "gtd(agent): architecture.author → architecture.gate.answer"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose"
+    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     Given a file ".gtd/packages/01-feature.md" with:
       """
       Package: add the feature.
@@ -60,7 +60,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     When I run gtd land
     Then it succeeds
     # The flow picks the lexically first package itself.
-    And the last commit subject is "gtd(agent): architecture.decompose → packages.item.building"
+    And the last commit subject is "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     Given a file "src/feature-impl.ts" with:
       """
       export const featureImpl = 1

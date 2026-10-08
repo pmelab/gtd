@@ -38,7 +38,7 @@ export const author = (): Promise<void> =>
   })
 
 export const decompose = (): Promise<void> =>
-  t.agentWithSkills("decompose", t.architectureDecomposePrompt(), {
+  t.agentWithSkills("decompose.decomposing", t.architectureDecomposePrompt(), {
     label: "Decomposing into packages",
     model: planner(),
     system: t.architectSystem(),
@@ -72,7 +72,7 @@ export const build = (pkg: string): Promise<void> =>
   })
 
 export const fixSuite = (): Promise<void> =>
-  t.agentWithSkills("fix-suite", t.packagesItemFixSuitePrompt(), {
+  t.agentWithSkills("fix.suite.fixing", t.packagesItemFixSuitePrompt(), {
     label: "Fixing the check",
     file: FEEDBACK,
     model: coder(),
@@ -128,15 +128,10 @@ export const builtInLenses: Readonly<Record<string, BuiltInLens>> = {
   "spec-challenge": { skills: [], brief: t.specChallengeBrief },
 }
 
-/**
- * One quality review, through the skill `lens`. `lens` rides as this turn's
- * own `skills` option — a `.gtdrc` `build.quality.reviewing` entry still
- * overrides it (config beats a flow-supplied list same as any other step),
- * but absent one the lens itself is what the turn loads by default.
- */
+/** One quality review through `lens`; each lens is its own scope, so its own conversation and skills. */
 export const reviewQuality = (lens: string): Promise<void> =>
   t.agentWithSkills(
-    "quality.reviewing",
+    `quality.${lens}.reviewing`,
     t.buildQualityReviewingPrompt(lens, builtInLenses[lens]?.brief),
     {
       label: "Reviewing (one quality lens)",
@@ -144,12 +139,11 @@ export const reviewQuality = (lens: string): Promise<void> =>
       model: planner(),
       system: t.reviewerSystem(),
       allowEmpty: true,
-      skills: builtInLenses[lens]?.skills ?? [lens],
     },
   )
 
 export const fixQuality = (): Promise<void> =>
-  t.agentWithSkills("fix-quality", t.buildFixQualityPrompt(), {
+  t.agentWithSkills("fix.quality.fixing", t.buildFixQualityPrompt(), {
     label: "Fixing quality findings",
     file: QUALITY,
     model: coder(),
@@ -178,21 +172,18 @@ export const answerReviewQuestions = (notes: readonly t.NoteInput[]): Promise<vo
     system: t.reviewerSystem(),
   })
 
-/**
- * Fix every `nit` note in one turn. Its name puts it in the `build.review`
- * conversation, which has one identity — so it runs as the reviewer, not the coder.
- */
+/** Fix every `nit` note in one turn. */
 export const fixNits = (notes: readonly t.NoteInput[]): Promise<void> =>
-  t.agentWithSkills("review.fix-nits", t.buildReviewFixNitsPrompt(notes), {
+  t.agentWithSkills("review.fix.nits.fixing", t.buildReviewFixNitsPrompt(notes), {
     label: "Fixing your nits",
     file: REVIEW,
     model: planner(),
     system: t.reviewerSystem(),
   })
 
-/** Fix the `Risk:`-marked notes the reviewer named. Shares the `build.review` conversation like `fixNits`; an empty turn means the risk was judged false. */
+/** Fix the `Risk:`-marked notes the reviewer named; an empty turn means the risk was judged false. */
 export const fixRisks = (notes: readonly t.NoteInput[]): Promise<void> =>
-  t.agentWithSkills("review.fix-risks", t.buildReviewFixRisksPrompt(notes), {
+  t.agentWithSkills("review.fix.risks.fixing", t.buildReviewFixRisksPrompt(notes), {
     label: "Fixing the reviewer's risks",
     file: REVIEW,
     model: planner(),

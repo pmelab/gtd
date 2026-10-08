@@ -17,3 +17,4 @@ export {
 export { formatDiagnostic } from "./Diagnostic.js"
 export { resolveVars, multilineSetting, isSettingName, SETTING_NAME_RULE } from "./vars.js"
 export { renderInitScaffold } from "./init.js"
+export { resolveScopeAccess, resolveScopeSkills } from "./skills.js"

@@ -137,9 +137,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And the json field "memory" matches the one recorded as "first fix attempt"
     And the json field "memory" differs from the one recorded as "the escalation turn"
 
-  Scenario: memory is retained across a nested health check — packages.item.building ⇄ packages.item.fix-suite share the package's session
-    # The caller's session (packages.item, ▸ coder) must survive the check
-    # that sits between its two agent turns untouched.
+  Scenario: a nested child scope never reuses its caller's session — packages.item.fix.suite.fixing gets its own, not packages.item.building's
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
@@ -157,12 +155,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Technical plan for the feature. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
@@ -177,11 +175,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       test failed: widget() returns an unfrozen object
       """
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix-suite"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix.suite.fixing"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.fix-suite\""
-    And the json field "memory" matches the one recorded as "the builder's turn"
+    And stdout contains "\"state\":\"packages.item.fix.suite.fixing\""
+    And the json field "memory" differs from the one recorded as "the builder's turn"
+    And stdout matches "\"memory\":\"packages\.item\.fix\.suite#[0-9a-f]{7}\""
 
   Scenario: a fresh memory key per entry — two different packages each get their own distinct session at packages.item.building
     Given a test project
@@ -200,7 +199,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Technical plan: one module each. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget.
@@ -209,7 +208,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Package: the gadget.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And I record the json field "memory" as "package 1's builder turn"
@@ -298,12 +297,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Technical plan for the feature. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-doc-comment.md" with:
       """
       Package: add a doc comment above the widget export.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "src/widget.ts" with:
       """
       // The widget.
@@ -314,10 +313,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       test failed: widget() returns undefined
       """
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix-suite"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix.suite.fixing"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
+    And stdout matches "\"memory\":\"packages\.item\.fix\.suite#[0-9a-f]{7}\""
 
   Scenario: build.review's own session survives the closing hop into an actionable round — reviewing and collecting share the session
     # humanReview is nested INSIDE buildTail (`build.review`), not a root
@@ -469,12 +468,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Technical plan for the feature. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-doc-comment.md" with:
       """
       Package: add a doc comment above the widget export.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "src/widget.ts" with:
       """
       // The widget.
@@ -567,12 +566,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Technical plan for the feature. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-doc-comment.md" with:
       """
       Package: add a doc comment above the widget export.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "src/widget.ts" with:
       """
       // The widget.
@@ -695,13 +694,11 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"build.review.collecting\""
     And the json field "memory" matches the one recorded as "the fix-precheck path's reviewer turn"
 
-  Scenario: architecture is a separate memory scope from design, but its own Q&A and decomposition share one session
+  Scenario: architecture is a separate memory scope from design, but decomposition is its own scope with its own session
     # design (designPlan) and architecture (archPlan) are sibling machines with
     # their own memory scope each — a deliberate handover, not one fused
     # conversation, since the technical phase reads the requirements file cold
-    # rather than resuming design's own session. Within architecture's own
-    # scope, though, the human's answer rationale survives from the Q&A turn
-    # into decomposition, exactly as design's own laps resume each other.
+    # rather than resuming design's own session. Decomposition is its own scope, so it starts a fresh session.
     Given a test project
     And the workflow
     And gtd enters "start-gate.check"
@@ -769,11 +766,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       SQLite — zero-config, file-based.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"architecture.decompose\""
-    And the json field "memory" matches the one recorded as "the architecture conversation's first turn"
+    And stdout contains "\"state\":\"architecture.decompose.decomposing\""
+    And the json field "memory" differs from the one recorded as "the architecture conversation's first turn"
+    And stdout matches "\"memory\":\"architecture\.decompose#[0-9a-f]{7}\""
 
   Scenario: the per-package build queue gets a fresh reviewer session at the shared tail, distinct from any package's own session
     # The per-package build queue (packages.*) closes out into the shared tail
@@ -796,12 +794,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Technical plan for the feature. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""
@@ -845,7 +843,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     When I run gtd land
     Then it fails
-    And stderr contains "runs with a different model or system prompt"
+    And stderr contains "runs with a different model, system prompt, skills or file access"
     And stderr contains "one scope is one conversation"
 
   Scenario: a step-level "memory:" option is rejected at load time — the scope is computed, so there is no authored label to honour or ignore

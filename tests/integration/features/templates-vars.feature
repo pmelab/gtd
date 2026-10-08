@@ -214,12 +214,12 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       the technical plan
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-plan.md" with:
       """
       the plan
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""

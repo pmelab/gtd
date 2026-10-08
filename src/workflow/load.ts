@@ -145,7 +145,7 @@ const readRc = Effect.gen(function* () {
   }
 })
 
-const failOnErrors = (diagnostics: readonly Diagnostic[]): Effect.Effect<void, GtdError> => {
+export const failOnErrors = (diagnostics: readonly Diagnostic[]): Effect.Effect<void, GtdError> => {
   const fatal = diagnostics.filter((d) => d.severity === "error")
   if (fatal.length === 0) return Effect.void
   // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
@@ -203,27 +203,9 @@ export const load: Effect.Effect<
     ...levels.map((level) => level.filepath),
     ...(module ? [module.filepath] : []),
   ]
-  // A `skills:` key naming a step the loaded workflow's own `skills` export
-  // does not declare: checked here, only once `loaded` exists, because a
-  // custom workflow's step names are never known to the schema — see
-  // ConfigSchema's `skills` annotation.
-  const knownSkillNames = Object.keys(loaded.skills).sort()
-  const unknownSkillDiagnostics = compiled.skillsKeys
-    .filter(({ key }) => !Object.hasOwn(loaded.skills, key))
-    .map(({ key, origin }) => ({
-      severity: "error" as const,
-      path: ["skills", key],
-      message: `"skills.${key}" names a step this workflow does not declare — known step names: ${knownSkillNames.join(", ")}`,
-      origin,
-    }))
   const diagnostics = dedupeDiagnostics(
     sortDiagnostics(
-      [
-        ...decodeDiagnostics,
-        ...compiled.diagnostics,
-        ...unknownSkillDiagnostics,
-        ...wrongKindDiagnostics(loaded, compiled),
-      ],
+      [...decodeDiagnostics, ...compiled.diagnostics, ...wrongKindDiagnostics(loaded, compiled)],
       layerOrder,
     ),
   )
@@ -239,6 +221,11 @@ export const load: Effect.Effect<
       modes: compiled.modes,
       skills: loaded.skills,
       configuredSkills: compiled.rcSkills,
+      skillsKeys: compiled.skillsKeys,
+      access: loaded.access,
+      configuredAccess: compiled.access,
+      accessKeys: compiled.accessKeys,
+      skillsOrigin: module?.filepath ?? BUILT_IN_ORIGIN,
       initial,
     },
     workflowVars: { ...loaded.defaults },
@@ -297,7 +284,7 @@ const wrongKindDiagnostics = (
 
 interface LoadedModule extends Pick<
   WorkflowDefinition,
-  "flow" | "summary" | "base" | "steering" | "skills"
+  "flow" | "summary" | "base" | "steering" | "skills" | "access"
 > {
   readonly defaults: Readonly<Record<string, string>>
   readonly envDefaults: Readonly<Record<string, string>>
@@ -388,11 +375,7 @@ const stringRecord = (
 const isStringArray = (v: unknown): v is readonly string[] =>
   Array.isArray(v) && v.every((entry) => typeof entry === "string")
 
-/** Read a module's optional `skills` export: full step name -> skill list, mirroring `stringRecord` for the vars-shaped exports. */
-const skillsRecord = (
-  exports: Record<string, unknown>,
-): Readonly<Record<string, readonly string[]>> => {
-  const value = exports["skills"] ?? {}
+const checkSkillsRecord = (value: unknown): Readonly<Record<string, readonly string[]>> => {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -401,6 +384,25 @@ const skillsRecord = (
     throw new Error(`the "skills" export is not a record of skill-name arrays`)
   }
   return value as Readonly<Record<string, readonly string[]>>
+}
+
+/** Read a module's optional `skills` export — a scope full name -> skill list record, or a function of the vars returning one. */
+const skillsExport = (exports: Record<string, unknown>): WorkflowDefinition["skills"] => {
+  const value = exports["skills"] ?? {}
+  if (typeof value === "function") {
+    return (vars) => checkSkillsRecord((value as (v: typeof vars) => unknown)(vars))
+  }
+  const record = checkSkillsRecord(value)
+  return () => record
+}
+
+/** Read a module's optional `access` export — a scope full name -> `{ read?, write? }` record, or a function of the vars returning one. */
+const accessExport = (exports: Record<string, unknown>): WorkflowDefinition["access"] => {
+  const value = exports["access"] ?? {}
+  if (typeof value === "function") {
+    return (vars) => (value as (v: typeof vars) => never)(vars)
+  }
+  return () => value as never
 }
 
 const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T | undefined => {
@@ -451,7 +453,8 @@ const fromModule = (
     defaults,
     envDefaults,
     steering: stringRecord(exports, "steering"),
-    skills: skillsRecord(exports),
+    skills: skillsExport(exports),
+    access: accessExport(exports),
     summary: optionalFunction(exports, "summary"),
     base: optionalFunction(exports, "base"),
     origin,

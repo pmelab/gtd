@@ -1,7 +1,7 @@
 Feature: after the last package, the full run precedes the quality lap
 
   Once the package queue is drained, `build.health.check` runs the whole suite
-  before `build.quality.reviewing`. A red run goes to `build.fix`, whose prompt
+  before `build.quality.<lens>.reviewing`. A red run goes to `build.fix`, whose prompt
   names `.gtd/ARCHITECTURE.md` and the package ranges; a green run sweeps
   `.gtd/ARCHITECTURE.md`.
 
@@ -22,12 +22,12 @@ Feature: after the last package, the full run precedes the quality lap
       Technical plan for the widget. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = 1
@@ -55,7 +55,7 @@ Feature: after the last package, the full run precedes the quality lap
     Given the file ".gtd/ARCHITECTURE.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → build.quality.correctness.reviewing"
 
   @live
   Scenario: a green full run's check script sweeps the architecture document

@@ -1,6 +1,6 @@
 import type { BeatKind, Demand, DemandSession } from "./Demand.js"
 import type { BeatStatus, NextMatch, StatusChange } from "./BeatStatus.js"
-import type { Actor, ModelCost, StateMode, StateName } from "./types.js"
+import type { Actor, ModelCost, StateMode, StateName, StepAccess } from "./types.js"
 
 /** `gtd next --json`'s `next` key — `null` when landing would commit nothing. */
 const nextField = (next: NextMatch | null): { target: string } | null =>
@@ -13,7 +13,7 @@ const assertNeverDemand = (demand: never): never => {
 
 /**
  * The ONE exhaustive switch translating a `Demand` into its wire
- * `session`/`validate`/`skills` triple — only the `prompt` variant carries
+ * `session`/`validate`/`skills`/`access` set — only the `prompt` variant carries
  * any of them, and every other member is listed explicitly (not a
  * `default:` fallthrough) so adding a sixth `BeatKind` without adding its
  * case here fails `tsc` at the `assertNeverDemand` call, not silently
@@ -25,15 +25,21 @@ const dispatchFieldsOf = (
   readonly session: DemandSession | undefined
   readonly validate: string | undefined
   readonly skills: readonly string[] | undefined
+  readonly access: StepAccess | undefined
 } => {
   switch (demand.kind) {
     case "prompt":
-      return { session: demand.session, validate: demand.validate, skills: demand.skills }
+      return {
+        session: demand.session,
+        validate: demand.validate,
+        skills: demand.skills,
+        access: demand.access,
+      }
     case "capture":
     case "message":
     case "script":
     case "stalled":
-      return { session: undefined, validate: undefined, skills: undefined }
+      return { session: undefined, validate: undefined, skills: undefined, access: undefined }
     default:
       return assertNeverDemand(demand)
   }
@@ -61,16 +67,17 @@ export interface BeatDocument {
   readonly costByModel: readonly ModelCost[] | undefined
   readonly judge: string | undefined
   readonly skills: readonly string[] | undefined
+  readonly access: StepAccess | undefined
 }
 
 /**
- * Flatten a `Demand` plus its `BeatStatus` into the single 20-key document
+ * Flatten a `Demand` plus its `BeatStatus` into the single 21-key document
  * `gtd next --json` emits — the ONLY place the two are joined. `cost`/
  * `costByModel` are omitted together, exactly when no cost was recorded
  * (`cost <= 0`).
  */
 export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument => {
-  const { session, validate, skills } = dispatchFieldsOf(demand)
+  const { session, validate, skills, access } = dispatchFieldsOf(demand)
   const hasCost = status.cost > 0
   return {
     kind: demand.kind,
@@ -93,6 +100,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     costByModel: hasCost ? status.costByModel : undefined,
     judge: status.judge,
     skills,
+    access,
   }
 }
 

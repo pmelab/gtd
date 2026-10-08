@@ -1,5 +1,5 @@
 // `build.fix`: the closing identity's late-breaking-failure fix, sharing its
-// prompt body with `packages.item.fix-suite` (`vars.fixFeedbackPrompt`) but
+// prompt body with `packages.item.fix.suite.fixing` (`vars.fixFeedbackPrompt`) but
 // scoped to the whole process rather than one package. That shared prompt
 // says verbatim: "The only state file this turn touches is
 // `.gtd/FEEDBACK.md`; fix it per its contents, or delete it if the feedback

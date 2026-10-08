@@ -186,10 +186,11 @@ Feature: Review feedback — capture, classification, and the loop-back guards
     And gtd lands "gtd(check): build.review.closing → build.review.collecting"
     # No write (A/M) on REQUIREMENTS.md, while some OTHER file is touched
     # instead. No declared pattern recognizes this shape: not a
-    # classification, just a refusal.
-    Given "src/calc.ts" is modified to:
+    # classification, just a refusal. REVIEW.md is inside the scope's write
+    # access, so this reaches the flow's own refusal, not the access check.
+    Given a file ".gtd/REVIEW.md" with:
       """
-      export const sum = (a: number, b: number) => a + b
+      # Review: abc1234
       """
     When I run gtd land
     Then it fails

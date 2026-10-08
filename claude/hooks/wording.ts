@@ -77,6 +77,9 @@ export function runningLine(label: string, beat: number, elapsedMs: number) {
 // One line per beat, for the status line and the transcript.
 export const beatLine = (beat: number, b: Beat) => `▸ ${step(b)} · step ${beat}`
 
+export const restartLine = (scope: string) =>
+  `${scope}: skills or system changed — started a fresh subagent`
+
 // What a push to a phone says when gtd stops: the step, and where to act on it.
 export function pushText(stop: Stop, repo: string, url?: string) {
   const at = `${repo}: ${headline(stop).replace(/^\S+ /, "")}`

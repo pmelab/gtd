@@ -10,10 +10,8 @@ export const defaults: Readonly<Record<string, string>> = {
   judgeBudgetBytes: "32768",
   judgeIdenticalMinP: "0.7",
   reviewNoteActionable: "0.7",
-  // `qualityReviews` fans out into one turn per entry (`qualityLenses`, in
-  // `./review.ts`) rather than naming one step's skill list, so it is a
-  // setting — pairing with `build.quality.reviewing`'s entry in
-  // `./skills.ts`, which replaces the lens on every one of those turns.
+  // Decides the turn count: one `build.quality.<lens>` scope per entry, each
+  // keyed in `./skills.ts`.
   qualityReviews:
     "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge",
 }

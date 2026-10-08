@@ -28,10 +28,17 @@ Git history; keep secrets in an environment setting (see
 Also install all three skill sources the bundled workflow names in its prompts —
 none is optional. See
 [Setup](https://github.com/pmelab/gtd/blob/main/docs/setup.md) for the list, the
-install flags, and the never-install-the-plugin caveat. Each bundled agent step
-has its own addressable `.gtdrc` `skills:` entry — see
+install flags, and the never-install-the-plugin caveat. Skills are declared per
+scope, and restricted per turn where the driver can; each bundled scope has its
+own addressable `.gtdrc` `skills:` entry — see
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#the-skills-key)
 to repoint one to a set your own harness has instead.
+
+Each scope also declares which files its agent turns may read and write;
+`gtd land` refuses a turn that wrote outside its scope, and a driver can pass
+the read side to its agent. `read` is not a security boundary unless your driver
+enforces it at the OS level. See
+[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#file-access).
 
 > **`fastTestCommand` is required, with no fallback to `testCommand`.** Set it
 > (everything but e2e) under `env:` in `.gtdrc` or as `GTD_FASTTESTCOMMAND`; gtd
@@ -429,10 +436,10 @@ noted in steps 3 and 4 below.
 
 4. **You review.** You get a review document listing what changed and what to
    look at. Before you see it, an automatic risk-fix pass
-   (`build.review.fix-risks`) runs. Any risk the reviewer names (a note opening
-   with `Risk:`) is fixed first, the suite kept green, and the review rewritten
-   — once per review round, so a risk the rewrite still names reaches you
-   unfixed; risk: a fix lands with no check that the risk was real. Tick the
+   (`build.review.fix.risks.fixing`) runs. Any risk the reviewer names (a note
+   opening with `Risk:`) is fixed first, the suite kept green, and the review
+   rewritten — once per review round, so a risk the rewrite still names reaches
+   you unfixed; risk: a fix lands with no check that the risk was real. Tick the
    boxes to approve, or write what is wrong. Approving ends the process;
    feedback is judged note by note, each as `edit`, `question`, `nit` or
    `praise`. An `edit` sends the process back to step 2 for a fresh plan — it

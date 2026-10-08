@@ -12,6 +12,23 @@ export const skillsPreamble = `- Load whatever's listed here that your harness a
 - Never let a loaded skill turn this turn interactive — answer nothing,
   ask nothing; this runs unattended, with no one at a keyboard`
 
+/** One bullet per restricted side; empty when neither is. An empty glob list reads "nothing". */
+export const accessPreamble = (access: {
+  readonly read: readonly string[] | null
+  readonly write: readonly string[] | null
+}): string => {
+  const globs = (list: readonly string[]): string =>
+    list.length === 0 ? "nothing" : list.join(", ")
+  return [
+    ...(access.read === null ? [] : [`- This turn may read only: ${globs(access.read)}`]),
+    ...(access.write === null
+      ? []
+      : [
+          `- This turn may write only: ${globs(access.write)} — anything else is refused when the turn lands`,
+        ]),
+  ].join("\n")
+}
+
 export const styleBlock = `- A deliverable, not a chat reply — size follows the work; cut padding
 - Lead with the answer; never circle back to restate it
 - Flat, commanding sentences — commit to the claim, never hedge

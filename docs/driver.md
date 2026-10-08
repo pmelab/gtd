@@ -276,9 +276,11 @@ falls back to the `gtd` on your `PATH`.
   request ready for review.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
-  scope fresh, as the minimal driver does when a remembered session is gone.
+  scope fresh, as the minimal driver does when a remembered session is gone. A
+  change to that scope's skills or system starts a fresh subagent on the next
+  beat, losing the scope's earlier conversation, and says so in the transcript.
 - A step's `system` becomes the subagent's whole system prompt, and its `model`
-  the subagent's model.
+  the subagent's model. Each subagent sees only its scope's `skills`.
 - **The mod's subagents run with `bypassPermissions`**, the equivalent of the
   minimal driver's `--dangerously-skip-permissions`. Shell commands they run are
   kept in the foreground, with a 10-minute timeout.
@@ -368,13 +370,63 @@ script, whatever its exit code.
   itself neither creates nor truncates this file — a driver appends subprocess
   output to it and truncates once at the start of a run, exactly like the driver
   above does.
-- **`skills`** — an array of skill names, only ever carried at `kind: "prompt"`
-  (absent when the state declares none). A driver that reads it can preload the
-  named skills into the agent CLI, pass them as flags, or route the turn to a
-  subagent that already has them loaded. Reading it is an OPTIMIZATION, never an
-  obligation: a driver that ignores it still drives correctly, because the
-  preamble in `content` already names what the turn needs and does not depend on
-  `skills` being read.
+- **`skills`** — the skill names of the turn's memory scope, only ever carried
+  at `kind: "prompt"` (absent means none). A driver that can restrict a turn's
+  skills SHOULD pass exactly this list — restricting the agent to it is the
+  recommended use — or preload the named skills, pass them as flags, or route
+  the turn to a subagent that has only them loaded. Reading it is still not
+  required: a driver that ignores it drives correctly, because the preamble in
+  `content` already names what the turn needs and does not depend on `skills`
+  being read.
+- **`access`** — `{ "read": string[] | null, "write": string[] | null }`, only
+  ever carried at `kind: "prompt"`, always present there. Globs in the
+  `glob()`/`changes()` dialect (`*` within a path segment, `**` across), already
+  including the step's own steering file; `null` means that side is
+  unrestricted. `read` and `write` are independent — a `write` glob grants no
+  read. A driver that can restrict file reads SHOULD pass `read` to its agent;
+  gtd cannot check reads. `write` is enforced by gtd itself: `gtd land` refuses
+  a turn that changed a path outside it (exit 1, nothing lands, the process
+  stays put) and its message names the offending paths and the allowed globs —
+  revert them and land again. gtd runs no fix turn for this, so a driver treats
+  the refusal like any other failed landing. `--json=access.write` prints
+  nothing for an unrestricted side.
+
+  **Mapping `access` onto Claude Code.** The reference driver below enforces
+  nothing: reads are unrestricted, writes rely on the landing check alone, and
+  on a violation `gtd land` exits 1 and the driver stops. A driver that wants
+  more can build on these documented Claude Code facts
+  ([permissions](https://code.claude.com/docs/en/permissions),
+  [permission modes](https://code.claude.com/docs/en/permission-modes),
+  [sandboxing](https://code.claude.com/docs/en/sandboxing)):
+  - `permissions.deny` rules block in every mode, including `bypassPermissions`
+    (what `--dangerously-skip-permissions` selects).
+  - `Read(<glob>)` and `Edit(<glob>)` deny rules cover Claude's file tools and
+    the file commands it recognizes in Bash (`cat`, `sed`, `tee`, redirections),
+    not arbitrary subprocesses such as a script that opens files itself. A
+    `Read` deny also blocks Edit and Write on that path. Rule paths are
+    gitignore-style (`//path` absolute, `/path` project-relative), and a `!`
+    deny entry carves paths out of earlier relative rules in the same settings
+    source. Two documented limits: a `!` pattern is read relative to the current
+    directory and cannot reach a rule anchored with `/`, `~/` or `//`, and a
+    carve-out cannot reopen a file inside a directory that a rule blocks as a
+    whole. Permission rules therefore cannot express "deny everything outside
+    these directory globs"; a driver that needs that checks paths in a hook
+    instead, as the bundled mod does.
+  - `sandbox.filesystem` limits Bash and its subprocesses at the OS level, not
+    the file tools: `allowWrite`/`denyWrite` for writes, `denyRead` with a
+    narrower `allowRead` re-opening part of it for reads. Sandbox paths use `~/`
+    and plain relative conventions, unlike the `//`-style rule paths.
+
+  The gtd mod does the tool-level part: it denies Read, Edit, Write and
+  NotebookEdit calls (and Glob/Grep roots) outside a turn's `access` and leaves
+  Bash open, so its enforcement is best effort and `gtd land` stays the backstop
+  for writes. After a refused landing it re-prompts the turn once with the
+  refusal text and lands again. For any other driver, that recovery is its own
+  job; gtd runs no fix turn for it.
+
+  **`read` is not a security boundary unless the driver enforces it at the OS
+  level** (the sandbox's `denyRead`). Writes to gitignored paths escape the
+  landing check, since gtd only sees changes git reports.
 
 Even a genuine no-op `gtd land` (a clean landing that completes nothing) has a
 PRINT-ONLY script under `--json=script`: no git write, just the same
@@ -431,17 +483,17 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 20 keys (17 of them outside `kind: "prompt"`, which is
-the only kind that ever carries `session`/`validate`/`skills`); a real driver
-reads 9 of the 20. The minimal driver below is the reference for exactly which:
-`kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
+`gtd next --json` emits 21 keys (17 of them outside `kind: "prompt"`, which is
+the only kind that ever carries `session`/`validate`/`skills`/`access`); a real
+driver reads 9 of the 21. The minimal driver below is the reference for exactly
+which: `kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, `validate`, and `judge` —
-every `--json=<path>` selector its `case` arms touch. The remaining 11 (`state`,
+every `--json=<path>` selector its `case` arms touch. The remaining 12 (`state`,
 `actor`, `label`, `memory`, `file`, `mode`, `changes`, `next`, `cost`,
-`costByModel`, `skills`) are read only by a human looking at plain output, or by
-a driver author deciding what to log or preload — no `case` arm in THIS
-reference driver branches on them. This is a property of what a driver NEEDS,
-not a smaller wire: every key stays on every `gtd next --json` line,
+`costByModel`, `skills`, `access`) are read only by a human looking at plain
+output, or by a driver author deciding what to log or preload — no `case` arm in
+THIS reference driver branches on them. This is a property of what a driver
+NEEDS, not a smaller wire: every key stays on every `gtd next --json` line,
 unconditionally, so `--json=<path>` keeps resolving the same way for a human
 poking at one field as for the reference driver reading nine of them in a loop.
 

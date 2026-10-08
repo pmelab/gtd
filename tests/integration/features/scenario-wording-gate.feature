@@ -23,7 +23,7 @@ Feature: a later package that rewords a frozen e2e scenario stops at the wording
       Technical plan for the widget. No open questions.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/00-e2e-scenarios.md" with:
       """
       Package 0: write the widget scenario.
@@ -32,7 +32,7 @@ Feature: a later package that rewords a frozen e2e scenario stops at the wording
       """
       Package: the widget.
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "spec/widget.feature" with:
       """
       Feature: Widget

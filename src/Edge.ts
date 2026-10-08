@@ -12,6 +12,8 @@ import {
   ConfigService,
   multilineSetting,
   resolveVars,
+  resolveScopeAccess,
+  resolveScopeSkills,
   type ConfigOperations,
 } from "./workflow/index.js"
 import {
@@ -25,8 +27,9 @@ import {
   type ReplayOutcome,
   type TreeView,
 } from "./replay/index.js"
+import type { ScopeAccess } from "./flows/index.js"
 import { steeringFormatFor } from "./steering/index.js"
-import { UNATTRIBUTED_MODEL, type ModelCost } from "./wire/index.js"
+import { UNATTRIBUTED_MODEL, type ModelCost, type StepAccess } from "./wire/index.js"
 import {
   knownModes,
   type ChangeStatus,
@@ -35,7 +38,7 @@ import {
   type StepDef,
   type WorkflowDefinition,
 } from "./Workflow.js"
-import type { Landing, RepoSnapshot } from "./step/index.js"
+import { accessRefusal, type Landing, type RepoSnapshot } from "./step/index.js"
 
 export { UNATTRIBUTED_MODEL }
 
@@ -453,6 +456,8 @@ interface ReplaySetup {
   readonly vars: Record<string, string>
   readonly env: Record<string, string>
   readonly budget: number
+  readonly skills: Record<string, readonly string[]>
+  readonly access: Record<string, ScopeAccess>
   readonly workspace: WorkspaceOps
   /**
    * The episode's base tree and every commit's, built ONCE — after
@@ -493,8 +498,10 @@ const replayFor = (
         ? treeFromRecord({})
         : commitTree(setup.workspace, setup.run.diffBase),
     budgetBytes: setup.budget,
-    skills: setup.def.skills,
+    skills: setup.skills,
     configuredSkills: setup.def.configuredSkills,
+    access: setup.access,
+    configuredAccess: setup.def.configuredAccess,
     ...(pending !== undefined ? { pending } : {}),
   })
 
@@ -547,14 +554,20 @@ type RequestOf<K extends ReachedStep["request"]["kind"]> = Extract<
   { kind: K }
 >
 
-const promptDef = (common: StepCommon, request: RequestOf<"agent">): StepDef => ({
+const promptDef = (
+  common: StepCommon,
+  request: RequestOf<"agent">,
+  skills: readonly string[] | undefined,
+  access: StepAccess | undefined,
+): StepDef => ({
   ...common,
   kind: "prompt",
   content: request.prompt,
   ...optional("model", request.options.model),
   ...optional("system", request.options.system),
   ...optional("allowEmpty", request.options.allowEmpty),
-  ...optional("skills", request.options.skills),
+  ...optional("skills", skills),
+  ...optional("access", access),
 })
 
 const scriptDef = (common: StepCommon, request: RequestOf<"run">): StepDef => ({
@@ -589,7 +602,7 @@ const stepDefOf = (step: ReachedStep): StepDef => {
   const common = commonOf(step)
   switch (request.kind) {
     case "agent":
-      return promptDef(common, request)
+      return promptDef(common, request, step.skills, step.access)
     case "run":
       return scriptDef(common, request)
     case "judge":
@@ -666,6 +679,7 @@ export interface RestHints {
   readonly system?: string
   readonly mode?: string
   readonly skills?: readonly string[]
+  readonly access?: StepAccess
 }
 
 const hintsOf = (def: StepDef): RestHints => ({
@@ -676,6 +690,7 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("system", def.system),
   ...optional("mode", def.mode),
   ...optional("skills", def.skills),
+  ...optional("access", def.access),
 })
 
 const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw === "D" ? "D" : "M")
@@ -720,7 +735,10 @@ const costByModel = (entries: readonly CostEntry[]): ModelCost[] => {
 export type RestRequirements = ConfigRequirements
 
 /** Resolve the rest at `ref`, or at HEAD when `ref` is `undefined`. */
-export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, RestRequirements> =>
+export const restAt = (
+  ref: string | undefined,
+  entryOverrides: Readonly<Record<string, string>> = {},
+): Effect.Effect<Rest, Error, RestRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
@@ -728,7 +746,9 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const host = yield* Host
     const def = config.workflow
     const run = yield* computeProcessRun(git, def, ref)
-    const { vars, env } = settingsFor(config, run.pinnedVars, host.env)
+    const { vars, env } = settingsFor(config, run.pinnedVars, host.env, entryOverrides)
+    const skills = yield* resolveScopeSkills(def, vars)
+    const access = yield* resolveScopeAccess(def, skills, vars)
     const budget = yield* Effect.try({
       try: () => judgeBudgetBytes(vars),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -758,6 +778,8 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       vars,
       env,
       budget,
+      skills,
+      access,
       workspace,
       base,
       episode,
@@ -831,6 +853,8 @@ export const entryRefusal = (
     const config = yield* (yield* ConfigService).load
     const host = yield* Host
     const { vars, env } = settingsFor(config, {}, host.env, entryVars)
+    const skills = yield* resolveScopeSkills(rest.def, vars)
+    const access = yield* resolveScopeAccess(rest.def, skills, vars)
     const workspace = rest.setup.workspace
     const outcome = yield* Effect.promise(() =>
       replay({
@@ -844,8 +868,10 @@ export const entryRefusal = (
         env,
         start: "",
         budgetBytes: rest.setup.budget,
-        skills: rest.def.skills,
+        skills,
         configuredSkills: rest.def.configuredSkills,
+        access,
+        configuredAccess: rest.def.configuredAccess,
       }),
     )
     if (outcome.kind === "refused") return outcome.message
@@ -985,6 +1011,10 @@ const decideLanding = (
   Effect.gen(function* () {
     const early = cleanLanding(rest)
     if (early !== undefined) return early
+    if (rest.stepDef.kind === "prompt" && rest.stepDef.access?.write != null) {
+      const message = accessRefusal(rest.changes, rest.stepDef.access.write)
+      if (message !== undefined) return { kind: "refusal", message }
+    }
     const outcome = yield* Effect.promise(() =>
       replayFor(rest.setup, {
         tree: pendingTree(
