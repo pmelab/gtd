@@ -71,8 +71,8 @@ export interface WorkflowDefinition {
   readonly configuredAccess: Readonly<Record<string, ScopeAccess>>
   /** Every well-shaped `.gtdrc` `access:` key with its file, checked once the process's settings are known. */
   readonly accessKeys: readonly { readonly key: string; readonly origin: string }[]
-  /** Every scope any loaded file gives skills or access to — what a `.gtdrc` key may name. Absent: only this workflow's own. */
-  readonly knownScopes?: (vars: Readonly<Record<string, string>>) => readonly string[]
+  /** The scopes every OTHER loaded file gives skills or access to, each on its own settings — a `.gtdrc` key may name them too. */
+  readonly knownScopes?: () => readonly string[]
   /** The file the `skills` and `access` exports came from, for error reports. */
   readonly skillsOrigin: string
   /** The flow's first step on an ordinary start — where a finished episode waits. */

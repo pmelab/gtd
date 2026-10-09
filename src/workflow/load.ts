@@ -12,7 +12,7 @@ import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "../ConfigSchema.js"
 import { compileConfig, type CompiledConfig, type ConfigLayer } from "./compile.js"
 import { interpolate } from "./interpolate.js"
-import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
+import { SETTING_NAME_RULE, isSettingName, resolveVars } from "./vars.js"
 import { ConfigDiscovery, type ConfigLevel, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
@@ -236,8 +236,16 @@ export const load: Effect.Effect<
   >
   // A `.gtdrc` key is judged against every loaded file, not just the running
   // workflow's: one `.gtdrc` serves the bundled and the repo workflows alike.
-  const knownScopes = (vars: Readonly<Record<string, string>>): readonly string[] =>
-    loaded.files.flatMap((f) => [...Object.keys(f.skills(vars)), ...Object.keys(f.access(vars))])
+  // Each other file runs on its own settings, and one that still throws only
+  // narrows the check: it is not the running workflow's to report.
+  const scopesOf = (file: LoadedFile): readonly string[] => {
+    const vars = resolveVars(file.defaults, compiled.rcVars, {}, host.env)
+    try {
+      return [...Object.keys(file.skills(vars)), ...Object.keys(file.access(vars))]
+    } catch {
+      return []
+    }
+  }
   const define = (entry: LoadedWorkflow): WorkflowDefinition => ({
     flow: entry.flow,
     summary: entry.file.summary,
@@ -250,7 +258,7 @@ export const load: Effect.Effect<
     access: entry.file.access,
     configuredAccess: compiled.access,
     accessKeys: compiled.accessKeys,
-    knownScopes,
+    knownScopes: () => loaded.files.filter((f) => f !== entry.file).flatMap(scopesOf),
     skillsOrigin: entry.file.origin,
     initial,
   })

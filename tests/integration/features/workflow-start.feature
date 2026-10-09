@@ -382,3 +382,25 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     When I run gtd land
     Then it fails
     And stderr contains "workflow \"hotfix\" reaches step \"idle\", the default workflow's first step"
+
+  Scenario: a repo skills export reading its own setting never breaks a bundled workflow
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent } from "@pmelab/gtd/flows"
+
+      export const defaults = { patchSkills: "debugging,tdd" }
+
+      export const skills = (vars: Record<string, string>) => ({
+        patching: vars.patchSkills.split(","),
+      })
+
+      export const hotfix = async () => {
+        await agent("patch", "Patch it.")
+      }
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Workflow: feature"
+    When I run gtd with args "--workflow fix"
+    Then it succeeds
+    And the last commit body contains "Gtd-Workflow: fix"

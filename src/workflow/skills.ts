@@ -44,14 +44,9 @@ const checkKeys = (
 }
 
 const knownTo = (
-  def: Pick<WorkflowDefinition, "knownScopes" | "skillsOrigin">,
-  vars: Readonly<Record<string, string>>,
+  def: Pick<WorkflowDefinition, "knownScopes">,
   own: readonly string[],
-): Effect.Effect<readonly string[], GtdError> =>
-  Effect.try({
-    try: () => [...new Set([...own, ...(def.knownScopes?.(vars) ?? [])])],
-    catch: (e) => fail(def.skillsOrigin, e instanceof Error ? e.message : String(e)),
-  })
+): readonly string[] => [...new Set([...own, ...(def.knownScopes?.() ?? [])])]
 
 /**
  * Skill lists for the settings actually in use. `.gtdrc` `skills:` keys are
@@ -66,7 +61,7 @@ export const resolveScopeSkills = (
       try: () => checkShape(def.skills(vars)),
       catch: (e) => fail(def.skillsOrigin, e instanceof Error ? e.message : String(e)),
     })
-    const known = yield* knownTo(def, vars, Object.keys(skills))
+    const known = knownTo(def, Object.keys(skills))
     yield* checkKeys(def.skillsKeys, known, unknownSkillsKeyMessage, "skills")
     return skills
   })
@@ -96,7 +91,7 @@ export const resolveScopeAccess = (
       try: () => checkAccessShape(def.access(vars)),
       catch: (e) => fail(def.skillsOrigin, e instanceof Error ? e.message : String(e)),
     })
-    const known = yield* knownTo(def, vars, [...Object.keys(skills), ...Object.keys(access)])
+    const known = knownTo(def, [...Object.keys(skills), ...Object.keys(access)])
     yield* checkKeys(def.accessKeys, known, unknownAccessKeyMessage, "access")
     return access
   })
