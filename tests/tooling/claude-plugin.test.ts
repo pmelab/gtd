@@ -1,7 +1,26 @@
-import { readFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const json = (path: string) => JSON.parse(readFileSync(path, "utf8"))
+
+// Every file the hooks module reaches, as [file, specifier] import pairs.
+const importsFrom = (entry: string, seen = new Set<string>()): [string, string][] => {
+  if (seen.has(entry)) return []
+  seen.add(entry)
+  const source = readFileSync(entry, "utf8")
+  const specs = [
+    ...source.matchAll(/^import\s(?!type\s)(?:[^"]*\sfrom\s)?"([^"]+)"/gm),
+    ...source.matchAll(/^export\s(?!type\s)[^"]*\sfrom\s"([^"]+)"/gm),
+  ].map((m) => m[1]!)
+  return specs.flatMap((spec) => {
+    if (!spec.startsWith(".")) return [[entry, spec] as [string, string]]
+    const base = join(dirname(entry), spec).replace(/\.js$/, "")
+    const file = [".ts", ".tsx"].map((x) => base + x).find((f) => existsSync(f))
+    return file ? importsFrom(file, seen) : []
+  })
+}
 
 // The npm package is the Claude Code plugin: these pin what makes it one.
 describe("claude plugin", () => {
@@ -25,6 +44,20 @@ describe("claude plugin", () => {
       expect(pkg.files).toContain(part)
     }
     expect(json("hooks/hooks.json").modules).toEqual(["../claude/hooks/register.tsx"])
+  })
+
+  // The engine refuses to load the module otherwise ("a hooks module imports
+  // its own files by relative path and \"claude-code\", nothing else").
+  it("loads only relative files and claude-code from the hooks module", () => {
+    const outside = importsFrom("claude/hooks/register.tsx").filter(([, s]) => s !== "claude-code")
+    expect(outside).toEqual([])
+  })
+
+  it("follows re-exports when walking the hooks module", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-hooks-"))
+    writeFileSync(join(dir, "entry.ts"), 'export { x } from "./leaf.js"\nexport const y = "z"\n')
+    writeFileSync(join(dir, "leaf.ts"), 'export { sep as x } from "node:path"\n')
+    expect(importsFrom(join(dir, "entry.ts")).map(([, s]) => s)).toEqual(["node:path"])
   })
 
   it("installs the plugin from this package", () => {

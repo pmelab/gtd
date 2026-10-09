@@ -1,5 +1,3 @@
-import { isAbsolute, relative, resolve } from "node:path"
-
 import { globMatches } from "../../src/replay/Glob.js"
 
 export type AccessDef = { read: string[] | null; write: string[] | null }
@@ -12,10 +10,19 @@ const WRITE: Record<string, string> = {
   NotebookEdit: "notebook_path",
 }
 
+// Hand-rolled because a hooks module may not import `node:path`.
+const segments = (p: string): string[] =>
+  p.split("/").reduce<string[]>((out, s) => {
+    if (s === "..") out.pop()
+    else if (s && s !== ".") out.push(s)
+    return out
+  }, [])
+
 // Repo-relative form of a path; undefined when it lies outside the repo.
 const inRepo = (p: string, root: string): string | undefined => {
-  const rel = relative(root, isAbsolute(p) ? p : resolve(root, p))
-  return rel === ".." || rel.startsWith("../") || isAbsolute(rel) ? undefined : rel
+  const base = segments(root)
+  const target = segments(p.startsWith("/") ? p : `${root}/${p}`)
+  return base.every((s, i) => target[i] === s) ? target.slice(base.length).join("/") : undefined
 }
 
 const deny = (verb: string, path: string, globs: string[]) =>
