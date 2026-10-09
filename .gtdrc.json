@@ -12,5 +12,8 @@
   },
   "ui": {
     "format": "npx oxfmt --no-error-on-unmatched-pattern --write \"$GTD_FILE\""
+  },
+  "env": {
+    "fastTestCommand": "npm run test:fast"
   }
 }
