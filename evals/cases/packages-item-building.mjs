@@ -26,6 +26,10 @@ export default Object.freeze({
 returning \`\${first} \${last}\` with a single space between them, both trimmed
 of surrounding whitespace.
 
+## Tests
+
+- unit: \`src/formatName.test.ts\`
+
 ## Acceptance
 
 - [ ] \`formatName("Ada", "Lovelace")\` returns \`"Ada Lovelace"\`

@@ -63,6 +63,16 @@ function checkMergedConcerns(result, caseDef, variant) {
   )
 }
 
+function checkSections(result) {
+  const at = spec.sections.map((title) =>
+    result.feedback.search(new RegExp(`^## ${title}\\s*$`, "m")),
+  )
+  if (at.every((i, n) => i >= 0 && (n === 0 || i > at[n - 1]))) return undefined
+  return fail(
+    `ARCHITECTURE.md must carry ${spec.sections.map((t) => `\`## ${t}\``).join(", ")} in that order`,
+  )
+}
+
 export default function grade(output, context) {
-  return safeGrade(output, context, spec, [...SHARED_CHECKS, checkMergedConcerns])
+  return safeGrade(output, context, spec, [...SHARED_CHECKS, checkSections, checkMergedConcerns])
 }

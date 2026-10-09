@@ -15,8 +15,6 @@ export const skills = (
   "architecture.decompose": ["incremental-implementation", "planning-and-task-breakdown"],
   "packages.item": ["test-driven-development", "incremental-implementation"],
   "packages.item.fix.suite": ["debugging-and-error-recovery"],
-  "packages.item.fix.spec": ["incremental-implementation", "code-simplification"],
-  "packages.item.spec": ["code-review-and-quality", "spec-driven-development"],
   // `health` is shared code reached from both `packages.item` and `build`.
   "packages.item.health": ["debugging-and-error-recovery"],
   build: ["debugging-and-error-recovery"],

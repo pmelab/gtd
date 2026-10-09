@@ -3,12 +3,15 @@
 // center on the same files. Two-sided on that merge decision: `violation`'s
 // two concerns both center on the same file and MUST be merged under a
 // well-formed `## Merged Concerns` heading; `clean`'s concerns touch
-// disjoint files and that heading MUST NOT appear.
+// disjoint files and that heading MUST NOT appear. Both variants must also
+// carry the four content sections (`## Interfaces`, `## Call Stacks`,
+// `## E2E Scenarios`, `## Unit Tests`) in order.
 export default Object.freeze({
   name: "architecture-author",
   state: "architecture.author",
   plantedIdentifier: "src/pricing/discount.ts",
   artifact: ".gtd/ARCHITECTURE.md",
+  sections: ["Interfaces", "Call Stacks", "E2E Scenarios", "Unit Tests"],
   base: {
     "src/pricing/discount.ts": `export const discountedPrice = (price: number): number => price
 `,

@@ -1,5 +1,7 @@
 // `architecture.decompose`: the mechanical write-out from a converged
-// `.gtd/ARCHITECTURE.md` into one package file per settled concern. No
+// `.gtd/ARCHITECTURE.md` into test-driven package files (package 0 for the
+// e2e scenarios, then one per settled concern, each declaring its tests
+// under `## Tests`); `.gtd/ARCHITECTURE.md` itself must survive. No
 // function field — this is data both a `node` process and a promptfoo
 // assert import, and a predicate here would put grading logic in the
 // fixture.
@@ -14,6 +16,18 @@
 // per `##` heading" turn happens to pass both — the fixture text and the
 // `challenge` in `evals/promptfooconfig.yaml` are what make the bundled
 // concern visibly tempting to re-split.
+// Both variants' architecture declares the same tests; e2e ones belong to
+// package 00, unit ones to any package's `## Tests`.
+const DECLARED_TESTS = {
+  scenarioPackage: ".gtd/packages/00-e2e-scenarios.md",
+  e2e: ["tests/features/signup.feature"],
+  unit: [
+    "src/pricing/discount.test.ts",
+    "src/profile/newsletter.test.ts",
+    "src/email/validate.test.ts",
+  ],
+}
+
 export default Object.freeze({
   name: "architecture-decompose",
   state: "architecture.decompose.decomposing",
@@ -27,43 +41,74 @@ export default Object.freeze({
   },
   variants: {
     clean: {
-      ".gtd/ARCHITECTURE.md": `## Discount price badge
+      ".gtd/ARCHITECTURE.md": `## Interfaces
 
-TECHNICAL. Read the discounted price straight off \`discountedPrice\` and
-render a badge next to it wherever a price is shown. Touches
-\`src/pricing/discount.ts\`.
+\`\`\`ts
+export const discountedPrice = (price: number): number
+export const newsletterOptIn = (userId: string): boolean
+export const isValidEmail = (email: string): boolean
+\`\`\`
 
-## Newsletter opt-in
+## E2E Scenarios
 
-TECHNICAL. Add a toggle on the profile page that flips
-\`newsletterOptIn\`'s stored value for the current user. Touches
-\`src/profile/newsletter.ts\`.
+- e2e: tests/features/signup.feature
 
-## Email validation
+\`\`\`gherkin
+Feature: Signup
+  Scenario: A malformed email is rejected
+    When I sign up with "not-an-email"
+    Then the signup is rejected
+\`\`\`
 
-TECHNICAL. Reject a signup form submission whenever \`isValidEmail\` returns
-false. Touches \`src/email/validate.ts\`.
+## Unit Tests
+
+### discountedPrice
+
+- unit: src/pricing/discount.test.ts — applies the discount (covers Discount price badge)
+
+### newsletterOptIn
+
+- unit: src/profile/newsletter.test.ts — stores the opt-in, consuming discountedPrice's cart total (covers Newsletter opt-in)
+
+### isValidEmail
+
+- unit: src/email/validate.test.ts — rejects a malformed address, consuming the opt-in profile (covers Email validation)
 `,
     },
     violation: {
-      ".gtd/ARCHITECTURE.md": `## Discount price badge
+      ".gtd/ARCHITECTURE.md": `## Interfaces
 
-TECHNICAL. Read the discounted price straight off \`discountedPrice\` and
-render a badge next to it wherever a price is shown. Touches
-\`src/pricing/discount.ts\`.
+\`\`\`ts
+export const discountedPrice = (price: number): number
+export const newsletterOptIn = (userId: string): boolean
+export const isValidEmail = (email: string): boolean
+\`\`\`
 
-## Newsletter opt-in
+## E2E Scenarios
 
-TECHNICAL. Add a toggle on the profile page that flips
-\`newsletterOptIn\`'s stored value for the current user. Touches
-\`src/profile/newsletter.ts\`.
+- e2e: tests/features/signup.feature
 
-## Email validation and normalization
+\`\`\`gherkin
+Feature: Signup
+  Scenario: A malformed email is rejected
+    When I sign up with "not-an-email"
+    Then the signup is rejected
+\`\`\`
 
-TECHNICAL. Reject a signup form submission whenever \`isValidEmail\` returns
-false. TECHNICAL. Lowercase and trim an email address in \`isValidEmail\`
-before it is ever compared or stored, so two differently-cased submissions
-of the same address never collide. Touches \`src/email/validate.ts\`.
+## Unit Tests
+
+### discountedPrice
+
+- unit: src/pricing/discount.test.ts — applies the discount (covers Discount price badge)
+
+### newsletterOptIn
+
+- unit: src/profile/newsletter.test.ts — stores the opt-in, consuming discountedPrice's cart total (covers Newsletter opt-in)
+
+### isValidEmail
+
+- unit: src/email/validate.test.ts — rejects a malformed address, consuming the opt-in profile (covers Email validation and normalization)
+- unit: src/email/validate.test.ts — lowercases and trims before comparing (covers Email validation and normalization)
 
 ## Merged Concerns
 
@@ -78,17 +123,19 @@ merged: both center on \`src/email/validate.ts\`.
   expect: {
     clean: {
       gtdFiles: {
-        exact: [".gtd/ARCHITECTURE.md"],
-        matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 3 },
+        exact: [],
+        matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 4 },
       },
       otherFiles: "none",
+      declaredTests: DECLARED_TESTS,
     },
     violation: {
       gtdFiles: {
-        exact: [".gtd/ARCHITECTURE.md"],
-        matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 3 },
+        exact: [],
+        matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 4 },
       },
       otherFiles: "none",
+      declaredTests: DECLARED_TESTS,
     },
   },
 })

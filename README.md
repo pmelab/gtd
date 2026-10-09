@@ -40,6 +40,10 @@ the read side to its agent. `read` is not a security boundary unless your driver
 enforces it at the OS level. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#file-access).
 
+> **`fastTestCommand` is required, with no fallback to `testCommand`.** Set it
+> (everything but e2e) under `env:` in `.gtdrc` or as `GTD_FASTTESTCOMMAND`; gtd
+> stops at the start gate, writing `.gtd/SETUP.md`, until it is.
+
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
 > is a TypeScript module, and every gtd command that looks at workflow state —
 > `gtd next` and `gtd lsp` included, not just `gtd land` — evaluates it. Treat
@@ -355,7 +359,7 @@ lists the open ones (editor-only — the phone UI does not show them).
 
 One built-in workflow drives all of that. From where you sit, it has four
 moments — everything between them runs without you, with the judged exceptions
-noted in steps 2, 3, and 4 below.
+noted in steps 3 and 4 below.
 
 1. **You sketch.** Change anything, or write the idea into `.gtd/TODO.md`. Rough
    is fine; it is treated as a sketch, not as work.
@@ -368,25 +372,22 @@ noted in steps 2, 3, and 4 below.
    the same gate again. Close a thread by replying with a conclusion or deleting
    it. While a thread's last entry is the agent's, moving on is refused. Leave
    the file untouched and start the loop to accept the plan as-is, unanswered
-   questions and all. One point along this phase is judged rather than always
-   asking you outright:
-   - Before the how-it-should-be-built pass starts: does this plan actually need
-     one? A confident no skips it — and the review it would have raised — going
-     straight from your answers to a single built package, with no technical
-     plan shown to you at all.
-
-   The reference driver answers this judgment itself (`gtd judge run`, auto
-   selection); if that fails it shows you the message and stops, same as any
-   other question. **The `llm` provider's `p` is self-reported by the model, not
-   a measured probability, so a confidently wrong haiku verdict can skip a
-   question you would have asked.**
+   questions and all. Every plan gets the technical pass: its document has four
+   sections, in order — `## Interfaces`, `## Call Stacks`, `## E2E Scenarios`,
+   `## Unit Tests` — behind a leading `## Open Questions` when there are any.
+   `## E2E Scenarios` is never empty: it holds the scenarios, or, when nothing
+   user-visible changes, the line `No e2e change.` with a one-line reason.
 
 3. **You wait.** The work is split into packages and built one at a time, each
-   one checked against your test suite and fixed until it passes, then reviewed
-   against its own spec before moving on. Three points along that loop are
-   judged rather than always asking you outright — each stops and hands you a
-   verdict to make (`gtd judge answer`, or land with a clean tree to accept the
-   conservative default, which never skips work;
+   one starting from the unit tests it declares (a build turn missing one is
+   refused), checked against the fast suite and fixed until it passes before
+   moving on. A package that rewords a frozen `.feature` step stops at a wording
+   gate: accept the change, or reject it and the original is restored. After the
+   last package a full run (e2e included) has its own fix loop before the
+   quality lap. Two points along the process are judged rather than always
+   asking you outright — each stops and hands you a verdict to make
+   (`gtd judge answer`, or land with a clean tree to accept the conservative
+   default, which never skips work;
    `gtd judge run --provider fixed --answers <path>` — or the
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
    between `gtd judge --json` and `gtd judge answer`;
@@ -403,17 +404,15 @@ noted in steps 2, 3, and 4 below.
    stdout when they cannot answer every question):
    - Every red round after the first: was the failure identical, new, or
      progress?
-   - Before spending a review turn on a package: does the code already satisfy
-     each of its requirements?
-   - After a review turn raises concerns: would each one actually violate the
-     spec if left unaddressed, or is it a nit?
+   - After you review: is each of your notes an edit, a question, a nit or
+     praise?
 
    The reference driver answers these itself (`gtd judge run`, auto selection:
    jev when `TYPESAFE_API_KEY` is set, else `llm` via `claude`, default model
    haiku, `--model <name>` overrides); if that fails it shows you the message
    and stops. **The `llm` provider's `p` is self-reported by the model, not a
-   measured probability, so a confidently wrong verdict can clear the 0.9/0.7
-   floors and skip a gate unattended.**
+   measured probability, so a confidently wrong verdict can clear the 0.7 floor
+   and skip a gate unattended.**
 
    Once the last package is built, the whole change goes through a qualitative
    review lap before you see anything: six lenses, one turn each, in order —
@@ -421,8 +420,7 @@ noted in steps 2, 3, and 4 below.
    `conventions`, `spec-challenge`. Each traces the change from its own angle
    and records every finding, blocking or not; one fix turn then fixes ALL of
    them once, with no re-review after the fix. A clean turn means approval only
-   when that lens found nothing at all. The per-package review above only judges
-   that package against its own spec; this lap is where code quality is looked
+   when that lens found nothing at all. This lap is where code quality is looked
    at, and every round pays for it. It never replaces step 4 — your review stays
    the final gate, and nothing here skips it. The `gtd --entry fix-precheck`
    side door (below) repairs a red baseline through this same lap.
@@ -438,10 +436,10 @@ noted in steps 2, 3, and 4 below.
 
 4. **You review.** You get a review document listing what changed and what to
    look at. Before you see it, an automatic risk-fix pass
-   (`build.review.fix-risks`) runs. Any risk the reviewer names (a note opening
-   with `Risk:`) is fixed first, the suite kept green, and the review rewritten
-   — once per review round, so a risk the rewrite still names reaches you
-   unfixed; risk: a fix lands with no check that the risk was real. Tick the
+   (`build.review.fix.risks.fixing`) runs. Any risk the reviewer names (a note
+   opening with `Risk:`) is fixed first, the suite kept green, and the review
+   rewritten — once per review round, so a risk the rewrite still names reaches
+   you unfixed; risk: a fix lands with no check that the risk was real. Tick the
    boxes to approve, or write what is wrong. Approving ends the process;
    feedback is judged note by note, each as `edit`, `question`, `nit` or
    `praise`. An `edit` sends the process back to step 2 for a fresh plan — it

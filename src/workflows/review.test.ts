@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { installContext, type Change, type JudgeAnswer, type StepRequest } from "../flows/index.js"
-import { review, type ReviewOutcome } from "./review.js"
+import { fixQualityFindings, review, type ReviewOutcome } from "./review.js"
 import { unified } from "./index.js"
 import { fixtureContext } from "./text.fixture.js"
 
@@ -329,5 +329,92 @@ describe("the default quality lenses", () => {
       "correctness",
       "spec-challenge",
     ])
+  })
+})
+
+describe("scenario wording in review's fix turns", () => {
+  const frozen = { at: "h1", texts: { "e2e/a.feature": "Given a" } }
+  const risky = doc(["Risk: drops the carry", "sub"])
+
+  it("a green-keeping fix after a risk fix that rewrites a scenario stops at review.scenario-wording", async () => {
+    const log: string[] = []
+    let red = false
+    let drifted = false
+    installContext(
+      fixtureContext(
+        {},
+        {
+          step: (request: StepRequest) => {
+            if (request.kind === "restart") return Promise.resolve()
+            log.push(request.name)
+            if (request.name === "health.check") red = !red && !drifted
+            if (request.name === "fix") drifted = true
+            if (request.name === "scenario-wording") throw new Stop()
+            return Promise.resolve()
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          read: (path) =>
+            path === REVIEW
+              ? risky
+              : path === "e2e/a.feature"
+                ? drifted
+                  ? "Given b"
+                  : "Given a"
+                : undefined,
+          changes: (): readonly Change[] =>
+            red
+              ? [{ path: ".gtd/FEEDBACK.md", status: "added", before: undefined, after: "red" }]
+              : [],
+          matches: (path, pattern) => path === pattern,
+          head: () => "h2",
+          start: () => "h0",
+        },
+      ),
+    )
+    await review("base", undefined, frozen).catch((e: unknown) => {
+      if (!(e instanceof Stop)) throw e
+    })
+    expect(log.slice(-2)).toEqual(["fix", "scenario-wording"])
+  })
+})
+
+describe("the quality fix loop", () => {
+  it("a fix that resolves QUALITY.md and rewrites a scenario ends after the wording gate", async () => {
+    const QUALITY = ".gtd/QUALITY.md"
+    const log: string[] = []
+    const files = new Map([
+      [QUALITY, "- finding"],
+      ["e2e/a.feature", "Given a"],
+    ])
+    let last: readonly Change[] = []
+    installContext(
+      fixtureContext(
+        {},
+        {
+          step: (request: StepRequest) => {
+            if (request.kind === "restart") return Promise.resolve()
+            log.push(request.name)
+            last = []
+            if (request.name === "fix.quality.fixing") {
+              files.delete(QUALITY)
+              files.set("e2e/a.feature", "Given b")
+              last = [{ path: QUALITY, status: "deleted", before: "- finding", after: undefined }]
+            }
+            return Promise.resolve()
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          read: (path) => files.get(path),
+          changes: () => last,
+          matches: (path, pattern) => path === pattern,
+          head: () => "h2",
+          start: () => "h0",
+        },
+      ),
+    )
+    const frozen = { at: "h1", texts: { "e2e/a.feature": "Given a" } }
+    expect(await fixQualityFindings({ rounds: 0 }, frozen)).toBe(true)
+    expect(log).toEqual(["fix.quality.fixing", "scenario-wording"])
   })
 })

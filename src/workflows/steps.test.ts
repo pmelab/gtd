@@ -40,16 +40,6 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
     expect(prompt).toContain("debugging-and-error-recovery")
   })
 
-  it("fixSpec carries packages.item.fix.spec's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.fixSpec("pkg"), "packages.item"))
-    expect(prompt).toContain("incremental-implementation, code-simplification")
-  })
-
-  it("reviewPackage carries packages.item.spec.review's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.reviewPackage("pkg"), "packages.item"))
-    expect(prompt).toContain("code-review-and-quality, spec-driven-development")
-  })
-
   it("fix carries build.fix's bundled skills", async () => {
     const prompt = agentPrompt(await capture(() => steps.fix(), "build"))
     expect(prompt).toContain("debugging-and-error-recovery")

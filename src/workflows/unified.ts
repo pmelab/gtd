@@ -14,7 +14,8 @@ import {
 } from "../flows/index.js"
 import { baseline, gate } from "./health.js"
 import { packages } from "./packages.js"
-import { architecturePass, design } from "./planning.js"
+import { architecture, design } from "./planning.js"
+import type { FrozenScenarios } from "./scenarios.js"
 import { buildTail, type ReviewOutcome } from "./review.js"
 import { ARCHITECTURE, FEEDBACK, REQUIREMENTS, REVIEW } from "./steps.js"
 import * as t from "./text.js"
@@ -39,6 +40,7 @@ export * from "./steps.js"
 export * from "./health.js"
 export * from "./planning.js"
 export * from "./packages.js"
+export * from "./scenarios.js"
 export * from "./review.js"
 
 /** Revert the sketch that started the process out of the working tree; its intent survives in history. */
@@ -70,11 +72,13 @@ export const reUnwind = async (
 /** Plan, build and review until a review round signs off; feedback re-plans from scratch. */
 export const planAndBuild = async (firstBase: string): Promise<void> => {
   let base = firstBase
+  let carried: FrozenScenarios | undefined
   for (;;) {
     await design(base)
-    await architecturePass()
-    await packages()
-    const outcome = await buildTail(false, base)
+    await architecture()
+    const built = await packages(carried)
+    carried = built.frozen
+    const outcome = await buildTail(false, base, built)
     if (outcome.verdict === "signoff") return
     await reUnwind(outcome)
     base = outcome.base

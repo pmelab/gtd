@@ -67,7 +67,8 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       export const add = (a: number, b: number) => a + b
       """
     And gtd enters "review-gate.check" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     # The styled file itself — bold claim, imperative, no padding — with the
     # "# Review: <hash>" header, the base marker, and "## <chunk>" / "- [ ]
     # ./path#line" rows `gtd check review` requires still intact.

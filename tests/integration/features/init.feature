@@ -24,6 +24,7 @@ Feature: gtd init — seed a minimal .gtdrc.json (default env + formatting)
     And ".gtdrc.json" does not contain "\"vars\""
     And ".gtdrc.json" contains "\"testCommand\""
     And ".gtdrc.json" contains "npm test"
+    And ".gtdrc.json" contains "\"fastTestCommand\": \"\""
     # A ready-to-edit top-level `modes:` block seeds a Prettier formatter for the
     # built-in qa/review steering-file modes (format only — gtd still validates).
     And ".gtdrc.json" contains "\"modes\""

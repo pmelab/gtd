@@ -12,7 +12,6 @@ export const access = (
   design: { write: [] },
   architecture: { write: [".gtd/REQUIREMENTS.md"] },
   "architecture.decompose": { write: [".gtd/packages/**", ".gtd/ARCHITECTURE.md"] },
-  "packages.item.spec": { write: [".gtd/SPEC_FEEDBACK.md"] },
   "build.review": { write: [".gtd/REVIEW.md"] },
   // `{}` reopens what `build.review` restricted: the fixes edit code.
   "build.review.fix.nits": {},

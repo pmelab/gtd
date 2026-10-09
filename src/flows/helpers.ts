@@ -36,6 +36,8 @@ export interface CheckOptions {
   readonly sweep?: readonly string[] | undefined
   /** Paths removed once it passes. */
   readonly sweepOnGreen?: readonly string[] | undefined
+  /** Shell lines run before the command, outside its output capture; an `exit 0` skips it and leaves `report` untouched. */
+  readonly preamble?: readonly string[] | undefined
 }
 
 /**
@@ -48,10 +50,10 @@ export const check = async (
   command: string,
   options: CheckOptions,
 ): Promise<boolean> => {
-  const { report, label, sweep, sweepOnGreen } = options
+  const { report, label, sweep, sweepOnGreen, preamble } = options
   await run(
     name,
-    checkScript(command, { report, stamp: head().slice(0, 7), sweep, sweepOnGreen }),
+    checkScript(command, { report, stamp: head().slice(0, 7), sweep, sweepOnGreen, preamble }),
     { label },
   )
   return !wrote(report)

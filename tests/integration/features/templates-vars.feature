@@ -207,8 +207,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       a sketch
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
@@ -216,7 +215,6 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
     And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    And the file ".gtd/ARCHITECTURE.md" is deleted
     And a file ".gtd/packages/01-plan.md" with:
       """
       the plan

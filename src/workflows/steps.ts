@@ -12,7 +12,6 @@ export const REQUIREMENTS = ".gtd/REQUIREMENTS.md"
 export const ARCHITECTURE = ".gtd/ARCHITECTURE.md"
 export const REVIEW = ".gtd/REVIEW.md"
 export const QUALITY = ".gtd/QUALITY.md"
-export const SPEC_FEEDBACK = ".gtd/SPEC_FEEDBACK.md"
 
 const planner = (): string => env.plannerModel ?? ""
 const coder = (): string => env.coderModel ?? ""
@@ -80,27 +79,10 @@ export const fixSuite = (): Promise<void> =>
     system: t.builderSystem(),
   })
 
-export const fixSpec = (pkg: string): Promise<void> =>
-  t.agentWithSkills("fix.spec.fixing", t.packagesItemFixSpecPrompt(pkg), {
-    label: "Fixing review feedback",
-    file: SPEC_FEEDBACK,
-    model: coder(),
-    system: t.builderSystem(),
-  })
-
-/** Review `pkg` against its spec, focused on the `failing` sections the pre-judge could not clear. */
-export const reviewPackage = (pkg: string, failing: readonly string[] = []): Promise<void> =>
-  t.agentWithSkills("spec.review", t.packagesItemSpecReviewPrompt(pkg, failing), {
-    label: "Reviewing the package",
-    model: planner(),
-    system: t.specReviewerSystem(),
-    allowEmpty: true,
-  })
-
 // ── Keeping the suite green ─────────────────────────────────────────────────
 
-export const fix = (): Promise<void> =>
-  t.agentWithSkills("fix", t.buildFixPrompt(), {
+export const fix = (built?: t.BuildContext): Promise<void> =>
+  t.agentWithSkills("fix", t.buildFixPrompt(built), {
     label: "Fixing the check",
     file: FEEDBACK,
     model: coder(),

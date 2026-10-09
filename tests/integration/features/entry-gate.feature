@@ -127,6 +127,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "true"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     Given a file "NOTE.md" with:
       """
       Build a thing.
@@ -156,6 +157,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "true"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a file "src/real.ts" with:
       """
       export const real = 1
@@ -194,6 +196,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "false"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     Given a file "NOTE.md" with:
       """
       Build a thing.

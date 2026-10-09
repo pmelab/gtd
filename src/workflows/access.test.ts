@@ -12,7 +12,6 @@ describe("the bundled workflow's access export", () => {
       design: { write: [] },
       architecture: { write: [".gtd/REQUIREMENTS.md"] },
       "architecture.decompose": { write: [".gtd/packages/**", ".gtd/ARCHITECTURE.md"] },
-      "packages.item.spec": { write: [".gtd/SPEC_FEEDBACK.md"] },
       "build.review": { write: [".gtd/REVIEW.md"] },
       "build.review.fix.nits": {},
       "build.review.fix.risks": {},

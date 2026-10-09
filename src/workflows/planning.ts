@@ -1,20 +1,12 @@
 import {
-  answered,
   changes,
   hasThreadFor,
-  judge,
-  moveScript,
-  numeric,
-  read,
   refuse,
   requireAnswers,
   requireReplies,
   requireThreadsClosed,
   requireProgress,
-  run,
   scope,
-  sections,
-  vars,
 } from "../flows/index.js"
 import {
   answerProductQuestions,
@@ -25,7 +17,6 @@ import {
   REQUIREMENTS,
   triage,
 } from "./steps.js"
-import * as t from "./text.js"
 
 /**
  * Always stop for the human. Resolves `true` when the round changed anything
@@ -62,44 +53,9 @@ export const architecture = (): Promise<void> =>
     if (changes(".gtd/packages/**").length === 0) {
       refuse("gtd land: decompose: write at least one package under .gtd/packages/")
     }
+    if (changes(ARCHITECTURE).some((c) => c.status === "deleted")) {
+      refuse(
+        "gtd land: decompose: keep .gtd/ARCHITECTURE.md — the build tail's full run needs it; it is removed only once that run is green",
+      )
+    }
   })
-
-/** A package file name from a plan's first heading. */
-const slug = (title: string): string =>
-  title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "package"
-
-/** Whether the settled plan needs its own architecture pass, or goes straight to one package. */
-export const architecturePass = async (): Promise<void> => {
-  const { answers, truncated } = await judge("architecture-pre", {
-    questions: [
-      {
-        id: "architectureWarranted",
-        primitive: "noul",
-        instructions:
-          "Given the settled concerns in `.gtd/REQUIREMENTS.md` (in state), does this plan warrant a dedicated architecture pass — real structural decisions, multiple integration points, or a non-obvious tradeoff — before packages are written?",
-        criteria:
-          "Answer yes if uncertain; a trivial, single-concern, mechanical plan with no real design decision answers no.",
-      },
-    ],
-    evidence: { requirements: read(REQUIREMENTS) ?? "" },
-    message: t.architecturePreMessage(),
-    label: "Judging whether this plan warrants an architecture pass",
-  })
-  // A plan the budget cut can hide its structural concerns from the judge:
-  // never skip the architecture pass on it, however confident the "no".
-  const skip =
-    truncated.length === 0 &&
-    answered(answers.architectureWarranted, "no", numeric(vars.architectureSkipMinP, Infinity))
-  const plan = read(REQUIREMENTS)
-  if (skip && plan !== undefined) {
-    const target = `.gtd/packages/01-${slug(sections(plan)[0] ?? "")}.md`
-    await run("architecture-promote", moveScript(REQUIREMENTS, target), {
-      label: "Promoting the plan straight to a package",
-    })
-    return
-  }
-  await architecture()
-}
