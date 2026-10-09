@@ -4,6 +4,7 @@ import {
   agentWithSkills,
   architectureAuthorPrompt,
   architectureGateAnswerMessage,
+  buildFixPrompt,
   buildFixQualityPrompt,
   buildQualityReviewingPrompt,
   buildReviewAwaitReviewMessage,
@@ -33,11 +34,11 @@ describe("withSkills", () => {
 
 describe("agentWithSkills", () => {
   const capture = (fn: () => Promise<void>, skills?: Readonly<Record<string, readonly string[]>>) =>
-    captureStep(fn, skills !== undefined ? { skills } : {})
+    captureStep(fn, { scope: "a", ...(skills !== undefined ? { skills } : {}) })
 
-  it("puts skillsFor(name)'s list, joined, in the preamble", async () => {
+  it("puts the scope's list, joined, in the preamble", async () => {
     const request = await capture(() => agentWithSkills("name", "do-the-work"), {
-      name: ["code-review", "testing"],
+      a: ["code-review", "testing"],
     })
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.prompt).toBe(withSkills("code-review, testing", "do-the-work"))
@@ -46,21 +47,54 @@ describe("agentWithSkills", () => {
   it("passes no skills option itself — the replay resolver fills the wire field", async () => {
     const request = await capture(() => agentWithSkills("name", "do-the-work"))
     if (request.kind !== "agent") throw new Error("unreachable")
-    expect(request.options.skills).toBeUndefined()
+    expect(request.options).not.toHaveProperty("skills")
   })
 
-  it("leaves the prompt bare when the name resolves to no configured skills", async () => {
-    const request = await capture(() => agentWithSkills("name", "do-the-work"), { name: [] })
+  it("leaves the prompt bare when the scope resolves to an empty list", async () => {
+    const request = await capture(() => agentWithSkills("name", "do-the-work"), { a: [] })
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.prompt).toBe("do-the-work")
   })
+})
 
-  it("still accepts an explicit options.skills of its own, untouched", async () => {
-    const request = await capture(() =>
-      agentWithSkills("name", "do-the-work", { skills: ["own-skill"] }),
+describe("agentWithSkills access preamble", () => {
+  const capture = (
+    context: Parameters<typeof captureStep>[1],
+    options: Parameters<typeof agentWithSkills>[2] = {},
+  ) => captureStep(() => agentWithSkills("name", "do-the-work", options), context)
+
+  it("names each restricted side, after the skills preamble and before the prompt", async () => {
+    const request = await capture({
+      scope: "a",
+      skills: { a: ["testing"] },
+      access: { a: { read: ["docs/**"], write: ["out/**"] } },
+    })
+    if (request.kind !== "agent") throw new Error("unreachable")
+    const prompt = request.prompt
+    expect(prompt).toContain("- This turn may read only: docs/**")
+    expect(prompt).toContain(
+      "- This turn may write only: out/** — anything else is refused when the turn lands",
+    )
+    expect(prompt.indexOf("missing one: testing")).toBeLessThan(
+      prompt.indexOf("This turn may read only"),
+    )
+    expect(prompt.endsWith("\n\ndo-the-work")).toBe(true)
+  })
+
+  it("folds the steering file into the named globs", async () => {
+    const request = await capture(
+      { scope: "a", access: { a: { write: [] } } },
+      { file: ".gtd/NOTES.md" },
     )
     if (request.kind !== "agent") throw new Error("unreachable")
-    expect(request.options.skills).toEqual(["own-skill"])
+    expect(request.prompt).toContain("may write only: .gtd/NOTES.md —")
+    expect(request.prompt).not.toContain("may read only")
+  })
+
+  it("leaves the prompt byte-identical when both sides are unrestricted", async () => {
+    const request = await capture({ scope: "a", skills: { a: [] }, access: { a: {} } })
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.prompt).toBe("do-the-work")
   })
 })
 
@@ -126,6 +160,65 @@ describe("architectureAuthorPrompt", () => {
   it("qualifies the PERMISSIVE default with a settled-requirements exception", () => {
     const prompt = renderText(() => architectureAuthorPrompt())
     expect(prompt).toContain("is an open question, not a")
+  })
+  it("names the four content sections in order and the entry forms", () => {
+    const prompt = renderText(() => architectureAuthorPrompt())
+    const at = ["## Interfaces", "## Call Stacks", "## E2E Scenarios", "## Unit Tests"].map((h) =>
+      prompt.indexOf(h),
+    )
+    expect(at.every((i) => i >= 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(prompt).toContain("- unit: <path>")
+    expect(prompt).toContain("- e2e: <path>")
+    expect(prompt).toContain("- chore: <path>")
+    expect(prompt).toContain("No e2e change.")
+  })
+})
+
+describe("buildFixPrompt with build context", () => {
+  const built = {
+    ranges: [
+      { pkg: "00-scenarios", from: "aaa1111", to: "bbb2222" },
+      { pkg: "01-engine", from: "bbb2222", to: "ccc3333" },
+    ],
+    scenarios: { added: ["tests/new.feature"], changed: ["tests/old.feature"] },
+  }
+
+  it("points at the architecture document", () => {
+    expect(renderText(() => buildFixPrompt(built))).toContain(".gtd/ARCHITECTURE.md")
+  })
+
+  it("lists new scenario paths as likely missing wiring", () => {
+    const prompt = renderText(() => buildFixPrompt(built))
+    expect(prompt).toContain("tests/new.feature")
+    expect(prompt).toContain("missing wiring")
+  })
+
+  it("lists changed or existing scenarios as regressions", () => {
+    const prompt = renderText(() => buildFixPrompt(built))
+    expect(prompt).toContain("regression")
+    expect(prompt).toContain("tests/old.feature")
+  })
+
+  it("lists one range line per package", () => {
+    const prompt = renderText(() => buildFixPrompt(built))
+    expect(prompt).toContain("git log --oneline aaa1111..bbb2222  # 00-scenarios")
+    expect(prompt).toContain("git log --oneline bbb2222..ccc3333  # 01-engine")
+  })
+
+  it("is today's prompt without a build context", () => {
+    const prompt = renderText(() => buildFixPrompt())
+    expect(renderText(() => buildFixPrompt(undefined))).toBe(prompt)
+    expect(prompt).toMatch(/\n- Leave everything uncommitted — do not commit\n$/)
+    expect(prompt).toContain("writes its own\n- Leave")
+    expect(prompt).not.toContain("ARCHITECTURE")
+    expect(prompt).not.toContain("git log --oneline")
+  })
+
+  it("starts each bullet on its own line", () => {
+    const prompt = renderText(() => buildFixPrompt(built))
+    expect(prompt).toMatch(/^- Read `\.gtd\/ARCHITECTURE\.md`/m)
+    expect(prompt).toMatch(/^- Leave everything uncommitted/m)
   })
 })
 

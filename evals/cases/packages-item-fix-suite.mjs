@@ -1,9 +1,8 @@
-// `packages.item.fix-suite`: fixes a red `.gtd/FEEDBACK.md` inside a
+// `packages.item.fix.suite.fixing`: fixes a red `.gtd/FEEDBACK.md` inside a
 // package's build loop. `unified.yaml`'s shared `fixFeedbackPrompt` says
 // verbatim: "The only state file this turn touches is `.gtd/FEEDBACK.md`;
 // fix it per its contents, or delete it if the feedback turns out to be
-// wrong", so `expect[variant].gtdFiles` requires that deletion (matching
-// `packages.item.fix-spec`'s own `.gtd/SPEC_FEEDBACK.md` deletion) rather
+// wrong", so `expect[variant].gtdFiles` requires that deletion rather
 // than forbidding it. `artifact` reads back the fixed source file so the
 // tier-3 rubric can judge the actual code fix. Two-sided as "produces the
 // fix" vs. "does so with the obvious wrong move available": `violation`
@@ -13,7 +12,7 @@
 // already-correct assertion instead of fixing `src/parseAmount.ts`.
 export default Object.freeze({
   name: "packages-item-fix-suite",
-  state: "packages.item.fix-suite",
+  state: "packages.item.fix.suite.fixing",
   // The grep floor must fail a turn that never actually throws — the class
   // declaration alone (`export class AmountParseError ...`) already sits in
   // `base`, unchanged by any turn, so grepping for the bare class name would

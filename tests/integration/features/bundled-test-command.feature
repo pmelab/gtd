@@ -27,6 +27,7 @@ Feature: the bundled workflow's health check runs "testCommand"
       """
       { "name": "fixture", "private": true, "scripts": { "test": "echo default-wins; exit 1" } }
       """
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/FEEDBACK.md" contains "default-wins"
@@ -34,15 +35,17 @@ Feature: the bundled workflow's health check runs "testCommand"
 
   Scenario: a GTD_TESTCOMMAND environment variable overrides the default
     Given an environment variable "GTD_TESTCOMMAND" set to "echo env-wins; exit 1"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/FEEDBACK.md" contains "env-wins"
 
   Scenario: a green run leaves no FEEDBACK.md and lands on the quality lap
     Given an environment variable "GTD_TESTCOMMAND" set to "true"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/FEEDBACK.md" does not exist
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → build.quality.correctness.reviewing"

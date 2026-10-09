@@ -19,11 +19,14 @@ import {
 } from "../flows/index.js"
 import { reviewNotes, reviewRisks, stripCodeThreads, type ReviewNote } from "../steering/index.js"
 import { escalation, FIX_CAP, healthy, type EscalationCount } from "./health.js"
+import type { BuiltPlan } from "./packages.js"
+import { guarded, type FrozenScenarios } from "./scenarios.js"
 import {
   answerReviewQuestions,
+  ARCHITECTURE,
   awaitReview,
   collecting,
-  fix,
+  fixCheck,
   fixNits,
   fixQuality,
   fixRisks,
@@ -36,9 +39,9 @@ import {
 } from "./steps.js"
 import * as t from "./text.js"
 
-/** The lenses the quality lap reviews with, one turn each: the `qualityReviews` var, split on `,` and trimmed. Unlike a `skills:` entry, this fans out into one whole turn per entry rather than naming one step's skill list — see `build.quality.reviewing` in `./skills.ts` for the (separate) skills a lens turn itself loads. */
-export const qualityLenses = (): readonly string[] =>
-  (vars.qualityReviews ?? "")
+/** Split a `qualityReviews` value into its lenses: on `,`, trimmed, blanks dropped. */
+export const lensesOf = (value: string): readonly string[] =>
+  value
     .split(",")
     .map((lens) => lens.trim())
     .filter((lens) => lens.length > 0)
@@ -49,15 +52,19 @@ export const qualityLenses = (): readonly string[] =>
  * has any.
  */
 export const qualityLap = async (): Promise<"clean" | "findings"> => {
-  for (const lens of qualityLenses()) await reviewQuality(lens)
+  for (const lens of lensesOf(vars.qualityReviews ?? "")) await reviewQuality(lens)
   return (read(QUALITY) ?? "").length > 0 ? "findings" : "clean"
 }
 
 /** Resolves `true` once `.gtd/QUALITY.md` is resolved, `false` when the fix cap escalated instead. */
-export const fixQualityFindings = async (escalations: EscalationCount): Promise<boolean> => {
+export const fixQualityFindings = async (
+  escalations: EscalationCount,
+  frozen?: FrozenScenarios,
+): Promise<boolean> => {
   for (let turns = 0; turns < FIX_CAP; turns++) {
-    await fixQuality()
-    if (changes(QUALITY).some((c) => c.status === "deleted")) return true
+    await guarded(frozen, fixQuality)()
+    // Not `changes()`: a wording gate after the fix would be the last step.
+    if (read(QUALITY) === undefined) return true
   }
   await escalation(escalations)
   return false
@@ -203,6 +210,7 @@ type Finish =
 interface Round {
   readonly round: string
   readonly escalations: EscalationCount
+  readonly frozen: FrozenScenarios | undefined
   readonly close: () => Promise<void>
   readonly outcome: (verdict: "signoff" | "feedback") => ReviewOutcome
   readonly unfolded: () => Promise<Finish>
@@ -221,8 +229,8 @@ const routeNotes = async (notes: readonly ReviewNote[], r: Round): Promise<Finis
     answeredAt = head()
   }
   if (nits.length > 0) {
-    await fixNits(nits)
-    await healthy(fix, { escalations: r.escalations })
+    await guarded(r.frozen, () => fixNits(nits), "review")()
+    await healthy(guarded(r.frozen, fixCheck, "review"), { escalations: r.escalations })
   }
   if (edits.length > 0) {
     await r.close()
@@ -239,6 +247,7 @@ const finish = async (
   reviewed: string,
   collectedAt: string | undefined,
   escalations: EscalationCount,
+  frozen: FrozenScenarios | undefined,
 ): Promise<Finish> => {
   // Everything the human did is read before any agent turn runs, so a nit fix
   // is never counted as a hand-edit.
@@ -268,7 +277,7 @@ const finish = async (
   if (edited.length > 0) return collectWith(t.reviewEditsCapture(round))
   const notes = reviewNotes(baselineText, record)
   if (notes.length === 0) return collectWith(t.reviewNotesCapture(round))
-  return routeNotes(notes, { round, escalations, close, outcome, unfolded })
+  return routeNotes(notes, { round, escalations, frozen, close, outcome, unfolded })
 }
 
 /** Write the review; if it marks risks, fix them, keep green, and write it again — once, so the re-review's own risks reach the human unfixed. */
@@ -276,12 +285,13 @@ const reviewOnce = async (
   base: string,
   carry: string | undefined,
   escalations: EscalationCount,
+  frozen: FrozenScenarios | undefined,
 ): Promise<void> => {
   await reviewing(base, carry)
   const risks = reviewRisks(read(REVIEW) ?? "")
   if (risks.length === 0) return
-  await fixRisks(risks)
-  await healthy(fix, { escalations })
+  await guarded(frozen, () => fixRisks(risks), "review")()
+  await healthy(guarded(frozen, fixCheck, "review"), { escalations })
   await reviewing(base, carry)
 }
 
@@ -294,17 +304,18 @@ const reviewOnce = async (
 export const review = async (
   base: string,
   escalations: EscalationCount = { rounds: 0 },
+  frozen?: FrozenScenarios,
 ): Promise<ReviewOutcome> => {
   let carry: string | undefined
   for (;;) {
-    await reviewOnce(base, carry, escalations)
+    await reviewOnce(base, carry, escalations, frozen)
     carry = undefined
     let reviewed = head()
     let collectedAt: string | undefined
     for (;;) {
       collectedAt = await converse(base, collectedAt)
       if (collectedAt === "missing") break
-      const result = await finish(reviewed, collectedAt, escalations)
+      const result = await finish(reviewed, collectedAt, escalations, frozen)
       if (!("next" in result)) return result
       if (result.next === "rereview") {
         carry = result.carry
@@ -316,22 +327,36 @@ export const review = async (
 }
 
 /** The build tail: fix (when entered red), keep green, the quality lap, then human review since `base`. */
-export const buildTail = (fixFirst: boolean, base: string): Promise<ReviewOutcome> =>
+export const buildTail = (
+  fixFirst: boolean,
+  base: string,
+  built?: BuiltPlan,
+): Promise<ReviewOutcome> =>
   scope("build", async () => {
+    const frozen = built?.frozen
     const escalations: EscalationCount = { rounds: 0 }
+    const guardedFix = guarded(frozen, () => fixCheck())
     let redFirst = fixFirst
+    // fixFirst's own fix + healthy below already is the full run.
+    if (!fixFirst) {
+      await healthy(
+        guarded(frozen, () => fixCheck(built)),
+        { escalations, sweepOnGreen: [ARCHITECTURE] },
+      )
+    }
     // The lap runs once a tail: after its findings are fixed, review follows.
     let lapped = false
     for (;;) {
       if (redFirst) {
-        await fix()
-        await healthy(fix, { fixesSoFar: 1, escalations })
+        await guardedFix()
+        await healthy(guardedFix, { fixesSoFar: 1, escalations })
         redFirst = false
       }
       const lap = lapped ? "clean" : await qualityLap()
       lapped = true
-      if (lap === "clean") return review(base, escalations)
-      if (await fixQualityFindings(escalations)) await healthy(fix, { escalations })
-      else redFirst = true
+      if (lap === "clean") return review(base, escalations, frozen)
+      if (await fixQualityFindings(escalations, frozen)) {
+        await healthy(guardedFix, { escalations })
+      } else redFirst = true
     }
   })

@@ -40,7 +40,10 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     # disabled here, the gate hands straight on to build.review.reviewing.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → build.review.reviewing"
+    And the last commit subject is "gtd(check): review-gate.check → build.health.check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
     When I run gtd next
     Then it succeeds
     # The reviewing prompt NAMES the fixed base rather than inlining its diff.
@@ -320,9 +323,7 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     Then it succeeds
     And stdout contains "patch"
 
-  Scenario: an opening commit with no Gtd-Workflow trailer replays on the default and diverges with the abandon advice
-    # The same history is valid once the opening commit carries the trailer;
-    # missing trailer is the only divergence.
+  Scenario: an opening commit with no Gtd-Workflow trailer is a removed --entry process, refused with the abandon advice
     Given a gtd config file at "gtd.config.ts" with:
       """
       import { agent } from "@pmelab/gtd/flows"
@@ -342,5 +343,42 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
       """
     When I run gtd next
     Then it fails
-    And stderr contains "replay expected \"idle#1\""
+    And stderr contains "opened by `gtd --entry`"
     And stderr contains "gtd abandon"
+
+  Scenario: a --entry opening at HEAD is refused too, not read as an idle repository
+    Given a commit "gtd(human): fix-precheck" that adds "NOTE.md" with:
+      """
+      legacy
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "opened by `gtd --entry`"
+    When I run gtd with args "--workflow fix"
+    Then it fails
+    When I run gtd with args "abandon"
+    Then it succeeds
+
+  Scenario: a named workflow cannot land on the default's first step — it would read back as finished
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export const hotfix = async () => {
+        await agent("patch", "Patch it.")
+        await human("idle", { message: "done?" })
+        await agent("verify", "Verify it.")
+      }
+      """
+    And I run gtd with args "--workflow hotfix"
+    And a file "fix.txt" with:
+      """
+      fixed
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "workflow \"hotfix\" reaches step \"idle\", the default workflow's first step"

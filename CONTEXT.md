@@ -165,8 +165,8 @@ is something a human or a driver may still do afterward, outside gtd, using
 
 **Memory scope**: The span of a process over which one agent conversation
 persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`
-when there are none). One scope, one model and system prompt. _Avoid_: session,
-context window, conversation, history
+when there are none). One scope, one model, system prompt and skill list.
+_Avoid_: session, context window, conversation, history
 
 **Session id**: The agent CLI's own conversation handle — DERIVED from a memory
 scope's key (a `uuidv5` hash), never stored anywhere, so the same scope-run

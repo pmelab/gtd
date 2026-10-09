@@ -149,6 +149,7 @@ describe("currentRun", () => {
       pinnedVars: {},
       headTurn: undefined,
       closingHash: undefined,
+      legacyOpening: false,
       episode: { base: boundary, commits: [] },
     })
   })

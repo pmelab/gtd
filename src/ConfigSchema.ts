@@ -41,12 +41,27 @@ const modesJsonSchema = {
   },
 } as const
 
-/** The `skills:` shape: full step name -> its skill list (`compileSkillsMap`). An entry REPLACES the step's bundled list wholesale, never adds to it — and the schema can validate an entry's VALUE but never its KEY, since step names come from the workflow in play, not a fixed set. */
+/** The `skills:` shape: scope full name -> its skill list (`compileSkillsMap`). An entry REPLACES the scope's list wholesale — and the schema can validate an entry's VALUE but never its KEY, since scope names come from the workflow in play. */
 const skillsJsonSchema = {
   type: "object",
   description:
-    "Flat step full-name -> skill-name array map. Each entry REPLACES the named step's bundled skill list wholesale (never merges into it); [] means no skills at all for that step, and no preamble. A key naming a step the workflow in play does not declare is a load error listing the known names — the schema itself cannot validate a key, only a value's shape.",
+    "Flat scope full-name -> skill-name array map. Each entry REPLACES the named scope's skill list wholesale (never merges into it) and reaches every nested scope that sets no list of its own; [] means no skills at all for that scope, and no preamble. A key that is not a scope running a turn is a load error listing the known scopes — the schema itself cannot validate a key, only a value's shape.",
   additionalProperties: { type: "array", items: { type: "string" } },
+} as const
+
+/** The `access:` shape: scope full name -> `{ read?, write? }` (`compileAccessMap`). An entry REPLACES the scope's access wholesale; the key is unvalidatable here for the same reason as `skills:`. */
+const accessJsonSchema = {
+  type: "object",
+  description:
+    "Flat scope full-name -> { read?, write? } map of glob arrays. Each entry REPLACES the named scope's declared access wholesale (never merges into it) and reaches every nested scope that sets none of its own; a missing side is unrestricted, [] allows nothing, and {} lifts every restriction. read and write are independent: write grants no read. A key that is not a scope running a turn is a load error listing the known scopes — the schema itself cannot validate a key, only a value's shape.",
+  additionalProperties: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      read: { type: "array", items: { type: "string" } },
+      write: { type: "array", items: { type: "string" } },
+    },
+  },
 } as const
 
 /**
@@ -111,6 +126,7 @@ export const ConfigSchema = Schema.Struct({
   modes: Schema.optional(Schema.Unknown.annotations({ jsonSchema: modesJsonSchema })),
   ui: Schema.optional(UiSchema),
   skills: Schema.optional(Schema.Unknown.annotations({ jsonSchema: skillsJsonSchema })),
+  access: Schema.optional(Schema.Unknown.annotations({ jsonSchema: accessJsonSchema })),
 })
 
 export type JudgeConfig = Schema.Schema.Type<typeof JudgeSchema>

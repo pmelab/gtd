@@ -24,8 +24,6 @@ export interface AgentOptions extends SteeringOptions {
    * is an attempt: recorded, but the process stays at the step (a stall).
    */
   readonly allowEmpty?: boolean | undefined
-  /** The skill names this turn declares — what `gtd next --json`'s `skills` key carries. */
-  readonly skills?: readonly string[] | undefined
 }
 
 export interface HumanOptions extends SteeringOptions {
@@ -85,6 +83,18 @@ export interface Changes extends ReadonlyArray<Change> {
   readonly get: (path: string) => Change | undefined
 }
 
+/** Glob arrays in the `glob()`/`changes()` dialect. A missing side is unrestricted, `[]` allows nothing; `write` grants no read. */
+export interface ScopeAccess {
+  readonly read?: readonly string[] | undefined
+  readonly write?: readonly string[] | undefined
+}
+
+/** A resolved access: `null` is an unrestricted side. */
+export interface AccessDef {
+  readonly read: readonly string[] | null
+  readonly write: readonly string[] | null
+}
+
 export interface ScopeOptions {
   /** Prefixes every step name inside, and so names their memory scope. */
   readonly name?: string | undefined
@@ -92,6 +102,10 @@ export interface ScopeOptions {
   readonly model?: string | undefined
   /** The system prompt every agent step inside runs with, unless it sets its own. */
   readonly system?: string | undefined
+  /** The skill names every agent step inside declares — `gtd next --json`'s `skills`. A nested scope inherits it unless it sets its own. */
+  readonly skills?: readonly string[] | undefined
+  /** The file access every agent step inside runs with — `gtd next --json`'s `access`. A nested scope inherits it; its own replaces it wholesale. */
+  readonly access?: ScopeAccess | undefined
 }
 
 export type StepRequest =
@@ -139,15 +153,10 @@ export interface FlowContext {
   readonly env: Readonly<Record<string, string>>
   readonly head: () => string
   readonly start: () => string
-  /**
-   * The skill list `localName` (scoped from here, same as `agent()`) resolves
-   * to — for a prompt preamble. `ownSkills`, when given, is the same
-   * precedence tier as a call's own `skills` option: it stands in for the
-   * bundled default when there isn't one, but a `.gtdrc` entry still beats
-   * it. Shares its resolution with `agent()`'s own wire resolver (both read
-   * `Workflow.ts`'s `configuredSkills`/`skills`), so the two can never drift.
-   */
-  readonly skillsFor: (localName: string, ownSkills?: readonly string[]) => readonly string[]
+  /** The skill list the memory scope `localName` lands in resolves to — the same resolver as the wire's `skills`. */
+  readonly skillsFor: (localName: string) => readonly string[]
+  /** The folded access the memory scope `localName` lands in resolves to; `file` is the step's own steering file. */
+  readonly accessFor: (localName: string, file?: string) => AccessDef
 }
 
 const CONTEXT_KEY = Symbol.for("@pmelab/gtd/flow-context")
@@ -253,9 +262,12 @@ export const head = (): string => ctx().head()
 /** The process's diff base: the commit before it began, or the base `gtd --workflow` fixed. */
 export const start = (): string => ctx().start()
 
-/** The skill list `localName` (scoped from here, same as `agent()`) resolves to — for a prompt preamble. See `FlowContext.skillsFor` for `ownSkills`. */
-export const skillsFor = (localName: string, ownSkills?: readonly string[]): readonly string[] =>
-  ctx().skillsFor(localName, ownSkills)
+/** The skill list `localName` (scoped from here, same as `agent()`) resolves to — for a prompt preamble. */
+export const skillsFor = (localName: string): readonly string[] => ctx().skillsFor(localName)
+
+/** The folded access `localName` (scoped from here, same as `agent()`) resolves to — for a prompt preamble. */
+export const accessFor = (localName: string, file?: string): AccessDef =>
+  ctx().accessFor(localName, file)
 
 const settingsProxy = (
   read: () => Readonly<Record<string, string>>,

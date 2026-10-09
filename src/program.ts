@@ -516,7 +516,7 @@ const runStartCommand = (
         ),
       )
     }
-    const rest = yield* currentRest
+    const rest = yield* restAt(undefined, varOverrides)
     const started = yield* startRefusal(rest, resolved, varOverrides)
     const plan = yield* planStart(
       {

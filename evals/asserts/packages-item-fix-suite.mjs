@@ -1,4 +1,4 @@
-// `packages.item.fix-suite`'s grader: the shared core, including
+// `packages.item.fix.suite.fixing`'s grader: the shared core, including
 // `checkOutOfBounds` against this case's planted test file.
 import spec from "../cases/packages-item-fix-suite.mjs"
 import { SHARED_CHECKS, safeGrade } from "./shared.mjs"

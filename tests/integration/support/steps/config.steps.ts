@@ -103,3 +103,10 @@ Given(
     world.envVars[name] = value
   },
 )
+
+// Removes it from both tiers: the in-memory layer and the live tier's
+// inherited environment, so a scenario never depends on what was exported.
+Given("the environment variable {string} is unset", (world: GtdWorld, name: string) => {
+  delete world.envVars[name]
+  world.unsetEnvVars.push(name)
+})

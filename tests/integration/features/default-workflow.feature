@@ -12,7 +12,7 @@ Feature: The bundled unified workflow — one flow, end to end
   entirely and falls straight through to `architecture.author`, a COLD reader
   that never resumes design's conversation. `architecture.gate.answer`
   mirrors the same shape for TECHNICAL questions in `.gtd/ARCHITECTURE.md`,
-  then `architecture.decompose` mechanically writes one package file per
+  then `architecture.decompose.decomposing` mechanically writes one package file per
   concern. From there the flow builds the lexically first package under
   `.gtd/packages/` until none is left (`packages.*`), then runs the shared
   build tail (`build.*`): health/fix, one quality-lens review turn per
@@ -75,20 +75,15 @@ Feature: The bundled unified workflow — one flow, end to end
     Then stdout contains "spec-driven-development, planning-and-task-breakdown"
 
     # No open questions in REQUIREMENTS.md, so the flow skips the human stop
-    # at design.gate.answer and goes straight on to architecture-pre
+    # at design.gate.answer and goes straight on to architecture.author
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
+    And the last commit subject is "gtd(human): design.gate.answer → architecture.author"
 
-    # architecture-pre: no verdict piped -> the conservative default runs
-    # the full architecture pass, same as any other skipped judgment.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): architecture-pre → architecture.author"
 
     # architecture.author's prompt carries the settled-requirements exception
     # to its PERMISSIVE default: a simplification dropping something
@@ -115,28 +110,27 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose"
+    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And the git log contains "design.gate.answer"
     And the git log contains "architecture.gate.answer"
 
-    # architecture.decompose's prompt names its bundled skills — grounds the
+    # architecture.decompose.decomposing's prompt names its bundled skills — grounds the
     # second architecture-scope key the same way.
     When I run gtd next
     Then stdout contains "incremental-implementation, planning-and-task-breakdown"
 
     # decompose writes the package; the flow itself picks the lexically first
     # one to build
-    Given the file ".gtd/ARCHITECTURE.md" is deleted
-    And a file ".gtd/packages/01-greeting.md" with:
+    Given a file ".gtd/packages/01-greeting.md" with:
       """
       Package: the greeting export. Independent tasks:
       - [ ] add src/greeter.ts exporting `greet`
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): architecture.decompose → packages.item.building"
+    And the last commit subject is "gtd(agent): architecture.decompose.decomposing → packages.item.building"
 
-    # packages.item.building's prompt names the bundled buildSkills pair, and
+    # packages.item.building's prompt names the bundled skills pair, and
     # nothing else — ponytail is a scope-cutting lens, not a build-time skill.
     When I run gtd next
     Then stdout contains "test-driven-development, incremental-implementation"
@@ -158,100 +152,59 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.fix-suite"
+    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.fix.suite.fixing"
 
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.fix-suite → packages.item.health.check"
+    And the last commit subject is "gtd(agent): packages.item.fix.suite.fixing → packages.item.health.check"
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
-
-    # spec.pre: a skipped judgment (bare land, no verdict) is the
-    # conservative default — full review, never suppressed
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
-
-    # packages.item.spec.review's prompt names its bundled skills — grounds
-    # this step's own map key against the real scoped name it resolves to.
-    When I run gtd next
-    Then stdout contains "code-review-and-quality, spec-driven-development"
-
-    Given a file ".gtd/SPEC_FEEDBACK.md" with:
-      """
-      ## Missing doc comment
-
-      greet() should be documented with a doc comment.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.fix-spec"
-
-    # packages.item.fix-spec's prompt names its bundled skills — same
-    # grounding, for the pair that shared the deleted reviewFixSkills var.
-    When I run gtd next
-    Then stdout contains "incremental-implementation, code-simplification"
-
-    Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.fix-spec → packages.item.health.check"
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"
+    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.closing"
 
     # packages.item.closing: the queue is now drained -> the quality lap,
     # which every ordinary round pays for once, after the last package and
-    # before any human sees the change. The per-package review above judged
-    # that package's own spec coverage only; these lenses judge the code —
-    # one build.quality.reviewing turn per bundled qualityReviews entry.
+    # before any human sees the change. These lenses judge the code — one
+    # build.quality.<lens>.reviewing turn per bundled qualityReviews entry.
     Given the file ".gtd/packages/01-greeting.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.closing → build.quality.reviewing"
+    And the last commit subject is "gtd(check): packages.item.closing → build.health.check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.quality.correctness.reviewing"
 
     # A clean lens turn (correctness) — nothing found, so no .gtd/QUALITY.md.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.correctness.reviewing → build.quality.owasp-security.reviewing"
 
     # A clean lens turn (owasp-security) — nothing found, so no .gtd/QUALITY.md.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.owasp-security.reviewing → build.quality.ponytail-review.reviewing"
 
     # A clean lens turn (ponytail-review) — nothing found, so no .gtd/QUALITY.md.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.ponytail-review.reviewing → build.quality.test-audit.reviewing"
 
     # A clean lens turn (test-audit) — nothing found, so no .gtd/QUALITY.md.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.test-audit.reviewing → build.quality.conventions.reviewing"
 
     # A clean lens turn (conventions) — nothing found, so no .gtd/QUALITY.md.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing"
 
     # The sixth and final lens (spec-challenge) is clean too -> the lap has no
     # findings, straight on to human review.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.reviewing → build.review.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing"
 
     # build.review.reviewing's prompt names its bundled skill — grounds this
     # step's own map key against the real scoped name it resolves to.
@@ -295,7 +248,6 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(check): build.review.closing → idle"
     And the git status is clean
     And ".gtd/REQUIREMENTS.md" does not exist
-    And ".gtd/ARCHITECTURE.md" does not exist
     And ".gtd/packages/01-greeting.md" does not exist
     And ".gtd/REVIEW.md" does not exist
     And "src/greeter.ts" exists
@@ -310,28 +262,22 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): unwind → start-gate.check
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.answer
-      gtd(human): design.gate.answer → architecture-pre
-      gtd(judge): architecture-pre → architecture.author
+      gtd(human): design.gate.answer → architecture.author
       gtd(agent): architecture.author → architecture.gate.answer
-      gtd(human): architecture.gate.answer → architecture.decompose
-      gtd(agent): architecture.decompose → packages.item.building
+      gtd(human): architecture.gate.answer → architecture.decompose.decomposing
+      gtd(agent): architecture.decompose.decomposing → packages.item.building
       gtd(agent): packages.item.building → packages.item.health.check
-      gtd(check): packages.item.health.check → packages.item.fix-suite
-      gtd(agent): packages.item.fix-suite → packages.item.health.check
-      gtd(check): packages.item.health.check → packages.item.spec.pre
-      gtd(judge): packages.item.spec.pre → packages.item.spec.review
-      gtd(agent): packages.item.spec.review → packages.item.fix-spec
-      gtd(agent): packages.item.fix-spec → packages.item.health.check
-      gtd(check): packages.item.health.check → packages.item.spec.pre
-      gtd(judge): packages.item.spec.pre → packages.item.spec.review
-      gtd(agent): packages.item.spec.review → packages.item.closing
-      gtd(check): packages.item.closing → build.quality.reviewing
-      gtd(agent): build.quality.reviewing
-      gtd(agent): build.quality.reviewing
-      gtd(agent): build.quality.reviewing
-      gtd(agent): build.quality.reviewing
-      gtd(agent): build.quality.reviewing
-      gtd(agent): build.quality.reviewing → build.review.reviewing
+      gtd(check): packages.item.health.check → packages.item.fix.suite.fixing
+      gtd(agent): packages.item.fix.suite.fixing → packages.item.health.check
+      gtd(check): packages.item.health.check → packages.item.closing
+      gtd(check): packages.item.closing → build.health.check
+      gtd(check): build.health.check → build.quality.correctness.reviewing
+      gtd(agent): build.quality.correctness.reviewing → build.quality.owasp-security.reviewing
+      gtd(agent): build.quality.owasp-security.reviewing → build.quality.ponytail-review.reviewing
+      gtd(agent): build.quality.ponytail-review.reviewing → build.quality.test-audit.reviewing
+      gtd(agent): build.quality.test-audit.reviewing → build.quality.conventions.reviewing
+      gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing
+      gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing
       gtd(agent): build.review.reviewing → build.review.await-review
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle
@@ -348,7 +294,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const greet = "hello"
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -420,7 +367,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const greet = "hello"
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -493,7 +441,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const greet = "hello"
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -554,7 +503,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const thing = 1
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -602,7 +552,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const thing = 1
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -642,6 +593,12 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a revert that cannot apply is refused, not silently swallowed
     Given a test project
     And the workflow
+    # The bundled access would refuse the collecting turn's src/ write below.
+    And a gtd config file at ".gtdrc" with:
+      """
+      access:
+        build.review: {}
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
@@ -649,7 +606,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const thing = 1
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -827,8 +785,7 @@ Feature: The bundled unified workflow — one flow, end to end
       Build a widget.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
@@ -882,7 +839,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # .gtd/REQUIREMENTS.md itself after each triage turn, not from a marker a
     # previous round left behind: a second round that raises a DIFFERENT open
     # question must stop at the gate again, never fall through to
-    # architecture-pre with a question still open.
+    # architecture.author with a question still open.
     Given a test project
     And the workflow
     And a file "NOTE.md" with:
@@ -979,7 +936,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
+    And the last commit subject is "gtd(human): design.gate.answer → architecture.author"
     And the git log does not contain "Gtd-Judge:"
     And ".gtd/ASSUMPTIONS.md" does not exist
 
@@ -1031,17 +988,12 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → architecture-pre"
+    And the last commit subject is "gtd(human): design.gate.answer → architecture.author"
     And "SCRATCH.md" does not exist
     And "src/real.ts" does not exist
 
     # Neither piece resurfaces on later laps — both are gone for good, long
-    # before anything could reach review sign-off. architecture-pre: no
-    # verdict piped -> the conservative default runs the full architecture
-    # pass.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): architecture-pre → architecture.author"
+    # before anything could reach review sign-off.
     And "SCRATCH.md" does not exist
     And "src/real.ts" does not exist
 
@@ -1069,8 +1021,7 @@ Feature: The bundled unified workflow — one flow, end to end
       Add a `greet()` export returning a friendly string. No open questions.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     When I run gtd next
     Then it succeeds
     And stdout contains "You do not resume the design conversation"
@@ -1086,7 +1037,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose"
+    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/ARCHITECTURE.md" exists
 
@@ -1119,8 +1070,7 @@ Feature: The bundled unified workflow — one flow, end to end
       Add a `greet()` export returning a friendly string. No open questions.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     When I run gtd next
     Then it succeeds
     And stdout contains "held back for a later lap is a bug"
@@ -1147,27 +1097,25 @@ Feature: The bundled unified workflow — one flow, end to end
       Add a widget factory.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       Technical plan: src/widget.ts exports a factory.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
-    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
 
     Given a file ".gtd/SATISFIED.md" with:
       """
       - [x] add src/widget.ts — already present, see commit
-        "gtd(agent): architecture.decompose → packages.item.building"
+        "gtd(agent): architecture.decompose.decomposing → packages.item.building"
       """
     When I run gtd land
     Then it succeeds
@@ -1175,20 +1123,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.spec.pre"
-
-    # spec.pre: a skipped judgment (bare land) always runs the
-    # full review — this package has no `## ` sections at all anyway
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
-
-    # packages.item.spec.review (clean = approval — the reviewer's own range
-    # is process-wide, so it can see the earlier package's commit that
-    # satisfied this spec) -> packages.item.closing
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.spec.review → packages.item.closing"
+    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.closing"
 
     # packages.item.closing removes the package and its SATISFIED.md; the
     # queue is now empty — on to the quality lap, which fronts the shared
@@ -1197,7 +1132,10 @@ Feature: The bundled unified workflow — one flow, end to end
     And the file ".gtd/SATISFIED.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.closing → build.quality.reviewing"
+    And the last commit subject is "gtd(check): packages.item.closing → build.health.check"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.check → build.quality.correctness.reviewing"
 
   @inmem
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
@@ -1221,22 +1159,20 @@ Feature: The bundled unified workflow — one flow, end to end
       Add a widget factory.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       Technical plan: src/widget.ts exports a factory.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
-    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
 
     # packages.item.building: the agent's turn changes nothing (the issue's
     # regression case) — a clean tree at a prompt rest with no "C" row lands
@@ -1255,7 +1191,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Given a file ".gtd/SATISFIED.md" with:
       """
       - [x] add src/widget.ts — already present, see commit
-        "gtd(agent): architecture.decompose → packages.item.building"
+        "gtd(agent): architecture.decompose.decomposing → packages.item.building"
       """
     When I run gtd land
     Then it succeeds
@@ -1276,7 +1212,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const A = 1
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: aaaaaaa
@@ -1314,32 +1251,29 @@ Feature: The bundled unified workflow — one flow, end to end
       Export a `B` constant from fileB.ts.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       Technical plan: fileB.ts exports `B`.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
-    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-b.md" with:
       """
       Package: export B.
       - [ ] add fileB.ts
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "fileB.ts" with:
       """
       export const B = 2
       """
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.spec.pre"
-    And gtd lands "gtd(judge): packages.item.spec.pre → packages.item.spec.review"
-    And gtd lands "gtd(agent): packages.item.spec.review → packages.item.closing"
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.closing"
     And the file ".gtd/packages/01-b.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
+    And gtd lands "gtd(check): packages.item.closing → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     When I run gtd next
     Then it succeeds
     # The reviewing prompt names it.reviewBase — the previous review round's
@@ -1371,12 +1305,12 @@ Feature: The bundled unified workflow — one flow, end to end
     And ".gtd/FEEDBACK.md" does not exist
 
   @inmem
-  Scenario: the same escalation loop, reached under packages.item instead of build — packages.item.fix-suite and packages.item.health.describe get their own bundled skills, same as build's
+  Scenario: the same escalation loop, reached under packages.item instead of build — packages.item.fix.suite.fixing and packages.item.health.describe get their own bundled skills, same as build's
     # `healthy()` (src/workflows/health.ts) is the one shared loop both
     # `packages.item`'s per-package fix suite and `build`'s own fix loop call
     # — the same escalation shape as "repeated check failures escalate..."
-    # below, under the other scope it also resolves under (see skills.ts's
-    # comment on `packages.item.health.describe` / `build.health.describe`).
+    # below, under the other scope it also resolves under (see the bundled skills map's
+    # `packages.item.health` / `build.health` entries).
     # Round 2 here does judge its retry (this is the loop's genuine first
     # call, so `previous` is already set going into round 2) — unlike that
     # scenario's round 2, which inherits state from the `fix-precheck` entry
@@ -1401,22 +1335,20 @@ Feature: The bundled unified workflow — one flow, end to end
       Add a widget factory.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
       Technical plan: src/widget.ts exports a factory.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
-    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget factory. Independent tasks:
       - [ ] add src/widget.ts
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And a file "src/widget.ts" with:
       """
       export const widget = () => "w"
@@ -1426,8 +1358,8 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       attempt 1 failed
       """
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix-suite"
-    # packages.item.fix-suite's prompt names its bundled skill.
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix.suite.fixing"
+    # packages.item.fix.suite.fixing's prompt names its bundled skill.
     When I run gtd next
     Then stdout contains "debugging-and-error-recovery"
 
@@ -1436,31 +1368,31 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       fixed attempt 1
       """
-    And gtd lands "gtd(agent): packages.item.fix-suite → packages.item.health.check"
+    And gtd lands "gtd(agent): packages.item.fix.suite.fixing → packages.item.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 2 failed
       """
     And gtd lands "gtd(check): packages.item.health.check → packages.item.health.judge"
-    And gtd lands "gtd(judge): packages.item.health.judge → packages.item.fix-suite"
+    And gtd lands "gtd(judge): packages.item.health.judge → packages.item.fix.suite.fixing"
     And the file ".gtd/FEEDBACK.md" is deleted
     And a file ".gtd/fix-2.md" with:
       """
       fixed attempt 2
       """
-    And gtd lands "gtd(agent): packages.item.fix-suite → packages.item.health.check"
+    And gtd lands "gtd(agent): packages.item.fix.suite.fixing → packages.item.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 3 failed
       """
     And gtd lands "gtd(check): packages.item.health.check → packages.item.health.judge"
-    And gtd lands "gtd(judge): packages.item.health.judge → packages.item.fix-suite"
+    And gtd lands "gtd(judge): packages.item.health.judge → packages.item.fix.suite.fixing"
     And the file ".gtd/FEEDBACK.md" is deleted
     And a file ".gtd/fix-3.md" with:
       """
       fixed attempt 3
       """
-    And gtd lands "gtd(agent): packages.item.fix-suite → packages.item.health.check"
+    And gtd lands "gtd(agent): packages.item.fix.suite.fixing → packages.item.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 4 failed
@@ -1919,7 +1851,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const thing = 1
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -1950,7 +1883,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const thing = 1
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -1978,7 +1912,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const thing = 1
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -2019,7 +1954,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const thing = 1
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -2047,7 +1983,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const thing = 1
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -2187,8 +2124,7 @@ Feature: The bundled unified workflow — one flow, end to end
       Build a thing.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture-pre"
-    And gtd lands "gtd(judge): architecture-pre → architecture.author"
+    And gtd lands "gtd(human): design.gate.answer → architecture.author"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"architecture.author\""
@@ -2199,14 +2135,13 @@ Feature: The bundled unified workflow — one flow, end to end
       Technical plan: src/thing.ts.
       """
     And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose"
-    And the file ".gtd/ARCHITECTURE.md" is deleted
+    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
     And a file ".gtd/packages/01-thing.md" with:
       """
       Package: the thing.
       - [ ] add src/thing.ts
       """
-    And gtd lands "gtd(agent): architecture.decompose → packages.item.building"
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"packages.item.building\""

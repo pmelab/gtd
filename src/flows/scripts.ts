@@ -14,6 +14,8 @@ export interface CheckScriptOptions {
   readonly sweep?: readonly string[] | undefined
   /** Paths removed once it passes. */
   readonly sweepOnGreen?: readonly string[] | undefined
+  /** Shell lines run before the command, outside its output capture; an `exit 0` skips it and leaves `report` untouched. */
+  readonly preamble?: readonly string[] | undefined
 }
 
 const removal = (paths: readonly string[]): string[] =>
@@ -29,6 +31,7 @@ export const checkScript = (command: string, options: CheckScriptOptions): strin
   return [
     "#!/usr/bin/env sh",
     "set +e",
+    ...(options.preamble ?? []),
     ...removal(options.sweep ?? []),
     `mkdir -p "$(dirname ${report})"`,
     // A subshell, so an `exit` inside the command ends only the command.

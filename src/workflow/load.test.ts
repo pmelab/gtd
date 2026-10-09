@@ -6,7 +6,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GtdError, Narrator } from "../Commentary.js"
-import { ConfigDiscovery, ConfigService, configPresentAt, load, loadRcConfig } from "./index.js"
+import {
+  ConfigDiscovery,
+  ConfigService,
+  configPresentAt,
+  load,
+  loadRcConfig,
+  resolveScopeSkills,
+  resolveVars,
+} from "./index.js"
 import { GitService, Host, Workspace } from "../platform/index.js"
 import { seededValidateCommand } from "../SteeringFormats.js"
 
@@ -51,6 +59,16 @@ const getConfig = (dir?: string, env: Env = {}) =>
     dir,
     env,
   )
+
+// Config load no longer judges `skills:` keys; the resolver does, given vars.
+const loadAndResolve = (dir: string = projectDir, vars: Env = {}) =>
+  Effect.gen(function* () {
+    const c = yield* (yield* ConfigService).load
+    return yield* resolveScopeSkills(c.workflow, {
+      ...resolveVars(c.defaultWorkflow.vars, c.rcVars, {}, {}),
+      ...vars,
+    })
+  }).pipe(Effect.provide(layer(dir)))
 
 let projectDir: string
 
@@ -727,14 +745,69 @@ describe("ConfigService", () => {
   it("rejects a `skills:` key that only matches an inherited object property, like `toString`", async () => {
     writeFileSync(join(projectDir, ".gtdrc.yaml"), `skills:\n  toString: [x]\n`)
 
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+    const exit = await Effect.runPromiseExit(loadAndResolve())
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain(
-        '"skills.toString" names a step this workflow does not declare',
-      )
+      expect(String(exit.cause)).toContain('"skills.toString" is not a scope that runs a turn')
     }
+  })
+
+  describe("`skills:` keys are scope names", () => {
+    const loadError = async (rc: string, extra = ""): Promise<string> => {
+      writeFileSync(join(projectDir, ".gtdrc.yaml"), rc)
+      if (extra !== "") writeFileSync(join(projectDir, "gtd.config.ts"), extra)
+      const exit = await Effect.runPromiseExit(loadAndResolve())
+      expect(Exit.isFailure(exit)).toBe(true)
+      return Exit.isFailure(exit) ? String(Cause.squash(exit.cause)) : ""
+    }
+    const keyed = (key: string): string => `skills:\n  ${key}: [x]\n`
+
+    it("names the key and lists every known scope", async () => {
+      const message = await loadError(keyed("nope"))
+      expect(message).toContain('"skills.nope" is not a scope that runs a turn — known scopes: ')
+      expect(message).toContain("architecture, architecture.decompose, build,")
+    })
+
+    it("gives a group key the same plain error", async () => {
+      expect(await loadError(keyed("build.fix"))).toContain("known scopes: ")
+    })
+
+    it("accepts a scope key and keeps it in rcSkills", async () => {
+      writeFileSync(join(projectDir, ".gtdrc.yaml"), keyed("build.review"))
+      expect((await getConfig()).workflow.configuredSkills).toEqual({ "build.review": ["x"] })
+    })
+
+    it("validates a lens key only while the lens is in qualityReviews", async () => {
+      writeFileSync(
+        join(projectDir, ".gtdrc.yaml"),
+        `vars:\n  qualityReviews: "my-lens"\nskills:\n  build.quality.my-lens: [x]\n`,
+      )
+      expect((await getConfig()).workflow.configuredSkills).toEqual({
+        "build.quality.my-lens": ["x"],
+      })
+      const withLens = await Effect.runPromise(
+        loadAndResolve(projectDir, { qualityReviews: "my-lens" }),
+      )
+      expect(Object.keys(withLens)).toContain("build.quality.my-lens")
+      expect(await loadError(keyed("build.quality.my-lens"))).toContain(
+        '"skills.build.quality.my-lens" is not a scope that runs a turn',
+      )
+    })
+
+    it("loads a skills export given as a record or as a function of the vars", async () => {
+      const flow = minimalWorkflow("first")
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `${flow}export const skills = { a: ["x"] }\n`,
+      )
+      expect(Object.keys((await getConfig()).workflow.skills({}))).toEqual(["a"])
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `${flow}export const skills = (vars) => ({ [vars.k ?? "none"]: ["x"] })\n`,
+      )
+      expect(Object.keys((await getConfig()).workflow.skills({ k: "b" }))).toEqual(["b"])
+    })
   })
 
   it("reports an unknown `skills:` key once per layer that carries it", async () => {
@@ -745,10 +818,7 @@ describe("ConfigService", () => {
     writeFileSync(ancestorFile, `skills:\n  no.such.step: [x]\n`)
     writeFileSync(childFile, `skills:\n  no.such.step: [y]\n`)
 
-    const exit = await runExit(
-      Effect.flatMap(ConfigService, (c) => c.load),
-      child,
-    )
+    const exit = await Effect.runPromiseExit(loadAndResolve(child))
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {

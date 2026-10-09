@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest"
 
+import { ACCESS_REFUSAL } from "../../src/wire/constants.js"
 import { afterReload, drive } from "./drive"
-import type { Beat, Io, Landing } from "./drive"
+import type { Beat, Io, Landing, Turn } from "./drive"
 
 const fake = (beats: Beat[], landings: Landing[] = [], over: Partial<Io> = {}) => {
   const calls: string[] = []
@@ -63,6 +64,22 @@ describe("drive", () => {
       "resume:build#abc:fix line 3",
       "land",
       "sh:commit",
+    ])
+  })
+
+  test("a turn carries the beat's skills and the memory scope", async () => {
+    const turns: Turn[] = []
+    const run = async (skills?: string[]) => {
+      const { io } = fake([{ kind: "prompt", memory: "build#abc", skills }], [], {
+        turn: async (t) => (turns.push(t), { ok: true }),
+      })
+      await drive(io)
+    }
+    await run(["a", "b"])
+    await run()
+    expect(turns.map((t) => [t.skills, t.scope])).toEqual([
+      [["a", "b"], "build"],
+      [[], "build"],
     ])
   })
 
@@ -128,6 +145,74 @@ describe("drive", () => {
     )
     await drive(io, "build#a")
     expect(calls).toEqual(["land", "sh:commit", "turn:build#a:false:", "land", "sh:next"])
+  })
+})
+
+describe("access refusal", () => {
+  const refusal = `gtd land --json exited 1: ${ACCESS_REFUSAL}\n  - src/x.ts`
+  const refusing = (n: number) => {
+    let left = n
+    return async () => {
+      if (left-- > 0) throw new Error(refusal)
+      return { script: "commit", settled: true, idle: true } as Landing
+    }
+  }
+
+  test("a beat's access reaches its turn", async () => {
+    const turns: Turn[] = []
+    const access = { read: null, write: ["a/**"] }
+    const { io } = fake([{ kind: "prompt", memory: "m", access }], [], {
+      turn: async (t) => (turns.push(t), { ok: true }),
+    })
+    await drive(io)
+    expect(turns[0]!.access).toEqual(access)
+  })
+
+  test("one re-prompt with the refusal text, then a successful land", async () => {
+    const { io, calls } = fake([{ kind: "prompt", memory: "m" }], [], { land: refusing(1) })
+    expect(await drive(io)).toMatchObject({ kind: "done" })
+    expect(calls).toEqual([`turn:m:false:`, `resume:m:${refusal}`, "sh:commit"])
+  })
+
+  test("a second refusal stops the loop as an error", async () => {
+    const { io, calls } = fake([{ kind: "prompt", memory: "m" }], [], { land: refusing(2) })
+    expect(await drive(io)).toMatchObject({ kind: "error" })
+    expect(calls.filter((c) => c.startsWith("resume"))).toHaveLength(1)
+    expect(calls).not.toContain("sh:commit")
+  })
+
+  test("validate re-runs before the second land", async () => {
+    const order: string[] = []
+    const lands = refusing(1)
+    const { io } = fake([{ kind: "prompt", memory: "m", validate: "v" }], [], {
+      land: async () => (order.push("land"), lands()),
+      check: async () => (order.push("check"), { ok: true, out: "" }),
+      resume: async () => (order.push("resume"), { ok: true }),
+    })
+    await drive(io)
+    expect(order).toEqual(["check", "land", "resume", "check", "land"])
+  })
+
+  test("a failed recovery turn stops with its reason", async () => {
+    const { io } = fake([{ kind: "prompt", memory: "m" }], [], {
+      land: refusing(1),
+      resume: async () => ({ ok: false, why: "aborted" }),
+    })
+    expect(await drive(io)).toMatchObject({ kind: "error", text: "aborted" })
+  })
+
+  test("a non-access refusal behaves as before", async () => {
+    const { io } = fake([{ kind: "prompt", memory: "m" }], [], {
+      land: async () => {
+        throw new Error("gtd land exited 1: boom")
+      },
+    })
+    await expect(drive(io)).rejects.toThrow("boom")
+  })
+
+  test("a refusal on a non-prompt beat is not recovered", async () => {
+    const { io } = fake([{ kind: "capture" }], [], { land: refusing(1) })
+    await expect(drive(io)).rejects.toThrow(ACCESS_REFUSAL)
   })
 })
 

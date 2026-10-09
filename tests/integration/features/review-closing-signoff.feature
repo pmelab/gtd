@@ -28,7 +28,8 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
       export const add = (a: number, b: number) => a + b
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -66,6 +67,12 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
     # the diff, so a broken round can never be mistaken for an approval of
     # nothing.
     Given a test project
+    # The bundled access would refuse this reviewer's stray src/ write.
+    And a gtd config file at ".gtdrc" with:
+      """
+      access:
+        build.review: {}
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -73,7 +80,8 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
       export const add = (a: number, b: number) => a + b
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     # The reviewer's turn writes no `.gtd/REVIEW.md` at all.
     And a file "src/reviewer-scratch.ts" with:
       """

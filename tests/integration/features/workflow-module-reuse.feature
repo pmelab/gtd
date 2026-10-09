@@ -45,7 +45,7 @@ Feature: a gtd.config.ts builds on the bundled workflow through @pmelab/gtd/work
     And the last commit subject is "gtd(human): build.fix"
     And the last commit body contains "Gtd-Var: judgeBudgetBytes=65536"
 
-  Scenario: the re-exported skills export keeps build.fix's bundled skill list — the re-export, not a literal, is what resolves it here
+  Scenario: the re-exported skills export keeps scope build's bundled skill list — the re-export, not a literal, is what resolves it here
     When I run gtd with args "--workflow hotfix"
     Then it succeeds
     And the last commit subject is "gtd(human): build.fix"
@@ -53,11 +53,11 @@ Feature: a gtd.config.ts builds on the bundled workflow through @pmelab/gtd/work
     Then it succeeds
     And stdout contains "\"debugging-and-error-recovery\""
 
-  Scenario: a .gtdrc skills: entry addresses build.fix through the re-exported skills, the same as it would in the bundled workflow itself
+  Scenario: a .gtdrc skills: entry addresses scope build through the re-exported skills, the same as it would in the bundled workflow itself
     Given a gtd config file at ".gtdrc" with:
       """
       skills:
-        build.fix: [my-org-runbook]
+        build: [my-org-runbook]
       """
     When I run gtd with args "--workflow hotfix"
     Then it succeeds

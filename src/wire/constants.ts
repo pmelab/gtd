@@ -9,3 +9,7 @@ export const renderFormat = (fmt: string, ...args: readonly string[]): string =>
   let i = 0
   return fmt.replace(/%s/g, () => args[i++] ?? "")
 }
+
+/** The first line of the landing refusal for a turn that wrote outside its `write` access — a stable marker drivers and tests grep for. */
+export const ACCESS_REFUSAL =
+  "gtd land: this turn wrote outside its write access — revert these paths, then run `gtd land` again:"

@@ -17,7 +17,8 @@ Feature: Review conversation — a question gets an answer at the same gate, not
       export const add = (a: number, b: number) => a + b
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234

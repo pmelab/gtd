@@ -12,6 +12,8 @@ import {
   ConfigService,
   multilineSetting,
   resolveVars,
+  resolveScopeAccess,
+  resolveScopeSkills,
   type ConfigOperations,
   type ResolvedWorkflow,
 } from "./workflow/index.js"
@@ -26,8 +28,9 @@ import {
   type ReplayOutcome,
   type TreeView,
 } from "./replay/index.js"
+import type { ScopeAccess } from "./flows/index.js"
 import { steeringFormatFor } from "./steering/index.js"
-import { UNATTRIBUTED_MODEL, type ModelCost } from "./wire/index.js"
+import { UNATTRIBUTED_MODEL, type ModelCost, type StepAccess } from "./wire/index.js"
 import {
   knownModes,
   type ChangeStatus,
@@ -36,7 +39,7 @@ import {
   type StepDef,
   type WorkflowDefinition,
 } from "./Workflow.js"
-import type { Landing, RepoSnapshot } from "./step/index.js"
+import { accessRefusal, type Landing, type RepoSnapshot } from "./step/index.js"
 
 export { UNATTRIBUTED_MODEL }
 
@@ -55,8 +58,10 @@ type History = ReadonlyArray<{
 // ── Episodes ────────────────────────────────────────────────────────────────
 
 interface EpisodeLocation {
-  /** The workflow pinned on the opening commit; `undefined` for the default (and for a legacy `--entry` opening). */
+  /** The workflow pinned on the opening commit; `undefined` for the default. */
   readonly workflow: string | undefined
+  /** An opening commit with no `Gtd-Workflow` trailer: written by the removed `gtd --entry`. */
+  readonly legacyOpening: boolean
   /** The commit replay starts reading from, or -1 for the empty tree before history. */
   readonly baseIndex: number
   /** The process's first commit — a `--workflow` process's opening commit, else the one after the base. */
@@ -81,12 +86,19 @@ const locateEpisode = (def: WorkflowDefinition, history: History): EpisodeLocati
       message.step === undefined &&
       subject.from === undefined &&
       subject.actor === "human"
-    if (opening) return { workflow: message.workflow, baseIndex: i, processStart: i }
+    if (opening) {
+      return {
+        workflow: message.workflow,
+        legacyOpening: message.workflow === undefined,
+        baseIndex: i,
+        processStart: i,
+      }
+    }
     if (subject === undefined || !ACTORS.has(subject.actor) || subject.to === def.initial) {
-      return { workflow: undefined, baseIndex: i, processStart: i + 1 }
+      return { workflow: undefined, legacyOpening: false, baseIndex: i, processStart: i + 1 }
     }
   }
-  return { workflow: undefined, baseIndex: -1, processStart: 0 }
+  return { workflow: undefined, legacyOpening: false, baseIndex: -1, processStart: 0 }
 }
 
 // ── The current process run ─────────────────────────────────────────────────
@@ -112,6 +124,8 @@ export interface TraceEntry {
 export interface ProcessRun {
   /** The workflow the process's opening commit pinned; `undefined` replays on the default. */
   readonly workflow: string | undefined
+  /** Opened by the removed `gtd --entry`: no workflow to replay, only `gtd abandon` applies. */
+  readonly legacyOpening: boolean
   /** The process's first commit, or HEAD when none has landed yet. */
   readonly startHash: string
   /** The parent of the process's first commit — the empty tree when that is the root commit. */
@@ -180,6 +194,7 @@ const runOf = (
   const head = history[history.length - 1]
   return {
     workflow: location.workflow,
+    legacyOpening: location.legacyOpening,
     startHash: hashAt(history, location.processStart) ?? head?.hash ?? EMPTY_TREE,
     startParentHash,
     diffBase: first?.reviewBase ?? startParentHash,
@@ -436,6 +451,13 @@ const workflowOf = (
   config: ConfigOperations,
   run: ProcessRun,
 ): Effect.Effect<ResolvedWorkflow, Error> => {
+  if (run.legacyOpening) {
+    return Effect.fail(
+      new Error(
+        "gtd: this process was opened by `gtd --entry`, which no longer exists — run `gtd abandon` to start over",
+      ),
+    )
+  }
   if (run.workflow === undefined) return Effect.succeed(config.defaultWorkflow)
   const named = config.workflowNamed(run.workflow)
   if (named !== undefined) return Effect.succeed(named)
@@ -472,6 +494,8 @@ interface ReplaySetup {
   readonly vars: Record<string, string>
   readonly env: Record<string, string>
   readonly budget: number
+  readonly skills: Record<string, readonly string[]>
+  readonly access: Record<string, ScopeAccess>
   readonly workspace: WorkspaceOps
   /**
    * The episode's base tree and every commit's, built ONCE — after
@@ -512,8 +536,10 @@ const replayFor = (
         ? treeFromRecord({})
         : commitTree(setup.workspace, setup.run.diffBase),
     budgetBytes: setup.budget,
-    skills: setup.def.skills,
+    skills: setup.skills,
     configuredSkills: setup.def.configuredSkills,
+    access: setup.access,
+    configuredAccess: setup.def.configuredAccess,
     ...(pending !== undefined ? { pending } : {}),
   })
 
@@ -566,14 +592,20 @@ type RequestOf<K extends ReachedStep["request"]["kind"]> = Extract<
   { kind: K }
 >
 
-const promptDef = (common: StepCommon, request: RequestOf<"agent">): StepDef => ({
+const promptDef = (
+  common: StepCommon,
+  request: RequestOf<"agent">,
+  skills: readonly string[] | undefined,
+  access: StepAccess | undefined,
+): StepDef => ({
   ...common,
   kind: "prompt",
   content: request.prompt,
   ...optional("model", request.options.model),
   ...optional("system", request.options.system),
   ...optional("allowEmpty", request.options.allowEmpty),
-  ...optional("skills", request.options.skills),
+  ...optional("skills", skills),
+  ...optional("access", access),
 })
 
 const scriptDef = (common: StepCommon, request: RequestOf<"run">): StepDef => ({
@@ -608,7 +640,7 @@ const stepDefOf = (step: ReachedStep): StepDef => {
   const common = commonOf(step)
   switch (request.kind) {
     case "agent":
-      return promptDef(common, request)
+      return promptDef(common, request, step.skills, step.access)
     case "run":
       return scriptDef(common, request)
     case "judge":
@@ -685,6 +717,7 @@ export interface RestHints {
   readonly system?: string
   readonly mode?: string
   readonly skills?: readonly string[]
+  readonly access?: StepAccess
 }
 
 const hintsOf = (def: StepDef): RestHints => ({
@@ -695,6 +728,7 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("system", def.system),
   ...optional("mode", def.mode),
   ...optional("skills", def.skills),
+  ...optional("access", def.access),
 })
 
 const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw === "D" ? "D" : "M")
@@ -741,7 +775,10 @@ const costByModel = (entries: readonly CostEntry[]): ModelCost[] => {
 export type RestRequirements = ConfigRequirements
 
 /** Resolve the rest at `ref`, or at HEAD when `ref` is `undefined`. */
-export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, RestRequirements> =>
+export const restAt = (
+  ref: string | undefined,
+  startOverrides: Readonly<Record<string, string>> = {},
+): Effect.Effect<Rest, Error, RestRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
@@ -750,7 +787,9 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
     const run = yield* computeProcessRun(git, config.workflow, ref)
     const resolved = yield* workflowOf(config, run)
     const def = resolved.def
-    const { vars, env } = settingsFor(config, resolved, run.pinnedVars, host.env)
+    const { vars, env } = settingsFor(config, resolved, run.pinnedVars, host.env, startOverrides)
+    const skills = yield* resolveScopeSkills(def, vars)
+    const access = yield* resolveScopeAccess(def, skills, vars)
     const budget = yield* Effect.try({
       try: () => judgeBudgetBytes(vars),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -780,6 +819,8 @@ export const restAt = (ref: string | undefined): Effect.Effect<Rest, Error, Rest
       vars,
       env,
       budget,
+      skills,
+      access,
       workspace,
       base,
       episode,
@@ -858,6 +899,8 @@ export const startRefusal = (
     const config = yield* (yield* ConfigService).load
     const host = yield* Host
     const { vars, env } = settingsFor(config, resolved, {}, host.env, startVars)
+    const skills = yield* resolveScopeSkills(resolved.def, vars)
+    const access = yield* resolveScopeAccess(resolved.def, skills, vars)
     const workspace = rest.setup.workspace
     const outcome = yield* Effect.promise(() =>
       replay({
@@ -870,8 +913,10 @@ export const startRefusal = (
         env,
         start: "",
         budgetBytes: rest.setup.budget,
-        skills: resolved.def.skills,
+        skills,
         configuredSkills: resolved.def.configuredSkills,
+        access,
+        configuredAccess: resolved.def.configuredAccess,
       }),
     )
     if (outcome.kind === "rest") return { firstStep: outcome.rest.name }
@@ -972,8 +1017,27 @@ const landingTarget = (
   if (outcome.kind === "divergence" || outcome.kind === "failed") {
     return Effect.fail(new Error(outcome.message))
   }
-  return Effect.succeed(outcome.kind === "rest" ? outcome.rest.name : rest.def.initial)
+  if (outcome.kind !== "rest") return Effect.succeed(rest.def.initial)
+  const reserved = initialStepRefusal(rest.run.workflow, outcome.rest.name, rest.def.initial)
+  return Effect.succeed(reserved === undefined ? outcome.rest.name : reserved)
 }
+
+/**
+ * A step commit entering the default's first step is what ends an episode, so
+ * a named workflow landing there would read back as finished. Its opening
+ * commit may name that step: a bare opening is never read as a boundary.
+ */
+const initialStepRefusal = (
+  workflow: string | undefined,
+  step: StateName,
+  initial: StateName,
+): Landing | undefined =>
+  workflow !== undefined && step === initial
+    ? {
+        kind: "refusal",
+        message: `gtd: workflow "${workflow}" reaches step "${step}", the default workflow's first step — that is where a finished process waits, so a started process must never land there; rename the step`,
+      }
+    : undefined
 
 const landingTo = (rest: Rest, to: StateName): Landing => {
   if (rest.changes.length === 0 && rest.stepDef.kind === "script" && to === rest.state) {
@@ -1009,6 +1073,10 @@ const decideLanding = (
   Effect.gen(function* () {
     const early = cleanLanding(rest)
     if (early !== undefined) return early
+    if (rest.stepDef.kind === "prompt" && rest.stepDef.access?.write != null) {
+      const message = accessRefusal(rest.changes, rest.stepDef.access.write)
+      if (message !== undefined) return { kind: "refusal", message }
+    }
     const outcome = yield* Effect.promise(() =>
       replayFor(rest.setup, {
         tree: pendingTree(

@@ -74,9 +74,9 @@ current directory is the whole workflow. If one already exists, read it and edit
 it in place.
 
 Prefer the bundled workflow's own parts over re-implementing them — `healthy`,
-`escalation`, `gate`, `design`, `architecturePass`, `packages`, `specReview`,
-`qualityLap`, `buildTail`, and single steps like `triage` or `reviewing`. Their
-full step names are versioned API.
+`escalation`, `gate`, `design`, `architecture`, `packages`, `qualityLap`,
+`buildTail`, and single steps like `triage` or `fixCheck`. Their full step names
+are versioned API.
 
 Make one small change, **verify it loads** (see "Verify"), then make the next. A
 workflow that fails to load breaks every gtd command in the repository.
@@ -126,10 +126,12 @@ needs across steps — a counter, the previous report, a review round's base —
 lives in local variables; replay rebuilds them.
 
 Composition: `scope(name, fn)` prefixes step names (`build.fix`) and sets their
-**memory scope** (one scope = one agent conversation = one model/system — mixing
-them inside a scope fails the process); `scope({ name?, model, system }, fn)`
-also sets defaults for agent steps inside. `refuse(message)` refuses the pending
-landing — call it right after the step whose turn you reject.
+**memory scope** (one scope = one agent conversation = one model/system/skills —
+mixing them inside a scope fails the process);
+`scope({ name?, model, system, skills }, fn)` also sets defaults for agent steps
+inside. Skills are declared per scope, never on `agent()`, and a driver
+restricts each turn to its scope's list where it can. `refuse(message)` refuses
+the pending landing — call it right after the step whose turn you reject.
 `@pmelab/gtd/flows` exports `requireProgress(file)`, `requireAnswers(file)` and
 `requireRevert(edited, base)`, three such checks ready-made.
 
@@ -222,7 +224,7 @@ sign-off between the two:
 const planAndBuild = async (): Promise<void> => {
   for (;;) {
     await design()
-    await architecturePass()
+    await architecture()
     await human("approve-plan", {
       message:
         "The packages under .gtd/packages/ are ready. Edit them to adjust the plan, or change nothing — then run `gtd land` to start building.",
@@ -239,9 +241,8 @@ const planAndBuild = async (): Promise<void> => {
 `acceptClean: true` is what makes an untouched landing approve; without it the
 gate would wait for an edit. `approve-plan` sits in the `root` scope and is a
 new, unique name. Verify: `gtd next` loads without errors, and in a scratch
-repository a landing at `architecture.decompose` (or `architecture-promote`) now
-leads to `approve-plan`, and an untouched landing there to
-`packages.item.building`.
+repository a landing at `architecture.decompose` now leads to `approve-plan`,
+and an untouched landing there to `packages.item.building`.
 
 ## No migration
 

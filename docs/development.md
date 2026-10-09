@@ -5,6 +5,7 @@ npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
 npm run build        # tsdown → dist/gtd.bundle.mjs
 npm test             # the whole gate, via turbo — cached and parallel
+npm run test:fast    # every check except the e2e suites
 npx turbo run test:unit         # one task, cached (add --force to bypass)
 npx turbo run test:e2e:live     # builds first (turbo dependsOn), then @live
 npm run test:changed # local pre-flight: only unit/@inmem tests git says changed
@@ -102,8 +103,8 @@ exec provider's script hashes resolve — without `--no-cache`, later trials wou
 silently replay an earlier trial's cached JSON instead of a fresh turn.
 
 To add a case: write `evals/cases/<name>.mjs` exporting a frozen plain object
-shaped like `evals/cases/spec-review.mjs` — a `state` to enter, two-sided
-`base`/`variants` fixture content, `expect[variant].gtdFiles` and
+shaped like `evals/cases/packages-item-building.mjs` — a `state` to enter,
+two-sided `base`/`variants` fixture content, `expect[variant].gtdFiles` and
 `expect[variant].otherFiles` (`"none"` for a planner case that must never touch
 repo code, `"required"` for a coder case that must). `gtdFiles` takes one of two
 shapes, both graded by `evals/expect.mjs`'s `matchGtdFiles`: the exact array of

@@ -96,7 +96,8 @@ Given("GTD_TESTCOMMAND is set to {string}", (world: GtdWorld, value: string) => 
 // nothing else. That absence is itself the copy-paste-complete proof: no
 // $GTD_* var, no $NODE_*, no test-harness leak. The one exception is
 // $GTD_TESTCOMMAND when a scenario set it: it parameterizes the WORKFLOW
-// under test (the bundled template's `vars.testCommand`), not the driver.
+// under test (the bundled template's `vars.testCommand`), not the driver;
+// likewise any `an environment variable` step (e.g. `GTD_FASTTESTCOMMAND`).
 function driverEnv(world: GtdWorld): Record<string, string> {
   return {
     PATH: `${world.pathShimDir}:${process.env["PATH"] ?? ""}`,
@@ -104,6 +105,7 @@ function driverEnv(world: GtdWorld): Record<string, string> {
     ...(world.gtdTestCommandOverride !== undefined
       ? { GTD_TESTCOMMAND: world.gtdTestCommandOverride }
       : {}),
+    ...world.envVars,
   }
 }
 

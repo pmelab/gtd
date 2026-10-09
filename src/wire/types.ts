@@ -25,6 +25,11 @@ export interface ModelCost {
  * — that import (even type-only) would be a Sheriff edge back to root.
  * `RenderedRest` satisfies this shape today and must keep doing so.
  */
+export interface StepAccess {
+  readonly read: readonly string[] | null
+  readonly write: readonly string[] | null
+}
+
 export interface RenderedDemandSource {
   readonly state: StateName
   readonly actor: Actor
@@ -37,4 +42,5 @@ export interface RenderedDemandSource {
   readonly mode?: StateMode
   readonly judge?: string
   readonly skills?: readonly string[]
+  readonly access?: StepAccess
 }

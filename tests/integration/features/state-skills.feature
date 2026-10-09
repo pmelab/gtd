@@ -2,7 +2,7 @@
 Feature: the bundled workflow prepends a skills preamble to its agent prompts
 
   Each bundled agent step names the skills it loads through `.gtdrc`
-  `skills:`, keyed by the step's full name — see `per-step-skills.feature`
+  `skills:`, keyed by the scope full name — see `scope-skills.feature`
   for that key's own shape and validation. The bundled workflow introduces a
   step's configured skills ahead of its prompt with a preamble naming them;
   an empty list switches the preamble off for that step alone. A `.gtdrc`
@@ -14,7 +14,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
     And a gtd config file at ".gtdrc" with:
       """
       skills:
-        build.fix: [code-review, testing]
+        build: [code-review, testing]
       """
     And the workflow
     And gtd starts workflow "fix"
@@ -33,7 +33,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
     And a gtd config file at ".gtdrc" with:
       """
       skills:
-        build.fix: []
+        build: []
       """
     And the workflow
     And gtd starts workflow "fix"
@@ -51,7 +51,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
     And a gtd config file at ".gtdrc" with:
       """
       skills:
-        build.fix: [code-review, testing]
+        build: [code-review, testing]
       """
     And the workflow
     And gtd starts workflow "fix"
@@ -73,7 +73,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
     And a gtd config file at ".gtdrc" with:
       """
       skills:
-        build.fix: []
+        build: []
       """
     And the workflow
     And gtd starts workflow "fix"

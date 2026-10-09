@@ -1,7 +1,7 @@
 Feature: Risk-fix pass — the reviewer's marked risks are fixed before the human gate
 
   A pointer note opening with `Risk:` in the reviewer's `.gtd/REVIEW.md` goes to
-  `build.review.fix-risks`, then `build.health.check`, then the reviewer
+  `build.review.fix.risks.fixing`, then `build.health.check`, then the reviewer
   writes the review again over the whole change. The pass runs once per review
   round: a risk the re-review still marks reaches the human unfixed.
 
@@ -17,7 +17,8 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
       export const sub = (a: number, b: number) => a - b
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -30,7 +31,7 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.fix-risks"
+    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.fix.risks.fixing"
     Given "src/calc.ts" is modified to:
       """
       export const add = (a: number, b: number) => Number.isSafeInteger(a + b) ? a + b : NaN
@@ -38,7 +39,7 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.fix-risks → build.health.check"
+    And the last commit subject is "gtd(agent): build.review.fix.risks.fixing → build.health.check"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
@@ -68,7 +69,8 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
       export const sub = (a: number, b: number) => a - b
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -81,7 +83,7 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.fix-risks"
+    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.fix.risks.fixing"
     Given "src/calc.ts" is modified to:
       """
       export const add = (a: number, b: number) => a + b // checked
@@ -89,7 +91,7 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.fix-risks → build.health.check"
+    And the last commit subject is "gtd(agent): build.review.fix.risks.fixing → build.health.check"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"

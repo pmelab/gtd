@@ -3,12 +3,15 @@ import {
   codeThreads,
   env,
   head,
+  quote,
+  accessFor,
   skillsFor,
   start,
   type AgentOptions,
   type SummaryContext,
 } from "../flows/index.js"
 import {
+  accessPreamble,
   skillsPreamble,
   styleBlock,
   styleFormatContract,
@@ -16,7 +19,6 @@ import {
   designPersona,
   architectPersona,
   reviewerPersona,
-  specReviewerPersona,
   builderPersona,
   finisherPersona,
   escalationPersona,
@@ -37,23 +39,16 @@ export const withSkills = (skills: string | undefined, prompt: string): string =
   return `${skillsPreamble.replaceAll("{skills}", skills)}\n\n${prompt}`
 }
 
-/**
- * An `agent()` step whose preamble names its resolved skills: `skillsFor`
- * resolves `name` (scoped from here, same as `agent()`'s own resolver) for
- * the preamble prose, passing `options.skills` through as `ownSkills` — the
- * same precedence tier `agent()`'s own wire resolver gives a call's own
- * `skills` option, so a step that declares one (`reviewQuality`'s per-turn
- * lens) gets it in the preamble too, not just on the wire, whenever no
- * bundled or configured entry outranks it. Both reads share one resolver
- * (`Replay.ts`'s `resolveSkills`), so the preamble and the wire can't drift
- * apart.
- */
+/** An `agent()` step whose prompt opens with the preamble naming its scope's skills, then its restricted file access. */
 export const agentWithSkills = (
   name: string,
   prompt: string,
   options: AgentOptions = {},
-): Promise<void> =>
-  agent(name, withSkills(skillsFor(name, options.skills).join(", "), prompt), options)
+): Promise<void> => {
+  const access = accessPreamble(accessFor(name, options.file))
+  const body = access === "" ? prompt : `${access}\n\n${prompt}`
+  return agent(name, withSkills(skillsFor(name).join(", "), body), options)
+}
 
 export const unwindFailure = (commit: string): string =>
   `gtd could not unwind ${commit} out of your working tree.`
@@ -85,16 +80,6 @@ carries it.
 
 What each change does next (then run \`gtd land\`):
 - **Continue** — having undone the sketch by hand, check the test baseline is green and start triage (**start-gate.check**).
-`
-
-export const architecturePreMessage = (): string =>
-  `Judging whether \`.gtd/REQUIREMENTS.md\`'s settled concerns need a
-dedicated architecture pass — real structural decisions, multiple
-integration points, or a non-obvious tradeoff — before packages
-are written. Run \`gtd judge answer\` and pipe a verdict for
-\`architectureWarranted\` — or land untouched to run the full pass
-(the conservative default; a skipped judgment never suppresses
-it).
 `
 
 export const startGateBlockedMessage = (): string =>
@@ -274,21 +259,45 @@ ${footnoteFoldIn}${codeThreadReplies()}
   authority is to merge only, never to split — the whole problem
   is over-granularity
 - Record every merge under \`## Merged Concerns\`,
-  carrying both merged requirements verbatim so spec review
-  still covers each independently
+  carrying both merged requirements verbatim so each requirement
+  stays traceable to its tests
 - A merge raises no open question and stops for no
   human — do not route it to \`architecture.gate\` for a veto; the
-  human sees it when reviewing the plan, and spec review is the
-  real safety net
+  human sees it when reviewing the plan
 - Prefer fewer, larger packages — the smallest independently
   valuable change, not the smallest change that compiles
 - Every open point here is TECHNICAL — triage already resolved
   the product ones, one phase earlier. PERMISSIVE: answer it
   yourself unless you genuinely cannot defend a default; a wrong
-  technical call is still caught at spec review
+  technical call is still caught by the full run and the quality lap
 - The narrow exception: a simplification that drops something
   \`.gtd/REQUIREMENTS.md\` mentions is an open question, not a
   silent default
+
+- \`.gtd/ARCHITECTURE.md\` is the acceptance spec the human signs
+  off. It carries these sections, in this order:
+  1. \`## Open Questions\` (qa format, first, only when present)
+  2. \`## Interfaces\` — new and changed signatures/contracts
+     only, as fenced TypeScript (or the repository's language)
+  3. \`## Call Stacks\` — seam level, entry point → module
+     boundary; one line per hop, never per line of code
+  4. \`## E2E Scenarios\` — Gherkin in fenced \`gherkin\` blocks
+     (whatever e2e framework the repository uses), each preceded
+     by a line \`- e2e: <path>\`. With no user-visible
+     behaviour change, the literal line \`No e2e change.\` plus a
+     one-line reason — never empty or missing
+  5. \`## Unit Tests\` — one \`### <interface>\` per entry of
+     \`## Interfaces\`, each test a line
+     \`- unit: <path> — <behaviour> (covers <concern>)\`;
+     never against an internal helper. A requirement no test can
+     cover (docs, README, deletions, config) goes under a
+     \`### Chores\` heading in this section as
+     \`- chore: <path> — <what> (covers <concern>)\`
+  6. \`## Merged Concerns\` — kept, when any merge happened
+  7. \`## Answered Questions\` — last
+- Coverage rule: every concern in \`.gtd/REQUIREMENTS.md\` appears
+  in at least one \`(covers …)\` tail, as a test or a chore. Each
+  test entry carries its file path and level (unit / e2e)
 
 ${questionBar}
 ## Return lap
@@ -305,26 +314,41 @@ export const architectureDecomposePrompt = (): string =>
 
 ${stateFileRules}
 - The only state files this turn touches are the package files
-  under \`.gtd/packages/\` and \`.gtd/ARCHITECTURE.md\` (deleted) —
-  no other files for notes or output
+  under \`.gtd/packages/\` — no other files for notes or output.
+  Never delete \`.gtd/ARCHITECTURE.md\`: the build tail's full run
+  still needs it, and package files may reference it
 - Work from \`.gtd/ARCHITECTURE.md\` if you wrote it earlier this
   conversation, otherwise read it (the converged technical
-  plan). It already lists an ordered set of concerns with every
-  merge/split judgement made — this turn is a mechanical
-  write-out, not a planning one. A \`## Merged Concerns\` heading
-  there records those merges, never a concern of its own: write
-  no package file for it
-- Write one package file per concern, in the settled order,
-  under \`.gtd/packages/\` (e.g. \`.gtd/packages/01-name.md\`,
-  \`02-name.md\`, ...), each carrying that concern's
-  requirement(s) — both, independently, if merged — its
-  independent tasks, and each task's acceptance criteria as
-  \`- [ ]\` checkboxes and relevant paths
-- Do not merge or split concerns here — that judgement already
-  happened; carry the settled grouping over verbatim. No
-  package file may reference any other \`.gtd/\` file
-- Once written, delete \`.gtd/ARCHITECTURE.md\`. Leave everything
-  uncommitted and finish
+  plan). It already lists the concerns, interfaces, e2e scenarios
+  and unit tests — this turn groups them into packages. A
+  \`## Merged Concerns\` heading there records merges, never a
+  concern of its own: write no package file for it
+- A package is a consecutive run of \`## Unit Tests\` entries that go
+  green together on the fast suite, at most ~8 unit-test entries
+  each. Keep the merge rule: concerns whose footprints centre on the
+  same files stay in one package unless the later one only consumes
+  an interface the earlier one creates. Prefer fewer, larger
+  packages. Order them so each stays green on the fast suite —
+  interface-introducing packages first
+- Write the packages under \`.gtd/packages/\`, each carrying its
+  requirement(s) — both, independently, if merged — its tasks, and
+  each task's acceptance criteria as \`- [ ]\` checkboxes and
+  relevant paths:
+  - \`.gtd/packages/00-e2e-scenarios.md\` — package 0: it writes
+    \`## E2E Scenarios\` as tests in the repository's own e2e
+    framework and leaves them red. Write no such file when
+    \`## E2E Scenarios\` says "No e2e change."
+  - \`01-…\` onward — the unit-test packages. A requirement no test
+    covers (docs, README, deletions, config) becomes a chore
+    package, or a task of one; chore packages declare no tests
+  - the last numbered package is the wiring package: CLI entry,
+    workflow composition, config. A red e2e after it is a bug, not
+    missing work
+- Every package with tests has a \`## Tests\` section, one line per
+  declared test, copied from the architecture entries:
+  \`- unit: \\\`<path>\\\`\` or \`- e2e: \\\`<path>\\\`\`. Chore packages have
+  none
+- Leave everything uncommitted and finish
 `
 
 export const architectureGateAnswerMessage = (): string =>
@@ -357,7 +381,7 @@ What each change does next (then run \`gtd land\`):
 export const packagesItemBuildingPrompt = (pkg: string): string =>
   `${stateFileRules}
 - The only state file this turn may write is \`.gtd/SATISFIED.md\`;
-  never delete the package file (the spec-review gate reads it
+  never delete the package file (the declared-tests guard reads it
   after you)
 - The package to implement is \`${pkg}\`
 - First check its acceptance criteria against the current tree —
@@ -366,6 +390,13 @@ export const packagesItemBuildingPrompt = (pkg: string): string =>
   with each criterion's concrete evidence (commit, file, or
   symbol), change nothing else, and finish. Otherwise implement
   normally and skip that file
+- Write the tests the package declares under \`## Tests\` first,
+  then the code that makes them pass; the turn is refused unless
+  every declared test is in your diff
+- Package 0 (\`.gtd/packages/00-e2e-scenarios.md\`) writes the scenarios verbatim
+  from \`## E2E Scenarios\` of \`.gtd/ARCHITECTURE.md\`, with only
+  step code that typechecks, and leaves them red — no
+  implementation
 - Implement every task the package describes, no more, no less,
   fanning independent ones out to parallel subagents where your
   harness supports it; leave other package files untouched
@@ -385,17 +416,6 @@ ${fixFeedbackPrompt}
   make the smallest change that gets there — that package can
   then legitimately report itself already satisfied later
 - Leave everything uncommitted and finish your turn — do not commit
-`
-
-export const packagesItemFixSpecPrompt = (pkg: string): string =>
-  `${stateFileRules}
-- The only state file this turn touches is
-  \`.gtd/SPEC_FEEDBACK.md\` — address it, then delete it
-- Read it (the reviewer's concerns) and the package spec
-  (\`${pkg}\`), then fix the code to
-  resolve every concern
-- Delete \`.gtd/SPEC_FEEDBACK.md\` once resolved; leave everything
-  else uncommitted and finish your turn
 `
 
 export const healthJudgeMessage = (): string =>
@@ -445,59 +465,34 @@ turn, or land untouched to give it one more attempt at the same
 analysis.
 `
 
-export const packagesItemSpecPreMessage = (): string =>
-  `Judging whether the code already satisfies each requirement in the
-package spec, before spending a full review turn. Run \`gtd judge
-answer\` and pipe a verdict per section — or land untouched to run
-the full review (the conservative default; a skipped judgment
-never suppresses anything).
+/** What the tail's full-run fix needs of a `BuiltPlan` (structural: `packages.ts` imports this module). */
+export interface BuildContext {
+  readonly ranges: readonly { readonly pkg: string; readonly from: string; readonly to: string }[]
+  readonly scenarios: {
+    readonly added: readonly string[]
+    readonly changed: readonly string[]
+  }
+}
+
+const buildContextPrompt = (built: BuildContext): string => {
+  const list = (paths: readonly string[]): string =>
+    paths.length === 0 ? "  (none)" : paths.map((path) => `  - ${path}`).join("\n")
+  return `- Read \`.gtd/ARCHITECTURE.md\` — the plan every package was built from
+- A red scenario that is NEW in this plan likely means missing wiring
+  between packages; new scenarios:
+${list(built.scenarios.added)}
+- A red CHANGED or existing scenario or test is a regression a package
+  introduced; scenarios this plan changed:
+${list(built.scenarios.changed)}
+- Each package's commits, to bisect a break:
+${built.ranges.map((r) => `  git log --oneline ${r.from}..${r.to}  # ${r.pkg}`).join("\n")}
 `
+}
 
-/** The sections a pre-judge could not clear, when it cleared the rest. */
-const specScope = (failing: readonly string[]): string =>
-  failing.length > 0
-    ? `- A pre-judge already found the other sections satisfied. Confine
-  your review to only these sections:
-${failing.map((title) => `  - ${title}\n`).join("")}`
-    : ""
-
-export const packagesItemSpecReviewPrompt = (
-  pkg: string,
-  failing: readonly string[] = [],
-): string =>
-  `${styleBlock}
-
-You are reviewing a freshly-built work package against its own
-spec.
-
-${stateFileRules}
-- The only state file this turn touches is
-  \`.gtd/SPEC_FEEDBACK.md\` — write it only when you find problems
-- The package spec is \`${pkg}\`
-${specScope(failing)}- Verify the implementation against it: tasks done, criteria
-  met, code sound and consistent with the codebase. No diff is
-  given — read the range yourself, from \`${start()}\`
-  to the working tree, process-wide (it can span earlier
-  packages)
-- You own that bar; nothing downstream re-weighs your findings
-- Write nothing when the package fully satisfies its spec —
-  silence is your approval. Otherwise write
-  \`.gtd/SPEC_FEEDBACK.md\` listing what would violate the spec if
-  it shipped unaddressed, specific enough to act on, each as its
-  own \`## \` heading
-- Never fix anything yourself and never delete the package
-  file — a later step owns that
-`
-
-export const specReviewerSystem = (): string =>
-  `${specReviewerPersona}
-
-${agentConduct}`
-
-export const buildFixPrompt = (): string =>
+export const buildFixPrompt = (built?: BuildContext): string =>
   `${stateFileRules}
 ${fixFeedbackPrompt}
-- Leave everything uncommitted — do not commit
+${built === undefined ? "" : buildContextPrompt(built)}- Leave everything uncommitted — do not commit
 `
 
 export const finisherSystem = (): string =>
@@ -612,7 +607,7 @@ When you've been through the whole diff, run \`gtd land\`:
   - \`question\` — answered inline under the note in
     \`.gtd/REVIEW.md\` (**review.answer-review-questions**); the process
     rests at this gate again, no lap
-  - \`nit\` — fixed in one batched turn (**review.fix-nits**), then a
+  - \`nit\` — fixed in one batched turn (**review.fix.nits.fixing**), then a
     fresh review of the change rests at this gate again, no re-plan
   - \`praise\` — dropped; a round of only praise signs off
   When a round mixes \`edit\` with \`question\` or \`nit\`, questions get
@@ -888,3 +883,25 @@ ${it.processCostByModel.map((m) => `- ${m.model}: ${m.cost}\n`).join("")}
 Print the closing message and stop — this writes nothing itself.
 `
 }
+
+export interface WordingDrift {
+  readonly path: string
+  /** `- `/`+ `-prefixed, in file order. */
+  readonly lines: readonly string[]
+}
+
+export const scenarioWordingMessage = (at: string, drifted: readonly WordingDrift[]): string =>
+  `The e2e scenario wording was frozen when package 0 landed, and the last
+turn changed it. Removed lines are marked \`-\`, added ones \`+\`:
+
+${drifted.map(({ path, lines }) => `${path}\n${lines.join("\n")}`).join("\n\n")}
+
+To accept the change, land untouched.
+
+To reject it, run
+
+    git checkout ${at} -- ${drifted.map(({ path }) => quote(path)).join(" ")}
+
+and land. Restoring only some of the files is a partial accept: every file
+still differing from the frozen wording is accepted.
+`

@@ -12,6 +12,23 @@ export const skillsPreamble = `- Load whatever's listed here that your harness a
 - Never let a loaded skill turn this turn interactive — answer nothing,
   ask nothing; this runs unattended, with no one at a keyboard`
 
+/** One bullet per restricted side; empty when neither is. An empty glob list reads "nothing". */
+export const accessPreamble = (access: {
+  readonly read: readonly string[] | null
+  readonly write: readonly string[] | null
+}): string => {
+  const globs = (list: readonly string[]): string =>
+    list.length === 0 ? "nothing" : list.join(", ")
+  return [
+    ...(access.read === null ? [] : [`- This turn may read only: ${globs(access.read)}`]),
+    ...(access.write === null
+      ? []
+      : [
+          `- This turn may write only: ${globs(access.write)} — anything else is refused when the turn lands`,
+        ]),
+  ].join("\n")
+}
+
 export const styleBlock = `- A deliverable, not a chat reply — size follows the work; cut padding
 - Lead with the answer; never circle back to restate it
 - Flat, commanding sentences — commit to the claim, never hedge
@@ -60,8 +77,7 @@ export const architectPersona = `You are the technical planning voice in gtd's b
 once product concerns are settled, reading them cold, no carried
 conversation. Work out the *how* per concern — structure, data models,
 tech-stack choices, error handling — raise the technical open
-questions, then write one package spec per concern with no further
-judgement call: the grouping is already decided.`
+questions, then pin interfaces and tests in the architecture document.`
 
 export const reviewerPersona = `You are the independent reviewing mind in gtd's build pipeline —
 deliberately separate from whoever wrote the code, with no attachment
@@ -71,13 +87,6 @@ just approving; answer the human's questions inline in the review;
 and, when asked, fix the small nits the human flagged and the risks
 you marked yourself, each in one batch.
 Beyond that you never fix or build anything yourself.`
-
-export const specReviewerPersona = `You are the adversarial spec-conformance checker in gtd's build
-pipeline, checking one freshly-built package against its spec. Verify
-only: tasks done, criteria met, code sound and consistent with the
-codebase. Write feedback only when something is genuinely wrong —
-otherwise write nothing; a clean turn IS the approval. Never fix what
-you find — naming it precisely enough for a fix turn is the whole job.`
 
 export const builderPersona = `You are the TDD implementer in gtd's build pipeline: build one
 package's declared scope end to end, tests first, and come back to fix

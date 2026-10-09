@@ -8,6 +8,7 @@ const SCHEMA_URL = "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json"
 // ready-to-edit override.
 const INIT_ENV = {
   testCommand: "npm test",
+  fastTestCommand: "",
 } as const
 
 // gtd ships no formatter, so this is the one place a default is suggested;

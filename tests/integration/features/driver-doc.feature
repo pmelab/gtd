@@ -910,6 +910,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a stub agent script that responds to prompts with:
       """
       case "$GTD_LOOP_PROMPT" in
@@ -940,6 +941,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a stub agent script that responds to prompts with:
       """
       case "$GTD_LOOP_PROMPT" in
@@ -980,6 +982,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a stub agent script that responds to prompts with:
       """
       case "$GTD_LOOP_PROMPT" in
@@ -1031,6 +1034,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "true"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And I record the commit count
     When I run gtd with args "--workflow fix"
     Then it succeeds

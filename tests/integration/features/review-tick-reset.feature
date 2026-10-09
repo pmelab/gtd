@@ -28,7 +28,8 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       export const add = (a: number, b: number) => a + b
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -70,7 +71,8 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       export const add = (a: number, b: number) => a + b
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -110,7 +112,8 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       export const add = (a: number, b: number) => a + b
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -152,7 +155,8 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       export const add = (a: number, b: number) => a + b
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.review.reviewing"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234

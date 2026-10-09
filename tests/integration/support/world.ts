@@ -348,6 +348,8 @@ export class GtdWorld extends QuickPickleWorld {
 
   /** Extra env vars merged into every LIVE-tier subprocess's environment, overriding `process.env` — never the real `process.env` itself. `@live` only. */
   liveEnvOverrides: Record<string, string> = {}
+  /** Names stripped from the inherited `process.env` of every live spawn, so a scenario never depends on the ambient environment. */
+  unsetEnvVars: string[] = []
   /** The relocated git dir a scenario moved `<repoDir>/.git` to, outside the worktree, so gtd can only find it via `$GIT_DIR`. `@live` only. */
   customGitDir: string | undefined = undefined
   /** The scratch directory a scenario points `$TMPDIR` at — checked empty afterward to prove nothing writes there. `@live` only. */
@@ -494,8 +496,10 @@ export class GtdWorld extends QuickPickleWorld {
     const pathEnv = this.pathShimDir
       ? { PATH: `${this.pathShimDir}:${process.env["PATH"] ?? ""}` }
       : {}
+    const inherited = { ...process.env }
+    for (const name of this.unsetEnvVars) delete inherited[name]
     return {
-      ...process.env,
+      ...inherited,
       ...pathEnv,
       ...optionalEnv("GTD_TESTCOMMAND", this.gtdTestCommandOverride),
       ...optionalEnv("GTD_TEST_TAILSCALE_DIR", this.tailscaleStateDir),
