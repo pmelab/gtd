@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -8,8 +9,10 @@ const json = (path: string) => JSON.parse(readFileSync(path, "utf8"))
 const importsFrom = (entry: string, seen = new Set<string>()): [string, string][] => {
   if (seen.has(entry)) return []
   seen.add(entry)
+  const source = readFileSync(entry, "utf8")
   const specs = [
-    ...readFileSync(entry, "utf8").matchAll(/^import\s(?!type\s)[^"]*"([^"]+)"/gm),
+    ...source.matchAll(/^import\s(?!type\s)(?:[^"]*\sfrom\s)?"([^"]+)"/gm),
+    ...source.matchAll(/^export\s(?!type\s)[^"]*\sfrom\s"([^"]+)"/gm),
   ].map((m) => m[1]!)
   return specs.flatMap((spec) => {
     if (!spec.startsWith(".")) return [[entry, spec] as [string, string]]
@@ -48,6 +51,13 @@ describe("claude plugin", () => {
   it("loads only relative files and claude-code from the hooks module", () => {
     const outside = importsFrom("claude/hooks/register.tsx").filter(([, s]) => s !== "claude-code")
     expect(outside).toEqual([])
+  })
+
+  it("follows re-exports when walking the hooks module", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-hooks-"))
+    writeFileSync(join(dir, "entry.ts"), 'export { x } from "./leaf.js"\nexport const y = "z"\n')
+    writeFileSync(join(dir, "leaf.ts"), 'export { sep as x } from "node:path"\n')
+    expect(importsFrom(join(dir, "entry.ts")).map(([, s]) => s)).toEqual(["node:path"])
   })
 
   it("installs the plugin from this package", () => {
