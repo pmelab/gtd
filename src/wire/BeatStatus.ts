@@ -21,11 +21,15 @@ export interface NextMatch {
  */
 export interface BeatStatus {
   readonly idle: boolean
+  /** No process is underway, whatever the tree holds — `idle` additionally needs a clean tree. */
+  readonly initial: boolean
   readonly model: string | undefined
   readonly system: string | undefined
   readonly log: string
   readonly state: StateName
   readonly actor: Actor
+  /** The workflow the process runs: its pinned name, or the default's display name. */
+  readonly workflow: string
   readonly label: string | undefined
   readonly memory: string | undefined
   readonly file: string | undefined
@@ -46,20 +50,24 @@ export interface BeatStatus {
 export const statusOf = (input: {
   readonly rendered: RenderedDemandSource
   readonly idle: boolean
+  readonly initial: boolean
+  readonly workflow: string
   readonly log: string
   readonly changes: readonly StatusChange[]
   readonly next: NextMatch | null
   readonly cost: number
   readonly costByModel: readonly ModelCost[]
 }): BeatStatus => {
-  const { rendered, idle, log, changes, next, cost, costByModel } = input
+  const { rendered, idle, initial, workflow, log, changes, next, cost, costByModel } = input
   return {
     idle,
+    initial,
     model: rendered.model,
     system: rendered.system !== undefined && rendered.system !== "" ? rendered.system : undefined,
     log,
     state: rendered.state,
     actor: rendered.actor,
+    workflow,
     label: rendered.label,
     memory: rendered.memory,
     file: rendered.file,

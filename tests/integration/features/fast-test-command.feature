@@ -9,7 +9,16 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
   Scenario: a SETUP.md at start-gate.check rests there, and removing it moves on
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And a file ".gtd/SETUP.md" with:
       """
       The bundled workflow needs the `fastTestCommand` setting.
@@ -30,7 +39,16 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
     Given a test project
     And the workflow
     And the environment variable "GTD_FASTTESTCOMMAND" is unset
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/SETUP.md" contains "fastTestCommand"
@@ -42,7 +60,16 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
     And the workflow
     And an environment variable "GTD_FASTTESTCOMMAND" set to "echo fast-suite-ran; exit 1"
     And an environment variable "GTD_TESTCOMMAND" set to "echo full-suite-ran; exit 1"
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """

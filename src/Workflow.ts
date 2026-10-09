@@ -1,4 +1,4 @@
-import type { EntryBase, Flow, ScopeAccess, Summary } from "./flows/index.js"
+import type { WorkflowBase, Flow, ScopeAccess, Summary } from "./flows/index.js"
 import type { Actor, ContentKind, StateMode, StateName, StepAccess } from "./wire/index.js"
 
 export type { Actor, ContentKind, StateMode, StateName }
@@ -52,7 +52,7 @@ export interface StepDef {
 export interface WorkflowDefinition {
   readonly flow: Flow
   readonly summary?: Summary | undefined
-  readonly base?: EntryBase | undefined
+  readonly base?: WorkflowBase | undefined
   /** Steering files by path, with their mode — what the LSP knows before a step declaring one is reached. */
   readonly steering: Readonly<Record<string, StateMode>>
   /** Every mode a step may name: the built-in registry merged with `.gtdrc` `modes:`. */
@@ -71,6 +71,8 @@ export interface WorkflowDefinition {
   readonly configuredAccess: Readonly<Record<string, ScopeAccess>>
   /** Every well-shaped `.gtdrc` `access:` key with its file, checked once the process's settings are known. */
   readonly accessKeys: readonly { readonly key: string; readonly origin: string }[]
+  /** The scopes every OTHER loaded file gives skills or access to, each on its own settings — a `.gtdrc` key may name them too. */
+  readonly knownScopes?: () => readonly string[]
   /** The file the `skills` and `access` exports came from, for error reports. */
   readonly skillsOrigin: string
   /** The flow's first step on an ordinary start — where a finished episode waits. */

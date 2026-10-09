@@ -51,7 +51,7 @@ Add \`formatNames(people: { first: string; last: string }[]): string[]\` to
       \`["Ada Lovelace"]\`
 `,
     },
-    // `--entry` commits the working tree as one entry commit, so even the
+    // `--workflow` commits the working tree as one opening commit, so even the
     // "nothing extra to plant" side needs a real byte to stage — an inert
     // marker outside the graded range (the agent's own turn starts fresh
     // after this commit, so it never counts toward `otherFilesChanged`).

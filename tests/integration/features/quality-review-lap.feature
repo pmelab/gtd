@@ -11,7 +11,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   green again, the human review follows directly.
 
   Every scenario reaches `build.health.check` through a real
-  `--entry fix-precheck` history (a red precheck, then one fix turn) and
+  `--workflow fix` history (a red precheck, then one fix turn) and
   fabricates each later turn's own resulting diff by hand — same convention
   as `default-workflow.feature` — since
   no real driver runs a script or an agent in this harness; only gtd's own
@@ -21,7 +21,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   Scenario: six lenses each get one reviewing turn in listed order, then the clean lap hands straight on to the human review
     Given a test project
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -108,7 +108,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -159,7 +159,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -181,7 +181,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to " first-lens , second-lens "
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 failing test
@@ -219,7 +219,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to "conventions"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -244,7 +244,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -268,7 +268,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to "ponytail-review"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed

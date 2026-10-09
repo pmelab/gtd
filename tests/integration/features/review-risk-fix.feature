@@ -16,7 +16,7 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
       export const add = (a: number, b: number) => a + b
       export const sub = (a: number, b: number) => a - b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
     And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
@@ -68,7 +68,7 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
       export const add = (a: number, b: number) => a + b
       export const sub = (a: number, b: number) => a - b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
     And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:

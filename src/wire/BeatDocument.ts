@@ -50,6 +50,7 @@ export interface BeatDocument {
   readonly kind: BeatKind
   readonly content: string
   readonly idle: boolean
+  readonly initial: boolean
   readonly session: DemandSession | undefined
   readonly model: string | undefined
   readonly system: string | undefined
@@ -57,6 +58,7 @@ export interface BeatDocument {
   readonly log: string
   readonly state: StateName
   readonly actor: Actor
+  readonly workflow: string
   readonly label: string | undefined
   readonly memory: string | undefined
   readonly file: string | undefined
@@ -71,7 +73,7 @@ export interface BeatDocument {
 }
 
 /**
- * Flatten a `Demand` plus its `BeatStatus` into the single 21-key document
+ * Flatten a `Demand` plus its `BeatStatus` into the single 23-key document
  * `gtd next --json` emits — the ONLY place the two are joined. `cost`/
  * `costByModel` are omitted together, exactly when no cost was recorded
  * (`cost <= 0`).
@@ -83,6 +85,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     kind: demand.kind,
     content: demand.content,
     idle: status.idle,
+    initial: status.initial,
     session,
     model: status.model,
     system: status.system,
@@ -90,6 +93,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     log: status.log,
     state: status.state,
     actor: status.actor,
+    workflow: status.workflow,
     label: status.label,
     memory: status.memory,
     file: status.file,

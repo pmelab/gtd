@@ -7,7 +7,7 @@ Feature: gtd land — the one landing verb, actorless
   `stalled` included — 1 for a refusal, 2 for a usage error (nothing emitted
   either way). Whose turn is next lives entirely in the FOLLOWING
   `gtd next --json`'s own `kind` field, never in `gtd land`'s exit code.
-  `--entry` is only the bare `gtd --entry <state>` form.
+  `--workflow` is only the bare `gtd --workflow <name>` form.
 
   @inmem
   Scenario: a capture landing into a prompt state succeeds and lands
@@ -185,10 +185,10 @@ Feature: gtd land — the one landing verb, actorless
     And stdout does not contain "git commit"
 
   @inmem
-  Scenario: gtd land --json reports settled:false, idle:true for the green --entry fix-precheck probe, without landing it
+  Scenario: gtd land --json reports settled:false, idle:true for the green --workflow fix probe, without landing it
     Given a test project
     And the workflow
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     And I record the commit count
     When I run gtd land with "--json"

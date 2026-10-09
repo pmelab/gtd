@@ -1,13 +1,13 @@
-// The prompt evals' workflow: `gtd --entry <step>` runs that one bundled agent
+// The prompt evals' workflows: `gtd --workflow <name>` runs one bundled agent
 // step, with the bundled prompt and persona, against the fixture's tree.
 // `evals/fixture.mjs` copies it into each fixture repo.
-import { human, read, refuse, scope, start, type FlowArgs } from "@pmelab/gtd/flows"
+import { read, scope, start } from "@pmelab/gtd/flows"
 import {
   author,
   build,
   collecting,
   decompose,
-  fix,
+  fixCheck,
   fixSuite,
   nextPackage,
   reviewing,
@@ -19,32 +19,19 @@ export { defaults } from "@pmelab/gtd/workflow"
 const pkg = (): string => nextPackage() ?? ""
 const inPackage = (step: () => Promise<void>) => () => scope("packages", () => scope("item", step))
 
-/**
- * The bundled agent steps by full name, each run in the scope the workflow
- * gives it. Steps that review since a base see the process's own diff base;
- * package steps work on the first queued package; collecting reads its
- * capture from `.gtd/REVIEW_RAW.md`, where an eval fixture puts it.
- */
-export const evalSteps: Readonly<Record<string, () => Promise<void>>> = {
-  "build.review.reviewing": () => scope("build", () => reviewing(start())),
-  "build.review.collecting": () =>
-    scope("build", () => collecting(read(".gtd/REVIEW_RAW.md") ?? "")),
-  "design.triage": () => scope("design", () => triage(start())),
-  "architecture.author": () => scope("architecture", author),
-  "architecture.decompose.decomposing": () => scope("architecture", decompose),
-  "packages.item.building": inPackage(() => build(pkg())),
-  "packages.item.fix.suite.fixing": inPackage(fixSuite),
-  "build.fix": () => scope("build", fix),
-}
-
-export default async ({ entry }: FlowArgs): Promise<void> => {
-  if (entry === undefined) {
-    await human("idle", { message: "An eval fixture: enter the step under test." })
-    return
-  }
-  const step = evalSteps[entry]
-  if (step === undefined) {
-    return refuse(`"${entry}" is not an enterable state — no bundled agent step has that name`)
-  }
-  await step()
-}
+// One workflow per bundled agent step, named by the step's full name in
+// camelCase (`packages.item.fix.suite.fixing` -> `packagesItemFixSuiteFixing`):
+// each runs that step in the scope the workflow gives it. Steps that review
+// since a base see the process's own diff base; package steps work on the
+// first queued package; collecting reads its capture from
+// `.gtd/REVIEW_RAW.md`, where an eval fixture puts it. `evals/fixture.mjs`
+// derives the name from the case's `state`.
+export const buildReviewReviewing = () => scope("build", () => reviewing(start()))
+export const buildReviewCollecting = () =>
+  scope("build", () => collecting(read(".gtd/REVIEW_RAW.md") ?? ""))
+export const designTriage = () => scope("design", () => triage(start()))
+export const architectureAuthor = () => scope("architecture", author)
+export const architectureDecomposeDecomposing = () => scope("architecture", decompose)
+export const packagesItemBuilding = inPackage(() => build(pkg()))
+export const packagesItemFixSuiteFixing = inPackage(fixSuite)
+export const buildFix = () => scope("build", () => fixCheck())

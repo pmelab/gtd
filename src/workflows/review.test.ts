@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { installContext, type Change, type JudgeAnswer, type StepRequest } from "../flows/index.js"
 import { fixQualityFindings, review, type ReviewOutcome } from "./review.js"
-import { unified } from "./index.js"
+import { bundled } from "./index.js"
 import { fixtureContext } from "./text.fixture.js"
 
 afterEach(() => installContext(undefined))
@@ -313,7 +313,7 @@ describe("review verdict routing", () => {
 
 describe("the default quality lenses", () => {
   it("are the six lenses in the settled order", () => {
-    expect(unified.defaults.qualityReviews!.split(",").map((l) => l.trim())).toEqual([
+    expect(bundled.defaults.qualityReviews!.split(",").map((l) => l.trim())).toEqual([
       "correctness",
       "owasp-security",
       "ponytail-review",
@@ -324,7 +324,7 @@ describe("the default quality lenses", () => {
   })
 
   it("expose builtInLenses through the public workflow module", () => {
-    expect(Object.keys(unified.builtInLenses).sort()).toEqual([
+    expect(Object.keys(bundled.builtInLenses).sort()).toEqual([
       "conventions",
       "correctness",
       "spec-challenge",

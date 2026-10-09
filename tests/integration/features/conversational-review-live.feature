@@ -12,7 +12,7 @@ Feature: Review conversation re-unwind — edits from every round are reverted
       """
       export const add = (a: number, b: number) => a + b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
     And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:

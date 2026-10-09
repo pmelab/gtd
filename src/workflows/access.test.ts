@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { access } from "./access.js"
-import { unified } from "./index.js"
+import { bundled as workflow } from "./index.js"
 
-const { defaults } = unified
+const { defaults } = workflow
 
 const bundled = access(defaults)
 
@@ -34,7 +34,7 @@ describe("the bundled workflow's access export", () => {
   })
 
   it("keys only scopes that run a turn (every key is a skills key)", () => {
-    const known = Object.keys(unified.skills(defaults))
+    const known = Object.keys(workflow.skills(defaults))
     for (const key of Object.keys(bundled)) expect(known).toContain(key)
   })
 })

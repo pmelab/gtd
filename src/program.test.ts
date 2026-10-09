@@ -74,18 +74,17 @@ export default async () => {
 }
 `
 
-describe("gtd --entry <name> — a custom workflow's manual entry", () => {
-  const WORKFLOW = `import { agent, human, refuse } from "@pmelab/gtd/flows"
+describe("gtd --workflow <name> — a custom workflow's named workflow", () => {
+  const WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
 
-export default async ({ entry }) => {
-    if (entry === "side-entry") {
-      await agent("working", "go")
-      return
-    }
-    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
-    await human("idle", { message: "hi" })
-    await agent("working", "go")
-  }
+export default async () => {
+  await human("idle", { message: "hi" })
+  await agent("working", "go")
+}
+
+export const hotfix = async () => {
+  await agent("working", "go")
+}
 
 export const defaults = { greeting: "hello" }
 `
@@ -93,45 +92,42 @@ export const defaults = { greeting: "hello" }
   it("the happy path emits the opening commit's script — gtd itself writes nothing", async () => {
     const repo = seed(WORKFLOW)
     const before = repo.commitHistory().length
-    const { stdout, exitCode } = await run(repo, "--entry", "side-entry")
+    const { stdout, exitCode } = await run(repo, "--workflow", "hotfix")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain(commitAll("gtd(human): side-entry\n\nGtd-Var: greeting=hello"))
+    expect(stdout).toContain(
+      commitAll("gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello"),
+    )
     expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("--entry naming an entry the flow refuses reports the flow's own refusal, writing nothing", async () => {
+  it("an unknown workflow is a usage error (exit 2) listing every startable name", async () => {
     const repo = seed(WORKFLOW)
     const before = repo.commitHistory().length
-    const { exitCode, stderr } = await run(repo, "--entry", "bogus-state")
-    expect(exitCode).toBe(1)
+    const { exitCode, stderr } = await run(repo, "--workflow", "bogus")
+    expect(exitCode).toBe(2)
     expect(repo.commitHistory()).toHaveLength(before)
-    expect(stderr).toContain('gtd --entry bogus-state: "bogus-state" is not an enterable state')
+    expect(stderr).toContain('unknown workflow "bogus"')
+    expect(stderr).toContain("startable: feature, fix, hotfix, review")
   })
 
-  it("--entry on a flow that never reads its entry refuses", async () => {
-    const repo = seed(`import { human } from "@pmelab/gtd/flows"
-
-export default async () => {
-  await human("idle", { message: "hi" })
-}
-`)
-    const { exitCode, stderr } = await run(repo, "--entry", "anything")
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain('"anything" is not an enterable state — this workflow reads no entry')
-  })
-
-  it("--entry naming a step that is not an entry refuses too", async () => {
+  it("`default` is not startable by name", async () => {
     const repo = seed(WORKFLOW)
-    const { exitCode, stderr } = await run(repo, "--entry", "working")
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain('"working" is not an enterable state')
+    const { exitCode, stderr } = await run(repo, "--workflow", "default")
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain('unknown workflow "default"')
+  })
+
+  it("--entry is an ordinary unknown flag", async () => {
+    const repo = seed(WORKFLOW)
+    const { exitCode } = await run(repo, "--entry", "hotfix")
+    expect(exitCode).toBe(2)
   })
 
   it("a process already underway refuses", async () => {
     const repo = seed(WORKFLOW)
     await landTurn(repo, { ".gtd/TODO.md": "sketch\n" })
     const before = repo.commitHistory().length
-    const { exitCode, stderr } = await run(repo, "--entry", "side-entry")
+    const { exitCode, stderr } = await run(repo, "--workflow", "hotfix")
     expect(exitCode).toBe(1)
     expect(repo.commitHistory()).toHaveLength(before)
     expect(stderr).toContain("already underway")
@@ -140,7 +136,7 @@ export default async () => {
   it("an undeclared --var name refuses, listing the declared names", async () => {
     const repo = seed(WORKFLOW)
     const before = repo.commitHistory().length
-    const { exitCode, stderr } = await run(repo, "--entry", "side-entry", "--var", "bogus=1")
+    const { exitCode, stderr } = await run(repo, "--workflow", "hotfix", "--var", "bogus=1")
     expect(exitCode).toBe(1)
     expect(repo.commitHistory()).toHaveLength(before)
     expect(stderr).toContain("bogus")
@@ -150,35 +146,47 @@ export default async () => {
   it("a declared --var override renders as a Gtd-Var trailer in the emitted commit script", async () => {
     const repo = seed(WORKFLOW)
     const before = repo.commitHistory().length
-    const { exitCode, stdout } = await run(repo, "--entry", "side-entry", "--var", "greeting=world")
+    const { exitCode, stdout } = await run(repo, "--workflow", "hotfix", "--var", "greeting=world")
     expect(exitCode).toBe(0)
     expect(stdout).toContain("Gtd-Var: greeting=world")
     expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("a dirty working tree does not refuse entry — the emitted script captures it", async () => {
+  it("a dirty working tree does not refuse the start — the emitted script captures it", async () => {
     const repo = seed(WORKFLOW)
     repo.writeFile("scratch.txt", "uncommitted\n")
     const before = repo.commitHistory().length
-    const { exitCode, stdout } = await run(repo, "--entry", "side-entry")
+    const { exitCode, stdout } = await run(repo, "--workflow", "hotfix")
     expect(exitCode).toBe(0)
     expect(stdout.length).toBeGreaterThan(0)
     expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("applying the entry script opens the entry's episode at its first step", async () => {
+  it("applying the start script opens the workflow's episode at its first step", async () => {
     const repo = seed(WORKFLOW)
-    const { stdout } = await run(repo, "--entry", "side-entry")
+    const { stdout } = await run(repo, "--workflow", "hotfix")
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): side-entry")
+    expect(repo.lastCommitSubject()).toBe("gtd(human): working")
     const next = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
     expect(next.kind).toBe("prompt")
     expect(next.state).toBe("working")
+    expect(next.workflow).toBe("hotfix")
+  })
+
+  it("a pinned workflow the config no longer defines is refused with the abandon advice", async () => {
+    const repo = seed(WORKFLOW)
+    const { stdout } = await run(repo, "--workflow", "hotfix")
+    applyEmittedScript(repo, new Map(), stdout)
+    repo.writeFile("gtd.config.ts", WORKFLOW.replace("export const hotfix", "const hotfix"))
+    const { exitCode, stderr } = await run(repo, "next")
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain('runs workflow "hotfix", which gtd.config.ts no longer defines')
+    expect(stderr).toContain("gtd abandon")
   })
 })
 
-describe("gtd --entry <name> — the bundled workflow", () => {
-  it("--entry review-gate.check --var reviewBase=<base> emits a script anchoring the process to that base", async () => {
+describe("gtd --workflow <name> — the bundled workflows", () => {
+  it("--workflow review --var reviewBase=<base> emits a script anchoring the process to that base", async () => {
     const repo = seedBundled()
     const base = repo.commitHistory().at(-1)!.hash
     repo.writeFile("scratch.txt", "more work\n")
@@ -186,24 +194,33 @@ describe("gtd --entry <name> — the bundled workflow", () => {
     const before = repo.commitHistory().length
     const { stdout, exitCode } = await run(
       repo,
-      "--entry",
-      "review-gate.check",
+      "--workflow",
+      "review",
       "--var",
       `reviewBase=${base}`,
     )
     expect(exitCode).toBe(0)
     expect(stdout).toContain("gtd(human): review-gate.check")
+    expect(stdout).toContain("Gtd-Workflow: review")
     expect(stdout).toContain(`Gtd-Review-Base: ${base}`)
     expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("--entry fix-precheck emits a script that would start a fix process", async () => {
+  it("--workflow fix emits a script that would start a fix process", async () => {
     const repo = seedBundled()
     const before = repo.commitHistory().length
-    const { stdout, exitCode } = await run(repo, "--entry", "fix-precheck")
+    const { stdout, exitCode } = await run(repo, "--workflow", "fix")
     expect(exitCode).toBe(0)
     expect(stdout).toContain("gtd(human): fix-precheck")
+    expect(stdout).toContain("Gtd-Workflow: fix")
     expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("the bundled workflows are startable beside a repo's own config", async () => {
+    const repo = seed(IDLE_THEN_WORKING)
+    const { exitCode, stdout } = await run(repo, "--workflow", "fix")
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain("Gtd-Workflow: fix")
   })
 })
 
@@ -391,22 +408,19 @@ export default async () => {
 })
 
 describe("gtd next --json — stall detection (attempt commits)", () => {
-  const WORKFLOW = `import { agent, human, run, refuse } from "@pmelab/gtd/flows"
+  const WORKFLOW = `import { agent, human, run } from "@pmelab/gtd/flows"
 
 const work = async () => {
   await agent("working", "do the work described in NOTE.md")
   await run("checking", "echo hi")
 }
 
-export default async ({ entry }) => {
-  if (entry === "resume") {
-    await work()
-    return
-  }
-  if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
+export default async () => {
   await human("idle", { message: "write NOTE.md to start a process" })
   await work()
 }
+
+export const resume = work
 `
 
   const atWorking = async (): Promise<InMemRepo> => {
@@ -443,7 +457,7 @@ export default async ({ entry }) => {
 
   it("a clean-tree entry commit resting at a prompt step is NOT a stall — the actor differs (human entered, agent acts)", async () => {
     const repo = seed(WORKFLOW)
-    const { stdout: entry } = await run(repo, "--entry", "resume")
+    const { stdout: entry } = await run(repo, "--workflow", "resume")
     expect(applyEmittedScript(repo, new Map(), entry).ok).toBe(true)
     const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
@@ -454,7 +468,7 @@ export default async ({ entry }) => {
     const repo = await attempted()
     const { stdout, exitCode } = await run(repo, "next")
     expect(exitCode).toBe(0)
-    expect(stdout.startsWith("State: working\nAwaits: agent\n")).toBe(true)
+    expect(stdout.startsWith("State: working\nAwaits: agent\nWorkflow: default\n")).toBe(true)
     expect(stdout).toContain(`\n\n${stallDiagnosis("working", "agent")}`)
   })
 
@@ -1608,7 +1622,9 @@ describe("runCommand — refuses in a repository with no commits", () => {
     init: { kind: "init" },
     ui: { kind: "ui", selfSigned: false, dev: false },
     land: { kind: "land" },
-    entry: { kind: "entry", actor: "human", state: "idle", vars: {}, label: "" },
+    start: { kind: "start", actor: "human", workflow: "feature", vars: {}, label: "" },
+    door: { kind: "door", name: "fix", args: [] },
+    doors: { kind: "doors" },
     abandon: { kind: "abandon" },
     restore: { kind: "restore" },
     next: { kind: "next" },
@@ -1630,12 +1646,14 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the eleven non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the thirteen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
         "base",
-        "entry",
+        "door",
+        "doors",
+        "start",
         "land",
         "next",
         "restore",

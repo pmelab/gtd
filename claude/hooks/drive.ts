@@ -7,6 +7,7 @@ import type { AccessDef } from "./access"
 export type Beat = {
   kind: string
   idle?: boolean | string
+  initial?: boolean | string
   state?: string
   label?: string
   file?: string

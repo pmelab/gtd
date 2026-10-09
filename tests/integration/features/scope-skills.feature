@@ -223,7 +223,7 @@ Feature: skills are declared per scope
         build.quality.owasp-security: [my-org-checklist]
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security, ponytail-review"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -264,7 +264,7 @@ Feature: skills are declared per scope
       skills:
         build.quality.my-lens: [my-org-checklist]
       """
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And the environment variable "GTD_QUALITYREVIEWS" is unset
     When I run gtd next
     Then it succeeds
@@ -278,7 +278,7 @@ Feature: skills are declared per scope
       skills:
         build.quality.my-lens: [my-org-checklist]
       """
-    When I run gtd with args "--entry fix-precheck --var qualityReviews=my-lens"
+    When I run gtd with args "--workflow fix --var qualityReviews=my-lens"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
     When I run gtd next

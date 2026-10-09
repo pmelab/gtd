@@ -6,7 +6,7 @@ import { accessDenial } from "./access"
 import type { AccessDef } from "./access"
 import { afterReload, drive, isTrue } from "./drive"
 import type { Beat, Io, Landing, Turn, TurnEnd } from "./drive"
-import { enter } from "./entry"
+import { doors, enter } from "./doors"
 import { subagentModel } from "./models"
 import { personaSpec, resumable } from "./persona"
 import { JUDGE_SYSTEM, judgePrompt, toVerdicts } from "./judge"
@@ -257,11 +257,11 @@ async function start($: $, landTurn?: string) {
 async function begin($: $, requirements: string) {
   await findRoot($)
   const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
-  if (b.state === "idle" && !isTrue(b.idle)) {
+  if (isTrue(b.initial) && !isTrue(b.idle)) {
     const paths = (b.changes ?? []).map((c) => c.path).join(", ")
     return `The working tree has uncommitted changes (${paths}); gtd would start from those. Commit, stash or revert them, or run /gtd to start from them.`
   }
-  if (b.state !== "idle") {
+  if (!isTrue(b.initial)) {
     return `A gtd process is already underway at ${b.state}. Run /gtd to continue it.`
   }
   const file = b.file ?? ".gtd/TODO.md"
@@ -381,7 +381,7 @@ async function throwNow($: $, target: string | undefined) {
     state: b.state,
     label: b.label,
     content: b.content,
-    isIdle: b.state === "idle" && isTrue(b.idle),
+    isIdle: isTrue(b.idle),
   }
   const thrown = await throwTo(shipIo($), rest, target, new Date().toISOString()).catch(
     (err: unknown) => ({ ok: false, text: String(err) }),
@@ -401,9 +401,9 @@ async function throwNow($: $, target: string | undefined) {
   }
 }
 
-async function enterNow($: $, door: "fix" | "review", base: string | undefined) {
+async function enterNow($: $, door: string, args: string[]) {
   if ((await read($, run)).isRunning) return "Stop the loop first: /gtd stop."
-  const entered = await enter(shipIo($), door, base)
+  const entered = await enter(shipIo($), door, args)
   if (entered.ok) await start($)
   return entered.text
 }
@@ -655,9 +655,6 @@ async function command($: $, arg: string): Promise<string | undefined> {
   switch (verb) {
     case "status":
       return gtd($, ["next"])
-    case "fix":
-    case "review":
-      return enterNow($, verb, rest[0])
     case "throw":
       void throwNow($, rest[0])
       return undefined
@@ -671,14 +668,16 @@ async function command($: $, arg: string): Promise<string | undefined> {
     case "":
       return resume($)
     default:
-      return begin($, arg)
+      return (await doors(shipIo($))).some((d) => d.name === verb)
+        ? enterNow($, verb, rest)
+        : begin($, arg)
   }
 }
 
 async function resume($: $) {
   const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
-  if (b.state === "idle" && isTrue(b.idle)) {
-    return "Nothing is in progress. Start a process with /gtd <requirements>, or sketch the change in .gtd/TODO.md and run /gtd."
+  if (isTrue(b.idle)) {
+    return `Nothing is in progress. Start a process with /gtd <requirements>, or sketch the change in ${b.file ?? ".gtd/TODO.md"} and run /gtd.`
   }
   await start($)
   return undefined
@@ -726,7 +725,7 @@ export const register: Register = (on) => {
       name: "gtd",
       description: "Drive gtd until it rests on you; pass requirements to start a new process",
       argumentHint:
-        "[requirements | fix | review [base] | stop | status | ship [-n] | throw [@user] | catch <pr|branch>]",
+        "[requirements | <door> [args] | stop | status | ship [-n] | throw [@user] | catch <pr|branch>]",
       immediate: true,
     })
     return next(e)

@@ -26,6 +26,7 @@ const repo = (script: Record<string, Partial<Ran>>, replies: string[] = []) => {
 const feature: Record<string, Partial<Ran>> = {
   "git rev-parse --abbrev-ref HEAD": { out: "feat/x\n" },
   "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": { out: "origin/main\n" },
+  "gtd next --json=initial": { out: "true\n" },
   "gtd next --json=state": { out: "idle\n" },
   "gtd summary": {
     out: `Describe the process.\nInspect the range: \`git log ${BASE.slice(0, 7)}..${TIP.slice(0, 7)}\``,
@@ -118,6 +119,7 @@ describe("ship", () => {
   test("a process still underway is not shipped", async () => {
     const { io, ran } = repo({
       ...feature,
+      "gtd next --json=initial": { out: "false\n" },
       "gtd next --json=state": { out: "build.review.await-review\n" },
     })
     expect(await ship(io, false)).toMatchObject({

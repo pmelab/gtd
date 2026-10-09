@@ -29,9 +29,9 @@ Commands:
                    post-land target), subject, cost and model. Exits 0 on
                    success, 1 on any refusal — see the Exit codes section
                    below
-  (no command) --entry <state>
+  (no command) --workflow <name>
                    Starts a new process authenticated as human, e.g.
-                   'gtd --entry <state>'
+                   'gtd --workflow <name>'
   abandon          End the process currently underway without completing it:
                    rewind HEAD to the commit the process started from,
                    keeping everything it produced as uncommitted changes. A
@@ -134,6 +134,18 @@ Commands:
                    the first review round it's the process's diff base;
                    afterward it's the most-recent review round's boundary.
                    Refuses (exit 1) when no process is underway.
+  door <name> [args...]
+                   Start a process through a named shortcut, mapping the
+                   positional args to that workflow's process settings — the
+                   same start `gtd --workflow` makes, printed the same way.
+                   Doors come from the config's `doors` export; the bundled
+                   ones are `fix` and `review [base]`. An unknown door, or too
+                   few or too many args, is a usage error (exit 2) naming the
+                   doors or the door's synopsis
+  doors            List every door, sorted: one `name [args] → workflow` line
+                   each. --json prints one JSON array of { name, workflow,
+                   args: [{ name, optional }] } instead; --json=<path> reads one
+                   value off it. Writes nothing
   judge            Print the resolved rest's pending judgment — the prepared
                    state, its typed questions, and their criteria — the same
                    judge field `gtd next --json` already carries. Read-only:
@@ -164,7 +176,7 @@ Commands:
   help             Print this help and exit
 
 Options:
-  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer only) output
+  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors only) output
                    structured JSON. Bare --json prints the whole document;
                    --json=<path> (a dotted key path into that document, e.g.
                    kind, content, session.id) prints just that value: a
@@ -197,11 +209,11 @@ Options:
   --model=<name>   (gtd land, with --cost) tag that cost's model
                    (gtd judge run, llm answerer) the claude model; omitted:
                    GTD_JUDGE_MODEL, then .gtdrc judge:, then haiku
-  --entry <state>  (with no command at all) start a brand new process,
-                   handing <state> to the workflow as its entry —
-                   authenticated as human
+  --workflow <name>
+                   (with no command at all) start a brand new process on
+                   the named workflow — authenticated as human
   --var <name>=<value>
-                   (with --entry; repeatable) pin a process setting for the
+                   (with --workflow; repeatable) pin a process setting for the
                    new process; the name must already be declared by the
                    workflow's defaults or the .gtdrc vars: (environment
                    settings are not pinnable)
@@ -270,27 +282,27 @@ driving a loop is a driver's job, not a bundled command (see
 **stderr**, not stdout: stdout stays byte-empty on every failure, a usage error
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository.
-The state commands (`land`, `--entry`, `abandon`, `restore`, `next`, `status`,
-`validate`, `summary`, `ui`, `judge`, `judge answer`) must run from the
-**repository root** — gtd derives the workflow, pending changes, and process
-history relative to cwd, so they refuse with a clear error from a subdirectory;
-`lsp`, `init`, `check`, and `uncheck` are standalone and run from anywhere (see
-each command's own help entry).
+The state commands (`land`, `--workflow`, `door`, `doors`, `abandon`, `restore`,
+`next`, `status`, `validate`, `summary`, `ui`, `judge`, `judge answer`) must run
+from the **repository root** — gtd derives the workflow, pending changes, and
+process history relative to cwd, so they refuse with a clear error from a
+subdirectory; `lsp`, `init`, `check`, and `uncheck` are standalone and run from
+anywhere (see each command's own help entry).
 
 `install` is described on its own above: it writes nothing and installs
 knowledge into the calling agent's context, not files on disk.
 
 `--json`, `--cost=<n>`, `--model=<name>` (`--cost` only for `gtd land`;
-`--model` for `gtd land` with `--cost`, or `gtd judge run`), `--entry <state>`
-(no other command at all), and `--var <name>=<value>` (with `--entry`,
+`--model` for `gtd land` with `--cost`, or `gtd judge run`), `--workflow <name>`
+(no other command at all), and `--var <name>=<value>` (with `--workflow`,
 repeatable) are the only long options the compiled bundle recognizes.
-`--entry`/`--var` accept both the `--flag=value` and the space-separated
+`--workflow`/`--var` accept both the `--flag=value` and the space-separated
 `--flag value` form. Any other `--` option (including a typo like `--jsn`) is
 rejected with a usage error rather than silently ignored, so a mistyped flag can
-never degrade a JSON caller to plain-text mode. `--var` with no `--entry`, a
-duplicate `--var` name, or `--cost`/`--model`/`--entry` combined with another
+never degrade a JSON caller to plain-text mode. `--var` with no `--workflow`, a
+duplicate `--var` name, or `--cost`/`--model`/`--workflow` combined with another
 command are all usage errors too — landing and entering are different verbs, so
-`gtd land --entry <state>` is a usage error, not a synonym. A bare
+`gtd land --workflow <name>` is a usage error, not a synonym. A bare
 `--cost`/`--model` with no value, a non-numeric or negative `--cost`, an empty
 `--model`, `--model` without `--cost` on `gtd land`, `--cost` on any command
 other than `gtd land`, or `--model` on any command other than `gtd land` and
@@ -327,11 +339,11 @@ always adds `--json` still gets a parseable envelope on every failure, not only
 ```
 
 This covers every failure mode, not just a command's own refusal (exit 1): a
-**usage error** (an unknown flag, a missing argument, `gtd --entry version`'s
-"not an enterable state" — exit 2) and a **defect** (a layer throwing outside
-the ordinary error channel — exit 1) both get the same envelope shape — there is
-no failure path that reaches `--json` without one — but a usage error's exit
-code is 2, never 1, so a driver can tell "you invoked gtd wrong" apart from "gtd
+**usage error** (an unknown flag, a missing argument, `gtd --workflow nope`'s
+"unknown workflow" — exit 2) and a **defect** (a layer throwing outside the
+ordinary error channel — exit 1) both get the same envelope shape — there is no
+failure path that reaches `--json` without one — but a usage error's exit code
+is 2, never 1, so a driver can tell "you invoked gtd wrong" apart from "gtd
 refused/broke" (see [Exit codes](#exit-codes)).
 
 A human-readable `gtd: <message>` line is also always written to **stderr**,

@@ -33,6 +33,18 @@ describe("the commit-message codec", () => {
     expect(parsed.vars).toEqual({ reviewBase: "main=x" })
   })
 
+  it("round-trips the workflow trailer, written after Gtd-Step and before Gtd-Review-Base", () => {
+    const message = formatCommitMessage({
+      actor: "human",
+      to: "fix-precheck",
+      workflow: "fix",
+      reviewBase: "abc",
+    })
+    expect(message).toBe("gtd(human): fix-precheck\n\nGtd-Workflow: fix\nGtd-Review-Base: abc")
+    expect(parseCommitMessage(message).workflow).toBe("fix")
+    expect(parseCommitMessage("gtd(human): fix-precheck").workflow).toBeUndefined()
+  })
+
   it("writes Gtd-Var trailers sorted by name, whatever the insertion order", () => {
     const one = formatCommitMessage({ actor: "human", to: "x", vars: { b: "2", a: "1", c: "" } })
     const two = formatCommitMessage({ actor: "human", to: "x", vars: { c: "", a: "1", b: "2" } })

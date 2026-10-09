@@ -42,6 +42,14 @@ const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations =>
 
   isAncestor: (a: string, b: string) => Effect.succeed(repo.isAncestor(a, b)),
 
+  mergeBase: (a: string, b: string) => {
+    const hash = repo.mergeBase(a, b)
+    return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())
+  },
+
+  // The fake has no remote, so real git's fallback is the only answer.
+  defaultBranch: () => Effect.succeed("main"),
+
   topLevel: () => Effect.succeed(root),
 
   /**

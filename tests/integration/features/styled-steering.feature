@@ -31,7 +31,16 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       """
       export const add = (a: number, b: number) => a + b
       """
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     # The styled file itself — bold claim up front, flat imperative sentences,
     # no padding — with the "## Open Questions" / "### <question>" / "- [ ]"
@@ -66,7 +75,7 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       """
       export const add = (a: number, b: number) => a + b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
     And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     # The styled file itself — bold claim, imperative, no padding — with the

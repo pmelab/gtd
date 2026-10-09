@@ -41,7 +41,7 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
   })
 
   it("fix carries build.fix's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.fix(), "build"))
+    const prompt = agentPrompt(await capture(() => steps.fixCheck(), "build"))
     expect(prompt).toContain("debugging-and-error-recovery")
   })
 
@@ -110,7 +110,7 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
   })
 
   it("an empty configured list leaves that step's skills empty, and its rendered prompt bare", async () => {
-    const request = await capture(() => steps.fix(), "build", { build: [] })
+    const request = await capture(() => steps.fixCheck(), "build", { build: [] })
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.prompt).not.toContain("Load whatever's listed here")
   })

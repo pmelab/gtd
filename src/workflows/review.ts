@@ -26,7 +26,7 @@ import {
   ARCHITECTURE,
   awaitReview,
   collecting,
-  fix,
+  fixCheck,
   fixNits,
   fixQuality,
   fixRisks,
@@ -230,7 +230,7 @@ const routeNotes = async (notes: readonly ReviewNote[], r: Round): Promise<Finis
   }
   if (nits.length > 0) {
     await guarded(r.frozen, () => fixNits(nits), "review")()
-    await healthy(guarded(r.frozen, fix, "review"), { escalations: r.escalations })
+    await healthy(guarded(r.frozen, fixCheck, "review"), { escalations: r.escalations })
   }
   if (edits.length > 0) {
     await r.close()
@@ -291,7 +291,7 @@ const reviewOnce = async (
   const risks = reviewRisks(read(REVIEW) ?? "")
   if (risks.length === 0) return
   await guarded(frozen, () => fixRisks(risks), "review")()
-  await healthy(guarded(frozen, fix, "review"), { escalations })
+  await healthy(guarded(frozen, fixCheck, "review"), { escalations })
   await reviewing(base, carry)
 }
 
@@ -335,12 +335,12 @@ export const buildTail = (
   scope("build", async () => {
     const frozen = built?.frozen
     const escalations: EscalationCount = { rounds: 0 }
-    const guardedFix = guarded(frozen, () => fix())
+    const guardedFix = guarded(frozen, () => fixCheck())
     let redFirst = fixFirst
     // fixFirst's own fix + healthy below already is the full run.
     if (!fixFirst) {
       await healthy(
-        guarded(frozen, () => fix(built)),
+        guarded(frozen, () => fixCheck(built)),
         { escalations, sweepOnGreen: [ARCHITECTURE] },
       )
     }

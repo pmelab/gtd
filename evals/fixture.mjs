@@ -1,7 +1,7 @@
 // Builds a fresh, disposable fixture repo for one eval case + variant: git
 // init -> case.base files committed (outside the review range) -> variant
-// files written into the working tree -> `gtd --entry <case.state>` piped to
-// `sh`, so the entry commit captures exactly the variant's code under review.
+// files written into the working tree -> `gtd --workflow <name>` piped to
+// `sh`, so the opening commit captures exactly the variant's code under review.
 //
 // Deliberately imports nothing from `tests/` — those helpers are wired into
 // the vitest/quickpickle world, not callable from a plain `exec:` process.
@@ -20,6 +20,9 @@ export const GTD_BIN = join(HERE, "..", "dist", "gtd.bundle.mjs")
 // is pinned to.
 export const OXFMT_BIN = join(HERE, "..", "node_modules", ".bin", "oxfmt")
 const OXFMTRC_PATH = join(HERE, "..", ".oxfmtrc.json")
+
+/** The workflow `evals/gtd.config.ts` exports for a step: its full name in camelCase. */
+const workflowName = (state) => state.replace(/[^A-Za-z0-9]+(.)/g, (_, c) => c.toUpperCase())
 
 /**
  * Every `GTD_*`, `PI_*`, and `OPENAI_*` var except a caller-supplied override
@@ -142,11 +145,15 @@ export function buildFixture(caseDef, variant, env = scrubbedEnv()) {
   writeFiles(repo, caseDef.variants[variant])
 
   assertTmpCwd(repo)
-  const script = execFileSync(process.execPath, [GTD_BIN, "--entry", caseDef.state], {
-    cwd: repo,
-    env,
-    encoding: "utf-8",
-  })
+  const script = execFileSync(
+    process.execPath,
+    [GTD_BIN, "--workflow", workflowName(caseDef.state)],
+    {
+      cwd: repo,
+      env,
+      encoding: "utf-8",
+    },
+  )
   assertTmpCwd(repo)
   execFileSync("sh", ["-c", script], { cwd: repo, env, encoding: "utf-8" })
 

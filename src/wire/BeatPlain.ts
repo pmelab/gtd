@@ -40,7 +40,7 @@ const definedFields = (
 }
 
 /**
- * The header block's own lines — `State:`/`Awaits:`/optional `Label:`/
+ * The header block's own lines — `State:`/`Awaits:`/`Workflow:`/optional `Label:`/
  * `Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`(+breakdown)/`Pending:`/`Next:`,
  * in that order. Used by `renderBeatPlain`'s header-showing kinds below.
  */
@@ -55,6 +55,7 @@ const beatHeaderLines = (document: BeatDocument): string[] => {
   return [
     `State: ${document.state}`,
     `Awaits: ${document.actor}`,
+    `Workflow: ${document.workflow}`,
     ...Object.entries(optional).map(([key, value]) => `${key}: ${value}`),
     ...costStatusLines(document.cost ?? 0, document.costByModel ?? []),
     ...pendingStatusLines(document.changes),

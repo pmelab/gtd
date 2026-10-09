@@ -46,9 +46,9 @@ enforces it at the OS level. See
 
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
 > is a TypeScript module, and every gtd command that looks at workflow state —
-> `gtd next` and `gtd lsp` included, not just `gtd land` — evaluates it. Treat
-> it like a Makefile or a `package.json` script: don't run gtd in a checkout you
-> don't trust.
+> `gtd next`, `gtd lsp`, `gtd door` and `gtd doors` included, not just
+> `gtd land` — evaluates it. Treat it like a Makefile or a `package.json`
+> script: don't run gtd in a checkout you don't trust.
 
 ## Quick start
 
@@ -307,14 +307,14 @@ Then, in any repository:
 ```
 
 That starts a process from your requirements and drives it until it needs you.
-`/gtd fix` and `/gtd review [base]` take the two side doors described below.
-Every human rest opens Claude Code's own question dialog, with a link to
-`gtd ui` for the step; review there, then answer **I'm done, continue**. When
-the process finishes, **Yes, open the pull request** (or `/gtd ship`) squashes
-it into one commit and opens it. A process can change hands at any gate: **Hand
-off to someone else** (or `/gtd throw @dev`) opens a draft pull request assigned
-to them, and `/gtd catch <pr>` picks it up exactly where it waits, so whoever
-wrote the requirements can hand the architecture to someone else. See
+`/gtd fix` and `/gtd review [base]` take the two doors described below. Every
+human rest opens Claude Code's own question dialog, with a link to `gtd ui` for
+the step; review there, then answer **I'm done, continue**. When the process
+finishes, **Yes, open the pull request** (or `/gtd ship`) squashes it into one
+commit and opens it. A process can change hands at any gate: **Hand off to
+someone else** (or `/gtd throw @dev`) opens a draft pull request assigned to
+them, and `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote
+the requirements can hand the architecture to someone else. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own
@@ -332,28 +332,28 @@ you what you want before it starts driving. You get one prompt to paste, not a
 state name to choose. The four commands: **`gtd-build`** drives beats until the
 process rests; **`gtd-edit`** opens the steering file the process is waiting on
 right now — falling back to `.gtd/TODO.md` when the resting state declares none;
-**`gtd-review <commitish>`** starts a review round over that commitish and
-drives it; **`gtd-fix`** enters the fix process and drives it. The
-`.gtd/TODO.md` fallback is also how you begin: on a clean repository the edit
-command opens the empty `.gtd/TODO.md`, and whatever you write there is the
-first sketch the whole process gets planned from. As a final step, if it finds
-an LSP-capable editor, the briefing also offers to wire up live diagnostics and
-review actions in it — asking first and naming the exact file, and merging
-rather than overwriting your editor's config. That editor integration also adds
-a footnote at the exact cursor position with one code action, landing the cursor
-in the new, empty definition ready to type, and jumps between a footnote's
-marker and its definition both ways — so leaving a comment for the next agent
-turn never means hand-typing the `[^name]` syntax yourself. In a review file, a
-`./path#42-70` hunk pointer is also a clickable link straight to that file and
-range, no go-to-definition required. A footnote can also hold a `H:`/`A:`
-conversation (a thread — see [configuration](docs/configuration.md)); the editor
-outlines threads, flags the open ones, and a `gtd: reply` code action adds your
-empty `- H:` entry and puts the cursor there;
-`gtd check <mode> <file> --open-threads` lists the ones still waiting on you,
-and a review question gets its answer at the review gate again, not a lap. The
-same conversation works as bare `// H: …` / `// A: …` line comments (`#`, `--`,
-`;` by language) in files the process changed; `gtd check --open-threads` alone
-lists the open ones (editor-only — the phone UI does not show them).
+**`gtd-door <name> [args...]`** starts a process through a door (`gtd-door fix`,
+`gtd-door review [base]`) and drives it. The `.gtd/TODO.md` fallback is also how
+you begin: on a clean repository the edit command opens the empty
+`.gtd/TODO.md`, and whatever you write there is the first sketch the whole
+process gets planned from. As a final step, if it finds an LSP-capable editor,
+the briefing also offers to wire up live diagnostics and review actions in it —
+asking first and naming the exact file, and merging rather than overwriting your
+editor's config. That editor integration also adds a footnote at the exact
+cursor position with one code action, landing the cursor in the new, empty
+definition ready to type, and jumps between a footnote's marker and its
+definition both ways — so leaving a comment for the next agent turn never means
+hand-typing the `[^name]` syntax yourself. In a review file, a `./path#42-70`
+hunk pointer is also a clickable link straight to that file and range, no
+go-to-definition required. A footnote can also hold a `H:`/`A:` conversation (a
+thread — see [configuration](docs/configuration.md)); the editor outlines
+threads, flags the open ones, and a `gtd: reply` code action adds your empty
+`- H:` entry and puts the cursor there; `gtd check <mode> <file> --open-threads`
+lists the ones still waiting on you, and a review question gets its answer at
+the review gate again, not a lap. The same conversation works as bare `// H: …`
+/ `// A: …` line comments (`#`, `--`, `;` by language) in files the process
+changed; `gtd check --open-threads` alone lists the open ones (editor-only — the
+phone UI does not show them).
 
 ### The workflow it ships with
 
@@ -422,8 +422,8 @@ noted in steps 3 and 4 below.
    them once, with no re-review after the fix. A clean turn means approval only
    when that lens found nothing at all. This lap is where code quality is looked
    at, and every round pays for it. It never replaces step 4 — your review stays
-   the final gate, and nothing here skips it. The `gtd --entry fix-precheck`
-   side door (below) repairs a red baseline through this same lap.
+   the final gate, and nothing here skips it. The `fix` door (below) repairs a
+   red baseline through this same lap.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes
@@ -478,15 +478,17 @@ the agent may overturn the answer. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 
-Two side doors skip step 1. `gtd --entry fix-precheck` repairs a red baseline as
-its own reviewed commit instead of starting a process. And
+The bundled workflows are named `feature` (the ordinary start above), `fix` and
+`review`. Two doors start the other two and skip step 1. `gtd door fix` repairs
+a red baseline as its own reviewed commit instead of starting a process. And
 
 ```bash
-gtd --entry review-gate.check --var reviewBase=<commitish>
+gtd door review <commitish>
 ```
 
 starts a pure review of everything from `<commitish>` to HEAD — straight to step
-4, no planning and no building.
+4, no planning and no building. `gtd doors` lists every door; a `gtd.config.ts`
+can add its own. `gtd --workflow <name>` starts any workflow by name.
 
 The workflow itself is a plain async TypeScript function: a `gtd.config.ts` at
 the repository root replaces it, and the pieces the bundled one is built from

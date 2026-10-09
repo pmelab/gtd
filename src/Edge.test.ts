@@ -97,10 +97,10 @@ const land = async (repo: InMemRepo, files: Files = {}): Promise<string> => {
   return applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
 }
 
-const enter = async (repo: InMemRepo, entry: string, ...vars: string[]): Promise<string> => {
+const enter = async (repo: InMemRepo, workflow: string, ...vars: string[]): Promise<string> => {
   const flags = vars.flatMap((v) => ["--var", v])
-  const { stdout, stderr, exitCode } = await cli(repo, "--entry", entry, ...flags)
-  if (exitCode !== 0) throw new Error(`gtd --entry exited ${exitCode}: ${stderr}`)
+  const { stdout, stderr, exitCode } = await cli(repo, "--workflow", workflow, ...flags)
+  if (exitCode !== 0) throw new Error(`gtd --workflow exited ${exitCode}: ${stderr}`)
   return applied(repo, stdout)
 }
 
@@ -111,27 +111,26 @@ const commit = (repo: InMemRepo, spec: CommitSpec, files: Files = {}): string =>
   return headOf(repo)
 }
 
-const LINEAR = `import { agent, human, refuse } from "@pmelab/gtd/flows"
+const LINEAR = `import { agent, human } from "@pmelab/gtd/flows"
 
-export default async ({ entry }) => {
-    if (entry === "side") {
-      await agent("fixing", "fix-prompt")
-      await agent("tidying", "tidy-prompt", { allowEmpty: true })
-      return
-    }
-    if (entry === "review") {
-      await agent("fixing", "fix-prompt")
-      return
-    }
-    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
-    await human("idle", { message: "idle-message" })
-    await agent("building", "build-prompt")
-    await agent("checking", "check-prompt")
-  }
+export default async () => {
+  await human("idle", { message: "idle-message" })
+  await agent("building", "build-prompt")
+  await agent("checking", "check-prompt")
+}
+
+export const side = async () => {
+  await agent("fixing", "fix-prompt")
+  await agent("tidying", "tidy-prompt", { allowEmpty: true })
+}
+
+export const review = async () => {
+  await agent("fixing", "fix-prompt")
+}
 
 export const defaults = { base: "", reviewer: "nobody" }
 
-export const base = (entry, vars) => (entry === "review" ? (vars.base ?? "") : undefined)
+export const base = (workflow, vars) => (workflow === "review" ? (vars.base ?? "") : undefined)
 `
 
 describe("currentRun", () => {
@@ -140,7 +139,7 @@ describe("currentRun", () => {
     const boundary = headOf(repo)
     const run = await provide(currentRun, repo)
     expect(run).toMatchObject({
-      entry: undefined,
+      workflow: undefined,
       startHash: boundary,
       startParentHash: boundary,
       diffBase: boundary,
@@ -150,6 +149,7 @@ describe("currentRun", () => {
       pinnedVars: {},
       headTurn: undefined,
       closingHash: undefined,
+      legacyOpening: false,
       episode: { base: boundary, commits: [] },
     })
   })
@@ -180,7 +180,7 @@ describe("currentRun", () => {
     expect(run.startParentHash).toBe(headOf(repo))
   })
 
-  it("a commit entering the default entry's first step closes the episode", async () => {
+  it("a commit entering the default workflow's first step closes the episode", async () => {
     const repo = repoWith(LINEAR)
     await land(repo, { "a.txt": "a\n" })
     await land(repo, { "b.txt": "b\n" })
@@ -192,53 +192,53 @@ describe("currentRun", () => {
     expect(run.trace).toEqual([{ state: "building", hash: next, actor: "human" }])
   })
 
-  it("a step-less gtd(human): <entry> commit opens a manual entry's episode as its first commit", async () => {
+  it("a step-less gtd(human): <step> commit opens a started workflow's episode as its first commit", async () => {
     const repo = repoWith(LINEAR)
     const before = headOf(repo)
     const opening = await enter(repo, "side")
     expect(repo.lastCommitMessage()).toBe(
-      "gtd(human): side\n\nGtd-Var: base=\nGtd-Var: reviewer=nobody",
+      "gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody",
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
-    expect(run.entry).toBe("side")
+    expect(run.workflow).toBe("side")
     expect(run.startHash).toBe(opening)
     expect(run.startParentHash).toBe(before)
     expect(run.trace).toEqual([
-      { state: "side", hash: opening, actor: "human" },
+      { state: "fixing", hash: opening, actor: "human" },
       { state: "tidying", hash: fixed, actor: "agent" },
     ])
     expect(run.episode.base).toBe(opening)
     expect(run.episode.commits.map((c) => c.hash)).toEqual([fixed])
   })
 
-  it("an entry named after the flow's initial state still opens its own episode, not the empty tree", async () => {
-    const ENTRY_NAMED_INITIAL = `import { agent, human, refuse } from "@pmelab/gtd/flows"
+  it("a workflow starting at the default's initial step still opens its own episode, not the empty tree", async () => {
+    const STARTS_AT_INITIAL = `import { agent, human } from "@pmelab/gtd/flows"
 
-export default async ({ entry }) => {
-    if (entry === "idle") {
-      await agent("fixing", "fix-prompt")
-      await agent("tidying", "tidy-prompt", { allowEmpty: true })
-      return
-    }
-    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
-    await human("idle", { message: "idle-message" })
-    await agent("building", "build-prompt")
-  }
+export default async () => {
+  await human("idle", { message: "idle-message" })
+  await agent("building", "build-prompt")
+}
+
+export const again = async () => {
+  await human("idle", { message: "idle-message" })
+  await agent("fixing", "fix-prompt")
+  await agent("tidying", "tidy-prompt", { allowEmpty: true })
+}
 `
-    const repo = repoWith(ENTRY_NAMED_INITIAL)
+    const repo = repoWith(STARTS_AT_INITIAL)
     const before = headOf(repo)
-    const opening = await enter(repo, "idle")
-    expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
+    const opening = await enter(repo, "again")
+    expect(repo.lastCommitMessage()).toBe("gtd(human): idle\n\nGtd-Workflow: again")
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
-    expect(run.entry).toBe("idle")
+    expect(run.workflow).toBe("again")
     expect(run.startHash).toBe(opening)
     expect(run.startParentHash).toBe(before)
     expect(run.diffBase).toBe(before)
     expect(run.trace).toEqual([
       { state: "idle", hash: opening, actor: "human" },
-      { state: "tidying", hash: fixed, actor: "agent" },
+      { state: "fixing", hash: fixed, actor: "human" },
     ])
   })
 
@@ -587,25 +587,24 @@ export default async () => {
 })
 
 describe("reviewBaseFor", () => {
-  const LOOP = `import { agent, head, human, read, refuse } from "@pmelab/gtd/flows"
+  const LOOP = `import { agent, head, human, read } from "@pmelab/gtd/flows"
 
-export default async ({ entry }) => {
-    if (entry === "review") {
-      await agent("fixing", "fix-prompt")
-      return
-    }
-    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
-    await human("idle")
-    while (read("DONE") === undefined) {
-      const base = head()
-      await human("checkpoint", { base })
-      await agent("building", "build-prompt", { base })
-    }
+export default async () => {
+  await human("idle")
+  while (read("DONE") === undefined) {
+    const base = head()
+    await human("checkpoint", { base })
+    await agent("building", "build-prompt", { base })
   }
+}
+
+export const review = async () => {
+  await agent("fixing", "fix-prompt")
+}
 
 export const defaults = { base: "" }
 
-export const base = (entry, vars) => (entry === "review" ? (vars.base ?? "") : undefined)
+export const base = (workflow, vars) => (workflow === "review" ? (vars.base ?? "") : undefined)
 `
 
   it("is the process's diff base at a step that names no base", async () => {
@@ -721,56 +720,55 @@ export default async () => {
 })
 
 describe("vars", () => {
-  const VARS = `import { agent, human, refuse } from "@pmelab/gtd/flows"
+  const VARS = `import { agent, human } from "@pmelab/gtd/flows"
 
-export default async ({ entry }) => {
-    if (entry === "side") {
-      await agent("working", "w")
-      return
-    }
-    if (entry !== undefined) refuse(\`"\${entry}" is not an enterable state\`)
-    await human("idle")
-  }
+export default async () => {
+  await human("idle")
+}
 
-export const defaults = { testCommand: "npm test", reviewer: "nobody" }
+export const side = async () => {
+  await agent("working", "w")
+}
+
+export const defaults = { deployTarget: "npm test", reviewer: "nobody" }
 `
-  const seeded = () => repoWith(VARS, { ".gtdrc.yaml": "vars:\n  testCommand: npm run rc\n" })
+  const seeded = () => repoWith(VARS, { ".gtdrc.yaml": "vars:\n  deployTarget: npm run rc\n" })
 
   it("a .gtdrc vars: entry overrides the workflow's default", async () => {
     const rest = await provide(currentRest, seeded())
-    expect(rest.vars).toEqual({ testCommand: "npm run rc", reviewer: "nobody" })
+    expect(rest.vars).toEqual({ deployTarget: "npm run rc", reviewer: "nobody" })
   })
 
-  it("an entry's Gtd-Var overrides both the workflow default and .gtdrc", async () => {
+  it("a started workflow's Gtd-Var overrides both the workflow default and .gtdrc", async () => {
     const repo = seeded()
-    await enter(repo, "side", "testCommand=npm run entry")
+    await enter(repo, "side", "deployTarget=npm run entry")
     const rest = await provide(currentRest, repo)
-    expect(rest.vars.testCommand).toBe("npm run entry")
+    expect(rest.vars.deployTarget).toBe("npm run entry")
   })
 
   it("GTD_<NAME> beats .gtdrc while nothing is pinned", async () => {
-    const rest = await provide(currentRest, seeded(), { GTD_TESTCOMMAND: "echo env-wins" })
-    expect(rest.vars.testCommand).toBe("echo env-wins")
+    const rest = await provide(currentRest, seeded(), { GTD_DEPLOYTARGET: "echo env-wins" })
+    expect(rest.vars.deployTarget).toBe("echo env-wins")
   })
 
   it("a pinned value beats a GTD_<NAME> exported later, and .gtdrc edited later", async () => {
     const repo = seeded()
-    await enter(repo, "side", "testCommand=npm run entry")
-    repo.writeFile(".gtdrc.yaml", "vars:\n  testCommand: npm run edited\n")
-    const rest = await provide(currentRest, repo, { GTD_TESTCOMMAND: "echo env-late" })
-    expect(rest.vars.testCommand).toBe("npm run entry")
+    await enter(repo, "side", "deployTarget=npm run entry")
+    repo.writeFile(".gtdrc.yaml", "vars:\n  deployTarget: npm run edited\n")
+    const rest = await provide(currentRest, repo, { GTD_DEPLOYTARGET: "echo env-late" })
+    expect(rest.vars.deployTarget).toBe("npm run entry")
   })
 
-  it("an entry pins every process setting, so a later default change is ignored", async () => {
+  it("a started workflow pins every process setting, so a later default change is ignored", async () => {
     const repo = seeded()
     await enter(repo, "side")
     const run = await provide(currentRun, repo)
-    expect(run.pinnedVars).toEqual({ reviewer: "nobody", testCommand: "npm run rc" })
+    expect(run.pinnedVars).toEqual({ reviewer: "nobody", deployTarget: "npm run rc" })
   })
 
   it("ignores a GTD_ env var naming no declared var", async () => {
     const rest = await provide(currentRest, seeded(), { GTD_BRANDNEW: "hello" })
-    expect(Object.keys(rest.vars).sort()).toEqual(["reviewer", "testCommand"])
+    expect(Object.keys(rest.vars).sort()).toEqual(["deployTarget", "reviewer"])
   })
 })
 

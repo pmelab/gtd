@@ -10,7 +10,16 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
   Background:
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
 
   Scenario: the design gate stops with no open question, and a clean re-run accepts the plan

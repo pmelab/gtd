@@ -1,9 +1,11 @@
 import { readdirSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { evalSteps } from "../../evals/gtd.config.js"
+import * as evalConfig from "../../evals/gtd.config.js"
 
-// Each eval case enters its step through evals/gtd.config.ts, which only knows
-// the bundled agent steps its `evalSteps` names.
+// Each eval case starts the workflow evals/gtd.config.ts exports for its step:
+// the step's full name in camelCase (the same rule as evals/fixture.mjs).
+const workflowName = (state: string): string =>
+  state.replace(/[^A-Za-z0-9]+(.)/g, (_, c: string) => c.toUpperCase())
 const CASES_DIR = new URL("../../evals/cases/", import.meta.url)
 
 describe("evals/cases", () => {
@@ -14,7 +16,7 @@ describe("evals/cases", () => {
       const { default: caseDef } = (await import(new URL(file, CASES_DIR).href)) as {
         default: { state: string }
       }
-      expect(Object.keys(evalSteps), file).toContain(caseDef.state)
+      expect(Object.keys(evalConfig), file).toContain(workflowName(caseDef.state))
     }
   })
 })

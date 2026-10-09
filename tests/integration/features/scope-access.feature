@@ -412,7 +412,7 @@ Feature: file access is declared per scope
     Given a test project
     And the workflow
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security"
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -458,7 +458,7 @@ Feature: file access is declared per scope
       """
       export const add = (a: number, b: number) => a + b
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=base"
+    And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
     And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:

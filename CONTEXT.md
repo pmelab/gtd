@@ -9,10 +9,14 @@ scrollback.
 
 ### Engine
 
-**Workflow**: The whole definition of what gtd can do — the default export of a
-`gtd.config.ts`, mapping [entry](#entry) names to [flows](#flow). One workflow
-is bundled as the built-in default; a repository's own `gtd.config.ts` replaces
-it wholesale. _Avoid_: state machine, config, pipeline
+**Workflow**: A named [flow](#flow) in a `gtd.config.ts` or the bundled module,
+started by `gtd --workflow <name>`. The bundled workflows stay available beside
+a repository's own; a repository export with the same name shadows the bundled
+one. _Avoid_: state machine, config, pipeline, entry
+
+**Default workflow**: The workflow an ordinary start (no `--workflow`) runs — a
+repository's `default` export, else the bundled `feature`. It has no other name
+and is not startable as `--workflow default`.
 
 **gtd.config.ts**: The TypeScript module a workflow lives in — the innermost one
 walking up from the current directory, never merged. Code gtd evaluates on every
@@ -29,11 +33,14 @@ _Avoid_: machine, state table, graph
 subject that lands it and, up to its last dot, its
 [memory scope](#memory-scope). _Avoid_: state, node, phase
 
-**Workflow module**: A TypeScript module whose default export is a flow; its
-`defaults`, `summary` and `base` exports configure it, and any other export is a
-helper — a single step or a phase such as a health loop or a review round —
-another workflow may import. The full step names its helpers declare are public,
-versioned API. _Avoid_: machine, sub-workflow, fragment
+**Workflow module**: A TypeScript module in which every exported function (bar
+`default`, `summary` and `base`) is a workflow named by its export; its
+`defaults`, `envDefaults`, `steering`, `skills`, `summary` and `base` exports
+configure every workflow in the file. The bundled module is never scanned: its
+helpers — a single step or a phase such as a health loop or a review round —
+stay helpers another workflow may import, and only `feature`, `review` and `fix`
+are startable. The full step names its helpers declare are public, versioned
+API. _Avoid_: machine, sub-workflow, fragment
 
 **Actor**: Who is expected to act at a step — `agent`, `human`, `check` (a `run`
 step, executed by the driver) or `judge`. gtd itself executes nothing. _Avoid_:
@@ -55,8 +62,8 @@ _Avoid_: report, log line
 content, its model, and its memory key. What `gtd next` prints. _Avoid_: current
 state, position
 
-**Process**: One pass through a workflow, from an entry to the flow's end or an
-abandonment. It does not return to where it started. _Avoid_: cycle, run,
+**Process**: One pass through a workflow, from its first step to the flow's end
+or an abandonment. It does not return to where it started. _Avoid_: cycle, run,
 session
 
 **Episode**: The commits one run of the flow answers — first-parent history
@@ -156,11 +163,6 @@ with ordinary commits, keeping every turn; a squash (or an amend, or a PR body)
 is something a human or a driver may still do afterward, outside gtd, using
 `gtd summary`'s prompt to write the message.
 
-**Entry**: The name `gtd --entry <name>` hands the flow as its `entry` argument
-to start a process somewhere other than an ordinary start; the flow decides
-which names it accepts, and the workflow's `base` may fix the process's diff
-base. _Avoid_: initial state, entry state
-
 **Memory scope**: The span of a process over which one agent conversation
 persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`
 when there are none). One scope, one model, system prompt and skill list.
@@ -182,10 +184,10 @@ rewinds an in-flight process. `gtd land` never moves HEAD, so it never writes
 this ref.
 
 **Process setting**: A flat string value flow code reads as `vars` and may
-branch on — the workflow's `defaults`, then `.gtdrc` `vars:`, then an entry's
-`--var`, then `GTD_<NAME>`. Resolved once at process start and recorded in the
-process's first commit; a later edit does not reach the running process. gtd
-blesses no names. Avoid: "Vars".
+branch on — the workflow's `defaults`, then `.gtdrc` `vars:`, then the `--var`
+on `--workflow`, then `GTD_<NAME>`. Resolved once at process start and recorded
+in the process's first commit; a later edit does not reach the running process.
+gtd blesses no names. Avoid: "Vars".
 
 **Environment setting**: A flat string value flow code reads as `env`, only
 where it cannot change the next step — the workflow's `envDefaults`, then
@@ -195,8 +197,9 @@ where it cannot change the next step — the workflow's `envDefaults`, then
 
 ### Bundled workflow
 
-These terms belong to the one workflow gtd ships, not to the engine. Replace the
-workflow and they go with it.
+These terms belong to the workflows gtd ships, not to the engine: `feature` (the
+ordinary start), `review` (pure review since a base) and `fix` (repair a red
+baseline). Replace them and the terms go with them.
 
 **Unwind**: The step (`unwind`) that reverts the entry commit's diff — the
 change that started the process, whether a hand-edit to real code or a scratch

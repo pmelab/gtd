@@ -144,8 +144,8 @@ Feature: gtd base — prints the review anchor hash, writing nothing
   @inmem
   Scenario: On the bundled workflow, gtd base agrees with the review round's own base marker and range
     # Reaches `build.review.reviewing` by the shortest real history: two
-    # feature commits build up the reviewable diff, then `--entry
-    # review-gate.check` fixes the review base at "boundary" (the quality lap
+    # feature commits build up the reviewable diff, then `--workflow
+    # review` fixes the review base at "boundary" (the quality lap
     # disabled).
     Given a test project
     And the workflow
@@ -159,7 +159,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
       """
       export const untouched = () => true
       """
-    And gtd enters "review-gate.check" with "--var reviewBase=boundary"
+    And gtd starts workflow "review" with "--var reviewBase=boundary"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
     And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     # The reviewing prompt makes the agent write this marker verbatim as

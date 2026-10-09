@@ -6,6 +6,7 @@ export {
   ConfigService,
   configPresentAt,
   type ConfigOperations,
+  type ResolvedWorkflow,
 } from "./load.js"
 export {
   ConfigDiscovery,

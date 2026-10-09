@@ -4,7 +4,7 @@ Feature: gtd init — seed a minimal .gtdrc.json (default env + formatting)
   `gtd init` (see src/program.ts) writes a MINIMAL `.gtdrc.json` seeding the
   default variables a fresh project usually changes (the test command) and a
   Prettier formatting suggestion (`modes:`). It writes NO `workflow:` key — gtd
-  ships the unified workflow as its built-in default and runs it whenever none
+  ships the bundled workflows as its built-in default and runs it whenever none
   is configured, so a state command works out of the box with no init at all. A
   project customizes the machine itself only by adding a `workflow:` key. The
   written file is left UNCOMMITTED (the user reviews and commits it), and init

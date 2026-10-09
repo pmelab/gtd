@@ -136,35 +136,34 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/PLAN.md"
 
-  Scenario: gtd.openSteeringFile renders file: with the process's own entry vars, matching what gtd next reports (issue #156)
+  Scenario: gtd.openSteeringFile renders file: with the process's own start vars, matching what gtd next reports (issue #156)
     # Before src/Edge.ts's currentRest, the LSP's own resolveSteeringFile hand-
     # rolled a byte-for-byte copy of the CLI's resolution chain that had
     # drifted three ways: it never applied `--var` overrides, never rendered
     # `on`, and never computed a review base. This pins the fix — a step
-    # entered with `--var planFile=OTHER.md` renders its `file` against THAT
+    # started with `--var planFile=OTHER.md` renders its `file` against THAT
     # override, the same file `gtd next` would report.
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars, refuse } from "@pmelab/gtd/flows"
+      import { agent, human, vars } from "@pmelab/gtd/flows"
 
-      export default async ({ entry }) => {
-        if (entry === "review-check") {
-          await human("review-check", {
-            file: `.gtd/${vars.planFile}`,
-            mode: "qa",
-            message: "reviewing",
-          })
-          return
-        }
-        if (entry !== undefined) refuse(`"${entry}" is not an enterable state`)
+      export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "develop the plan", { file: `.gtd/${vars.planFile}`, mode: "qa" })
       }
 
+      export const reviewCheck = async () => {
+        await human("review-check", {
+          file: `.gtd/${vars.planFile}`,
+          mode: "qa",
+          message: "reviewing",
+        })
+      }
+
       export const defaults = { planFile: "PLAN.md" }
       """
-    And I run gtd with args "--entry review-check --var planFile=OTHER.md"
+    And I run gtd with args "--workflow reviewCheck --var planFile=OTHER.md"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error

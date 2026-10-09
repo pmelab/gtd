@@ -65,12 +65,14 @@ export type Command =
       readonly model?: string
     }
   | {
-      readonly kind: "entry"
+      readonly kind: "start"
       readonly actor: string
-      readonly state: string
+      readonly workflow: string
       readonly vars: Readonly<Record<string, string>>
       readonly label: string
     }
+  | { readonly kind: "door"; readonly name: string; readonly args: readonly string[] }
+  | { readonly kind: "doors" }
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
   | { readonly kind: "next" }
@@ -173,14 +175,18 @@ const FLAGS: readonly FlagRow[] = [
     arity: "optional",
     repeatable: false,
     scope: (kind) =>
-      kind === "next" || kind === "land" || kind === "judge" || kind === "judgeAnswer",
+      kind === "next" ||
+      kind === "land" ||
+      kind === "judge" ||
+      kind === "judgeAnswer" ||
+      kind === "doors",
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer` — " +
+      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors` — " +
       "every other command prints plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "<path>",
     help: [
-      "(gtd next/gtd land/gtd judge/gtd judge answer only) output",
+      "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors only) output",
       "structured JSON. Bare --json prints the whole document;",
       "--json=<path> (a dotted key path into that document, e.g.",
       "kind, content, session.id) prints just that value: a",
@@ -293,7 +299,7 @@ const FLAGS: readonly FlagRow[] = [
     repeatable: false,
     scope: (kind) => kind === "land",
     decode: ([raw]) => nonNegativeNumber(raw ?? "", "--cost"),
-    scopeError: "gtd: --cost is only valid for `gtd land` — an entry is not a metered agent turn",
+    scopeError: "gtd: --cost is only valid for `gtd land` — a start is not a metered agent turn",
     valueHint: "<n>",
     help: ["(gtd land only) record the invocation's token cost"],
   },
@@ -315,26 +321,25 @@ const FLAGS: readonly FlagRow[] = [
     ],
   },
   {
-    name: "--entry",
+    name: "--workflow",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "entry",
+    scope: (kind) => kind === "start",
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --entry is only valid with no other command — use the bare `gtd --entry <state>` " +
-      "form; landing and entering are different verbs",
-    valueHint: "<state>",
+      "gtd: --workflow is only valid with no other command — use the bare `gtd --workflow <name>` " +
+      "form; landing and starting are different verbs",
+    valueHint: "<name>",
     help: [
-      "(with no command at all) start a brand new process,",
-      "handing <state> to the workflow as its entry —",
-      "authenticated as human",
+      "(with no command at all) start a brand new process on",
+      "the named workflow — authenticated as human",
     ],
   },
   {
     name: "--var",
     arity: 1,
     repeatable: true,
-    scope: (kind) => kind === "entry",
+    scope: (kind) => kind === "start",
     decode: (raws) => {
       const vars: Record<string, string> = {}
       const seen = new Set<string>()
@@ -363,10 +368,10 @@ const FLAGS: readonly FlagRow[] = [
       }
       return Either.right(vars)
     },
-    scopeError: "gtd: --var requires --entry",
+    scopeError: "gtd: --var requires --workflow",
     valueHint: "<name>=<value>",
     help: [
-      "(with --entry; repeatable) pin a process setting for the",
+      "(with --workflow; repeatable) pin a process setting for the",
       "new process; the name must already be declared by the",
       "workflow's defaults or the .gtdrc vars: (environment",
       "settings are not pinnable)",
@@ -442,7 +447,12 @@ const flagByToken = (token: string): FlagRow | undefined => {
 // Command table
 // ---------------------------------------------------------------------------
 
-type Arity = "none" | { readonly name: string } | { readonly names: readonly [string, string] }
+type Arity =
+  | "none"
+  | { readonly name: string }
+  | { readonly names: readonly [string, string] }
+  // One required leading positional, then any number the command itself judges.
+  | { readonly name: string; readonly variadic: string }
 
 interface CommandRow {
   readonly token: string
@@ -666,6 +676,31 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     ],
   },
   {
+    token: "door",
+    kind: "door",
+    arity: { name: "name", variadic: "args" },
+    details: [
+      "Start a process through a named shortcut, mapping the",
+      "positional args to that workflow's process settings — the",
+      "same start `gtd --workflow` makes, printed the same way.",
+      "Doors come from the config's `doors` export; the bundled",
+      "ones are `fix` and `review [base]`. An unknown door, or too",
+      "few or too many args, is a usage error (exit 2) naming the",
+      "doors or the door's synopsis",
+    ],
+  },
+  {
+    token: "doors",
+    kind: "doors",
+    arity: "none",
+    details: [
+      "List every door, sorted: one `name [args] → workflow` line",
+      "each. --json prints one JSON array of { name, workflow,",
+      "args: [{ name, optional }] } instead; --json=<path> reads one",
+      "value off it. Writes nothing",
+    ],
+  },
+  {
     token: "judge",
     kind: "judge",
     arity: "none",
@@ -733,15 +768,15 @@ const renderBlock = (header: string, lines: readonly string[]): string => {
   return headerLine + rest.map((l) => `${" ".repeat(COLUMN)}${l}\n`).join("")
 }
 
-const ENTRY_SHORT_FORM = renderBlock("(no command) --entry <state>", [
+const START_SHORT_FORM = renderBlock("(no command) --workflow <name>", [
   "Starts a new process authenticated as human, e.g.",
-  "'gtd --entry <state>'",
+  "'gtd --workflow <name>'",
 ])
 
 const VERSION_BLOCK = renderBlock("version", ["Print version and exit"])
 const HELP_BLOCK = renderBlock("help", ["Print this help and exit"])
 
-const SPACE_FORM_FLAGS = new Set(["--entry", "--var"])
+const SPACE_FORM_FLAGS = new Set(["--workflow", "--var"])
 
 const flagHeader = (row: FlagRow): string => {
   if (row.valueHint === "") return row.name
@@ -757,13 +792,15 @@ export const renderHelp = (): string => {
         ? row.token
         : "names" in row.arity
           ? `${row.token} <${row.arity.names[0]}> <${row.arity.names[1]}>`
-          : `${row.token} <${row.arity.name}>`
+          : "variadic" in row.arity
+            ? `${row.token} <${row.arity.name}> [${row.arity.variadic}...]`
+            : `${row.token} <${row.arity.name}>`
     return renderBlock(header, row.details)
   })
   const commands = [
     commandBlocks[0], // init
     commandBlocks[1], // land
-    ENTRY_SHORT_FORM,
+    START_SHORT_FORM,
     ...commandBlocks.slice(2), // abandon..base
     VERSION_BLOCK,
     HELP_BLOCK,
@@ -932,21 +969,23 @@ const arityError = (cmd: string, rest: readonly string[], arity: Arity): string 
       ? `gtd ${cmd}: too many arguments — expected none, got: ${rest.join(", ")}`
       : undefined
   }
-  if ("names" in arity) {
-    const [first, second] = arity.names
-    if (rest.length < 2) {
-      return rest.length === 0
-        ? `gtd ${cmd}: missing ${first} and ${second} arguments`
-        : `gtd ${cmd}: missing ${second} argument`
-    }
-    if (rest.length > 2) {
-      return `gtd ${cmd}: too many arguments — expected ${first} and ${second}, got: ${rest.join(", ")}`
-    }
-    return undefined
-  }
+  if ("names" in arity) return pairArityError(cmd, rest, arity.names)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
-  if (rest.length > 1) {
+  if (!("variadic" in arity) && rest.length > 1) {
     return `gtd ${cmd}: too many arguments — expected one ${arity.name}, got: ${rest.join(", ")}`
+  }
+  return undefined
+}
+
+const pairArityError = (
+  cmd: string,
+  rest: readonly string[],
+  [first, second]: readonly [string, string],
+): string | undefined => {
+  if (rest.length === 0) return `gtd ${cmd}: missing ${first} and ${second} arguments`
+  if (rest.length === 1) return `gtd ${cmd}: missing ${second} argument`
+  if (rest.length > 2) {
+    return `gtd ${cmd}: too many arguments — expected ${first} and ${second}, got: ${rest.join(", ")}`
   }
   return undefined
 }
@@ -992,8 +1031,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const { positionals, byFlag, present, jsonSeen } = tokenized
 
   const first = positionals[0]
-  const entryRaw = byFlag.get("--entry")?.[0]
-  const entryPresent = entryRaw !== undefined
+  const workflowRaw = byFlag.get("--workflow")?.[0]
+  const workflowPresent = workflowRaw !== undefined
 
   if (first === "version") return { kind: "output", stdout: `${GTD_VERSION}\n` }
   if (first === "help") return { kind: "output", stdout: renderHelp() }
@@ -1014,25 +1053,25 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   // `Arity` variant is needed for this one verb.
   const judgeAnswer = row?.kind === "judge" && positionals[1] === "answer"
 
-  // The `--entry` selector: no command at all, with `--entry` present,
-  // resolves to the generic `entry` command instead — landing and entering
-  // are different verbs, so `gtd land --entry <state>` is NOT a synonym (it
+  // The `--workflow` selector: no command at all, with `--workflow` present,
+  // resolves to the generic `start` command instead — landing and starting
+  // are different verbs, so `gtd land --workflow <name>` is NOT a synonym (it
   // fails the scope check below instead).
-  const selectsEntry = entryPresent && first === undefined
+  const selectsStart = workflowPresent && first === undefined
   const judgeRun = row?.kind === "judge" && positionals[1] === "run"
-  const kind: Command["kind"] | undefined = selectsEntry
-    ? "entry"
+  const kind: Command["kind"] | undefined = selectsStart
+    ? "start"
     : judgeAnswer
       ? "judgeAnswer"
       : judgeRun
         ? "judgeRun"
         : row?.kind
 
-  if (row === undefined && !selectsEntry) {
+  if (row === undefined && !selectsStart) {
     // No dispatchable row resolved (missing/unknown command) — a scoped flag
-    // used here (e.g. `--var` with no `--entry`) is a more specific error
+    // used here (e.g. `--var` with no `--workflow`) is a more specific error
     // than "missing command"/"unknown command", so it takes priority (mirrors
-    // the old parser, which validated --entry/--var/--cost/--model ahead of
+    // the old parser, which validated --workflow/--var/--cost/--model ahead of
     // subcommand resolution).
     const violation = scopeViolation(undefined, present)
     if (violation !== undefined) return usagePlan(violation, jsonSeen)
@@ -1055,7 +1094,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const restPositionals =
     first === undefined ? positionals : positionals.slice(judgeAnswer || judgeRun ? 2 : 1)
 
-  if (kind === "entry" && first === undefined) {
+  if (kind === "start" && first === undefined) {
     if (restPositionals.length > 0) {
       return usagePlan(
         `gtd: too many arguments — expected none, got: ${restPositionals.join(", ")}`,
@@ -1063,7 +1102,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       )
     }
   } else {
-    // `kind === "entry"` is unreachable here: `selectsEntry` only fires when
+    // `kind === "start"` is unreachable here: `selectsStart` only fires when
     // `first === undefined`, which the `if` branch above already handled.
     const bareCheck =
       kind === "check" && restPositionals.length === 0 && present.has("--open-threads")
@@ -1114,11 +1153,26 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return { kind: "command", command: buildLandCommand(bag), json, verbose }
   }
 
-  if (kind === "entry") {
-    const label = `gtd --entry ${entryRaw}`
+  if (kind === "start") {
+    const label = `gtd --workflow ${workflowRaw}`
     return {
       kind: "command",
-      command: { kind: "entry", actor: "human", state: entryRaw!, vars: bag["--var"] ?? {}, label },
+      command: {
+        kind: "start",
+        actor: "human",
+        workflow: workflowRaw!,
+        vars: bag["--var"] ?? {},
+        label,
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "door") {
+    return {
+      kind: "command",
+      command: { kind: "door", name: restPositionals[0]!, args: restPositionals.slice(1) },
       json,
       verbose,
     }
@@ -1199,6 +1253,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "next"
       | "validate"
       | "install"
+      | "doors"
       | "summary"
       | "base"
       | "judge"

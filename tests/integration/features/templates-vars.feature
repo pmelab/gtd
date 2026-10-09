@@ -186,7 +186,16 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
   Scenario: the bundled template resolves a planner-tier state's model from "env.plannerModel"
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       a sketch
@@ -200,7 +209,16 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
   Scenario: the bundled template resolves a coder-tier state's model from "env.coderModel"
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -228,7 +246,16 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
   Scenario: a "GTD_PLANNERMODEL" override repoints every planner-tier state at once
     Given a test project
     And the workflow
-    And gtd enters "start-gate.check"
+    And a file "NOTE.md" with:
+      """
+      a sketch
+      """
+
+    And gtd lands "gtd(human): idle → unwind"
+
+    And the file "NOTE.md" is deleted
+
+    And gtd lands "gtd(check): unwind → start-gate.check"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       a sketch

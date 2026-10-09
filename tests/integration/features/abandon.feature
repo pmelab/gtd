@@ -1,7 +1,7 @@
 @inmem
 Feature: gtd abandon — end the process underway without completing it
 
-  `gtd --entry <state>` refuses while a process is underway ("finish it, or run
+  `gtd --workflow <name>` refuses while a process is underway ("finish it, or run
   `gtd abandon`"), and a workflow only leaves a process through an ordinary
   sign-off commit entering its initial state. `gtd abandon` is the way out of
   one nobody is going to finish: it rewinds HEAD to the commit the process
@@ -77,7 +77,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
       export const add = (a: number, b: number) => a + b
       """
-    When I run gtd with args "--entry review-gate.check --var reviewBase=base"
+    When I run gtd with args "--workflow review --var reviewBase=base"
     Then it succeeds
     When I run gtd land
     Then it succeeds

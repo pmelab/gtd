@@ -9,7 +9,7 @@ Feature: the bundled workflow's health check runs "testCommand"
   Background:
     Given a test project
     And the workflow
-    And gtd enters "fix-precheck"
+    And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 failing test

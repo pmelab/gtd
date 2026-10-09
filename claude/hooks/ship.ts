@@ -162,8 +162,9 @@ async function squash(
   }
   // `gtd summary` also describes a process still underway; shipping that
   // would publish half of it.
-  const state = (await io.run(["gtd", "next", "--json=state"])).out.trim()
-  if (state !== "idle") {
+  const initial = (await io.run(["gtd", "next", "--json=initial"])).out.trim()
+  if (initial !== "true") {
+    const state = (await io.run(["gtd", "next", "--json=state"])).out.trim()
     return fail(`The gtd process is still underway (at ${state}). Finish it, then ship.`)
   }
   const range = await processRange(git, summary.out)

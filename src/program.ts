@@ -1,6 +1,6 @@
 import { Effect, Option, Schema } from "effect"
 import type { ArtifactOut, Command, JsonMode, Needs } from "./cli/index.js"
-import { Narrator } from "./Commentary.js"
+import { GtdUsageError, Narrator } from "./Commentary.js"
 import {
   configPresentAt,
   ConfigDiscovery,
@@ -9,13 +9,14 @@ import {
   formatDiagnostic,
   renderInitScaffold,
 } from "./workflow/index.js"
+import type { Door } from "./flows/index.js"
 import { runJudge } from "./judges/index.js"
 import { GitService, Host, Workspace, type GitOperations, type HostOps } from "./platform/index.js"
 import { runUiCommand, type UiRequirements } from "./ui/index.js"
 import { resolveSession } from "./Sessions.js"
 import {
   currentRest,
-  entryRefusal,
+  startRefusal,
   currentRun,
   renderRest,
   restAt,
@@ -29,7 +30,7 @@ import {
   summaryRun,
   type RenderedRest,
 } from "./Edge.js"
-import { planEntry, planStep as planStepPure, type JudgeVerdict } from "./step/index.js"
+import { planStart, planStep as planStepPure, type JudgeVerdict } from "./step/index.js"
 import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
 import {
@@ -57,7 +58,6 @@ import {
   statusOf,
   type BeatDocument,
   type BeatKind,
-  type LandFields,
   type NextMatch,
   type StatusChange,
 } from "./wire/index.js"
@@ -96,7 +96,7 @@ export class SelectorUsageError extends Error {}
 /** The `--json=<path>` select branch, shared by all three emitting commands so none drift on the unknown-selector message. `absent` writes nothing and lets the caller's success path continue. */
 const writeSelection = (
   out: ArtifactOut,
-  fields: BeatDocument | LandFields,
+  fields: unknown,
   path: string,
 ): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
@@ -201,7 +201,7 @@ const normalizeScriptNewline = (script: string): string =>
 /**
  * `combinedScript`, narrowed to accept only an already-guarded
  * `RunnableScript` for `required` — the one boundary `ScriptSurface`'s brand
- * exists to protect: `gtd land`/`gtd --entry`'s emitted script. Every OTHER
+ * exists to protect: `gtd land`/`gtd --workflow`'s emitted script. Every OTHER
  * `combinedScript` call (`abandon`/`restore`/steering validate, below) builds
  * from `emitScripts` directly and keeps the unbranded signature — those
  * paths land no guard-gated git write for a brand to protect.
@@ -490,33 +490,43 @@ const runLandCommand = (
   })
 
 /**
- * Starts a brand new process at `<state>`, always as `"human"`. Captures
- * whatever the working tree carries at entry, like an ordinary land, rather
- * than demanding a clean tree.
+ * Starts a brand new process on `<workflow>`, always as `"human"`. Captures
+ * whatever the working tree carries at the start, like an ordinary land,
+ * rather than demanding a clean tree.
  *
- * Refused when a process is already underway, the flow opens none for
- * `<state>`, a `--var` name is undeclared, or `reviewBase:` renders to
- * something that is not an ancestor of (and differs from) HEAD.
+ * An unknown name is a usage error. Refused when a process is already
+ * underway, the workflow reaches no step, a `--var` name is undeclared, or
+ * `base` renders to something that is not an ancestor of (and differs from)
+ * HEAD.
  */
-const runEntryCommand = (
+const runStartCommand = (
   actor: string,
-  entryState: string,
+  workflow: string,
   varOverrides: Record<string, string>,
   out: ArtifactOut,
   commandLabel: string,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    const resolved = config.workflowNamed(workflow)
+    if (resolved === undefined) {
+      return yield* Effect.fail(
+        new GtdUsageError(
+          `gtd --workflow: unknown workflow "${workflow}" — startable: ${config.workflowNames.join(", ")}`,
+        ),
+      )
+    }
     const rest = yield* restAt(undefined, varOverrides)
-    const plan = yield* planEntry(
+    const started = yield* startRefusal(rest, resolved, varOverrides)
+    const plan = yield* planStart(
       {
-        def: rest.def,
         state: rest.state,
         idle: noProcessUnderway(rest),
-        entryRefusal: yield* entryRefusal(rest, entryState, varOverrides),
       },
       actor,
       {
-        state: entryState,
+        workflow: resolved,
+        first: started,
         commandLabel,
         vars: varOverrides,
       },
@@ -525,6 +535,74 @@ const runEntryCommand = (
       return yield* Effect.fail(new Error(plan.message))
     }
     out.write(landingScript(ScriptSurface.render(plan.steps)))
+  })
+
+const doorSynopsis = (name: string, door: Door): string =>
+  [
+    name,
+    ...(door.args ?? []).map((arg) => (arg.optional === true ? `[${arg.name}]` : `<${arg.name}>`)),
+  ].join(" ")
+
+/**
+ * `gtd door <name> [args…]`: `gtd --workflow` with the door's workflow and the
+ * process settings its `vars` derive from the positional args. A wrong name or
+ * arity is a usage error naming what would have worked.
+ */
+const runDoorCommand = (
+  name: string,
+  args: readonly string[],
+  out: ArtifactOut,
+): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    const door = config.doors.get(name)
+    if (door === undefined) {
+      const known = [...config.doors]
+      return yield* Effect.fail(
+        new GtdUsageError(
+          `gtd door: unknown door "${name}" — doors: ${known.map(([n, d]) => doorSynopsis(n, d)).join(", ")}`,
+        ),
+      )
+    }
+    const declared = door.args ?? []
+    const required = declared.filter((arg) => arg.optional !== true).length
+    if (args.length < required || args.length > declared.length) {
+      return yield* Effect.fail(
+        new GtdUsageError(
+          `gtd door ${name}: ${args.length < required ? "missing" : "too many"} arguments — usage: gtd door ${doorSynopsis(name, door)}`,
+        ),
+      )
+    }
+    const named: Record<string, string | undefined> = {}
+    declared.forEach((arg, i) => {
+      named[arg.name] = args[i]
+    })
+    const vars = yield* Effect.try({
+      try: () => door.vars?.(named) ?? {},
+      catch: (e) => new Error(`gtd door ${name}: ${e instanceof Error ? e.message : String(e)}`),
+    })
+    yield* runStartCommand("human", door.workflow, { ...vars }, out, `gtd door ${name}`)
+  })
+
+/** `gtd doors`: every door and its args, sorted by name — plain lines, or one JSON array. */
+const runDoorsCommand = (
+  json: JsonMode,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    const doors = [...config.doors]
+    if (json.kind === "off") {
+      out.write(doors.map(([n, d]) => `${doorSynopsis(n, d)} → ${d.workflow}\n`).join(""))
+      return
+    }
+    const document = doors.map(([n, d]) => ({
+      name: n,
+      workflow: d.workflow,
+      args: (d.args ?? []).map((arg) => ({ name: arg.name, optional: arg.optional === true })),
+    }))
+    if (json.kind === "document") out.write(`${JSON.stringify(document)}\n`)
+    else yield* writeSelection(out, document, json.path)
   })
 
 /**
@@ -948,6 +1026,8 @@ const gatherBeatDocument = (
     const status = statusOf({
       rendered,
       idle: restIsIdle(rest),
+      initial: noProcessUnderway(rest),
+      workflow: rest.workflowName,
       log,
       changes: computeStatusChanges(rest.changes),
       next: yield* computeNextMatch(rest),
@@ -1105,8 +1185,12 @@ const dispatchVoidCommand = (
         json,
         out,
       )
-    case "entry":
-      return runEntryCommand(command.actor, command.state, command.vars, out, command.label)
+    case "start":
+      return runStartCommand(command.actor, command.workflow, command.vars, out, command.label)
+    case "door":
+      return runDoorCommand(command.name, command.args, out)
+    case "doors":
+      return runDoorsCommand(json, out)
     case "abandon":
       return runAbandonCommand(out)
     case "restore":

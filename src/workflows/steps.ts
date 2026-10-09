@@ -81,7 +81,7 @@ export const fixSuite = (): Promise<void> =>
 
 // ── Keeping the suite green ─────────────────────────────────────────────────
 
-export const fix = (built?: t.BuildContext): Promise<void> =>
+export const fixCheck = (built?: t.BuildContext): Promise<void> =>
   t.agentWithSkills("fix", t.buildFixPrompt(built), {
     label: "Fixing the check",
     file: FEEDBACK,

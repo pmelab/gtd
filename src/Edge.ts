@@ -15,6 +15,7 @@ import {
   resolveScopeAccess,
   resolveScopeSkills,
   type ConfigOperations,
+  type ResolvedWorkflow,
 } from "./workflow/index.js"
 import {
   formatSubject,
@@ -57,19 +58,22 @@ type History = ReadonlyArray<{
 // ── Episodes ────────────────────────────────────────────────────────────────
 
 interface EpisodeLocation {
-  /** The name `gtd --entry` opened the episode with; `undefined` for an ordinary start. */
-  readonly entry: string | undefined
+  /** The workflow pinned on the opening commit; `undefined` for the default. */
+  readonly workflow: string | undefined
+  /** An opening commit with no `Gtd-Workflow` trailer: written by the removed `gtd --entry`. */
+  readonly legacyOpening: boolean
   /** The commit replay starts reading from, or -1 for the empty tree before history. */
   readonly baseIndex: number
-  /** The process's first commit — an entered process's opening commit, else the one after the base. */
+  /** The process's first commit — a `--workflow` process's opening commit, else the one after the base. */
   readonly processStart: number
 }
 
 /**
  * Where the episode HEAD belongs to begins, read off subjects alone. Walking
- * back from HEAD: a trailer-less bare `gtd(human): <entry>` commit is what
- * `gtd --entry` writes — no landing ever produces one — and opens an entered
- * episode as its first commit; a commit that is not a gtd step commit, or one
+ * back from HEAD: a bare `gtd(human): <step>` commit with no `Gtd-Step` is what
+ * `gtd --workflow` writes — no landing ever produces one — and opens an
+ * episode as its first commit (its `Gtd-Workflow` trailer names the workflow;
+ * a legacy `--entry` opening has none); a commit that is not a gtd step commit, or one
  * entering the flow's first step (a finished episode), bounds the episode
  * from below.
  */
@@ -82,12 +86,19 @@ const locateEpisode = (def: WorkflowDefinition, history: History): EpisodeLocati
       message.step === undefined &&
       subject.from === undefined &&
       subject.actor === "human"
-    if (opening) return { entry: subject.to, baseIndex: i, processStart: i }
+    if (opening) {
+      return {
+        workflow: message.workflow,
+        legacyOpening: message.workflow === undefined,
+        baseIndex: i,
+        processStart: i,
+      }
+    }
     if (subject === undefined || !ACTORS.has(subject.actor) || subject.to === def.initial) {
-      return { entry: undefined, baseIndex: i, processStart: i + 1 }
+      return { workflow: undefined, legacyOpening: false, baseIndex: i, processStart: i + 1 }
     }
   }
-  return { entry: undefined, baseIndex: -1, processStart: 0 }
+  return { workflow: undefined, legacyOpening: false, baseIndex: -1, processStart: 0 }
 }
 
 // ── The current process run ─────────────────────────────────────────────────
@@ -111,7 +122,10 @@ export interface TraceEntry {
 }
 
 export interface ProcessRun {
-  readonly entry: string | undefined
+  /** The workflow the process's opening commit pinned; `undefined` replays on the default. */
+  readonly workflow: string | undefined
+  /** Opened by the removed `gtd --entry`: no workflow to replay, only `gtd abandon` applies. */
+  readonly legacyOpening: boolean
   /** The process's first commit, or HEAD when none has landed yet. */
   readonly startHash: string
   /** The parent of the process's first commit — the empty tree when that is the root commit. */
@@ -179,7 +193,8 @@ const runOf = (
   const startParentHash = hashAt(history, location.processStart - 1) ?? EMPTY_TREE
   const head = history[history.length - 1]
   return {
-    entry: location.entry,
+    workflow: location.workflow,
+    legacyOpening: location.legacyOpening,
     startHash: hashAt(history, location.processStart) ?? head?.hash ?? EMPTY_TREE,
     startParentHash,
     diffBase: first?.reviewBase ?? startParentHash,
@@ -206,10 +221,10 @@ const PAGE_TIERS: ReadonlyArray<number> = [32, 128, 512, Infinity]
  * gtd step commit, or one landing the flow's initial state, bounds an
  * episode from below — EXCEPT a bare `gtd(human): <x>` subject (no `→`),
  * which is NEVER a boundary here, whatever `<x>` is. That bare shape is
- * `locateEpisode`'s own `opening` branch (an entered episode's first commit),
+ * `locateEpisode`'s own `opening` branch (a started episode's first commit),
  * which takes priority there over the initial-state check no matter what the
- * entry is named — including an entry named after `def.initial` itself,
- * where the two branches would otherwise disagree. A bare human commit can
+ * workflow's first step is named — including one named after `def.initial`
+ * itself, where the two branches would otherwise disagree. A bare human commit can
  * also be a self-loop step landing rather than a real opening (this
  * subject-only pass can't read the `Gtd-Step` trailer that would tell them
  * apart), so ruling it out here can only make `findBoundaryBase` walk a FEW
@@ -414,21 +429,44 @@ const pendingTree = (
  * The one resolver of both setting kinds. Process settings: the recorded
  * (pinned) value wins per name, anything unrecorded resolves live — the
  * fallback for a process started before pinning existed. Environment settings
- * are always live. `entryOverrides` are `--var` values, passed only while a
- * process is being entered.
+ * are always live. `startOverrides` are `--var` values, passed only while a
+ * process is being started.
  */
 const settingsFor = (
-  config: Pick<ConfigOperations, "workflowVars" | "rcVars" | "workflowEnv" | "rcEnv">,
+  config: Pick<ConfigOperations, "rcVars" | "rcEnv">,
+  workflow: Pick<ResolvedWorkflow, "vars" | "env">,
   pinnedVars: Readonly<Record<string, string>>,
   hostEnv: Readonly<Record<string, string | undefined>>,
-  entryOverrides: Readonly<Record<string, string>> = {},
+  startOverrides: Readonly<Record<string, string>> = {},
 ): { readonly vars: Record<string, string>; readonly env: Record<string, string> } => ({
   vars: {
-    ...resolveVars(config.workflowVars, config.rcVars, entryOverrides, hostEnv),
+    ...resolveVars(workflow.vars, config.rcVars, startOverrides, hostEnv),
     ...pinnedVars,
   },
-  env: resolveVars(config.workflowEnv, config.rcEnv, {}, hostEnv),
+  env: resolveVars(workflow.env, config.rcEnv, {}, hostEnv),
 })
+
+/** The workflow a run replays on: its pinned one, else the default. */
+const workflowOf = (
+  config: ConfigOperations,
+  run: ProcessRun,
+): Effect.Effect<ResolvedWorkflow, Error> => {
+  if (run.legacyOpening) {
+    return Effect.fail(
+      new Error(
+        "gtd: this process was opened by `gtd --entry`, which no longer exists — run `gtd abandon` to start over",
+      ),
+    )
+  }
+  if (run.workflow === undefined) return Effect.succeed(config.defaultWorkflow)
+  const named = config.workflowNamed(run.workflow)
+  if (named !== undefined) return Effect.succeed(named)
+  return Effect.fail(
+    new Error(
+      `gtd: this process runs workflow "${run.workflow}", which gtd.config.ts no longer defines — run \`gtd abandon\` to start over`,
+    ),
+  )
+}
 
 /**
  * `judgeBudgetBytes` is the one var that refuses rather than disabling its
@@ -478,7 +516,7 @@ interface ReplaySetup {
    * would keep serving the FIRST request's working tree forever. A new
    * `ReplaySetup` per `restAt` call is what makes each request see the
    * working tree as it stands right then, while still reading it only once
-   * across that one request's `decideLanding`/`entryRefusal` replay.
+   * across that one request's `decideLanding`/`startRefusal` replay.
    */
   readonly pendingWorktree: () => ReadonlyMap<string, string | undefined>
 }
@@ -489,7 +527,7 @@ const replayFor = (
 ): Promise<ReplayOutcome> =>
   replay({
     flow: setup.def.flow,
-    episode: { entry: setup.run.entry, base: setup.base, commits: setup.episode },
+    episode: { base: setup.base, commits: setup.episode },
     vars: setup.vars,
     env: setup.env,
     start: setup.run.diffBase,
@@ -510,7 +548,7 @@ const replayError = (outcome: ReplayOutcome): Error | undefined => {
   if (outcome.kind === "refused") return new Error(`gtd: ${outcome.message}`)
   if (outcome.kind === "ended") {
     return new Error(
-      "gtd: history ends the episode, but HEAD does not enter the default entry's first step — the workflow changed under this process; run `gtd abandon` to start over",
+      "gtd: history ends the episode, but HEAD does not enter the default workflow's first step — the workflow changed under this process; run `gtd abandon` to start over",
     )
   }
   return undefined
@@ -698,6 +736,8 @@ const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw 
 /** The currently rested step and its description — enough for the viewer and the LSP. */
 interface ResolvedRest {
   readonly def: WorkflowDefinition
+  /** The workflow the process runs: its pinned name, or the default's display name. */
+  readonly workflowName: string
   readonly state: StateName
   readonly stepDef: StepDef
   readonly actor: string
@@ -737,16 +777,17 @@ export type RestRequirements = ConfigRequirements
 /** Resolve the rest at `ref`, or at HEAD when `ref` is `undefined`. */
 export const restAt = (
   ref: string | undefined,
-  entryOverrides: Readonly<Record<string, string>> = {},
+  startOverrides: Readonly<Record<string, string>> = {},
 ): Effect.Effect<Rest, Error, RestRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
     const workspace = yield* Workspace
     const host = yield* Host
-    const def = config.workflow
-    const run = yield* computeProcessRun(git, def, ref)
-    const { vars, env } = settingsFor(config, run.pinnedVars, host.env, entryOverrides)
+    const run = yield* computeProcessRun(git, config.workflow, ref)
+    const resolved = yield* workflowOf(config, run)
+    const def = resolved.def
+    const { vars, env } = settingsFor(config, resolved, run.pinnedVars, host.env, startOverrides)
     const skills = yield* resolveScopeSkills(def, vars)
     const access = yield* resolveScopeAccess(def, skills, vars)
     const budget = yield* Effect.try({
@@ -817,6 +858,7 @@ export const restAt = (
     const memory = memoryOf(outcome.trace, run)
     return {
       def,
+      workflowName: resolved.name,
       state: step.name,
       stepDef,
       actor: step.actor,
@@ -840,27 +882,30 @@ export const restAt = (
 export const currentRest: Effect.Effect<Rest, Error, RestRequirements> = restAt(undefined)
 
 /**
- * Why `gtd --entry <name>` cannot open a process here, or `undefined` when it
- * can: the flow, handed `name`, must read it and reach a step from the tree
- * the opening commit would capture.
+ * Whether `gtd --workflow <name>` can start a process here: the workflow must
+ * reach a step from the tree the opening commit would capture. That step is
+ * what the opening commit's subject names.
  */
-export const entryRefusal = (
+export const startRefusal = (
   rest: Rest,
-  name: string,
-  entryVars: Record<string, string>,
-): Effect.Effect<string | undefined, Error, ConfigRequirements> =>
+  resolved: ResolvedWorkflow,
+  startVars: Record<string, string>,
+): Effect.Effect<
+  { readonly firstStep: string } | { readonly refusal: string },
+  Error,
+  ConfigRequirements
+> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
     const host = yield* Host
-    const { vars, env } = settingsFor(config, {}, host.env, entryVars)
-    const skills = yield* resolveScopeSkills(rest.def, vars)
-    const access = yield* resolveScopeAccess(rest.def, skills, vars)
+    const { vars, env } = settingsFor(config, resolved, {}, host.env, startVars)
+    const skills = yield* resolveScopeSkills(resolved.def, vars)
+    const access = yield* resolveScopeAccess(resolved.def, skills, vars)
     const workspace = rest.setup.workspace
     const outcome = yield* Effect.promise(() =>
       replay({
-        flow: rest.def.flow,
+        flow: resolved.def.flow,
         episode: {
-          entry: name,
           base: { hash: "", tree: pendingTree(workspace, rest.setup.pendingWorktree(), undefined) },
           commits: [],
         },
@@ -869,19 +914,15 @@ export const entryRefusal = (
         start: "",
         budgetBytes: rest.setup.budget,
         skills,
-        configuredSkills: rest.def.configuredSkills,
+        configuredSkills: resolved.def.configuredSkills,
         access,
-        configuredAccess: rest.def.configuredAccess,
+        configuredAccess: resolved.def.configuredAccess,
       }),
     )
-    if (outcome.kind === "refused") return outcome.message
-    if (outcome.kind === "rest") {
-      return outcome.entryRead
-        ? undefined
-        : `"${name}" is not an enterable state — this workflow reads no entry`
-    }
-    const why = outcome.kind === "ended" ? "the flow reaches no step for it" : outcome.message
-    return `"${name}" is not an enterable state — ${why}`
+    if (outcome.kind === "rest") return { firstStep: outcome.rest.name }
+    if (outcome.kind === "refused") return { refusal: outcome.message }
+    const why = outcome.kind === "ended" ? "the flow reaches no step" : outcome.message
+    return { refusal: `workflow "${resolved.name}" cannot start — ${why}` }
   })
 
 /** The review window's diff base at the rest. */
@@ -923,9 +964,11 @@ export const stalledAt = (rest: Rest): boolean =>
   !rest.run.headTurn.step &&
   rest.run.headTurn.empty
 
-/** No process is underway: the default entry's first step, first visit — a dirty tree there is a turn not yet landed, not a process. */
+/** No process is underway: the default workflow's first step, first visit — a dirty tree there is a turn not yet landed, not a process. */
 export const noProcessUnderway = (rest: Rest): boolean =>
-  rest.run.entry === undefined && rest.state === rest.def.initial && rest.step.id.occurrence === 1
+  rest.run.workflow === undefined &&
+  rest.state === rest.def.initial &&
+  rest.step.id.occurrence === 1
 
 /** `idle` means exactly one thing: no process underway, clean tree. */
 export const restIsIdle = (rest: Rest): boolean =>
@@ -974,8 +1017,27 @@ const landingTarget = (
   if (outcome.kind === "divergence" || outcome.kind === "failed") {
     return Effect.fail(new Error(outcome.message))
   }
-  return Effect.succeed(outcome.kind === "rest" ? outcome.rest.name : rest.def.initial)
+  if (outcome.kind !== "rest") return Effect.succeed(rest.def.initial)
+  const reserved = initialStepRefusal(rest.run.workflow, outcome.rest.name, rest.def.initial)
+  return Effect.succeed(reserved === undefined ? outcome.rest.name : reserved)
 }
+
+/**
+ * A step commit entering the default's first step is what ends an episode, so
+ * a named workflow landing there would read back as finished. Its opening
+ * commit may name that step: a bare opening is never read as a boundary.
+ */
+const initialStepRefusal = (
+  workflow: string | undefined,
+  step: StateName,
+  initial: StateName,
+): Landing | undefined =>
+  workflow !== undefined && step === initial
+    ? {
+        kind: "refusal",
+        message: `gtd: workflow "${workflow}" reaches step "${step}", the default workflow's first step — that is where a finished process waits, so a started process must never land there; rename the step`,
+      }
+    : undefined
 
 const landingTo = (rest: Rest, to: StateName): Landing => {
   if (rest.changes.length === 0 && rest.stepDef.kind === "script" && to === rest.state) {
@@ -1063,7 +1125,8 @@ export const summaryFor = (
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
     const host = yield* Host
-    const summary = config.workflow.summary
+    const resolved = yield* workflowOf(config, run)
+    const summary = resolved.def.summary
     if (summary === undefined || run.trace.length === 0) return undefined
     const entryCommit = run.trace[0]!.hash
     return summary({
@@ -1075,6 +1138,6 @@ export const summaryFor = (
         .map((entry) => ({ hash: entry.hash, state: entry.state })),
       processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
       processCostByModel: costByModel(run.costEntries),
-      ...settingsFor(config, run.pinnedVars, host.env),
+      ...settingsFor(config, resolved, run.pinnedVars, host.env),
     })
   })

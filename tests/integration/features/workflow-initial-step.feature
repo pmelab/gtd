@@ -1,9 +1,9 @@
 @inmem
-Feature: Initial-state entry — every unrecognized HEAD lands at the initial state
+Feature: Initial step — every unrecognized HEAD lands at the initial state
 
   Against the bundled default workflow, a HEAD that records no process — an
   ordinary commit, an old v1/v2-style `gtd: <label>` subject, or an actor the
-  workflow doesn't declare — resolves to the default entry's first step
+  workflow doesn't declare — resolves to the default workflow's first step
   (`idle`) rather than erroring.
 
   The one exception is an in-flight process whose recorded step the workflow

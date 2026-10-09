@@ -897,7 +897,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
   Scenario: A still-red suite with byte-identical output lands the judged retry instead of false-greening into review
     # Drives the REAL bundled unified template (not a custom .gtdrc) through
-    # `gtd --entry fix-precheck`: a suite that always fails with
+    # `gtd --workflow fix`: a suite that always fails with
     # byte-identical output must never be mistaken for green just because a
     # re-run produces no diff. `.gtd/packages/01-judgment-surface.md` Task 7:
     # the first red round bypasses judgment (no prior committed
@@ -923,7 +923,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           ;;
       esac
       """
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     Given the driver pasted from docs/driver.md
     When I run the driver from the docs
@@ -960,7 +960,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           ;;
       esac
       """
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     Given the driver pasted from docs/driver.md
     When I run the driver from the docs
@@ -1002,7 +1002,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           ;;
       esac
       """
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     Given the driver pasted from docs/driver.md
     When I run the driver from the docs
@@ -1026,9 +1026,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the git log contains "build.health.describe → build.health.stop"
     And the last commit body does not contain "Gtd-Judge:"
 
-  Scenario: --entry fix-precheck on a green baseline lands an ordinary probe commit, then halts at idle
+  Scenario: --workflow fix on a green baseline lands an ordinary probe commit, then halts at idle
     # A green suite is nothing to fix: `land` never moves HEAD, so the empty
-    # `gtd(human): fix-precheck` entry commit and the probe's own
+    # `gtd(human): fix-precheck` opening commit and the probe's own
     # `fix-precheck → idle` commit both stay in the log, and the driver halts
     # at the following idle message rest rather than at a `settled` land.
     Given a test project
@@ -1036,7 +1036,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And GTD_TESTCOMMAND is set to "true"
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And I record the commit count
-    When I run gtd with args "--entry fix-precheck"
+    When I run gtd with args "--workflow fix"
     Then it succeeds
     Given the driver pasted from docs/driver.md
     When I run the driver from the docs
