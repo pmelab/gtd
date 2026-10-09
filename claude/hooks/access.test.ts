@@ -50,6 +50,10 @@ describe("accessDenial", () => {
   test("a path outside the repo passes", () => {
     expect(accessDenial("Write", { file_path: "/etc/hosts" }, access, root)).toBeUndefined()
     expect(accessDenial("Read", { file_path: "../other/x" }, access, root)).toBeUndefined()
+    expect(accessDenial("Read", { file_path: "/repo2/README.md" }, access, root)).toBeUndefined()
+    expect(
+      accessDenial("Read", { file_path: "/repo/../repo/README.md" }, access, root),
+    ).toBeDefined()
   })
 
   test("Glob/Grep: root inside a literal prefix passes, else denied naming globs", () => {
