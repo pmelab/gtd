@@ -9,7 +9,7 @@ import {
 } from "./index.js"
 
 describe("EXIT_CODES", () => {
-  it("is exactly {0, 1, 2, 130, 143}", () => {
+  it("is frozen at exactly {0, 1, 2, 130, 143} — a new code breaks every driver", () => {
     expect(EXIT_CODES).toEqual(new Set([0, 1, 2, 130, 143]))
   })
 

@@ -292,6 +292,9 @@ falls back to the `gtd` on your `PATH`.
   produces a complete verdict does the dialog ask you, and **Continue with the
   safe choice** lands it unanswered, which routes the workflow its cautious way.
 - Script and check beats append to the log `gtd next --json` names.
+- The mod checks the [`schema`](./cli.md#schema) of every document it reads and
+  stops on one it does not read, naming which side to upgrade: the plugin when
+  gtd is newer, gtd when the plugin is.
 
 ## Writing your own driver
 
@@ -484,25 +487,25 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 23 keys (19 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 24 keys (20 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`/`skills`/`access`); a real
-driver reads 9 of the 23. The minimal driver below is the reference for exactly
+driver reads 9 of the 24. The minimal driver below is the reference for exactly
 which: `kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, `validate`, and `judge` —
-every `--json=<path>` selector its `case` arms touch. The remaining 14
-(`initial`, `state`, `actor`, `workflow`, `label`, `memory`, `file`, `mode`,
-`changes`, `next`, `cost`, `costByModel`, `skills`, `access`) are read only by a
-human looking at plain output, or by a driver author deciding what to log or
-preload — no `case` arm in THIS reference driver branches on them. This is a
-property of what a driver NEEDS, not a smaller wire: every key stays on every
-`gtd next --json` line, unconditionally, so `--json=<path>` keeps resolving the
-same way for a human poking at one field as for the reference driver reading
-nine of them in a loop.
+every `--json=<path>` selector its `case` arms touch. The remaining 15
+(`schema`, `initial`, `state`, `actor`, `workflow`, `label`, `memory`, `file`,
+`mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`) are read
+only by a human looking at plain output, or by a driver author deciding what to
+log or preload — no `case` arm in THIS reference driver branches on them. This
+is a property of what a driver NEEDS, not a smaller wire: every key stays on
+every `gtd next --json` line, unconditionally, so `--json=<path>` keeps
+resolving the same way for a human poking at one field as for the reference
+driver reading nine of them in a loop.
 
-(`gtd land --json` is a separate command with its own seven-key document —
-`script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a `gtd next`
-key; see the driver's landing step below for the two of those, `settled` and
-`idle`, it actually reads before piping `script` to `sh`.)
+(`gtd land --json` is a separate command with its own eight-key document —
+`schema`/`script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a
+`gtd next` key; see the driver's landing step below for the two of those,
+`settled` and `idle`, it actually reads before piping `script` to `sh`.)
 
 ### A complete minimal driver
 
@@ -705,15 +708,15 @@ not something the green suite can catch.)
 
 A judge gate is a `judge()` step (actor `judge`) and a `kind: "message"` rest
 whose `--json=judge` field is non-empty — the rendered JSON document
-`{ state, questions: [...] }` the pending judgment asks about. The gtd engine
-never calls a model — `gtd judge run` is an answerer a driver chooses to pipe
-through. The reference driver above is an aware driver: it reads `--json=judge`
-and, when non-empty, pipes `gtd judge --json | gtd judge run` into
-`gtd judge answer --json=script | sh`, with no `--provider` (auto selection,
-below). If `gtd judge run` fails it stops at the gate for you, as for any
-message. A driver that wants a different judgment model pipes the same document
-to it and the verdict it gets back into `gtd judge answer --json=script` on
-stdin.
+`{ schema, state, questions: [...] }` the pending judgment asks about. The gtd
+engine never calls a model — `gtd judge run` is an answerer a driver chooses to
+pipe through. The reference driver above is an aware driver: it reads
+`--json=judge` and, when non-empty, pipes `gtd judge --json | gtd judge run`
+into `gtd judge answer --json=script | sh`, with no `--provider` (auto
+selection, below). If `gtd judge run` fails it stops at the gate for you, as for
+any message. A driver that wants a different judgment model pipes the same
+document to it and the verdict it gets back into
+`gtd judge answer --json=script` on stdin.
 
 Whose-turn-is-it status reporting (like the herdr wrapper above) should treat
 `actor` as an ALLOWLIST, not a denylist: stand down — report the run as resting

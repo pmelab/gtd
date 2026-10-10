@@ -17,13 +17,11 @@ import {
   renderHelp,
   runCli,
   standaloneKinds,
-  EXIT_CODES,
-  EXIT_RUNTIME_ERROR,
-  EXIT_USAGE_ERROR,
   type CliIo,
   type Command,
   type CliPlan,
 } from "./index.js"
+import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 import { type CommandRequirements } from "./Cli.js"
 import { InMemRepo, testLayers } from "../testing/index.js"
 
@@ -1015,7 +1013,7 @@ describe("renderHelp", () => {
     expect(match![1] + "\n").toBe(renderHelp())
   })
 
-  it("docs/cli.md's Exit codes table, pinned beside the rendered help output, is exactly ExitCodes.ts's closed set", () => {
+  it("docs/cli.md's Exit codes table, pinned beside the rendered help output, is exactly wire's frozen EXIT_CODES", () => {
     const doc = readFileSync(resolve(import.meta.dirname, "../../docs/cli.md"), "utf8")
     const match = doc.match(/### Exit codes\n\n[^\n]*\n[^\n]*\n\n((?:\|.*\n)+)/)
     expect(match).not.toBeNull()

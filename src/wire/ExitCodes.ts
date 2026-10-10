@@ -6,7 +6,7 @@ export const EXIT_USAGE_ERROR = 2
 export const EXIT_SIGINT = 130
 export const EXIT_SIGTERM = 143
 
-/** Every code this module recognizes — the CLOSURE claim a test pins against. */
+/** Frozen: adding a code is a driver-protocol break, the same as removing a wire field. */
 export const EXIT_CODES: ReadonlySet<number> = new Set([
   EXIT_OK,
   EXIT_RUNTIME_ERROR,

@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "state": {
+    "diff": "…"
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "primitive": "noul",
+      "instructions": "Is the change done?",
+      "criteria": "yes: every item ticked"
+    }
+  ]
+}

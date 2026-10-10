@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "kind": "stalled",
+  "content": "stalled at \"build.fixing\": the last gtd(agent): build.fixing turn landed an empty attempt, the tree is clean, and another dispatch would repeat it.\n\nTwo ways out:\n  - sharpen the step's prompt so the turn has something concrete to author\n  - pass allowEmpty: true to the step, so an empty turn completes it and the\n    flow decides what follows — finishing, or an escalation step after N\n    empty turns\n",
+  "idle": false,
+  "initial": false,
+  "model": "opus",
+  "system": "You are a careful senior engineer.",
+  "log": ".git/gtd-loop.log",
+  "state": "build.fixing",
+  "actor": "agent",
+  "workflow": "feature",
+  "label": "Fixing",
+  "memory": "build#a1b2c3d",
+  "file": "TODO.md",
+  "mode": "qa",
+  "changes": [
+    {
+      "status": "M",
+      "path": "TODO.md"
+    }
+  ],
+  "next": {
+    "target": "idle"
+  },
+  "cost": 12,
+  "costByModel": [
+    {
+      "model": "opus",
+      "cost": 12
+    }
+  ],
+  "judge": "{\"schema\":1,\"state\":{\"diff\":\"…\"},\"questions\":[{\"id\":\"q1\",\"primitive\":\"noul\",\"instructions\":\"Is the change done?\",\"criteria\":\"yes: every item ticked\"}]}"
+}

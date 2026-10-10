@@ -22,7 +22,7 @@ import {
 // stays one-directional, not circular.
 import { runCommand, SelectorUsageError, type CommandRequirements } from "../program.js"
 import { UiListener } from "../ui/index.js"
-import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
+import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 
 export type { CommandRequirements }
 

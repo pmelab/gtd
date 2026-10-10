@@ -169,6 +169,16 @@ export default {
       from: { path: "^src/steering/" },
       to: { pathNot: ["^src/steering/", ...steeringPureLibraries] },
     },
+
+    // --- spec 06 ---
+    {
+      name: "wire-is-leaf",
+      comment:
+        "src/wire/ is the driver protocol: its production modules import nothing outside src/wire/ but node builtins (Sessions.ts hashes with node:crypto).",
+      severity: "error",
+      from: { path: "^src/wire/", pathNot: productionExcluded },
+      to: { pathNot: "^src/wire/", dependencyTypesNot: ["core"] },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },

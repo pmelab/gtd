@@ -1,6 +1,7 @@
 import type { BeatKind, Demand, DemandSession } from "./Demand.js"
 import type { BeatStatus, NextMatch, StatusChange } from "./BeatStatus.js"
 import type { Actor, ModelCost, StateMode, StateName, StepAccess } from "./types.js"
+import { WIRE_SCHEMA } from "./constants.js"
 
 /** `gtd next --json`'s `next` key — `null` when landing would commit nothing. */
 const nextField = (next: NextMatch | null): { target: string } | null =>
@@ -47,6 +48,7 @@ const dispatchFieldsOf = (
 
 /** One beat's whole field set, flattened — the ONE object `renderBeatJson` renders from, in the object's own key order (also the JSON key order). */
 export interface BeatDocument {
+  readonly schema: number
   readonly kind: BeatKind
   readonly content: string
   readonly idle: boolean
@@ -73,7 +75,7 @@ export interface BeatDocument {
 }
 
 /**
- * Flatten a `Demand` plus its `BeatStatus` into the single 23-key document
+ * Flatten a `Demand` plus its `BeatStatus` into the single 24-key document
  * `gtd next --json` emits — the ONLY place the two are joined. `cost`/
  * `costByModel` are omitted together, exactly when no cost was recorded
  * (`cost <= 0`).
@@ -82,6 +84,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
   const { session, validate, skills, access } = dispatchFieldsOf(demand)
   const hasCost = status.cost > 0
   return {
+    schema: WIRE_SCHEMA,
     kind: demand.kind,
     content: demand.content,
     idle: status.idle,

@@ -12,6 +12,7 @@ import {
   renderBeatPlain,
   type ModelCost,
   type RenderedDemandSource,
+  WIRE_SCHEMA,
 } from "./index.js"
 
 const rendered = (overrides: Partial<RenderedDemandSource> = {}): RenderedDemandSource => ({
@@ -75,6 +76,7 @@ describe("beatDocument / renderBeatJson", () => {
   it("emits the unconditional fields plus the resolved kind and content", () => {
     const line = renderJsonLine({ rendered: rendered(), kind: "script", log: ".git/gtd-loop.log" })
     expect(JSON.parse(line)).toEqual({
+      schema: WIRE_SCHEMA,
       kind: "script",
       content: "fix it",
       idle: false,
@@ -241,6 +243,7 @@ describe("beatDocument / renderBeatJson", () => {
     })
     const keys = Object.keys(JSON.parse(line) as Record<string, unknown>)
     expect(keys).toEqual([
+      "schema",
       "kind",
       "content",
       "idle",
@@ -358,175 +361,12 @@ describe("beatDocument / renderBeatJson", () => {
   })
 })
 
-describe("golden: one byte-for-byte document per BeatKind", () => {
-  const fullRendered = rendered({
-    model: "opus",
-    system: "You are a careful senior engineer.",
-    memory: "build#a1b2c3d",
-    file: "TODO.md",
-    mode: "qa",
-    label: "Fixing",
-    judge: '{"state":"build.fixing","questions":[]}',
-  })
-  const commonInput = {
-    rendered: fullRendered,
-    idle: false,
-    log: ".git/gtd-loop.log",
-    changes: [{ status: "M", path: "TODO.md" }],
-    next: { target: "idle" },
-    cost: 12,
-    costByModel: [{ model: "opus", cost: 12 }],
-  }
-
-  it("kind capture", () => {
-    const line = renderBeatJson(documentFor({ ...commonInput, kind: "capture" }))
-    expect(line).toBe(
-      JSON.stringify({
-        kind: "capture",
-        content: "fix it",
-        idle: false,
-        initial: false,
-        model: "opus",
-        system: "You are a careful senior engineer.",
-        log: ".git/gtd-loop.log",
-        state: "build.fixing",
-        actor: "agent",
-        workflow: "feature",
-        label: "Fixing",
-        memory: "build#a1b2c3d",
-        file: "TODO.md",
-        mode: "qa",
-        changes: [{ status: "M", path: "TODO.md" }],
-        next: { target: "idle" },
-        cost: 12,
-        costByModel: [{ model: "opus", cost: 12 }],
-        judge: '{"state":"build.fixing","questions":[]}',
-      }) + "\n",
-    )
-  })
-
-  it("kind message", () => {
-    const line = renderBeatJson(documentFor({ ...commonInput, kind: "message" }))
-    expect(line).toBe(
-      JSON.stringify({
-        kind: "message",
-        content: "fix it",
-        idle: false,
-        initial: false,
-        model: "opus",
-        system: "You are a careful senior engineer.",
-        log: ".git/gtd-loop.log",
-        state: "build.fixing",
-        actor: "agent",
-        workflow: "feature",
-        label: "Fixing",
-        memory: "build#a1b2c3d",
-        file: "TODO.md",
-        mode: "qa",
-        changes: [{ status: "M", path: "TODO.md" }],
-        next: { target: "idle" },
-        cost: 12,
-        costByModel: [{ model: "opus", cost: 12 }],
-        judge: '{"state":"build.fixing","questions":[]}',
-      }) + "\n",
-    )
-  })
-
-  it("kind script", () => {
-    const line = renderBeatJson(documentFor({ ...commonInput, kind: "script" }))
-    expect(line).toBe(
-      JSON.stringify({
-        kind: "script",
-        content: "fix it",
-        idle: false,
-        initial: false,
-        model: "opus",
-        system: "You are a careful senior engineer.",
-        log: ".git/gtd-loop.log",
-        state: "build.fixing",
-        actor: "agent",
-        workflow: "feature",
-        label: "Fixing",
-        memory: "build#a1b2c3d",
-        file: "TODO.md",
-        mode: "qa",
-        changes: [{ status: "M", path: "TODO.md" }],
-        next: { target: "idle" },
-        cost: 12,
-        costByModel: [{ model: "opus", cost: 12 }],
-        judge: '{"state":"build.fixing","questions":[]}',
-      }) + "\n",
-    )
-  })
-
-  it("kind prompt", () => {
-    const line = renderBeatJson(
-      documentFor({
-        ...commonInput,
-        kind: "prompt",
-        session: { id: "8f2c", resume: true },
-        validate: "gtd check qa 'TODO.md'",
-      }),
-    )
-    expect(line).toBe(
-      JSON.stringify({
-        kind: "prompt",
-        content: "fix it",
-        idle: false,
-        initial: false,
-        session: { id: "8f2c", resume: true },
-        model: "opus",
-        system: "You are a careful senior engineer.",
-        validate: "gtd check qa 'TODO.md'",
-        log: ".git/gtd-loop.log",
-        state: "build.fixing",
-        actor: "agent",
-        workflow: "feature",
-        label: "Fixing",
-        memory: "build#a1b2c3d",
-        file: "TODO.md",
-        mode: "qa",
-        changes: [{ status: "M", path: "TODO.md" }],
-        next: { target: "idle" },
-        cost: 12,
-        costByModel: [{ model: "opus", cost: 12 }],
-        judge: '{"state":"build.fixing","questions":[]}',
-        access: { read: null, write: null },
-      }) + "\n",
-    )
-  })
-
-  it("kind stalled", () => {
-    const line = renderBeatJson(documentFor({ ...commonInput, kind: "stalled" }))
-    expect(line).toBe(
-      JSON.stringify({
-        kind: "stalled",
-        content: stallDiagnosis("build.fixing", "agent"),
-        idle: false,
-        initial: false,
-        model: "opus",
-        system: "You are a careful senior engineer.",
-        log: ".git/gtd-loop.log",
-        state: "build.fixing",
-        actor: "agent",
-        workflow: "feature",
-        label: "Fixing",
-        memory: "build#a1b2c3d",
-        file: "TODO.md",
-        mode: "qa",
-        changes: [{ status: "M", path: "TODO.md" }],
-        next: { target: "idle" },
-        cost: 12,
-        costByModel: [{ model: "opus", cost: 12 }],
-        judge: '{"state":"build.fixing","questions":[]}',
-      }) + "\n",
-    )
-  })
-
-  it("renderBeatJson output for a rest with absent optionals is byte-identical to the pre-refactor golden bytes", () => {
+describe("golden bytes", () => {
+  it("renderBeatJson renders a rest with absent optionals as these bytes, schema first", () => {
     const line = renderJsonLine({ rendered: rendered(), kind: "script", log: ".git/gtd-loop.log" })
     expect(line).toBe(
       JSON.stringify({
+        schema: WIRE_SCHEMA,
         kind: "script",
         content: "fix it",
         idle: false,

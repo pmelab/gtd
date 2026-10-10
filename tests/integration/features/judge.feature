@@ -39,6 +39,35 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     And the last commit subject is "chore: add .gtdrc"
 
   @inmem
+  Scenario: the judge documents lead with the integer wire schema
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, judge } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await judge("idle", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "idle" },
+          message: "hi",
+        })
+        await agent("working", "go")
+      }
+      """
+    When I run gtd with args "judge --json"
+    Then it succeeds
+    And stdout matches "^\{\"schema\":[0-9]+,"
+    When I run gtd next with "--json=judge"
+    Then it succeeds
+    And stdout matches "^\{\"schema\":[0-9]+,"
+    When I run gtd with args "judge answer --json" and stdin:
+      """
+      [{"id":"q1","answer":true,"p":0.97}]
+      """
+    Then it succeeds
+    And stdout matches "^\{\"schema\":[0-9]+,"
+
+  @inmem
   Scenario: gtd judge refuses through the ordinary error envelope when the resolved rest declares no judge:
     Given a test project
     And the workflow

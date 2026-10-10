@@ -37,7 +37,7 @@ import {
 } from "../replay/index.js"
 import type { ScopeAccess } from "../flows/index.js"
 import { steeringFormatFor } from "../steering/index.js"
-import { UNATTRIBUTED_MODEL, type ModelCost, type StepAccess } from "../wire/index.js"
+import { judgeJson, UNATTRIBUTED_MODEL, type ModelCost, type StepAccess } from "../wire/index.js"
 import { accessRefusal, type Landing, type RepoSnapshot } from "../step/index.js"
 
 export { UNATTRIBUTED_MODEL }
@@ -586,7 +586,7 @@ const replayError = (outcome: ReplayOutcome): Error | undefined => {
 
 const judgeDocument = (step: ReachedStep): string | undefined =>
   step.request.kind === "judge"
-    ? JSON.stringify({ state: step.request.evidence, questions: step.request.questions })
+    ? judgeJson(step.request.evidence, step.request.questions)
     : undefined
 
 /**
