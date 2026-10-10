@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process"
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs"
+import { execFileSync, spawnSync } from "node:child_process"
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { delimiter, join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 // AGENTS.md's own-implementation-boundary rules are generic over path SHAPE,
@@ -147,5 +147,80 @@ describe("import-boundary rules match nested tests and root .test.tsx", () => {
 
     const violations = cruise(fixtureDir, preFixConfigPath)
     expect(violations).toHaveLength(0)
+  })
+})
+
+function buildSpec03Fixture(): string {
+  const dir = mkdtempSync(join(tmpdir(), "boundaries-spec03-"))
+  mkdirSync(join(dir, "src", "a"), { recursive: true })
+  mkdirSync(join(dir, "src", "b"), { recursive: true })
+  writeFileSync(join(dir, "tsconfig.json"), FIXTURE_TSCONFIG)
+  const files: Record<string, string> = {
+    "src/a/index.ts": `import { b } from "../b/index.js"\nexport const a = () => b\n`,
+    "src/b/index.ts": `import { a } from "../a/index.js"\nexport const b = () => a\n`,
+    "src/a/x.test.ts": `import { y } from "./y.test.js"\nexport const x = y\n`,
+    "src/a/y.test.ts": `import { x } from "./x.test.js"\nexport const y = x\n`,
+    "src/a/f.fixture.ts": `import { g } from "./g.fixture.js"\nexport const f = () => g\n`,
+    "src/a/g.fixture.ts": `import { f } from "./f.fixture.js"\nexport const g = () => f\n`,
+    "src/a/S.stories.tsx": `import { t } from "./T.stories.js"\nexport const s = () => t\n`,
+    "src/a/T.stories.tsx": `import { s } from "./S.stories.js"\nexport const t = () => s\n`,
+    "src/Root.ts": `import { a } from "./a/index.js"\nexport const root = a\n`,
+    "src/main.ts": `import { a } from "./a/index.js"\nimport { run } from "./program.js"\nvoid a\nvoid run\n`,
+    "src/program.ts": `import { b } from "./b/index.js"\nexport const run = b\n`,
+    "src/program.test.ts": `import { run } from "./program.js"\nvoid run\n`,
+    "src/Root.test.ts": `import { run } from "./program.js"\nvoid run\n`,
+  }
+  for (const [path, content] of Object.entries(files)) writeFileSync(join(dir, path), content)
+  return dir
+}
+
+describe("spec 03: cycle and root-module rules", () => {
+  it("flags production cycles, root-to-boundary imports and importers of composition roots", () => {
+    const violations = cruise(buildSpec03Fixture(), join(REPO_ROOT, ".dependency-cruiser.mjs"))
+    const byRule = (rule: string) =>
+      violations.filter((v) => v.rules.includes(rule)).map((v) => `${v.from} -> ${v.to}`)
+
+    expect(byRule("no-circular").toSorted()).toEqual([
+      "src/a/index.ts -> src/b/index.ts",
+      "src/b/index.ts -> src/a/index.ts",
+    ])
+    expect(byRule("root-no-boundary")).toEqual(["src/Root.ts -> src/a/index.ts"])
+    expect(byRule("composition-root-not-imported").toSorted()).toEqual([
+      "src/Root.test.ts -> src/program.ts",
+      "src/main.ts -> src/program.ts",
+    ])
+  })
+
+  it("lint:boundaries fails once a baseline entry no longer occurs", () => {
+    const dir = buildSpec03Fixture()
+    mkdirSync(join(dir, "tests"))
+    copyFileSync(join(REPO_ROOT, ".dependency-cruiser.mjs"), join(dir, ".dependency-cruiser.mjs"))
+    const bin = join(REPO_ROOT, "node_modules", ".bin")
+    execFileSync(join(bin, "depcruise-baseline"), ["src", "tests"], { cwd: dir })
+    const lint = () =>
+      spawnSync("node", [join(REPO_ROOT, "scripts", "lint-boundaries.mjs")], {
+        cwd: dir,
+        env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}` },
+        encoding: "utf8",
+      })
+
+    expect(lint().status).toBe(0)
+    writeFileSync(join(dir, "src", "Root.ts"), `export const root = 1\n`)
+    const stale = lint()
+    expect(stale.status).toBe(1)
+    expect(stale.stderr).toContain(
+      "1 .dependency-cruiser-known-violations.json entries no longer occur",
+    )
+  })
+
+  // Holds vacuously once later specs empty the baseline — it pins "nothing
+  // else", not that the current cycles are recorded.
+  it("baseline records only violations of the spec 03 rules", () => {
+    const baseline = JSON.parse(
+      readFileSync(join(REPO_ROOT, ".dependency-cruiser-known-violations.json"), "utf8"),
+    ) as Array<{ rule: { name: string } }>
+    const rules = new Set(baseline.map((v) => v.rule.name))
+    for (const rule of rules)
+      expect(["no-circular", "root-no-boundary", "composition-root-not-imported"]).toContain(rule)
   })
 })

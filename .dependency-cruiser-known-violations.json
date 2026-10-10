@@ -1,0 +1,345 @@
+[
+  {
+    "type": "dependency",
+    "from": "src/cli/Cli.ts",
+    "to": "src/program.ts",
+    "unresolvedTo": "../program.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "composition-root-not-imported"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/testing/Layers.ts",
+    "to": "src/program.ts",
+    "unresolvedTo": "../program.js",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "composition-root-not-imported"
+    }
+  },
+  {
+    "type": "cycle",
+    "from": "src/cli/Cli.ts",
+    "to": "src/program.ts",
+    "unresolvedTo": "../program.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/program.ts",
+        "dependencyTypes": ["local", "import"]
+      },
+      {
+        "name": "src/cli/index.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "src/cli/Cli.ts",
+        "dependencyTypes": ["local", "export"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/cli/Cli.ts",
+    "to": "src/ui/index.ts",
+    "unresolvedTo": "../ui/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/ui/index.ts",
+        "dependencyTypes": ["local", "import"]
+      },
+      {
+        "name": "src/ui/Server.ts",
+        "dependencyTypes": ["local", "export"]
+      },
+      {
+        "name": "src/cli/index.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "src/cli/Cli.ts",
+        "dependencyTypes": ["local", "export"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/program.ts",
+    "to": "src/ui/index.ts",
+    "unresolvedTo": "./ui/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/ui/index.ts",
+        "dependencyTypes": ["local", "import"]
+      },
+      {
+        "name": "src/ui/Server.ts",
+        "dependencyTypes": ["local", "export"]
+      },
+      {
+        "name": "src/cli/index.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "src/cli/Cli.ts",
+        "dependencyTypes": ["local", "export"]
+      },
+      {
+        "name": "src/program.ts",
+        "dependencyTypes": ["local", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/steering/Inline.ts",
+    "to": "src/steering/MarkdownTree.ts",
+    "unresolvedTo": "./MarkdownTree.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/steering/MarkdownTree.ts",
+        "dependencyTypes": ["local", "import"]
+      },
+      {
+        "name": "src/steering/SteeringFormat.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "src/steering/Inline.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      }
+    ]
+  },
+  {
+    "type": "dependency",
+    "from": "src/CommandRunner.ts",
+    "to": "src/platform/index.ts",
+    "unresolvedTo": "./platform/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Edge.ts",
+    "to": "src/flows/index.ts",
+    "unresolvedTo": "./flows/index.js",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Edge.ts",
+    "to": "src/platform/index.ts",
+    "unresolvedTo": "./platform/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Edge.ts",
+    "to": "src/replay/index.ts",
+    "unresolvedTo": "./replay/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Edge.ts",
+    "to": "src/steering/index.ts",
+    "unresolvedTo": "./steering/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Edge.ts",
+    "to": "src/step/index.ts",
+    "unresolvedTo": "./step/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Edge.ts",
+    "to": "src/wire/index.ts",
+    "unresolvedTo": "./wire/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Edge.ts",
+    "to": "src/workflow/index.ts",
+    "unresolvedTo": "./workflow/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/GitScript.ts",
+    "to": "src/step/index.ts",
+    "unresolvedTo": "./step/index.js",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Lsp.ts",
+    "to": "src/platform/index.ts",
+    "unresolvedTo": "./platform/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Lsp.ts",
+    "to": "src/steering/index.ts",
+    "unresolvedTo": "./steering/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Lsp.ts",
+    "to": "src/workflow/index.ts",
+    "unresolvedTo": "./workflow/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/OutcomeScript.ts",
+    "to": "src/wire/index.ts",
+    "unresolvedTo": "./wire/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/RetainedHistory.ts",
+    "to": "src/platform/index.ts",
+    "unresolvedTo": "./platform/index.js",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/SteeringMode.ts",
+    "to": "src/platform/index.ts",
+    "unresolvedTo": "./platform/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/SteeringMode.ts",
+    "to": "src/steering/index.ts",
+    "unresolvedTo": "./steering/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Workflow.ts",
+    "to": "src/flows/index.ts",
+    "unresolvedTo": "./flows/index.js",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/Workflow.ts",
+    "to": "src/wire/index.ts",
+    "unresolvedTo": "./wire/index.js",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/WorktreeState.ts",
+    "to": "src/platform/index.ts",
+    "unresolvedTo": "./platform/index.js",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "root-no-boundary"
+    }
+  }
+]

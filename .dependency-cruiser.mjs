@@ -24,6 +24,16 @@ const testMayReach = (own) => [
   "\\.(ya?ml|json|html)$",
 ]
 
+// --- spec 03 ---
+const productionExcluded = "(\\.test\\.tsx?|\\.fixture\\.ts|\\.stories\\.tsx?)$|^tests/"
+
+const compositionRoots = [
+  // CLI entrypoint bundled as dist/gtd.bundle.mjs (tsdown.config.ts).
+  "^src/main\\.ts$",
+  // Command dispatch: wires every boundary into the runnable commands.
+  "^src/program\\.ts$",
+]
+
 export default {
   forbidden: [
     {
@@ -93,6 +103,32 @@ export default {
       severity: "error",
       from: { path: "^tests/" },
       to: { path: "^src/", pathNot: "^src/[^/]+/index\\.ts$" },
+    },
+
+    // --- spec 03 ---
+    // Known violations live in .dependency-cruiser-known-violations.json and
+    // are skipped via --ignore-known; later specs shrink it to zero.
+    {
+      name: "no-circular",
+      comment: "Production modules form no import cycle.",
+      severity: "error",
+      from: { pathNot: productionExcluded },
+      to: { circular: true, pathNot: productionExcluded },
+    },
+    {
+      name: "root-no-boundary",
+      comment:
+        "A root module in src/*.ts imports no src/<boundary>/ — only composition roots wire boundaries together.",
+      severity: "error",
+      from: { path: "^src/[^/]+\\.tsx?$", pathNot: [productionExcluded, ...compositionRoots] },
+      to: { path: "^src/[^/]+/" },
+    },
+    {
+      name: "composition-root-not-imported",
+      comment: "Nothing outside its own test imports a composition root.",
+      severity: "error",
+      from: { pathNot: compositionRoots.map((root) => root.replace("\\.ts$", "\\.test\\.tsx?$")) },
+      to: { path: compositionRoots },
     },
   ],
   options: {

@@ -70,8 +70,11 @@ a cached result.
 `lint:boundaries` runs dependency-cruiser over `src/` and `tests/`. Its rules
 are generic over path shape — they back-reference the boundary directory and
 file name they matched — so a new `src/<boundary>/` needs no config edit, only
-its own `index.ts`. There is no baseline file and no suppression mechanism: the
-check is at zero, and a new violation is a real finding to fix, not to record.
+its own `index.ts`. Pre-existing cycle and root-module violations are recorded
+in `.dependency-cruiser-known-violations.json` (`--ignore-known`; the script
+prints its size, and fails on an entry that no longer occurs) and only shrink.
+Never regenerate it to absorb a new violation — a new violation is a real
+finding to fix, not to record.
 
 Two conventions the rules read: a `*.fixture.ts` beside an implementation is
 test-support any test in that boundary may import, and a test may reach a

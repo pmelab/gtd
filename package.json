@@ -55,7 +55,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/web/tsconfig.json",
     "lint": "oxlint .",
     "lint:sh": "jiti scripts/generate-shell-corpus.ts --check && shellcheck -s sh tests/shell/corpus/*.sh",
-    "lint:boundaries": "depcruise src tests",
+    "lint:boundaries": "node scripts/lint-boundaries.mjs",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "test:mutation": "stryker run",

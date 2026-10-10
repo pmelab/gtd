@@ -36,7 +36,14 @@
       "outputs": []
     },
     "lint:boundaries": {
-      "inputs": ["src/**", "tests/**", "tsconfig.json", ".dependency-cruiser.mjs"],
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "tsconfig.json",
+        ".dependency-cruiser.mjs",
+        ".dependency-cruiser-known-violations.json",
+        "scripts/lint-boundaries.mjs"
+      ],
       "outputs": []
     },
     "typecheck": {
@@ -73,6 +80,7 @@
         "turbo.json",
         "docs/**",
         "evals/**",
+        ".dependency-cruiser-known-violations.json",
         ".dependency-cruiser.mjs",
         "claude/**",
         "package.json",
