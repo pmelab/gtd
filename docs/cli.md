@@ -245,8 +245,8 @@ unsupported, and its shape may change across releases with no warning.
 
 ### Exit codes
 
-Closed at five numbers, five meanings — a new command never grows this table;
-whose turn is next lives in `gtd next --json`'s own `kind` field instead.
+Frozen at five numbers, five meanings: adding a code is a format break, shipped
+as a major release (not a `schema` bump). Whose turn is next lives in `kind`.
 
 | Code      | Meaning          |
 | --------- | ---------------- |
@@ -354,6 +354,18 @@ A human-readable `gtd: <message>` line is also always written to **stderr**,
 right after the envelope — stdout carries neither one on a failing run. Stderr
 always carries exactly one `gtd: ` prefix: a message already authored with its
 own `gtd:`/`gtd <cmd>:` prefix is never doubled.
+
+### Schema
+
+Every JSON document a driver reads carries a top-level integer `schema`,
+currently `1`: `gtd next --json` (every beat kind), `gtd land --json`,
+`gtd judge answer --json`, and `gtd judge --json` (also the string a beat
+carries in `judge`). `gtd doors --json` is a bare array and carries none.
+
+- `schema` is bumped only when a field is removed or renamed.
+- Adding a field never bumps it: a driver ignores keys it does not know.
+- `schema` is not gtd's package version. A driver installed apart from gtd
+  checks it and refuses a value it does not read.
 
 ### Narration and remediation
 

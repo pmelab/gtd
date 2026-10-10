@@ -103,9 +103,16 @@ an execution followed by a land (`script`/`prompt`). _Avoid_: iteration, tick,
 cycle
 
 **Beat document**: `gtd next --json`'s output — one self-describing JSON line
-per beat: `kind`, `content`, `log`, and — on a `prompt` beat only — `session`
-(`{id, resume}`, derived) and the embedded `validate` script. The driver's whole
-read surface. _Avoid_: next payload, dispatch document
+per beat: [`schema`](#schema), `kind`, `content`, `log`, and — on a `prompt`
+beat only — `session` (`{id, resume}`, derived) and the embedded `validate`
+script. The driver's whole read surface. _Avoid_: next payload, dispatch
+document
+
+**Schema**: The integer every JSON document a driver reads leads with — a beat
+document, `gtd land --json`, the judge documents. Bumped only when a field is
+removed or renamed, never for an added one. Not the
+[history format](#history-format) and not the package version. _Avoid_: wire
+version, protocol version
 
 **Stall**: HEAD is an empty [attempt](#attempt) at the resting agent step, the
 tree is clean, and another dispatch would just repeat it — derived from history,

@@ -8,9 +8,11 @@ import {
   type LandFields,
   type LandResultSource,
 } from "./Land.js"
+import { WIRE_SCHEMA } from "./index.js"
 
 describe("landFields / renderLandJson", () => {
   const sample: LandFields = {
+    schema: WIRE_SCHEMA,
     script: "printf '%s %s\\n' '[commit]' 'gtd(agent): build.fixing'\ngit commit ...\n",
     settled: false,
     idle: false,
@@ -20,7 +22,7 @@ describe("landFields / renderLandJson", () => {
     model: "smart",
   }
 
-  it("renderLandJson emits exactly script/settled/idle/state/subject/cost/model, newline-terminated", () => {
+  it("renderLandJson emits exactly schema/script/settled/idle/state/subject/cost/model, newline-terminated", () => {
     const line = renderLandJson(landFields(sample))
     expect(line.endsWith("\n")).toBe(true)
     expect(JSON.parse(line)).toEqual(sample)
@@ -28,6 +30,7 @@ describe("landFields / renderLandJson", () => {
 
   it("renderLandJson carries null subject/cost/model verbatim for a genuine no-op — never omitted", () => {
     const noop: LandFields = {
+      schema: WIRE_SCHEMA,
       script: "printf '%s\\n' 'nothing to do at \"idle\"'\n",
       settled: true,
       idle: true,
@@ -36,30 +39,7 @@ describe("landFields / renderLandJson", () => {
       cost: null,
       model: null,
     }
-    expect(JSON.parse(renderLandJson(landFields(noop)))).toEqual(noop)
-  })
-
-  it("golden: a no-op landing renders byte-identical to before this package", () => {
-    const noop: LandFields = {
-      script: "printf '%s\\n' 'nothing to do at \"idle\"'\n",
-      settled: true,
-      idle: true,
-      state: "idle",
-      subject: null,
-      cost: null,
-      model: null,
-    }
-    expect(renderLandJson(landFields(noop))).toBe(
-      JSON.stringify({
-        script: "printf '%s\\n' 'nothing to do at \"idle\"'\n",
-        settled: true,
-        idle: true,
-        state: "idle",
-        subject: null,
-        cost: null,
-        model: null,
-      }) + "\n",
-    )
+    expect(renderLandJson(landFields(noop))).toBe(JSON.stringify(noop) + "\n")
   })
 
   it("landFields is a real reorder, not an identity copy: takes a LandResultSource-shaped value (program.ts's LandResult field order) and pins it into LandFields' own declared order", () => {
@@ -77,6 +57,7 @@ describe("landFields / renderLandJson", () => {
       idle: false,
     }
     expect(Object.keys(landFields(resultShaped))).toEqual([
+      "schema",
       "script",
       "settled",
       "idle",
@@ -107,6 +88,7 @@ describe("noopText / landProseText", () => {
 
 describe("renderLandPlain", () => {
   const sample: LandFields = {
+    schema: WIRE_SCHEMA,
     script: "printf '%s %s\\n' '[commit]' 'gtd(agent): build.fixing'\ngit commit ...\n",
     settled: false,
     idle: false,
@@ -124,6 +106,7 @@ describe("renderLandPlain", () => {
 
   it("prints the no-op note when nothing landed", () => {
     const noop: LandFields = {
+      schema: WIRE_SCHEMA,
       script: "printf '%s\\n' 'nothing to do at \"idle\"'\n",
       settled: true,
       idle: true,

@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "kind": "capture",
+  "content": "fix it",
+  "idle": false,
+  "initial": false,
+  "model": "opus",
+  "system": "You are a careful senior engineer.",
+  "log": ".git/gtd-loop.log",
+  "state": "build.fixing",
+  "actor": "agent",
+  "workflow": "feature",
+  "label": "Fixing",
+  "memory": "build#a1b2c3d",
+  "file": "TODO.md",
+  "mode": "qa",
+  "changes": [
+    {
+      "status": "M",
+      "path": "TODO.md"
+    }
+  ],
+  "next": {
+    "target": "idle"
+  },
+  "cost": 12,
+  "costByModel": [
+    {
+      "model": "opus",
+      "cost": 12
+    }
+  ],
+  "judge": "{\"schema\":1,\"state\":{\"diff\":\"…\"},\"questions\":[{\"id\":\"q1\",\"primitive\":\"noul\",\"instructions\":\"Is the change done?\",\"criteria\":\"yes: every item ticked\"}]}"
+}

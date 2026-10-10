@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "script": "git commit ...\n",
+  "settled": false,
+  "idle": false,
+  "state": "build.review.closing",
+  "subject": "gtd(agent): build.fixing",
+  "cost": 0.42,
+  "model": "smart"
+}

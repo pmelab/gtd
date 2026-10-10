@@ -209,14 +209,16 @@ const JSON_FIELD_REFERENCE = `
 \`gtd next\` and \`gtd land\` each carry one field set, read through \`--json\`
 (bare for the whole document, \`--json=<path>\` for one value) — this driver's
 own beats read fields one at a time via \`--json=<path>\` throughout (see the
-beat protocol above). There is no version field — the field set itself is the
-contract, and a breaking change to it is a major release. Every field below
+beat protocol above). Each document carries \`schema\`, an integer bumped only
+when a field is removed or renamed — never for an added one, and never tied to
+gtd's package version. A driver that can meet a gtd other than the one it was
+written against checks it and stops on a value it does not read. Every field below
 is always present unless marked "when set" — omitted under bare \`--json\`
 (never \`null\`); under \`--json=<path>\` an absent field prints nothing and
 exits 0, so read it in a shell variable and guard on emptiness
 (\`\${x:-}\`/\`\${x:+...}\`) rather than assuming it is always populated.
 
-\`gtd next\` fields — Always: \`kind\` (\`capture\`|\`message\`|\`script\`|\`prompt\`|
+\`gtd next\` fields — Always: \`schema\`, \`kind\` (\`capture\`|\`message\`|\`script\`|\`prompt\`|
 \`stalled\`), \`content\` (the bare step in every encoding — plain \`gtd next\`
 adds the self-validation instruction at a validatable \`prompt\` rest, and a
 status-summary header at every OTHER kind; \`content\` itself never carries
@@ -238,7 +240,7 @@ skills, \`skills\` (an array of the skill names, already trimmed and split —
 document). When a cost has been recorded (a prior \`gtd land --cost=<n>\`):
 \`cost\`, \`costByModel\`.
 
-\`gtd land\` fields, in fixed order: \`script\` (the POSIX sh to run), \`settled\`
+\`gtd land\` fields, in fixed order: \`schema\`, \`script\` (the POSIX sh to run), \`settled\`
 (true for a no-op at a \`script\` rest — stop immediately, nothing more to
 read), \`idle\` (true iff the state landing rests at is the workflow's initial
 state), \`state\`, \`subject\`, \`cost\`, \`model\` (the last three \`null\`, never
@@ -314,14 +316,14 @@ const DRIVER_OBLIGATIONS = `
     UNAWARE driver (obligation 3, above) already handles it correctly by
     doing nothing special: display the message (which itself tells a human
     to run \`gtd judge answer\`) and stop. An AWARE driver reads
-    \`--json=judge\`, pipes that rendered \`{ state, questions }\` document to a
+    \`--json=judge\`, pipes that rendered \`{ schema, state, questions }\` document to a
     judge model, and pipes ITS verdict (one \`{ id, answer, p }\` per pending
     question, as JSON on stdin) to \`gtd judge answer\` — the FIFTH command
     that changes anything, alongside \`gtd land\`/\`gtd --workflow\`/\`gtd
     abandon\`/\`gtd restore\`. It follows the exact same required-half /
     optional-half script contract as \`gtd land\` in obligation 8 above:
     read \`--json=script\` (and, if you want them, \`--json=settled\`/
-    \`--json=idle\` — \`gtd judge answer --json\` emits the same pinned 7-key
+    \`--json=idle\` — \`gtd judge answer --json\` emits the same pinned 8-key
     document \`gtd land --json=<path>\` does) and pipe the script into \`sh\`.
     A malformed verdict (stdin isn't
     JSON, or it names a question id this judgment never asked) exits 2 — a

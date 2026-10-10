@@ -5,13 +5,14 @@ import type { Run, Stop } from "../types"
 import { accessDenial } from "./access"
 import type { AccessDef } from "./access"
 import { afterReload, drive, isTrue } from "./drive"
-import type { Beat, Io, Landing, Turn, TurnEnd } from "./drive"
+import type { Io, Turn, TurnEnd } from "./drive"
 import { doors, enter } from "./doors"
 import { subagentModel } from "./models"
 import { personaSpec, resumable } from "./persona"
 import { JUDGE_SYSTEM, judgePrompt, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
+import { documents } from "./schema"
 import { READ_ONLY_GIT, ship } from "./ship"
 import type { ShipIo } from "./ship"
 import {
@@ -124,16 +125,13 @@ async function settle($: $, end: TurnEnd) {
   return end
 }
 
+const docs = ($: $) => documents((args, stdin) => gtd($, args, stdin))
+
 function io($: $): Io {
   return {
-    next: async () => JSON.parse(await gtd($, ["next", "--json"])) as Beat,
+    next: docs($).next,
     plain: () => gtd($, ["next"]),
-    land: async (verdict) =>
-      JSON.parse(
-        verdict === undefined
-          ? await gtd($, ["land", "--json"])
-          : await gtd($, ["judge", "answer", "--json"], verdict),
-      ) as Landing,
+    land: docs($).land,
     sh: async (script, log) => {
       // Streamed, not `$.process.run`: a check beat can outlast run's 10-minute cap.
       const argv = log
@@ -153,22 +151,22 @@ function io($: $): Io {
       for await (const chunk of child) out += chunk.text
       return { ok: (await child.result).code === 0, out: out.trim() }
     },
-    judge: async () => {
-      const key = (await $.env.get("TYPESAFE_API_KEY")) ?? (await $.env.get("TYPESAFE_AI_KEY"))
-      if (!key) return judgeInSession($)
-      try {
-        const doc = await gtd($, ["judge", "--json"])
-        const r = await $.process.run(["gtd", "judge", "run", "--provider", "jev"], {
-          cwd: root,
-          stdin: doc,
-          env: { TYPESAFE_API_KEY: key },
-          timeoutMs: TEN_MINUTES,
-        })
-        return r.exitCode === 0 && r.stdout.trim() ? r.stdout : undefined
-      } catch {
-        return undefined
-      }
-    },
+    judge: () =>
+      docs($).judge(async (doc, j) => {
+        const key = (await $.env.get("TYPESAFE_API_KEY")) ?? (await $.env.get("TYPESAFE_AI_KEY"))
+        if (!key) return judgeInSession($, j)
+        try {
+          const r = await $.process.run(["gtd", "judge", "run", "--provider", "jev"], {
+            cwd: root,
+            stdin: doc,
+            env: { TYPESAFE_API_KEY: key },
+            timeoutMs: TEN_MINUTES,
+          })
+          return r.exitCode === 0 && r.stdout.trim() ? r.stdout : undefined
+        } catch {
+          return undefined
+        }
+      }),
     turn: async (t) => {
       const entry = (await read($, scopes))[t.memory]
       const name = (await personaSpec(t)).name
@@ -256,7 +254,7 @@ async function start($: $, landTurn?: string) {
 // idle rest names; the opening beat captures them like a hand-edit.
 async function begin($: $, requirements: string) {
   await findRoot($)
-  const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
+  const b = await docs($).next()
   if (isTrue(b.initial) && !isTrue(b.idle)) {
     const paths = (b.changes ?? []).map((c) => c.path).join(", ")
     return `The working tree has uncommitted changes (${paths}); gtd would start from those. Commit, stash or revert them, or run /gtd to start from them.`
@@ -375,7 +373,7 @@ async function throwNow($: $, target: string | undefined) {
   if ((await read($, run)).isRunning) return $.ui.log("Stop the loop first: /gtd stop.")
   closeUi()
   moveOn($)
-  const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
+  const b = await docs($).next()
   $.ui.status("handing off…")
   const rest = {
     state: b.state,
@@ -415,7 +413,7 @@ async function catchNow($: $, ref: string) {
   const caught = await catchFrom(shipIo($), ref)
   if (!caught.ok) return caught.text
   await findRoot($)
-  const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
+  const b = await docs($).next()
   if (b.kind === "message") {
     const stop: Stop = { kind: "gate", text: b.content ?? "", state: b.state, label: b.label }
     if (b.judge) stop.isJudge = true
@@ -516,9 +514,8 @@ async function writer($: $, prompt: string) {
 // Without a TypeSafe key a judge gate is put to a small model, as gtd's own
 // llm provider does, but as a subagent of this session. Any doubt leaves the
 // gate to the person, which routes the workflow its cautious way.
-async function judgeInSession($: $) {
+async function judgeInSession($: $, j: Judgment) {
   try {
-    const j = JSON.parse(await gtd($, ["judge", "--json"])) as Judgment
     const model = (await $.env.get("GTD_JUDGE_MODEL")) ?? "haiku"
     const reply = await delegate(
       $,
@@ -675,7 +672,7 @@ async function command($: $, arg: string): Promise<string | undefined> {
 }
 
 async function resume($: $) {
-  const b = JSON.parse(await gtd($, ["next", "--json"])) as Beat
+  const b = await docs($).next()
   if (isTrue(b.idle)) {
     return `Nothing is in progress. Start a process with /gtd <requirements>, or sketch the change in ${b.file ?? ".gtd/TODO.md"} and run /gtd.`
   }

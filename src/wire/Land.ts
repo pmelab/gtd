@@ -1,5 +1,5 @@
 import type { StateName } from "./types.js"
-import { renderFormat } from "./constants.js"
+import { renderFormat, WIRE_SCHEMA } from "./constants.js"
 
 /**
  * `gtd land`'s whole field set, in the object's own key order (also the JSON
@@ -7,6 +7,7 @@ import { renderFormat } from "./constants.js"
  * genuine no-op, mirroring `LandResult` itself.
  */
 export interface LandFields {
+  readonly schema: number
   readonly script: string
   readonly settled: boolean
   readonly idle: boolean
@@ -18,7 +19,7 @@ export interface LandFields {
 
 /**
  * `program.ts`'s `LandResult`, expressed structurally so `wire` never
- * imports it — the SAME seven fields as `LandFields`, but in `LandResult`'s
+ * imports it — the seven fields `LandFields` carries beside `schema`, but in `LandResult`'s
  * own declaration order (`state, subject, cost, model, script, settled,
  * idle`), not the wire's. Deliberately a different shape from `LandFields`:
  * `landFields` below reorders INTO the wire's pinned key order, so its input
@@ -39,6 +40,7 @@ export interface LandResultSource {
 
 /** Assembles one `gtd land` result's fields in `LandFields`' declared order — the ONLY place `gtd land --json`'s wire shape is built. */
 export const landFields = (input: LandResultSource): LandFields => ({
+  schema: WIRE_SCHEMA,
   script: input.script,
   settled: input.settled,
   idle: input.idle,

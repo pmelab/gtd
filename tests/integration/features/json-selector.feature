@@ -28,6 +28,21 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
     Then it succeeds
     And stdout matches "^message\n$"
 
+  Scenario: gtd next --json and gtd land --json lead with the integer wire schema
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout matches "^\{\"schema\":[0-9]+,"
+    When I run gtd next with "--json=schema"
+    Then it succeeds
+    And stdout matches "^[0-9]+\n$"
+    Given a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land with "--json"
+    Then it succeeds
+    And stdout matches "^\{\"schema\":[0-9]+,"
+
   Scenario: gtd next --json output is byte-identical to a golden document
     When I run gtd next with "--json"
     Then it succeeds

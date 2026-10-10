@@ -26,7 +26,8 @@ import { constants as osConstants, tmpdir } from "node:os"
 import { join, relative, resolve, sep } from "node:path"
 import { PassThrough } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
-import { runCli, EXIT_OK } from "../../../src/cli/index.js"
+import { runCli } from "../../../src/cli/index.js"
+import { EXIT_OK } from "../../../src/wire/index.js"
 import {
   makeCapturingCliIo,
   type ScriptedCommand,

@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "script": "printf '%s\\n' 'nothing to do at \"idle\"'\n",
+  "settled": true,
+  "idle": true,
+  "state": "idle",
+  "subject": null,
+  "cost": null,
+  "model": null
+}

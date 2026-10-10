@@ -15,8 +15,8 @@ vi.mock("node:os", async (importOriginal) => ({
   networkInterfaces: () => ({}),
 }))
 
-import { runCli, type Command, EXIT_USAGE_ERROR } from "./cli/index.js"
-import { stallDiagnosis, noopText } from "./wire/index.js"
+import { runCli, type Command } from "./cli/index.js"
+import { EXIT_USAGE_ERROR, stallDiagnosis, noopText, WIRE_SCHEMA } from "./wire/index.js"
 import { formatFinding, needsOf, runCommand, SelectorUsageError } from "./program.js"
 import { InMemRepo, makeCapturingCliIo, testLayers, applyEmittedScript } from "./testing/index.js"
 import {
@@ -2088,8 +2088,7 @@ describe("gtd next/land --json=<path> — the select branch", () => {
 })
 
 describe("gtd judge / gtd judge answer", () => {
-  const JUDGE_DOCUMENT =
-    '{"state":{"note":"idle"},"questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}'
+  const JUDGE_DOCUMENT = `{"schema":${WIRE_SCHEMA},"state":{"note":"idle"},"questions":[{"id":"q1","primitive":"noul","instructions":"i","criteria":"c"}]}`
 
   const QUESTION = `{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }`
 
