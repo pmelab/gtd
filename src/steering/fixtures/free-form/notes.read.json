@@ -1,0 +1,42 @@
+{
+  "nodes": [
+    {
+      "title": "Notes",
+      "anchor": {
+        "kind": "paragraph",
+        "line": 0
+      }
+    },
+    {
+      "title": "Plain prose with no structure to validate.",
+      "anchor": {
+        "kind": "paragraph",
+        "line": 2
+      },
+      "thread": {
+        "name": "th1",
+        "entries": [
+          {
+            "author": "me",
+            "text": "Should this become a plan?"
+          }
+        ],
+        "waitingOn": "agent"
+      }
+    },
+    {
+      "title": "a list item another one",
+      "anchor": {
+        "kind": "paragraph",
+        "line": 4
+      }
+    },
+    {
+      "title": "npm test",
+      "anchor": {
+        "kind": "paragraph",
+        "line": 7
+      }
+    }
+  ]
+}

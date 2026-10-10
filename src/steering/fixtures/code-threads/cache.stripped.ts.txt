@@ -1,0 +1,6 @@
+// The cache key is the content hash.
+export const cacheKey = (content: string): string =>
+  hash(content)
+
+export const cacheDir = (root: string): string =>
+  join(root, ".cache")

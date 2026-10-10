@@ -1,0 +1,237 @@
+{
+  "header": "0ef1c31",
+  "nodes": [
+    {
+      "title": "PR check: both-or-neither for title and footer",
+      "detail": "**The title check now runs both ways.** A `!` title with no footer fails, as before. **A footer with no `!` title now fails too.** The `!` match is a regex anchored at the type prefix, so **a `!:` later in the title no longer counts as breaking**.",
+      "body": [
+        {
+          "title": "**The title check now runs both ways.** A `!` title with no footer fails, as before. **A footer with no `!` title now fails too.** The `!` match is a regex anchored at the type prefix, so **a `!:` later in the title no longer counts as breaking**.",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 11
+          }
+        }
+      ],
+      "anchor": {
+        "kind": "chunk",
+        "index": 0
+      },
+      "children": [
+        {
+          "title": "./.github/workflows/commits.yml#36-46",
+          "path": "./.github/workflows/commits.yml",
+          "line": 36,
+          "endLine": 46,
+          "checked": false,
+          "detail": "one `git log --no-merges --format=%B` over the range sets `carries`. The old per-commit loop is gone. `bang` is the bash version of `commitlint.config.mjs`'s `bangHeader` (`\\w` spelled `[A-Za-z0-9_]`). The step uses GitHub's default shell, `bash -e` without pipefail, so `grep -q` closing the pipe early cannot flip `carries` off. **If anyone adds `shell: bash` (which turns on pipefail), a SIGPIPE from `git log` can silently drop a found footer.**",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 0,
+            "index": 0
+          }
+        },
+        {
+          "title": "./tests/tooling/commits.test.ts#52-59",
+          "path": "./tests/tooling/commits.test.ts",
+          "line": 52,
+          "endLine": 59,
+          "checked": false,
+          "detail": "`check` now wraps `checkTitle` with the fixed title `\"feat: a title\"`. `checkTitle` no longer adds a `feat: fine` commit when given no messages, so callers pass their own.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 0,
+            "index": 1
+          }
+        },
+        {
+          "title": "./tests/tooling/commits.test.ts#62-66",
+          "path": "./tests/tooling/commits.test.ts",
+          "line": 62,
+          "endLine": 66,
+          "checked": false,
+          "detail": "the passing case includes a footer commit, so its title gains `!`. Without it the new reverse rule fails the case.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 0,
+            "index": 2
+          }
+        },
+        {
+          "title": "./tests/tooling/commits.test.ts#118-132",
+          "path": "./tests/tooling/commits.test.ts",
+          "line": 118,
+          "endLine": 132,
+          "checked": false,
+          "detail": "existing cases are adapted: the title case now supplies its own commit, and the footer commit moves first in the list. Neither changes what the case asserts.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 0,
+            "index": 3
+          }
+        },
+        {
+          "title": "./tests/tooling/commits.test.ts#140-150",
+          "path": "./tests/tooling/commits.test.ts",
+          "line": 140,
+          "endLine": 150,
+          "checked": false,
+          "detail": "two new cases: a footer under a plain title fails with \"title has no\", and `` `!:` `` in the middle of a title passes.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 0,
+            "index": 4
+          }
+        }
+      ]
+    },
+    {
+      "title": "Convention doc",
+      "detail": "**`docs/commits.md` states the reverse rule and that the 72-char limit applies before GitHub's ` (#N)` suffix.**",
+      "body": [
+        {
+          "title": "**`docs/commits.md` states the reverse rule and that the 72-char limit applies before GitHub's ` (#N)` suffix.**",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 39
+          }
+        }
+      ],
+      "anchor": {
+        "kind": "chunk",
+        "index": 1
+      },
+      "children": [
+        {
+          "title": "./docs/commits.md#10-20",
+          "path": "./docs/commits.md",
+          "line": 10,
+          "endLine": 20,
+          "checked": false,
+          "detail": "prose only. The pinned string `at most 72 characters` is unchanged, so the doc-pin test still matches.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 1,
+            "index": 0
+          }
+        }
+      ]
+    },
+    {
+      "title": "Agent prompts state the rule",
+      "detail": "**Both closing-message prompts now require `!` and `BREAKING CHANGE: <how to migrate>` together, and list the type set.** A new test pins this.",
+      "body": [
+        {
+          "title": "**Both closing-message prompts now require `!` and `BREAKING CHANGE: <how to migrate>` together, and list the type set.** A new test pins this.",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 47
+          }
+        }
+      ],
+      "anchor": {
+        "kind": "chunk",
+        "index": 2
+      },
+      "children": [
+        {
+          "title": "./src/workflows/text.ts#867-878",
+          "path": "./src/workflows/text.ts",
+          "line": 867,
+          "endLine": 878,
+          "checked": false,
+          "detail": "this replaces the old \"`!` alone is not enough\" note with \"both or neither\". It adds a subject-format bullet with the 9 types and the 72-char limit.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 2,
+            "index": 0
+          }
+        },
+        {
+          "title": "./claude/hooks/ship.ts#64-67",
+          "path": "./claude/hooks/ship.ts",
+          "line": 64,
+          "endLine": 67,
+          "checked": false,
+          "detail": "squash prompt: a `!` subject needs the footer.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 2,
+            "index": 1
+          }
+        },
+        {
+          "title": "./claude/hooks/ship.ts#301-304",
+          "path": "./claude/hooks/ship.ts",
+          "line": 301,
+          "endLine": 304,
+          "checked": false,
+          "detail": "PR prompt: a `!` title needs the footer line in the description. Line 304 now goes past the prompt's line width (cosmetic only).",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 2,
+            "index": 2
+          }
+        },
+        {
+          "title": "./tests/tooling/commits.test.ts#161-170",
+          "path": "./tests/tooling/commits.test.ts",
+          "line": 161,
+          "endLine": 170,
+          "checked": false,
+          "detail": "pins both prompt files to the config's `type-enum` and the literal footer placeholder. **The type check is weak: `toContain(\"ci\")` / `\"fix\"` / `\"test\"` matches anywhere in large files, so dropping a type from the prompt prose would not fail it.** Only the footer string check has real power.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 2,
+            "index": 3
+          }
+        }
+      ]
+    },
+    {
+      "title": "Release bump cases and cache inputs",
+      "detail": "**More semantic-release cases, including a real GitHub squash body. The tooling task cache now also keys on `package-lock.json`.**",
+      "body": [
+        {
+          "title": "**More semantic-release cases, including a real GitHub squash body. The tooling task cache now also keys on `package-lock.json`.**",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 67
+          }
+        }
+      ],
+      "anchor": {
+        "kind": "chunk",
+        "index": 3
+      },
+      "children": [
+        {
+          "title": "./tests/tooling/commits.test.ts#238-240",
+          "path": "./tests/tooling/commits.test.ts",
+          "line": 238,
+          "endLine": 240,
+          "checked": false,
+          "detail": "`fix` → patch, `docs` → no release, and a `(#12)` squash with a `* feat!:` body footer → 2.0.0. This proves the footer cuts a major from inside the squash body.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 3,
+            "index": 0
+          }
+        },
+        {
+          "title": "./turbo.json#86-88",
+          "path": "./turbo.json",
+          "line": 86,
+          "endLine": 88,
+          "checked": false,
+          "detail": "adds `package-lock.json` to the inputs, so a commitlint or semantic-release version bump no longer reuses a stale cached pass.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 3,
+            "index": 1
+          }
+        }
+      ]
+    }
+  ]
+}

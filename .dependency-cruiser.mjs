@@ -34,6 +34,16 @@ const compositionRoots = [
   "^src/program\\.ts$",
 ]
 
+// --- spec 05 ---
+// Steering formats are persisted in history, so their code stays pure: no
+// other boundary, no Node built-in, no IO package. Allowlisted, not denylisted,
+// so a new dependency is a decision, not an accident. `vite/client.d.ts` types
+// the tests' fixture loading (`import.meta.glob`); it is declarations only.
+const steeringPureLibraries = [
+  "^node_modules/(@types/mdast|mdast-util-[^/]+|micromark-extension-[^/]+|vitest|@vitest/[^/]+|fast-check)/",
+  "^node_modules/vite/client\\.d\\.ts$",
+]
+
 export default {
   forbidden: [
     {
@@ -148,6 +158,16 @@ export default {
         // caps it at 100 — far above any module in this repository.
         numberOfDependentsLessThan: 100,
       },
+    },
+
+    // --- spec 05 ---
+    {
+      name: "steering-is-pure",
+      comment:
+        "src/steering/ imports only itself and pure third-party libraries — never another boundary, a Node built-in or an IO package.",
+      severity: "error",
+      from: { path: "^src/steering/" },
+      to: { pathNot: ["^src/steering/", ...steeringPureLibraries] },
     },
   ],
   options: {

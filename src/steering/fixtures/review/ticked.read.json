@@ -1,0 +1,99 @@
+{
+  "header": "1a2b3c4",
+  "nodes": [
+    {
+      "title": "Parser accepts CRLF",
+      "detail": "**Line endings are normalized before the split.**",
+      "body": [
+        {
+          "title": "**Line endings are normalized before the split.**",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 8
+          }
+        }
+      ],
+      "anchor": {
+        "kind": "chunk",
+        "index": 0
+      },
+      "thread": {
+        "name": "th1",
+        "entries": [
+          {
+            "author": "me",
+            "text": "Does this also cover the writer?"
+          },
+          {
+            "author": "agent",
+            "text": "No, the writer keeps the input's line endings."
+          }
+        ],
+        "waitingOn": "human"
+      },
+      "children": [
+        {
+          "title": "./src/parse.ts#10-14",
+          "path": "./src/parse.ts",
+          "line": 10,
+          "endLine": 14,
+          "checked": true,
+          "detail": "normalizes `\\r\\n` first",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 0,
+            "index": 0
+          }
+        },
+        {
+          "title": "./src/parse.ts#30-31",
+          "path": "./src/parse.ts",
+          "line": 30,
+          "endLine": 31,
+          "checked": false,
+          "detail": "Risk: a lone `\\r` is still kept as content",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 0,
+            "index": 1
+          }
+        },
+        {
+          "title": "./src/eol.ts",
+          "path": "./src/eol.ts",
+          "checked": false,
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 0,
+            "index": 2
+          }
+        }
+      ]
+    },
+    {
+      "title": "Tests",
+      "detail": "",
+      "body": [],
+      "anchor": {
+        "kind": "chunk",
+        "index": 1
+      },
+      "children": [
+        {
+          "title": "./src/parse.test.ts#1-40",
+          "path": "./src/parse.test.ts",
+          "line": 1,
+          "endLine": 40,
+          "checked": true,
+          "detail": "one case per line ending",
+          "note": "Mixed endings in one file are not covered.",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 1,
+            "index": 0
+          }
+        }
+      ]
+    }
+  ]
+}
