@@ -1,8 +1,9 @@
 # Commit messages
 
-Every commit that reaches `main` is a squash commit, and semantic-release reads
-its message to pick the next version. A missing or wrong `!` is permanent once
-merged, so get it right when the squash message is written.
+`main` must not contain `gtd(...)` turn commits: squash them on the feature
+branch first, then merge. semantic-release reads the commit messages on `main`
+to pick the next version, so a missing or wrong `!` is permanent once merged —
+get it right when the squash message is written.
 
 The PR check (`.github/workflows/commits.yml`, config `commitlint.config.mjs`)
 lints every non-merge commit in a pull request, and the PR title (a multi-commit
