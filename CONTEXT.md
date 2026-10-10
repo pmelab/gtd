@@ -84,6 +84,11 @@ written as `Gtd-Format: <n>` on every gtd commit, 1 when absent. A history in a
 format gtd does not read is refused as such, never as divergence. Independent of
 the package version. _Avoid_: schema version, gtd version
 
+**Flows protocol**: The version of the replay context a workflow's copy of
+`@pmelab/gtd/flows` and the running gtd share. A mismatch is refused as such,
+naming which side to upgrade. Independent of the package version. _Avoid_: API
+version, facade version
+
 **Turn**: What an actor actually did — the work sitting in the tree, captured as
 one commit. _Avoid_: action, move
 

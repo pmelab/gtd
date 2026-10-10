@@ -159,19 +159,65 @@ export interface FlowContext {
   readonly accessFor: (localName: string, file?: string) => AccessDef
 }
 
-const CONTEXT_KEY = Symbol.for("@pmelab/gtd/flow-context")
+/**
+ * Bump only when the installed `FlowContext` object changes shape or semantics;
+ * type-only authoring-API changes don't count. A bump past 1 must keep v1
+ * members working or move the context to a new symbol key — pre-handshake
+ * facades never read the protocol.
+ */
+export const FLOWS_PROTOCOL = 1
 
-type ContextHolder = { [CONTEXT_KEY]?: FlowContext | undefined }
-
-/** Engine-only: install the replay context a flow run reads. */
-export const installContext = (context: FlowContext | undefined): void => {
-  ;(globalThis as ContextHolder)[CONTEXT_KEY] = context
+export class FlowsProtocolError extends Error {
+  constructor(engine: number, flows: number) {
+    const upgrade =
+      engine < flows
+        ? "upgrade the gtd that runs it"
+        : "upgrade the @pmelab/gtd the workflow imports"
+    super(
+      `gtd: the workflow speaks flows protocol ${flows}, but the engine installed protocol ${engine} — ${upgrade}`,
+    )
+    this.name = "FlowsProtocolError"
+  }
 }
 
+const CONTEXT_KEY = Symbol.for("@pmelab/gtd/flow-context")
+// Separate from the context so a facade older than the protocol still reads
+// the context it expects.
+const PROTOCOL_KEY = Symbol.for("@pmelab/gtd/flow-protocol")
+// The first mismatch, kept for the engine: workflow code may catch what ctx()
+// throws, and the refusal must still win.
+const MISMATCH_KEY = Symbol.for("@pmelab/gtd/flow-protocol-mismatch")
+
+type ContextHolder = {
+  [CONTEXT_KEY]?: FlowContext | undefined
+  [PROTOCOL_KEY]?: number | undefined
+  [MISMATCH_KEY]?: Error | undefined
+}
+
+/** Engine-only. */
+export const installContext = (context: FlowContext | undefined): void => {
+  const holder = globalThis as ContextHolder
+  holder[CONTEXT_KEY] = context
+  holder[PROTOCOL_KEY] = FLOWS_PROTOCOL
+  holder[MISMATCH_KEY] = undefined
+}
+
+/** Engine-only: the mismatch a facade copy hit during this replay, if any. */
+export const protocolMismatch = (): Error | undefined => (globalThis as ContextHolder)[MISMATCH_KEY]
+
 const ctx = (): FlowContext => {
-  const context = (globalThis as ContextHolder)[CONTEXT_KEY]
+  const holder = globalThis as ContextHolder
+  const context = holder[CONTEXT_KEY]
   if (context === undefined) {
     throw new Error("gtd: a workflow step or helper was called outside a gtd replay")
+  }
+  // An engine older than the handshake installs no number but the context
+  // protocol 1 describes.
+  const protocol = holder[PROTOCOL_KEY] ?? 1
+  if (protocol !== FLOWS_PROTOCOL) {
+    const error = new FlowsProtocolError(protocol, FLOWS_PROTOCOL)
+    holder[MISMATCH_KEY] ??= error
+    throw error
   }
   return context
 }

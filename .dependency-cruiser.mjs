@@ -179,6 +179,23 @@ export default {
       from: { path: "^src/wire/", pathNot: productionExcluded },
       to: { pathNot: "^src/wire/", dependencyTypesNot: ["core"] },
     },
+
+    // --- spec 07 ---
+    {
+      name: "flows-imports-nothing",
+      comment:
+        "The facade must load standalone in any copy of it, so its production code imports nothing outside itself, not even a package or builtin.",
+      severity: "error",
+      from: { path: "^src/flows/", pathNot: productionExcluded },
+      to: { pathNot: "^src/flows/" },
+    },
+    {
+      name: "flows-tests-import-no-src",
+      comment: "A src/flows/ test reaches no other src/ folder.",
+      severity: "error",
+      from: { path: "^src/flows/.+\\.test\\.tsx?$" },
+      to: { path: "^src/(?!flows/)" },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },

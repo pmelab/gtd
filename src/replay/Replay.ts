@@ -1,5 +1,6 @@
 import {
   installContext,
+  protocolMismatch,
   type FlowContext,
   type Change,
   type JudgeAnswer,
@@ -640,7 +641,12 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         if (error instanceof Stop) return
         outcome ??= {
           kind: "failed",
-          message: `gtd: the workflow threw: ${error instanceof Error ? error.message : String(error)}`,
+          // By name, not instanceof: a workflow loading its own copy of the
+          // flows facade throws that copy's class.
+          message:
+            error instanceof Error && error.name === "FlowsProtocolError"
+              ? error.message
+              : `gtd: the workflow threw: ${error instanceof Error ? error.message : String(error)}`,
         }
       },
     )
@@ -648,6 +654,8 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     // fires awaited something other than a step.
     const stuck = new Promise<void>((resolve) => setImmediate(resolve))
     await Promise.race([flowDone, settled, stuck])
+    const mismatch = protocolMismatch()
+    if (mismatch !== undefined) return { kind: "failed", message: mismatch.message }
   } finally {
     installContext(undefined)
   }

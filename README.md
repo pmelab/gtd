@@ -501,7 +501,9 @@ The workflow itself is a plain async TypeScript function: a `gtd.config.ts` at
 the repository root replaces it, and the pieces the bundled one is built from
 are exported for yours to reuse. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md) —
-and remember gtd evaluates that file on every command.
+and remember gtd evaluates that file on every command. A shared workflow package
+bundling its own `@pmelab/gtd` is checked against the running gtd and refused,
+naming which side to upgrade, on a flows protocol mismatch.
 
 ## License
 

@@ -117,3 +117,19 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     Then it fails
     And stderr contains "gtd config:"
     And stderr contains "\"vars.testCommand\" is an environment setting — move it under \"env:\""
+
+  Scenario: an engine on another flows protocol is refused, naming which side to upgrade
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        ;(globalThis as Record<symbol, unknown>)[Symbol.for("@pmelab/gtd/flow-protocol")] = 2
+        await human("idle", { message: "start" })
+      }
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "the workflow speaks flows protocol 1, but the engine installed protocol 2"
+    And stderr contains "upgrade the @pmelab/gtd the workflow imports"

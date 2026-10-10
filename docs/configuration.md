@@ -82,6 +82,17 @@ gtd resolves `@pmelab/gtd/flows` itself, so a `gtd.config.ts` needs no
 `package.json` or install. Add `@pmelab/gtd` as a dev dependency only if you
 want editor type-checking for it.
 
+A direct `@pmelab/gtd/flows` import in `gtd.config.ts` always gets the engine's
+own copy, so it cannot mismatch; a dev-dependency pin only feeds editor
+type-checking. Only an indirect copy can disagree — a shared workflow package
+that bundles its own copy of `@pmelab/gtd`, or ships as CommonJS and requires
+its own. Both speak a **flows protocol** version, and a mismatch fails the
+replay with
+`the workflow speaks flows protocol N, but the engine installed protocol M`.
+When the engine's number is higher, upgrade the `@pmelab/gtd` that package
+imports; when lower, upgrade gtd. `@pmelab/gtd/flows` exports the workflow's
+number as `FLOWS_PROTOCOL`.
+
 ### Steps
 
 A step is one position a process can rest at. Each step function takes a

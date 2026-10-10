@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import fc from "fast-check"
 import {
+  FLOWS_PROTOCOL,
   agent,
   changes,
   changesSince,
@@ -111,6 +112,52 @@ const replayOf = (
         }
       : {}),
   })
+
+const PROTOCOL_KEY = Symbol.for("@pmelab/gtd/flow-protocol")
+
+describe("the flows protocol handshake", () => {
+  it("installs the protocol it implements under the registered key", async () => {
+    let seen: unknown
+    await replayOf(async () => {
+      seen = (globalThis as Record<symbol, unknown>)[PROTOCOL_KEY]
+      await human("idle")
+    }, new History())
+    expect(seen).toBe(FLOWS_PROTOCOL)
+  })
+
+  it("refuses a mismatch the workflow caught and swallowed", async () => {
+    const outcome = await replayOf(async () => {
+      ;(globalThis as Record<symbol, unknown>)[PROTOCOL_KEY] = FLOWS_PROTOCOL + 1
+      await human("idle").catch(() => undefined)
+    }, new History())
+    expect(outcome).toEqual({
+      kind: "failed",
+      message: `gtd: the workflow speaks flows protocol ${FLOWS_PROTOCOL}, but the engine installed protocol ${FLOWS_PROTOCOL + 1} — upgrade the @pmelab/gtd the workflow imports`,
+    })
+  })
+
+  it("frames an ordinary workflow error as the workflow throwing", async () => {
+    const outcome = await replayOf(async () => {
+      throw new Error("boom")
+    }, new History())
+    expect(outcome).toEqual({ kind: "failed", message: "gtd: the workflow threw: boom" })
+  })
+
+  it("unwraps a mismatch thrown by a second copy of the flows facade", async () => {
+    // A workflow package resolving its own @pmelab/gtd throws that copy's
+    // class, which `instanceof` against the engine's copy never matches.
+    class FlowsProtocolError extends Error {
+      override name = "FlowsProtocolError"
+    }
+    const outcome = await replayOf(async () => {
+      throw new FlowsProtocolError("gtd: the workflow speaks flows protocol 0")
+    }, new History())
+    expect(outcome).toEqual({
+      kind: "failed",
+      message: "gtd: the workflow speaks flows protocol 0",
+    })
+  })
+})
 
 const restName = (outcome: ReplayOutcome): string => {
   if (outcome.kind !== "rest") throw new Error(`expected a rest, got ${JSON.stringify(outcome)}`)
