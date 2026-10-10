@@ -256,3 +256,48 @@ describe("spec 04: src/ root holds only composition roots", () => {
     expect(flagged).toEqual(["src/Orphan.ts", "src/Used.ts"])
   })
 })
+
+describe("spec 07: src/flows/ imports nothing and its tests reach no other src/", () => {
+  it("flags production imports outside the folder and test imports of other src/ folders", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boundaries-spec07-"))
+    mkdirSync(join(dir, "src", "flows"), { recursive: true })
+    mkdirSync(join(dir, "src", "other"), { recursive: true })
+    writeFileSync(join(dir, "tsconfig.json"), FIXTURE_TSCONFIG)
+    const files: Record<string, string> = {
+      "src/other/index.ts": `export const other = 1\n`,
+      "src/flows/x.ts": `import { readFileSync } from "node:fs"\nimport { fc } from "fast-check"\nimport { other } from "../other/index.js"\nimport { y } from "./y.js"\nvoid readFileSync\nvoid fc\nvoid other\nvoid y\n`,
+      "src/flows/y.ts": `export const y = 1\n`,
+      "src/flows/x.test.ts": `import { other } from "../other/index.js"\nvoid other\n`,
+      "src/flows/y.test.ts": `import { it } from "vitest"\nvoid it\n`,
+    }
+    for (const [path, content] of Object.entries(files)) writeFileSync(join(dir, path), content)
+    mkdirSync(join(dir, "node_modules", "fast-check"), { recursive: true })
+    writeFileSync(
+      join(dir, "node_modules", "fast-check", "package.json"),
+      `{"name":"fast-check","main":"index.js"}`,
+    )
+    writeFileSync(join(dir, "node_modules", "fast-check", "index.js"), `exports.fc = 1\n`)
+    mkdirSync(join(dir, "node_modules", "vitest"), { recursive: true })
+    writeFileSync(
+      join(dir, "node_modules", "vitest", "package.json"),
+      `{"name":"vitest","main":"index.js"}`,
+    )
+    writeFileSync(join(dir, "node_modules", "vitest", "index.js"), `exports.it = 1\n`)
+
+    const violations = cruise(dir, join(REPO_ROOT, ".dependency-cruiser.mjs"))
+    const byRule = (rule: string) =>
+      violations
+        .filter((v) => v.rules.includes(rule))
+        .map((v) => `${v.from} -> ${v.to}`)
+        .toSorted()
+
+    expect(byRule("flows-imports-nothing")).toEqual([
+      "src/flows/x.ts -> fs",
+      "src/flows/x.ts -> node_modules/fast-check/index.js",
+      "src/flows/x.ts -> src/other/index.ts",
+    ])
+    expect(byRule("flows-tests-import-no-src")).toEqual([
+      "src/flows/x.test.ts -> src/other/index.ts",
+    ])
+  })
+})
