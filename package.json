@@ -72,6 +72,8 @@
     "*": "oxfmt --no-error-on-unmatched-pattern --write"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@effect/language-service": "^0.72.0",
     "@radix-ui/colors": "^3.0.0",
     "@semantic-release/exec": "^7.1.0",

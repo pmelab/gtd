@@ -1,0 +1,51 @@
+name: Commits
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # npm 11, as the lockfile was written by; setup-node's npm 10 rejects it
+      - uses: jdx/mise-action@v2
+      - run: npm ci
+      - name: Lint every non-merge commit and the PR title
+        # commitlint's own --git-log-args drops --no-merges, so feed it one
+        # commit at a time. The title is the squash subject of a multi-commit
+        # PR (COMMIT_OR_PR_TITLE), so it must pass too; a `!` title gets a
+        # stand-in footer because the real one lives in the squash body —
+        # which is only the commit messages (COMMIT_MESSAGES), so one of
+        # them must carry it or semantic-release cuts no major.
+        run: |
+          shas=$(git rev-list --no-merges --reverse "$BASE..$HEAD") || exit 1
+          [ -n "$shas" ] || { echo "no commits in $BASE..$HEAD" >&2; exit 1; }
+          status=0
+          for sha in $shas; do
+            git log -1 --format=%B "$sha" | npx commitlint --verbose || status=1
+          done
+          # anchored like commitlint.config.mjs's bangHeader, not a substring
+          bang='^[A-Za-z0-9_]+(\([^)]*\))?!: '
+          carries=
+          git log --no-merges --format=%B "$BASE..$HEAD" | grep -q '^BREAKING CHANGE: ' && carries=1
+          footer=
+          if [[ $TITLE =~ $bang ]]; then
+            footer=$'\n\nBREAKING CHANGE: stand-in'
+            [ -n "$carries" ] || { echo "\`!\` title but no commit carries a BREAKING CHANGE: footer" >&2; status=1; }
+          elif [ -n "$carries" ]; then
+            echo "a commit carries a BREAKING CHANGE: footer but the title has no \`!\`" >&2; status=1
+          fi
+          printf '%s%s' "$TITLE" "$footer" | npx commitlint --verbose || status=1
+          exit $status
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          TITLE: ${{ github.event.pull_request.title }}

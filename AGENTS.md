@@ -23,6 +23,11 @@ read the code. When you find one, DELETE it rather than update it.
   domain language this repo uses, including the words to avoid. Read it before
   naming anything, and keep architecture out of it
 
+## Commit messages
+
+Squash commits, PR titles and gtd's closing message follow
+[docs/commits.md](docs/commits.md).
+
 ## Testing
 
 - `npm run test:mutation` is a deliberate user action — never run it

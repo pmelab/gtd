@@ -85,6 +85,7 @@
         "claude/**",
         "package.json",
         ".releaserc.json",
+        "commitlint.config.mjs",
         ".github/workflows/**",
         ".claude-plugin/**",
         "hooks/**",

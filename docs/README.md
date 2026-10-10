@@ -8,3 +8,5 @@
   `.gtdrc`, variables
 - [Setup](./setup.md) — repository requirements, editor integration
 - [Development](./development.md) — building and testing gtd itself
+- [Commit messages](./commits.md) — the squash-commit convention
+  semantic-release and the PR check read
