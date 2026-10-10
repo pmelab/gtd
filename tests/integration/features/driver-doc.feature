@@ -17,7 +17,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
   no $GTD_* var, no test-harness leak — which is itself the
   copy-paste-complete proof. Turn/transition reporting is not asserted here
   beyond what the emitted scripts print themselves
-  (`src/OutcomeScript.ts`).
+  (`src/emit/OutcomeScript.ts`).
 
   Scenario: Chains an agent turn through a check turn and halts back at the human gate
     Given a test project
@@ -781,7 +781,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And stdout contains "write NOTE.md to start a process"
 
   Scenario: A refused --session-id (the crash edge's symptom) recovers via the driver's own || fallback
-    # The crash edge src/Sessions.ts documents: an agent turn that mints a
+    # The crash edge src/wire/Sessions.ts documents: an agent turn that mints a
     # session but lands no commit (a crash, a killed driver) re-derives the
     # SAME id with resume:false on the next lap, so `claude --session-id`
     # hits "id already in use" the second time around — `resume` is a HINT,

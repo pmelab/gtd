@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
-import { CommandRunner } from "../CommandRunner.js"
-import { shellQuote } from "../GitScript.js"
+import { CommandRunner } from "../platform/index.js"
+import { shellQuote } from "../emit/index.js"
 
 /** What `parseServeStatus` publishes for a mapping found on the requested port: the tailnet hostname `tailscale serve` bound it to, and the loopback URL it forwards to. */
 export interface ServeMapping {

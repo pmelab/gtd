@@ -1,6 +1,6 @@
 import { Effect } from "effect"
-import { GtdError } from "../Commentary.js"
-import type { WorkflowDefinition } from "../Workflow.js"
+import { GtdError } from "../platform/index.js"
+import type { WorkflowDefinition } from "./Workflow.js"
 import { accessShapeFault } from "../replay/index.js"
 import type { ScopeAccess } from "../flows/index.js"
 import { unknownAccessKeyMessage, unknownSkillsKeyMessage } from "./compile.js"

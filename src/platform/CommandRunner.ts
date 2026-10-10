@@ -1,6 +1,6 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Effect, Layer, Stream } from "effect"
-import { Host } from "./platform/index.js"
+import { Host } from "./Host.js"
 
 /** One command run's outcome: its exit status (a signal death reported as `null`, matching `spawnSync`) and its combined output (stdout then stderr). */
 interface CommandOutcome {

@@ -1,12 +1,12 @@
 import { Effect } from "effect"
-import { Narrator } from "./Commentary.js"
 import {
+  Narrator,
   GitService,
   Host,
   Workspace,
   type GitOperations,
   type WorkspaceOps,
-} from "./platform/index.js"
+} from "../platform/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
@@ -16,7 +16,13 @@ import {
   resolveScopeSkills,
   type ConfigOperations,
   type ResolvedWorkflow,
-} from "./workflow/index.js"
+  knownModes,
+  type ChangeStatus,
+  type PendingChange,
+  type StateName,
+  type StepDef,
+  type WorkflowDefinition,
+} from "../workflow/index.js"
 import {
   formatFault,
   formatSubject,
@@ -28,19 +34,11 @@ import {
   type ReachedStep,
   type ReplayOutcome,
   type TreeView,
-} from "./replay/index.js"
-import type { ScopeAccess } from "./flows/index.js"
-import { steeringFormatFor } from "./steering/index.js"
-import { UNATTRIBUTED_MODEL, type ModelCost, type StepAccess } from "./wire/index.js"
-import {
-  knownModes,
-  type ChangeStatus,
-  type PendingChange,
-  type StateName,
-  type StepDef,
-  type WorkflowDefinition,
-} from "./Workflow.js"
-import { accessRefusal, type Landing, type RepoSnapshot } from "./step/index.js"
+} from "../replay/index.js"
+import type { ScopeAccess } from "../flows/index.js"
+import { steeringFormatFor } from "../steering/index.js"
+import { UNATTRIBUTED_MODEL, type ModelCost, type StepAccess } from "../wire/index.js"
+import { accessRefusal, type Landing, type RepoSnapshot } from "../step/index.js"
 
 export { UNATTRIBUTED_MODEL }
 
@@ -859,7 +857,7 @@ export const restAt = (
     // No `pending` tree: `restAt` resolves the LANDED process only, never a
     // pending working-tree edit (that's `decideLanding`'s own `replayFor`
     // call, below, deciding what landing right now WOULD do). The LSP's
-    // steering-map memo (`src/Lsp.ts`) depends on this staying true — it's
+    // steering-map memo (`src/lsp/Lsp.ts`) depends on this staying true — it's
     // what makes HEAD's hash a complete cache key for everything `rest`
     // exposes (`trace`, `state`, `hints.file`); passing a pending tree here
     // would make the memo serve a stale map on every cache hit.

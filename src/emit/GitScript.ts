@@ -1,4 +1,4 @@
-import type { GitWrite, LandStep, Outcome } from "./step/index.js"
+import type { GitWrite, LandStep, Outcome } from "../step/index.js"
 
 // POSIX single-quote escaping for a shell command; every builder below routes its interpolated values through this.
 export const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
@@ -55,7 +55,7 @@ export const deleteRef = (ref: string): string => `git update-ref -d ${shellQuot
 // ── ScriptSurface: LandStep[] → shell ────────────────────────────────────────
 //
 // The sole place `src/step/`'s `LandStep` data becomes runnable shell text.
-// Deliberately does NOT import `src/OutcomeScript.ts`/`src/Emit.ts` (both
+// Deliberately does NOT import `src/emit/OutcomeScript.ts`/`src/emit/Emit.ts` (both
 // import `shellQuote` from this file already) — a reverse import back into
 // either would be a real cycle, not just a lint nit, so the two `printf`
 // builders below are a small, load-bearing duplication of

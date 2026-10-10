@@ -10,12 +10,10 @@ import { createHTTPHandler } from "@trpc/server/adapters/standalone"
 import { FileSystem } from "@effect/platform"
 import { Context, Deferred, Effect, Layer, Runtime } from "effect"
 import type { ArtifactOut } from "../cli/index.js"
-import { GtdError, GtdUsageError } from "../Commentary.js"
-import { CommandRunner } from "../CommandRunner.js"
-import type { UiConfig } from "../ConfigSchema.js"
-import { Host } from "../platform/index.js"
+import { GtdError, GtdUsageError, CommandRunner, Host } from "../platform/index.js"
+import type { UiConfig } from "../workflow/index.js"
 import generatedClientHtml from "../web/generated.html"
-import { withFileVar } from "../Emit.js"
+import { withFileVar } from "../emit/index.js"
 import {
   liveHeadSha,
   liveRunInWorktree,

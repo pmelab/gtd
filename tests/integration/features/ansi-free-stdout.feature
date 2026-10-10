@@ -5,10 +5,10 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
   (`src/cli/Cli.ts`, `src/program.ts`) never inspects `isatty`/`TERM`/`NO_COLOR`
   for anything IT prints — there is no tty-conditional branch to get wrong.
   Nor do the *scripts it prints* for a driver to run: an outcome statement
-  (`src/OutcomeScript.ts`) is a plain `printf` with no colour and no terminal
+  (`src/emit/OutcomeScript.ts`) is a plain `printf` with no colour and no terminal
   detection, so gtd's stdout carries neither a real ESC byte (0x1b) nor the
   source text of one, and neither does the script's own output when a driver
-  runs it (`src/OutcomeScript.test.ts` pins that under a real pty).
+  runs it (`src/emit/OutcomeScript.test.ts` pins that under a real pty).
 
   Because of that, this feature does not simulate two different terminal
   contexts: gtd's own output has no branch on tty-ness for either tier to

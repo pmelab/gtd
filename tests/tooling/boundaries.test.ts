@@ -224,3 +224,35 @@ describe("spec 03: cycle and root-module rules", () => {
       expect(["no-circular", "root-no-boundary", "composition-root-not-imported"]).toContain(rule)
   })
 })
+
+describe("spec 04: src/ root holds only composition roots", () => {
+  it("flags every other root module, imported or not", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boundaries-spec04-"))
+    mkdirSync(join(dir, "src", "a"), { recursive: true })
+    writeFileSync(join(dir, "tsconfig.json"), FIXTURE_TSCONFIG)
+    const files: Record<string, string> = {
+      "src/a/index.ts": `export const a = 1\n`,
+      "src/main.ts": `import { run } from "./program.js"\nimport { used } from "./Used.js"\nvoid run\nvoid used\n`,
+      "src/program.ts": `import { a } from "./a/index.js"\nexport const run = a\n`,
+      "src/program.test.ts": `import { run } from "./program.js"\nvoid run\n`,
+      "src/Used.ts": `export const used = 1\n`,
+      "src/Orphan.ts": `export const orphan = 1\n`,
+    }
+    for (const [path, content] of Object.entries(files)) writeFileSync(join(dir, path), content)
+
+    const raw = execFileSync(
+      DEPCRUISE_BIN,
+      ["src", "--config", join(REPO_ROOT, ".dependency-cruiser.mjs"), "--output-type", "json"],
+      { cwd: dir, encoding: "utf8" },
+    )
+    const { summary } = JSON.parse(raw) as {
+      summary: { violations: Array<{ from: string; rule: { name: string } }> }
+    }
+    const flagged = summary.violations
+      .filter((v) => v.rule.name === "root-holds-composition-roots")
+      .map((v) => v.from)
+      .toSorted()
+
+    expect(flagged).toEqual(["src/Orphan.ts", "src/Used.ts"])
+  })
+})

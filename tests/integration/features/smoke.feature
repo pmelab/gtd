@@ -2,7 +2,7 @@
 Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinary sign-off commit
 
   Minimal smoke coverage for the v3 CLI (`gtd land` / `gtd next`, see
-  src/Edge.ts). Proves the rewritten edge/CLI wiring
+  src/edge/Edge.ts). Proves the rewritten edge/CLI wiring
   end to end: a handful of hops on the built-in default workflow's one flow,
   the `gtd next --json` contract, and a custom `.gtdrc` `workflow:` whose
   sign-off lands an ordinary commit entering its initial state, retaining

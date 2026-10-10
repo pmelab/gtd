@@ -1,9 +1,13 @@
 import { join } from "node:path"
 import { Effect } from "effect"
-import { Host } from "./platform/index.js"
-import { isSeededValidateCommand } from "./SteeringFormats.js"
-import { steeringFormatFor, type SteeringFinding, type SteeringFormat } from "./steering/index.js"
-import { knownModes, type StateMode, type WorkflowDefinition } from "./Workflow.js"
+import { Host } from "../platform/index.js"
+import {
+  isSeededValidateCommand,
+  knownModes,
+  type StateMode,
+  type WorkflowDefinition,
+} from "../workflow/index.js"
+import { steeringFormatFor, type SteeringFinding, type SteeringFormat } from "../steering/index.js"
 import { buildModeContradictionCheck, modeContradictionSkipNotice } from "./ModeContradiction.js"
 import {
   binaryGuard,
@@ -41,7 +45,7 @@ export interface SteeringCapabilities {
 export interface ResolvedMode {
   readonly kind: "resolved"
   readonly mode: StateMode
-  /** The built-in `SteeringFormat` registered under this mode's NAME (`src/SteeringFormats.ts`), independent of who ends up validating — present even when a declared `validate:` command overrides the format's own parser. Absent when the name is not in the built-in registry at all. */
+  /** The built-in `SteeringFormat` registered under this mode's NAME (`src/workflow/SteeringFormats.ts`), independent of who ends up validating — present even when a declared `validate:` command overrides the format's own parser. Absent when the name is not in the built-in registry at all. */
   readonly format?: SteeringFormat
   /** The `format:` shell command, when some `modes:` layer declared one. Absent = this mode formats nothing. */
   readonly formatCommand?: string
@@ -85,7 +89,7 @@ const capabilitiesFor = (
 
 /**
  * Resolve a `mode:` name against `def.modes` plus the built-in registry
- * (`src/SteeringFormats.ts`) — half by half: a declared `format:`/`validate:`
+ * (`src/workflow/SteeringFormats.ts`) — half by half: a declared `format:`/`validate:`
  * wins, and an undeclared `validate:` falls back to the built-in format's own
  * parser when the name is registered. `format` is set from the registry
  * ALONE, independent of which half of `validate` wins — a declared validator

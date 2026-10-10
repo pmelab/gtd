@@ -83,10 +83,8 @@ const tailnetAddress = (address: string): void => {
   }
 }
 
-import { GtdError, GtdUsageError } from "../Commentary.js"
-import { CommandRunner } from "../CommandRunner.js"
-import { Host } from "../platform/index.js"
-import type { UiConfig } from "../ConfigSchema.js"
+import { GtdError, GtdUsageError, CommandRunner, Host } from "../platform/index.js"
+import type { UiConfig } from "../workflow/index.js"
 import type { RunInWorktree } from "./Beat.js"
 import {
   buildFormatCommand,

@@ -1,5 +1,5 @@
 import { shellQuote } from "./GitScript.js"
-import { renderFormat } from "./wire/index.js"
+import { renderFormat } from "../wire/index.js"
 
 export { renderFormat }
 

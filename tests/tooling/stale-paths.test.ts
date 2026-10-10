@@ -122,7 +122,7 @@ describe("every repo-path-shaped reference under src/ and tests/ resolves on dis
     const extracted = extractAll()
     expect(extracted.length).toBeGreaterThan(0)
 
-    // A citation like `src/Commentary.ts:39` carries a `:line`/`:line-line`
+    // A citation like `src/platform/Commentary.ts:39` carries a `:line`/`:line-line`
     // suffix that is never itself part of the filesystem path — strip it
     // before checking existence (the reported message keeps the full text).
     const pathOnly = (path: string): string => path.replace(/:\d+(-\d+)?$/, "")

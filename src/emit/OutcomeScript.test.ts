@@ -105,7 +105,7 @@ describe("renderFormat", () => {
  * colour branch (if one came back) would actually fire.
  */
 describe("no ANSI, on a pipe or a real tty", () => {
-  const PTY_RUNNER = resolve(import.meta.dirname, "../tests/tooling/support/run-in-pty.py")
+  const PTY_RUNNER = resolve(import.meta.dirname, "../../tests/tooling/support/run-in-pty.py")
   const ESC = "\x1b"
 
   const initRepo = (dir: string): void => {

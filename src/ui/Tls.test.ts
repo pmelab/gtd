@@ -6,9 +6,7 @@ import { tmpdir } from "node:os"
 import { NodeContext } from "@effect/platform-node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Effect, Exit } from "effect"
-import { CommandRunner } from "../CommandRunner.js"
-import { Host } from "../platform/index.js"
-import { GtdError } from "../Commentary.js"
+import { CommandRunner, Host, GtdError } from "../platform/index.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert } from "./Tls.js"
 
 // `{ spy: true }` keeps every real `node:fs` implementation (a plain

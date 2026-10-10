@@ -35,10 +35,10 @@ import {
   TextDocumentSyncKind,
   type Diagnostic,
 } from "vscode-languageserver/node"
-import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
-import { steeringFormatFor } from "./steering/index.js"
-import type { WorkflowDefinition } from "./Workflow.js"
-import { InMemRepo, testLayers } from "./testing/index.js"
+import { resolveMode, type ResolvedMode } from "../emit/index.js"
+import { steeringFormatFor } from "../steering/index.js"
+import type { WorkflowDefinition } from "../workflow/index.js"
+import { InMemRepo, testLayers } from "../testing/index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!

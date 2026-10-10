@@ -14,7 +14,7 @@ import type { GtdWorld } from "../world.js"
  * `$GIT_DIR` (hooks.ts scrubs it once at load time; this step must not
  * undo that). After the move, `<repoDir>/.git` is gone entirely, so gtd can
  * ONLY find its git dir by honoring `$GIT_DIR` — the exact filesystem-probe
- * blind spot `src/WorktreeState.ts`'s `loopLogPath` used to have. `$TMPDIR`
+ * blind spot `src/platform/WorktreeState.ts`'s `loopLogPath` used to have. `$TMPDIR`
  * is pointed at a second, empty scratch directory alongside it, so a later
  * step can prove nothing gets written there.
  */

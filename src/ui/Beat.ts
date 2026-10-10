@@ -5,9 +5,8 @@ import { basename, dirname, isAbsolute, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { NodeContext } from "@effect/platform-node"
 import { Effect } from "effect"
-import { GitService, Host, Workspace } from "../platform/index.js"
-import type { Actor } from "../Workflow.js"
-import { worktreeGitDir } from "../WorktreeState.js"
+import { GitService, Host, Workspace, worktreeGitDir } from "../platform/index.js"
+import type { Actor } from "../workflow/index.js"
 
 /**
  * Finds this checkout's own `package.json` by walking UP from this module's
@@ -48,7 +47,7 @@ const findOwnVersion = (): string => {
  * Mirrors `src/wire/Demand.ts`'s `BeatKind` union verbatim, duplicated
  * rather than imported: that module pulls in `Edge.ts` → `PatternConfig.ts`
  * → the bundled workflow YAML, a chain the web client's own `tsconfig.json`
- * (scoped to `src/web/`, no visibility into `src/types.d.ts`'s `*.yaml`
+ * (scoped to `src/web/`, no visibility into `src/ui/types.d.ts`'s `*.yaml`
  * ambient module) cannot type-check through. `App.tsx` imports this
  * module's types (`Step`/`StepRead`), so keeping this vocabulary local
  * keeps the client's type-check graph shallow.

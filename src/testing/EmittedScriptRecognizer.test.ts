@@ -8,10 +8,16 @@ import {
   mixedResetTo,
   softResetTo,
   updateRef,
-} from "../GitScript.js"
-import { combinedScript, emitScripts, fileExistsGuard, type EmitStep } from "../Emit.js"
-import { commitOutcome, noteOutcome, transitionOutcome } from "../OutcomeScript.js"
-import { buildModeContradictionCheck, modeContradictionSkipNotice } from "../ModeContradiction.js"
+  combinedScript,
+  emitScripts,
+  fileExistsGuard,
+  type EmitStep,
+  commitOutcome,
+  noteOutcome,
+  transitionOutcome,
+  buildModeContradictionCheck,
+  modeContradictionSkipNotice,
+} from "../emit/index.js"
 import { applyEmittedScript, preconditionHeadEquals } from "./EmittedScriptRecognizer.js"
 import { InMemRepo, type ScriptedCommand } from "./index.js"
 
@@ -455,7 +461,7 @@ describe("applyEmittedScript — a realistic assembled multi-block script", () =
   })
 })
 
-describe("applyEmittedScript — a realistic src/Emit.ts-assembled script", () => {
+describe("applyEmittedScript — a realistic src/emit/Emit.ts-assembled script", () => {
   it("an assembled commitAll applies exactly like commitAllWithPrefix", () => {
     const repo = new InMemRepo()
     repo.writeFile("base.txt", "0")

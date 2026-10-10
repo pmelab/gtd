@@ -3,7 +3,7 @@ Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the 
 
   `gtd next` resolves ONE rest through `renderRest`, and `program.ts`'s
   `gatherBeatDocument` assembles the ONE `BeatDocument` object that
-  `renderBeatPlain`/`renderBeatJson`/`selectPath` (`src/wire/`/`src/Select.ts`)
+  `renderBeatPlain`/`renderBeatJson`/`selectPath` (`src/wire/`/`src/wire/Select.ts`)
   each render from — so the three encodings can never independently describe a
   different rest. Plain
   `gtd next` wraps the step in a status-summary header at every kind except

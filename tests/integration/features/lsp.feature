@@ -1,7 +1,7 @@
 @live
 Feature: gtd lsp — the steering-file LSP server (stdio)
 
-  Minimal protocol-level smoke for `gtd lsp` (see src/Lsp.ts): the server
+  Minimal protocol-level smoke for `gtd lsp` (see src/lsp/Lsp.ts): the server
   starts over stdio, the
   `initialize` handshake succeeds and advertises the document-symbol/code-
   action capabilities, and a `textDocument/documentSymbol` request against a
@@ -137,7 +137,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And the LSP client received a window/showDocument request for ".gtd/PLAN.md"
 
   Scenario: gtd.openSteeringFile renders file: with the process's own start vars, matching what gtd next reports (issue #156)
-    # Before src/Edge.ts's currentRest, the LSP's own resolveSteeringFile hand-
+    # Before src/edge/Edge.ts's currentRest, the LSP's own resolveSteeringFile hand-
     # rolled a byte-for-byte copy of the CLI's resolution chain that had
     # drifted three ways: it never applied `--var` overrides, never rendered
     # `on`, and never computed a review base. This pins the fix — a step
@@ -252,7 +252,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   Scenario: a modes: qa validate: override suppresses built-in diagnostics for a live notice, while the outline stays live
     # The registry's `qa` format identity (outline/actions) survives a declared
     # `validate:` command that displaces its built-in parser (see
-    # src/SteeringMode.ts's resolveMode and its returned `capabilities` field)
+    # src/emit/SteeringMode.ts's resolveMode and its returned `capabilities` field)
     # — the editor still gets a live outline, but diagnostics become the ONE
     # Information notice pointing at `gtd validate`, never the built-in
     # findings.
@@ -299,7 +299,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   Scenario: a modes: qa validate: entry carrying gtd's own SEEDED command keeps live diagnostics, not the external notice
     # A later package's workflow compiler will seed `qa`/`review`'s own
     # `validate:` with the literal string `gtd check <mode> "$GTD_FILE"`
-    # (src/SteeringFormats.ts's seededValidateCommand) — a shell-out that just
+    # (src/workflow/SteeringFormats.ts's seededValidateCommand) — a shell-out that just
     # calls back into gtd's own parser, changing nothing about how the file is
     # actually validated. `resolveMode`'s `capabilities` field must recognize
     # that string (isSeededValidateCommand) and keep publishing the built-in parser's live

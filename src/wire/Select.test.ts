@@ -140,7 +140,7 @@ describe("selectPath — nested field reach", () => {
   })
 })
 
-describe("src/Select.ts — zero imports", () => {
+describe("src/wire/Select.ts — zero imports", () => {
   it("contains no import statement", () => {
     const source = readFileSync(new URL("./Select.ts", import.meta.url), "utf8")
     expect(source).not.toMatch(/^\s*import\b/m)

@@ -1,6 +1,6 @@
 import type { RunInWorktree } from "./Beat.js"
 import { resolveWithinRoot } from "./SafePath.js"
-import { shellQuote } from "../GitScript.js"
+import { shellQuote } from "../emit/index.js"
 
 /** One `@@ -a,b +c,d @@` hunk. `newStart`/`newLines` are the 1-based post-image range `lines` cover; `header` stays verbatim even once `lines` has been sliced narrower than it describes. */
 export interface DiffHunk {

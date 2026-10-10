@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest"
 // most systems) used to block in `write()` forever, get SIGKILLed at
 // `IDLE_TIMEOUT_SECONDS`, and hand back truncated output with returncode -9
 // (shell status 247). Lives beside the helper it guards, not in
-// `src/OutcomeScript.test.ts`, which is about colour surviving a real tty,
+// `src/emit/OutcomeScript.test.ts`, which is about colour surviving a real tty,
 // not throughput.
 const PTY_RUNNER = resolve(import.meta.dirname, "support/run-in-pty.py")
 

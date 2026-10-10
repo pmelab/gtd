@@ -1,10 +1,10 @@
 import { isSettingName, SETTING_NAME_RULE } from "./vars.js"
-import { seededValidateCommand } from "../SteeringFormats.js"
+import { seededValidateCommand } from "./SteeringFormats.js"
 import { BUILT_IN_MODE_NAMES } from "../steering/index.js"
-import type { ModeDef } from "../Workflow.js"
+import type { ModeDef } from "./Workflow.js"
 import type { ScopeAccess } from "../flows/index.js"
 import { accessShapeFault } from "../replay/index.js"
-import type { JudgeConfig, UiConfig } from "../ConfigSchema.js"
+import type { JudgeConfig, UiConfig } from "./ConfigSchema.js"
 import {
   BUILT_IN_ORIGIN,
   dedupeDiagnostics,

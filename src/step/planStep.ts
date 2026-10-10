@@ -1,5 +1,5 @@
 import { formatCommitMessage, type JudgeVerdict } from "../replay/index.js"
-import type { StateName } from "../Workflow.js"
+import type { StateName } from "../workflow/index.js"
 import type { LandStep } from "./LandStep.js"
 import type { RepoSnapshot } from "./RepoSnapshot.js"
 

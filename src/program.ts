@@ -1,6 +1,18 @@
 import { Effect, Option, Schema } from "effect"
 import type { ArtifactOut, Command, JsonMode, Needs } from "./cli/index.js"
-import { GtdUsageError, Narrator } from "./Commentary.js"
+import {
+  GtdUsageError,
+  Narrator,
+  GitService,
+  Host,
+  Workspace,
+  type GitOperations,
+  type HostOps,
+  HISTORY_REF,
+  readRetainedHistory,
+  restorability,
+  loopLogPath,
+} from "./platform/index.js"
 import {
   configPresentAt,
   ConfigDiscovery,
@@ -8,12 +20,33 @@ import {
   ConfigService,
   formatDiagnostic,
   renderInitScaffold,
+  seededValidateCommand,
+  type PendingChange,
+  type StateMode,
+  type StateName,
+  type WorkflowDefinition,
 } from "./workflow/index.js"
 import type { Door } from "./flows/index.js"
 import { runJudge } from "./judges/index.js"
-import { GitService, Host, Workspace, type GitOperations, type HostOps } from "./platform/index.js"
 import { runUiCommand, type UiRequirements } from "./ui/index.js"
-import { resolveSession } from "./Sessions.js"
+import {
+  resolveSession,
+  beatDocument,
+  beatKindOf,
+  demandOf,
+  landFields,
+  noopText,
+  renderBeatJson,
+  renderBeatPlain,
+  renderLandJson,
+  renderLandPlain,
+  statusOf,
+  type BeatDocument,
+  type BeatKind,
+  type NextMatch,
+  type StatusChange,
+  selectPath,
+} from "./wire/index.js"
 import {
   currentRest,
   startRefusal,
@@ -29,10 +62,9 @@ import {
   summaryFor,
   summaryRun,
   type RenderedRest,
-} from "./Edge.js"
+} from "./edge/index.js"
 import { planStart, planStep as planStepPure, type JudgeVerdict } from "./step/index.js"
-import { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
-import { startLspServer } from "./Lsp.js"
+import { startLspServer } from "./lsp/index.js"
 import {
   BUILT_IN_MODE_NAMES,
   steeringFormatFor,
@@ -42,38 +74,24 @@ import {
   type SteeringFinding,
   type SteeringFormat,
 } from "./steering/index.js"
-import { seededValidateCommand } from "./SteeringFormats.js"
-import { resolveMode, validateScriptFor } from "./SteeringMode.js"
-import type { PendingChange, StateMode, StateName, WorkflowDefinition } from "./Workflow.js"
 import {
-  beatDocument,
-  beatKindOf,
-  demandOf,
-  landFields,
-  noopText,
-  renderBeatJson,
-  renderBeatPlain,
-  renderLandJson,
-  renderLandPlain,
-  statusOf,
-  type BeatDocument,
-  type BeatKind,
-  type NextMatch,
-  type StatusChange,
-} from "./wire/index.js"
-import {
+  resolveMode,
+  validateScriptFor,
   deleteRef,
   hardResetTo,
   mixedResetTo,
   ScriptSurface,
   updateRef,
   type RunnableScript,
-} from "./GitScript.js"
-import { combinedScript, commandForFile, emitScripts, type EmitStep } from "./Emit.js"
-import { abandonedOutcome, abandonNoopOutcome, restoredOutcome } from "./OutcomeScript.js"
-import { loopLogPath } from "./WorktreeState.js"
-import { renderBriefing } from "./Install.js"
-import { selectPath } from "./Select.js"
+  combinedScript,
+  commandForFile,
+  emitScripts,
+  type EmitStep,
+  abandonedOutcome,
+  abandonNoopOutcome,
+  restoredOutcome,
+} from "./emit/index.js"
+import { renderBriefing } from "./install/index.js"
 
 /**
  * `Edge.ts`'s `Rest` is module-private (`.gtd/packages/05-step-core.md`
@@ -127,7 +145,7 @@ export type CommandRequirements =
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
 const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
 
-/** Emitted by the binary itself (`src/Install.ts`'s `renderBriefing()`) so it's always current. Writes nothing else; runs from any directory since it resolves no workflow state. */
+/** Emitted by the binary itself (`src/install/Install.ts`'s `renderBriefing()`) so it's always current. Writes nothing else; runs from any directory since it resolves no workflow state. */
 const runInstallCommand = (out: ArtifactOut): Effect.Effect<void> =>
   Effect.sync(() => {
     const briefing = renderBriefing()
@@ -352,7 +370,7 @@ const parseJudgeDocument = (rendered: string): Effect.Effect<JudgeDocument, Erro
   })
 
 /**
- * The first stdin-consuming command outside `src/Lsp.ts` (which reads LSP's
+ * The first stdin-consuming command outside `src/lsp/Lsp.ts` (which reads LSP's
  * own length-prefixed frames off `process.stdin`, not a one-shot read) —
  * reads stdin to completion and decodes it as UTF-8 text, no framing.
  */

@@ -68,10 +68,8 @@ export class GtdUsageError extends GtdError {
 /**
  * Structurally, not nominally: an error carrying a `detail: readonly
  * string[]` — `GtdError`'s shape, matched WITHOUT an `instanceof GtdError`
- * check so `src/platform/Git.ts` (which may not import this root module —
- * `platform` has no outward target in `.fallowrc.json`'s `boundaries`) can
- * still render a corrupted ref's remediation lines through its own
- * equivalently-shaped local error class.
+ * check, because `src/platform/Git.ts` reports a corrupted ref's remediation
+ * lines through its own equivalently-shaped local error class.
  */
 const hasDetail = (error: unknown): error is { readonly detail: readonly string[] } =>
   typeof error === "object" &&

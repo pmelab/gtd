@@ -1,48 +1,30 @@
 import { NodeContext } from "@effect/platform-node"
-import { existsSync } from "node:fs"
-import { createRequire } from "node:module"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { Cause, Effect, Either, Layer } from "effect"
-import { GtdUsageError, Narrator, renderFailure } from "../Commentary.js"
+import {
+  GtdUsageError,
+  Narrator,
+  renderFailure,
+  GitService,
+  Host,
+  Workspace,
+  CommandRunner,
+} from "../platform/index.js"
+import { GTD_VERSION } from "../install/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
   isSettingName,
   SETTING_NAME_RULE,
 } from "../workflow/index.js"
-import { GitService, Host, Workspace } from "../platform/index.js"
 // `program.ts` imports only `import type { Command }` from THIS module — a
 // type-only edge, erased at compile time — so this module's own (real, value)
 // dependency on `program.ts` for `runCommand`/`needsOf`/`standaloneKinds`
 // stays one-directional, not circular.
 import { runCommand, SelectorUsageError, type CommandRequirements } from "../program.js"
-import { CommandRunner } from "../CommandRunner.js"
 import { UiListener } from "../ui/index.js"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "./ExitCodes.js"
 
 export type { CommandRequirements }
-
-const _require = createRequire(import.meta.url)
-
-// A source-relative literal (`../../package.json`) breaks the built single-file
-// bundle: bundling doesn't rewrite `import.meta.url` per original module, so a
-// hardcoded depth only matches whichever depth this file happens to sit at in
-// dist/ vs src/ — they differ (dist/gtd.bundle.mjs is always one level below
-// repo root; src/cli/Cli.ts is two). Walking up from wherever this module
-// actually runs from resolves correctly in both the unbundled (vitest/tsc) and
-// bundled (dist/gtd.bundle.mjs) case.
-const findPackageJson = (fromUrl: string): string => {
-  let dir = dirname(fileURLToPath(fromUrl))
-  for (let i = 0; i < 5; i++) {
-    const candidate = join(dir, "package.json")
-    if (existsSync(candidate)) return candidate
-    dir = dirname(dir)
-  }
-  throw new Error(`package.json not found by walking up from ${fromUrl}`)
-}
-const GTD_VERSION: string = (_require(findPackageJson(import.meta.url)) as { version: string })
-  .version
 
 export type Command =
   | { readonly kind: "lsp" }
@@ -100,7 +82,7 @@ export type Command =
 
 /**
  * `--json`'s three shapes: absent, bare (the whole document), or `--json=<path>`
- * (one reduced value). See `src/Select.ts` for how `select` is later resolved.
+ * (one reduced value). See `src/wire/Select.ts` for how `select` is later resolved.
  */
 export type JsonMode =
   | { readonly kind: "off" }

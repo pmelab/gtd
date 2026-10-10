@@ -2,8 +2,8 @@
 Feature: Emitted scripts actually run under a real POSIX shell (dash), not just bash-flavored sh
 
   Every script gtd emits — `gtd land`'s `required`/`optional` halves
-  (`src/Emit.ts`) and the outcome preamble that prints what just landed
-  (`src/OutcomeScript.ts`) — is POSIX `sh` now, not bash. Every other `@live`
+  (`src/emit/Emit.ts`) and the outcome preamble that prints what just landed
+  (`src/emit/OutcomeScript.ts`) — is POSIX `sh` now, not bash. Every other `@live`
   scenario in this suite proves that under whatever `/bin/sh` the test host
   happens to have — but on macOS `/bin/sh` IS bash running in POSIX mode,
   which still accepts bash-only syntax (`local`, `$'...'` ANSI-C quoting,
@@ -16,7 +16,7 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
   dash runs every emitted script` in
   `tests/integration/support/steps/common.steps.ts`), then proves the
   mode-contradiction round-trip's printf/cat/pipe machinery
-  (`src/ModeContradiction.ts`'s `buildModeContradictionCheck`) parses and
+  (`src/emit/ModeContradiction.ts`'s `buildModeContradictionCheck`) parses and
   runs under `dash`, not just bash-flavored sh.
 
   Prerequisite: `dash` must be on PATH (it ships at `/bin/dash` on macOS;

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
-import { CommandRunner } from "../CommandRunner.js"
+import { CommandRunner } from "../platform/index.js"
 import {
   deleteServeRecord,
   parseServeStatus,

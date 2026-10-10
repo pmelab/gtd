@@ -17,7 +17,7 @@ import {
   softResetTo,
   updateRef,
 } from "./GitScript.js"
-import type { LandStep } from "./step/index.js"
+import type { LandStep } from "../step/index.js"
 
 const runBashCheckSyntax = (script: string): number => {
   try {

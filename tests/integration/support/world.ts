@@ -620,7 +620,7 @@ export class GtdWorld extends QuickPickleWorld {
    * test process (no subprocess to spawn), so piping means swapping this
    * process's own `process.stdin` for a `PassThrough` pre-loaded with
    * `stdin` — the same technique `src/program.test.ts`'s `gtd lsp` test and
-   * `src/Lsp.test.ts` use — restored in a `finally` so a leftover stub can
+   * `src/lsp/Lsp.test.ts` use — restored in a `finally` so a leftover stub can
    * never leak into a later scenario.
    */
   private async runGtdInMemWithStdin(stdin: string, ...args: string[]): Promise<void> {

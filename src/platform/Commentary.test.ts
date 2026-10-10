@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { GtdError, Narrator, renderFailure } from "./Commentary.js"
-import { PRESENTATION_FAILURE_WARNING } from "./Emit.js"
+import { PRESENTATION_FAILURE_WARNING } from "../emit/index.js"
 
 describe("Narrator", () => {
   it("is a no-op writer when built with verbose: false", async () => {

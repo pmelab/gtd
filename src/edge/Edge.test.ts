@@ -1,6 +1,6 @@
 import { Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
-import { runCli } from "./cli/index.js"
+import { runCli } from "../cli/index.js"
 import {
   currentRest,
   currentRun,
@@ -16,8 +16,8 @@ import {
   UNATTRIBUTED_MODEL,
   type RestRequirements,
 } from "./Edge.js"
-import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "./platform/index.js"
-import { formatCommitMessage, type CommitSpec } from "./replay/index.js"
+import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
+import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
 import {
   fakeGitOperations,
   InMemRepo,
@@ -25,7 +25,7 @@ import {
   makeCapturingCliIo,
   makeInMemoryWorkspaceOps,
   testLayers,
-} from "./testing/index.js"
+} from "../testing/index.js"
 
 type Env = Readonly<Record<string, string | undefined>>
 type Files = Readonly<Record<string, string>>

@@ -1,5 +1,5 @@
 /**
- * `src/Install.ts` is pure string data — these tests pin its two load-bearing
+ * `src/install/Install.ts` is pure string data — these tests pin its two load-bearing
  * properties: `MINIMAL_DRIVER` stays byte-equal to docs/driver.md's own
  * fenced driver block (the single source of truth for both), and
  * `renderBriefing()` names every command/field a driver actually invokes, so
@@ -15,11 +15,11 @@ const SUITE_PATHS = ["gtd-build", "gtd-edit", "gtd-door"]
 const SUPERSEDED_PATHS = ["gtd-fix", "gtd-review"]
 
 const _require = createRequire(import.meta.url)
-const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
+const GTD_VERSION: string = (_require("../../package.json") as { version: string }).version
 
 describe("MINIMAL_DRIVER", () => {
   it("equals docs/driver.md's own 'A complete minimal driver' fenced bash block", () => {
-    const doc = readFileSync(resolve(import.meta.dirname, "../docs/driver.md"), "utf8")
+    const doc = readFileSync(resolve(import.meta.dirname, "../../docs/driver.md"), "utf8")
     const match = doc.match(/### A complete minimal driver\n[\s\S]*?```bash\n([\s\S]*?)\n```/)
     expect(match).not.toBeNull()
     expect(match![1]).toBe(MINIMAL_DRIVER)

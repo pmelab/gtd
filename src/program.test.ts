@@ -19,10 +19,14 @@ import { runCli, type Command, EXIT_USAGE_ERROR } from "./cli/index.js"
 import { stallDiagnosis, noopText } from "./wire/index.js"
 import { formatFinding, needsOf, runCommand, SelectorUsageError } from "./program.js"
 import { InMemRepo, makeCapturingCliIo, testLayers, applyEmittedScript } from "./testing/index.js"
-import { commitAll } from "./GitScript.js"
-import { DID_NOT_RUN_COMMENT } from "./Emit.js"
-import { HISTORY_REF } from "./RetainedHistory.js"
-import { abandonNoopOutcome, noteOutcome, restoredOutcome } from "./OutcomeScript.js"
+import {
+  commitAll,
+  DID_NOT_RUN_COMMENT,
+  abandonNoopOutcome,
+  noteOutcome,
+  restoredOutcome,
+} from "./emit/index.js"
+import { HISTORY_REF } from "./platform/index.js"
 
 const run = async (
   repo: InMemRepo,
@@ -283,7 +287,7 @@ export default async () => {
 })
 
 describe("gtd next --json — log path emission", () => {
-  // `log` is the per-worktree loop log path (src/WorktreeState.ts's
+  // `log` is the per-worktree loop log path (src/platform/WorktreeState.ts's
   // `loopLogPath`) — always present, unlike the omit-when-unset keys above.
 
   const seededRepo = (): InMemRepo => {

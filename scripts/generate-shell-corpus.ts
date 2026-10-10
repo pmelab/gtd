@@ -9,16 +9,17 @@ import {
   mixedResetTo,
   softResetTo,
   updateRef,
-} from "../src/GitScript.js"
-import { combinedScript, emitScripts, failurePromptWrapper, type EmitStep } from "../src/Emit.js"
-import {
+  combinedScript,
+  emitScripts,
+  failurePromptWrapper,
+  type EmitStep,
   abandonedOutcome,
   abandonNoopOutcome,
   commitOutcome,
   noteOutcome,
   restoredOutcome,
   transitionOutcome,
-} from "../src/OutcomeScript.js"
+} from "../src/emit/index.js"
 import { checkScript, restoreScript, revertScript } from "../src/flows/index.js"
 
 const CORPUS_DIR = join(import.meta.dirname, "..", "tests", "shell", "corpus")

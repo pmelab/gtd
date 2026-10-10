@@ -23,18 +23,18 @@ import {
   type Range,
 } from "vscode-languageserver/node"
 import { TextDocument } from "vscode-languageserver-textdocument"
-import { Narrator } from "./Commentary.js"
+import { Narrator, GitService, Host, Workspace } from "../platform/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
   SEARCH_PLACES,
   WORKFLOW_MODULE,
   walkUp,
-} from "./workflow/index.js"
-import { GitService, Host, Workspace } from "./platform/index.js"
-import { currentRest, type RestRequirements } from "./Edge.js"
-import type { StateMode, WorkflowDefinition } from "./Workflow.js"
-import { resolveMode, type ResolvedMode } from "./SteeringMode.js"
+  type StateMode,
+  type WorkflowDefinition,
+} from "../workflow/index.js"
+import { currentRest, type RestRequirements } from "../edge/index.js"
+import { resolveMode, type ResolvedMode } from "../emit/index.js"
 import {
   FOOTNOTE_ACTION_TITLE,
   THREAD_REPLY_ACTION_TITLE,
@@ -45,7 +45,7 @@ import {
   type SteeringLink,
   type SteeringOutlineNode,
   type SteeringPointer,
-} from "./steering/index.js"
+} from "../steering/index.js"
 
 // ── Domain → protocol translation (pure) ────────────────────────────────────
 
@@ -339,7 +339,7 @@ export interface LspEnv {
    * HEAD plus that file set is the COMPLETE dependency set, because nothing
    * `reachedSteeringSteps` reads off `rest` depends on the working tree:
    * `rest.trace`, `rest.state` and `rest.hints.file` all come from `restAt`
-   * (`src/Edge.ts`), whose `replayFor(setup)` call passes no `pending` tree —
+   * (`src/edge/Edge.ts`), whose `replayFor(setup)` call passes no `pending` tree —
    * see the comment there, which this memo depends on staying true.
    */
   readonly steeringMapFor: (root: string) => Promise<ReadonlyMap<string, ResolvedMode>>

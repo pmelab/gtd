@@ -12,7 +12,7 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
 
   Both scenarios are `@live`, not `@inmem`: the seeded `qa`/`review` validator
   renders as a literal `gtd check <mode> '<file>'` COMMAND inside the script
-  `gtd validate` prints (see src/SteeringFormats.ts's `seededValidateCommand`).
+  `gtd validate` prints (see src/workflow/SteeringFormats.ts's `seededValidateCommand`).
   `gtd land`'s own emitted script carries no such command any more (package 2,
   Requirement A) — validating a styled file is a driver step run explicitly,
   ahead of landing, never something `gtd land` does for you. Only the `@live`

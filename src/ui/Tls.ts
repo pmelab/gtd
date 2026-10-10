@@ -3,9 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
-import { CommandRunner } from "../CommandRunner.js"
-import { GtdError } from "../Commentary.js"
-import { shellQuote } from "../GitScript.js"
+import { CommandRunner, GtdError } from "../platform/index.js"
+import { shellQuote } from "../emit/index.js"
 
 /** A certificate and its matching private key, as PEM content — never file paths, so callers (the https server, tests) never re-read the filesystem. */
 export interface CertPair {

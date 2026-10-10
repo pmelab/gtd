@@ -50,7 +50,7 @@ describe("steeringFormatFor", () => {
 
 describe("every registry entry's sample", () => {
   // Load-bearing, not a nicety (see the package's own doc comment on this
-  // acceptance criterion): `src/ModeContradiction.ts` round-trips this exact
+  // acceptance criterion): `src/emit/ModeContradiction.ts` round-trips this exact
   // sample through a mode's declared `format:` command, then re-validates it
   // — a sample that doesn't validate clean to begin with would hard-stop
   // every prompt beat that declares `file:`+`mode:`, at 3 wasted agent turns

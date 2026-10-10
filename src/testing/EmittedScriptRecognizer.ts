@@ -13,21 +13,17 @@ import {
   shellQuote,
   softResetTo,
   updateRef,
-} from "../GitScript.js"
-import {
   binaryGuard,
   DID_NOT_RUN_COMMENT,
   failurePromptWrapper,
   fileExistsGuard,
   PRESENTATION_FAILURE_WARNING,
   PRESENTATION_ONLY_COMMENT,
-} from "../Emit.js"
-import {
   buildModeContradictionCheck,
   contradictionMessage,
   modeContradictionSkipNotice,
-} from "../ModeContradiction.js"
-import { OUTCOME_MARKER } from "../OutcomeScript.js"
+  OUTCOME_MARKER,
+} from "../emit/index.js"
 import { steeringFormatFor, type SteeringFormat } from "../steering/index.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
@@ -412,7 +408,7 @@ const simulateModeContradictionCheck = (
 }
 
 /**
- * `src/ModeContradiction.ts`'s `buildModeContradictionCheck` — the
+ * `src/emit/ModeContradiction.ts`'s `buildModeContradictionCheck` — the
  * contradiction round-trip block `resolveValidateScript` (`src/program.ts`)
  * emits ahead of `fileExistsGuard` for a mode with a live built-in validator
  * and a declared `format:`. Carries no blank line of its own, so it always

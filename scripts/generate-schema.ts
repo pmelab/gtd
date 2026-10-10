@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs"
 import { JSONSchema } from "effect"
-import { ConfigSchema } from "../src/ConfigSchema.js"
+import { ConfigSchema } from "../src/workflow/index.js"
 
 const schema = JSONSchema.make(ConfigSchema) as Record<string, unknown> & {
   properties: Record<string, unknown>
