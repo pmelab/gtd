@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
-import { GtdError, Narrator } from "../Commentary.js"
+import { GtdError, Narrator, GitService, Host, Workspace } from "../platform/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
@@ -14,9 +14,8 @@ import {
   loadRcConfig,
   resolveScopeSkills,
   resolveVars,
+  seededValidateCommand,
 } from "./index.js"
-import { GitService, Host, Workspace } from "../platform/index.js"
-import { seededValidateCommand } from "../SteeringFormats.js"
 
 // Every real port `ConfigService.Live` needs, scoped to `dir` — `home` stays
 // the REAL `homedir()` so `walkUp`'s stop condition matches production

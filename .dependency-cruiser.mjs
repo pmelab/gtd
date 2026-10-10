@@ -4,12 +4,12 @@
 // per-module enumeration, and adding a `src/<boundary>/` needs no edit here.
 //
 // A unit test is allowed its own implementation file, any boundary's published
-// `index.ts`, the shared `src/*.ts` vocabulary, its boundary's `*.fixture.ts`
-// helpers, and type-only imports (erased at compile time, so no runtime
-// coupling). What it may NOT reach is another FILE's internals — including its
-// own neighbour's. The two variants exist only because `src/Foo.test.ts` and
-// `src/mod/Foo.test.ts` capture differently; dependency-cruiser rejects the
-// single optional-group regex that would unify them as ReDoS-unsafe.
+// `index.ts`, its boundary's `*.fixture.ts` helpers, and type-only imports
+// (erased at compile time, so no runtime coupling). What it may NOT reach is
+// another FILE's internals — including its own neighbour's. The two variants
+// exist only because `src/Foo.test.ts` and `src/mod/Foo.test.ts` capture
+// differently; dependency-cruiser rejects the single optional-group regex that
+// would unify them as ReDoS-unsafe.
 // `test-owns-impl`'s path-tail capture is `.+` (not `[^/]+`) so a test nested
 // more than one directory below its boundary is still matched — the boundary
 // capture itself stays `[^/]+`, deliberately single-segment. Its fixture
@@ -39,7 +39,7 @@ export default {
     {
       name: "test-owns-impl",
       comment:
-        "A unit test under src/<boundary>/ imports the file it is named after, published barrels, root vocabulary, and its boundary's fixtures — never a neighbour's internals.",
+        "A unit test under src/<boundary>/ imports the file it is named after, published barrels and its boundary's fixtures — never a neighbour's internals.",
       severity: "error",
       from: { path: "^src/([^/]+)/(.+)\\.test\\.tsx?$" },
       to: {
@@ -129,6 +129,25 @@ export default {
       severity: "error",
       from: { pathNot: compositionRoots.map((root) => root.replace("\\.ts$", "\\.test\\.tsx?$")) },
       to: { path: compositionRoots },
+    },
+
+    // --- spec 04 ---
+    {
+      name: "root-holds-composition-roots",
+      comment:
+        "src/ holds only composition roots and their tests; every other module lives in a boundary or contract folder.",
+      severity: "error",
+      from: {},
+      module: {
+        path: "^src/[^/]+$",
+        pathNot: [
+          ...compositionRoots,
+          ...compositionRoots.map((root) => root.replace("\\.ts$", "\\.test\\.tsx?$")),
+        ],
+        // A module rule needs a dependents count to match on, and the schema
+        // caps it at 100 — far above any module in this repository.
+        numberOfDependentsLessThan: 100,
+      },
     },
   ],
   options: {

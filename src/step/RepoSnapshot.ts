@@ -1,5 +1,5 @@
 import type { CommitSpec } from "../replay/index.js"
-import type { PendingChange, StateName, StepDef } from "../Workflow.js"
+import type { PendingChange, StateName, StepDef } from "../workflow/index.js"
 
 /**
  * What landing the pending turn does, decided at the edge by replaying the

@@ -16,7 +16,7 @@ import { InMemRepo } from "../../../src/testing/index.js"
 //   at the OUTER worktree's git dir instead of the tmp repo's own .git — the
 //   same cross-worktree leak per-worktree git-dir resolution guards against.
 // - GTD_LOOP_*: a driver may export `$GTD_LOOP_LOG`, the absolute path of the
-//   CURRENT worktree's loop log (`src/WorktreeState.ts`'s `loopLogPath` reads
+//   CURRENT worktree's loop log (`src/platform/WorktreeState.ts`'s `loopLogPath` reads
 //   it verbatim when set) — so a spawned gtd inheriting it would report the
 //   driver's log path instead of resolving the tmp repo's own, breaking every
 //   log-path assertion. Scrubbing the whole GTD_LOOP_ prefix also drops any

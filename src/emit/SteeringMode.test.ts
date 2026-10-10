@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { resolveMode, validateScriptFor, type ModeResolution } from "./SteeringMode.js"
-import { Host } from "./platform/index.js"
-import { steeringFormatFor } from "./steering/index.js"
-import { seededValidateCommand } from "./SteeringFormats.js"
+import { Host } from "../platform/index.js"
+import { steeringFormatFor } from "../steering/index.js"
+import { seededValidateCommand, type WorkflowDefinition } from "../workflow/index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!
-import type { WorkflowDefinition } from "./Workflow.js"
 
 type ModesDef = Pick<WorkflowDefinition, "modes">
 

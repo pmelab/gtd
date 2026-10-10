@@ -32,7 +32,7 @@ export const contradictionMessage = (mode: string, formatCommand: string): strin
  * the real steering file. `printf '%s'` over a `shellQuote`d sample, never a
  * heredoc, since no delimiter chosen ahead of time can collide with the
  * sample's own bytes. One bash fragment with no blank lines (so
- * `src/Emit.ts`'s `assembleScript` never splits it from a sibling step), meant
+ * `src/emit/Emit.ts`'s `assembleScript` never splits it from a sibling step), meant
  * to run BEFORE `[ -f <file> ] || exit 0` in the emitted validate script so it
  * still fires at a first-write beat where the real steering file doesn't
  * exist yet.

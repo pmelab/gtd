@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { CommandRunner } from "../CommandRunner.js"
+import { CommandRunner } from "../platform/index.js"
 
 /** What `resolveBindHost`/`resolveCertPair` need out of `tailscale status --json`: a display hostname and the domains a `tailscale cert` call is available for. */
 export interface TailscaleStatus {

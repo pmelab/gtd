@@ -8,7 +8,7 @@ import {
   contradictionMessage,
   modeContradictionSkipNotice,
 } from "./ModeContradiction.js"
-import { shellQuote } from "./GitScript.js"
+import { shellQuote } from "./index.js"
 
 describe("buildModeContradictionCheck", () => {
   const inputs = {

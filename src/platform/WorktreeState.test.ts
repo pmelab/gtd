@@ -1,5 +1,5 @@
 /**
- * Coverage for `src/WorktreeState.ts`'s `worktreeGitDir`/`loopLogPath`: an
+ * Coverage for `src/platform/WorktreeState.ts`'s `worktreeGitDir`/`loopLogPath`: an
  * in-memory group pinning the `.git` resolution table (D1's own words in
  * gtd#169), and a real-git group proving the resolver is byte-identical to
  * `git rev-parse --git-dir` — including under a `GIT_DIR`/`GIT_WORK_TREE`
@@ -15,8 +15,8 @@ import { Effect, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { describe, expect, it } from "vitest"
 import { loopLogPath, worktreeGitDir } from "./WorktreeState.js"
-import { GitService, Host, Workspace } from "./platform/index.js"
-import { InMemRepo, testLayers } from "./testing/index.js"
+import { GitService, Host, Workspace } from "./index.js"
+import { InMemRepo, testLayers } from "../testing/index.js"
 
 const provide = <A>(
   eff: Effect.Effect<A, never, Host | Workspace>,

@@ -1,7 +1,7 @@
-import type { StateName } from "../Workflow.js"
+import type { StateName } from "../workflow/index.js"
 
 /**
- * The core's git effect, as DATA — never shell text. `src/GitScript.ts` is
+ * The core's git effect, as DATA — never shell text. `src/emit/GitScript.ts` is
  * the only place a `GitWrite` becomes a command; `src/step/` never imports
  * that module, which is what makes writing a live git call inside the core
  * impossible rather than merely discouraged.

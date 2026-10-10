@@ -1,6 +1,5 @@
 import { Effect, Option } from "effect"
-import { GtdUsageError, Narrator } from "../Commentary.js"
-import { GitService, Host, Workspace } from "../platform/index.js"
+import { GtdUsageError, Narrator, GitService, Host, Workspace } from "../platform/index.js"
 import {
   ConfigDiscovery,
   ConfigService,

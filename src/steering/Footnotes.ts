@@ -50,10 +50,10 @@ export interface Footnotes {
   readonly findings: readonly SteeringFinding[]
 }
 
-/** The footnote-addition action's title — the ONE shared literal `qa`/`review` offer it under and `src/Lsp.ts` matches to compute the reveal position. A drifted copy in any one place silently breaks the cursor jump without failing a single test, so this constant is the only place the string is spelled. */
+/** The footnote-addition action's title — the ONE shared literal `qa`/`review` offer it under and `src/lsp/Lsp.ts` matches to compute the reveal position. A drifted copy in any one place silently breaks the cursor jump without failing a single test, so this constant is the only place the string is spelled. */
 export const FOOTNOTE_ACTION_TITLE = "gtd: add a footnote"
 
-/** The thread-reply action's title — shared with `src/Lsp.ts` for the same reason as `FOOTNOTE_ACTION_TITLE`. */
+/** The thread-reply action's title — shared with `src/lsp/Lsp.ts` for the same reason as `FOOTNOTE_ACTION_TITLE`. */
 export const THREAD_REPLY_ACTION_TITLE = "gtd: reply"
 
 /**

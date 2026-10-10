@@ -1,5 +1,5 @@
-import type { WorkflowBase, Flow, ScopeAccess, Summary } from "./flows/index.js"
-import type { Actor, ContentKind, StateMode, StateName, StepAccess } from "./wire/index.js"
+import type { WorkflowBase, Flow, ScopeAccess, Summary } from "../flows/index.js"
+import type { Actor, ContentKind, StateMode, StateName, StepAccess } from "../wire/index.js"
 
 export type { Actor, ContentKind, StateMode, StateName }
 

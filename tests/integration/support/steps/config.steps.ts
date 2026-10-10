@@ -95,7 +95,7 @@ Given("the workflow", (world: GtdWorld) => scaffoldUnifiedWorkflow(world))
 
 // Sets an environment variable the in-memory tier's `EnvVars` layer exposes —
 // exactly the `GTD_<UPPERCASE-name>` highest-precedence layer of the merged
-// `it.vars` (see src/Edge.ts's `resolveVars`). Never touches the real
+// `it.vars` (see src/edge/Edge.ts's `resolveVars`). Never touches the real
 // `process.env`: `world.envVars` flows straight into `testLayers`.
 Given(
   "an environment variable {string} set to {string}",

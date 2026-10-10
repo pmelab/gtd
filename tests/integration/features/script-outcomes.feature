@@ -5,7 +5,7 @@ Feature: Emitted required/optional scripts print their own outcome lines
   own git write, and the driver that DOES (this suite's own `world.ts`, or
   docs/driver.md's minimal driver) no longer re-derives the commit grammar or
   re-prints the write commands' wording itself either: the emitted `required`
-  script prints its own human-facing outcome line (`src/OutcomeScript.ts`'s
+  script prints its own human-facing outcome line (`src/emit/OutcomeScript.ts`'s
   `printf` statements), so ANY driver — this suite, a real driver, or a human
   pasting `required` into a terminal — sees the same feedback. `@live` only:
   the in-memory tier

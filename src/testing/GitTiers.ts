@@ -17,8 +17,7 @@ import { execSync, execFileSync } from "node:child_process"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Option } from "effect"
 import { NodeContext } from "@effect/platform-node"
-import { Narrator } from "../Commentary.js"
-import { GitService, Host, type GitOperations } from "../platform/index.js"
+import { Narrator, GitService, Host, type GitOperations } from "../platform/index.js"
 import {
   commitAll,
   commitAsIs,
@@ -28,7 +27,7 @@ import {
   discardPending,
   updateRef,
   deleteRef,
-} from "../GitScript.js"
+} from "../emit/index.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { gitTestLayer } from "./Layers.js"
 

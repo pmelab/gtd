@@ -11,7 +11,15 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Layer } from "effect"
 import { isAbsolute, join } from "node:path"
-import { GtdError, Narrator } from "../Commentary.js"
+import {
+  GtdError,
+  Narrator,
+  GitService,
+  Host,
+  Workspace,
+  type WorkspaceOps,
+  CommandRunner,
+} from "../platform/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
@@ -20,9 +28,7 @@ import {
   WORKFLOW_MODULE,
   walkUp,
 } from "../workflow/index.js"
-import { GitService, Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { fakeGitOperations } from "./FakeGitOperations.js"
-import { CommandRunner } from "../CommandRunner.js"
 import { UiListener } from "../ui/index.js"
 import { InMemRepo } from "./InMemRepo.js"
 import type { CommandRequirements } from "../program.js"

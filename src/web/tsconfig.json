@@ -3,8 +3,8 @@
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"]
   },
-  // `../types.d.ts` too: the client's type-only imports reach `src/ui/`,
+  // `../ui/types.d.ts` too: the client's type-only imports reach `src/ui/`,
   // which imports the generated `.html` client declared there.
-  "include": [".", "../types.d.ts"],
+  "include": [".", "../ui/types.d.ts"],
   "exclude": []
 }

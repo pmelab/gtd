@@ -56,7 +56,7 @@ export const stallDiagnosis = (state: StateName, actor: Actor): string =>
   `    flow decides what follows — finishing, or an escalation step after N\n` +
   `    empty turns\n`
 
-/** One dispatch session — `resume`'s own meaning lives with `src/Sessions.ts`'s `resolveSession`, which produces it. */
+/** One dispatch session — `resume`'s own meaning lives with `src/wire/Sessions.ts`'s `resolveSession`, which produces it. */
 export interface DemandSession {
   readonly id: string
   readonly resume: boolean

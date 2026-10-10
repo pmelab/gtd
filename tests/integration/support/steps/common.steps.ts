@@ -428,6 +428,11 @@ Then("stderr contains the gtd version under test", (world: GtdWorld) => {
   )
 })
 
+Then("stdout is the gtd version under test", (world: GtdWorld) => {
+  const { version } = _require("../../../../package.json") as { version: string }
+  assert.equal(world.lastResult.stdout, `${version}\n`)
+})
+
 Then("stderr does not contain {string}", (world: GtdWorld, text: string) => {
   assert.ok(
     !world.lastResult.stderr.includes(text),

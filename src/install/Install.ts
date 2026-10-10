@@ -1,8 +1,5 @@
 // `MINIMAL_DRIVER` is pinned equal to https://github.com/pmelab/gtd/blob/main/docs/driver.md's "A complete minimal driver" fenced bash block by `Install.test.ts`, so the two can never drift.
-import { createRequire } from "node:module"
-
-const _require = createRequire(import.meta.url)
-const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
+import { GTD_VERSION } from "./Version.js"
 
 export const MINIMAL_DRIVER = `#!/usr/bin/env sh
 set -eu

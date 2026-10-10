@@ -12,7 +12,7 @@ import {
   fileExistsGuard,
   type EmitStep,
 } from "./Emit.js"
-import { commitOutcome, noteOutcome } from "./OutcomeScript.js"
+import { commitOutcome, noteOutcome } from "./index.js"
 
 /**
  * `sh -n` (POSIX syntax check), not `bash -n` — a script that only passes

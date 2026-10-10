@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
-import { CommandRunner } from "../CommandRunner.js"
+import { CommandRunner } from "../platform/index.js"
 import { parseTailscaleStatus, probeTailscaleStatus } from "./Tailscale.js"
 
 const running = (self: Record<string, unknown>, top: Record<string, unknown> = {}): string =>

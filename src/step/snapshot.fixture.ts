@@ -1,4 +1,4 @@
-import type { StepDef } from "../Workflow.js"
+import type { StepDef } from "../workflow/index.js"
 import type { RepoSnapshot } from "./RepoSnapshot.js"
 
 /**

@@ -4,8 +4,8 @@ Feature: A declared mode command guards its own missing binary
   A mode's `format:`/`validate:` command is rendered into the driver's own
   shell, not spawned by gtd — a typo'd or uninstalled binary used to surface
   as a raw non-zero exit the driver's shell produced, with no clue which mode
-  or command was to blame. `src/Emit.ts`'s `binaryGuard` re-renders the
-  diagnostic `CommandRunner` used to give (see `src/SteeringMode.test.ts` at
+  or command was to blame. `src/emit/Emit.ts`'s `binaryGuard` re-renders the
+  diagnostic `CommandRunner` used to give (see `src/emit/SteeringMode.test.ts` at
   base commit `758c0993`) as a shell line emitted immediately ahead of the
   command it guards: a `command -v` probe that names the mode, the command
   key, and the resolved `$PATH` before exiting 127 — bash's own "command not

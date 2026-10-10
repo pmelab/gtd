@@ -1,6 +1,7 @@
 import { isAbsolute, join } from "node:path"
 import { Effect } from "effect"
-import { Host, Workspace } from "./platform/index.js"
+import { Host } from "./Host.js"
+import { Workspace } from "./Workspace.js"
 
 const GITDIR_POINTER = /^gitdir:\s*(.+)$/m
 
