@@ -7,7 +7,7 @@
       "@semantic-release/exec",
       {
         "prepareCmd": "npm version ${nextRelease.version} --no-git-tag-version --allow-same-version && node scripts/sync-plugin-version.mjs && npm run build",
-        "publishCmd": "npm publish --access public --provenance"
+        "publishCmd": "npm publish --access public --provenance --tag next"
       }
     ],
     [

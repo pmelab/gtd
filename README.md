@@ -19,6 +19,10 @@ to any machine that checks it out.
 npm install -g @pmelab/gtd
 ```
 
+That installs `latest`, which moves once a day to the newest release. Every
+merge to `main` publishes to `next` first: `npm install -g @pmelab/gtd@next`
+gets each one as it lands.
+
 Or run without installing (prefix every `gtd` below with `npx`) — see
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for the settings most projects tune. A process setting's value is committed to
