@@ -172,7 +172,7 @@ describe("planStart", () => {
         kind: "gitWrite",
         write: {
           kind: "commitAll",
-          message: "gtd(human): work\n\nGtd-Workflow: working\nGtd-Var: base=",
+          message: "gtd(human): work\n\nGtd-Workflow: working\nGtd-Var: base=\nGtd-Format: 1",
         },
       },
       { kind: "outcome", outcome: { kind: "commit", subject: "gtd(human): work" } },
@@ -190,7 +190,7 @@ describe("planStart", () => {
     const write = plan.steps.find((s) => s.kind === "gitWrite")
     if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
     expect(write.write.message).toBe(
-      "gtd(human): work\n\nGtd-Workflow: working\nGtd-Var: base=main",
+      "gtd(human): work\n\nGtd-Workflow: working\nGtd-Var: base=main\nGtd-Format: 1",
     )
     const outcome = plan.steps.find((s) => s.kind === "outcome")
     expect(outcome).toEqual({

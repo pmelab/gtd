@@ -3,6 +3,8 @@
 // written by gtd) is skipped, not fatal — a corrupt line must never make every
 // command unusable.
 
+import { HISTORY_FORMAT } from "./Format.js"
+
 const TRANSITION_SEP = " → "
 
 export interface ParsedSubject {
@@ -68,6 +70,7 @@ export interface CommitMessage {
   readonly vars: Readonly<Record<string, string>>
   readonly reviewBase: string | undefined
   readonly cost: readonly CostEntry[]
+  readonly format: number
 }
 
 const isVerdict = (value: unknown): value is JudgeVerdict => {
@@ -91,6 +94,7 @@ const parseJson = (raw: string): unknown => {
 const TRAILER_RE = /^(Gtd-[A-Za-z-]+):[ \t]*(.*?)[ \t]*$/gm
 const COST_RE = /^([0-9]+(?:\.[0-9]+)?)(?:[ \t]+(.+))?$/
 const VAR_RE = /^([^=\s]+)=(.*)$/
+const FORMAT_RE = /^[1-9][0-9]*$/
 
 interface Trailers {
   step: StepId | undefined
@@ -99,6 +103,7 @@ interface Trailers {
   readonly judge: JudgeVerdict[]
   readonly vars: Record<string, string>
   readonly cost: CostEntry[]
+  format: number | undefined
 }
 
 const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) => void>> = {
@@ -119,6 +124,9 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Review-Base": (value, into) => {
     into.reviewBase ??= value.split(/\s/)[0]
   },
+  "Gtd-Format": (value, into) => {
+    if (FORMAT_RE.test(value)) into.format ??= Number(value)
+  },
   "Gtd-Cost": (value, into) => {
     const c = COST_RE.exec(value)
     if (c !== null) into.cost.push({ cost: Number(c[1]), model: c[2]?.trim() || undefined })
@@ -135,13 +143,14 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     judge: [],
     vars: {},
     cost: [],
+    format: undefined,
   }
   if (newline !== -1) {
     for (const match of message.slice(newline).matchAll(TRAILER_RE)) {
       TRAILER_READERS[match[1]!]?.(match[2]!, trailers)
     }
   }
-  return { subject, parsed: parseSubject(subject), ...trailers }
+  return { subject, parsed: parseSubject(subject), ...trailers, format: trailers.format ?? 1 }
 }
 
 export interface CommitSpec {
@@ -172,6 +181,7 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     )
   }
   for (const verdict of spec.judge ?? []) lines.push(`Gtd-Judge: ${JSON.stringify(verdict)}`)
+  lines.push(`Gtd-Format: ${HISTORY_FORMAT}`)
   const subject = formatSubject(spec.actor, spec.to, spec.from)
-  return lines.length === 0 ? subject : `${subject}\n\n${lines.join("\n")}`
+  return `${subject}\n\n${lines.join("\n")}`
 }

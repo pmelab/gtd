@@ -261,6 +261,10 @@ that signal — a parent's `wait` sees a real signal death (`WIFSIGNALED`), not 
 chosen exit code that merely reuses the same number. No command's exit code
 carries a second meaning.
 
+A history written in a format this gtd does not read is a refusal like any
+other: exit `1`, with a message naming the found and supported formats (see
+[History format](./configuration.md#history-format)).
+
 A driver reads whose turn is next off `gtd next --json`'s own `kind` field
 (`capture`/`message`/`script`/`prompt`/`stalled`), never off gtd's exit code.
 Plain `gtd next` prints a status header at every kind except `prompt`, whose

@@ -106,7 +106,9 @@ The step name is the `<to>` in the commit subject the landing writes,
 `Gtd-Step: <name>#<n>` trailer (`<n>` counts how often that name was reached in
 the episode). Other trailers a landing may carry: `Gtd-Judge:` (one per answered
 judge question), `Gtd-Var:` (a process setting), `Gtd-Cost:` (a
-`gtd land --cost`), and `Gtd-Review-Base:` (a workflow's fixed diff base).
+`gtd land --cost`), and `Gtd-Review-Base:` (a workflow's fixed diff base). Every
+commit gtd writes also carries `Gtd-Format:` (see
+[History format](#history-format)).
 
 ### Step options
 
@@ -461,6 +463,25 @@ before changing the workflow under it.
 process or environment setting (any vars/env access, enumeration included) fails
 to load; a setting name outside [A-Za-z_][A-Za-z0-9_]* — in workflow
 defaults/envDefaults, .gtdrc vars:/env:, or --var — fails to load or is refused.
+
+#### History format
+
+Everything replay reads back out of git — the commit subject, the `Gtd-*`
+trailers, the steering files committed into a process, and the tip `gtd abandon`
+retains for `gtd restore` — is one versioned **history format**, recorded as a
+`Gtd-Format: <n>` trailer on every commit gtd writes. A commit without the
+trailer predates it and is format 1, the current format. The retained tip is
+versioned by that same trailer on the commit it points at.
+
+The format changes only when one of those encodings does, independently of gtd's
+own version. A gtd reads its current format and, after a change, at least the
+one before it. A history containing a gtd commit in a format this gtd does not
+read is refused by every command that reads it — `gtd abandon`, `gtd restore`
+and `gtd summary` included — before anything acts on it: exit `1`, naming the
+commit, the format it found and the format it reads, never reported as a
+divergence. Run a gtd release that reads that format to continue the process. A
+commit gtd did not write (its subject does not start with `gtd`) is never read
+for a format.
 
 ### Rules for flow code
 

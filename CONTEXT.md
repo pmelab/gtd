@@ -78,6 +78,12 @@ so flow code must be pure too. _Avoid_: fold, resume, reconstruct
 current workflow does not reach there. gtd refuses loudly and points at
 `gtd abandon`; there is no migration. _Avoid_: drift, stale state, migration
 
+**History format**: The version of everything replay reads back out of git —
+subject, `Gtd-*` trailers, committed steering formats, the retained tip —
+written as `Gtd-Format: <n>` on every gtd commit, 1 when absent. A history in a
+format gtd does not read is refused as such, never as divergence. Independent of
+the package version. _Avoid_: schema version, gtd version
+
 **Turn**: What an actor actually did — the work sitting in the tree, captured as
 one commit. _Avoid_: action, move
 
