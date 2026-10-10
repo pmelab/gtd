@@ -77,6 +77,7 @@
         "claude/**",
         "package.json",
         ".releaserc.json",
+        ".github/workflows/**",
         ".claude-plugin/**",
         "hooks/**",
         "bin/**"

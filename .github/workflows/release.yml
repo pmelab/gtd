@@ -1,12 +1,23 @@
 name: Release
 
+# Every job lives in this one file because npm's trusted publisher is bound to
+# its filename: a separate promote workflow would need its own npm config.
 on:
   push:
     branches:
       - main
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Publish this already-tagged version that never reached npm (e.g. 17.1.0); empty promotes next → latest"
+        required: false
+        default: ""
 
 jobs:
   test:
+    if: github.event_name == 'push'
     uses: ./.github/workflows/test.yml
 
   release:
@@ -36,3 +47,65 @@ jobs:
       - run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Not semantic-release's channels: those need a second release branch
+  # fast-forwarded from main, and a push made with GITHUB_TOKEN cannot trigger
+  # the run that would promote it. dist-tag over OIDC needs npm >= 11.21 and
+  # "Allow npm dist-tag" enabled on the package's trusted publisher.
+  promote:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.backfill == '')
+    concurrency: promote
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install -g npm@^11.21.0
+      - run: node scripts/promote.mjs
+
+  # A release whose tag was pushed but whose publish failed is skipped by every
+  # later semantic-release run; this republishes it without touching `latest`.
+  backfill:
+    if: github.event_name == 'workflow_dispatch' && inputs.backfill != ''
+    concurrency: promote
+    permissions:
+      contents: write
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v${{ inputs.backfill }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check the version is a released tag on main
+        run: |
+          printf '%s\n' "$VERSION" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'
+          git merge-base --is-ancestor HEAD origin/main
+          test "$(node -p "require('./package.json').version")" = "$VERSION"
+        env:
+          VERSION: ${{ inputs.backfill }}
+      - run: npm install -g npm@^11.21.0
+      - run: npm ci && npm run build
+      - run: |
+          # each step is skipped once done, so a failed run can be re-run
+          if [ -z "$(npm view "@pmelab/gtd@$VERSION" version)" ]; then
+            npm publish --access public --provenance --tag backfill
+          fi
+          # the newest release's failed publish left `next` behind it; the old
+          # tag predates the script, so it runs from main
+          git show origin/main:scripts/promote.mjs >"$RUNNER_TEMP/promote.mjs"
+          node "$RUNNER_TEMP/promote.mjs" backfill next
+          npm dist-tag rm @pmelab/gtd backfill || true
+          gh release view "v$VERSION" >/dev/null 2>&1 ||
+            gh release create "v$VERSION" --verify-tag --latest=false --generate-notes \
+              "dist/gtd.bundle.mjs#gtd.bundle.mjs"
+        env:
+          VERSION: ${{ inputs.backfill }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

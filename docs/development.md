@@ -29,7 +29,19 @@ run `npm install` on a fresh clone — it runs
 
 Releases are automatic: push releasable Conventional Commits (`fix:`, `feat:`,
 or breaking changes) to `main` and semantic-release computes the next version,
-builds the bundle, tags it, and publishes.
+builds the bundle, tags it, and publishes it to npm's `next` dist-tag. `latest`
+trails behind: the Release workflow's daily schedule (or a manual run with no
+input) moves it to the newest `next`, and does nothing when they already match —
+so users on `latest` get one batch a day, however many majors landed.
+
+Promotion needs **Allow npm dist-tag** enabled on the package's npm trusted
+publisher configuration; no npm token is stored.
+
+If a release's tag is pushed but its publish fails, later runs skip that
+version. Run the Release workflow manually with `backfill` set to the version
+(e.g. `17.1.0`) to publish it from its tag — with provenance, without moving
+`latest`, moving `next` only if it is the newest release — and create its GitHub
+release with the bundle if it is missing.
 
 ## Prompt evals
 
