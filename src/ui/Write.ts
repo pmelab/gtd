@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto"
 import { readFile as readFileFs, mkdir, writeFile as writeFileFs } from "node:fs/promises"
 import { dirname } from "node:path"
-import type { SteeringAnchor, SteeringEdit } from "../steering/index.js"
-import { steeringFormatOrFreeForm } from "../steering/index.js"
+import type { SteeringAnchor } from "../steering/index.js"
+import { applySteeringEdits, steeringFormatOrFreeForm } from "../steering/index.js"
 import { liveRunInWorktree } from "./Beat.js"
 import { resolveWithinRoot } from "./SafePath.js"
 
@@ -107,25 +107,6 @@ export interface WriteDeps {
     readonly command: string
     readonly exitCode: number | null
   }>
-}
-
-/** Splices `edits` into `content`, sorted last-to-first so an earlier range's offset is never invalidated by a later edit. Positions are 0-based line/character over `\n`-split lines. */
-export const applySteeringEdits = (content: string, edits: readonly SteeringEdit[]): string => {
-  const lines = content.split("\n")
-  const toOffset = (pos: { readonly line: number; readonly character: number }): number => {
-    let offset = 0
-    for (let i = 0; i < pos.line; i += 1) offset += (lines[i]?.length ?? 0) + 1
-    return offset + pos.character
-  }
-  const sorted = [...edits].sort((a, b) => toOffset(b.range.start) - toOffset(a.range.start))
-  let result = content
-  for (const edit of sorted) {
-    result =
-      result.slice(0, toOffset(edit.range.start)) +
-      edit.newText +
-      result.slice(toOffset(edit.range.end))
-  }
-  return result
 }
 
 /** Per-path write queues: serializes read-check-apply-write so exactly one of two racing writes applies — the loser re-reads the winner's bytes and correctly refuses as stale. */

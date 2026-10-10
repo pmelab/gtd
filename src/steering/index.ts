@@ -8,6 +8,7 @@ import type {
 import { qaDescriptor } from "./qa.js"
 import { reviewDescriptor } from "./review.js"
 export { reviewNotes, reviewRisks, type ReviewNote } from "./review.js"
+export { applySteeringEdits } from "./Edits.js"
 
 export type { InlineNode } from "./Inline.js"
 
@@ -21,7 +22,6 @@ export type {
   BlockListItem,
   SteeringAction,
   SteeringAnchor,
-  SteeringEdit,
   SteeringFinding,
   SteeringFormat,
   SteeringLink,

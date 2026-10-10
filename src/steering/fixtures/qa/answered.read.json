@@ -1,0 +1,119 @@
+{
+  "nodes": [
+    {
+      "title": "Move the cache to a shared directory.",
+      "anchor": {
+        "kind": "paragraph",
+        "line": 0
+      }
+    },
+    {
+      "title": "Where does the cache live?",
+      "detail": "The cache is per worktree today.",
+      "status": "open",
+      "answered": true,
+      "anchor": {
+        "kind": "question",
+        "index": 0
+      },
+      "body": [
+        {
+          "title": "The cache is per worktree today.",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 6
+          }
+        }
+      ],
+      "children": [
+        {
+          "title": "In `$XDG_CACHE_HOME`",
+          "checked": false,
+          "anchor": {
+            "kind": "option",
+            "questionIndex": 0,
+            "index": 0
+          },
+          "body": [
+            {
+              "title": "Shared by every worktree",
+              "anchor": {
+                "kind": "paragraph",
+                "line": 9
+              }
+            }
+          ]
+        },
+        {
+          "title": "Next to the repository",
+          "checked": true,
+          "anchor": {
+            "kind": "option",
+            "questionIndex": 0,
+            "index": 1
+          },
+          "body": [
+            {
+              "title": "Survives a worktree removal",
+              "anchor": {
+                "kind": "paragraph",
+                "line": 11
+              }
+            }
+          ]
+        },
+        {
+          "title": "",
+          "checked": false,
+          "anchor": {
+            "kind": "option",
+            "questionIndex": 0,
+            "index": 2
+          }
+        }
+      ]
+    },
+    {
+      "title": "How is it invalidated?",
+      "detail": "",
+      "status": "open",
+      "answered": true,
+      "anchor": {
+        "kind": "question",
+        "index": 1
+      },
+      "body": [],
+      "children": [
+        {
+          "title": "By content hash",
+          "checked": false,
+          "anchor": {
+            "kind": "option",
+            "questionIndex": 1,
+            "index": 0
+          },
+          "body": []
+        },
+        {
+          "title": "By modification time",
+          "checked": false,
+          "anchor": {
+            "kind": "option",
+            "questionIndex": 1,
+            "index": 1
+          },
+          "body": []
+        },
+        {
+          "title": "Keep both, hash wins on conflict",
+          "checked": true,
+          "anchor": {
+            "kind": "option",
+            "questionIndex": 1,
+            "index": 2
+          }
+        }
+      ]
+    }
+  ]
+}
