@@ -67,7 +67,10 @@ for you. Ask your agent if you have any questions.
   back next week: run the driver and it resumes exactly where it stopped.
 - **Shareable.** Push the branch, and the workflow travels with it — the state
   lives in the commits, so another machine (or another person) picks up exactly
-  where you left off.
+  where you left off. Each commit records the history format it was written in
+  (`Gtd-Format:`), so a gtd that cannot read a history says so instead of
+  misreading it — see
+  [History format](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#history-format).
 - **Files, not chat.** Conversation lives in files like `REQUIREMENTS.md` or
   `ARCHITECTURE.md`. Request changes by editing them, approve by leaving the
   tree clean — all in your own editor. There is no chat UI that could flicker.

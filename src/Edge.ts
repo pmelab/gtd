@@ -18,6 +18,7 @@ import {
   type ResolvedWorkflow,
 } from "./workflow/index.js"
 import {
+  formatFault,
   formatSubject,
   parseCommitMessage,
   replay,
@@ -182,10 +183,37 @@ const costEntriesOf = (message: ReturnType<typeof parseCommitMessage>): CostEntr
 
 const hashAt = (history: History, index: number): string | undefined => history[index]?.hash
 
+// The base is checked too: a foreign subject codec can hide a commit from the
+// episode, leaving it as the base. Only a `gtd`-prefixed base counts, so a
+// commit gtd never wrote cannot block it by quoting the trailer.
+const historyFormatFault = (history: History, location: EpisodeLocation): string | undefined =>
+  formatFault(
+    history
+      .slice(location.baseIndex + 1)
+      .concat(
+        history[location.baseIndex]?.message.startsWith("gtd")
+          ? [history[location.baseIndex]!]
+          : [],
+      )
+      .map((c) => ({ hash: c.hash, format: parseCommitMessage(c.message).format })),
+  )
+
+/** Fails on a history in a format this gtd does not read, before anything acts on it. */
 const runOf = (
   history: History,
   location: EpisodeLocation,
   closingHash: string | undefined = undefined,
+): Effect.Effect<ProcessRun, Error> => {
+  const fault = historyFormatFault(history, location)
+  return fault === undefined
+    ? Effect.succeed(buildRun(history, location, closingHash))
+    : Effect.fail(new Error(fault))
+}
+
+const buildRun = (
+  history: History,
+  location: EpisodeLocation,
+  closingHash: string | undefined,
 ): ProcessRun => {
   const processCommits = history.slice(location.processStart)
   const parsed = processCommits.map((c) => parseCommitMessage(c.message))
@@ -315,11 +343,13 @@ const computeProcessRun = (
   def: WorkflowDefinition,
   head?: string,
 ): Effect.Effect<ProcessRun, Error> =>
-  Effect.map(historyUpTo(git, def, head), (history) => runOf(history, locateEpisode(def, history)))
+  Effect.flatMap(historyUpTo(git, def, head), (history) =>
+    runOf(history, locateEpisode(def, history)),
+  )
 
 type ConfigRequirements = GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
 
-/** The run alone, never replaying — `gtd abandon` must work even when replay would refuse. */
+/** The run alone, never replaying — `gtd abandon` must work even when replay would refuse, short of a history it cannot read. */
 export const currentRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = Effect.gen(
   function* () {
     const git = yield* GitService
@@ -342,12 +372,12 @@ export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = 
       // No commits at all — `historyUpTo` folds an empty repository to an
       // empty run on its own; there is no hash yet to pin anything to.
       const history = yield* historyUpTo(git, def, undefined)
-      return runOf(history, locateEpisode(def, history))
+      return yield* runOf(history, locateEpisode(def, history))
     }
     const closes = parseCommitMessage(headEntry.subject).parsed?.to === def.initial
     if (!closes) {
       const history = yield* historyUpTo(git, def, headEntry.hash)
-      return runOf(history, locateEpisode(def, history))
+      return yield* runOf(history, locateEpisode(def, history))
     }
     // HEAD itself closes the process: its own subject would otherwise read as
     // a boundary to `findBoundaryBase` (landing the initial state), stopping
@@ -360,7 +390,7 @@ export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = 
     const location = locateEpisode(def, before)
     let closing = yield* git.commitHistory(parentRef, headEntry.hash)
     if (closing.length === 0) closing = yield* git.commitHistory(undefined, headEntry.hash)
-    return runOf([...before, ...closing], { ...location }, headEntry.hash)
+    return yield* runOf([...before, ...closing], { ...location }, headEntry.hash)
   },
 )
 

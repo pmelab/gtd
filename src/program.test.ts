@@ -95,7 +95,9 @@ export const defaults = { greeting: "hello" }
     const { stdout, exitCode } = await run(repo, "--workflow", "hotfix")
     expect(exitCode).toBe(0)
     expect(stdout).toContain(
-      commitAll("gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello"),
+      commitAll(
+        "gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello\nGtd-Format: 1",
+      ),
     )
     expect(repo.commitHistory()).toHaveLength(before)
   })
@@ -743,6 +745,70 @@ describe("gtd next — refuses when history diverges from what replay reaches", 
 
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
     expect(repo.commitHistory()).toHaveLength(before - 2)
+  })
+})
+
+describe("a history written in a format this gtd does not read", () => {
+  // The exact wording is pinned in Format.test.ts; this is the part that proves the format gate fired.
+  const FOREIGN = "is written in history format 2, but this gtd reads format 1"
+
+  /** A step commit that would also diverge, so only the format gate can explain the refusal. */
+  const foreignStep = async (): Promise<InMemRepo> => {
+    const repo = seed(IDLE_THEN_WORKING)
+    await landTurn(repo, { "NOTE.md": "a note\n" })
+    repo.writeFile("WORK.md", "done\n")
+    repo.commitAllWithPrefix(
+      "gtd(agent): elsewhere → review\n\nGtd-Step: elsewhere#1\nGtd-Format: 2",
+    )
+    return repo
+  }
+
+  it("`gtd next` exits 1 naming both formats, never reporting divergence", async () => {
+    const { exitCode, stderr } = await run(await foreignStep(), "next")
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain(FOREIGN)
+    expect(stderr).not.toContain("the workflow changed under this process")
+  })
+
+  it("`gtd abandon` and `gtd summary` refuse it too, rewinding nothing", async () => {
+    const repo = await foreignStep()
+    const before = repo.commitHistory().length
+    for (const command of ["abandon", "summary"]) {
+      const { exitCode, stderr } = await run(repo, command)
+      expect(exitCode).toBe(1)
+      expect(stderr).toContain(FOREIGN)
+    }
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("refuses even when a foreign subject hides the commit from the episode", async () => {
+    const repo = seed(IDLE_THEN_WORKING)
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd2[human] idle -> working\n\nGtd-Format: 2")
+    for (const command of ["next", "abandon"]) {
+      const { exitCode, stderr } = await run(repo, command)
+      expect(exitCode).toBe(1)
+      expect(stderr).toContain(FOREIGN)
+    }
+  })
+
+  it("a commit gtd never wrote is not read for a format, even quoting the trailer", async () => {
+    const repo = seed(IDLE_THEN_WORKING)
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("feat: x\n\nGtd-Format: 2")
+    expect((await run(repo, "next")).exitCode).toBe(0)
+  })
+
+  it("`gtd restore` refuses a retained tip in a foreign format", async () => {
+    const repo = seed(IDLE_THEN_WORKING)
+    const base = repo.resolveRef("HEAD")!
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd(human): idle → working\n\nGtd-Step: idle#1\nGtd-Format: 2")
+    repo.updateRef(HISTORY_REF, repo.resolveRef("HEAD")!)
+    repo.hardResetTo(base)
+    const { exitCode, stderr } = await run(repo, "restore")
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain(FOREIGN)
   })
 })
 

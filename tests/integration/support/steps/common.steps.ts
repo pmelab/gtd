@@ -154,6 +154,21 @@ Given("the working tree is committed", (world: GtdWorld) => {
   }
 })
 
+// Commits the working tree under a message written out verbatim in the
+// scenario — trailers included — to stand in for history another gtd wrote.
+Given("the working tree is committed with message:", (world: GtdWorld, message: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.commitAllWithPrefix(message)
+  } else {
+    execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
+    execFileSync("git", ["commit", "-q", "--cleanup=verbatim", "-F", "-"], {
+      cwd: world.repoDir,
+      input: message,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+  }
+})
+
 // Bookmarks the current commit under a name a later step can reference as a
 // `<commitish>` (e.g. `gtd review <name>`) — a repo-local ref, regardless of
 // how far HEAD has since moved.

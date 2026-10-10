@@ -40,7 +40,9 @@ describe("the commit-message codec", () => {
       workflow: "fix",
       reviewBase: "abc",
     })
-    expect(message).toBe("gtd(human): fix-precheck\n\nGtd-Workflow: fix\nGtd-Review-Base: abc")
+    expect(message).toBe(
+      "gtd(human): fix-precheck\n\nGtd-Workflow: fix\nGtd-Review-Base: abc\nGtd-Format: 1",
+    )
     expect(parseCommitMessage(message).workflow).toBe("fix")
     expect(parseCommitMessage("gtd(human): fix-precheck").workflow).toBeUndefined()
   })
@@ -49,8 +51,20 @@ describe("the commit-message codec", () => {
     const one = formatCommitMessage({ actor: "human", to: "x", vars: { b: "2", a: "1", c: "" } })
     const two = formatCommitMessage({ actor: "human", to: "x", vars: { c: "", a: "1", b: "2" } })
     expect(one).toBe(two)
-    expect(one).toBe("gtd(human): x\n\nGtd-Var: a=1\nGtd-Var: b=2\nGtd-Var: c=")
+    expect(one).toBe("gtd(human): x\n\nGtd-Var: a=1\nGtd-Var: b=2\nGtd-Var: c=\nGtd-Format: 1")
     expect(parseCommitMessage(one).vars).toEqual({ a: "1", b: "2", c: "" })
+  })
+
+  it("writes Gtd-Format last on every message, even one with no other trailer", () => {
+    const message = formatCommitMessage({ actor: "agent", to: "building" })
+    expect(message).toBe("gtd(agent): building\n\nGtd-Format: 1")
+    expect(parseCommitMessage(message).format).toBe(1)
+  })
+
+  it("reads a message without Gtd-Format as format 1, and an explicit one as written", () => {
+    expect(parseCommitMessage("gtd(agent): a → b\n\nGtd-Step: a#1").format).toBe(1)
+    expect(parseCommitMessage("gtd(agent): a → b\n\nGtd-Format: 2").format).toBe(2)
+    expect(parseCommitMessage("gtd(agent): a → b\n\nGtd-Format: two").format).toBe(1)
   })
 
   it("skips a malformed trailer instead of failing", () => {

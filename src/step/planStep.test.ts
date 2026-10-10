@@ -26,7 +26,7 @@ describe("planStep — refusal and no-op pass through", () => {
 })
 
 describe("planStep — commit", () => {
-  it("an attempt commits the bare subject with no step trailer and bypasses guards", () => {
+  it("an attempt commits the subject with no step trailer and bypasses guards", () => {
     const s = snapshot({
       state: "await-answers",
       stepDef: { actor: "agent", kind: "prompt", mode: "qa" },
@@ -37,7 +37,10 @@ describe("planStep — commit", () => {
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
     expect(outcome.to).toBe("await-answers")
     expect(outcome.steps).toEqual([
-      { kind: "gitWrite", write: { kind: "commitAll", message: "gtd(agent): await-answers" } },
+      {
+        kind: "gitWrite",
+        write: { kind: "commitAll", message: "gtd(agent): await-answers\n\nGtd-Format: 1" },
+      },
       { kind: "outcome", outcome: { kind: "commit", subject: "gtd(agent): await-answers" } },
     ])
   })
@@ -54,7 +57,10 @@ describe("planStep — commit", () => {
     expect(outcome.subject).toBe("gtd(human): building → done")
     expect(outcome.steps[0]).toEqual({
       kind: "gitWrite",
-      write: { kind: "commitAll", message: "gtd(human): building → done\n\nGtd-Step: building#1" },
+      write: {
+        kind: "commitAll",
+        message: "gtd(human): building → done\n\nGtd-Step: building#1\nGtd-Format: 1",
+      },
     })
     expect(outcome.steps.at(-1)).toEqual({
       kind: "outcome",
@@ -92,6 +98,7 @@ describe("planStep — commit", () => {
     expect(trailers[1]).toBe("Gtd-Cost: 1.5 m")
     expect(trailers[2]).toBe('Gtd-Judge: {"id":"q1","answer":true,"p":0.9}')
     expect(trailers[3]).toBe('Gtd-Judge: {"id":"q2","answer":"x","p":0.4}')
-    expect(trailers).toHaveLength(4)
+    expect(trailers[4]).toBe("Gtd-Format: 1")
+    expect(trailers).toHaveLength(5)
   })
 })
