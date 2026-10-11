@@ -49,9 +49,8 @@ Both or neither — the check rejects one without the other. Spell the footer
 exactly `BREAKING CHANGE:`; semantic-release ignores `BREAKING-CHANGE:` and the
 `!` alone, so either would merge a breaking change as a minor or no release.
 
-Breaking includes a change to exit codes, `--json` output, the history format,
-CLI flags, `.gtdrc` config keys, a bundled workflow step's full name, or the
-exported API (`@pmelab/gtd/flows`, `@pmelab/gtd/workflow`).
+Breaking means breaking a tier of [COMPATIBILITY.md](../COMPATIBILITY.md); a
+no-promise surface never takes a `!`.
 
 ## Body and trailers
 

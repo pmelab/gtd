@@ -79,7 +79,9 @@ for you. Ask your agent if you have any questions.
   workflow doesn't care who executes it.
 
 See [gtd --help](https://github.com/pmelab/gtd/blob/main/docs/cli.md) for the
-full command/flag reference, and
+full command/flag reference,
+[Compatibility](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md) for
+which surfaces you can rely on across releases, and
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for how to inspect or replace the workflow itself.
 
