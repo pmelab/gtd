@@ -8,7 +8,7 @@ Feature: the bundled workflow's health check runs "testCommand"
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """

@@ -38,7 +38,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: an ordinary code change starts the process — triage, both gates stop even when question-free, one package built/fixed/reviewed, then a clean review sign-off lands directly into idle
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # No steering file anywhere — a plain source edit is the whole start diff.
     And a file "src/greeter.ts" with:
       """
@@ -286,7 +286,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: an actionable review round loops back through re-unwind — the human's hand-edit is out of the tree by the time triage runs
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add greeting" that adds "src/greet.ts" with:
@@ -359,7 +359,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: re-unwind refuses to land while the human's review-round paths are still un-reverted, then a hand-revert recovers
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add greeting" that adds "src/greet.ts" with:
@@ -433,7 +433,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a non-actionable review round (an approving remark, no code edit) short-circuits straight to sign-off
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add greeting" that adds "src/greet.ts" with:
@@ -495,7 +495,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: re-unwind actually reverts a hand-edited code line, never resurrects the review file, and leaves the state dir alone
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
@@ -544,7 +544,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: re-unwind on a note-only review round reverts nothing and still advances to design.triage
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
@@ -592,7 +592,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: a revert that cannot apply is refused, not silently swallowed
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # The bundled access would refuse the collecting turn's src/ write below.
     And a gtd config file at ".gtdrc" with:
       """
@@ -651,7 +651,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: writing the bundled sketch file alone starts a process — idle's file: hint is the same nested path its edge pattern already covers
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # idle's edge pattern is "* **" — a lone `*` never crosses a `/`, so only
     # the "**" half reaches into ".gtd/" at all. A future narrowing to "* *"
     # would leave this sketch unmatched and idle would refuse it.
@@ -666,7 +666,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: the design gate refuses an unanswered open question, then ticking loops back to triage
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -729,7 +729,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: the accept-all escape — deleting the whole Open Questions section is allowed and loops to triage to finalize
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -766,7 +766,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a ticked free-text slot with text is a valid answer at the technical gate; the placeholder alone is refused
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -841,7 +841,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # question must stop at the gate again, never fall through to
     # architecture.author with a question still open.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -906,7 +906,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a self-answered question in ## Answered Questions never stops the process at design.gate.answer
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -943,7 +943,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a hand-edited code change does not survive the unwind; its concern is folded into REQUIREMENTS.md instead
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "src/real.ts" with:
       """
       export const real = 1
@@ -1000,7 +1000,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: the handover — architecture.author works from REQUIREMENTS.md alone, a cold read with no assumption of a prior design conversation
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # The prompt tells the author to work from REQUIREMENTS.md alone, even
     # though design's own turns sit right there in the history.
     And a file "NOTE.md" with:
@@ -1044,7 +1044,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a question must clear the three-part bar, or the planner decides it itself
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -1078,7 +1078,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a package whose work already landed closes out via .gtd/SATISFIED.md
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -1140,7 +1140,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -1204,7 +1204,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # the previous review round's boundary, not the whole process. fileA landed
     # before that boundary; fileB after it, on the re-planned lap.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add fileA.ts" that adds "fileA.ts" with:
@@ -1283,7 +1283,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a green check run that also cleans up leftover feedback moves on to reviewing with no residue (D .gtd/FEEDBACK.md)
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # No quality lenses, so a green health check hands straight to the human
     # review tail — the quality lap itself is covered in its own feature.
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
@@ -1316,7 +1316,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # scenario's round 2, which inherits state from the `fix-precheck` entry
     # it starts from instead of a fresh first call.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -1410,7 +1410,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached, writing a fix-design document a human can edit before the next fix turn
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -1520,7 +1520,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: landing build.health.stop with a clean tree still hands the document to the next fix turn, and editing ESCALATION.md there does not spend a second escalation round
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -1609,7 +1609,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: landing build.health.stop with a genuinely clean tree still advances to build.fix — "land it untouched" as its message promises
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -1661,7 +1661,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a second full escalation round rests at the terminal exhausted stop — no third document is written, and .gtd/ESCALATION.md stays on disk
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # Round 1: the first escalation since the last green check routes on to
     # describe.
     And gtd starts workflow "fix"
@@ -1843,7 +1843,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: deleting REVIEW.md at await-review is refused — sign off by leaving no comment, not by deleting
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
@@ -1875,7 +1875,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: gtd next at await-review leaves HEAD untouched and writes no worktree ref
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
@@ -1904,7 +1904,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a sign-off lands even with a box still unticked — a tick only records that a hunk was read
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
@@ -1946,7 +1946,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: at await-review, gtd next surfaces the sign-off vs. feedback contract in its human-gate message
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
@@ -1975,7 +1975,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a code edit at await-review is feedback — once the review closes it goes to collecting (which turns it into a re-planned round)
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
@@ -2010,7 +2010,7 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: an ordinary sign-off commit into idle is a process boundary — a fresh process's fixing retry budget doesn't pool with a previous process's
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # cycle 1: spends its whole fixing retry budget (3 fix turns) before a
     # clean review sign-off ends the process at `idle` — the episode
     # boundary a fresh process's replay starts after.
@@ -2101,7 +2101,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # design/architecture are sibling scopes; packages.item's own scope is
     # "packages.item"; build/build.review are "build"/"build.review".
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "start"
     And a file "NOTE.md" with:

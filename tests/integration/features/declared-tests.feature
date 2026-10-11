@@ -8,7 +8,7 @@ Feature: A package's declared tests gate its build
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "lib/existing.test.ts" with:
       """
       export const existingTest = 1

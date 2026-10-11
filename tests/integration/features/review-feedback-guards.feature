@@ -38,7 +38,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
 
   Scenario: a note-like unchecked line outside a file pointer no longer blocks sign-off
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -92,7 +92,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
 
   Scenario: a note flows through capture, and collecting classifies it into REQUIREMENTS.md — re-unwind re-plans it, never builds on it
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -154,7 +154,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
 
   Scenario: build.review.collecting refuses touching anything other than the requirements file
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -198,7 +198,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
 
   Scenario: design.triage refuses deleting the assembled requirements file on a loop-back lap without addressing it
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # Rests at design.triage on a REVIEW LOOP-BACK lap: an actionable round's
     # `build.review.collecting` classified the feedback straight into
     # REQUIREMENTS.md, and re-unwind reverted the hand-edit and handed off here.

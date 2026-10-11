@@ -70,7 +70,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
   @inmem
   Scenario: gtd judge refuses through the ordinary error envelope when the resolved rest declares no judge:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd with args "judge"
     Then it fails
     And stdout is empty

@@ -13,14 +13,14 @@ Feature: Initial step — every unrecognized HEAD lands at the initial state
 
   Scenario: an ordinary non-gtd HEAD resolves to the initial state
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"
 
   Scenario: an old v1/v2-style "gtd: <label>" subject resolves to the initial state
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a commit "gtd: build" that adds "NOTE.md" with:
       """
       old two-namespace boundary commit
@@ -62,7 +62,7 @@ Feature: Initial step — every unrecognized HEAD lands at the initial state
 
   Scenario: a subject naming an actor the workflow doesn't declare resolves to the initial state
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a commit "gtd(nobody): design.triage" that adds "NOTE.md" with:
       """
       a plan

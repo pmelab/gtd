@@ -18,7 +18,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   @inmem
   Scenario: praise only signs off with no planner turn spent
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -79,7 +79,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   @inmem
   Scenario: an edit note hands its capture off to collecting
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -144,7 +144,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   @inmem
   Scenario: a non-edit verdict below the reviewNoteActionable floor still counts as an edit
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -205,7 +205,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   Scenario: a note the evidence budget cuts falls back to edit despite a confident praise
     Given an environment variable "GTD_JUDGEBUDGETBYTES" set to "10"
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -265,7 +265,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   @inmem
   Scenario: questions only are answered inline and the process rests at the review gate again
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -344,7 +344,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   @inmem
   Scenario: nits only are fixed in one batch, then a fresh review rests at the gate
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -431,7 +431,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   @inmem
   Scenario: questions and nits — the fresh review carries each answer over
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -523,7 +523,7 @@ Feature: Review triage — one four-way verdict per note, and its route
   @inmem
   Scenario: edit, question and nit together — answer, fix, then collect the edit
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

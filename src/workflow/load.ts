@@ -1,22 +1,27 @@
+import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { Context, Effect, Layer, Schema } from "effect"
 import { ArrayFormatter } from "effect/ParseResult"
 import { GtdError, Narrator } from "../platform/index.js"
 import { replay, type TreeView } from "../replay/index.js"
 import * as flows from "../flows/index.js"
-import { bundled as builtInWorkflow } from "../workflows/index.js"
 import type { StateMode, WorkflowDefinition } from "./Workflow.js"
 import type { Door, Flow } from "../flows/index.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { ConfigSchema, type UiConfig } from "./ConfigSchema.js"
 import { compileConfig, type CompiledConfig, type ConfigLayer } from "./compile.js"
 import { interpolate } from "./interpolate.js"
-import { SETTING_NAME_RULE, isSettingName, resolveVars } from "./vars.js"
-import { ConfigDiscovery, type ConfigLevel, type WorkflowModule } from "./discovery.js"
+import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
+import {
+  ConfigDiscovery,
+  WORKFLOW_MODULE,
+  type ConfigLevel,
+  type WorkflowModule,
+} from "./discovery.js"
 import {
   dedupeDiagnostics,
-  BUILT_IN_ORIGIN,
   formatDiagnostic,
   sortDiagnostics,
   type Diagnostic,
@@ -33,12 +38,12 @@ export interface ResolvedWorkflow {
 export interface ConfigOperations {
   /** The default workflow: what an ordinary start runs. */
   readonly workflow: WorkflowDefinition
-  /** The default, resolved like a named one; its name is what status shows: `"default"` for a repo's own, else `"feature"`. */
+  /** The default, resolved like a named one; its name is what status shows: the named export it also is, else `"default"`. */
   readonly defaultWorkflow: ResolvedWorkflow
   /** Every name `gtd --workflow` accepts, sorted — never `"default"`. */
   readonly workflowNames: readonly string[]
   readonly workflowNamed: (name: string) => ResolvedWorkflow | undefined
-  /** Every door `gtd door` accepts: bundled ∪ repo, the repo winning on a name. A door's `workflow` resolves through `workflowNamed`. */
+  /** Every door `gtd door` accepts. A door's `workflow` resolves through `workflowNamed`. */
   readonly doors: ReadonlyMap<string, Door>
   readonly rcVars: Record<string, string>
   readonly rcEnv: Record<string, string>
@@ -48,7 +53,7 @@ export interface ConfigOperations {
   readonly warnings: readonly Diagnostic[]
   /** Every `.gtdrc`-family file this load actually found, outermost→innermost — the `.gtdrc` half of what backs `workflow`/`rcVars`/`ui`. */
   readonly configFiles: readonly string[]
-  /** Every real file `gtd.config.ts`'s evaluation touched (itself plus any relative import), or `[]` for the built-in workflow — the other half. A caller that must know when `workflow` might have changed (the LSP's steering-map memo) watches `configFiles` + `workflowFiles` together; watching `gtd.config.ts`'s own path alone misses an edit to a module it imports. */
+  /** Every real file `gtd.config.ts`'s evaluation touched (itself plus any relative import) — the other half. A caller that must know when `workflow` might have changed (the LSP's steering-map memo) watches `configFiles` + `workflowFiles` together; watching `gtd.config.ts`'s own path alone misses an edit to a module it imports. */
   readonly workflowFiles: readonly string[]
 }
 
@@ -158,14 +163,20 @@ const readRc = Effect.gen(function* () {
   }
 })
 
-export const failOnErrors = (diagnostics: readonly Diagnostic[]): Effect.Effect<void, GtdError> => {
-  const fatal = diagnostics.filter((d) => d.severity === "error")
-  if (fatal.length === 0) return Effect.void
-  // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
-  // prints `message` verbatim and would print a duplicated `detail` twice.
-  const lines = fatal.map(formatDiagnostic)
-  return Effect.fail(new GtdError(`gtd config:\n${lines.map((line) => `  - ${line}`).join("\n")}`))
-}
+// Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
+// prints `message` verbatim and would print a duplicated `detail` twice.
+const configError = (diagnostics: readonly Diagnostic[]): GtdError =>
+  new GtdError(
+    `gtd config:\n${diagnostics
+      .filter((d) => d.severity === "error")
+      .map((d) => `  - ${formatDiagnostic(d)}`)
+      .join("\n")}`,
+  )
+
+export const failOnErrors = (diagnostics: readonly Diagnostic[]): Effect.Effect<void, GtdError> =>
+  diagnostics.some((d) => d.severity === "error")
+    ? Effect.fail(configError(diagnostics))
+    : Effect.void
 
 /**
  * The `.gtdrc` half of `load`: no repository, no `gtd.config.ts` evaluation.
@@ -205,47 +216,39 @@ export const load: Effect.Effect<
   const discovery = yield* ConfigDiscovery
   const { levels, compiled, decodeDiagnostics } = yield* readRc
   const module = yield* discovery.workflowModule(host.root, host.home)
+  const rcOrder = levels.map((level) => level.filepath)
+  const report = (found: readonly Diagnostic[], layerOrder: readonly string[]): Diagnostic[] =>
+    dedupeDiagnostics(
+      sortDiagnostics([...decodeDiagnostics, ...compiled.diagnostics, ...found], layerOrder),
+    )
+  if (module === undefined) {
+    const missing: Diagnostic = {
+      severity: "error",
+      path: [],
+      message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — run \`gtd install\` to scaffold one`,
+      origin: host.root,
+    }
+    return yield* Effect.fail(configError(report([missing], rcOrder)))
+  }
+  const shipped = yield* Effect.tryPromise({
+    try: shippedModules,
+    catch: (e) => new GtdError(`gtd: ${e instanceof Error ? e.message : String(e)}`),
+  })
   const loaded = yield* Effect.try({
-    try: () => loadWorkflows(module),
+    try: () => loadWorkflows(module, shipped),
     catch: (e) =>
       new GtdError(
-        `gtd config:\n  - ${module?.filepath ?? BUILT_IN_ORIGIN}: ${e instanceof Error ? e.message : String(e)}`,
+        `gtd config:\n  - ${module.filepath}: ${e instanceof Error ? e.message : String(e)}`,
       ),
   })
-  const layerOrder = [
-    ...levels.map((level) => level.filepath),
-    ...(module ? [module.filepath] : []),
-  ]
-  const diagnostics = dedupeDiagnostics(
-    sortDiagnostics(
-      [
-        ...decodeDiagnostics,
-        ...compiled.diagnostics,
-        ...wrongKindDiagnostics(loaded.files, compiled),
-      ],
-      layerOrder,
-    ),
-  )
+  const diagnostics = report(wrongKindDiagnostics(loaded.file, compiled), [
+    ...rcOrder,
+    module.filepath,
+  ])
   yield* failOnErrors(diagnostics)
 
   const initial = yield* firstStep(loaded.default, headTree(yield* Workspace))
-  // Repo steering wins on a path.
-  const steering = Object.assign({}, ...loaded.files.map((f) => f.steering)) as Record<
-    string,
-    StateMode
-  >
-  // A `.gtdrc` key is judged against every loaded file, not just the running
-  // workflow's: one `.gtdrc` serves the bundled and the repo workflows alike.
-  // Each other file runs on its own settings, and one that still throws only
-  // narrows the check: it is not the running workflow's to report.
-  const scopesOf = (file: LoadedFile): readonly string[] => {
-    const vars = resolveVars(file.defaults, compiled.rcVars, {}, host.env)
-    try {
-      return [...Object.keys(file.skills(vars)), ...Object.keys(file.access(vars))]
-    } catch {
-      return []
-    }
-  }
+  const steering = loaded.file.steering as Record<string, StateMode>
   const define = (entry: LoadedWorkflow): WorkflowDefinition => ({
     flow: entry.flow,
     summary: entry.file.summary,
@@ -258,7 +261,6 @@ export const load: Effect.Effect<
     access: entry.file.access,
     configuredAccess: compiled.access,
     accessKeys: compiled.accessKeys,
-    knownScopes: () => loaded.files.filter((f) => f !== entry.file).flatMap(scopesOf),
     skillsOrigin: entry.file.origin,
     initial,
   })
@@ -284,24 +286,17 @@ export const load: Effect.Effect<
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
     warnings: diagnostics.filter((d) => d.severity === "warning"),
     configFiles: levels.map((level) => level.filepath),
-    workflowFiles: loaded.files.flatMap((f) => f.dependencyFiles),
+    workflowFiles: loaded.file.dependencyFiles,
   }
 })
 
 /** A name under the wrong key (or under both) in a `.gtdrc` layer: each is an error at its own origin. */
 const wrongKindDiagnostics = (
-  files: readonly LoadedFile[],
+  file: LoadedFile,
   compiled: CompiledConfig,
 ): readonly Diagnostic[] => {
-  // Wrong only when no file declares the name as the kind it was given under:
-  // a repo may declare as a process setting a name the bundled file declares
-  // as an environment setting.
-  const isEnvOnly = (key: string): boolean =>
-    files.some((f) => Object.hasOwn(f.envDefaults, key)) &&
-    !files.some((f) => Object.hasOwn(f.defaults, key))
-  const isVarOnly = (key: string): boolean =>
-    files.some((f) => Object.hasOwn(f.defaults, key)) &&
-    !files.some((f) => Object.hasOwn(f.envDefaults, key))
+  const isEnvOnly = (key: string): boolean => Object.hasOwn(file.envDefaults, key)
+  const isVarOnly = (key: string): boolean => Object.hasOwn(file.defaults, key)
   const error = (path: readonly string[], message: string, origin: string): Diagnostic => ({
     severity: "error",
     path,
@@ -350,7 +345,7 @@ interface LoadedFile extends Pick<
   /**
    * Every real file this module's evaluation touched — `origin` itself plus
    * any relative import it (transitively) resolved on disk, in NO particular
-   * order. Empty for the bundled module (no file backs it). A caller that
+   * order. A caller that
    * needs to know when a workflow's DEFINITION might have changed (the LSP's
    * steering-map memo) must watch this whole set, not just `origin`: a
    * `gtd.config.ts` re-exporting a sibling module is a documented pattern,
@@ -365,9 +360,8 @@ interface LoadedWorkflow {
 }
 
 interface Loaded {
-  /** The bundled file first, then the repo's when there is one. */
-  readonly files: readonly LoadedFile[]
-  /** Every startable workflow, repo over bundled. */
+  readonly file: LoadedFile
+  /** Every startable workflow. */
   readonly catalogue: ReadonlyMap<string, LoadedWorkflow>
   readonly doors: ReadonlyMap<string, Door>
   /** What an ordinary start runs. */
@@ -405,10 +399,9 @@ const memoized = (transform: Transform): Transform => {
   }
 }
 
-// Loaded on first use: only a repository with its own gtd.config.ts needs it.
 let jitiModule: JitiModule | undefined
 let transform: Transform | undefined
-const jiti = (): JitiInstance => {
+const jiti = (shipped: ShippedModules): JitiInstance => {
   const require = createRequire(import.meta.url)
   jitiModule ??= require("jiti") as JitiModule
   // jiti's own Babel transform, which its package exports don't name.
@@ -416,9 +409,8 @@ const jiti = (): JitiInstance => {
     require(join(dirname(require.resolve("jiti/package.json")), "dist", "babel.cjs")) as Transform,
   )
   return jitiModule.createJiti(import.meta.url, {
-    // gtd's own modules, already loaded: a config runs against the very
-    // runtime replay installs its context for, never a second copy of it.
-    virtualModules: { "@pmelab/gtd/flows": flows, "@pmelab/gtd/workflow": builtInWorkflow },
+    virtualModules: shipped.modules,
+    alias: shipped.missing,
     // No transpile cache on disk, and a fresh module every load — nothing a
     // later command could read back instead of the source.
     fsCache: false,
@@ -428,6 +420,60 @@ const jiti = (): JitiInstance => {
     interopDefault: false,
   })
 }
+
+const PACKAGE = "@pmelab/gtd"
+
+interface PackageJson {
+  readonly name?: string
+  readonly exports: Readonly<Record<string, string | Readonly<Record<string, string>>>>
+}
+
+// Only gtd's own package.json: whatever other one sits nearest (a vendored
+// bundle inside a project) must never get its exports executed.
+const ownPackage = (): { readonly root: string; readonly pkg: PackageJson } => {
+  const start = dirname(fileURLToPath(import.meta.url))
+  for (let dir = start; ; dir = dirname(dir)) {
+    const file = join(dir, "package.json")
+    if (existsSync(file)) {
+      const pkg = JSON.parse(readFileSync(file, "utf8")) as PackageJson
+      if (pkg.name === PACKAGE) return { root: dir, pkg }
+    }
+    if (dirname(dir) === dir) throw new Error(`no ${PACKAGE} package.json above ${start}`)
+  }
+}
+
+interface ShippedModules {
+  readonly modules: Readonly<Record<string, unknown>>
+  /** Subpaths whose file failed to load, aliased to that file so only a config importing one fails. */
+  readonly missing: Readonly<Record<string, string>>
+}
+
+// Every subpath gtd's package exports resolves to the running gtd's own copy,
+// so a config needs no install and never mixes versions. `flows` is the module
+// already loaded here: a config runs against the very runtime replay installs
+// its context for. Run from source (tests), a subpath's `source` is served
+// instead of its build. Shipped code never changes in a process, so it is
+// imported once, natively.
+let shippedMemo: Promise<ShippedModules> | undefined
+const shippedModules = (): Promise<ShippedModules> =>
+  (shippedMemo ??= (async () => {
+    const { root, pkg } = ownPackage()
+    const condition = import.meta.url.endsWith(".ts") ? "source" : "default"
+    const modules: Record<string, unknown> = { [`${PACKAGE}/flows`]: flows }
+    const missing: Record<string, string> = {}
+    for (const [subpath, target] of Object.entries(pkg.exports)) {
+      const id = `${PACKAGE}/${subpath.replace(/^\.\//, "")}`
+      const file = typeof target === "string" ? target : target[condition]
+      if (id in modules || file === undefined) continue
+      const path = join(root, file)
+      try {
+        modules[id] = await import(pathToFileURL(path).href)
+      } catch {
+        missing[id] = path
+      }
+    }
+    return { modules, missing }
+  })())
 
 const stringRecord = (
   exports: Record<string, unknown>,
@@ -563,7 +609,7 @@ const doorProblem = (name: string, door: unknown): string | undefined => {
   return argsProblem(args) ?? (varsOk ? undefined : `has "vars" that is not a function`)
 }
 
-/** A module's `doors` export, shape-checked; the workflow names are checked later, against the merged catalogue. */
+/** A module's `doors` export, shape-checked; the workflow names are checked later, against the catalogue. */
 const doorsFrom = (exports: Record<string, unknown>): ReadonlyMap<string, Door> => {
   const value = exports["doors"]
   if (value === undefined) return new Map()
@@ -577,13 +623,12 @@ const doorsFrom = (exports: Record<string, unknown>): ReadonlyMap<string, Door> 
   return new Map(Object.entries(value) as [string, Door][])
 }
 
-/** Merge bundled and repo doors (repo wins), then check each names a workflow the merged catalogue holds. */
-const mergeDoors = (
-  bundled: ReadonlyMap<string, Door>,
-  repo: ReadonlyMap<string, Door>,
+/** Sort the doors and check each names a startable workflow. */
+const checkDoors = (
+  declared: ReadonlyMap<string, Door>,
   catalogue: ReadonlyMap<string, LoadedWorkflow>,
 ): ReadonlyMap<string, Door> => {
-  const doors = new Map([...bundled, ...repo].sort(([a], [b]) => a.localeCompare(b)))
+  const doors = new Map([...declared].sort(([a], [b]) => a.localeCompare(b)))
   for (const [name, door] of doors) {
     if (!catalogue.has(door.workflow)) {
       throw new Error(
@@ -598,69 +643,38 @@ const namespaceOf = (exported: unknown): Record<string, unknown> =>
   (typeof exported === "object" && exported !== null ? exported : {}) as Record<string, unknown>
 
 /**
- * The bundled module is never scanned: its helper exports stay helpers, and
- * exactly these three are startable.
+ * Evaluate `gtd.config.ts`. Every exported function but the reserved names is
+ * a workflow named by its export. `cache` is jiti's OWN per-call module cache
+ * (unrelated to the instance's `moduleCache: false`) — passing an empty object
+ * in has the side effect of collecting every real file jiti resolved
+ * evaluating this module, module AND every relative import it pulled in,
+ * transitively.
  */
-const loadBundled = (): {
-  file: LoadedFile
-  catalogue: Map<string, LoadedWorkflow>
-  doors: ReadonlyMap<string, Door>
-} => {
-  const file = fileFrom(namespaceOf(builtInWorkflow), BUILT_IN_ORIGIN, [])
-  const { feature, review, fix } = builtInWorkflow
-  return {
-    file,
-    doors: doorsFrom(namespaceOf(builtInWorkflow)),
-    catalogue: new Map([
-      ["feature", { flow: feature, file }],
-      ["review", { flow: review, file }],
-      ["fix", { flow: fix, file }],
-    ]),
-  }
-}
-
-/**
- * Evaluate `gtd.config.ts` and overlay it on the bundled workflows. Every
- * exported function of the repo file but the reserved names is a workflow
- * named by its export. `cache` is jiti's OWN per-call module cache (unrelated
- * to the instance's `moduleCache: false`) — passing an empty object in has
- * the side effect of collecting every real file jiti resolved evaluating this
- * module, module AND every relative import it pulled in, transitively.
- */
-const loadWorkflows = (module: WorkflowModule | undefined): Loaded => {
-  const bundled = loadBundled()
-  const bundledDefault = {
-    flow: builtInWorkflow.default,
-    file: bundled.file,
-    name: "feature",
-  }
-  if (module === undefined) {
-    return {
-      files: [bundled.file],
-      catalogue: bundled.catalogue,
-      doors: mergeDoors(bundled.doors, new Map(), bundled.catalogue),
-      default: bundledDefault,
-    }
-  }
+const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded => {
   const cache: Record<string, unknown> = {}
   const exports = namespaceOf(
-    jiti().evalModule(module.source, { filename: module.filepath, cache }),
+    jiti(shipped).evalModule(module.source, { filename: module.filepath, cache }),
   )
   const file = fileFrom(exports, module.filepath, Object.keys(cache))
-  const catalogue = new Map(bundled.catalogue)
+  const catalogue = new Map<string, LoadedWorkflow>()
   for (const [name, value] of Object.entries(exports)) {
     if (RESERVED_EXPORTS.has(name) || typeof value !== "function") continue
     catalogue.set(name, { flow: value as Flow, file })
   }
   const flow = exports.default
-  if (flow !== undefined && typeof flow !== "function") {
-    throw new Error("the default export is not a function")
+  if (flow === undefined) {
+    throw new Error(
+      "no default export — export the workflow an ordinary start runs (`gtd install` scaffolds one)",
+    )
   }
+  if (typeof flow !== "function") throw new Error("the default export is not a function")
+  // A default that is also a named export goes by that name.
+  const name = [...catalogue].find(([, entry]) => entry.flow === flow)?.[0] ?? "default"
   return {
-    files: [bundled.file, file],
+    file,
     catalogue,
-    doors: mergeDoors(bundled.doors, doorsFrom(exports), catalogue),
-    default: flow === undefined ? bundledDefault : { flow: flow as Flow, file, name: "default" },
+    doors: checkDoors(doorsFrom(exports), catalogue),
+    default: { flow: flow as Flow, file, name },
   }
 }
 

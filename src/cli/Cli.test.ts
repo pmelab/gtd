@@ -24,6 +24,7 @@ import {
 import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 import { type CommandRequirements } from "./Cli.js"
 import { InMemRepo, testLayers } from "../testing/index.js"
+import { CONFIG_SCAFFOLD } from "../install/index.js"
 
 const FLAG_NAMES = [
   "--json",
@@ -1136,6 +1137,7 @@ describe("runCli — exit codes", () => {
   it("an unknown --json=<path> selector exits EXIT_USAGE_ERROR, not EXIT_RUNTIME_ERROR — program.ts's SelectorUsageError mapped by report()", async () => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
+    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
     repo.commitAllWithPrefix("gtd: init")
     const { io, captured } = capturingIo(() => testLayers(repo))
     await Effect.runPromise(runCli(["node", "gtd.js", "next", "--json=does.not.exist"], io))
@@ -1298,6 +1300,7 @@ describe("runCli — flush normalizes the artifact's trailing newline", () => {
   it("a plain-text write command's script (no trailing newline) reaches io.stdout with exactly one", async () => {
     const repo = new InMemRepo()
     repo.writeFile(".gitignore", "node_modules\n")
+    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
     repo.commitAllWithPrefix("chore: initial commit")
     const { io, captured } = capturingIo(() => testLayers(repo))
     await Effect.runPromise(runCli(["node", "gtd.js", "land"], io))

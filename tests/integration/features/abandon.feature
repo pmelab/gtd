@@ -14,7 +14,7 @@ Feature: gtd abandon — end the process underway without completing it
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
 
   Scenario: abandons a process mid-flight — HEAD back at the process boundary, the work kept as pending changes
     Given a file "NOTE.md" with:

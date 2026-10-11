@@ -3,8 +3,9 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
 
   `gtd --workflow <name>` (always authenticated as `human`) starts a process on
   the named workflow; an ordinary start runs the default. Every exported
-  function of a `gtd.config.ts` is a workflow named by its export, and the
-  bundled `feature`, `review` and `fix` stay startable beside them. The
+  function of a `gtd.config.ts` is a workflow named by its export — gtd's
+  shipped `feature`, `review` and `fix` are startable only when the config
+  exports them, as the one `gtd install` scaffolds does. The
   workflow's name is recorded on the opening commit (`Gtd-Workflow:`), so every
   later command replays that workflow. Repeatable `--var <name>=<value>`
   supplies that process's fixed vars, which must already be declared by the
@@ -21,7 +22,7 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
 
   Scenario: happy path — a local branch started for review via the space-separated "--workflow" form, gated then resting at build.review.reviewing
     Given I mark the current commit as "base"
@@ -91,7 +92,7 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     And I record the commit count
     When I run gtd with args "--workflow release"
     Then the exit code is 2
-    And stderr contains "gtd --workflow: unknown workflow \"release\" — startable: feature, fix, hotfix, review"
+    And stderr contains "gtd --workflow: unknown workflow \"release\" — startable: hotfix"
     And the commit count is unchanged
 
   Scenario: "default" is not a startable name
@@ -226,7 +227,7 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     And stdout contains "State: idle"
     And stdout contains "Workflow: default"
 
-  Scenario: a repo exporting only hotfix keeps the bundled feature for an ordinary start, and the bundled fix stays startable
+  Scenario: a repo exporting only hotfix has no ordinary start — gtd says to export a default
     Given a gtd config file at "gtd.config.ts" with:
       """
       import { agent } from "@pmelab/gtd/flows"
@@ -236,31 +237,14 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
       }
       """
     When I run gtd next
-    Then it succeeds
-    And stdout contains "State: idle"
-    And stdout contains "Workflow: feature"
-    When I run gtd with args "--workflow fix"
-    Then it succeeds
-    And the last commit subject is "gtd(human): fix-precheck"
-    And the last commit body contains "Gtd-Workflow: fix"
+    Then it fails
+    And stderr contains "no default export"
+    And stderr contains "gtd install"
 
-  Scenario: a repo's own review shadows the bundled review
+  Scenario: a helper re-exported from the shipped module is a startable workflow
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent } from "@pmelab/gtd/flows"
-
-      export const review = async () => {
-        await agent("my-review", "My own review.")
-      }
-      """
-    When I run gtd with args "--workflow review"
-    Then it succeeds
-    And the last commit subject is "gtd(human): my-review"
-
-  Scenario: a helper re-exported from the bundled module is a startable workflow
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      export { unwind } from "@pmelab/gtd/workflow"
+      export { feature as default, unwind } from "@pmelab/gtd/workflows"
       """
     When I run gtd with args "--workflow unwind"
     Then it succeeds
@@ -326,7 +310,11 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
   Scenario: an opening commit with no Gtd-Workflow trailer is a removed --entry process, refused with the abandon advice
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
 
       export const hotfix = async () => {
         await agent("patch", "Patch it.")
@@ -382,25 +370,3 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     When I run gtd land
     Then it fails
     And stderr contains "workflow \"hotfix\" reaches step \"idle\", the default workflow's first step"
-
-  Scenario: a repo skills export reading its own setting never breaks a bundled workflow
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent } from "@pmelab/gtd/flows"
-
-      export const defaults = { patchSkills: "debugging,tdd" }
-
-      export const skills = (vars: Record<string, string>) => ({
-        patching: vars.patchSkills.split(","),
-      })
-
-      export const hotfix = async () => {
-        await agent("patch", "Patch it.")
-      }
-      """
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "Workflow: feature"
-    When I run gtd with args "--workflow fix"
-    Then it succeeds
-    And the last commit body contains "Gtd-Workflow: fix"

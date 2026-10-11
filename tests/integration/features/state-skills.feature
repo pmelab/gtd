@@ -16,7 +16,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
       skills:
         build: [code-review, testing]
       """
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -35,7 +35,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
       skills:
         build: []
       """
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -53,7 +53,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
       skills:
         build: [code-review, testing]
       """
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -75,7 +75,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
       skills:
         build: []
       """
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -88,7 +88,7 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
 
   Scenario: a GTD_FIXSKILLS environment variable does nothing at all — the var it used to override is gone
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_FIXSKILLS" set to "code-review, testing"
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:

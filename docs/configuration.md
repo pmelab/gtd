@@ -1,14 +1,15 @@
 # Configuration reference
 
-gtd reads two kinds of configuration, both optional:
+gtd reads two kinds of configuration:
 
-- **`gtd.config.ts`** — the workflow itself: a TypeScript module that says which
-  steps a process goes through. Without one, gtd runs its bundled default
-  workflow, so every command works with no configuration at all.
-- **`.gtdrc`** — per-repository tuning of whatever workflow is active: process
-  settings (`vars`), environment settings (`env`), the judge `gtd judge run`
-  uses (`judge`), steering-file modes (`modes`), `gtd ui` settings (`ui`) and
-  per-scope skills (`skills`). Nothing else.
+- **`gtd.config.ts`** — the workflows themselves: a TypeScript module that says
+  which steps a process goes through. Required: without one, every command that
+  resolves workflow state fails, saying to run `gtd install`, which scaffolds
+  one running gtd's shipped workflows.
+- **`.gtdrc`** — optional per-repository tuning of whatever workflow is active:
+  process settings (`vars`), environment settings (`env`), the judge
+  `gtd judge run` uses (`judge`), steering-file modes (`modes`), `gtd ui`
+  settings (`ui`) and per-scope skills (`skills`). Nothing else.
 
 > **Trust: `gtd.config.ts` is code, and gtd runs it.** Because the workflow is a
 > TypeScript module, every gtd command that resolves workflow state evaluates
@@ -30,17 +31,46 @@ gtd reads two kinds of configuration, both optional:
 gtd walks from the current directory **up to your home directory** (or to the
 filesystem root when the current directory is outside home) and uses the
 **innermost** `gtd.config.ts` it finds. There is no merging: one file is the
-whole workflow, and a `gtd.config.ts` found nowhere means the bundled default. A
-`.gtdrc` in the same directory still contributes its keys.
+whole workflow. A `gtd.config.ts` found nowhere is an error naming
+`gtd install`. A `.gtdrc` in the same directory still contributes its keys.
 
-`gtd init` never writes a `gtd.config.ts` — write one only to change the
-workflow itself.
+`gtd install`, run at a repository root no `gtd.config.ts` governs yet, writes
+one that re-exports gtd's shipped workflows:
+
+```ts
+export {
+  feature as default,
+  feature,
+  review,
+  fix,
+  defaults,
+  envDefaults,
+  summary,
+  base,
+  steering,
+  skills,
+  access,
+  doors,
+} from "@pmelab/gtd/workflows"
+```
+
+**Upgrading from a gtd that ran its workflows without a `gtd.config.ts`:** run
+`gtd install` and commit the file. A process already underway continues: it
+replays on the same names (`feature` as the default, `fix`, `review`). A config
+of your own that relied on the shipped `feature`, `fix` or `review` being
+startable beside it, or on their doors, now exports them itself (see
+[Reusing the shipped workflows](#reusing-the-shipped-workflows)); one with no
+`default` export needs one.
+
+`gtd init` writes only `.gtdrc.json`; edit `gtd.config.ts` to change the
+workflows themselves.
 
 ### Shape
 
 **Every exported function is a workflow**, named by its export, and gtd starts
 one with `gtd --workflow <name>` (see [Workflows](#workflows)). The `default`
-export is the ordinary start — what a bare change in the tree begins. The names
+export is the ordinary start — what a bare change in the tree begins — and is
+required; a default that is also a named export goes by that name. The names
 `default`, `summary`, `base`, `defaults`, `envDefaults`, `steering`, `skills`,
 `access` and `doors` are reserved: they are never workflows.
 
@@ -78,9 +108,9 @@ ignores every other non-function export. **A helper you export is a workflow
 too**, startable by name — keep helpers un-exported, or export them from another
 module you import.
 
-gtd resolves `@pmelab/gtd/flows` itself, so a `gtd.config.ts` needs no
-`package.json` or install. Add `@pmelab/gtd` as a dev dependency only if you
-want editor type-checking for it.
+gtd resolves `@pmelab/gtd/flows` and `@pmelab/gtd/workflows` itself, to its own
+copy, so a `gtd.config.ts` needs no `package.json` or install. Add `@pmelab/gtd`
+as a dev dependency only if you want editor type-checking for it.
 
 A direct `@pmelab/gtd/flows` import in `gtd.config.ts` always gets the engine's
 own copy, so it cannot mismatch; a dev-dependency pin only feeds editor
@@ -266,19 +296,20 @@ The script renderers (`checkScript`, `revertScript`, `restoreScript`,
 `removeScript`, `moveScript`, and `quote`) are exported for a workflow's own
 `run` steps.
 
-### Reusing the bundled workflow
+### Reusing the shipped workflows
 
-`@pmelab/gtd/workflow` is the bundled workflow itself: its default export is the
-flow gtd runs without a `gtd.config.ts`, and every part of it is a named export
-another workflow can import — its `defaults`, `envDefaults`, `summary`, `base`
-and `skills`, the three startable workflows (`feature`, `review`, `fix`), the
-phases (`ordinaryStart`, `unwind`, `planAndBuild`, `design`, `architecture`,
-`packages`, `buildTail`, `qualityLap`, `healthy`, `gate`, …) and every single
-step (`triage`, `build`, `fixCheck`, `reviewing`, `collecting`, …). A step's
-name is relative to the `scope()` it runs in — the bundled workflow's
-`scope("build", …)` around `healthy` is what makes `build.health.check` — and
-the full names are part of gtd's versioned API: they never change outside a
-major release, because a rename strands every process resting on the old name.
+`@pmelab/gtd/workflows` is gtd's shipped workflows (`@pmelab/gtd/workflow` still
+resolves to the same module): its default export is the `feature` flow, and
+every part of it is a named export another workflow can import — its `defaults`,
+`envDefaults`, `summary`, `base` and `skills`, the three startable workflows
+(`feature`, `review`, `fix`), the phases (`ordinaryStart`, `unwind`,
+`planAndBuild`, `design`, `architecture`, `packages`, `buildTail`, `qualityLap`,
+`healthy`, `gate`, …) and every single step (`triage`, `build`, `fixCheck`,
+`reviewing`, `collecting`, …). A step's name is relative to the `scope()` it
+runs in — the bundled workflow's `scope("build", …)` around `healthy` is what
+makes `build.health.check` — and the full names are part of gtd's versioned API:
+they never change outside a major release, because a rename strands every
+process resting on the old name.
 
 Re-export `envDefaults` alongside `defaults`: a workflow that re-exports only
 `defaults` loses `testCommand`, `fastTestCommand`, `plannerModel` and
@@ -290,16 +321,15 @@ it instead of keeping the bundled defaults, because the loader reads a missing
 export as `{}`, not as "inherit the bundled module's".
 
 **Import the phases; never `export *` them.** Every exported function of your
-file is a startable workflow, so `export * from "@pmelab/gtd/workflow"` would
+file is a startable workflow, so `export * from "@pmelab/gtd/workflows"` would
 turn each phase and step into one — `gtd --workflow buildTail` would start a
-half-flow and strand the process. The bundled module's own helpers stay helpers
-for that reason; only `feature`, `review` and `fix` are startable from it.
-Re-export the reserved names by name, and write each workflow you want as your
-own function:
+half-flow and strand the process. Re-export the reserved names and the workflows
+you want startable by name, and write each other workflow you want as your own
+function:
 
 ```ts
 import { start } from "@pmelab/gtd/flows"
-import { afterTail, buildTail, feature } from "@pmelab/gtd/workflow"
+import { afterTail, buildTail, feature } from "@pmelab/gtd/workflows"
 
 export {
   defaults,
@@ -308,7 +338,7 @@ export {
   base,
   steering,
   skills,
-} from "@pmelab/gtd/workflow"
+} from "@pmelab/gtd/workflows"
 
 export default feature
 
@@ -319,8 +349,9 @@ export async function hotfix() {
 export const doors = { hotfix: { workflow: "hotfix" } }
 ```
 
-The bundled `doors` (`fix`, `review`) are always available; a `doors` export of
-yours merges over them (see [Doors](#doors)).
+A config's doors are its `doors` export alone: re-export the shipped one, or
+spread it into your own (`{ ...doors, hotfix: { workflow: "hotfix" } }`), to
+keep `fix` and `review` (see [Doors](#doors)).
 
 ### Judges
 
@@ -376,10 +407,10 @@ What a `gtd land` does depends on the step and on whether the tree changed:
 ### Workflows
 
 `gtd --workflow <name>` starts a process on the named workflow: a function the
-config file exports, or one of the three bundled ones. An unknown name is a
-usage error (exit 2) listing the startable names. The name is recorded on the
-process's opening commit (`Gtd-Workflow:`), so every later command replays that
-workflow, and a process stays on it even if the config's `default` changes.
+config file exports. An unknown name is a usage error (exit 2) listing the
+startable names. The name is recorded on the process's opening commit
+(`Gtd-Workflow:`), so every later command replays that workflow, and a process
+stays on it even if the config's `default` changes.
 
 A `base(workflow, vars)` export may return a commitish that fixes the new
 process's diff base (`start()`), or `undefined` for none. It runs when the
@@ -408,8 +439,8 @@ settings only, and naming an environment setting is a usage error (exit 2).
 Every process setting is recorded as a `Gtd-Var:` trailer on the process's first
 commit and stays in force for the whole process (see [Settings](#settings)).
 
-The bundled module offers three workflows: `feature` (the ordinary start, and
-the `default`), `fix` (repair a red baseline through the build tail) and
+The shipped module offers three workflows: `feature` (the ordinary start, and
+its `default`), `fix` (repair a red baseline through the build tail) and
 `review` (a pure review of everything since `--var reviewBase=<commitish>`).
 
 **Upgrading:** the old state-named entry flag is gone, replaced by `--workflow`.
@@ -438,12 +469,11 @@ export const doors = {
 (required ones first); `vars` is a pure function of the args returning a record
 of process settings — no git runs while it is evaluated.
 
-The bundled doors are `fix` and `review [base]`. A repository door of the same
-name replaces the bundled one. `gtd door <name> [args...]` starts the process
-(printing the same script `gtd --workflow` does); an unknown door or the wrong
-number of args is a usage error (exit 2). `gtd doors` lists every door, one
-`name [args] → workflow` line each; `gtd doors --json` prints them as data for a
-driver to offer.
+The shipped doors are `fix` and `review [base]`. `gtd door <name> [args...]`
+starts the process (printing the same script `gtd --workflow` does); an unknown
+door or the wrong number of args is a usage error (exit 2). `gtd doors` lists
+every door, one `name [args] → workflow` line each; `gtd doors --json` prints
+them as data for a driver to offer.
 
 ### Episodes, replay and divergence
 
@@ -886,7 +916,7 @@ a parent reaches every scope beneath it that sets none. The group scopes
 `packages.item.fix`, `build.fix`, `build.review.fix` and `build.quality` run no
 turn and carry no key. A custom workflow's own scopes are addressable through
 its own `skills` export (see
-[Reusing the bundled workflow](#reusing-the-bundled-workflow)); the export may
+[Reusing the shipped workflows](#reusing-the-shipped-workflows)); the export may
 be a function of the resolved vars, and must list every scope holding an agent
 step. The schema can validate an entry's VALUE (an array of strings) but never
 its KEY, since scope names come from the workflow actually in play — there is no
@@ -1154,7 +1184,7 @@ Overridable through `.gtdrc` (`vars:` or `env:`, by kind) or `GTD_<NAME>`.
 The prompts' wording — the voice below, the personas, the shared rules — is not
 a variable: a workflow that wants different words writes its own prompts,
 reusing the bundled workflow's steps and phases where it can (see
-[Reusing the bundled workflow](#reusing-the-bundled-workflow)).
+[Reusing the shipped workflows](#reusing-the-shipped-workflows)).
 
 #### The voice
 

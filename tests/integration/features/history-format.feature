@@ -9,7 +9,7 @@ Feature: History format — replay reads only the history formats it knows
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
 
   Scenario: a landing writes the current format
     Given a file "NOTE.md" with:

@@ -38,8 +38,9 @@ histories written by an older or newer gtd.
   stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
   [Error envelope](docs/cli.md#error-envelope).
 - **Entrypoint exports** — `@pmelab/gtd/flows` (including its `FLOWS_PROTOCOL`
-  number) and `@pmelab/gtd/workflow`, step functions' options included. See
-  [Reusing the bundled workflow](docs/configuration.md#reusing-the-bundled-workflow).
+  number) and `@pmelab/gtd/workflows` (also resolvable as
+  `@pmelab/gtd/workflow`), step functions' options included. See
+  [Reusing the shipped workflows](docs/configuration.md#reusing-the-shipped-workflows).
 - **The `gtd.config.ts` shape** — every exported function is a workflow, and the
   reserved exports (`defaults`, `envDefaults`, `doors`, `skills`, `access`, …)
   keep their meaning. See [Shape](docs/configuration.md#shape).

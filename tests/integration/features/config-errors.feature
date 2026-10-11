@@ -106,8 +106,16 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     And stderr contains ".gtdrc: testCommand: "
     And stderr contains "\"testCommand\" is unexpected"
 
-  Scenario: the bundled testCommand under vars: fails to load, naming env:
+  Scenario: a repository with no gtd.config.ts is told to run gtd install
     Given a test project
+    When I run gtd next
+    Then the exit code is 1
+    And stderr contains "gtd config:"
+    And stderr contains "no workflows configured: no gtd.config.ts here or above — run `gtd install` to scaffold one"
+
+  Scenario: the shipped testCommand under vars: fails to load, naming env:
+    Given a test project
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       vars:

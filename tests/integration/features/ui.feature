@@ -37,6 +37,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @live
   Scenario: gtd ui binds on an idle worktree (the default rest of a fresh project), the phone sketches, hands off, and the sketch stays un-triaged until the next gtd run
     Given a test project
+    And the workflow gtd install scaffolds
     And I record the commit count
     When I sketch ".gtd/TODO.md" with the text "a sketch from the phone" then hand off via a spawned gtd ui
     Then the reported exit status is 0

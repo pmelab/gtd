@@ -8,7 +8,7 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
   @inmem
   Scenario: a SETUP.md at start-gate.check rests there, and removing it moves on
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -37,7 +37,7 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
   @live
   Scenario: an unset fastTestCommand makes the printed check script write SETUP.md
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And the environment variable "GTD_FASTTESTCOMMAND" is unset
     And a file "NOTE.md" with:
       """
@@ -57,7 +57,7 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
   @live
   Scenario: the package loop's health check renders fastTestCommand, not testCommand
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_FASTTESTCOMMAND" set to "echo fast-suite-ran; exit 1"
     And an environment variable "GTD_TESTCOMMAND" set to "echo full-suite-ran; exit 1"
     And a file "NOTE.md" with:

@@ -12,9 +12,9 @@ import {
   nextPackage,
   reviewing,
   triage,
-} from "@pmelab/gtd/workflow"
+} from "@pmelab/gtd/workflows"
 
-export { defaults } from "@pmelab/gtd/workflow"
+export { feature as default, defaults } from "@pmelab/gtd/workflows"
 
 const pkg = (): string => nextPackage() ?? ""
 const inPackage = (step: () => Promise<void>) => () => scope("packages", () => scope("item", step))

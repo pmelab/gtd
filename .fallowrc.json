@@ -25,6 +25,8 @@
     "evals/*.mjs",
     // Copied into each eval fixture repo as its gtd.config.ts.
     "evals/gtd.config.ts",
+    // gtd evaluates this repository's own workflows config; nothing imports it.
+    "gtd.config.ts",
     // A workflow module: the loader reads its default and named exports off
     // the module namespace, and other workflows import its helpers.
     "src/workflows/unified.ts",
@@ -33,6 +35,9 @@
     // Run by .releaserc.json's prepareCmd, which no package.json script names.
     "scripts/sync-plugin-version.mjs"
   ],
+  // The startable `review` workflow shadows review.ts's step of the same name
+  // in bundled.ts's `export *` — the published name has always been the workflow.
+  "ignoreExports": [{ "file": "src/workflows/bundled.ts", "exports": ["review"] }],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste worth refactoring.
     "minOccurrences": 3

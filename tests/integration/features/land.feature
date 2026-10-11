@@ -187,7 +187,7 @@ Feature: gtd land — the one landing verb, actorless
   @inmem
   Scenario: gtd land --json reports settled:false, idle:true for the green --workflow fix probe, without landing it
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd with args "--workflow fix"
     Then it succeeds
     And I record the commit count

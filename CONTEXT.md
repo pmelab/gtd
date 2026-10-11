@@ -9,14 +9,14 @@ scrollback.
 
 ### Engine
 
-**Workflow**: A named [flow](#flow) in a `gtd.config.ts` or the bundled module,
-started by `gtd --workflow <name>`. The bundled workflows stay available beside
-a repository's own; a repository export with the same name shadows the bundled
-one. _Avoid_: state machine, config, pipeline, entry
+**Workflow**: A named [flow](#flow) a `gtd.config.ts` exports, started by
+`gtd --workflow <name>`. gtd's shipped `feature`, `review` and `fix` live in
+`@pmelab/gtd/workflows` and run only where a config exports them. _Avoid_: state
+machine, config, pipeline, entry
 
-**Default workflow**: The workflow an ordinary start (no `--workflow`) runs — a
-repository's `default` export, else the bundled `feature`. It has no other name
-and is not startable as `--workflow default`.
+**Default workflow**: The workflow an ordinary start (no `--workflow`) runs —
+the config's required `default` export. It goes by the named export it also is,
+else `default`, and is not startable as `--workflow default`.
 
 **gtd.config.ts**: The TypeScript module a workflow lives in — the innermost one
 walking up from the current directory, never merged. Code gtd evaluates on every

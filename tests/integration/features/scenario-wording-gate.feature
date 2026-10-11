@@ -8,7 +8,7 @@ Feature: a later package that rewords a frozen e2e scenario stops at the wording
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch

@@ -507,7 +507,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
 
   Scenario: the bundled template's idle rest carries the .gtd/TODO.md hint in gtd next --json
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""
@@ -546,12 +546,14 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
 
   Scenario: gtd next --json reports the per-worktree loop log path by default (gtd#169)
     Given a test project
+    And the workflow gtd install scaffolds
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"log\":\".git/gtd-loop.log\""
 
   Scenario: gtd next --json reports GTD_LOOP_LOG verbatim when set (gtd#169)
     Given a test project
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_LOOP_LOG" set to "/tmp/run.log"
     When I run gtd next with "--json"
     Then it succeeds

@@ -20,7 +20,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   @inmem
   Scenario: six lenses each get one reviewing turn in listed order, then the clean lap hands straight on to the human review
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -106,7 +106,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   @inmem
   Scenario: a findings lap routes through build.fix.quality.fixing and the health check, then straight on to the human review
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security"
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -157,7 +157,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   @inmem
   Scenario: a blank qualityReviews disables the lap — the green health check hands straight on
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -179,7 +179,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   @live
   Scenario: lenses are trimmed and reviewed one turn each, and a lens's finding routes to build.fix.quality.fixing
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to " first-lens , second-lens "
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -217,7 +217,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   @inmem
   Scenario: conventions loads no skill and its brief reaches the prompt
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to "conventions"
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -242,7 +242,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   @inmem
   Scenario: correctness loads code-review-and-quality
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -266,7 +266,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   @inmem
   Scenario: a non-blocking finding still routes to build.fix.quality.fixing
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to "ponytail-review"
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -295,7 +295,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   @inmem
   Scenario: a lens skills key loads only while the lens is in qualityReviews
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       vars:

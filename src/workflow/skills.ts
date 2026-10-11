@@ -43,17 +43,12 @@ const checkKeys = (
   )
 }
 
-const knownTo = (
-  def: Pick<WorkflowDefinition, "knownScopes">,
-  own: readonly string[],
-): readonly string[] => [...new Set([...own, ...(def.knownScopes?.() ?? [])])]
-
 /**
  * Skill lists for the settings actually in use. `.gtdrc` `skills:` keys are
  * judged here, not at config load: only now are the pinned/entry vars known.
  */
 export const resolveScopeSkills = (
-  def: Pick<WorkflowDefinition, "skills" | "skillsKeys" | "skillsOrigin" | "knownScopes">,
+  def: Pick<WorkflowDefinition, "skills" | "skillsKeys" | "skillsOrigin">,
   vars: Readonly<Record<string, string>>,
 ): Effect.Effect<Record<string, readonly string[]>, GtdError> =>
   Effect.gen(function* () {
@@ -61,7 +56,7 @@ export const resolveScopeSkills = (
       try: () => checkShape(def.skills(vars)),
       catch: (e) => fail(def.skillsOrigin, e instanceof Error ? e.message : String(e)),
     })
-    const known = knownTo(def, Object.keys(skills))
+    const known = Object.keys(skills)
     yield* checkKeys(def.skillsKeys, known, unknownSkillsKeyMessage, "skills")
     return skills
   })
@@ -82,7 +77,7 @@ const checkAccessShape = (value: unknown): Record<string, ScopeAccess> => {
  * any scope the workflow gives skills or access to.
  */
 export const resolveScopeAccess = (
-  def: Pick<WorkflowDefinition, "access" | "accessKeys" | "skillsOrigin" | "knownScopes">,
+  def: Pick<WorkflowDefinition, "access" | "accessKeys" | "skillsOrigin">,
   skills: Readonly<Record<string, readonly string[]>>,
   vars: Readonly<Record<string, string>>,
 ): Effect.Effect<Record<string, ScopeAccess>, GtdError> =>
@@ -91,7 +86,7 @@ export const resolveScopeAccess = (
       try: () => checkAccessShape(def.access(vars)),
       catch: (e) => fail(def.skillsOrigin, e instanceof Error ? e.message : String(e)),
     })
-    const known = knownTo(def, [...Object.keys(skills), ...Object.keys(access)])
+    const known = [...new Set([...Object.keys(skills), ...Object.keys(access)])]
     yield* checkKeys(def.accessKeys, known, unknownAccessKeyMessage, "access")
     return access
   })

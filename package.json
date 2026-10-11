@@ -8,7 +8,16 @@
   },
   "exports": {
     "./flows": "./src/flows/index.ts",
-    "./workflow": "./src/workflows/bundled.ts"
+    "./workflows": {
+      "types": "./src/workflows/index.ts",
+      "source": "./src/workflows/index.ts",
+      "default": "./dist/workflows.mjs"
+    },
+    "./workflow": {
+      "types": "./src/workflows/index.ts",
+      "source": "./src/workflows/index.ts",
+      "default": "./dist/workflows.mjs"
+    }
   },
   "files": [
     "dist/",
@@ -42,7 +51,7 @@
   "scripts": {
     "prepare": "husky",
     "dev": "node dev/run.mjs",
-    "build": "tsdown --filter web && npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css --minify && node scripts/inline-web-client.mjs && tsdown --filter gtd",
+    "build": "tsdown --filter web && npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css --minify && node scripts/inline-web-client.mjs && tsdown --filter gtd && tsdown --filter workflows",
     "postbuild": "jiti scripts/generate-schema.ts && node scripts/assert-no-test-doubles.mjs",
     "watch": "tsdown --watch",
     "bench:replay": "node scripts/bench-replay.mjs",

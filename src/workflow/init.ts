@@ -4,13 +4,6 @@
 // for the opposite trade.
 const SCHEMA_URL = "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json"
 
-// Mirrors the bundled workflow's own `testCommand` default, surfaced as a
-// ready-to-edit override.
-const INIT_ENV = {
-  testCommand: "npm test",
-  fastTestCommand: "",
-} as const
-
 // gtd ships no formatter, so this is the one place a default is suggested;
 // only `format:` is seeded, since the built-in `qa`/`review` validators
 // already do the validating.
@@ -24,6 +17,5 @@ export interface InitScaffold {
 }
 
 export const renderInitScaffold = (): InitScaffold => ({
-  config:
-    JSON.stringify({ $schema: SCHEMA_URL, env: INIT_ENV, modes: MODES_SUGGESTION }, null, 2) + "\n",
+  config: JSON.stringify({ $schema: SCHEMA_URL, modes: MODES_SUGGESTION }, null, 2) + "\n",
 })

@@ -29,12 +29,12 @@ what a driver does.
 state (`gtd next`, `gtd lsp`, `gtd door` and `gtd doors` included). It is code
 the user's repository runs; write it with the same care as a build script.
 
-## Golden rule: start from the bundled default, edit incrementally
+## Golden rule: start from the shipped workflows, edit incrementally
 
 Do **not** write a workflow from a blank page unless the user wants something
-tiny. gtd ships three startable workflows (`feature`, `review`, `fix`) as named
-exports of `@pmelab/gtd/workflow` and runs them when no `gtd.config.ts` is
-found. Its default export is `feature` (the ordinary start), and every phase and
+tiny. gtd ships three workflows (`feature`, `review`, `fix`) as named exports of
+`@pmelab/gtd/workflows`; `gtd install` scaffolds a `gtd.config.ts` re-exporting
+them. Its default export is `feature` (the ordinary start), and every phase and
 single step they are built from is a named export too. Start by importing what
 you keep and writing only what changes. Import phases by name; **never
 `export *` from it** — every exported function of your file would become a
@@ -42,7 +42,7 @@ startable workflow:
 
 ```ts
 import { start } from "@pmelab/gtd/flows"
-import { afterTail, buildTail, feature } from "@pmelab/gtd/workflow"
+import { afterTail, buildTail, feature } from "@pmelab/gtd/workflows"
 
 export {
   defaults,
@@ -51,7 +51,7 @@ export {
   base,
   steering,
   skills,
-} from "@pmelab/gtd/workflow"
+} from "@pmelab/gtd/workflows"
 
 export default feature
 

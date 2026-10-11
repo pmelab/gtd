@@ -127,6 +127,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     # The table-driven tokenizer now hands "version" to `--workflow` as an
     # ordinary (unknown) workflow name instead.
     Given a test project
+    And the workflow gtd install scaffolds
     When I run gtd with args "--workflow version"
     Then the exit code is 2
     And stderr contains "unknown workflow \"version\""

@@ -39,6 +39,7 @@ import { resolveMode, type ResolvedMode } from "../emit/index.js"
 import { steeringFormatFor } from "../steering/index.js"
 import type { WorkflowDefinition } from "../workflow/index.js"
 import { InMemRepo, testLayers } from "../testing/index.js"
+import { CONFIG_SCAFFOLD } from "../install/index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!
@@ -1185,13 +1186,12 @@ describe("bindSteeringServer", () => {
 
 describe("resolveSteeringFile", () => {
   it("resolves idle's .gtd/TODO.md with no stat — gtd names the path, never checks it exists", async () => {
-    // No `.gtdrc` at all — the bundled/built-in template applies, whose
-    // `idle` state resolves `file:` to `.gtd/TODO.md` (its `todoFile` var,
-    // src/workflows/unified.yaml). One commit, nothing under `.gtd/` — the
-    // repo-relative path resolves purely from the workflow + state, never by
-    // stat-ing the worktree for it.
+    // The shipped workflows, whose `idle` step names `.gtd/TODO.md`. One
+    // commit, nothing under `.gtd/` — the repo-relative path resolves purely
+    // from the workflow + state, never by stat-ing the worktree for it.
     const repo = new InMemRepo()
     repo.writeFile("README.md", "hello")
+    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
     repo.commitAllWithPrefix("chore: initial commit")
 
     const resolved = await Effect.runPromise(
@@ -1213,7 +1213,9 @@ describe("makeNodeLspEnv", () => {
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
     execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
     execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
-    execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "initial"], { cwd: dir })
+    writeFileSync(join(dir, "gtd.config.ts"), CONFIG_SCAFFOLD)
+    execFileSync("git", ["add", "gtd.config.ts"], { cwd: dir })
+    execFileSync("git", ["commit", "-q", "-m", "initial"], { cwd: dir })
   })
 
   afterEach(() => {

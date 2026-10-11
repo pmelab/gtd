@@ -83,6 +83,7 @@ Feature: `$NAME` interpolation over every `.gtdrc` string value
 
   Scenario: "ui.format" keeps its "$GTD_FILE" verbatim
     Given a test project
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       ui:

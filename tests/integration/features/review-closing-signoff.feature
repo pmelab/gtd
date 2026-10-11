@@ -21,6 +21,7 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
 
   Scenario: a tick with no comment signs off — closing lands an ordinary commit entering idle
     Given a test project
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -67,6 +68,7 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
     # the diff, so a broken round can never be mistaken for an approval of
     # nothing.
     Given a test project
+    And the workflow gtd install scaffolds
     # The bundled access would refuse this reviewer's stray src/ write.
     And a gtd config file at ".gtdrc" with:
       """

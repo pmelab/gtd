@@ -8,7 +8,7 @@ Feature: unwind reverts the sketch in the working tree, never the index
 
   Scenario: the unwind removes the sketch as an unstaged deletion
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file ".gtd/TODO.md" with:
       """
       sketch: add a greeting

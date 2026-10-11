@@ -27,6 +27,7 @@ import {
   restoredOutcome,
 } from "./emit/index.js"
 import { HISTORY_REF } from "./platform/index.js"
+import { CONFIG_SCAFFOLD } from "./install/index.js"
 
 const run = async (
   repo: InMemRepo,
@@ -62,10 +63,11 @@ const seed = (source: string, extra: Record<string, string> = {}): InMemRepo => 
   return repo
 }
 
-/** A repo running the bundled workflow. */
+/** A repo `gtd install` set up: its config runs the shipped workflows. */
 const seedBundled = (): InMemRepo => {
   const repo = new InMemRepo()
   repo.writeFile("README.md", "# test project\n")
+  repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
   repo.commitAllWithPrefix("chore: init")
   return repo
 }
@@ -113,7 +115,7 @@ export const defaults = { greeting: "hello" }
     expect(exitCode).toBe(2)
     expect(repo.commitHistory()).toHaveLength(before)
     expect(stderr).toContain('unknown workflow "bogus"')
-    expect(stderr).toContain("startable: feature, fix, hotfix, review")
+    expect(stderr).toContain("startable: hotfix")
   })
 
   it("`default` is not startable by name", async () => {
@@ -191,7 +193,7 @@ export const defaults = { greeting: "hello" }
   })
 })
 
-describe("gtd --workflow <name> — the bundled workflows", () => {
+describe("gtd --workflow <name> — the shipped workflows", () => {
   it("--workflow review --var reviewBase=<base> emits a script anchoring the process to that base", async () => {
     const repo = seedBundled()
     const base = repo.commitHistory().at(-1)!.hash
@@ -221,18 +223,11 @@ describe("gtd --workflow <name> — the bundled workflows", () => {
     expect(stdout).toContain("Gtd-Workflow: fix")
     expect(repo.commitHistory()).toHaveLength(before)
   })
-
-  it("the bundled workflows are startable beside a repo's own config", async () => {
-    const repo = seed(IDLE_THEN_WORKING)
-    const { exitCode, stdout } = await run(repo, "--workflow", "fix")
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain("Gtd-Workflow: fix")
-  })
 })
 
 describe("config loading", () => {
   it('gtd next --verbose narrates "config: layer" exactly once — the extra load that surfaces warnings is silent', async () => {
-    const repo = new InMemRepo()
+    const repo = seedBundled()
     repo.writeFile(".gtdrc.json", "{}\n")
     repo.commitAllWithPrefix("chore: add config")
     const { stderr, exitCode } = await run(repo, "next", "--verbose")
@@ -293,6 +288,7 @@ describe("gtd next --json — log path emission", () => {
   const seededRepo = (): InMemRepo => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
+    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
     repo.commitAllWithPrefix("gtd: init")
     return repo
   }
@@ -1958,6 +1954,7 @@ describe("gtd next/land --json=<path> — the select branch", () => {
   const seededRepo = (): InMemRepo => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
+    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
     repo.commitAllWithPrefix("gtd: init")
     return repo
   }

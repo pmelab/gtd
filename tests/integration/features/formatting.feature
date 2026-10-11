@@ -154,6 +154,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     # longer runs the format command (package 2, Requirement A) — a driver
     # wanting the file wrapped first runs `gtd validate` ahead of `gtd land`.
     Given a test project
+    And the workflow gtd install scaffolds
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -189,6 +190,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
 
   Scenario: prettier plugged into the bundled default's qa mode formats the human-edited requirements at design.gate.answer, when gtd validate runs it first
     Given a test project
+    And the workflow gtd install scaffolds
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -233,6 +235,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
 
   Scenario: gtd validate formats the requirements file at design.triage and reports it valid — plain prose with no Open Questions passes the qa validator trivially
     Given a test project
+    And the workflow gtd install scaffolds
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
       """

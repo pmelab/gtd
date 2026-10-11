@@ -2,17 +2,17 @@
 Feature: doors — named shortcuts that start a workflow with positional args
 
   A `gtd.config.ts` declares doors through its reserved `doors` export; the
-  bundled module ships `fix` and `review [base]`. `gtd door <name> [args…]`
-  starts the door's workflow exactly as `gtd --workflow` would, mapping the
-  positional args to process settings; `gtd doors` lists every door. A door's
-  `workflow` resolves in the merged catalogue, so a repo that shadows `review`
-  gets its own behind the bundled door.
+  one `gtd install` scaffolds re-exports gtd's shipped `fix` and
+  `review [base]`. `gtd door <name> [args…]` starts the door's workflow exactly
+  as `gtd --workflow` would, mapping the positional args to process settings;
+  `gtd doors` lists every door. A door's `workflow` names one of the config's
+  own workflows.
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
 
-  Scenario: the bundled fix and review doors are listed with no config
+  Scenario: the installed config lists the shipped fix and review doors
     When I run gtd with args "doors --json"
     Then it succeeds
     And stdout contains "[{\"name\":\"fix\",\"workflow\":\"fix\",\"args\":[]},{\"name\":\"review\",\"workflow\":\"review\",\"args\":[{\"name\":\"base\",\"optional\":true}]}]"
@@ -28,10 +28,14 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then it succeeds
     And stdout contains "base"
 
-  Scenario: a repo door is listed beside the bundled ones
+  Scenario: a config's doors are exactly its own doors export
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
 
       export const hotfix = async () => {
         await agent("patch", "Patch ${vars.ticket}.")
@@ -49,14 +53,16 @@ Feature: doors — named shortcuts that start a workflow with positional args
       """
     When I run gtd with args "doors --json"
     Then it succeeds
-    And stdout contains "{\"name\":\"fix\""
-    And stdout contains "{\"name\":\"patch\",\"workflow\":\"hotfix\",\"args\":[{\"name\":\"ticket\",\"optional\":false}]}"
-    And stdout contains "{\"name\":\"review\""
+    And stdout contains "[{\"name\":\"patch\",\"workflow\":\"hotfix\",\"args\":[{\"name\":\"ticket\",\"optional\":false}]}]"
 
   Scenario: gtd door starts the door's workflow with its args mapped to process settings
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
 
       export const hotfix = async () => {
         await agent("patch", "Patch it.")
@@ -78,36 +84,25 @@ Feature: doors — named shortcuts that start a workflow with positional args
     And the last commit body contains "Gtd-Workflow: hotfix"
     And the last commit body contains "Gtd-Var: ticket=T-42"
 
-  Scenario: a repo door of the same name wins over the bundled one
+  Scenario: a config adds its own door beside the shipped ones by spreading their doors export
     Given a gtd config file at "gtd.config.ts" with:
       """
       import { agent } from "@pmelab/gtd/flows"
+      import { doors as shipped } from "@pmelab/gtd/workflows"
+
+      export { feature as default, fix, review } from "@pmelab/gtd/workflows"
 
       export const hotfix = async () => {
         await agent("patch", "Patch it.")
       }
 
-      export const doors = {
-        fix: { workflow: "hotfix" },
-      }
+      export const doors = { ...shipped, patch: { workflow: "hotfix" } }
       """
-    When I run gtd with args "door fix"
+    When I run gtd with args "doors"
     Then it succeeds
-    And the last commit body contains "Gtd-Workflow: hotfix"
-
-  Scenario: a door's workflow resolves in the merged catalogue — a repo's own review sits behind the bundled review door
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent } from "@pmelab/gtd/flows"
-
-      export const review = async () => {
-        await agent("my-review", "Review my way.")
-      }
-      """
-    When I run gtd with args "door review"
-    Then it succeeds
-    And the last commit subject is "gtd(human): my-review"
-    And the last commit body contains "Gtd-Workflow: review"
+    And stdout contains "fix → fix"
+    And stdout contains "patch → hotfix"
+    And stdout contains "review [base] → review"
 
   Scenario: gtd door fix is gtd --workflow fix
     When I run gtd with args "door fix"
@@ -160,7 +155,11 @@ Feature: doors — named shortcuts that start a workflow with positional args
   Scenario: too few args is a usage error naming the door's synopsis
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent } from "@pmelab/gtd/flows"
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
 
       export const hotfix = async () => {
         await agent("patch", "Patch it.")
@@ -182,6 +181,12 @@ Feature: doors — named shortcuts that start a workflow with positional args
   Scenario: a door naming an unknown workflow is a config error
     Given a gtd config file at "gtd.config.ts" with:
       """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
       export const doors = {
         go: { workflow: "nope" },
       }
@@ -193,6 +198,12 @@ Feature: doors — named shortcuts that start a workflow with positional args
   Scenario: a door name outside the lowercase-kebab rule is a config error
     Given a gtd config file at "gtd.config.ts" with:
       """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
       export const doors = {
         Go_Now: { workflow: "fix" },
       }

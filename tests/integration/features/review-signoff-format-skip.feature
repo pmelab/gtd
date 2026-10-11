@@ -23,7 +23,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
 
   Scenario: the sign-off still lands when the review mode declares a format command that fails on a missing file
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       modes:

@@ -20,7 +20,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   @inmem
   Scenario: a red baseline halts at start-gate.blocked, then a fix re-runs the gate to green
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     Given a file "NOTE.md" with:
       """
       Build a thing.
@@ -60,7 +60,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   @inmem
   Scenario: an abandoned process's committed REVIEW_RAW.md at the entry gate does not misroute the gate
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     Given a file ".gtd/REVIEW_RAW.md" with:
       """
       stale raw review capture left by an abandoned process
@@ -90,7 +90,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   @inmem
   Scenario: a red run that also swept a leftover REVIEW_RAW.md still halts at start-gate.blocked
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     Given a file ".gtd/REVIEW_RAW.md" with:
       """
       stale raw review capture left by an abandoned process
@@ -124,7 +124,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   @live
   Scenario: a green baseline proceeds from the gate into design.triage
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And GTD_TESTCOMMAND is set to "true"
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     Given a file "NOTE.md" with:
@@ -154,7 +154,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   @live
   Scenario: the unwind reverts a note and a hand-edited code change alike, restoring the start commit while both survive in the entry commit
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And GTD_TESTCOMMAND is set to "true"
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a file "src/real.ts" with:
@@ -193,7 +193,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   @live
   Scenario: a red baseline halts at start-gate.blocked with the failing output recorded
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And GTD_TESTCOMMAND is set to "false"
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     Given a file "NOTE.md" with:

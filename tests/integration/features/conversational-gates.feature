@@ -9,7 +9,7 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch

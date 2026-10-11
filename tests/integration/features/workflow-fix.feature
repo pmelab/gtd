@@ -16,7 +16,7 @@ Feature: gtd --workflow fix — start a process that goes straight into repairin
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
 
   Scenario: gtd --workflow fix enters at the fix-precheck gate
     When I run gtd with args "--workflow fix"
