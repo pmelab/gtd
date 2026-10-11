@@ -53,6 +53,7 @@ const start = (
         first: startRefusal === undefined ? { firstStep: "work" } : { refusal: startRefusal },
         commandLabel: req.commandLabel,
         vars: req.vars,
+        config: {},
       })
     }).pipe(Effect.provide(testLayers(repo))),
   )

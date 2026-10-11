@@ -328,9 +328,10 @@ interface LandOptions {
 /** Decides `gtd land`'s one transition without performing it. Refusals fail the Effect; a no-op returns `subject: null` and empty scripts. */
 const planLanding = (
   opts: LandOptions = {},
+  current?: Rest,
 ): Effect.Effect<LandResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const rest = yield* currentRest
+    const rest = current ?? (yield* currentRest)
     const snapshot = yield* snapshotFromRest(rest, opts.judge)
     const outcome = planStepPure(snapshot, opts)
 
@@ -554,7 +555,7 @@ const runJudgeAnswerCommand = (
       ),
     )
 
-    const result = yield* planLanding({ judge: verdict })
+    const result = yield* planLanding({ judge: verdict }, rest)
     const built = landFields(result)
     if (json.kind === "document") {
       out.write(renderLandJson(built))
@@ -628,6 +629,7 @@ const runStartCommand = (
         first: started,
         commandLabel,
         vars: varOverrides,
+        config: rest.config,
       },
     )
     if (plan.kind === "refusal") {

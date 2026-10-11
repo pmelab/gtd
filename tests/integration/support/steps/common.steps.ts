@@ -453,6 +453,14 @@ Then("stdout is the gtd version under test", (world: GtdWorld) => {
   assert.equal(world.lastResult.stdout, `${version}\n`)
 })
 
+Then("stderr contains {string} exactly once", (world: GtdWorld, text: string) => {
+  assert.equal(
+    world.lastResult.stderr.split(text).length - 1,
+    1,
+    `Expected stderr to contain "${text}" exactly once. Got:\n${world.lastResult.stderr}`,
+  )
+})
+
 Then("stderr does not contain {string}", (world: GtdWorld, text: string) => {
   assert.ok(
     !world.lastResult.stderr.includes(text),

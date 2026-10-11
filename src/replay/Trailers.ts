@@ -68,6 +68,8 @@ export interface CommitMessage {
   readonly workflow: string | undefined
   readonly judge: readonly JudgeVerdict[]
   readonly vars: Readonly<Record<string, string>>
+  /** Written only on a process's first commit. */
+  readonly config: Readonly<Record<string, string>>
   readonly reviewBase: string | undefined
   readonly cost: readonly CostEntry[]
   readonly format: number
@@ -94,6 +96,20 @@ const parseJson = (raw: string): unknown => {
 const TRAILER_RE = /^(Gtd-[A-Za-z-]+):[ \t]*(.*?)[ \t]*$/gm
 const COST_RE = /^([0-9]+(?:\.[0-9]+)?)(?:[ \t]+(.+))?$/
 const VAR_RE = /^([^=\s]+)=(.*)$/
+const CONFIG_RE = /^([0-9a-f]{16}) (.+)$/
+// A path git's message cleanup or the trailer syntax would alter travels as a
+// JSON string. A control character is refused on read: history written by
+// someone else must never put escape sequences on a terminal.
+// eslint-disable-next-line no-control-regex -- the control range IS the point
+const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f]/
+const encodePath = (path: string): string =>
+  path.trim() !== path || path.startsWith('"') || CONTROL_CHARACTER.test(path)
+    ? JSON.stringify(path)
+    : path
+const decodePath = (raw: string): string | undefined => {
+  const path = raw.startsWith('"') ? parseJson(raw) : raw
+  return typeof path === "string" && path !== "" && !CONTROL_CHARACTER.test(path) ? path : undefined
+}
 const FORMAT_RE = /^[1-9][0-9]*$/
 
 interface Trailers {
@@ -102,6 +118,7 @@ interface Trailers {
   reviewBase: string | undefined
   readonly judge: JudgeVerdict[]
   readonly vars: Record<string, string>
+  readonly config: Record<string, string>
   readonly cost: CostEntry[]
   format: number | undefined
 }
@@ -120,6 +137,11 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Var": (value, into) => {
     const kv = VAR_RE.exec(value)
     if (kv !== null) into.vars[kv[1]!] = kv[2]!
+  },
+  "Gtd-Config": (value, into) => {
+    const entry = CONFIG_RE.exec(value)
+    const path = entry === null ? undefined : decodePath(entry[2]!)
+    if (path !== undefined) into.config[path] = entry![1]!
   },
   "Gtd-Review-Base": (value, into) => {
     into.reviewBase ??= value.split(/\s/)[0]
@@ -142,6 +164,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     reviewBase: undefined,
     judge: [],
     vars: {},
+    config: {},
     cost: [],
     format: undefined,
   }
@@ -161,9 +184,13 @@ export interface CommitSpec {
   readonly workflow?: string
   readonly reviewBase?: string
   readonly vars?: Readonly<Record<string, string>>
+  readonly config?: Readonly<Record<string, string>>
   readonly cost?: { readonly cost: number; readonly model?: string }
   readonly judge?: readonly JudgeVerdict[]
 }
+
+const sortedEntries = (record: Readonly<Record<string, string>> = {}): [string, string][] =>
+  Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 
 /** Trailer order is fixed so the same spec always yields the same bytes. */
 export const formatCommitMessage = (spec: CommitSpec): string => {
@@ -171,10 +198,9 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
   if (spec.step !== undefined) lines.push(`Gtd-Step: ${formatStepId(spec.step)}`)
   if (spec.workflow !== undefined) lines.push(`Gtd-Workflow: ${spec.workflow}`)
   if (spec.reviewBase !== undefined) lines.push(`Gtd-Review-Base: ${spec.reviewBase}`)
-  for (const [name, value] of Object.entries(spec.vars ?? {}).sort(([a], [b]) =>
-    a < b ? -1 : a > b ? 1 : 0,
-  ))
-    lines.push(`Gtd-Var: ${name}=${value}`)
+  for (const [name, value] of sortedEntries(spec.vars)) lines.push(`Gtd-Var: ${name}=${value}`)
+  for (const [path, hash] of sortedEntries(spec.config))
+    lines.push(`Gtd-Config: ${hash} ${encodePath(path)}`)
   if (spec.cost !== undefined) {
     lines.push(
       `Gtd-Cost: ${spec.cost.cost}${spec.cost.model !== undefined ? ` ${spec.cost.model}` : ""}`,

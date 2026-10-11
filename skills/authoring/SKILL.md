@@ -186,9 +186,13 @@ certainly a bug.
 ## Rules for flow code
 
 Flow code is replayed on every command, so it must reach the same steps every
-time it sees the same history. `run()` bodies and module top-level code are
-exempt. gtd does not read the source ahead of time: breaking a rule shows up
-when replay runs, as an error or, for nondeterminism, as a divergence later.
+time it sees the same history. Only `run()` bodies are exempt: module top-level
+code and every local import are evaluated on every command too, so they read no
+`process.env`, clock, network or files either (a per-machine value is an
+`envDefaults` setting). A process records the config's hashes when it starts and
+warns whenever it differs. gtd does not read the source ahead of time: breaking
+a rule shows up when replay runs, as an error or, for nondeterminism, as a
+divergence later.
 
 - No IO or nondeterminism in flow code — no clock, randomness, environment,
   network or filesystem. Read the tree through the helpers; do IO inside a

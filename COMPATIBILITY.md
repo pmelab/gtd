@@ -27,7 +27,10 @@ histories written by an older or newer gtd.
   `Gtd-Format` trailer on every commit gtd writes, bumped when an encoding
   replay reads changes incompatibly. Read-back covers the current format and,
   after a bump, at least the one before it; an unreadable format is refused with
-  exit `1`.
+  exit `1`. A new trailer that replay does not need to read a history — one an
+  older gtd skips as unknown and a newer gtd treats as absent on older commits —
+  is additive and does not bump `Gtd-Format`. `Gtd-Config:` is one: it only
+  feeds a warning, never a step.
 
 ## Follows package SemVer
 

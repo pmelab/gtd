@@ -10,10 +10,14 @@ import {
 import {
   ConfigDiscovery,
   ConfigService,
+  changedConfigFiles,
+  configFingerprint,
+  contentHash,
   multilineSetting,
   resolveVars,
   resolveScopeAccess,
   resolveScopeSkills,
+  type ConfigFingerprint,
   type ConfigOperations,
   type ResolvedWorkflow,
   knownModes,
@@ -136,6 +140,8 @@ export interface ProcessRun {
   readonly judgeVerdicts: readonly JudgeVerdictEntry[]
   /** The process settings recorded in the process's first commit (empty for a process started before pinning existed). */
   readonly pinnedVars: Record<string, string>
+  /** Absent for a process started before recording existed. */
+  readonly pinnedConfig: { readonly commit: string; readonly files: ConfigFingerprint } | undefined
   /** HEAD's own gtd commit, when it is one — `empty` is whether it changed nothing. */
   readonly headTurn:
     | {
@@ -208,6 +214,17 @@ const runOf = (
     : Effect.fail(new Error(fault))
 }
 
+// The newest recording, not the first process commit's: the episode is
+// located by the CURRENT config's first step, so a config that renamed it can
+// move the boundary onto the start commit itself, or behind it.
+const pinnedConfigOf = (history: History): ProcessRun["pinnedConfig"] => {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const files = parseCommitMessage(history[i]!.message).config
+    if (Object.keys(files).length > 0) return { commit: history[i]!.hash, files }
+  }
+  return undefined
+}
+
 const buildRun = (
   history: History,
   location: EpisodeLocation,
@@ -228,6 +245,7 @@ const buildRun = (
     costEntries: parsed.flatMap(costEntriesOf),
     judgeVerdicts: parsed.flatMap((m) => m.judge),
     pinnedVars: { ...first?.vars },
+    pinnedConfig: pinnedConfigOf(history.slice(Math.max(location.baseIndex, 0))),
     headTurn: headTurnOf(head),
     closingHash,
     episode: {
@@ -344,6 +362,37 @@ const computeProcessRun = (
   Effect.flatMap(historyUpTo(git, def, head), (history) =>
     runOf(history, locateEpisode(def, history)),
   )
+
+// A file matching its copy in the recording commit is unchanged: the hashes
+// are taken before the commit's own hooks run, and a hook may reformat it.
+const changedSinceStart = (
+  pinned: ProcessRun["pinnedConfig"],
+  current: ConfigFingerprint,
+  workspace: WorkspaceOps,
+): readonly string[] => {
+  if (pinned === undefined) return []
+  return changedConfigFiles(pinned.files, current).filter((path) => {
+    const committed = workspace.readCommittedSync(path, pinned.commit)
+    return (
+      current[path] === undefined ||
+      committed === undefined ||
+      contentHash(committed) !== current[path]
+    )
+  })
+}
+
+const warnConfigChanges = (
+  run: ProcessRun,
+  current: ConfigFingerprint,
+  workspace: WorkspaceOps,
+): Effect.Effect<void, never, Narrator> =>
+  Effect.gen(function* () {
+    const changed = changedSinceStart(run.pinnedConfig, current, workspace)
+    if (changed.length === 0) return
+    yield* (yield* Narrator).warn(
+      `gtd: warning: the config changed since this process started (${changed.join(", ")}) — the rest of the process replays under the changed config`,
+    )
+  })
 
 type ConfigRequirements = GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
 
@@ -780,6 +829,8 @@ interface Rest extends ResolvedRest {
   readonly run: ProcessRun
   readonly vars: Record<string, string>
   readonly env: Record<string, string>
+  /** What a landing that starts the process records. */
+  readonly config: ConfigFingerprint
   readonly changes: readonly PendingChange[]
   readonly memory: string | undefined
   readonly memoryResumed: boolean
@@ -883,6 +934,11 @@ export const restAt = (
           }))
         : []
     const memory = memoryOf(outcome.trace, run)
+    const configNow = configFingerprint(config.workflowFiles, host.root)
+    // Only the current rest warns, so a command must read it once — a second
+    // read warns twice. An earlier ref (restore's tip) would warn about a
+    // process the command is not acting on.
+    if (ref === undefined) yield* warnConfigChanges(run, configNow, workspace)
     return {
       def,
       workflowName: resolved.name,
@@ -894,6 +950,7 @@ export const restAt = (
       run,
       vars,
       env,
+      config: configNow,
       changes,
       memory: memory.key,
       memoryResumed: memory.resumed,
@@ -1082,7 +1139,7 @@ const landingTo = (rest: Rest, to: StateName): Landing => {
       from: rest.state,
       to,
       step: rest.step.id,
-      ...(starts ? { vars: rest.vars } : {}),
+      ...(starts ? { vars: rest.vars, config: rest.config } : {}),
     },
   }
 }
