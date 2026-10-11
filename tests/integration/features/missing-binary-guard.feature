@@ -18,12 +18,6 @@ Feature: A declared mode command guards its own missing binary
 
   Scenario: a mode's validate: command names an uninstalled binary and the resolved $PATH
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: "gtd-test-nonexistent-binary $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -31,6 +25,14 @@ Feature: A declared mode command guards its own missing binary
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: "gtd-test-nonexistent-binary $GTD_FILE",
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -45,12 +47,6 @@ Feature: A declared mode command guards its own missing binary
 
   Scenario: a mode's format: command names an uninstalled binary and the resolved $PATH
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          format: "gtd-test-nonexistent-formatter $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -58,6 +54,14 @@ Feature: A declared mode command guards its own missing binary
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            format: "gtd-test-nonexistent-formatter $GTD_FILE",
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -80,12 +84,6 @@ Feature: A declared mode command guards its own missing binary
     # second, gtd-authored one naming "adr"/"validate" would mean the
     # extractor wrongly treated a pipeline as a single unambiguous binary.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: "gtd-test-nonexistent-binary $GTD_FILE | cat"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -93,6 +91,14 @@ Feature: A declared mode command guards its own missing binary
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: "gtd-test-nonexistent-binary $GTD_FILE | cat",
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -106,12 +112,6 @@ Feature: A declared mode command guards its own missing binary
 
   Scenario: a VAR=x-prefixed validate: command emits no guard
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: "FOO=1 gtd-test-nonexistent-binary $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -119,6 +119,14 @@ Feature: A declared mode command guards its own missing binary
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: "FOO=1 gtd-test-nonexistent-binary $GTD_FILE",
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:

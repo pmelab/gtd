@@ -50,7 +50,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result is an empty symbol list
 
-  Scenario: documentSymbol is served for a CUSTOM-named qa file mapped via a real .gtdrc (config-driven dispatch)
+  Scenario: documentSymbol is served for a CUSTOM-named qa file mapped via a real gtd.config.ts (config-driven dispatch)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -257,12 +257,6 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     # Information notice pointing at `gtd validate`, never the built-in
     # findings.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          validate: "exit 1"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -270,6 +264,14 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+
+      export const config = {
+        modes: {
+          qa: {
+            validate: "exit 1",
+          },
+        },
       }
       """
     # The LSP knows a steering file's mode from the steps the process has
@@ -306,12 +308,6 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     # findings, never the "validated by an external command" notice a genuine
     # user override gets (see the scenario above, which uses "exit 1").
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          validate: 'gtd check qa "$GTD_FILE"'
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -319,6 +315,14 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+      }
+
+      export const config = {
+        modes: {
+          qa: {
+            validate: "gtd check qa \"$GTD_FILE\"",
+          },
+        },
       }
       """
     # The LSP knows a steering file's mode from the steps the process has
@@ -696,7 +700,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result is an empty symbol list
 
-  Scenario: an edited .gtdrc registering a previously-unknown mode takes effect on the next request, without a server restart
+  Scenario: a mode a config edit registers publishes its notice on the next request, without a server restart
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -717,13 +721,19 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     Then the LSP response has no error
     # "annotated" isn't registered anywhere yet — no notice is published for
-    # ".gtd/NOTES.md". Same HEAD — an uncommitted .gtdrc, as an editor
-    # autosave would make it, registers it for the memo's NEXT request.
-    Given a file ".gtdrc.yaml" with:
+    # ".gtd/NOTES.md". Same HEAD — an uncommitted gtd.config.ts edit, as an
+    # editor autosave would make it, registers it for the memo's NEXT request.
+    Given a file "gtd.config.ts" with:
       """
-      modes:
-        annotated:
-          validate: "exit 1"
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export const steering = { ".gtd/NOTES.md": "annotated", ".gtd/MORE.md": "annotated" }
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export const config = { modes: { annotated: { validate: "exit 1" } } }
       """
     When the LSP client requests document symbols for ".gtd/MORE.md" containing:
       """

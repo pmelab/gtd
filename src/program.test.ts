@@ -226,13 +226,11 @@ describe("gtd --workflow <name> — the shipped workflows", () => {
 })
 
 describe("config loading", () => {
-  it('gtd next --verbose narrates "config: layer" exactly once — the extra load that surfaces warnings is silent', async () => {
+  it('gtd next --verbose narrates "config: module" exactly once — the extra load that surfaces warnings is silent', async () => {
     const repo = seedBundled()
-    repo.writeFile(".gtdrc.json", "{}\n")
-    repo.commitAllWithPrefix("chore: add config")
     const { stderr, exitCode } = await run(repo, "next", "--verbose")
     expect(exitCode).toBe(0)
-    expect(stderr.match(/config: layer/g)).toHaveLength(1)
+    expect(stderr.match(/config: module /g)).toHaveLength(1)
   })
 })
 
@@ -615,16 +613,16 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
     return result()
   }
 
-  const atWorking = async (modes: readonly string[], stateMode = "qa"): Promise<InMemRepo> => {
-    const repo = seed(WITH_STEERING_FILE(stateMode), {
-      ".gtdrc.yaml": ["modes:", ...modes, ""].join("\n"),
-    })
+  const atWorking = async (modes: string, stateMode = "qa"): Promise<InMemRepo> => {
+    const repo = seed(
+      `${WITH_STEERING_FILE(stateMode)}\nexport const config = { modes: ${modes} }\n`,
+    )
     await landTurn(repo, { "NOTE.md": "a note\n" })
     return repo
   }
 
   it("a live built-in validator (qa, with a declared format:) emits the round-trip BEFORE the existence guard, using the scratch path under TMPDIR", async () => {
-    const repo = await atWorking(["  qa:", '    format: "my-formatter $GTD_FILE"'])
+    const repo = await atWorking(`{ qa: { format: "my-formatter $GTD_FILE" } }`)
     const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
     expect(exitCode).toBe(0)
 
@@ -650,11 +648,7 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
   })
 
   it("an external validate: command prints a one-line skip notice instead of the round-trip", async () => {
-    const repo = await atWorking([
-      "  qa:",
-      '    format: "my-formatter $GTD_FILE"',
-      '    validate: "true"',
-    ])
+    const repo = await atWorking(`{ qa: { format: "my-formatter $GTD_FILE", validate: "true" } }`)
     const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
     expect(exitCode).toBe(0)
     expect(stdout).toContain('mode "qa" has an external validate: command')
@@ -664,7 +658,7 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
   })
 
   it("a format-only mode (no validate at all) emits neither the round-trip nor the skip notice — just the guard and the format command", async () => {
-    const repo = await atWorking(["  prose:", '    format: "my-formatter $GTD_FILE"'], "prose")
+    const repo = await atWorking(`{ prose: { format: "my-formatter $GTD_FILE" } }`, "prose")
     const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
     expect(exitCode).toBe(0)
     expect(stdout).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
@@ -675,7 +669,7 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
   })
 
   it("no format: command at all emits neither", async () => {
-    const repo = await atWorking(["  qa: {}"])
+    const repo = await atWorking(`{}`)
     const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
     expect(exitCode).toBe(0)
     expect(stdout).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
@@ -684,14 +678,14 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
   })
 
   it("resolves the scratch dir from node:os's tmpdir() when TMPDIR is unset or empty", async () => {
-    const repo = await atWorking(["  qa:", '    format: "my-formatter $GTD_FILE"'])
+    const repo = await atWorking(`{ qa: { format: "my-formatter $GTD_FILE" } }`)
     const { stdout, exitCode } = await runEnv(repo, {}, "validate")
     expect(exitCode).toBe(0)
     expect(stdout).toContain(`gtd-mode-sample-qa-${process.pid}.md`)
   })
 
   it("gtd validate the COMMAND exits 0 even when the emitted SCRIPT would fail if run — gtd only prints it", async () => {
-    const repo = await atWorking(["  qa:", '    format: "my-formatter $GTD_FILE"'])
+    const repo = await atWorking(`{ qa: { format: "my-formatter $GTD_FILE" } }`)
     const { exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
     expect(exitCode).toBe(0)
   })
@@ -1641,9 +1635,9 @@ export default async () => {
 `
 
   const atDrafting = async (): Promise<InMemRepo> => {
-    const repo = seed(NOTES_WORKFLOW, {
-      ".gtdrc.yaml": ["modes:", "  notes:", '    format: "fmt-notes $GTD_FILE"', ""].join("\n"),
-    })
+    const repo = seed(
+      `${NOTES_WORKFLOW}export const config = { modes: { notes: { format: "fmt-notes $GTD_FILE" } } }\n`,
+    )
     await landTurn(repo, { ".gtd/NOTES.md": "# notes\n\nfirst draft\n" })
     return repo
   }
@@ -1685,7 +1679,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
   // gets an entry here and `stateKinds` picks it up.
   const commandFor: Record<Command["kind"], Command> = {
     lsp: { kind: "lsp" },
-    init: { kind: "init" },
     ui: { kind: "ui", selfSigned: false, dev: false },
     land: { kind: "land" },
     start: { kind: "start", actor: "human", workflow: "feature", vars: {}, label: "" },

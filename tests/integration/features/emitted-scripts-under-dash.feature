@@ -32,19 +32,21 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
     # the round-trip's own printf/cat/pipe machinery must parse and run under
     # a genuinely POSIX-only shell, exactly like every other emitted script
     # in this file.
-    Given a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        review:
-          format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' $GTD_FILE && rm -f $GTD_FILE.bak"
-      """
-    And a gtd config file at "gtd.config.ts" with:
+    Given a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "start" })
         await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+      }
+
+      export const config = {
+        modes: {
+          review: {
+            format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' $GTD_FILE && rm -f $GTD_FILE.bak",
+          },
+        },
       }
       """
     And a file "src/a.ts" with:

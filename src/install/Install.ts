@@ -384,17 +384,17 @@ follow in the same numbered list.
    existing config, the project's own README/docs) and ask the user what
    they're trying to accomplish with gtd here — don't assume a fresh
    install or silently start a process on their behalf.
-2. **Run \`gtd init\`, and treat an "a gtd config already exists" refusal as
-   success.** Do not hand-roll your own check for \`.gtdrc\`/\`.gtdrc.json\`/
-   etc. first — gtd accepts six different config filenames at the
-   repository root, and only gtd itself knows how to recognize all of
-   them; asking it via \`gtd init\` and reading its answer is the only
-   check that can't drift from gtd's own rule.
-3. **Commit the config before the first drive.** \`gtd init\` leaves its
-   written file uncommitted on purpose (its own message says so) — an
-   uncommitted config is a pending change, so starting a process without
-   committing it first turns the config into the very first thing the
-   process plans against. Commit it, THEN start driving.
+2. **Make sure a \`gtd.config.ts\` governs the repository.** Run at the
+   repository root, \`gtd install\` writes one importing gtd's shipped
+   workflows when none exists yet (its own message says so). Repository
+   settings — steering-file modes, \`gtd ui\`, per-scope skills and access —
+   go in its \`config\` export; workflow settings are options of the
+   workflow factory it exports.
+3. **Commit the config before the first drive.** \`gtd install\` leaves the
+   file it writes uncommitted on purpose — an uncommitted config is a
+   pending change, so starting a process without committing it first turns
+   the config into the very first thing the process plans against. Commit
+   it, THEN start driving.
 4. **Which agent should run the turns?** Probe \`PATH\` for the known
    coding-agent CLIs — \`claude\`, \`codex\`, \`gemini\`, \`cursor-agent\`,
    \`aider\`, \`opencode\`, \`amp\` — show the user which are actually
@@ -429,14 +429,15 @@ follow in the same numbered list.
    \`coderModel\` (build, fix). Write the resolved names as
    \`GTD_PLANNERMODEL\`/\`GTD_CODERMODEL\` exports at the top of \`gtd-build\`,
    wrapped in \`# gtd-install: model exports\` / \`# gtd-install: end\`
-   markers — NOT into \`.gtdrc\`. They stay per machine and are never
+   markers — NOT into \`gtd.config.ts\`. They stay per machine and are never
    committed, so one person's model choice binds nobody else on the repo.
    Two consequences follow, both worth stating to the user: \`gtd-door\`
    inherits these exports only because it \`exec\`s
    \`gtd-build\` — anything that drives beats without going through
    \`gtd-build\` sees the raw \`smart\`/\`base\` hints and fails; and \`GTD_*\` is
    the highest-precedence config layer, so these exports silently win over
-   a \`plannerModel\`/\`coderModel\` a teammate later commits to \`.gtdrc\`.
+   a \`plannerModel\`/\`coderModel\` a teammate later commits to
+   \`gtd.config.ts\`.
 7. **What should happen at the boundaries?** Where the log goes (obligation
    4), and whether halting at a human gate should do anything richer than
    print — desktop notification, terminal-multiplexer status, editor focus —

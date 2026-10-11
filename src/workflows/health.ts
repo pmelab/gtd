@@ -19,7 +19,7 @@ import * as t from "./text.js"
 export const SETUP = ".gtd/SETUP.md"
 
 const SETUP_TEXT =
-  "The bundled workflow needs the `fastTestCommand` setting: the fast suite (everything but e2e).\nSet it under `env:` in `.gtdrc` or as GTD_FASTTESTCOMMAND."
+  "The bundled workflow needs the `fastTestCommand` setting: the fast suite (everything but e2e).\nSet it as a workflow option in `gtd.config.ts` or as GTD_FASTTESTCOMMAND."
 
 /** Shell lines for a check's preamble: unset (blank after trim) setting writes `SETUP` and skips the suite. */
 export const fastSuiteGuard = (): string[] =>

@@ -3,8 +3,7 @@ import { GtdError } from "../platform/index.js"
 import type { WorkflowDefinition } from "./Workflow.js"
 import { accessShapeFault } from "../replay/index.js"
 import type { ScopeAccess } from "../flows/index.js"
-import { unknownAccessKeyMessage, unknownSkillsKeyMessage } from "./compile.js"
-import { dedupeDiagnostics, sortDiagnostics, type Diagnostic } from "./Diagnostic.js"
+import type { Diagnostic } from "./Diagnostic.js"
 import { failOnErrors } from "./load.js"
 
 const fail = (origin: string, message: string): GtdError =>
@@ -22,33 +21,32 @@ const checkShape = (value: unknown): Record<string, readonly string[]> => {
   return value as Record<string, readonly string[]>
 }
 
-/** Every `.gtdrc` key that names no known scope is a load error, one per file that wrote it. */
+/** Every `config` key that names no known scope is a load error. */
 const checkKeys = (
-  keys: readonly { readonly key: string; readonly origin: string }[],
+  configured: Readonly<Record<string, unknown>>,
+  origin: string,
   known: readonly string[],
-  message: (key: string, known: readonly string[]) => string,
-  section: string,
+  section: "skills" | "access",
 ): Effect.Effect<void, GtdError> => {
   const sorted = [...known].sort()
-  const diagnostics: Diagnostic[] = keys
-    .filter(({ key }) => !sorted.includes(key))
-    .map(({ key, origin }) => ({
+  const diagnostics: Diagnostic[] = Object.keys(configured)
+    .filter((key) => !sorted.includes(key))
+    .sort()
+    .map((key) => ({
       severity: "error" as const,
-      path: [section, key],
-      message: message(key, sorted),
+      path: ["config", section, key],
+      message: `"${section}.${key}" is not a scope that runs a turn — known scopes: ${sorted.join(", ")}`,
       origin,
     }))
-  return failOnErrors(
-    dedupeDiagnostics(sortDiagnostics(diagnostics, [...new Set(keys.map((k) => k.origin))])),
-  )
+  return failOnErrors(diagnostics)
 }
 
 /**
- * Skill lists for the settings actually in use. `.gtdrc` `skills:` keys are
+ * Skill lists for the settings actually in use. `config.skills` keys are
  * judged here, not at config load: only now are the pinned/entry vars known.
  */
 export const resolveScopeSkills = (
-  def: Pick<WorkflowDefinition, "skills" | "skillsKeys" | "skillsOrigin">,
+  def: Pick<WorkflowDefinition, "skills" | "configuredSkills" | "skillsOrigin">,
   vars: Readonly<Record<string, string>>,
 ): Effect.Effect<Record<string, readonly string[]>, GtdError> =>
   Effect.gen(function* () {
@@ -57,7 +55,7 @@ export const resolveScopeSkills = (
       catch: (e) => fail(def.skillsOrigin, e instanceof Error ? e.message : String(e)),
     })
     const known = Object.keys(skills)
-    yield* checkKeys(def.skillsKeys, known, unknownSkillsKeyMessage, "skills")
+    yield* checkKeys(def.configuredSkills, def.skillsOrigin, known, "skills")
     return skills
   })
 
@@ -73,11 +71,11 @@ const checkAccessShape = (value: unknown): Record<string, ScopeAccess> => {
 }
 
 /**
- * Access for the settings actually in use. A `.gtdrc` `access:` key may name
+ * Access for the settings actually in use. A `config.access` key may name
  * any scope the workflow gives skills or access to.
  */
 export const resolveScopeAccess = (
-  def: Pick<WorkflowDefinition, "access" | "accessKeys" | "skillsOrigin">,
+  def: Pick<WorkflowDefinition, "access" | "configuredAccess" | "skillsOrigin">,
   skills: Readonly<Record<string, readonly string[]>>,
   vars: Readonly<Record<string, string>>,
 ): Effect.Effect<Record<string, ScopeAccess>, GtdError> =>
@@ -87,6 +85,6 @@ export const resolveScopeAccess = (
       catch: (e) => fail(def.skillsOrigin, e instanceof Error ? e.message : String(e)),
     })
     const known = [...new Set([...Object.keys(skills), ...Object.keys(access)])]
-    yield* checkKeys(def.accessKeys, known, unknownAccessKeyMessage, "access")
+    yield* checkKeys(def.configuredAccess, def.skillsOrigin, known, "access")
     return access
   })

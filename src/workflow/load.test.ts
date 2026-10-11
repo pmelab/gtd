@@ -1,31 +1,37 @@
 import { execSync } from "node:child_process"
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
+import {
+  existsSync,
+  readFileSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs"
 import { join } from "node:path"
-import { homedir, tmpdir } from "node:os"
+import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
-import { GtdError, Narrator, GitService, Host, Workspace } from "../platform/index.js"
+import { Narrator, GitService, Host, Workspace } from "../platform/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
-  configPresentAt,
   load,
-  loadRcConfig,
+  refuseLegacyRc,
   resolveScopeSkills,
   resolveVars,
   seededValidateCommand,
 } from "./index.js"
 import { CONFIG_SCAFFOLD } from "../install/index.js"
 
-// Every real port `ConfigService.Live` needs, scoped to `dir` — `home` stays
-// the REAL `homedir()` so `walkUp`'s stop condition matches production
-// exactly (a test dir under the system tmpdir sits below it, same as a real
-// repo would).
+// Every real port `ConfigService.Live` needs, scoped to `dir` — `home` is a
+// fresh directory above the project, so the walk stops there as it would in a
+// real home, and no rc file of the machine running the suite is ever found.
 type Env = Readonly<Record<string, string>>
 
 const baseLayer = (dir: string, env: Env = {}) => {
-  const hostLayer = Host.layer({ root: dir, home: homedir(), env })
+  const hostLayer = Host.layer({ root: dir, home: homeDir, env })
   const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeContext.layer)))
   const workspaceLayer = Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayer, gitLayer)))
   return Layer.mergeAll(hostLayer, gitLayer, workspaceLayer)
@@ -65,21 +71,24 @@ const loadAndResolve = (dir: string = projectDir, vars: Env = {}) =>
   Effect.gen(function* () {
     const c = yield* (yield* ConfigService).load
     return yield* resolveScopeSkills(c.workflow, {
-      ...resolveVars(c.defaultWorkflow.vars, c.rcVars, {}, {}),
+      ...resolveVars(c.defaultWorkflow.vars, {}, {}),
       ...vars,
     })
   }).pipe(Effect.provide(layer(dir)))
 
+let homeDir: string
 let projectDir: string
 
 // Every test starts where `gtd install` leaves a repository.
 beforeEach(() => {
-  projectDir = mkdtempSync(join(tmpdir(), "gtd-config-"))
+  homeDir = mkdtempSync(join(tmpdir(), "gtd-config-"))
+  projectDir = join(homeDir, "project")
+  mkdirSync(projectDir)
   writeFileSync(join(projectDir, "gtd.config.ts"), CONFIG_SCAFFOLD)
 })
 
 afterEach(() => {
-  rmSync(projectDir, { recursive: true, force: true })
+  rmSync(homeDir, { recursive: true, force: true })
 })
 
 // A one-step workflow whose only step is named `first`.
@@ -93,10 +102,11 @@ const minimalWorkflow = (first: string) =>
     ``,
   ].join("\n")
 
-// The rc-layering tests' settings are no shipped workflow's options, which a
-// shipped factory would reject — so they run under a plain flow.
-const plainWorkflow = () =>
-  writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("idle"))
+const withConfig = (config: string) =>
+  writeFileSync(
+    join(projectDir, "gtd.config.ts"),
+    `${CONFIG_SCAFFOLD}\nexport const config = ${config}\n`,
+  )
 
 describe("ConfigService", () => {
   it("the scaffolded config runs the shipped feature workflow by default", async () => {
@@ -105,8 +115,6 @@ describe("ConfigService", () => {
     expect(cfg.workflow.initial).toBe("idle")
     expect(cfg.defaultWorkflow.env["testCommand"]).toBe("npm test")
     expect(cfg.defaultWorkflow.vars["testCommand"]).toBeUndefined()
-    expect(cfg.rcVars).toEqual({})
-    expect(cfg.rcEnv).toEqual({})
   })
 
   it("with no gtd.config.ts anywhere: fails, saying to run gtd install", async () => {
@@ -117,45 +125,95 @@ describe("ConfigService", () => {
     )
   })
 
-  it("with no gtd.config.ts: a .gtdrc's own findings are reported beside the missing workflows", async () => {
-    rmSync(join(projectDir, "gtd.config.ts"))
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `bogus: 1\n`)
+  it("refuses a leftover .gtdrc, naming the file and where each key went", async () => {
+    const file = join(projectDir, ".gtdrc.yaml")
+    writeFileSync(file, `env:\n  testCommand: npm test\n`)
 
     const error = await getConfig().catch((e: Error) => e.message)
 
-    expect(error).toMatch(/bogus/)
-    expect(error).toMatch(/no workflows configured/)
+    expect(error).toContain(`${file}: no longer read — delete it`)
   })
 
-  it("a config with a top-level `env:` lands in rcEnv", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  testCommand: "custom-test"\n`)
-
-    const cfg = await getConfig()
-
-    expect(cfg.rcEnv).toEqual({ testCommand: "custom-test" })
-    expect(cfg.rcVars).toEqual({})
+  it("links a migration anchor docs/configuration.md has a heading for", async () => {
+    writeFileSync(join(projectDir, ".gtdrc"), "{}\n")
+    const error = await getConfig().then(
+      () => "",
+      (e: Error) => e.message,
+    )
+    const anchor = error.match(/docs\/configuration\.md#([\w-]+)/)?.[1]
+    const doc = readFileSync(new URL("../../docs/configuration.md", import.meta.url), "utf8")
+    const slugs = [...doc.matchAll(/^#+ (.+)$/gm)].map(([, title]) =>
+      title!
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, "")
+        .trim()
+        .replace(/\s+/g, "-"),
+    )
+    expect(slugs).toContain(anchor)
   })
 
-  it("an environment setting under `vars:` is a load error naming env:", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "custom-test"\n`)
-
-    await expect(getConfig()).rejects.toThrow(
-      `"vars.testCommand" is an environment setting — move it under "env:"`,
+  it("only warns about a leftover rc file another user owns", async () => {
+    const warnings: string[] = []
+    const others = Layer.succeed(ConfigDiscovery, {
+      legacyRcFiles: () => Effect.succeed([{ path: "/shared/.gtdrc", owned: false }]),
+      workflowModule: () =>
+        Effect.succeed({ filepath: join(projectDir, "gtd.config.ts"), source: CONFIG_SCAFFOLD }),
+    })
+    const cfg = await Effect.runPromise(
+      Effect.flatMap(ConfigService, (c) => c.load).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigService.Live,
+            others,
+            baseLayer(projectDir),
+            Narrator.layer((m) => warnings.push(m), false),
+          ),
+        ),
+      ),
+    )
+    expect(cfg.workflow.initial).toBe("idle")
+    expect(warnings.join("\n")).toContain(
+      "/shared/.gtdrc is a removed .gtdrc file owned by another user",
     )
   })
 
-  it("a process setting under `env:` is a load error naming vars:", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  qualityReviews: "a"\n`)
+  it("refuses a user-level rc file in home, even when the walk never reaches home", async () => {
+    writeFileSync(join(homeDir, ".gtdrc.json"), `{ "$schema": "x" }\n`)
+    const outside = mkdtempSync(join(tmpdir(), "gtd-outside-"))
+    writeFileSync(join(outside, "gtd.config.ts"), CONFIG_SCAFFOLD)
 
-    await expect(getConfig()).rejects.toThrow(
-      `"env.qualityReviews" is a process setting — move it under "vars:"`,
-    )
+    try {
+      await expect(getConfig()).rejects.toThrow(`${join(homeDir, ".gtdrc.json")}: no longer read`)
+      await expect(getConfig(outside)).rejects.toThrow(
+        `${join(homeDir, ".gtdrc.json")}: no longer read`,
+      )
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 
-  it("a name under both `vars:` and `env:` is an error even when no workflow declares it", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  stray: a\nenv:\n  stray: b\n`)
+  it("refuses every rc file found, also without a gtd.config.ts", async () => {
+    rmSync(join(projectDir, "gtd.config.ts"))
+    writeFileSync(join(projectDir, ".gtdrc"), `{}\n`)
+    writeFileSync(join(projectDir, "gtd.config.json"), `{}\n`)
 
-    await expect(getConfig()).rejects.toThrow(`"stray" is declared under both "vars:" and "env:"`)
+    const error = await getConfig().catch((e: Error) => e.message)
+
+    expect(error).toContain(`${join(projectDir, ".gtdrc")}: no longer read`)
+    expect(error).toContain(`${join(projectDir, "gtd.config.json")}: no longer read`)
+  })
+
+  it("ignores a directory merely named .gtdrc", async () => {
+    mkdirSync(join(projectDir, ".gtdrc"))
+
+    expect((await getConfig()).workflow.initial).toBe("idle")
+  })
+
+  it("refuseLegacyRc needs no gtd.config.ts", async () => {
+    writeFileSync(join(projectDir, "gtd.config.ts"), `throw new Error("never evaluated")\n`)
+    await expect(run(refuseLegacyRc)).resolves.toBeUndefined()
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `judge:\n  provider: fixed\n`)
+    await expect(run(refuseLegacyRc)).rejects.toThrow(/no longer read/)
   })
 
   it("a workflow declaring a name in both defaults and envDefaults fails to load", async () => {
@@ -167,39 +225,8 @@ describe("ConfigService", () => {
     await expect(getConfig()).rejects.toThrow(`"x" declared in both "defaults" and "envDefaults"`)
   })
 
-  it("a non-scalar `env:` entry is rejected like under vars:", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  bad: [1]\n`)
-
-    await expect(getConfig()).rejects.toThrow(`"env.bad" must be a string, number, or boolean`)
-  })
-
-  it("layers `judge:` per field, the inner .gtdrc winning", async () => {
-    const inner = join(projectDir, "inner")
-    mkdirSync(inner)
-    execSync("git init -q", { cwd: inner })
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `judge:\n  provider: jev\n  model: outer\n`)
-    writeFileSync(join(inner, ".gtdrc.yaml"), `judge:\n  model: inner\n`)
-    const compiled = await run(loadRcConfig, inner)
-    expect(compiled.judge).toEqual({ provider: "jev", model: "inner" })
-  })
-
-  it("loadRcConfig loads without a repository or gtd.config.ts", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `judge:\n  provider: fixed\n`)
-    writeFileSync(join(projectDir, "gtd.config.ts"), `throw new Error("never evaluated")\n`)
-    const compiled = await run(loadRcConfig, projectDir)
-    expect(compiled.judge).toEqual({ provider: "fixed" })
-  })
-
-  it("loadRcConfig fails on any .gtdrc error", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `judge:\n  provider: gpt\n`)
-    await expect(run(loadRcConfig, projectDir)).rejects.toThrow(/provider/)
-  })
-
-  it("layers a top-level `modes:` key over the built-in modes", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`modes:`, `  qa:`, `    format: "adr-fmt $GTD_FILE"`, ``].join("\n"),
-    )
+  it("layers `config.modes` over the built-in modes, per half", async () => {
+    withConfig(`{ modes: { qa: { format: "adr-fmt $GTD_FILE" } } }`)
 
     const cfg = await getConfig()
 
@@ -207,6 +234,49 @@ describe("ConfigService", () => {
       format: "adr-fmt $GTD_FILE",
       validate: seededValidateCommand("qa"),
     })
+  })
+
+  it("accepts a config built with defineConfig", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { defineConfig } from "@pmelab/gtd/flows"`,
+        CONFIG_SCAFFOLD,
+        `export const config = defineConfig({ ui: { port: 4173 } })`,
+        ``,
+      ].join("\n"),
+    )
+
+    expect((await getConfig()).ui).toEqual({ port: 4173 })
+  })
+
+  it("defineConfig throws on a removed key, failing the load at gtd.config.ts", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { defineConfig } from "@pmelab/gtd/flows"`,
+        CONFIG_SCAFFOLD,
+        `export const config = defineConfig({ env: { testCommand: "x" } })`,
+        ``,
+      ].join("\n"),
+    )
+
+    await expect(getConfig()).rejects.toThrow("gtd.config.ts: config.env: is not a known key")
+  })
+
+  it("rejects an unknown key in a plain `config` object too", async () => {
+    withConfig(`{ vars: { greeting: "hi" }, ui: { bogus: true } }`)
+
+    const error = await getConfig().catch((e: Error) => e.message)
+
+    expect(error).toContain("gtd.config.ts: config.ui.bogus: is not a known key")
+    expect(error).toContain("gtd.config.ts: config.vars: is not a known key")
+  })
+
+  it("the reserved `config` export is never a workflow", async () => {
+    withConfig(`{}`)
+
+    expect((await getConfig()).workflowNames).not.toContain("config")
   })
 
   it("reads a custom workflow from gtd.config.ts in cwd", async () => {
@@ -266,17 +336,6 @@ describe("ConfigService", () => {
 
     expect(cfg.workflowFiles).toHaveLength(1)
     expect(cfg.workflowFiles[0]).toMatch(/\/gtd\.config\.ts$/)
-  })
-
-  it("configFiles names every .gtdrc-family file this load actually found, outermost→innermost", async () => {
-    plainWorkflow()
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: hi\n`)
-
-    const cfg = await getConfig()
-
-    expect(cfg.configFiles.map((f) => realpathSync(f))).toEqual([
-      realpathSync(join(projectDir, ".gtdrc.yaml")),
-    ])
   })
 
   it.each([
@@ -566,146 +625,19 @@ describe("ConfigService", () => {
     })
   })
 
-  it("loads JSON config (gtd.config.json)", async () => {
-    plainWorkflow()
-    writeFileSync(
-      join(projectDir, "gtd.config.json"),
-      JSON.stringify({ vars: { greeting: "json" } }),
-    )
+  it("reads `config.ui` through as-is", async () => {
+    withConfig(`{ ui: { port: 4173, host: "0.0.0.0" } }`)
 
-    const cfg = await getConfig()
-
-    expect(cfg.rcVars).toEqual({ greeting: "json" })
+    expect((await getConfig()).ui).toEqual({ port: 4173, host: "0.0.0.0" })
   })
 
-  it("reads a top-level `vars:` key into `rcVars`, coercing scalars to strings", async () => {
-    plainWorkflow()
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`vars:`, `  greeting: hi`, `  attempts: 3`, `  strict: true`, ``].join("\n"),
-    )
+  it("rejects a wrong-typed `config.ui` key", async () => {
+    withConfig(`{ ui: { port: "nope" } }`)
 
-    const cfg = await getConfig()
-
-    expect(cfg.rcVars).toEqual({ greeting: "hi", attempts: "3", strict: "true" })
+    await expect(getConfig()).rejects.toThrow("config.ui.port: must be an integer")
   })
 
-  it("reads a top-level `ui:` key through as-is", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`ui:`, `  port: 4173`, `  host: 0.0.0.0`, ``].join("\n"),
-    )
-
-    const cfg = await getConfig()
-
-    expect(cfg.ui).toEqual({
-      port: 4173,
-      host: "0.0.0.0",
-    })
-  })
-
-  it("rejects `ui.loop` and `ui.roots` as excess properties", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`ui:`, `  loop: "gtd next --json"`, ``].join("\n"),
-    )
-
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
-
-    expect(Exit.isFailure(exit)).toBe(true)
-  })
-
-  it("merges `ui:` levels low->high: cwd's `port` overlays the ancestor's, cwd wins on overlap", async () => {
-    const child = join(projectDir, "a", "b")
-    mkdirSync(child, { recursive: true })
-
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`ui:`, `  port: 4173`, `  host: ancestor-host`, ``].join("\n"),
-    )
-    writeFileSync(join(child, ".gtdrc.yaml"), [`ui:`, `  port: 5000`, ``].join("\n"))
-
-    const cfg = await getConfig(child)
-
-    expect(cfg.ui).toEqual({ port: 5000, host: "ancestor-host" })
-  })
-
-  it("rejects an unknown sub-key under a top-level `ui:`, aggregated into one error", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), [`ui:`, `  bogus: true`, ``].join("\n"))
-
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
-
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      // Both halves are load-bearing: the finding itself, AND the absence
-      // of the `Schema.optional(Struct)` other-branch's "Expected undefined,
-      // actual …" artifact — not a fact about the user's file, dropped by
-      // `dropOptionalUndefinedArtifacts`. A loose match on the finding alone
-      // would let that noise silently return.
-      expect(String(exit.cause)).toContain("gtd config:")
-      expect(String(exit.cause)).toContain(
-        '"ui.bogus" is unexpected, expected: "port" | "host" | "cert" | "key"',
-      )
-      expect(String(exit.cause)).not.toContain("Expected undefined")
-    }
-  })
-
-  it("rejects a wrong-typed `ui:` sub-key with exactly one clause, not the optional-branch's redundant 'Expected undefined' noise", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), [`ui:`, `  port: "nope"`, ``].join("\n"))
-
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
-
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain('"ui.port" Expected number, actual "nope"')
-      expect(String(exit.cause)).not.toContain("Expected undefined")
-    }
-  })
-
-  it("rejects the old `serve:` key as an unknown top-level key where the same body under `ui:` decodes", async () => {
-    const body = [`  port: 4173`, `  host: 0.0.0.0`, ``].join("\n")
-    const configFile = join(projectDir, ".gtdrc.yaml")
-
-    writeFileSync(configFile, `serve:\n${body}`)
-    const rejected = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
-    expect(Exit.isFailure(rejected)).toBe(true)
-    if (Exit.isFailure(rejected)) {
-      const error = Cause.squash(rejected.cause)
-      expect(error).toBeInstanceOf(GtdError)
-      if (error instanceof GtdError) {
-        // The unified `<origin>: <path>: <message>` finding format — the
-        // offending key and the layer that declared it, in one line.
-        expect(error.message).toContain(`${configFile}: serve: `)
-        expect(error.message).toMatch(/"serve" is unexpected/)
-      }
-    }
-
-    writeFileSync(configFile, `ui:\n${body}`)
-    const cfg = await getConfig()
-    expect(cfg.ui).toEqual({ port: 4173, host: "0.0.0.0" })
-  })
-
-  it("merges `vars:` levels low->high: cwd's overlays the ancestor's, cwd wins on overlap", async () => {
-    plainWorkflow()
-    const child = join(projectDir, "a", "b")
-    mkdirSync(child, { recursive: true })
-
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`vars:`, `  greeting: ancestor`, `  onlyAncestor: yes`, ``].join("\n"),
-    )
-    writeFileSync(join(child, ".gtdrc.yaml"), [`vars:`, `  greeting: child`, ``].join("\n"))
-
-    const cfg = await getConfig(child)
-
-    expect(cfg.rcVars).toEqual({ greeting: "child", onlyAncestor: "yes" })
-  })
-
-  it("lets a top-level `modes:` key define the mode a custom workflow's step names", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`modes:`, `  adr:`, `    validate: "adr-lint $GTD_FILE"`, ``].join("\n"),
-    )
+  it("lets `config.modes` define the mode a custom workflow's step names", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [
@@ -714,6 +646,7 @@ describe("ConfigService", () => {
         `export default async () => {`,
         `  await human("idle", { message: "hi", file: "docs/adr.md", mode: "adr" })`,
         `}`,
+        `export const config = { modes: { adr: { validate: "adr-lint $GTD_FILE" } } }`,
         ``,
       ].join("\n"),
     )
@@ -729,32 +662,14 @@ describe("ConfigService", () => {
     await expect(getConfig()).rejects.toThrow(/the flow returned without reaching any step/)
   })
 
-  it("rejects a malformed top-level `modes:` entry, aggregated into one error", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`modes:`, `  adr:`, `    lint: "adr-lint"`, ``].join("\n"),
-    )
+  it("rejects a malformed `config.modes` entry", async () => {
+    withConfig(`{ modes: { adr: { lint: "adr-lint" } } }`)
 
-    await expect(getConfig()).rejects.toThrow(/mode "adr": unknown key\(s\) lint/)
+    await expect(getConfig()).rejects.toThrow("config.modes.adr.lint: is not a known key")
   })
 
-  it("rejects a non-scalar top-level `vars` entry, aggregated into one error", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`vars:`, `  bad:`, `    nested: true`, ``].join("\n"),
-    )
-
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
-
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain("gtd config:")
-      expect(String(exit.cause)).toContain('"vars.bad" must be a string, number, or boolean')
-    }
-  })
-
-  it("rejects a `skills:` key that only matches an inherited object property, like `toString`", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `skills:\n  toString: [x]\n`)
+  it("rejects a `config.skills` key that only matches an inherited object property, like `toString`", async () => {
+    withConfig(`{ skills: { toString: ["x"] } }`)
 
     const exit = await Effect.runPromiseExit(loadAndResolve())
 
@@ -764,15 +679,14 @@ describe("ConfigService", () => {
     }
   })
 
-  describe("`skills:` keys are scope names", () => {
-    const loadError = async (rc: string, extra = ""): Promise<string> => {
-      writeFileSync(join(projectDir, ".gtdrc.yaml"), rc)
-      if (extra !== "") writeFileSync(join(projectDir, "gtd.config.ts"), extra)
+  describe("`config.skills` keys are scope names", () => {
+    const loadError = async (config: string): Promise<string> => {
+      withConfig(config)
       const exit = await Effect.runPromiseExit(loadAndResolve())
       expect(Exit.isFailure(exit)).toBe(true)
       return Exit.isFailure(exit) ? String(Cause.squash(exit.cause)) : ""
     }
-    const keyed = (key: string): string => `skills:\n  ${key}: [x]\n`
+    const keyed = (key: string): string => `{ skills: { "${key}": ["x"] } }`
 
     it("names the key and lists every known scope", async () => {
       const message = await loadError(keyed("nope"))
@@ -784,16 +698,13 @@ describe("ConfigService", () => {
       expect(await loadError(keyed("build.fix"))).toContain("known scopes: ")
     })
 
-    it("accepts a scope key and keeps it in rcSkills", async () => {
-      writeFileSync(join(projectDir, ".gtdrc.yaml"), keyed("build.review"))
+    it("accepts a scope key and keeps it in configuredSkills", async () => {
+      withConfig(keyed("build.review"))
       expect((await getConfig()).workflow.configuredSkills).toEqual({ "build.review": ["x"] })
     })
 
     it("validates a lens key only while the lens is in qualityReviews", async () => {
-      writeFileSync(
-        join(projectDir, ".gtdrc.yaml"),
-        `vars:\n  qualityReviews: "my-lens"\nskills:\n  build.quality.my-lens: [x]\n`,
-      )
+      withConfig(keyed("build.quality.my-lens"))
       expect((await getConfig()).workflow.configuredSkills).toEqual({
         "build.quality.my-lens": ["x"],
       })
@@ -821,121 +732,21 @@ describe("ConfigService", () => {
     })
   })
 
-  it("reports an unknown `skills:` key once per layer that carries it", async () => {
-    const child = join(projectDir, "a")
-    mkdirSync(child, { recursive: true })
-    const ancestorFile = join(projectDir, ".gtdrc.yaml")
-    const childFile = join(child, ".gtdrc.yaml")
-    writeFileSync(ancestorFile, `skills:\n  no.such.step: [x]\n`)
-    writeFileSync(childFile, `skills:\n  no.such.step: [y]\n`)
-
-    const exit = await Effect.runPromiseExit(loadAndResolve(child))
-
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      const message = String(Cause.squash(exit.cause))
-      expect(message).toContain(`${ancestorFile}: skills.no.such.step: `)
-      expect(message).toContain(`${childFile}: skills.no.such.step: `)
-    }
-  })
-
-  it("rejects an unknown top-level key as an excess property, naming the key and its layer's file", async () => {
-    const configFile = join(projectDir, ".gtdrc.yaml")
-    writeFileSync(configFile, `testCommand: "npm test"\n`)
-
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
-
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      const error = Cause.squash(exit.cause)
-      expect(error).toBeInstanceOf(GtdError)
-      if (error instanceof GtdError) {
-        // The unified `<origin>: <path>: <message>` finding format, not the
-        // old `Invalid gtd config: ...` prose blob with a separate `detail`
-        // line — an excess-property rejection is a `Diagnostic` like any
-        // other producer's, sorted/deduped the same way.
-        expect(error.message).toContain(`${configFile}: testCommand: `)
-        expect(error.message).toMatch(/"testCommand" is unexpected/)
-      }
-    }
-  })
-
-  it("names the ANCESTOR layer's file when the offending key came from there, not the cwd's own config", async () => {
-    const child = join(projectDir, "a", "b")
-    mkdirSync(child, { recursive: true })
-    const ancestorFile = join(projectDir, ".gtdrc.yaml")
-    writeFileSync(ancestorFile, `badKey: true\n`)
-    writeFileSync(join(child, ".gtdrc.yaml"), `vars:\n  greeting: hi\n`)
-
-    const exit = await runExit(
-      Effect.flatMap(ConfigService, (c) => c.load),
-      child,
-    )
-
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      const error = Cause.squash(exit.cause)
-      expect(error).toBeInstanceOf(GtdError)
-      if (error instanceof GtdError) {
-        expect(error.message).toContain(`${ancestorFile}: badKey: `)
-      }
-    }
-  })
-
-  it("strip: a config carrying $schema decodes without an excess-property error", async () => {
-    plainWorkflow()
-    writeFileSync(
-      join(projectDir, ".gtdrc.json"),
-      JSON.stringify({
-        $schema: "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json",
-        vars: { greeting: "x" },
-      }),
-    )
-
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
-
-    expect(Exit.isSuccess(exit)).toBe(true)
-  })
-
   it("loading config never writes a file (ConfigService.Live is read-only)", async () => {
     writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("x"))
 
     const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
 
     expect(Exit.isSuccess(exit)).toBe(true)
-    expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
-  })
-
-  it("expands a `$NAME` in `vars:` from the environment (host.env, not process.env)", async () => {
-    plainWorkflow()
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  model: $BUILD_MODEL\n`)
-
-    const cfg = await getConfig(undefined, { BUILD_MODEL: "smart" })
-
-    expect(cfg.rcVars).toEqual({ model: "smart" })
-  })
-
-  it("an unset `$NAME` in `.gtdrc` fails the load naming the config path", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  model: $BUILD_MODEL\n`)
-
-    await expect(getConfig()).rejects.toThrow(/vars\.model.*"\$BUILD_MODEL".*not set/)
+    expect(existsSync(join(projectDir, ".gtd"))).toBe(false)
   })
 
   it("keeps `modes.*.format`/`validate` and `ui.format`'s `$GTD_FILE` untouched", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [
-        `modes:`,
-        `  adr:`,
-        `    format: "prettier --write $GTD_FILE"`,
-        `    validate: "adr-lint $GTD_FILE"`,
-        `ui:`,
-        `  format: "oxfmt --write $GTD_FILE"`,
-        ``,
-      ].join("\n"),
+    withConfig(
+      `{ modes: { adr: { format: "prettier --write $GTD_FILE", validate: "adr-lint $GTD_FILE" } }, ui: { format: "oxfmt --write $GTD_FILE" } }`,
     )
 
-    const cfg = await getConfig()
+    const cfg = await getConfig(undefined, { GTD_FILE: "should-never-appear" })
 
     expect(cfg.workflow.modes["adr"]).toEqual({
       format: "prettier --write $GTD_FILE",
@@ -944,16 +755,7 @@ describe("ConfigService", () => {
     expect(cfg.ui).toEqual({ format: "oxfmt --write $GTD_FILE" })
   })
 
-  it("an outer layer's unset `$MISSING` still errors even when an inner layer overrides that same value", async () => {
-    const child = join(projectDir, "a", "b")
-    mkdirSync(child, { recursive: true })
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: $MISSING\n`)
-    writeFileSync(join(child, ".gtdrc.yaml"), `vars:\n  greeting: overridden\n`)
-
-    await expect(getConfig(child)).rejects.toThrow(/"\$MISSING".*not set/)
-  })
-
-  it("never interpolates the workflow's own `defaults` export (it is code, not `.gtdrc`)", async () => {
+  it("never interpolates the workflow's own `defaults` export", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [minimalWorkflow("first"), `export const defaults = { greeting: "$LITERAL" }`, ``].join("\n"),
@@ -970,111 +772,6 @@ describe("ConfigService", () => {
     const result = await run(load, projectDir)
 
     expect(result.workflow.initial).toBe("direct-load")
-  })
-})
-
-describe("ConfigService — malformed level content", () => {
-  it("rejects invalid YAML syntax in a .gtdrc.yaml, wrapping the parser's own error", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `workflow: [unterminated\n`)
-
-    await expect(getConfig()).rejects.toThrow(/\.gtdrc\.yaml:/)
-  })
-
-  it("rejects invalid JSON syntax in a gtd.config.json, wrapping the parser's own error", async () => {
-    writeFileSync(join(projectDir, "gtd.config.json"), `{ "workflow": `)
-
-    await expect(getConfig()).rejects.toThrow(/gtd\.config\.json:/)
-  })
-
-  it("rejects a .gtdrc.yaml whose content is the YAML scalar `null`", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `null\n`)
-
-    await expect(getConfig()).rejects.toThrow(/config must be a plain object, got null/)
-  })
-
-  it("rejects a gtd.config.json whose content is the JSON literal `null`", async () => {
-    writeFileSync(join(projectDir, "gtd.config.json"), `null`)
-
-    await expect(getConfig()).rejects.toThrow(/config must be a plain object, got null/)
-  })
-
-  it("rejects a .gtdrc.yaml whose top level is an array, not a plain object", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `- a\n- b\n`)
-
-    await expect(getConfig()).rejects.toThrow(/config must be a plain object, got array/)
-  })
-})
-
-describe("ConfigService — discovery walks past an unreadable candidate", () => {
-  // `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) treats ANY read
-  // failure — ENOENT/EISDIR/ENOTDIR/EACCES alike — as "not a config file
-  // here", so a directory merely NAMED `.gtdrc` (or an unreadable ancestor)
-  // doesn't kill every gtd command with a raw fs error instead of falling
-  // through to the built-in default / the next search place.
-  it("walks past a `.gtdrc` that is actually a DIRECTORY (EISDIR), instead of failing the whole load", async () => {
-    mkdirSync(join(projectDir, ".gtdrc"))
-
-    const cfg = await getConfig()
-
-    expect(cfg.workflow.initial).toBe("idle")
-  })
-
-  it("still finds a real config in a directory whose OWN first-priority candidate is a directory", async () => {
-    plainWorkflow()
-    mkdirSync(join(projectDir, ".gtdrc"))
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: "past the directory"\n`)
-
-    const cfg = await getConfig()
-
-    expect(cfg.rcVars).toEqual({ greeting: "past the directory" })
-  })
-
-  it("configPresentAt also walks past a directory-shaped candidate rather than throwing EISDIR", async () => {
-    mkdirSync(join(projectDir, ".gtdrc"))
-
-    await expect(
-      Effect.runPromise(
-        configPresentAt(projectDir).pipe(
-          Effect.provide(Layer.mergeAll(baseLayer(projectDir), ConfigDiscovery.Live)),
-        ),
-      ),
-    ).resolves.toBe(false)
-  })
-})
-
-describe("configPresentAt", () => {
-  it("is true when a gtd config lives directly in the given dir", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: x\n`)
-
-    await expect(
-      Effect.runPromise(
-        configPresentAt(projectDir).pipe(
-          Effect.provide(Layer.mergeAll(baseLayer(projectDir), ConfigDiscovery.Live)),
-        ),
-      ),
-    ).resolves.toBe(true)
-  })
-
-  it("is false when no gtd config lives directly in the given dir", async () => {
-    await expect(
-      Effect.runPromise(
-        configPresentAt(projectDir).pipe(
-          Effect.provide(Layer.mergeAll(baseLayer(projectDir), ConfigDiscovery.Live)),
-        ),
-      ),
-    ).resolves.toBe(false)
-  })
-
-  it("fails when the config at the given dir fails to parse", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `workflow: [unterminated\n`)
-
-    await expect(
-      Effect.runPromise(
-        configPresentAt(projectDir).pipe(
-          Effect.provide(Layer.mergeAll(baseLayer(projectDir), ConfigDiscovery.Live)),
-        ),
-      ),
-    ).rejects.toThrow()
   })
 })
 
@@ -1131,90 +828,6 @@ describe("ConfigService — workflow factory options", () => {
     expect(error).toMatch(/gtd\.config\.ts: testComand: workflow "default" option "testComand"/)
   })
 
-  it("a .gtdrc value reaches the factory, which rejects an unknown one at the file that set it — once for every workflow alike", async () => {
-    configWith(`export { feature as default, feature, fix }`)
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  testComand: npm test\n`)
-
-    const error = await getConfig().catch((e: Error) => e.message)
-
-    expect(error).toMatch(
-      /\.gtdrc\.yaml: env\.testComand: workflows "feature", "fix" option "testComand"/,
-    )
-    expect(String(error).match(/testComand: workflow/g)).toHaveLength(1)
-  })
-
-  it("a .gtdrc value overrides the option a call was given", async () => {
-    configWith(`export default feature({ coderModel: "cheap" })`)
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  coderModel: local\n`)
-
-    const cfg = await getConfig()
-
-    expect(cfg.defaultWorkflow.env["coderModel"]).toBe("local")
-  })
-
-  const greeter = [
-    `import { defineWorkflow, human } from "@pmelab/gtd/flows"`,
-    `const schema = { "~standard": { version: 1, vendor: "t", validate: (value) => {`,
-    `  const issues = Object.keys(value).filter((k) => k !== "greeting").map((k) => ({ message: "is unexpected", path: [k] }))`,
-    `  return issues.length > 0 ? { issues } : { value }`,
-    `} } }`,
-    `export const greeter = defineWorkflow(schema, (o) => ({`,
-    `  flow: async () => { await human("idle") },`,
-    `  defaults: { greeting: o.greeting ?? "hi" },`,
-    `}))`,
-  ]
-
-  it("a .gtdrc setting one factory declares does not reach another factory", async () => {
-    configWith([...greeter, `export default feature`].join("\n"))
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: hey\n`)
-
-    const cfg = await getConfig()
-
-    expect(cfg.workflowNamed("greeter")?.vars["greeting"]).toBe("hey")
-    expect(cfg.workflowNamed("feature")?.vars["greeting"]).toBeUndefined()
-  })
-
-  it("a .gtdrc fixing an invalid call option keeps that option the factory's own", async () => {
-    configWith([...greeter, `export default feature({ judgeBudgetBytes: 1 as never })`].join("\n"))
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  judgeBudgetBytes: "65536"\n`)
-
-    const cfg = await getConfig()
-
-    expect(cfg.defaultWorkflow.vars["judgeBudgetBytes"]).toBe("65536")
-    expect(cfg.workflowNamed("greeter")?.vars["judgeBudgetBytes"]).toBeUndefined()
-  })
-
-  it("a .gtdrc fixing an invalid call option does not send a plain sibling's setting to the factory", async () => {
-    configWith(
-      [
-        `import { human, vars } from "@pmelab/gtd/flows"`,
-        `export default feature({ judgeBudgetBytes: 1 as never })`,
-        `export const defaults = { greeting: "hi" }`,
-        `export const hello = async () => { await human("idle", { message: vars.greeting }) }`,
-      ].join("\n"),
-    )
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      `vars:\n  judgeBudgetBytes: "65536"\n  greeting: hey\n`,
-    )
-
-    const cfg = await getConfig()
-
-    expect(cfg.defaultWorkflow.vars["judgeBudgetBytes"]).toBe("65536")
-  })
-
-  it("a rejected vars: entry is reported under vars, at the innermost .gtdrc that set it", async () => {
-    configWith(`export default feature`)
-    const child = join(projectDir, "a")
-    mkdirSync(child)
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  qualityReviewz: outer\n`)
-    writeFileSync(join(child, ".gtdrc.yaml"), `vars:\n  qualityReviewz: inner\n`)
-
-    const error = await getConfig(child).catch((e: Error) => e.message)
-
-    expect(error).toContain(`${join(child, ".gtdrc.yaml")}: vars.qualityReviewz: `)
-  })
-
   it("a door naming a rejected factory reports the option error alone", async () => {
     configWith(
       [
@@ -1227,23 +840,6 @@ describe("ConfigService — workflow factory options", () => {
 
     expect(error).toContain(`option "testComand"`)
     expect(error).not.toContain("door")
-  })
-
-  it("a .gtdrc setting a plain sibling workflow declares does not reach a factory", async () => {
-    configWith(
-      [
-        `import { human, vars } from "@pmelab/gtd/flows"`,
-        `export default feature`,
-        `export const defaults = { greeting: "hi" }`,
-        `export const hello = async () => { await human("idle", { message: vars.greeting }) }`,
-      ].join("\n"),
-    )
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: hey\n`)
-
-    const cfg = await getConfig()
-
-    expect(cfg.rcVars).toEqual({ greeting: "hey" })
-    expect(cfg.workflowNamed("hello")?.vars).toEqual({ greeting: "hi" })
   })
 })
 

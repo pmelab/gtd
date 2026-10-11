@@ -32,35 +32,10 @@ export function createTestProject(): string {
   return dir
 }
 
-/**
- * Like `createTestProject`, but the repo lives one level DOWN inside a fresh
- * outer directory carrying its own `.gtdrc.json` — modelling a global/ancestor
- * gtd config (e.g. `~/.gtdrc`) sitting above a repo. The ancestor config is a
- * non-empty object (so cosmiconfig counts it as present) that `gtd init` must
- * ignore, since it scaffolds the repo's OWN config, not the ancestor's.
- */
-export function createTestProjectUnderConfiguredAncestor(): { outer: string; repo: string } {
-  const outer = mkdtempSync(join(tmpdir(), "gtd-ancestor-"))
-  writeFileSync(join(outer, ".gtdrc.json"), '{"vars":{"fromAncestor":"1"}}\n')
-  const repo = join(outer, "repo")
-  mkdirSync(repo, { recursive: true })
-  initGitRepo(repo)
-  return { outer, repo }
-}
-
-/**
- * A plain, empty directory that is NOT a git repository — for exercising
- * `gtd init` run outside any repo (e.g. scaffolding a shared parent-dir config).
- */
 export function createPlainDirectory(): string {
   return mkdtempSync(join(tmpdir(), "gtd-plain-"))
 }
 
-/**
- * A git repo with a nested subdirectory — for exercising `gtd init`'s refusal
- * to scaffold into a repository subdirectory (where the upward config walk
- * would never find it).
- */
 export function createTestProjectWithSubdir(): { repo: string; sub: string } {
   const repo = createTestProject()
   const sub = join(repo, "packages", "app")

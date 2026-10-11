@@ -324,13 +324,12 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     And stdout is empty
     And stderr contains "claude exited 1: no login"
 
-  # `judge:` in `.gtdrc`, then GTD_JUDGE_PROVIDER, then the flag — per field.
+  # The user-level judge.json, then GTD_JUDGE_PROVIDER, then the flag — per field.
   @inmem
-  Scenario: without flags, the provider comes from the .gtdrc judge: key
-    Given a gtd config file at ".gtdrc" with:
+  Scenario: without flags, the provider comes from the user-level judge.json
+    Given a user-level judge config with:
       """
-      judge:
-        provider: fixed
+      {"provider": "fixed"}
       """
     And an environment variable "GTD_JUDGE_ANSWERS" set to "[{\"id\":\"q1\",\"answer\":true,\"p\":0.9}]"
     When I run gtd with args "judge run" and stdin:
@@ -341,11 +340,10 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     And stdout contains "\"id\":\"q1\""
 
   @inmem
-  Scenario: GTD_JUDGE_PROVIDER beats the .gtdrc judge: provider
-    Given a gtd config file at ".gtdrc" with:
+  Scenario: GTD_JUDGE_PROVIDER beats the judge.json provider
+    Given a user-level judge config with:
       """
-      judge:
-        provider: fixed
+      {"provider": "fixed"}
       """
     And an environment variable "GTD_JUDGE_PROVIDER" set to "jev"
     When I run gtd with args "judge run" and stdin:
@@ -356,11 +354,10 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     And stderr contains "--provider jev needs TYPESAFE_API_KEY"
 
   @inmem
-  Scenario: a --provider flag beats both GTD_JUDGE_PROVIDER and judge:
-    Given a gtd config file at ".gtdrc" with:
+  Scenario: a --provider flag beats both GTD_JUDGE_PROVIDER and judge.json
+    Given a user-level judge config with:
       """
-      judge:
-        provider: jev
+      {"provider": "jev"}
       """
     And an environment variable "GTD_JUDGE_PROVIDER" set to "jev"
     And an environment variable "GTD_JUDGE_ANSWERS" set to "[{\"id\":\"q1\",\"answer\":true,\"p\":0.9}]"
@@ -372,11 +369,10 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     And stdout contains "\"id\":\"q1\""
 
   @inmem
-  Scenario: a model from judge: with a non-llm provider is the resolved-pair error
-    Given a gtd config file at ".gtdrc" with:
+  Scenario: a model from judge.json with a non-llm provider is the resolved-pair error
+    Given a user-level judge config with:
       """
-      judge:
-        model: sonnet
+      {"model": "sonnet"}
       """
     When I run gtd with args "judge run --provider jev" and stdin:
       """

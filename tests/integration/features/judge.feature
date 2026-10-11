@@ -29,14 +29,14 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
         await agent("working", "go")
       }
       """
-    And a gtd config file at ".gtdrc" with:
+    And a commit "chore: add README.md" that adds "README.md" with:
       """
-      vars: {}
+      # a project
       """
     When I run gtd with args "judge"
     Then it succeeds
     And stdout contains "q1"
-    And the last commit subject is "chore: add .gtdrc"
+    And the last commit subject is "chore: add README.md"
 
   @inmem
   Scenario: the judge documents lead with the integer wire schema

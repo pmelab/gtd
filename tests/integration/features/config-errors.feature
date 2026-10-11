@@ -1,25 +1,27 @@
 @inmem
 Feature: An invalid workflow config fails loudly at load time, naming where
 
-  A `.gtdrc` keeps only `vars`, `modes` and `ui`; anything else there, a
-  leftover `workflow:` key included, fails the load naming the file and the
-  key. A step naming a mode no layer declares fails as soon as the process
+  The `config` export of `gtd.config.ts` keeps only `modes`, `ui`, `skills`
+  and `access`; anything else there fails the load naming the file and the
+  key. A step naming a mode nothing declares fails as soon as the process
   rests there, listing what is available. Never a silent fallback.
 
   Scenario: a "mode:" naming no built-in and no declared mode fails, listing what is available
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: "adr-lint $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { human } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "start", file: ".gtd/docs/adr.md", mode: "adrs" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: "adr-lint $GTD_FILE",
+          },
+        },
       }
       """
     When I run gtd next
@@ -31,17 +33,18 @@ Feature: An invalid workflow config fails loudly at load time, naming where
 
   Scenario: a "modes:" entry declaring neither format nor validate still registers the name, so a step may use it
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr: {}
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { human } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "start", file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {},
+        },
       }
       """
     When I run gtd next
@@ -69,42 +72,44 @@ Feature: An invalid workflow config fails loudly at load time, naming where
 
   Scenario: an unknown key inside a "modes:" entry fails naming both
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And the workflow gtd install scaffolds
+    And the file "gtd.config.ts" ends with:
       """
-      modes:
-        adr:
-          validate: "adr-lint $GTD_FILE"
-          lint: "also adr-lint"
+      export const config = {
+        modes: {
+          adr: { validate: "adr-lint $GTD_FILE", lint: "also adr-lint" },
+        },
+      }
       """
     When I run gtd next
     Then it fails
     And stderr contains "gtd config:"
-    And stderr contains "mode \"adr\": unknown key(s) lint"
+    And stderr contains "gtd.config.ts: config.modes.adr.lint: is not a known key"
 
-  Scenario: a malformed top-level "modes:" key fails the same way as a workflow-level one
+  Scenario: a removed key in the config export fails with remediation naming the key and its file — unconditional, no --verbose needed
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And the workflow gtd install scaffolds
+    And the file "gtd.config.ts" ends with:
       """
-      modes:
-        qa:
-          formatt: "npx prettier --write $GTD_FILE"
+      export const config = { env: { testCommand: "npm test" } }
       """
     When I run gtd next
-    Then it fails
+    Then the exit code is 1
     And stderr contains "gtd config:"
-    And stderr contains "mode \"qa\": unknown key(s) formatt"
+    And stderr contains "gtd.config.ts: config.env: is not a known key"
 
-  Scenario: an unknown top-level config key fails with remediation naming the key and its file — unconditional, no --verbose needed
+  Scenario: defineConfig rejects a removed key while gtd.config.ts loads
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      testCommand: "npm test"
+      import { defineConfig } from "@pmelab/gtd/flows"
+      export { feature as default } from "@pmelab/gtd/workflows"
+
+      export const config = defineConfig({ vars: { greeting: "hi" } } as never)
       """
     When I run gtd next
-    Then it fails
-    And stderr contains "gtd config:"
-    And stderr contains ".gtdrc: testCommand: "
-    And stderr contains "\"testCommand\" is unexpected"
+    Then the exit code is 1
+    And stderr contains "gtd.config.ts: config.vars: is not a known key"
 
   Scenario: a repository with no gtd.config.ts is told to run gtd install
     Given a test project
@@ -112,19 +117,6 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     Then the exit code is 1
     And stderr contains "gtd config:"
     And stderr contains "no workflows configured: no gtd.config.ts here or above — run `gtd install` to scaffold one"
-
-  Scenario: the shipped testCommand under vars: fails to load, naming env:
-    Given a test project
-    And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        testCommand: make test
-      """
-    When I run gtd next
-    Then it fails
-    And stderr contains "gtd config:"
-    And stderr contains "\"vars.testCommand\" is an environment setting — move it under \"env:\""
 
   Scenario: an engine on another flows protocol is refused, naming which side to upgrade
     Given a test project

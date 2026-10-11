@@ -4,7 +4,7 @@ const NEUTRAL = "You are a coding agent working on the task you are given."
 
 // `general-purpose` cannot carry a restriction, so every prompt turn gets a
 // registered persona. The name hashes everything the spec depends on: a
-// `.gtdrc` change or gtd upgrade mid-session must register a fresh one.
+// `gtd.config.ts` change or gtd upgrade mid-session must register a fresh one.
 export async function personaSpec(t: Pick<Turn, "scope" | "system" | "skills">) {
   const key = JSON.stringify([t.scope, t.system ?? "", t.skills])
   const digest = new Uint8Array(

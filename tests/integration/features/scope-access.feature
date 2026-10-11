@@ -4,8 +4,8 @@ Feature: file access is declared per scope
   `scope({ name, access: { read, write } }, fn)` sets the globs every agent step
   inside may read and write; a missing side is unrestricted, `[]` allows
   nothing, and `read`/`write` are independent. A nested scope inherits its
-  parent's access and replaces it wholesale when it sets its own. A top-level
-  `.gtdrc` `access:` key is a scope's FULL name and replaces that scope's
+  parent's access and replaces it wholesale when it sets its own. A
+  `config.access` key in `gtd.config.ts` is a scope's FULL name and replaces that scope's
   access wholesale. `gtd land` refuses a turn that changed a path outside the
   step's `write` globs. `agent()` takes no `access` option.
 
@@ -199,7 +199,7 @@ Feature: file access is declared per scope
     Then it fails
     And stderr contains "scope \"work\""
 
-  Scenario: a .gtdrc entry replaces the declared access wholesale and reaches nested scopes
+  Scenario: a config entry replaces the declared access wholesale and reaches nested scopes
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -212,12 +212,14 @@ Feature: file access is declared per scope
           scope("inner", () => agent("doing", "do the work", { allowEmpty: true })),
         )
       }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      access:
-        outer:
-          read: [docs/**]
+
+      export const config = {
+        access: {
+          outer: {
+            read: ["docs/**"],
+          },
+        },
+      }
       """
     When I run gtd next with "--json=access"
     Then it succeeds
@@ -229,11 +231,15 @@ Feature: file access is declared per scope
   Scenario: an access key naming no scope that runs a turn is a load error listing the known scopes
     Given a test project
     And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      access:
-        no.such.scope:
-          write: []
+      export const config = {
+        access: {
+          "no.such.scope": {
+            write: [],
+          },
+        },
+      }
       """
     When I run gtd next
     Then it fails
@@ -243,17 +249,21 @@ Feature: file access is declared per scope
   Scenario: a malformed access value is a load error
     Given a test project
     And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      access:
-        build.review:
-          write: src/**
+      export const config = {
+        access: {
+          "build.review": {
+            write: "src/**",
+          },
+        },
+      }
       """
     When I run gtd next
     Then it fails
-    And stderr contains "access.write must be an array of glob strings"
+    And stderr contains "config.access.build.review.write: must be an array of glob strings"
 
-  Scenario: a .gtdrc edit takes effect mid-process, as skills do
+  Scenario: a config edit takes effect mid-process, as skills do
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -269,11 +279,9 @@ Feature: file access is declared per scope
     When I run gtd next with "--json=access.write"
     Then it succeeds
     And stdout contains "one/**"
-    Given a gtd config file at ".gtdrc" with:
+    Given the file "gtd.config.ts" ends with:
       """
-      access:
-        work:
-          write: [two/**]
+      export const config = { access: { work: { write: ["two/**"] } } }
       """
     When I run gtd next with "--json=access.write"
     Then it succeeds

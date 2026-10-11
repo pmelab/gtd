@@ -896,7 +896,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the log file matches "AGENT SESSION=([0-9a-f-]{36}) RESUME=0[\s\S]*AGENT SESSION=\1 RESUME=1[\s\S]*AGENT SESSION=\1 RESUME=0"
 
   Scenario: A still-red suite with byte-identical output lands the judged retry instead of false-greening into review
-    # Drives the REAL bundled unified template (not a custom .gtdrc) through
+    # Drives the REAL bundled unified template (not a custom workflow) through
     # `gtd --workflow fix`: a suite that always fails with
     # byte-identical output must never be mistaken for green just because a
     # re-run produces no diff. `.gtd/packages/01-judgment-surface.md` Task 7:

@@ -2,7 +2,7 @@
 Feature: "--var" persistence across a whole process, pinned against the environment
 
   A `--var <name>=<value>` supplied at `gtd --workflow <name>` is resolved with
-  every other process setting (defaults, `.gtdrc` `vars:`, `--var`,
+  every other process setting (defaults, factory options, `--var`,
   `GTD_<NAME>`) and recorded as `Gtd-Var: <name>=<value>` trailers on the
   process's FIRST commit. Every later `gtd` call reads those trailers back, so
   a `GTD_<NAME>` exported afterwards does not change the running process.

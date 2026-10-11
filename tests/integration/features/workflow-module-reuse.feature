@@ -53,11 +53,10 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
     Then it succeeds
     And stdout contains "\"debugging-and-error-recovery\""
 
-  Scenario: a .gtdrc skills: entry addresses scope build through the re-exported skills, the same as it would in the shipped workflow itself
-    Given a gtd config file at ".gtdrc" with:
+  Scenario: a config skills entry addresses scope build through the re-exported skills, the same as it would in the shipped workflow itself
+    Given the file "gtd.config.ts" ends with:
       """
-      skills:
-        build: [my-org-runbook]
+      export const config = { skills: { build: ["my-org-runbook"] } }
       """
     When I run gtd with args "--workflow hotfix"
     Then it succeeds

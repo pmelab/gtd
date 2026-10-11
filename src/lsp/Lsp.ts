@@ -27,7 +27,8 @@ import { Narrator, GitService, Host, Workspace } from "../platform/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
-  SEARCH_PLACES,
+  LEGACY_RC_FILES,
+  legacyRcDirs,
   WORKFLOW_MODULE,
   walkUp,
   type StateMode,
@@ -330,8 +331,7 @@ export interface LspEnv {
    * The active workflow's `file:`/`mode:` map for `root`, memoised by
    * `makeNodeLspEnv` on HEAD's hash plus the `(path, size, mtimeMs)` of every
    * file the LAST resolution's `ConfigService.load` reported touching
-   * (`configFiles` + `workflowFiles` — the `.gtdrc` family AND `gtd.config.ts`
-   * PLUS whatever it imports, e.g. a sibling module a split workflow re-
+   * (`workflowFiles` — `gtd.config.ts` PLUS whatever it imports, e.g. a sibling module a split workflow re-
    * exports `steering`/steps from). That file SET is itself re-measured on
    * every miss, so it self-corrects the next time anything in it actually
    * changes — it is not a static, one-time-discovered list.
@@ -641,7 +641,7 @@ type RootRuntime = ManagedRuntime.ManagedRuntime<
  * `steeringMapFor` cache miss still call `ConfigService.load` fresh through
  * it. A `steeringMapFor` hit skips that load entirely, but its own memo (see
  * `makeNodeLspEnv`) is keyed on the `(path, size, mtimeMs)` of every file the
- * LAST such load reported touching, so an edit to `.gtdrc`, `gtd.config.ts`,
+ * LAST such load reported touching, so an edit to a leftover rc file, `gtd.config.ts`,
  * or a module `gtd.config.ts` imports still forces the next request to
  * reload — only an unrelated repeat request skips it.
  */
@@ -666,7 +666,7 @@ export const resolveSteeringFile: Effect.Effect<
  * `reachedSteeringSteps`'s result — cached by `makeNodeLspEnv`'s steering-map
  * memo, since building the final map from it (`buildSteeringMap`) is pure and
  * cheap. `dependencyFiles` is every file THIS resolution's `ConfigService.load`
- * reported touching (`configFiles` + `workflowFiles` — see `ConfigOperations`)
+ * reported touching (`workflowFiles` — see `ConfigOperations`)
  * — the memo re-stats exactly this set on its next call to decide whether the
  * cached `{def, steps}` is still good, so it stays correct even when it
  * doesn't know in advance what a split workflow's `gtd.config.ts` imports.
@@ -700,7 +700,7 @@ const reachedSteeringSteps: Effect.Effect<ReachedSteeringSteps, Error, RestRequi
     return {
       def: config.workflow,
       steps: [...reached, ...declared],
-      dependencyFiles: [...config.configFiles, ...config.workflowFiles],
+      dependencyFiles: config.workflowFiles,
     }
   })
 
@@ -722,20 +722,19 @@ const identityOf = (paths: readonly string[], known?: ReadonlyMap<string, string
     .join("|")
 
 /**
- * Every path a `.gtdrc`/`gtd.config.ts` COULD live at for `root` — every
- * `SEARCH_PLACES` name plus `gtd.config.ts` itself, in every directory
- * `walkUp(root, home)` visits — computed from path strings alone, no
- * filesystem access. Unlike `ConfigOperations.configFiles`/`workflowFiles`
- * (which name only what a load actually FOUND), this list is complete
- * whether or not any of it exists yet, so `identityOf` on it catches a
- * brand-new `.gtdrc` appearing where there was none, not just an edit to one
- * that already existed.
+ * Every path a `gtd.config.ts` — or a removed rc file a load refuses — COULD
+ * live at for `root`, computed from path strings alone, no filesystem access.
+ * Unlike `ConfigOperations.workflowFiles` (which names only what a load
+ * actually FOUND), this list is complete whether or not any of it exists yet,
+ * so `identityOf` on it catches a file appearing or disappearing, not just an
+ * edit to one that already existed.
  */
-const candidateConfigPaths = (root: string): readonly string[] =>
-  walkUp(root, liveHost.home).flatMap((dir) => [
-    ...SEARCH_PLACES.map((name) => resolvePath(dir, name)),
-    resolvePath(dir, WORKFLOW_MODULE),
-  ])
+const candidateConfigPaths = (root: string): readonly string[] => [
+  ...walkUp(root, liveHost.home).map((dir) => resolvePath(dir, WORKFLOW_MODULE)),
+  ...legacyRcDirs(root, liveHost.home).flatMap((dir) =>
+    LEGACY_RC_FILES.map((name) => resolvePath(dir, name)),
+  ),
+]
 
 /** The Node adapter: the only place `LspEnv`'s Effects/layers get built and run. `startLspServer` is its production caller; most `Lsp.test.ts` coverage exercises a fake `LspEnv` instead, but this is exported so the real wiring (real git/config/repo-files layers) gets exercised against a real temp repo too. */
 export const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => {
@@ -755,7 +754,7 @@ export const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => {
       .runPromise(Effect.flatMap(GitService, (git) => git.resolveRef("HEAD")))
       .catch(() => "no-head")
 
-  /** `result.dependencyFiles` beyond `candidateConfigPaths(root)` — a genuine import elsewhere (e.g. a split workflow's sibling module), never `gtd.config.ts`/`.gtdrc` themselves, which the static set already names. */
+  /** `result.dependencyFiles` beyond `candidateConfigPaths(root)` — a genuine import elsewhere (e.g. a split workflow's sibling module), never `gtd.config.ts` or a leftover rc file, which the static set already names. */
   const dynamicOnlyPaths = (root: string, result: ReachedSteeringSteps): readonly string[] => {
     const staticSet = new Set(candidateConfigPaths(root))
     return result.dependencyFiles.filter((path) => !staticSet.has(path))

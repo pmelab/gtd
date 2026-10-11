@@ -6,7 +6,7 @@
   "tasks": {
     "build": {
       "inputs": ["src/**", "scripts/**", "tsdown.config.ts"],
-      "outputs": ["dist/**", "schema.json", "src/ui/client.generated.html"]
+      "outputs": ["dist/**", "src/ui/client.generated.html"]
     },
     "format:check": {
       "outputs": []
@@ -89,6 +89,9 @@
         "commitlint.config.mjs",
         ".github/workflows/**",
         "gtd.config.ts",
+        ".gtdrc*",
+        "gtd.config.json",
+        "gtd.config.yaml",
         "tsdown.config.ts",
         ".claude-plugin/**",
         "hooks/**",

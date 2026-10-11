@@ -16,7 +16,7 @@ export interface ModeContradictionInputs {
  * second meaning to distinguish them: the agent (this is a CONFIGURATION BUG,
  * not the steering file — stop, don't edit it, or a fix-retry loop will
  * thrash on the document) and the human (which mode, and the exact rendered
- * `format:` command, to fix `.gtdrc.json` without reproducing the failure).
+ * `format:` command, to fix `gtd.config.ts` without reproducing the failure).
  */
 export const contradictionMessage = (mode: string, formatCommand: string): string =>
   `gtd: mode "${mode}"'s format: command breaks its own validator — this is a ` +

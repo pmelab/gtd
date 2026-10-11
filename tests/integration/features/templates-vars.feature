@@ -1,10 +1,10 @@
 @inmem
 Feature: "vars" and "env" — the merged setting maps every workflow sees
 
-  Pins the merged `vars` map: a workflow's own `defaults` export, overridden by a top-level `.gtdrc` `vars:`
-  key, overridden by a `GTD_<NAME>` environment variable — later wins, as of
-  the process's start (it is pinned then). The `env` map layers the same way
-  from `envDefaults` and `.gtdrc` `env:`, but is read live on every call. Flow
+  Pins the merged `vars` map: a workflow's own `defaults` export, overridden by
+  a `GTD_<NAME>` environment variable — later wins, as of the process's start
+  (it is pinned then). The `env` map layers the same way from `envDefaults`,
+  but is read live on every call. Flow
   code reads the results through `vars` and `env`, for prompt text and for a
   step's `model` alike.
 
@@ -30,7 +30,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Then it succeeds
     And stdout contains "Assigned reviewer: alice"
 
-  Scenario: a top-level ".gtdrc" "vars:" key overrides the workflow's own declared default
+  Scenario: a "GTD_" environment variable beats the workflow default
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -42,39 +42,6 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       }
 
       export const defaults = { reviewer: "alice" }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        reviewer: bob
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → working"
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "Assigned reviewer: bob"
-    And stdout does not contain "alice"
-
-  Scenario: a "GTD_" environment variable beats both the workflow default and the ".gtdrc" value
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human, vars } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "start" })
-        await agent("working", `Assigned reviewer: ${vars.reviewer}`)
-      }
-
-      export const defaults = { reviewer: "alice" }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        reviewer: bob
       """
     And a file "NOTE.md" with:
       """
@@ -86,7 +53,6 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Then it succeeds
     And stdout contains "Assigned reviewer: carol"
     And stdout does not contain "alice"
-    And stdout does not contain "bob"
 
   Scenario: an environment variable matching no declared var name is ignored, not introduced
     Given a test project
@@ -109,7 +75,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Then it succeeds
     And stdout does not contain "hello"
 
-  Scenario: a top-level "vars:" overrides the workflow's own testCommand default
+  Scenario: a "GTD_" variable overrides the workflow's own testCommand default
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -123,11 +89,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
 
       export const defaults = { testCommand: "npm test" }
       """
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        testCommand: echo overridden
-      """
+    And an environment variable "GTD_TESTCOMMAND" set to "echo overridden"
     And a file "NOTE.md" with:
       """
       a note
@@ -267,7 +229,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     And stdout contains "\"model\":\"opus\""
     And stdout does not contain "\"model\":\"smart\""
 
-  Scenario: "env" layers envDefaults, then ".gtdrc" env:, then "GTD_<NAME>", live on every call
+  Scenario: "env" layers envDefaults, then "GTD_<NAME>", live on every call
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -288,10 +250,16 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     When I run gtd next
     Then it succeeds
     And stdout contains "Runner: alice"
-    Given a file ".gtdrc" with:
+    Given a file "gtd.config.ts" with:
       """
-      env:
-        runner: bob
+      import { agent, env, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("working", `Runner: ${env.runner}`)
+      }
+
+      export const envDefaults = { runner: "bob" }
       """
     When I run gtd next
     Then it succeeds

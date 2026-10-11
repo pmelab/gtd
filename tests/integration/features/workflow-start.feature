@@ -9,7 +9,7 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
   workflow's name is recorded on the opening commit (`Gtd-Workflow:`), so every
   later command replays that workflow. Repeatable `--var <name>=<value>`
   supplies that process's fixed vars, which must already be declared by the
-  workflow file's `defaults` (or `.gtdrc` `vars:`).
+  workflow file's `defaults` (or its factory's options).
 
   `review` fixes the whole process's diff base to the merge-base of `--var
   reviewBase=<commitish>` and HEAD; the default empty string means the default

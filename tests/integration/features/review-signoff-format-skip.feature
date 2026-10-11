@@ -24,15 +24,19 @@ Feature: A review sign-off lands even when its mode declares a format: command t
   Scenario: the sign-off still lands when the review mode declares a format command that fails on a missing file
     Given a test project
     And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      modes:
-        review:
-          format: |
-            test -f $GTD_FILE || {
-              echo "No files matching the pattern were found: $GTD_FILE" >&2
-              exit 2
-            }
+      export const config = {
+        modes: {
+          review: {
+            format: `test -f $GTD_FILE || {
+        echo "No files matching the pattern were found: $GTD_FILE" >&2
+        exit 2
+      }
+      `,
+          },
+        },
+      }
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"

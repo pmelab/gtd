@@ -15,8 +15,6 @@ export interface RunJudgeInput {
   readonly provider: Provider | undefined
   /** The `--model` flag. */
   readonly model?: string | undefined
-  /** The `.gtdrc` `judge:` key, merged across layers — read only below the user file, until `.gtdrc` loses it. */
-  readonly configured?: Configured | undefined
   readonly cwd: string
   readonly answers?: string | undefined
   readonly env: Readonly<Record<string, string | undefined>>
@@ -88,24 +86,17 @@ const readUserConfig = async (env: RunJudgeInput["env"]): Promise<Configured | u
 
 /**
  * Per field, the first one set wins: flag, then `GTD_JUDGE_PROVIDER` /
- * `GTD_JUDGE_MODEL` (empty counts as unset), then the user file, then `.gtdrc`
- * `judge:`. The provider/model pairing is checked on the resolved pair,
+ * `GTD_JUDGE_MODEL` (empty counts as unset), then the user file. The provider/model pairing is checked on the resolved pair,
  * whichever layer supplied each half.
  */
 const selectJudge = (
-  {
-    provider,
-    model,
-    configured,
-    env,
-  }: Pick<RunJudgeInput, "provider" | "model" | "configured" | "env">,
+  { provider, model, env }: Pick<RunJudgeInput, "provider" | "model" | "env">,
   user: Configured | undefined,
 ): Required<Configured> => {
   const layers: readonly Configured[] = [
     { provider, model },
     { provider: envProvider(env), model: env["GTD_JUDGE_MODEL"] || undefined },
     user ?? {},
-    configured ?? {},
   ]
   return checkPairing({
     provider: layers.find((l) => l.provider !== undefined)?.provider,

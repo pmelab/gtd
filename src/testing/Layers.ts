@@ -22,8 +22,8 @@ import {
 import {
   ConfigDiscovery,
   ConfigService,
-  parseConfigLevel,
-  SEARCH_PLACES,
+  LEGACY_RC_FILES,
+  legacyRcDirs,
   WORKFLOW_MODULE,
   walkUp,
 } from "../workflow/index.js"
@@ -50,12 +50,12 @@ const isGitDirKey = (key: string): boolean => key.startsWith(".git/")
  * `Workspace` for the in-memory tier. `readSync`/`read`/`write`/`committed`
  * take a repo-relative key ONLY (mirroring the live adapter's
  * `assertRepoRelative` — `Workspace.ts`'s `makeWorkspaceOps`), matching how
- * every existing scenario already seeds the fake (`repo.writeFile(".gtdrc.yaml",
+ * every existing scenario already seeds the fake (`repo.writeFile("gtd.config.ts",
  * …)`, `repo.writeFile("src/a.ts", …)`). // gtd-path-exempt: illustrative fixture key, not a repo file
  * `atPath` alone accepts an absolute
  * path: one rooted under `root` maps to its relative key (an already-absolute
  * content file-ref resolved via `resolvePath`); one OUTSIDE root (an ancestor
- * `.gtdrc`, exercising `directoryChainConfig`) is used as the literal key
+ * `gtd.config.ts`, or a leftover rc file in home) is used as the literal key
  * verbatim, so a test seeds it exactly as given:
  * `repo.writeFile("/home/user/.gtdrc", …)`.
  */
@@ -134,36 +134,23 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
   }
 }
 
-/** The in-memory counterpart to `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) — shares its `SEARCH_PLACES`/`walkUp`/`parseConfigLevel` exactly (see `Layers.test.ts`), reading through the fake `Workspace` instead of real `fs`. */
+/** The in-memory counterpart to `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) — shares its `LEGACY_RC_FILES`/`legacyRcDirs`/`walkUp` exactly (see `Layers.test.ts`), reading through the fake `Workspace` instead of real `fs`. */
 const makeInMemoryConfigDiscovery = (
   repo: InMemRepo,
   root: string,
 ): Layer.Layer<ConfigDiscovery> => {
   const workspace = makeInMemoryWorkspaceOps(repo, root)
-  const findAt = (
-    dir: string,
-  ): { readonly filepath: string; readonly config: unknown } | undefined => {
-    for (const name of SEARCH_PLACES) {
-      const filepath = join(dir, name)
-      const content = workspace.atPath(filepath)
-      if (content === undefined || content.trim() === "") continue
-      return { filepath, config: parseConfigLevel(filepath, content) }
-    }
-    return undefined
-  }
   return Layer.succeed(ConfigDiscovery, {
-    // `walkUp` returns innermost→outermost; reversed so merging in order
-    // makes innermost win — same as `ConfigDiscovery.Live`.
-    levels: (levelRoot, levelHome) =>
+    legacyRcFiles: (levelRoot, levelHome) =>
       Effect.try({
         try: () =>
-          [...walkUp(levelRoot, levelHome)]
-            .reverse()
-            .map(findAt)
-            .filter((level): level is { filepath: string; config: unknown } => level !== undefined),
+          legacyRcDirs(levelRoot, levelHome).flatMap((dir) =>
+            LEGACY_RC_FILES.map((name) => join(dir, name))
+              .filter((filepath) => workspace.atPath(filepath) !== undefined)
+              .map((path) => ({ path, owned: true })),
+          ),
         catch: toError,
       }),
-    presentAt: (dir) => Effect.try({ try: () => findAt(dir) !== undefined, catch: toError }),
     workflowModule: (levelRoot, levelHome) =>
       Effect.try({
         try: () => {

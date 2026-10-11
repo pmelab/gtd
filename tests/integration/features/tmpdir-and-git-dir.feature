@@ -39,12 +39,6 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
     # nothing on disk afterwards either way — a raw, unexecuted script is the
     # only place the reference to $TMPDIR is ever observable.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        review:
-          format: "true"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -52,6 +46,14 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
       export default async () => {
         await human("idle", { message: "start" })
         await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+      }
+
+      export const config = {
+        modes: {
+          review: {
+            format: "true",
+          },
+        },
       }
       """
     And a file "src/a.ts" with:

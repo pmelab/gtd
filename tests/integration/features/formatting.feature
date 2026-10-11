@@ -4,9 +4,9 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
   gtd ships no formatter (there is no `gtd format` subcommand, and no prettier
   inside the binary). A project that wants its steering files auto-formatted
   brings its own tool and declares it as a `format:` command on the mode those
-  files use — a top-level `.gtdrc` `modes:` key layered over the configured
-  workflow is enough, without re-declaring that mode on the workflow itself
-  (see docs/configuration.md's "modes:" section). Formatting runs where
+  files use — a `config.modes` entry in `gtd.config.ts` is enough, without
+  re-declaring that mode on the workflow itself (see docs/configuration.md's
+  "Modes" section). Formatting runs where
   validation runs: `gtd validate`, and `gtd next --json`'s own `validate`
   field — never `gtd land`'s own emitted script any more (package 2,
   Requirement A): that script is only the HEAD assertion and the commit, so a
@@ -19,12 +19,6 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
   Scenario: prettier plugged into the workflow's qa mode via a top-level modes: key rewraps TODO.md
     Given a test project
     And prettier is available in the test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          format: "npx prettier --write $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, changes, human } from "@pmelab/gtd/flows"
@@ -42,6 +36,14 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
           if (changes().length === 0) return
         }
       }
+
+      export const config = {
+        modes: {
+          qa: {
+            format: "npx prettier --write $GTD_FILE",
+          },
+        },
+      }
       """
     And a file ".gtd/TODO.md" with:
       """
@@ -56,12 +58,6 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
   Scenario: gtd land no longer formats before committing the turn — gtd validate is what still runs the mode's format command
     Given a test project
     And prettier is available in the test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          format: "npx prettier --write $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, changes, human } from "@pmelab/gtd/flows"
@@ -78,6 +74,14 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
           })
           if (changes().length === 0) return
         }
+      }
+
+      export const config = {
+        modes: {
+          qa: {
+            format: "npx prettier --write $GTD_FILE",
+          },
+        },
       }
       """
     And a file "NOTES.md" with:
@@ -156,11 +160,15 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     Given a test project
     And the workflow gtd install scaffolds
     And prettier is available in the test project
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      modes:
-        qa:
-          format: "npx prettier --write $GTD_FILE"
+      export const config = {
+        modes: {
+          qa: {
+            format: "npx prettier --write $GTD_FILE",
+          },
+        },
+      }
       """
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
@@ -192,11 +200,15 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     Given a test project
     And the workflow gtd install scaffolds
     And prettier is available in the test project
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      modes:
-        qa:
-          format: "npx prettier --write $GTD_FILE"
+      export const config = {
+        modes: {
+          qa: {
+            format: "npx prettier --write $GTD_FILE",
+          },
+        },
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -237,11 +249,15 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     Given a test project
     And the workflow gtd install scaffolds
     And prettier is available in the test project
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      modes:
-        qa:
-          format: "npx prettier --write $GTD_FILE"
+      export const config = {
+        modes: {
+          qa: {
+            format: "npx prettier --write $GTD_FILE",
+          },
+        },
+      }
       """
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """

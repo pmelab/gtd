@@ -2,35 +2,25 @@
 Feature: The stderr narration channel, and the -v/-V swap
 
   `--verbose`/`-v` gates one line of commentary per in-process fact a
-  dispatch already computes — which rest resolved, how config resolved
-  across layers. `-V` (not `-v`) is now `--version`'s short-circuit alias;
+  dispatch already computes — which rest resolved, which `gtd.config.ts`
+  the config came from. `-V` (not `-v`) is now `--version`'s short-circuit alias;
   `-v` alone no longer prints a version.
 
   Scenario: without --verbose, gtd next prints no narration to stderr
     Given a test project
     And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        qualityReviews: correctness
-      """
     When I run gtd next
     Then it succeeds
     And stderr does not contain "rest resolved:"
-    And stderr does not contain "config: layer"
+    And stderr does not contain "config: module"
 
-  Scenario: --verbose narrates the resolved rest and config layers on stderr, never stdout
+  Scenario: --verbose narrates the resolved rest and the config module on stderr, never stdout
     Given a test project
     And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        qualityReviews: correctness
-      """
     When I run gtd with args "next --verbose"
     Then it succeeds
     And stderr contains "rest resolved:"
-    And stderr contains "config: layer"
+    And stderr contains "config: module"
 
   Scenario: -v is the alias for --verbose
     Given a test project

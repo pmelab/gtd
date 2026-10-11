@@ -1,22 +1,25 @@
 @inmem
 Feature: the bundled workflow prepends a skills preamble to its agent prompts
 
-  Each bundled agent step names the skills it loads through `.gtdrc`
-  `skills:`, keyed by the scope full name — see `scope-skills.feature`
+  Each bundled agent step names the skills it loads through `config.skills`
+  in `gtd.config.ts`, keyed by the scope full name — see `scope-skills.feature`
   for that key's own shape and validation. The bundled workflow introduces a
   step's configured skills ahead of its prompt with a preamble naming them;
-  an empty list switches the preamble off for that step alone. A `.gtdrc`
+  an empty list switches the preamble off for that step alone. A config
   edit lands before the process under test starts — it's config, read once
   at load, not itself a turn in the history.
 
   Scenario: an agent step's configured skills render its prompt with the preamble prepended
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      skills:
-        build: [code-review, testing]
-      """
     And the workflow gtd install scaffolds
+    And the file "gtd.config.ts" ends with:
+      """
+      export const config = {
+        skills: {
+          build: ["code-review", "testing"],
+        },
+      }
+      """
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -30,12 +33,15 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
 
   Scenario: an empty configured list leaves that step's prompt bare
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      skills:
-        build: []
-      """
     And the workflow gtd install scaffolds
+    And the file "gtd.config.ts" ends with:
+      """
+      export const config = {
+        skills: {
+          build: [],
+        },
+      }
+      """
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -48,12 +54,15 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
 
   Scenario: gtd next --json carries the configured skills as an array on the skills wire key
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      skills:
-        build: [code-review, testing]
-      """
     And the workflow gtd install scaffolds
+    And the file "gtd.config.ts" ends with:
+      """
+      export const config = {
+        skills: {
+          build: ["code-review", "testing"],
+        },
+      }
+      """
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -70,12 +79,15 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
 
   Scenario: an empty configured list emits no skills key at all — absent, never []
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      skills:
-        build: []
-      """
     And the workflow gtd install scaffolds
+    And the file "gtd.config.ts" ends with:
+      """
+      export const config = {
+        skills: {
+          build: [],
+        },
+      }
+      """
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """

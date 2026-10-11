@@ -6,12 +6,6 @@
 Usage: gtd [command] [options]
 
 Commands:
-  init             Scaffold a minimal .gtdrc.json for this repo with a Prettier
-                   formatting suggestion. It writes no workflow — `gtd install`
-                   scaffolds the gtd.config.ts that names the workflows.
-                   Takes no argument. Run once per repo; refuses if a gtd
-                   config already exists. Leaves the file uncommitted for you
-                   to review and commit
   land             Land whatever the tree now shows at the currently resolved
                    rest — a human capture, an agent/check turn, or an empty
                    attempt (a fruitless prompt turn). Pass
@@ -173,12 +167,11 @@ Commands:
                    (TYPESAFE_API_KEY). --provider llm asks the `claude` CLI
                    on PATH (Claude Code only), model haiku unless --model.
                    No --provider: GTD_JUDGE_PROVIDER, then ~/.config/gtd/
-                   judge.json, then .gtdrc judge: provider, else jev when
-                   TYPESAFE_API_KEY is set and no model is given, else llm;
-                   --model likewise falls back to GTD_JUDGE_MODEL, then the
-                   file's and judge:'s model. Needs no repository. jev and
-                   llm exit 1 when they cannot answer every question, with
-                   nothing on stdout
+                   judge.json, else jev when TYPESAFE_API_KEY is set and no
+                   model is given, else llm; --model likewise falls back to
+                   GTD_JUDGE_MODEL, then the file's model. Needs no
+                   repository. jev and llm exit 1 when they cannot answer
+                   every question, with nothing on stdout
   version          Print version and exit
   help             Print this help and exit
 
@@ -207,24 +200,23 @@ Options:
                    instead of the packaged build
   --provider=<name>
                    (gtd judge run only) the answerer: fixed | jev | llm;
-                   omitted: GTD_JUDGE_PROVIDER, then judge.json, then .gtdrc
-                   judge:, then jev when TYPESAFE_API_KEY is set, else llm
+                   omitted: GTD_JUDGE_PROVIDER, then judge.json, then jev
+                   when TYPESAFE_API_KEY is set, else llm
   --answers=<path> (gtd judge run --provider fixed only) a JSON verdict array
                    [{ id, answer, p }]; else the GTD_JUDGE_ANSWERS env var
                    (inline JSON) is read
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land, with --cost) tag that cost's model
                    (gtd judge run, llm answerer) the claude model; omitted:
-                   GTD_JUDGE_MODEL, then judge.json, then .gtdrc judge:, then
-                   haiku
+                   GTD_JUDGE_MODEL, then judge.json, then haiku
   --workflow <name>
                    (with no command at all) start a brand new process on
                    the named workflow — authenticated as human
   --var <name>=<value>
                    (with --workflow; repeatable) pin a process setting for the
                    new process; the name must already be declared by the
-                   workflow's defaults or the .gtdrc vars: (environment
-                   settings are not pinnable)
+                   workflow's defaults (environment settings are not
+                   pinnable)
   --open-questions (gtd check only) ignore <mode>'s structural findings and
                    instead run the qa open-questions predicate over <file>,
                    printing each unanswered question one per line and exiting
@@ -300,8 +292,8 @@ The state commands (`land`, `--workflow`, `door`, `doors`, `abandon`, `restore`,
 `next`, `status`, `validate`, `summary`, `ui`, `judge`, `judge answer`) must run
 from the **repository root** — gtd derives the workflow, pending changes, and
 process history relative to cwd, so they refuse with a clear error from a
-subdirectory; `lsp`, `init`, `check`, and `uncheck` are standalone and run from
-anywhere (see each command's own help entry).
+subdirectory; `lsp`, `check`, and `uncheck` are standalone and run from anywhere
+(see each command's own help entry).
 
 `install` is described on its own above: it installs knowledge into the calling
 agent's context, and at a repository root no `gtd.config.ts` governs yet, the
@@ -384,20 +376,19 @@ Stderr carries two things beyond the `gtd: ` message line above: NARRATION,
 gated by `--verbose`/`-v`, and REMEDIATION, unconditional.
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
-command's dispatch already computes — which rest resolved, and how config
-resolved across `.gtdrc` layers. Without it, none of this is printed; stdout is
-never touched either way — narration is a stderr-only concern, exactly like the
-error envelope above.
+command's dispatch already computes — which rest resolved, and which
+`gtd.config.ts` the config came from. Without it, none of this is printed;
+stdout is never touched either way — narration is a stderr-only concern, exactly
+like the error envelope above.
 
 A failure's remediation detail is unconditional — it prints at every verbosity,
 on the line(s) right after the `gtd: `-prefixed message, each indented two
-spaces: a bad config key names the offending key and which `.gtdrc` layer it
-came from, and a corrupted ref names the ref. (A steering mode's `format:`/
-`validate:` command naming its own missing binary and the resolved `$PATH` is a
-DIFFERENT thing — that line is printed by the driver's shell to the emitted
-script's own stdout, unindented, not by gtd on stderr; see
-docs/configuration.md's "A missing binary in `format:`/`validate:` fails loudly,
-before it runs".)
+spaces: a bad config key names the offending key and the file it came from, and
+a corrupted ref names the ref. (A steering mode's `format:`/ `validate:` command
+naming its own missing binary and the resolved `$PATH` is a DIFFERENT thing —
+that line is printed by the driver's shell to the emitted script's own stdout,
+unindented, not by gtd on stderr; see docs/configuration.md's "A missing binary
+in `format:`/`validate:` fails loudly, before it runs".)
 
 ### Non-interactive today
 

@@ -5,7 +5,7 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
   contents — the same qa/review parsers gtd validate and the LSP use. Unlike
   every other gtd subcommand, both arguments are given explicitly: it resolves
   no workflow state and reads no config, so it needs neither a git repository
-  nor a .gtdrc — the standalone command an emitted validation script (a later
+  nor a gtd.config.ts — the standalone command an emitted validation script (a later
   package) invokes as a leaf step, from any directory. A clean parse exits 0
   with no output; a non-clean parse exits non-zero with stdout byte-empty and
   each finding, one per line, on stderr instead (folded into the failing

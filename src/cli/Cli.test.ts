@@ -120,7 +120,6 @@ describe("parseArgv — scope", () => {
       ["lsp", "--json"],
       ["validate", "--json"],
       ["check", "qa", "TODO.md", "--json"],
-      ["init", "--json"],
       ["install", "--json"],
       ["abandon", "--json"],
       ["restore", "--json"],
@@ -928,22 +927,13 @@ describe("parseArgv — doors", () => {
 
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
-    expect(standaloneKinds()).toEqual([
-      "lsp",
-      "init",
-      "check",
-      "uncheck",
-      "install",
-      "loop",
-      "judgeRun",
-    ])
+    expect(standaloneKinds()).toEqual(["lsp", "check", "uncheck", "install", "loop", "judgeRun"])
   })
 
   it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {
     expect(needsOf("lsp")).toBe("none")
     expect(needsOf("check")).toBe("fs")
     expect(needsOf("uncheck")).toBe("fs")
-    expect(needsOf("init")).toBe("fs")
     expect(needsOf("install")).toBe("none")
     expect(needsOf("loop")).toBe("none")
     expect(needsOf("judgeRun")).toBe("none")
@@ -969,7 +959,6 @@ describe("renderHelp", () => {
   it("mentions every command and flag, and no removed surface", () => {
     const help = renderHelp()
     expect(help).toContain("Usage")
-    expect(help).toContain("init ")
     expect(help).toContain("land")
     expect(help).toContain("--workflow <name>")
     expect(help).toContain("--var")
@@ -979,6 +968,8 @@ describe("renderHelp", () => {
     expect(help).toContain("validate")
     expect(help).toContain("lsp")
     expect(help).not.toContain("visualize")
+    expect(help).not.toMatch(/^ {2}init\b/m)
+    expect(help).not.toContain(".gtdrc")
     expect(help).toMatch(/^ {2}ui\b/m)
     expect(help).toContain("check <mode> <file>")
     expect(help).toContain("install")
@@ -1222,7 +1213,7 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
     // through `io.stdout` (a raw call-recording array) — a failing run must
     // produce zero calls, not merely an empty joined string.
     const repo = new InMemRepo()
-    repo.writeFile(".gtdrc.json", "{}\n")
+    repo.writeFile("README.md", "x\n")
     repo.commitAllWithPrefix("chore: init gtd workflow")
     repo.writeFile(".gtd/TODO.md", "## Open Questions\n\n###\n\nno question text.\n")
     const stdoutCalls: string[] = []

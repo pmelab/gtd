@@ -1,15 +1,17 @@
 # Configuration reference
 
-gtd reads two kinds of configuration:
+A repository's configuration is one file, **`gtd.config.ts`**: a TypeScript
+module that says which steps a process goes through, with which settings, plus
+the repository settings in its [`config` export](#the-config-export) —
+steering-file modes, `gtd ui` settings, per-scope skills and access. It is
+required: without one, every command that resolves workflow state fails, saying
+to run `gtd install`, which scaffolds one running gtd's shipped workflows.
 
-- **`gtd.config.ts`** — the workflows themselves: a TypeScript module that says
-  which steps a process goes through. Required: without one, every command that
-  resolves workflow state fails, saying to run `gtd install`, which scaffolds
-  one running gtd's shipped workflows.
-- **`.gtdrc`** — optional per-repository tuning of whatever workflow is active:
-  process settings (`vars`), environment settings (`env`), the judge
-  `gtd judge run` uses (`judge`), steering-file modes (`modes`), `gtd ui`
-  settings (`ui`) and per-scope skills (`skills`). Nothing else.
+Settings that belong to a machine rather than a repository live outside it: the
+judge `gtd judge run` uses (see [Judge settings](#judge-settings)) and the
+loop's (see [the CLI reference](./cli.md)), plus `GTD_<NAME>` variables (see
+[Settings](#settings)). The `.gtdrc` files earlier versions read are gone — a
+leftover one is an error (see [Migrating from `.gtdrc`](#migrating-from-gtdrc)).
 
 > **Trust: `gtd.config.ts` is code, and gtd runs it.** Because the workflow is a
 > TypeScript module, every gtd command that resolves workflow state evaluates
@@ -20,9 +22,8 @@ gtd reads two kinds of configuration:
 > `gtd.config.ts` in a parent directory counts too. Treat a repository's
 > `gtd.config.ts` like any other code you run from it — a Makefile, a
 > `package.json` script: **do not run gtd in a checkout you do not trust.**
-> `.gtdrc` values end up on command lines too (`env:` entries like `testCommand`
-> are interpolated into the scripts gtd emits), which is the same trust
-> decision.
+> Settings end up on command lines too (`testCommand` is interpolated into the
+> scripts gtd emits), which is the same trust decision.
 
 ## `gtd.config.ts`
 
@@ -32,7 +33,7 @@ gtd walks from the current directory **up to your home directory** (or to the
 filesystem root when the current directory is outside home) and uses the
 **innermost** `gtd.config.ts` it finds. There is no merging: one file is the
 whole workflow. A `gtd.config.ts` found nowhere is an error naming
-`gtd install`. A `.gtdrc` in the same directory still contributes its keys.
+`gtd install`.
 
 `gtd install`, run at a repository root no `gtd.config.ts` governs yet, writes
 one that re-exports gtd's shipped workflows:
@@ -62,9 +63,6 @@ startable beside it, or on their doors, now exports them itself (see
 [Reusing the shipped workflows](#reusing-the-shipped-workflows)); one with no
 `default` export needs one.
 
-`gtd init` writes only `.gtdrc.json`; edit `gtd.config.ts` to change the
-workflows themselves.
-
 ### Shape
 
 **Every exported function is a workflow**, named by its export, and gtd starts
@@ -73,7 +71,7 @@ exported [workflow factory](#workflow-factories) and every call of one. The
 `default` export is the ordinary start — what a bare change in the tree begins —
 and is required; a default that is also a named export goes by that name. The
 names `default`, `summary`, `base`, `defaults`, `envDefaults`, `steering`,
-`skills`, `access` and `doors` are reserved: they are never workflows.
+`skills`, `access`, `doors` and `config` are reserved: they are never workflows.
 
 ```ts
 import { agent, human, run } from "@pmelab/gtd/flows"
@@ -104,10 +102,10 @@ settings, see [Settings](#settings)), `summary` (the prompt `gtd summary`
 prints, see [Summary](#summary)), `base` (see [Workflows](#workflows)),
 `steering` — steering file paths with their mode, e.g.
 `{ ".gtd/docs/adr.md": "adr" }`, which `gtd lsp` serves even before a step
-declaring them is reached — `skills` and `doors` (see [Doors](#doors)). gtd
-ignores every other non-function export. **A helper you export is a workflow
-too**, startable by name — keep helpers un-exported, or export them from another
-module you import.
+declaring them is reached — `skills`, `doors` (see [Doors](#doors)) and `config`
+(see [The `config` export](#the-config-export)). gtd ignores every other
+non-function export. **A helper you export is a workflow too**, startable by
+name — keep helpers un-exported, or export them from another module you import.
 
 gtd resolves `@pmelab/gtd/flows` and `@pmelab/gtd/workflows` itself, to its own
 copy, so a `gtd.config.ts` needs no `package.json` or install. Add `@pmelab/gtd`
@@ -160,7 +158,7 @@ Every step takes an options object; all keys are optional.
 | ------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `label`       | all                  | Display name shown by `gtd next` and viewers.                                                                                                      |
 | `file`        | all                  | The step's steering file, a repository path under `.gtd/`.                                                                                         |
-| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, or a name declared under `.gtdrc` `modes:`. An unknown name is a load error.                             |
+| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, or a name declared in `config.modes`. An unknown name is a load error.                                   |
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                         |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                 |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                          |
@@ -316,11 +314,11 @@ process resting on the old name.
 Re-export `envDefaults` alongside `defaults`: a workflow that re-exports only
 `defaults` loses `testCommand`, `fastTestCommand`, `plannerModel` and
 `coderModel`. Re-export `skills` alongside `steering`: it is what makes the
-bundled workflow's scope names addressable by a `.gtdrc` `skills:` entry in THIS
-config (see [The `skills:` key](#the-skills-key)) — dropping it from the
-re-export list, the way dropping any other named export does, silently empties
-it instead of keeping the bundled defaults, because the loader reads a missing
-export as `{}`, not as "inherit the bundled module's".
+bundled workflow's scope names addressable by a `config.skills` entry in THIS
+config (see [Skills](#skills)) — dropping it from the re-export list, the way
+dropping any other named export does, silently empties it instead of keeping the
+bundled defaults, because the loader reads a missing export as `{}`, not as
+"inherit the bundled module's".
 
 **Import the phases; never `export *` them.** Every exported function of your
 file is a startable workflow, so `export * from "@pmelab/gtd/workflows"` would
@@ -360,8 +358,8 @@ keep `fix` and `review` (see [Doors](#doors)).
 `feature`, `review` and `fix` are factories: calling one with options returns
 that workflow configured. Their options are the
 [bundled workflow's settings](#the-bundled-workflows-settings), each a string,
-and each becomes that workflow's own default of its kind — beneath `.gtdrc`,
-`--var` and `GTD_<NAME>`, which still layer on top:
+and each becomes that workflow's own default of its kind — beneath `--var` and
+`GTD_<NAME>`, which still layer on top:
 
 ```ts
 import { feature, review } from "@pmelab/gtd/workflows"
@@ -372,18 +370,13 @@ export default feature({ testCommand: "npm run test:ci", coderModel: "fast" })
 export const strictReview = review({ reviewNoteActionable: "0.9" })
 ```
 
-Exported without a call, a factory is a workflow too, configured by `.gtdrc`
-alone — which is what the config `gtd install` writes does. Either way gtd hands
-the factory the `.gtdrc` `vars:` and `env:` entries as options (bar a name
-another workflow in the file declares — its own `defaults`/`envDefaults`, or a
-factory's built settings — which belongs to that workflow) and **validates the
-options when it loads the config**. A rejected option fails every command,
-reported where the value came from:
+Exported without a call, a factory is a workflow too, with its default options —
+which is what the config `gtd install` writes does. Either way gtd **validates
+the options when it loads the config**. A rejected option fails every command:
 
 ```text
 gtd config:
   - /repo/gtd.config.ts: testComand: workflow "default" option "testComand": is unexpected, expected: "reviewBase" | … | "coderModel"
-  - /repo/.gtdrc: env.qualityReview: workflows "feature", "fix", "review" option "qualityReview": is unexpected, expected: …
 ```
 
 Unknown options are rejected, not dropped, so a misspelled or removed option
@@ -414,10 +407,9 @@ Read a setting through `vars`/`env` in flow code, as before, when `--var` or
 `GTD_<NAME>` should reach it; an option read straight from `options` is fixed by
 the config.
 
-A `.gtdrc` value is validated by the schema, but the setting it becomes is the
-raw string: `--var`, `GTD_<NAME>` and the pinned value never pass through the
-schema, so a schema that transforms (trims, lowercases) or constrains a setting
-does not bind them. Keep the schema a plain check.
+`--var`, `GTD_<NAME>` and the pinned value never pass through the schema, so a
+schema that transforms (trims, lowercases) or constrains a setting does not bind
+them. Keep the schema a plain check.
 
 Awaiting a factory's call inside a composed flow throws — compose `fixFlow`,
 `reviewFlow` and the other plain flows instead.
@@ -503,7 +495,7 @@ as its merge-base with `HEAD`, not as the named tip. It is refused when the
 commitish does not resolve, shares no common ancestor with `HEAD`, or its
 merge-base is `HEAD` itself (nothing to review). `--var <name>=<value>` is
 repeatable and only valid with `--workflow`; the name must already be declared
-by the workflow's `defaults` or a `.gtdrc` `vars:` — `--var` pins process
+by the workflow's `defaults` (or its factory's build) — `--var` pins process
 settings only, and naming an environment setting is a usage error (exit 2).
 Every process setting is recorded as a `Gtd-Var:` trailer on the process's first
 commit and stays in force for the whole process (see [Settings](#settings)).
@@ -572,7 +564,7 @@ before changing the workflow under it.
 **Breaking change.** BREAKING CHANGE: a workflow whose first step reads a
 process or environment setting (any vars/env access, enumeration included) fails
 to load; a setting name outside [A-Za-z_][A-Za-z0-9_]* — in workflow
-defaults/envDefaults, .gtdrc vars:/env:, or --var — fails to load or is refused.
+defaults/envDefaults or --var — fails to load or is refused.
 
 #### History format
 
@@ -637,112 +629,72 @@ process as `{ hash, state }`. Without `summary`, `gtd summary` refuses.
 Authoring a workflow with a coding agent? `skills/authoring/SKILL.md` is the
 agent-facing guide.
 
-## `.gtdrc`
+## The `config` export
 
-gtd reads an optional `.gtdrc`, discovered on the same walk as `gtd.config.ts` —
-from the current directory up to your home directory — but **merged**: every
-level found is deep-merged, the innermost winning on overlap. A shared `.gtdrc`
-in a worktree-parent directory cascades to every checkout beneath it, and any
-checkout can still override it with its own.
+The repository settings a workflow does not own live in `gtd.config.ts`'s
+reserved `config` export. Build it with `defineConfig` from `@pmelab/gtd/flows`:
 
-Supported filenames (searched in this order):
+```ts
+import { defineConfig } from "@pmelab/gtd/flows"
 
-- `.gtdrc`
-- `.gtdrc.json`
-- `.gtdrc.yaml`
-- `.gtdrc.yml`
-- `gtd.config.json`
-- `gtd.config.yaml`
+export { feature as default, feature, review, fix } from "@pmelab/gtd/workflows"
+export {
+  summary,
+  base,
+  steering,
+  skills,
+  access,
+  doors,
+} from "@pmelab/gtd/workflows"
 
-### Schema
-
-`.gtdrc` has exactly these top-level keys:
-
-- **`vars`** (object, optional) — a flat `name -> scalar` map of **process
-  settings**, one layer of the merged settings (see [Settings](#settings)).
-- **`env`** (object, optional) — a flat `name -> scalar` map of **environment
-  settings**, the machine-local counterpart of `vars` (see
-  [Settings](#settings)). Not the shell's environment: `GTD_<NAME>` environment
-  variables override `env:` entries.
-- **`judge`** (object, optional) — `{ provider, model }`, which judge
-  `gtd judge run` uses. See [The `judge:` key](#the-judge-key).
-- **`modes`** (object, optional) — steering-file modes (`format:`/`validate:`
-  shell commands) a step's `mode` may name, layered over gtd's built-in `qa` and
-  `review` modes.
-- **`ui`** (object, optional) — `gtd ui`'s own settings. See
-  [The `ui:` key](#the-ui-key).
-- **`skills`** (object, optional) — a flat scope full-name -> skill-name array
-  map, one entry per scope whose skill list you want to change. See
-  [The `skills:` key](#the-skills-key).
-- **`access`** (object, optional) — a flat scope full-name ->
-  `{ read?, write? }` glob-array map. See [File access](#file-access).
-- **`$schema`** (string, optional) — ignored by gtd. Point it at the published
-  schema for editor autocompletion (this is what `gtd init` writes):
-
-  ```
-  https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json
-  ```
-
-  That URL serves `schema.json` straight out of the published npm tarball, so it
-  always matches the latest release. Pin it to a major with
-  `@pmelab/gtd@8/schema.json`, or point at your own install
-  (`./node_modules/@pmelab/gtd/schema.json`) to work offline.
-
-Any other top-level key is **rejected** — the workflow itself lives in
-`gtd.config.ts`, never in a `.gtdrc`.
-
-`gtd init` writes a minimal `.gtdrc.json`: the `$schema` line, the one variable
-most projects change (`env.testCommand`, defaulting to `npm test`), an empty
-`env.fastTestCommand` to fill in (see below), and a `modes:` block suggesting
-Prettier as the steering-file formatter (`npx prettier --write "$GTD_FILE"` for
-`qa` and `review` — format only, so gtd still validates them). Edit or drop any
-of it, then review and commit the file before your first `gtd land`. `gtd init`
-takes no argument and refuses to overwrite an existing config; it may also run
-in a plain parent directory (not a git repository) to seed a shared config a
-nested repository picks up.
-
-### Environment interpolation
-
-Every string leaf of a `.gtdrc` layer — `vars`, `env`, `judge`, `modes`, `ui`,
-nested inside an array or not — expands `$NAME` and `${NAME}` from the process
-environment before gtd reads it further:
-
-```yaml
-# .gtdrc
-env:
-  plannerModel: $BUILD_MODEL
+export const config = defineConfig({
+  modes: {
+    qa: { format: 'npx prettier --write "$GTD_FILE"' },
+    review: { format: 'npx prettier --write "$GTD_FILE"' },
+  },
+  ui: { port: 8443 },
+})
 ```
 
-`$$` is the escape for a literal `$` (`$$5` becomes `$5`); any other `$` not
-followed by a valid name — a trailing `$`, `$1`, `$-` — is left exactly as
-written, so `plannerModel: smart` and a price in a label both survive untouched.
-A name that resolves is substituted once; the substituted text is never
-re-scanned for more `$NAME` syntax, so a value coming from the environment can
-never smuggle in config syntax of its own. A name with no matching environment
-variable fails the load with exit 1, naming the config path and the file:
+It has exactly these keys, all optional:
 
-```
+- **`modes`** — steering-file modes (`format`/`validate` shell commands) a
+  step's `mode` may name, layered over gtd's built-in `qa` and `review` modes.
+  See [Modes](#modes).
+- **`ui`** — `gtd ui`'s own settings. See [`ui`](#ui).
+- **`skills`** — a flat scope full-name -> skill-name array map, one entry per
+  scope whose skill list you want to change. See [Skills](#skills).
+- **`access`** — a flat scope full-name -> `{ read?, write? }` glob-array map.
+  See [File access](#file-access).
+
+**An unknown key is rejected**, at every depth: a type error when `@pmelab/gtd`
+is installed for editor type-checking, and a load error naming the key either
+way — `defineConfig` throws while `gtd.config.ts` loads, and gtd checks a plain
+object exported as `config` the same way. A key that moved out of the repository
+config (`vars`, `env`, `judge`) therefore fails loudly instead of doing nothing:
+
+```text
 gtd config:
-  - /path/to/repo/.gtdrc.json: env.plannerModel: "$BUILD_MODEL" references environment variable "BUILD_MODEL", which is not set
+  - /repo/gtd.config.ts: config.env: is not a known key
 ```
 
-Two values are exempt, because gtd hands them to `bash`, where `$` is already
-the shell's own: `modes:`' `format`/`validate` commands and `ui.format` (see
-[the `format:`/`validate:` exemption](#modes) and [the `ui:` key](#the-ui-key)).
-A `$GTD_FILE` inside either keeps working unchanged. `--var` values and a
-workflow's own `defaults` export are outside this pass entirely — a `--var` is
-typed into a shell that already expands `$` itself, and `defaults` is code, not
-`.gtdrc`.
+Process and environment settings are not here: they are the workflow's, set as
+[factory options](#workflow-factories) or a plain flow's
+`defaults`/`envDefaults` (see [Settings](#settings)).
 
 ### Modes
 
 A mode is a pair of shell commands over one steering file, both optional:
 
-```yaml
-modes:
-  adr:
-    format: npx prettier --write "$GTD_FILE"
-    validate: adr-lint "$GTD_FILE"
+```ts
+export const config = defineConfig({
+  modes: {
+    adr: {
+      format: 'npx prettier --write "$GTD_FILE"',
+      validate: 'adr-lint "$GTD_FILE"',
+    },
+  },
+})
 ```
 
 Each command runs in `bash` with `$GTD_FILE` set to the steering file's path.
@@ -750,12 +702,8 @@ Quote it (`"$GTD_FILE"`) so a path with spaces stays one argument. The
 `<%= it.file %>` templates of earlier versions are refused with a hint to use
 `$GTD_FILE` instead. `format:` normalizes the file in place; `validate:` reports
 findings, and exits zero only when there are none. A step names a mode with
-`{ file, mode }`.
-
-Both `format:` and `validate:` are exempt from
-[environment interpolation](#environment-interpolation): `$GTD_FILE` (and any
-other `$NAME` written here) reaches `bash` untouched, since the shell already
-expands it.
+`{ file, mode }`. A mode with neither command still registers its name: a step
+may use it, and the file is neither formatted nor validated.
 
 #### Built-in steering formats are ordinary modes
 
@@ -896,12 +844,12 @@ error. A command gtd cannot reduce to one binary — a `VAR=x`-prefixed command,
 pipeline, anything with a shell metacharacter — gets no such check and fails
 exactly as it always has.
 
-### The `ui:` key
+### `ui`
 
-`gtd ui`'s five settings, all optional — a flat struct, so an unknown sub-key is
-rejected the same way any other unknown config key is. `gtd ui` serves exactly
-the ONE worktree it is invoked in — there is no roots/discovery setting, because
-there is no fleet to discover:
+`config.ui` holds `gtd ui`'s five settings, all optional — a flat struct, so an
+unknown sub-key is rejected the same way any other unknown config key is.
+`gtd ui` serves exactly the ONE worktree it is invoked in — there is no
+roots/discovery setting, because there is no fleet to discover:
 
 - **`port`** (integer, optional) — with neither this key nor `host` given, the
   port `gtd ui` publishes through `tailscale serve`, walking 8443, then 10000,
@@ -924,62 +872,28 @@ there is no fleet to discover:
   runs at all. gtd ships no formatter — bring your own (`oxfmt`, `prettier`, a
   script). A non-zero exit or a missing binary never reverts the write or
   refuses it — the phone is told which command ran and what it exited with, and
-  the bytes it already wrote stay on disk either way. `format` is exempt from
-  [environment interpolation](#environment-interpolation), the same as a mode's
-  own `format:`/`validate:` — `$GTD_FILE` reaches `bash` untouched.
+  the bytes it already wrote stay on disk either way.
 
-Flags (`--host`, `--port`, `--self-signed`) always override the matching `ui:`
+Flags (`--host`, `--port`, `--self-signed`) always override the matching `ui`
 value; see `docs/cli.md`'s `ui` row for the full flag list.
 
-### The `judge:` key
+### Skills
 
-Which judge `gtd judge run` uses, both fields optional: **`provider`** (`fixed`,
-`jev` or `llm`) and **`model`** (the `claude` model, for provider `llm` only). A
-flat struct — an unknown sub-key or a provider outside the three is rejected.
-Layered like `ui:`: an inner `.gtdrc` wins per field. It is read from `.gtdrc`
-files alone, never from a workflow, and `gtd judge run` needs no repository to
-read it.
+`config.skills` is a flat map, scope full name -> array of skill names. Skills
+are declared per SCOPE (`scope({ name, skills }, …)`), not per step: every agent
+turn in a scope carries that scope's list. An entry REPLACES the scope's bundled
+(or custom-workflow-declared) list wholesale — it never merges into it — and
+also feeds the `skills` key `gtd next --json` reports at each turn in that scope
+(see [Writing your own driver](./driver.md#writing-your-own-driver)); `[]` means
+no skills at all for that scope, and no skills preamble either.
 
-Per field, the first one set wins: the `--provider` / `--model` flag, then the
-`GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment variables (an empty value
-counts as unset), then the user-level file, then `judge:`, then the automatic
-pick (`jev` when `TYPESAFE_API_KEY` is set and no model is given, otherwise
-`llm`). A model resolved for a provider other than `llm` is an error, whichever
-layer supplied each half. A repository can pin `jev` here while a laptop flips
-to `llm` with `GTD_JUDGE_PROVIDER=llm`, without touching the driver.
-`GTD_<NAME>` does not reach `judge:`.
-
-```yaml
-# .gtdrc
-judge:
-  provider: jev
-```
-
-The user-level file is `$XDG_CONFIG_HOME/gtd/judge.json`, else
-`~/.config/gtd/judge.json`: a JSON object with the same two optional keys. A
-missing file is fine; an unreadable or invalid one, an unknown key, or a
-provider outside the three fails `gtd judge run`. It is your machine's choice,
-so it outranks a repository's `judge:`:
-
-```json
-{ "provider": "llm", "model": "sonnet" }
-```
-
-### The `skills:` key
-
-A flat map, scope full name -> array of skill names. Skills are declared per
-SCOPE (`scope({ name, skills }, …)`), not per step: every agent turn in a scope
-carries that scope's list. An entry REPLACES the scope's bundled (or
-custom-workflow-declared) list wholesale — it never merges into it — and also
-feeds the `skills` key `gtd next --json` reports at each turn in that scope (see
-[Writing your own driver](./driver.md#writing-your-own-driver)); `[]` means no
-skills at all for that scope, and no skills preamble either.
-
-```yaml
-# .gtdrc
-skills:
-  packages.item.fix.suite: [debugging-and-error-recovery]
-  build: [debugging-and-error-recovery, my-org-runbook]
+```ts
+export const config = defineConfig({
+  skills: {
+    "packages.item.fix.suite": ["debugging-and-error-recovery"],
+    build: ["debugging-and-error-recovery", "my-org-runbook"],
+  },
+})
 ```
 
 The bundled workflow's addressable scope full names:
@@ -997,26 +911,26 @@ turn and carry no key. A custom workflow's own scopes are addressable through
 its own `skills` export (see
 [Reusing the shipped workflows](#reusing-the-shipped-workflows)); the export may
 be a function of the resolved vars, and must list every scope holding an agent
-step. The schema can validate an entry's VALUE (an array of strings) but never
-its KEY, since scope names come from the workflow actually in play — there is no
+step. The type can check an entry's VALUE (an array of strings) but never its
+KEY, since scope names come from the workflow actually in play — there is no
 editor autocompletion of scope names here.
 
 A key that is not a scope running a turn is a load error, exit 1 — a group scope
 such as `build.fix`, or a step name rather than its scope. The message lists the
 known scope keys. Keying config on a scope's full name widens what renaming a
-scope breaks: it also orphans every `.gtdrc` `skills:` entry naming it, which
+scope breaks: it also orphans every `config.skills` entry naming it, which
 becomes an unknown key and exits 1.
 
-`qualityReviews` (a `vars:` entry, not a `skills:` one — see
+`qualityReviews` (a process setting, not a `skills` entry — see
 [Settings](#settings)) and the `build.quality.<lens>` keys are a pair:
 `qualityReviews` decides how many quality-lap turns run, one per lens, and each
 lens is its own scope, keyed `build.quality.<lens>`. By default that scope's
 skills ARE the lens; a `build.quality.<lens>` entry REPLACES them with the
 configured list, leaving the prompt body's own mention of the lens untouched.
 Such a key is valid only while the lens is listed in `qualityReviews`, judged
-against the running process's recorded settings, or against live `.gtdrc`/env
-plus `--var` when no process is underway. A key added for a lens mid-process
-errors until that process finishes.
+against the running process's recorded settings, or against the workflow's
+settings, `GTD_<NAME>` and `--var` when no process is underway. A key added for
+a lens mid-process errors until that process finishes.
 
 ### File access
 
@@ -1048,25 +962,27 @@ and a prompt-level hint or a tool-level deny is bypassable by a shell command. A
 `write` restriction has one more gap: a write to a gitignored path never shows
 up in the tree gtd checks, so it escapes the landing check.
 
-#### The `access:` key
+#### `config.access`
 
-`.gtdrc` takes a flat scope full-name -> `{ read?, write? }` map, one entry per
-scope whose access you want to change. An entry REPLACES the scope's declared
-access wholesale and reaches every nested scope that sets none of its own, like
-a `skills:` entry.
+`config.access` is a flat scope full-name -> `{ read?, write? }` map, one entry
+per scope whose access you want to change. An entry REPLACES the scope's
+declared access wholesale and reaches every nested scope that sets none of its
+own, like a `skills` entry.
 
-```yaml
-# .gtdrc
-access:
-  build.review: { write: [".gtd/REVIEW.md", "docs/**"] }
-  design: {} # lift the bundled restriction
+```ts
+export const config = defineConfig({
+  access: {
+    "build.review": { write: [".gtd/REVIEW.md", "docs/**"] },
+    design: {}, // lift the bundled restriction
+  },
+})
 ```
 
 An entry key other than `read`/`write`, or a scope name that is not a scope
 running a turn, is a load error, exit 1; the message lists the known scopes. A
 custom workflow's own scopes are addressable through its `access` export (a
 record, or a function of the resolved vars, of scope -> `{ read?, write? }`).
-Precedence: `.gtdrc` entry, then a `scope()` option, then the workflow's
+Precedence: `config.access` entry, then a `scope()` option, then the workflow's
 `access` export.
 
 #### Bundled defaults
@@ -1085,56 +1001,62 @@ scope restricts reads. Build and fix scopes carry no entry.
 
 ### Validation and errors
 
-Config problems — an unknown `.gtdrc` key, a wrong type, a `gtd.config.ts` that
+Config problems — an unknown `config` key, a wrong type, a `gtd.config.ts` that
 fails to evaluate or whose default entry reaches no step — are collected
 together. A bad config fails **once**, listing every finding, at load time —
 before anything touches the repository — never partially. Each line names the
-file it came from and, for `.gtdrc`, the config path:
+file and the config path:
 
 ```
 gtd config:
-  - /path/to/repo/.gtdrc.json: env.testCommand: "env.testCommand" must be a string, number, or boolean, got array
+  - /path/to/repo/gtd.config.ts: config.ui.port: must be an integer
 ```
 
-A step naming a mode no layer declares fails the same way, as soon as the
-process rests at it:
+A step naming a mode nothing declares fails the same way, as soon as the process
+rests at it:
 
 ```
 gtd config: step "idle": mode "adrs" is not a mode this workflow knows (qa, review)
 ```
 
-A `skills:` key that is not a scope running a turn fails the same way, listing
-the known scope keys. It is reported when gtd resolves the current state, not by
-every config read (see [The `skills:` key](#the-skills-key)):
+A `config.skills` key that is not a scope running a turn fails the same way,
+listing the known scope keys. It is reported when gtd resolves the current
+state, not by every config read (see [Skills](#skills)):
 
 ```
 gtd config:
-  - /path/to/repo/.gtdrc.json: skills.build.fix: "skills.build.fix" is not a scope that runs a turn — known scopes: architecture, architecture.decompose, build, …
+  - /path/to/repo/gtd.config.ts: config.skills.build.fix: "skills.build.fix" is not a scope that runs a turn — known scopes: architecture, architecture.decompose, build, …
 ```
 
-A setting under the wrong key is a load error naming the right one, with no
-deprecation window and no silent routing:
-
-```
-gtd config:
-  - /path/to/repo/.gtdrc.json: vars.testCommand: "vars.testCommand" is an environment setting — move it under "env:"
-```
-
-The mirror error covers a process setting under `env:`, and a name under both
-`vars:` and `env:` is an error even when no workflow declares it. A workflow
-declaring one name in both `defaults` and `envDefaults` fails to load.
-
-The same problem carried by several `.gtdrc` layers prints one line per file: a
-nearer layer overriding the value does not silence the outer layer's line,
-because each is a separate edit in a file you own. All load failures exit **1**
-and write to **stderr**, never stdout.
+A workflow declaring one name in both `defaults` and `envDefaults` fails to
+load. All load failures exit **1** and write to **stderr**, never stdout.
 
 gtd requires a repository with **at least one commit** before any state command
 (`land`, `--workflow`, `door`, `doors`, `next`, `abandon`, `restore`,
 `validate`, `summary`) will run — there is no workflow state to derive from an
-empty history. `gtd init`, `gtd install`, `gtd lsp`, and `gtd check` are
-unaffected, since none of them needs a process history (`gtd lsp` still loads
-`gtd.config.ts`).
+empty history. `gtd install`, `gtd lsp`, and `gtd check` are unaffected, since
+none of them needs a process history (`gtd lsp` still loads `gtd.config.ts`).
+
+## Judge settings
+
+Which judge `gtd judge run` uses is your machine's choice, never a repository's:
+both fields are optional — **`provider`** (`fixed`, `jev` or `llm`) and
+**`model`** (the `claude` model, for provider `llm` only). Per field, the first
+one set wins: the `--provider` / `--model` flag, then the `GTD_JUDGE_PROVIDER` /
+`GTD_JUDGE_MODEL` environment variables (an empty value counts as unset), then
+the user-level file, then the automatic pick (`jev` when `TYPESAFE_API_KEY` is
+set and no model is given, otherwise `llm`). A model resolved for a provider
+other than `llm` is an error, whichever layer supplied each half.
+`gtd judge run` needs no repository.
+
+The user-level file is `$XDG_CONFIG_HOME/gtd/judge.json`, else
+`~/.config/gtd/judge.json`: a JSON object with the same two optional keys. A
+missing file is fine; an unreadable or invalid one, an unknown key, or a
+provider outside the three fails `gtd judge run`:
+
+```json
+{ "provider": "llm", "model": "sonnet" }
+```
 
 ## Settings
 
@@ -1147,77 +1069,77 @@ A workflow's settings come in two kinds, told apart by what they may change.
   code reads `env`.
 
 A workflow declares process settings in `defaults` and environment settings in
-`envDefaults`; a name in both is a load error.
+`envDefaults` — a file's exports, or a [factory](#workflow-factories)'s build,
+where the shipped workflows take each setting as an option; a name in both is a
+load error.
 
 A setting name is a letter or `_`, then letters, digits or `_`
-(`[A-Za-z_][A-Za-z0-9_]*`), in `defaults`, `envDefaults`, `.gtdrc` `vars:` and
-`env:`, and `--var`: any other name fails the load, or is refused as a usage
-error for `--var`. The flow's first step — where a finished process waits — may
-not read a setting at all, process or environment (any `vars`/`env` access,
-enumeration included); such a workflow fails the load, naming the setting.
+(`[A-Za-z_][A-Za-z0-9_]*`), in `defaults`, `envDefaults` and `--var`: any other
+name fails the load, or is refused as a usage error for `--var`. The flow's
+first step — where a finished process waits — may not read a setting at all,
+process or environment (any `vars`/`env` access, enumeration included); such a
+workflow fails the load, naming the setting.
 
 **A process setting's value is committed to Git history in its `Gtd-Var:`
 trailer and stays there. A secret belongs in an environment setting
-(`envDefaults`, `env:`, or `GTD_<NAME>` for an `env` name), which is never
-recorded.** A `GTD_<NAME>` export of a process setting is recorded too.
+(`envDefaults`, or `GTD_<NAME>` for an `env` name), which is never recorded.** A
+`GTD_<NAME>` export of a process setting is recorded too.
 
-**Process settings** are resolved once, at process start, from four layers,
+**Process settings** are resolved once, at process start, from three layers,
 **later wins**, and recorded as sorted `Gtd-Var:` trailers on the process's
 first commit:
 
-1. **The workflow's `defaults` export.**
-2. **A `.gtdrc` `vars:` key** — per-repository tuning without touching the
-   workflow.
-3. **`--var <name>=<value>`** on `gtd --workflow <name>`. Each name must already
-   be declared by layer 1 or 2; an undeclared name is refused (exit 1), and
-   naming an environment setting is a usage error (exit 2).
-4. **`GTD_<UPPERCASE-name>` environment variables** — matched case-insensitively
-   against the names layers 1–2 declare: `GTD_QUALITYREVIEWS` overrides
+1. **The workflow's `defaults`** — per repository, in `gtd.config.ts` (for the
+   shipped workflows, a factory option).
+2. **`--var <name>=<value>`** on `gtd --workflow <name>`. Each name must already
+   be declared by layer 1; an undeclared name is refused (exit 1), and naming an
+   environment setting is a usage error (exit 2).
+3. **`GTD_<UPPERCASE-name>` environment variables** — matched case-insensitively
+   against the names layer 1 declares: `GTD_QUALITYREVIEWS` overrides
    `qualityReviews`. A `GTD_*` variable matching no declared name is ignored.
 
 Every later `gtd` call reads the recorded values and never the live layers, so
-**editing `.gtdrc` or exporting `GTD_<NAME>` for a process setting mid-process
-is ignored, silently, for the running process**; the new value applies from the
-next process on. A process recorded before settings were pinned resolves live. A
-value spanning several lines cannot be recorded and refuses the process start,
-naming the setting.
+**editing `gtd.config.ts` or exporting `GTD_<NAME>` for a process setting
+mid-process is ignored, silently, for the running process**; the new value
+applies from the next process on. A process recorded before settings were pinned
+resolves live. A value spanning several lines cannot be recorded and refuses the
+process start, naming the setting.
 
-**Environment settings** are resolved on every call, never recorded, from three
-layers, later wins: the workflow's `envDefaults`, a `.gtdrc` `env:` key, and
-`GTD_<UPPERCASE-name>` environment variables for any name those declare. A
-process started on a laptop and continued in CI uses CI's test command.
-`GTD_<NAME>` environment variables override `env:` entries.
+**Environment settings** are resolved on every call, never recorded, from two
+layers, later wins: the workflow's `envDefaults` and `GTD_<UPPERCASE-name>`
+environment variables for any name it declares. A process started on a laptop
+and continued in CI uses CI's test command.
 
-Values in `vars:` and `env:` must be scalars (string/number/boolean), coerced to
-strings; an object or array value is a load error. A `--var` value is always a
-single-line string as given on the command line. gtd itself blesses no setting
-names — `testCommand` is the bundled workflow's data like any other.
+Every setting value is a string. A `--var` value is always a single-line string
+as given on the command line. gtd itself blesses no setting names —
+`testCommand` is the bundled workflow's data like any other.
 
-```yaml
-# .gtdrc — overriding the bundled workflow's testCommand
-env:
-  testCommand: npm run test:ci
+```ts
+// gtd.config.ts — overriding the bundled workflow's testCommand
+import { feature } from "@pmelab/gtd/workflows"
+
+export default feature({ testCommand: "npm run test:ci" })
 ```
 
 ```bash
-# highest precedence — beats both the workflow default and the .gtdrc value above
+# highest precedence — beats the workflow's own value above
 GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
 
 The bundled workflow puts a preamble naming the skills an agent step loads (its
-scope's `.gtdrc` `skills:` entry — see [The `skills:` key](#the-skills-key))
-ahead of that step's prompt; an empty entry switches it off for that scope. A
-preamble in a workflow of your own must carry three clauses, or it is unsafe:
-load only what your harness has and skip the rest silently; THE STEP'S OWN FILE
-FORMAT AND COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn the
-turn interactive, because no one is at a keyboard. The precedence clause is
+scope's `config.skills` entry — see [Skills](#skills)) ahead of that step's
+prompt; an empty entry switches it off for that scope. A preamble in a workflow
+of your own must carry three clauses, or it is unsafe: load only what your
+harness has and skip the rest silently; THE STEP'S OWN FILE FORMAT AND
+COMPLETION CONDITION OUTRANK ANYTHING A SKILL SAYS; never turn the turn
+interactive, because no one is at a keyboard. The precedence clause is
 load-bearing — the preamble sits above the step's own format prose, so a skill
 that reflows the steering file changes which branch the flow takes next.
 
 ### The bundled workflow's settings
 
-Overridable as [factory options](#workflow-factories), through `.gtdrc` (`vars:`
-or `env:`, by kind) or `GTD_<NAME>`. **Environment settings:**
+Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
+**Environment settings:**
 
 - **`testCommand`** (`npm test`) — the suite every health check and baseline
   gate runs. It is interpolated into a POSIX `sh` script, so keep it
@@ -1245,18 +1167,17 @@ or `env:`, by kind) or `GTD_<NAME>`. **Environment settings:**
 - **`qualityReviews`**
   (`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
   — sets the quality lap `build.quality` runs ahead of the human review: one
-  turn per comma-separated lens, in order. It is the one skill control still
-  living under `vars:` rather than `skills:` — it decides the turn COUNT. Each
+  turn per comma-separated lens, in order. It is the one skill control that is a
+  process setting rather than a `skills` entry — it decides the turn COUNT. Each
   lens is its own scope, keyed `build.quality.<lens>`; by default that scope's
   skills ARE the lens, and a `build.quality.<lens>` entry (see
-  [The `skills:` key](#the-skills-key)) replaces them, valid only while the lens
-  is listed here. Every round pays for it, so extend the list only as far as
-  that is worth paying for — each lens adds about 1–1.5 min and about $0.5 per
-  run; blanking it disables the lap. `correctness` (loads
-  `code-review-and-quality`), `conventions` and `spec-challenge` are built-in
-  lenses whose brief rides in the prompt; every finding any lens writes,
-  blocking or not, is fixed by the one fix turn. See
-  [Setup](./setup.md#extending-the-quality-review-lap).
+  [Skills](#skills)) replaces them, valid only while the lens is listed here.
+  Every round pays for it, so extend the list only as far as that is worth
+  paying for — each lens adds about 1–1.5 min and about $0.5 per run; blanking
+  it disables the lap. `correctness` (loads `code-review-and-quality`),
+  `conventions` and `spec-challenge` are built-in lenses whose brief rides in
+  the prompt; every finding any lens writes, blocking or not, is fixed by the
+  one fix turn. See [Setup](./setup.md#extending-the-quality-review-lap).
 - **`reviewBase`** (empty) — the commitish `--workflow review` reviews from
   (`gtd door review` sets it).
 
@@ -1315,8 +1236,35 @@ free-form prose with no mode of its own.
 ## `fastTestCommand`
 
 Required environment setting for the bundled workflow: the fast suite (every
-test but e2e). Set it under `env:` in `.gtdrc` or as `GTD_FASTTESTCOMMAND`.
-There is no fallback to `testCommand`; a blank value counts as unset. While
-unset the workflow writes `.gtd/SETUP.md`, names the setting, and rests at its
-entry check, re-checking on every beat until it is filled. The package loop's
-health check runs the fast suite.
+test but e2e). Set it as a factory option in `gtd.config.ts`
+(`feature({ fastTestCommand: "npm run test:fast" })`) or as
+`GTD_FASTTESTCOMMAND`. There is no fallback to `testCommand`; a blank value
+counts as unset. While unset the workflow writes `.gtd/SETUP.md`, names the
+setting, and rests at its entry check, re-checking on every beat until it is
+filled. The package loop's health check runs the fast suite.
+
+## Migrating from `.gtdrc`
+
+gtd 23 no longer reads the `.gtdrc` family — `.gtdrc`, `.gtdrc.json`,
+`.gtdrc.yaml`, `.gtdrc.yml`, `gtd.config.json` and `gtd.config.yaml`. Every
+command that loads the config refuses one, wherever it sits: in the repository,
+in a directory above it, or in your home directory (`~/.gtdrc.json` included — a
+user-level rc file holding only `$schema` still fails). The message names each
+file and exits **1**. Move each key, then delete the file:
+
+| `.gtdrc` key | Where it goes now                                                                                                                                   |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vars`       | A [factory option](#workflow-factories) in `gtd.config.ts` (`feature({ qualityReviews: "correctness" })`), or a plain flow's `defaults` export      |
+| `env`        | A factory option in `gtd.config.ts` (`feature({ testCommand: "npm run ci" })`), or `envDefaults`; per machine, `GTD_<NAME>`                         |
+| `judge`      | `~/.config/gtd/judge.json` (`$XDG_CONFIG_HOME/gtd/judge.json`), or `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` — see [Judge settings](#judge-settings) |
+| `modes`      | `config.modes` — see [Modes](#modes)                                                                                                                |
+| `ui`         | `config.ui` — see [`ui`](#ui); `--host`/`--port` still override it per run                                                                          |
+| `skills`     | `config.skills` — see [Skills](#skills)                                                                                                             |
+| `access`     | `config.access` — see [File access](#file-access)                                                                                                   |
+| `$schema`    | Nothing: drop it. gtd no longer publishes `schema.json`; `defineConfig` types the config instead                                                    |
+
+A `.gtdrc` in a directory above several checkouts (a worktree parent) has no
+counterpart: each repository's `gtd.config.ts` carries its own settings, and
+machine-wide ones go in `GTD_<NAME>` or `judge.json`. `$NAME` interpolation is
+gone too — read `process.env` in `gtd.config.ts` instead. `gtd init`, which only
+wrote a `.gtdrc.json`, is removed: `gtd install` scaffolds `gtd.config.ts`.
