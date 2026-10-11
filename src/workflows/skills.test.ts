@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { skills } from "./skills.js"
-import { bundled as workflow } from "./index.js"
+import * as workflow from "./index.js"
 
 const { defaults } = workflow
 

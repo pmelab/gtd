@@ -1,38 +1,32 @@
 @live
-Feature: gtd init — seed a minimal .gtdrc.json (default env + formatting)
+Feature: gtd init — seed a minimal .gtdrc.json (formatting)
 
-  `gtd init` (see src/program.ts) writes a MINIMAL `.gtdrc.json` seeding the
-  default variables a fresh project usually changes (the test command) and a
-  Prettier formatting suggestion (`modes:`). It writes NO `workflow:` key — gtd
-  ships the bundled workflows as its built-in default and runs it whenever none
-  is configured, so a state command works out of the box with no init at all. A
-  project customizes the machine itself only by adding a `workflow:` key. The
-  written file is left UNCOMMITTED (the user reviews and commits it), and init
-  refuses to clobber an existing config. Runs @live so the real config-detection
-  (cosmiconfig over the real filesystem) is exercised.
+  `gtd init` writes a MINIMAL `.gtdrc.json` with a Prettier formatting
+  suggestion (`modes:`). It seeds no setting — a workflow's settings are its
+  own — and writes no workflow: the workflows live in `gtd.config.ts`, which
+  `gtd install` scaffolds. The written file is left UNCOMMITTED (the user
+  reviews and commits it), and init refuses to clobber an existing config. Live
+  tier, so the real config detection over the real filesystem is exercised.
 
-  Scenario: gtd init writes an uncommitted minimal .gtdrc.json with default vars and modes
+  Scenario: gtd init writes an uncommitted minimal .gtdrc.json with formatting modes
     Given a test project
     When I run gtd with args "init"
     Then it succeeds
     And stdout contains "Wrote .gtdrc.json"
-    And stdout contains "built-in workflow"
+    And stdout contains "gtd install"
     And stdout contains "commit"
     And ".gtdrc.json" exists
     And ".gtdrc.json" contains "\"$schema\""
-    And ".gtdrc.json" contains "\"env\""
+    And ".gtdrc.json" does not contain "\"env\""
     And ".gtdrc.json" does not contain "\"vars\""
-    And ".gtdrc.json" contains "\"testCommand\""
-    And ".gtdrc.json" contains "npm test"
-    And ".gtdrc.json" contains "\"fastTestCommand\": \"\""
     # A ready-to-edit top-level `modes:` block seeds a Prettier formatter for the
     # built-in qa/review steering-file modes (format only — gtd still validates).
     And ".gtdrc.json" contains "\"modes\""
     And ".gtdrc.json" contains "npx prettier --write"
-    # No workflow is written — the machine is built in.
+    # No workflow is written — that is gtd.config.ts's job.
     And ".gtdrc.json" does not contain "\"workflow\""
     And ".gtdrc.json" does not contain "build.review.deciding"
-    # No prompt files are extracted — the prompts live in the built-in workflow.
+    # No prompt files are extracted.
     And "gtd-prompts/planning.md" does not exist
     # Left uncommitted — HEAD is still the project's own initial commit, and
     # the scaffolded file itself is untracked, not staged.
@@ -48,7 +42,7 @@ Feature: gtd init — seed a minimal .gtdrc.json (default env + formatting)
 
   Scenario: gtd init refuses to overwrite an existing gtd config
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd with args "init"
     Then it fails
     And stderr contains "already exists"
@@ -61,14 +55,7 @@ Feature: gtd init — seed a minimal .gtdrc.json (default env + formatting)
     Then it succeeds
     And stdout contains "Wrote .gtdrc.json"
     And ".gtdrc.json" exists
-    And ".gtdrc.json" contains "\"testCommand\""
-
-  Scenario: a state command with no config runs on the built-in default workflow
-    Given a test project
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "State: idle"
-    And stdout contains "Awaits: human"
+    And ".gtdrc.json" contains "\"modes\""
 
   # init writes only config — it derives no git state, so it may scaffold a
   # SHARED config in a plain parent directory that is not a repo. A nested repo
@@ -80,7 +67,7 @@ Feature: gtd init — seed a minimal .gtdrc.json (default env + formatting)
     And stdout contains "Wrote .gtdrc.json"
     And stdout contains "not a git repository"
     And ".gtdrc.json" exists
-    And ".gtdrc.json" contains "\"testCommand\""
+    And ".gtdrc.json" contains "\"modes\""
 
   # But a repository SUBDIRECTORY is refused: gtd discovers config by walking UP
   # from the repo root, so a config written below the root would never be found.

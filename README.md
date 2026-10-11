@@ -56,7 +56,9 @@ enforces it at the OS level. See
 
 ## Quick start
 
-Pipe the output of `gtd install` into your coding agent and answer its
+Run `gtd install` at your repository's root. It writes a `gtd.config.ts` that
+runs gtd's shipped workflows — commit it; gtd refuses to run without one — and
+prints a briefing. Pipe that briefing into your coding agent and answer its
 questions. It should build you a script that will autonomously run the process
 for you. Ask your agent if you have any questions.
 
@@ -92,9 +94,9 @@ Two commands make up the whole cycle. **`gtd next` says what to do now.
 that.
 
 The fastest way to understand it is to drive a few beats by hand. Any git
-repository with at least one commit will do — the first two beats need no setup
-at all, and `gtd init` seeds the one setting that matters later (your test
-command).
+repository with at least one commit will do once `gtd install` has written its
+`gtd.config.ts` and you have committed it — the first two beats need nothing
+else. Later beats run your test command, set under `env:` in `.gtdrc`.
 
 ### Beat 1 — `gtd next` says whose turn it is
 
@@ -505,9 +507,10 @@ starts a pure review of everything from `<commitish>` to HEAD — straight to st
 4, no planning and no building. `gtd doors` lists every door; a `gtd.config.ts`
 can add its own. `gtd --workflow <name>` starts any workflow by name.
 
-The workflow itself is a plain async TypeScript function: a `gtd.config.ts` at
-the repository root replaces it, and the pieces the bundled one is built from
-are exported for yours to reuse. See
+The workflow itself is a plain async TypeScript function, and the
+`gtd.config.ts` at the repository root names it: the one `gtd install` writes
+re-exports the shipped workflows from `@pmelab/gtd/workflows`, and the pieces
+they are built from are exported for yours to reuse. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md) —
 and remember gtd evaluates that file on every command. A shared workflow package
 bundling its own `@pmelab/gtd` is checked against the running gtd and refused,

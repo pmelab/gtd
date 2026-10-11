@@ -163,11 +163,31 @@ Given("the working tree is committed with message:", (world: GtdWorld, message: 
     execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
     execFileSync("git", ["commit", "-q", "--cleanup=verbatim", "-F", "-"], {
       cwd: world.repoDir,
-      input: message,
+      input: String(message),
       stdio: ["pipe", "pipe", "pipe"],
     })
   }
 })
+
+// The same, with `token` in the message replaced by a marked commit's hash —
+// history another gtd wrote names commits (`Gtd-Review-Base:`) this scenario
+// only creates at run time. Empty when the tree is clean, like a door's opening.
+Given(
+  "the working tree is committed with the hash of {string} substituted for {string} in message:",
+  (world: GtdWorld, name: string, token: string, rawMessage: string) => {
+    const message = rawMessage.split(token).join(resolveHash(world, name))
+    if (world.tier === "inmem") {
+      world.repo!.commitAllWithPrefix(message)
+    } else {
+      execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
+      execFileSync("git", ["commit", "-q", "--allow-empty", "--cleanup=verbatim", "-F", "-"], {
+        cwd: world.repoDir,
+        input: message,
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+    }
+  },
+)
 
 // Bookmarks the current commit under a name a later step can reference as a
 // `<commitish>` (e.g. `gtd review <name>`) — a repo-local ref, regardless of

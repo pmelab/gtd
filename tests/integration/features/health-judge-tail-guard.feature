@@ -10,7 +10,7 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
   @inmem
   Scenario: a judgeBudgetBytes too small for either tail to keep a full line forbids identical instead of reading two empty strings as sameness
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "4"
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -63,7 +63,7 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
   @inmem
   Scenario: two equal-length reports that differ before the cut but match after it forbid identical instead of escalating on a false match
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # 40 bytes across two reports keeps only each one's "shared tail line".
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "40"
     And gtd starts workflow "fix"
@@ -111,7 +111,7 @@ Feature: build.health.judge/packages.item.health.judge never manufacture "identi
   @inmem
   Scenario: two genuinely identical reports still reach the identical verdict and escalate
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """

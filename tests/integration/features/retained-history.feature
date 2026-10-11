@@ -14,7 +14,7 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
 
   Scenario: refuses when there is no retained history to restore
     When I run gtd with args "restore"

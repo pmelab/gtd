@@ -1,13 +1,13 @@
 import { defineConfig } from "tsdown"
 
-// Two configs, browser-first: the phone/web client bundles for the browser
+// Three configs, browser-first: the phone/web client bundles for the browser
 // platform, then `scripts/inline-web-client.mjs` folds its output into
 // src/ui/client.generated.html (gitignored), which the node config below imports
 // through the ".html" text loader. tsdown builds array
 // entries in PARALLEL (see its `buildWithConfigs`), so this ordering is not
 // self-enforcing — `npm run build`'s script runs `tsdown --filter web`,
-// the inline step, then `tsdown --filter gtd` as three separate sequential
-// steps, using each config's `name` to select it.
+// the inline step, `tsdown --filter gtd`, then `tsdown --filter workflows` as
+// separate sequential steps, using each config's `name` to select it.
 export default defineConfig([
   {
     name: "web",
@@ -45,7 +45,24 @@ export default defineConfig([
 import { createRequire as __createRequire } from 'module';
 const require = __createRequire(import.meta.url);`,
     },
-    clean: true,
+    // Only its own file: `tsdown --watch` builds every config in parallel,
+    // and cleaning all of dist/ would race the `workflows` build.
+    clean: ["dist/gtd.bundle.mjs"],
+    deps: { alwaysBundle: [/.*/] },
+    dts: false,
+    outputOptions: { codeSplitting: false },
+  },
+  {
+    // `@pmelab/gtd/workflows`: its own entry, since the gtd bundle never
+    // imports it.
+    name: "workflows",
+    entry: { workflows: "src/workflows/index.ts" },
+    format: ["esm"],
+    platform: "node",
+    target: "node20",
+    outDir: "dist",
+    outExtensions: () => ({ js: ".mjs" }),
+    clean: ["dist/workflows.mjs"],
     deps: { alwaysBundle: [/.*/] },
     dts: false,
     outputOptions: { codeSplitting: false },

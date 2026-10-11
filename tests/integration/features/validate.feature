@@ -23,7 +23,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a well-formed REQUIREMENTS.md at design.triage validates cleanly
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`.
@@ -51,7 +51,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a malformed REQUIREMENTS.md at design.triage fails with the parser's finding
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
@@ -81,7 +81,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a well-formed REVIEW.md at build.review.reviewing validates cleanly
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
@@ -107,7 +107,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a malformed REVIEW.md at build.review.reviewing fails with the parser's finding
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
@@ -133,7 +133,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a state with a file: but no mode: has nothing to validate
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
@@ -143,7 +143,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # file/script pair to pin any more, just the same "nothing to validate"
     # line every no-op prints.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
@@ -158,7 +158,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # `--json=validate` always prints a script whenever the resting state
     # declares both `file:` and `mode:`.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -176,7 +176,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
@@ -202,7 +202,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: `gtd next --json` withholds the self-validation instruction but embeds the validate script
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
@@ -230,7 +230,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # plugs a `format:` command into the mode (see steering-modes.feature and
     # formatting.feature).
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. This is a deliberately long single prose line that clearly exceeds the eighty character print width, and nothing rewraps it.
@@ -252,7 +252,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: gtd land no longer runs format/validate — a malformed edit lands, and gtd validate is what still catches it
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -302,7 +302,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: the step gate captures a human's valid edit (routing it back to design.triage)
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch

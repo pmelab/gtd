@@ -11,7 +11,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
 
   @live
   Scenario: build.review.collecting's captured manifest names a commit and a path, never inlines a diff

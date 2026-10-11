@@ -8,6 +8,7 @@ Feature: The stderr narration channel, and the -v/-V swap
 
   Scenario: without --verbose, gtd next prints no narration to stderr
     Given a test project
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       vars:
@@ -20,6 +21,7 @@ Feature: The stderr narration channel, and the -v/-V swap
 
   Scenario: --verbose narrates the resolved rest and config layers on stderr, never stdout
     Given a test project
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       vars:
@@ -32,6 +34,7 @@ Feature: The stderr narration channel, and the -v/-V swap
 
   Scenario: -v is the alias for --verbose
     Given a test project
+    And the workflow gtd install scaffolds
     When I run gtd with args "next -v"
     Then it succeeds
     And stderr contains "rest resolved:"
@@ -57,6 +60,7 @@ Feature: The stderr narration channel, and the -v/-V swap
 
   Scenario: --verbose narrates which declared pattern each pending change matched
     Given a test project
+    And the workflow gtd install scaffolds
     And a file "NOTES.md" with:
       """
       a scratch note

@@ -7,7 +7,7 @@ Feature: after the last package, the full run precedes the quality lap
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch

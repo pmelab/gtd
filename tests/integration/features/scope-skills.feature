@@ -150,7 +150,7 @@ Feature: skills are declared per scope
 
   Scenario: an unknown key exits 1 and lists the known scopes
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       skills:
@@ -216,7 +216,7 @@ Feature: skills are declared per scope
 
   Scenario: a build.quality.<lens> entry replaces that lens's skills only
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       skills:
@@ -257,7 +257,7 @@ Feature: skills are declared per scope
 
   Scenario: a lens pinned from GTD_QUALITYREVIEWS at entry stays valid after the env is gone
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to "my-lens"
     And a gtd config file at ".gtdrc" with:
       """
@@ -272,7 +272,7 @@ Feature: skills are declared per scope
 
   Scenario: a lens pinned from --var at entry stays valid for the rest of the process
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       skills:

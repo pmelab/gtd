@@ -9,7 +9,7 @@ Feature: Code threads — an H:/A: conversation in line comments of changed code
 
   Background:
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

@@ -15,7 +15,7 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
 
   Scenario: a full beat lands correctly with the git dir relocated outside the worktree and TMPDIR pointed elsewhere
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "src/feature.ts" with:
       """
       export const feature = 1

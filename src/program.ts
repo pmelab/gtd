@@ -16,6 +16,7 @@ import {
 } from "./platform/index.js"
 import {
   configPresentAt,
+  WORKFLOW_MODULE,
   ConfigDiscovery,
   loadRcConfig,
   ConfigService,
@@ -99,7 +100,7 @@ import {
   abandonNoopOutcome,
   restoredOutcome,
 } from "./emit/index.js"
-import { renderBriefing } from "./install/index.js"
+import { CONFIG_SCAFFOLD, renderBriefing } from "./install/index.js"
 
 /**
  * `Edge.ts`'s `Rest` is module-private (`.gtd/packages/05-step-core.md`
@@ -242,11 +243,27 @@ export type CommandRequirements =
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
 const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
 
-/** Emitted by the binary itself (`src/install/Install.ts`'s `renderBriefing()`) so it's always current. Writes nothing else; runs from any directory since it resolves no workflow state. */
-const runInstallCommand = (out: ArtifactOut): Effect.Effect<void> =>
-  Effect.sync(() => {
+/**
+ * Prints the briefing, emitted by the binary itself so it's always current.
+ * At a repository root no `gtd.config.ts` governs yet, it also writes one
+ * importing gtd's shipped workflows, left uncommitted like `gtd init`'s file.
+ * Anywhere else it writes nothing.
+ */
+const runInstallCommand = (
+  out: ArtifactOut,
+): Effect.Effect<void, Error, GitService | Workspace | Host | ConfigDiscovery | Narrator> =>
+  Effect.gen(function* () {
     const briefing = renderBriefing()
     out.write(briefing.endsWith("\n") ? briefing : briefing + "\n")
+    const host = yield* Host
+    const topLevel = yield* Effect.either((yield* GitService).topLevel())
+    if (topLevel._tag === "Left") return
+    if ((yield* host.realPath(topLevel.right)) !== (yield* host.realPath(host.root))) return
+    if ((yield* (yield* ConfigDiscovery).workflowModule(host.root, host.home)) !== undefined) return
+    yield* (yield* Workspace).write(WORKFLOW_MODULE, CONFIG_SCAFFOLD)
+    yield* (yield* Narrator).warn(
+      `gtd install: wrote ${WORKFLOW_MODULE}, importing gtd's shipped workflows — commit it before your first \`gtd land\``,
+    )
   })
 
 // The loop spawns this same gtd, never whichever one is first on PATH.
@@ -258,8 +275,7 @@ const runLoopCommand = (): Effect.Effect<void, Error> => {
 }
 
 /**
- * Scaffolds a minimal `.gtdrc.json` — no `workflow:` key, since the built-in
- * default runs whenever none is configured. Uses its own more permissive
+ * Scaffolds a minimal `.gtdrc.json`. Uses its own more permissive
  * location check, which also allows a directory outside any repository. The
  * file is left uncommitted, and the message says to commit it before the
  * first `gtd land`, which would otherwise capture it as a pending change.
@@ -280,9 +296,8 @@ const runInitCommand = (
     const workspace = yield* Workspace
     yield* workspace.write(".gtdrc.json", scaffold.config)
     const wrote =
-      `Wrote .gtdrc.json seeding the default variables (the test command) and a\n` +
-      `Prettier formatting suggestion. gtd runs its built-in workflow by default — add\n` +
-      `a workflow: key only if you want to customize the machine itself.\n\n`
+      `Wrote .gtdrc.json with a Prettier formatting suggestion. The workflows gtd runs\n` +
+      `live in gtd.config.ts — \`gtd install\` scaffolds one.\n\n`
     const nextSteps = inRepo
       ? `Review and commit it before starting: an uncommitted .gtdrc.json counts as a\n` +
         `pending change, so the initial state would capture it on the first landing. Once\n` +

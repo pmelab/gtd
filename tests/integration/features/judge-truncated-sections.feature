@@ -10,7 +10,7 @@ Feature: A section the judge budget cuts fails open
   @inmem
   Scenario: build.review.triage — a note the budget cuts stays an edit despite a confident praise
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_JUDGEBUDGETBYTES" set to "40"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"

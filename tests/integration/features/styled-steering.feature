@@ -26,7 +26,7 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
 
   Scenario: a styled REQUIREMENTS.md passes gtd check qa and design.triage advances
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -68,7 +68,7 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
 
   Scenario: a styled REVIEW.md passes gtd check review and build.review.reviewing advances
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

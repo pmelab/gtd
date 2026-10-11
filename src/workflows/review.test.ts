@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { installContext, type Change, type JudgeAnswer, type StepRequest } from "../flows/index.js"
 import { fixQualityFindings, review, type ReviewOutcome } from "./review.js"
-import { bundled } from "./index.js"
+import * as bundled from "./index.js"
 import { fixtureContext } from "./text.fixture.js"
 
 afterEach(() => installContext(undefined))

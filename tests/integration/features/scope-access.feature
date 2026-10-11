@@ -228,7 +228,7 @@ Feature: file access is declared per scope
 
   Scenario: an access key naming no scope that runs a turn is a load error listing the known scopes
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       access:
@@ -242,7 +242,7 @@ Feature: file access is declared per scope
 
   Scenario: a malformed access value is a load error
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a gtd config file at ".gtdrc" with:
       """
       access:
@@ -410,7 +410,7 @@ Feature: file access is declared per scope
 
   Scenario: a bundled review lens that writes src/ is refused at landing
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security"
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -451,7 +451,7 @@ Feature: file access is declared per scope
 
   Scenario: a bundled review turn answering a code thread in src/ lands with the file on the wire
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

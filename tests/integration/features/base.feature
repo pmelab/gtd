@@ -135,7 +135,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
   @inmem
   Scenario: gtd base refuses on a fresh idle repo — no process underway
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd with args "base"
     Then it fails
     And stdout is empty
@@ -148,7 +148,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     # review` fixes the review base at "boundary" (the quality lap
     # disabled).
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "boundary"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

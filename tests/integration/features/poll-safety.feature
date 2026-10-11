@@ -17,7 +17,7 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
 
   Scenario: repeated reads at a resting prompt turn change nothing — session, memory, and model all stay put
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -45,7 +45,7 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
 
   Scenario: repeated reads at a settled gate change nothing
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -89,6 +89,7 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
 
   Scenario: negative control — the snapshot helper actually detects a real write
     Given a test project
+    And the workflow gtd install scaffolds
     And the git index has settled
     And I snapshot the repository
     When I run gtd with args "--workflow fix"

@@ -2,7 +2,7 @@
  * One config-compile finding. `path` mirrors the raw config's own JSON shape
  * (e.g. `["machines","design","states","triage","on",0]`) so a user can find
  * exactly where to fix it; `origin` is the layer filepath that declared the
- * value, or `BUILT_IN_ORIGIN` for a finding against gtd's bundled default.
+ * value, or `BUILT_IN_ORIGIN` for a finding no config layer declared.
  */
 export interface Diagnostic {
   readonly severity: "error" | "warning"
@@ -11,7 +11,7 @@ export interface Diagnostic {
   readonly origin: string
 }
 
-/** The origin stamped on a finding against gtd's bundled default workflow — never a real layer filepath, always sorted last. */
+/** The origin stamped on a finding no config layer declared — never a real layer filepath, always sorted last. */
 export const BUILT_IN_ORIGIN = "(built-in default)"
 
 const compareSegment = (a: string | number, b: string | number): number => {

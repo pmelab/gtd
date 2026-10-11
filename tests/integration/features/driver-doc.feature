@@ -908,7 +908,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # call, so it falls back to displaying that gate's `message:` and stopping — exactly the package's own second
     # acceptance scenario, exercised here against the real bundled workflow.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a stub agent script that responds to prompts with:
@@ -939,7 +939,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # paste pipes `gtd judge run` (auto selection, no key, so `llm`) through
     # `gtd judge answer`, which lands the gate with a `Gtd-Judge:` trailer.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a stub agent script that responds to prompts with:
@@ -980,7 +980,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # fallback (the skipped-judgment path) instead — proving the cap fires
     # even when NO judgment is ever recorded, not just when one is.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a stub agent script that responds to prompts with:
@@ -1032,7 +1032,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     # `fix-precheck → idle` commit both stay in the log, and the driver halts
     # at the following idle message rest rather than at a `settled` land.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And GTD_TESTCOMMAND is set to "true"
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And I record the commit count

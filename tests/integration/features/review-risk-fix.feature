@@ -8,7 +8,7 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
   @inmem
   Scenario: a marked risk is fixed, kept green and re-reviewed before the gate
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -60,7 +60,7 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
   @inmem
   Scenario: a risk the re-review still marks rests at the gate with no second fix
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

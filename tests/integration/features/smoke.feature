@@ -13,7 +13,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
 
   Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> architecture.author -> architecture.decompose.decomposing -> packages.item.building -> packages.item.health.check
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "src/feature.ts" with:
       """
       export const feature = 1
@@ -71,7 +71,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""

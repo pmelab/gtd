@@ -125,7 +125,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
   @inmem
   Scenario: gtd summary refuses on a fresh idle repo — nothing to summarize
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     When I run gtd with args "summary"
     Then it fails
     And stdout is empty

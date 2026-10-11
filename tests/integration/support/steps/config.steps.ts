@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process"
 import { writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
+import { CONFIG_SCAFFOLD } from "../../../../src/install/index.js"
 import {
   createPlainDirectory,
   createTestProjectUnderConfiguredAncestor,
@@ -73,17 +74,19 @@ Given(
   },
 )
 
-// The bundled workflow is gtd's default, so this only commits an empty
-// `.gtdrc.json`: the scenario starts from one clean commit at the default
-// entry's first step, and no mode shells out to a formatter.
+// What `gtd install` leaves behind: a `gtd.config.ts` running the shipped
+// workflows, plus an empty `.gtdrc.json` so no mode shells out to a formatter.
+// One clean commit at the default entry's first step.
 const scaffoldUnifiedWorkflow = (world: GtdWorld): void => {
-  const content = "{}\n"
+  const files = { "gtd.config.ts": CONFIG_SCAFFOLD, ".gtdrc.json": "{}\n" }
   if (world.tier === "inmem") {
-    world.repo!.writeFile(".gtdrc.json", content)
+    for (const [path, content] of Object.entries(files)) world.repo!.writeFile(path, content)
     world.repo!.commitAllWithPrefix("chore: init gtd workflow")
   } else {
-    writeFileSync(join(world.repoDir, ".gtdrc.json"), content)
-    execFileSync("git", ["add", ".gtdrc.json"], { cwd: world.repoDir, stdio: "pipe" })
+    for (const [path, content] of Object.entries(files)) {
+      writeFileSync(join(world.repoDir, path), content)
+    }
+    execFileSync("git", ["add", ...Object.keys(files)], { cwd: world.repoDir, stdio: "pipe" })
     execFileSync("git", ["commit", "-q", "-m", "chore: init gtd workflow"], {
       cwd: world.repoDir,
       stdio: "pipe",
@@ -91,7 +94,7 @@ const scaffoldUnifiedWorkflow = (world: GtdWorld): void => {
   }
 }
 
-Given("the workflow", (world: GtdWorld) => scaffoldUnifiedWorkflow(world))
+Given("the workflow gtd install scaffolds", (world: GtdWorld) => scaffoldUnifiedWorkflow(world))
 
 // Sets an environment variable the in-memory tier's `EnvVars` layer exposes —
 // exactly the `GTD_<UPPERCASE-name>` highest-precedence layer of the merged

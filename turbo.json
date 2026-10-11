@@ -88,6 +88,8 @@
         ".releaserc.json",
         "commitlint.config.mjs",
         ".github/workflows/**",
+        "gtd.config.ts",
+        "tsdown.config.ts",
         ".claude-plugin/**",
         "hooks/**",
         "bin/**"

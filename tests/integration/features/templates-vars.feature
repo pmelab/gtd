@@ -185,7 +185,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
 
   Scenario: the bundled template resolves a planner-tier state's model from "env.plannerModel"
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -208,7 +208,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
 
   Scenario: the bundled template resolves a coder-tier state's model from "env.coderModel"
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -245,7 +245,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
 
   Scenario: a "GTD_PLANNERMODEL" override repoints every planner-tier state at once
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch

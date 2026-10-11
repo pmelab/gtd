@@ -16,7 +16,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
   Scenario: memory is retained across a machine's own laps — design.triage resumes across a design.gate.answer turn in between
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -71,7 +71,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
   Scenario: memory is retained across an excursion into a child machine's own check/escalate/describe/stop — build.fix resumes across the whole detour
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
       """
@@ -148,7 +148,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
   Scenario: a nested child scope never reuses its caller's session — packages.item.fix.suite.fixing gets its own, not packages.item.building's
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a file "NOTE.md" with:
       """
@@ -202,7 +202,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
   Scenario: a fresh memory key per entry — two different packages each get their own distinct session at packages.item.building
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -255,7 +255,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
   Scenario: two instances of one healthGate-shaped machine never share a session, even with byte-identical check output
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # build.health and packages.item.health are both healthGate instances at
     # different points in the tree (src/workflows/bundled.ts) — the proof
     # below is that their computed memory keys never collide, even though
@@ -360,7 +360,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # it for a builder's session to resume at; see default-workflow.feature's
     # own sign-off scenarios.)
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -430,7 +430,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # which are descendants of `build.review`. Two rounds of review over the
     # same feature are therefore always reviewed with fresh eyes.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -528,7 +528,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # is anchored at THIS pass's own entry into the shared tail, never the
     # original build.fix turn from before the round-trip.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -632,7 +632,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # for the fix-precheck entry, since that's the one route where
     # build.fix opens the scope directly rather than resuming it.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     # Blanks the queue so a green health check hands straight to the human
     # review tail — the quality lap itself is covered in its own feature.
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
@@ -727,7 +727,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # conversation, since the technical phase reads the requirements file cold
     # rather than resuming design's own session. Decomposition is its own scope, so it starts a fresh session.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And a file "NOTE.md" with:
       """
       a sketch
@@ -814,7 +814,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # (build.review.*) — that tail opens a fresh `build.review#...` session
     # there, never resuming any package's own `packages.item#...` session.
     Given a test project
-    And the workflow
+    And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a file "NOTE.md" with:
       """

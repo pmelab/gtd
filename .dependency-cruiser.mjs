@@ -219,6 +219,16 @@ export default {
       from: { path: "^src/loop/" },
       to: { path: "^src/(?!loop/|wire/)" },
     },
+
+    // --- spec 11 ---
+    {
+      name: "workflows-only-through-subpath",
+      comment:
+        "The shipped workflows reach the engine only through a repository's gtd.config.ts: nothing outside src/workflows/ imports it — its index.ts is the @pmelab/gtd/workflows build entry.",
+      severity: "error",
+      from: { pathNot: "^src/workflows/" },
+      to: { path: "^src/workflows/" },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },

@@ -16,6 +16,7 @@ import {
   resolveVars,
   seededValidateCommand,
 } from "./index.js"
+import { CONFIG_SCAFFOLD } from "../install/index.js"
 
 // Every real port `ConfigService.Live` needs, scoped to `dir` — `home` stays
 // the REAL `homedir()` so `walkUp`'s stop condition matches production
@@ -71,8 +72,10 @@ const loadAndResolve = (dir: string = projectDir, vars: Env = {}) =>
 
 let projectDir: string
 
+// Every test starts where `gtd install` leaves a repository.
 beforeEach(() => {
   projectDir = mkdtempSync(join(tmpdir(), "gtd-config-"))
+  writeFileSync(join(projectDir, "gtd.config.ts"), CONFIG_SCAFFOLD)
 })
 
 afterEach(() => {
@@ -91,7 +94,7 @@ const minimalWorkflow = (first: string) =>
   ].join("\n")
 
 describe("ConfigService", () => {
-  it("with no config anywhere: falls back to the built-in default workflow", async () => {
+  it("the scaffolded config runs the shipped feature workflow by default", async () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.initial).toBe("idle")
@@ -101,13 +104,22 @@ describe("ConfigService", () => {
     expect(cfg.rcEnv).toEqual({})
   })
 
-  it("a config with a top-level `vars:` but no gtd.config.ts uses the built-in default", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  qualityReviews: "a, b"\n`)
+  it("with no gtd.config.ts anywhere: fails, saying to run gtd install", async () => {
+    rmSync(join(projectDir, "gtd.config.ts"))
 
-    const cfg = await getConfig()
+    await expect(getConfig()).rejects.toThrow(
+      /no workflows configured: no gtd\.config\.ts here or above — run `gtd install`/,
+    )
+  })
 
-    expect(cfg.workflow.initial).toBe("idle")
-    expect(cfg.rcVars).toEqual({ qualityReviews: "a, b" })
+  it("with no gtd.config.ts: a .gtdrc's own findings are reported beside the missing workflows", async () => {
+    rmSync(join(projectDir, "gtd.config.ts"))
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `bogus: 1\n`)
+
+    const error = await getConfig().catch((e: Error) => e.message)
+
+    expect(error).toMatch(/bogus/)
+    expect(error).toMatch(/no workflows configured/)
   })
 
   it("a config with a top-level `env:` lands in rcEnv", async () => {
@@ -220,10 +232,7 @@ describe("ConfigService", () => {
     expect(cfg.defaultWorkflow.vars).toEqual({ greeting: "hi" })
     expect(typeof cfg.workflow.summary).toBe("function")
     expect(typeof cfg.workflow.base).toBe("function")
-    expect(cfg.workflow.steering).toMatchObject({
-      ".gtd/PLAN.md": "qa",
-      ".gtd/REVIEW.md": "review",
-    })
+    expect(cfg.workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
   })
 
   it("workflowFiles names gtd.config.ts AND a sibling module it imports from — a caller watching only gtd.config.ts's own path misses that module's edits", async () => {
@@ -247,10 +256,11 @@ describe("ConfigService", () => {
     )
   })
 
-  it("workflowFiles is empty for the built-in workflow — no gtd.config.ts backs it", async () => {
+  it("workflowFiles names gtd.config.ts but no shipped module it imports", async () => {
     const cfg = await getConfig()
 
-    expect(cfg.workflowFiles).toEqual([])
+    expect(cfg.workflowFiles).toHaveLength(1)
+    expect(cfg.workflowFiles[0]).toMatch(/\/gtd\.config\.ts$/)
   })
 
   it("configFiles names every .gtdrc-family file this load actually found, outermost→innermost", async () => {
@@ -404,7 +414,7 @@ describe("ConfigService", () => {
     const flow = (first: string) => `async () => {\n  await human("${first}")\n}`
     const header = `import { human } from "@pmelab/gtd/flows"\n`
 
-    it("with no config: the bundled feature, review and fix are startable, default is not", async () => {
+    it("the scaffolded config: feature, review and fix are startable, default is not", async () => {
       const cfg = await getConfig()
       expect(cfg.workflowNames).toEqual(["feature", "fix", "review"])
       expect(cfg.defaultWorkflow.name).toBe("feature")
@@ -429,48 +439,45 @@ describe("ConfigService", () => {
         ].join("\n"),
       )
       const cfg = await getConfig()
-      expect(cfg.workflowNames).toEqual(["feature", "fix", "hotfix", "review"])
+      expect(cfg.workflowNames).toEqual(["hotfix"])
       expect(cfg.defaultWorkflow.name).toBe("default")
       expect(cfg.workflow.initial).toBe("main")
       expect(cfg.workflowNamed("hotfix")?.vars).toEqual({ greeting: "hi" })
     })
 
-    it("a repo with only a hotfix export keeps the bundled feature as the default", async () => {
+    it("a config with no default export fails, saying what to export", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
         [header, `export const hotfix = ${flow("hot")}`, ``].join("\n"),
       )
-      const cfg = await getConfig()
-      expect(cfg.defaultWorkflow.name).toBe("feature")
-      expect(cfg.workflow.initial).toBe("idle")
-      expect(cfg.workflowNames).toEqual(["feature", "fix", "hotfix", "review"])
+      await expect(getConfig()).rejects.toThrow(/no default export.*`gtd install`/)
     })
 
-    it("a repo export shadows the bundled one of the same name, and reads its own file's exports", async () => {
+    it("a default that is also a named export goes by that name", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
-        [
-          header,
-          `export const review = ${flow("mine")}`,
-          `export const defaults = { greeting: "hi" }`,
-          ``,
-        ].join("\n"),
+        [header, `export const hotfix = ${flow("hot")}`, `export default hotfix`, ``].join("\n"),
       )
-      const cfg = await getConfig()
-      expect(cfg.workflowNamed("review")?.vars).toEqual({ greeting: "hi" })
-      expect(cfg.workflowNamed("fix")?.vars).not.toHaveProperty("greeting")
-      expect(cfg.workflowNamed("fix")?.env).toHaveProperty("testCommand")
+      expect((await getConfig()).defaultWorkflow.name).toBe("hotfix")
     })
 
-    it("a helper re-exported from the bundled module becomes a startable workflow", async () => {
+    it("a helper re-exported from the shipped module becomes a startable workflow", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
-        [`export { unwind } from "@pmelab/gtd/workflow"`, ``].join("\n"),
+        [`export { feature as default, unwind } from "@pmelab/gtd/workflows"`, ``].join("\n"),
       )
       expect((await getConfig()).workflowNames).toContain("unwind")
     })
 
-    it("steering is the union of both files, repo winning on a path", async () => {
+    it("the old @pmelab/gtd/workflow subpath serves the same module", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [`export { feature as default, feature } from "@pmelab/gtd/workflow"`, ``].join("\n"),
+      )
+      expect((await getConfig()).defaultWorkflow.name).toBe("feature")
+    })
+
+    it("steering is the config's own export", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
         [
@@ -483,7 +490,7 @@ describe("ConfigService", () => {
       const steering = (await getConfig()).workflow.steering
       expect(steering[".gtd/REVIEW.md"]).toBe("qa")
       expect(steering[".gtd/X.md"]).toBe("qa")
-      expect(steering[".gtd/REQUIREMENTS.md"]).toBe("qa")
+      expect(steering[".gtd/REQUIREMENTS.md"]).toBeUndefined()
     })
   })
 
@@ -495,6 +502,7 @@ describe("ConfigService", () => {
         join(projectDir, "gtd.config.ts"),
         [
           header,
+          `export default ${flow("main")}`,
           `export const hotfix = ${flow("hot")}`,
           extra,
           `export const doors = ${doors}`,
@@ -502,28 +510,23 @@ describe("ConfigService", () => {
         ].join("\n"),
       )
 
-    it("with no config: the bundled fix and review doors, review taking an optional base", async () => {
+    it("the scaffolded config: the fix and review doors, review taking an optional base", async () => {
       const { doors } = await getConfig()
       expect([...doors.keys()].sort()).toEqual(["fix", "review"])
       expect(doors.get("fix")?.workflow).toBe("fix")
       expect(doors.get("review")?.args).toEqual([{ name: "base", optional: true }])
     })
 
-    it("a repo door is added to the bundled ones", async () => {
+    it("a config's doors are exactly its doors export", async () => {
       withDoors(`{ hot: { workflow: "hotfix", args: [{ name: "ticket" }] } }`)
       const { doors } = await getConfig()
-      expect([...doors.keys()].sort()).toEqual(["fix", "hot", "review"])
+      expect([...doors.keys()]).toEqual(["hot"])
       expect(doors.get("hot")?.args).toEqual([{ name: "ticket" }])
-    })
-
-    it("a repo door wins over a bundled door of the same name", async () => {
-      withDoors(`{ review: { workflow: "hotfix" } }`)
-      expect((await getConfig()).doors.get("review")?.workflow).toBe("hotfix")
     })
 
     it("the reserved `doors` export is never a workflow", async () => {
       withDoors(`{}`)
-      expect((await getConfig()).workflowNames).toEqual(["feature", "fix", "hotfix", "review"])
+      expect((await getConfig()).workflowNames).toEqual(["hotfix"])
     })
 
     it("rejects a door name that is not lowercase-kebab", async () => {
@@ -531,7 +534,7 @@ describe("ConfigService", () => {
       await expect(getConfig()).rejects.toThrow(/door "Bad_Name".*\^\[a-z\]\[a-z0-9-\]\*\$/)
     })
 
-    it("rejects a door whose workflow is not in the merged catalogue", async () => {
+    it("rejects a door whose workflow is not startable", async () => {
       withDoors(`{ go: { workflow: "nope" } }`)
       await expect(getConfig()).rejects.toThrow(/door "go".*workflow "nope"/)
     })

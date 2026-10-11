@@ -6,11 +6,9 @@
 Usage: gtd [command] [options]
 
 Commands:
-  init             Scaffold a minimal .gtdrc.json for this repo, seeding the
-                   environment setting you are most likely to change (the test
-                   command, under env:) and a Prettier formatting suggestion. gtd runs its
-                   built-in workflow by default, so no workflow is written —
-                   write a gtd.config.ts only to customize the workflow itself.
+  init             Scaffold a minimal .gtdrc.json for this repo with a Prettier
+                   formatting suggestion. It writes no workflow — `gtd install`
+                   scaffolds the gtd.config.ts that names the workflows.
                    Takes no argument. Run once per repo; refuses if a gtd
                    config already exists. Leaves the file uncommitted for you
                    to review and commit
@@ -113,8 +111,10 @@ Commands:
                    agent (or a human) to build a gtd driver in any shell or
                    runtime — the self-serve version of
                    https://github.com/pmelab/gtd/blob/main/docs/driver.md's
-                   'Writing your own driver'. Writes nothing: this installs
-                   knowledge into the calling agent's context, not files on disk.
+                   'Writing your own driver'. At a repository root no
+                   gtd.config.ts governs yet, it also writes one importing gtd's
+                   shipped workflows from @pmelab/gtd/workflows; anywhere else
+                   it writes nothing.
   loop             Drive this worktree's process until it rests on you: read
                    each beat, run the agent turn or script it demands, and
                    land the result. Exits 0 at a human gate, at idle and when
@@ -145,7 +145,7 @@ Commands:
                    Start a process through a named shortcut, mapping the
                    positional args to that workflow's process settings — the
                    same start `gtd --workflow` makes, printed the same way.
-                   Doors come from the config's `doors` export; the bundled
+                   Doors come from the config's `doors` export; gtd's shipped
                    ones are `fix` and `review [base]`. An unknown door, or too
                    few or too many args, is a usage error (exit 2) naming the
                    doors or the door's synopsis
@@ -302,8 +302,9 @@ process history relative to cwd, so they refuse with a clear error from a
 subdirectory; `lsp`, `init`, `check`, and `uncheck` are standalone and run from
 anywhere (see each command's own help entry).
 
-`install` is described on its own above: it writes nothing and installs
-knowledge into the calling agent's context, not files on disk.
+`install` is described on its own above: it installs knowledge into the calling
+agent's context, and at a repository root no `gtd.config.ts` governs yet, the
+config that runs gtd's shipped workflows.
 
 `--json`, `--cost=<n>`, `--model=<name>` (`--cost` only for `gtd land`;
 `--model` for `gtd land` with `--cost`, or `gtd judge run`), `--workflow <name>`
