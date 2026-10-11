@@ -15,6 +15,7 @@ const Beat = Schema.Struct({
   system: Schema.optional(Schema.String),
   validate: Schema.optional(Schema.String),
   label: Schema.optional(Schema.String),
+  judge: Schema.optional(Schema.String),
 })
 
 const Land = Schema.Struct({

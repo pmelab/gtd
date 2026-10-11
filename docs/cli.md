@@ -172,11 +172,11 @@ Commands:
                    does not cover are left out. --provider jev asks TypeSafe
                    (TYPESAFE_API_KEY). --provider llm asks the `claude` CLI
                    on PATH (Claude Code only), model haiku unless --model.
-                   No --provider: GTD_JUDGE_PROVIDER, then .gtdrc judge:
-                   provider, else jev when TYPESAFE_API_KEY is set and no
-                   model is given, else llm; --model likewise falls back to
-                   GTD_JUDGE_MODEL, then judge: model. Needs no repository,
-                   only .gtdrc files. jev and
+                   No --provider: GTD_JUDGE_PROVIDER, then ~/.config/gtd/
+                   judge.json, then .gtdrc judge: provider, else jev when
+                   TYPESAFE_API_KEY is set and no model is given, else llm;
+                   --model likewise falls back to GTD_JUDGE_MODEL, then the
+                   file's and judge:'s model. Needs no repository. jev and
                    llm exit 1 when they cannot answer every question, with
                    nothing on stdout
   version          Print version and exit
@@ -207,15 +207,16 @@ Options:
                    instead of the packaged build
   --provider=<name>
                    (gtd judge run only) the answerer: fixed | jev | llm;
-                   omitted: GTD_JUDGE_PROVIDER, then .gtdrc judge:, then jev
-                   when TYPESAFE_API_KEY is set, else llm
+                   omitted: GTD_JUDGE_PROVIDER, then judge.json, then .gtdrc
+                   judge:, then jev when TYPESAFE_API_KEY is set, else llm
   --answers=<path> (gtd judge run --provider fixed only) a JSON verdict array
                    [{ id, answer, p }]; else the GTD_JUDGE_ANSWERS env var
                    (inline JSON) is read
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land, with --cost) tag that cost's model
                    (gtd judge run, llm answerer) the claude model; omitted:
-                   GTD_JUDGE_MODEL, then .gtdrc judge:, then haiku
+                   GTD_JUDGE_MODEL, then judge.json, then .gtdrc judge:, then
+                   haiku
   --workflow <name>
                    (with no command at all) start a brand new process on
                    the named workflow — authenticated as human

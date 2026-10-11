@@ -119,7 +119,9 @@ async function act(
 
 async function message(io: Io, b: Beat, beat: number, judged: string | undefined): Promise<Acted> {
   const verdict = b.judge && judged !== b.state ? await io.judge() : undefined
-  if (verdict || beat === 1) return { verdict }
+  // An unanswered judge gate never lands on its own, opening beat included:
+  // that would take the conservative default unseen.
+  if (verdict || (beat === 1 && !b.judge)) return { verdict }
   // Any later beat is a gate this run produced and the human has not read yet.
   const stop: Stop = { kind: "gate", text: b.content ?? "", ...where(b) }
   if (b.judge) stop.isJudge = true

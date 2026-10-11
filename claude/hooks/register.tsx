@@ -9,7 +9,7 @@ import type { Io, Turn, TurnEnd } from "./drive"
 import { doors, enter } from "./doors"
 import { subagentModel } from "./models"
 import { personaSpec, resumable } from "./persona"
-import { JUDGE_SYSTEM, judgePrompt, toVerdicts } from "./judge"
+import { JUDGE_SYSTEM, judgePrompt, judgeRunEnv, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
 import { documents } from "./schema"
@@ -153,13 +153,16 @@ function io($: $): Io {
     },
     judge: () =>
       docs($).judge(async (doc, j) => {
-        const key = (await $.env.get("TYPESAFE_API_KEY")) ?? (await $.env.get("TYPESAFE_AI_KEY"))
-        if (!key) return judgeInSession($, j)
+        const env = judgeRunEnv({
+          provider: await $.env.get("GTD_JUDGE_PROVIDER"),
+          key: (await $.env.get("TYPESAFE_API_KEY")) || (await $.env.get("TYPESAFE_AI_KEY")),
+        })
+        if (env === undefined) return judgeInSession($, j)
         try {
-          const r = await $.process.run(["gtd", "judge", "run", "--provider", "jev"], {
+          const r = await $.process.run(["gtd", "judge", "run"], {
             cwd: root,
             stdin: doc,
-            env: { TYPESAFE_API_KEY: key },
+            env,
             timeoutMs: TEN_MINUTES,
           })
           return r.exitCode === 0 && r.stdout.trim() ? r.stdout : undefined
@@ -511,8 +514,8 @@ async function writer($: $, prompt: string) {
   return delegate($, SHIPPER, prompt, model, "Your final answer, exactly as you would print it.")
 }
 
-// Without a TypeSafe key a judge gate is put to a small model, as gtd's own
-// llm provider does, but as a subagent of this session. Any doubt leaves the
+// Where `gtd judge run` would pick its llm, a judge gate is put to a small
+// model as that provider does, but as a subagent of this session. Any doubt leaves the
 // gate to the person, which routes the workflow its cautious way.
 async function judgeInSession($: $, j: Judgment) {
   try {

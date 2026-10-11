@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import { fixed } from "./providers/fixed.js"
 import { jev } from "./providers/jev.js"
 import { llm } from "./providers/llm.js"
@@ -7,15 +8,15 @@ type Provider = "fixed" | "jev" | "llm"
 
 const PROVIDERS: readonly Provider[] = ["fixed", "jev", "llm"]
 
+type Configured = { readonly provider?: Provider | undefined; readonly model?: string | undefined }
+
 export interface RunJudgeInput {
   /** The `--provider` flag. */
   readonly provider: Provider | undefined
   /** The `--model` flag. */
   readonly model?: string | undefined
-  /** The `.gtdrc` `judge:` key, merged across layers. */
-  readonly configured?:
-    | { readonly provider?: Provider | undefined; readonly model?: string | undefined }
-    | undefined
+  /** The `.gtdrc` `judge:` key, merged across layers — read only below the user file, until `.gtdrc` loses it. */
+  readonly configured?: Configured | undefined
   readonly cwd: string
   readonly answers?: string | undefined
   readonly env: Readonly<Record<string, string | undefined>>
@@ -40,32 +41,82 @@ const checkPairing = <T extends { provider: Provider | undefined; model: string 
     ? fail(`a model only applies to provider llm, not ${resolved.provider}`)
     : resolved
 
+const userConfigPath = (env: RunJudgeInput["env"]): string | undefined => {
+  const xdg = env["XDG_CONFIG_HOME"]
+  if (xdg) return `${xdg}/gtd/judge.json`
+  const home = env["HOME"]
+  return home ? `${home}/.config/gtd/judge.json` : undefined
+}
+
+const readText = async (path: string): Promise<string | undefined> => {
+  try {
+    return await readFile(path, "utf8")
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    return fail(`cannot read ${path}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+const parseObject = (path: string, text: string): Record<string, unknown> => {
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    return fail(`${path} is not valid JSON`)
+  }
+  return typeof json === "object" && json !== null && !Array.isArray(json)
+    ? (json as Record<string, unknown>)
+    : fail(`${path} must be a JSON object`)
+}
+
+const decodeUserConfig = (path: string, text: string): Configured => {
+  const { provider, model, ...rest } = parseObject(path, text)
+  const [extra] = Object.keys(rest)
+  if (extra !== undefined) return fail(`${path}: unknown key "${extra}"`)
+  if (provider !== undefined && !PROVIDERS.includes(provider as Provider))
+    return fail(`${path}: "provider" must be one of ${PROVIDERS.join(", ")}`)
+  if (model !== undefined && typeof model !== "string")
+    return fail(`${path}: "model" must be a string`)
+  return { provider: provider as Provider | undefined, model }
+}
+
+const readUserConfig = async (env: RunJudgeInput["env"]): Promise<Configured | undefined> => {
+  const path = userConfigPath(env)
+  const text = path === undefined ? undefined : await readText(path)
+  return path === undefined || text === undefined ? undefined : decodeUserConfig(path, text)
+}
+
 /**
  * Per field, the first one set wins: flag, then `GTD_JUDGE_PROVIDER` /
- * `GTD_JUDGE_MODEL` (empty counts as unset), then `.gtdrc` `judge:`. The
- * provider/model pairing is checked on the resolved pair, whichever layer
- * supplied each half.
+ * `GTD_JUDGE_MODEL` (empty counts as unset), then the user file, then `.gtdrc`
+ * `judge:`. The provider/model pairing is checked on the resolved pair,
+ * whichever layer supplied each half.
  */
-const selectJudge = ({
-  provider,
-  model,
-  configured,
-  env,
-}: Pick<RunJudgeInput, "provider" | "model" | "configured" | "env">): {
-  readonly provider: Provider | undefined
-  readonly model: string | undefined
-} => {
-  const resolved = {
-    provider: provider ?? envProvider(env) ?? configured?.provider,
-    model: model ?? (env["GTD_JUDGE_MODEL"] || undefined) ?? configured?.model,
-  }
-  return checkPairing(resolved)
+const selectJudge = (
+  {
+    provider,
+    model,
+    configured,
+    env,
+  }: Pick<RunJudgeInput, "provider" | "model" | "configured" | "env">,
+  user: Configured | undefined,
+): Required<Configured> => {
+  const layers: readonly Configured[] = [
+    { provider, model },
+    { provider: envProvider(env), model: env["GTD_JUDGE_MODEL"] || undefined },
+    user ?? {},
+    configured ?? {},
+  ]
+  return checkPairing({
+    provider: layers.find((l) => l.provider !== undefined)?.provider,
+    model: layers.find((l) => l.model !== undefined)?.model,
+  })
 }
 
 /** The only place auto selection lives; it never falls back across providers. */
-const answererFor = (opts: RunJudgeInput): Answerer => {
+const answererFor = async (opts: RunJudgeInput): Promise<Answerer> => {
   const { answers, env, cwd } = opts
-  const { provider, model } = selectJudge(opts)
+  const { provider, model } = selectJudge(opts, await readUserConfig(env))
   if (provider === "fixed") return fixed({ answersPath: answers, env })
   // A configured model asks for the llm, so it outranks a configured jev key.
   if (
@@ -85,7 +136,9 @@ export const runJudge = async (opts: RunJudgeInput): Promise<string> => {
   }
   const { questions, state } = (doc ?? {}) as { questions?: unknown; state?: unknown }
   if (!Array.isArray(questions)) return fail('stdin has no "questions" array')
-  const verdicts = await answererFor(opts)(
+  const verdicts = await (
+    await answererFor(opts)
+  )(
     questions as readonly Question[],
     (typeof state === "object" && state !== null ? state : {}) as Record<string, string>,
   )

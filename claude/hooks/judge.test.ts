@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest"
 
 import { SYSTEM_PROMPT, toPrompt } from "../../src/judges/providers/llm.js"
 import type { Question } from "../../src/judges/types.js"
-import { JUDGE_SYSTEM, judgePrompt, toVerdicts } from "./judge"
+import { JUDGE_SYSTEM, judgePrompt, judgeRunEnv, toVerdicts } from "./judge"
 
 const questions: Question[] = [
   { id: "safe", primitive: "noul", instructions: "Is the diff safe?", criteria: "No secrets." },
@@ -50,5 +50,21 @@ describe("judge", () => {
   test("criteria a model cannot be asked about are refused before asking", () => {
     const bad = [{ id: "x", primitive: "choice", instructions: "?", criteria: "only: one." }]
     expect(() => judgePrompt({ questions: bad })).toThrow(/at least 2 labelled options/)
+  })
+})
+
+describe("judgeRunEnv", () => {
+  test("leaves the gate to the in-session subagent where gtd would pick its llm", () => {
+    expect(judgeRunEnv({})).toBeUndefined()
+    expect(judgeRunEnv({ provider: "", key: "" })).toBeUndefined()
+    expect(judgeRunEnv({ provider: "llm", key: "k" })).toBeUndefined()
+  })
+
+  test("runs gtd judge run for a configured provider, adding nothing it inherits", () => {
+    expect(judgeRunEnv({ provider: "fixed" })).toEqual({})
+  })
+
+  test("runs gtd judge run with a TypeSafe key, under the name gtd reads", () => {
+    expect(judgeRunEnv({ key: "k" })).toEqual({ TYPESAFE_API_KEY: "k" })
   })
 })

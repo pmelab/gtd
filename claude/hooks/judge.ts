@@ -1,7 +1,8 @@
-// gtd's `llm` judge provider, answered by a subagent instead of `claude -p`.
-// A port of src/judges/providers/llm.ts (which needs Node, which a mod has
-// not): claude/hooks/judge.test.ts pins the prompt to gtd's own, so the two
-// cannot drift apart unnoticed.
+// A judge gate is answered by `gtd judge run`, except where its own
+// configuration would pick the `llm` provider: that one is answered by a
+// subagent instead of `claude -p`. A port of src/judges/providers/llm.ts
+// (which needs Node, which a mod has not): claude/hooks/judge.test.ts pins the
+// prompt to gtd's own, so the two cannot drift apart unnoticed.
 
 type Question = {
   id: string
@@ -13,6 +14,19 @@ type Question = {
 export type Judgment = { state?: Record<string, string>; questions: Question[] }
 
 type Verdict = { id: string; answer: string | number; p: number }
+
+// The env a `gtd judge run` spawn adds to the inherited one, or `undefined` to
+// put the gate to the in-session subagent. A provider configured only in a
+// file is invisible here, so no variable and no key means the llm, as `gtd
+// judge run`'s own automatic pick does.
+export function judgeRunEnv(env: {
+  provider?: string | undefined
+  key?: string | undefined
+}): Record<string, string> | undefined {
+  const provider = env.provider || undefined
+  if (provider === "llm" || (provider === undefined && !env.key)) return undefined
+  return env.key ? { TYPESAFE_API_KEY: env.key } : {}
+}
 
 export const JUDGE_SYSTEM =
   "You are a strict, impartial judge. Answer each question from the supplied evidence alone.\n" +
