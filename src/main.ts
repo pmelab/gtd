@@ -12,7 +12,14 @@ process.once("SIGINT", () => {
   deathSignal = "SIGINT"
 })
 process.once("SIGTERM", () => {
-  deathSignal = "SIGTERM"
+  deathSignal ??= "SIGTERM"
+})
+// `runMain` interrupts on SIGINT/SIGTERM only. A hangup (closed terminal,
+// dropped SSH) must interrupt too, or `gtd loop` dies leaving its agent turn —
+// in its own process group — still writing the tree.
+process.once("SIGHUP", () => {
+  deathSignal = "SIGHUP"
+  process.kill(process.pid, "SIGTERM")
 })
 
 NodeRuntime.runMain(runCli(process.argv, nodeCliIo), {
