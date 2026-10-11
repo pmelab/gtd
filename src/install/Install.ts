@@ -67,6 +67,14 @@ while :; do
       system="$(gtd next --json=system)"
       validate="$(gtd next --json=validate)"
       log="$(gtd next --json=log)"
+      # \`model\` is a hint, not a model name — the bundled workflow ships
+      # \`smart\` and \`base\`, which \`claude --model\` rejects. Resolve them
+      # with the variables \`gtd loop\` reads; unset, the hint is dropped and
+      # the agent runs its own default. Any other value is a real model name.
+      case "$model" in
+        smart) model="\${GTD_LOOP_MODEL_SMART:-}" ;;
+        base) model="\${GTD_LOOP_MODEL_BASE:-}" ;;
+      esac
       # The prompt embeds a full diff, so it goes to the agent over stdin,
       # never as an argv positional — argv is capped (~1 MB on macOS, and
       # POSIX guarantees only 4 KB, ARG_MAX), and a diff crosses that far

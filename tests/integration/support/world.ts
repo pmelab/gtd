@@ -510,15 +510,20 @@ export class GtdWorld extends QuickPickleWorld {
     }
   }
 
-  // fallow-ignore-next-line complexity
   async runGtdLive(...args: string[]): Promise<void> {
+    await this.runGtdLiveWithin(30_000, ...args)
+  }
+
+  /** `runGtdLive` with its own timeout — `gtd loop` runs a whole process, many gtd calls deep. */
+  // fallow-ignore-next-line complexity
+  async runGtdLiveWithin(timeout: number, ...args: string[]): Promise<void> {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
     try {
       const { stdout, stderr } = await execFile(process.execPath, [GTD_BIN, ...args], {
         cwd: this.repoDir,
         env: this.spawnEnv(),
         encoding: "utf-8",
-        timeout: 30_000,
+        timeout,
       })
       if (verbose) {
         process.stderr.write(stdout)
@@ -723,7 +728,6 @@ export class GtdWorld extends QuickPickleWorld {
    * pass for the re-raise. `code === null && signal` set distinguishes a
    * re-raised signal from a `process.exit(130)`.
    */
-  // fallow-ignore-next-line complexity
   async spawnGtdNextAndSignal(signal: NodeJS.Signals): Promise<void> {
     const gateDir = mkdtempSync(join(tmpdir(), "gtd-git-gate-"))
     const marker = join(gateDir, "marker")
@@ -731,7 +735,71 @@ export class GtdWorld extends QuickPickleWorld {
     const env = this.spawnEnv()
     env["PATH"] = `${gateDir}:${env["PATH"] ?? ""}`
     env["GTD_TEST_GIT_GATE"] = marker
-    const child = spawn(process.execPath, [GTD_BIN, "next"], {
+    try {
+      await this.signalAtMarker(
+        ["next"],
+        env,
+        marker,
+        signal,
+        "gtd next never reached `git log --first-parent`",
+      )
+    } finally {
+      try {
+        process.kill(Number(readFileSync(marker, "utf-8").trim()), "SIGKILL")
+      } catch {
+        // marker absent or sleep already gone
+      }
+      rmSync(gateDir, { recursive: true, force: true })
+    }
+  }
+
+  /** The pids of the agent turn `spawnGtdLoopAndSignal` interrupted and of the command it backgrounded. `@live` only. */
+  signalledAgentPids: readonly number[] = []
+
+  /**
+   * Signals a spawned `gtd loop` mid agent turn. The scenario's stub agent
+   * writes a backgrounded descendant's pid to `$GTD_TEST_AGENT_MARKER.child`,
+   * then its own to `$GTD_TEST_AGENT_MARKER`, and blocks — so the signal lands
+   * while the loop waits on a process tree it must not leave behind.
+   */
+  async spawnGtdLoopAndSignal(signal: NodeJS.Signals): Promise<void> {
+    const markerDir = mkdtempSync(join(tmpdir(), "gtd-loop-agent-"))
+    const marker = join(markerDir, "marker")
+    try {
+      await this.signalAtMarker(
+        ["loop"],
+        { ...this.spawnEnv(), GTD_TEST_AGENT_MARKER: marker },
+        marker,
+        signal,
+        "gtd loop never started its agent turn",
+        () => {
+          this.signalledAgentPids = [marker, `${marker}.child`].map((path) =>
+            Number(readFileSync(path, "utf-8").trim()),
+          )
+        },
+      )
+    } finally {
+      for (const pid of this.signalledAgentPids) {
+        try {
+          process.kill(pid, "SIGKILL")
+        } catch {
+          // already gone, as it should be
+        }
+      }
+      rmSync(markerDir, { recursive: true, force: true })
+    }
+  }
+
+  /** Spawns gtd, waits for `marker` to name a pid, then signals gtd and records how it died. */
+  private async signalAtMarker(
+    args: readonly string[],
+    env: NodeJS.ProcessEnv,
+    marker: string,
+    signal: NodeJS.Signals,
+    timeoutMessage: string,
+    onMarker: () => void = () => {},
+  ): Promise<void> {
+    const child = spawn(process.execPath, [GTD_BIN, ...args], {
       cwd: this.repoDir,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -742,26 +810,18 @@ export class GtdWorld extends QuickPickleWorld {
         child.once("close", (code, sig) => resolve({ code, signal: sig }))
       },
     )
-    try {
-      if (!(await waitForGateMarker(marker))) {
-        child.kill("SIGKILL")
-        await exited
-        assert.fail("gtd next never reached `git log --first-parent`")
-      }
-      this.signalAliveAtSend = child.exitCode === null && child.signalCode === null
-      child.kill(signal)
-      child.stdout?.resume()
-      child.stderr?.resume()
-      const { code, signal: died } = await exited
-      this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
-    } finally {
-      try {
-        process.kill(Number(readFileSync(marker, "utf-8").trim()), "SIGKILL")
-      } catch {
-        // marker absent or sleep already gone
-      }
-      rmSync(gateDir, { recursive: true, force: true })
+    child.stdout?.resume()
+    child.stderr?.resume()
+    if (!(await waitForGateMarker(marker))) {
+      child.kill("SIGKILL")
+      await exited
+      assert.fail(timeoutMessage)
     }
+    onMarker()
+    this.signalAliveAtSend = child.exitCode === null && child.signalCode === null
+    child.kill(signal)
+    const { code, signal: died } = await exited
+    this.lastSignalExit = { code, signal: died, status: signalExitStatus(code, died) }
   }
 
   /**

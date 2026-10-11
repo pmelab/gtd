@@ -1044,3 +1044,64 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the commit count increased by 2
     And the git log contains "gtd(human): fix-precheck"
     And the git log contains "gtd(check): fix-precheck → idle"
+
+  Scenario Outline: Resolves the workflow's model hint before handing it to claude
+    # `claude --model smart` fails on the first prompt beat: the paste maps the
+    # bundled hints through the same variables `gtd loop` reads, and drops an
+    # unmapped one so the agent runs its own default.
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "Record the model.", { model: "<hint>" })
+        await human("done", { message: "check MODEL.txt" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And gtd lands "gtd(human): idle → working"
+    And an environment variable "GTD_LOOP_MODEL_SMART" set to "<env>"
+    And a stub agent script that responds to prompts with:
+      """
+      echo "$GTD_LOOP_MODEL" > MODEL.txt
+      """
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
+    Then it succeeds
+    And "MODEL.txt" contains "<model>"
+
+    Examples:
+      | hint             | env   | model            |
+      | smart            | fable | fable            |
+      | claude-haiku-4-5 |       | claude-haiku-4-5 |
+
+  Scenario: Drops an unmapped bundled hint instead of passing it to claude
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "Record the model.", { model: "base" })
+        await human("done", { message: "check MODEL.txt" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And gtd lands "gtd(human): idle → working"
+    And a stub agent script that responds to prompts with:
+      """
+      echo "model=[$GTD_LOOP_MODEL]" > MODEL.txt
+      """
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
+    Then it succeeds
+    And "MODEL.txt" contains "model=[]"

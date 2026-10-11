@@ -298,6 +298,12 @@ this with your environment. See
 [Driving the loop](https://github.com/pmelab/gtd/blob/main/docs/driver.md) for
 the full protocol.
 
+Or skip writing one: **`gtd loop`** is that loop, shipped with gtd. It drives
+`claude` (or `pi`) until the process rests on you, logs every turn to the file
+`gtd next --json=log` names, and maps the workflow's `smart`/`base` model hints
+to real model names through per-machine settings — see
+[`gtd loop`](https://github.com/pmelab/gtd/blob/main/docs/driver.md#the-bundled-driver-gtd-loop).
+
 ### Or drive it from inside Claude Code
 
 The gtd mod runs the same loop inside an interactive Claude Code session

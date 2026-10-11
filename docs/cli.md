@@ -115,6 +115,13 @@ Commands:
                    https://github.com/pmelab/gtd/blob/main/docs/driver.md's
                    'Writing your own driver'. Writes nothing: this installs
                    knowledge into the calling agent's context, not files on disk.
+  loop             Drive this worktree's process until it rests on you: read
+                   each beat, run the agent turn or script it demands, and
+                   land the result. Exits 0 at a human gate, at idle and when
+                   a landing settles; exits 1 on a stall or a failed turn or
+                   landing. The agent CLI and the model each workflow hint
+                   maps to are per-machine settings (GTD_LOOP_* variables, or
+                   ~/.config/gtd/loop.json); see docs/driver.md
   summary          Print the prompt for an agent to write the process HEAD
                    closes or sits inside its own closing message — the entry
                    commit, each human-authored commit (a review round, an

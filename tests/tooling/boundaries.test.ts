@@ -332,3 +332,32 @@ describe("spec 08: ui talks like a driver, web sees ui types only", () => {
     expect(byRule("web-sees-ui-types-only")).toEqual(["src/web/App.tsx -> src/ui/index.ts"])
   })
 })
+
+describe("spec 09: src/loop/ imports only src/wire/", () => {
+  it("flags every other src/ folder, production and test alike, but no package", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boundaries-spec09-"))
+    for (const folder of ["loop", "wire", "platform"]) {
+      mkdirSync(join(dir, "src", folder), { recursive: true })
+    }
+    writeFileSync(join(dir, "tsconfig.json"), FIXTURE_TSCONFIG)
+    const files: Record<string, string> = {
+      "src/wire/index.ts": `export const wire = 1\n`,
+      "src/platform/index.ts": `export const platform = 1\n`,
+      "src/loop/Loop.ts": `import { readFileSync } from "node:fs"\nimport { wire } from "../wire/index.js"\nimport { platform } from "../platform/index.js"\nimport { y } from "./y.js"\nvoid readFileSync\nvoid wire\nvoid platform\nvoid y\n`,
+      "src/loop/y.ts": `export const y = 1\n`,
+      "src/loop/Loop.test.ts": `import { platform } from "../platform/index.js"\nvoid platform\n`,
+    }
+    for (const [path, content] of Object.entries(files)) writeFileSync(join(dir, path), content)
+
+    const violations = cruise(dir, join(REPO_ROOT, ".dependency-cruiser.mjs"))
+    expect(
+      violations
+        .filter((v) => v.rules.includes("loop-imports-only-wire"))
+        .map((v) => `${v.from} -> ${v.to}`)
+        .toSorted(),
+    ).toEqual([
+      "src/loop/Loop.test.ts -> src/platform/index.ts",
+      "src/loop/Loop.ts -> src/platform/index.ts",
+    ])
+  })
+})
