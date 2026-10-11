@@ -245,6 +245,24 @@ export default {
         pathNot: ["^src/flows/", "^node_modules/@standard-schema/spec/"],
       },
     },
+
+    // --- spec 16 ---
+    {
+      name: "lsp-imports-only-wire-and-steering",
+      comment:
+        "src/lsp/ serves steering files and reads process state like a driver: it imports src/wire/, src/steering/ and itself — never core.",
+      severity: "error",
+      from: { path: "^src/lsp/" },
+      to: { path: "^src/(?!lsp/|wire/|steering/)" },
+    },
+    {
+      name: "vscode-languageserver-only-in-lsp",
+      comment: "The editor protocol is the LSP's business alone.",
+      severity: "error",
+      from: { pathNot: "^src/lsp/" },
+      // `vscode-languageserver/node` is a subpath export depcruise leaves unresolved.
+      to: { path: "^(node_modules/)?vscode-languageserver" },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },

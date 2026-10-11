@@ -1,7 +1,6 @@
 export {
   currentRun,
   summaryRun,
-  type RestRequirements,
   restAt,
   currentRest,
   startRefusal,

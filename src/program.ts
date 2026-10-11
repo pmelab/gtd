@@ -237,8 +237,14 @@ export type CommandRequirements =
   // `Cli.ts`'s and `testLayers`'s own typechecks, instead of at runtime.
   | Exclude<UiRequirements, UiShell>
 
+/** How to run THIS gtd — a driver (the loop, the LSP) never reads a different version's state than the one it ships with. */
+const selfGtd = (): readonly [string, ...string[]] => {
+  const script = process.argv[1]
+  return script === undefined ? ["gtd"] : [process.execPath, script]
+}
+
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
-const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
+const runLspCommand = (): Effect.Effect<void, Error> => startLspServer({ gtd: selfGtd() })
 
 /**
  * Prints the briefing, emitted by the binary itself so it's always current.
@@ -263,13 +269,8 @@ const runInstallCommand = (
     )
   })
 
-// The loop spawns this same gtd, never whichever one is first on PATH.
-const runLoopCommand = (): Effect.Effect<void, Error> => {
-  const script = process.argv[1]
-  return runLoop({ gtd: script === undefined ? ["gtd"] : [process.execPath, script] }).pipe(
-    Effect.provide(liveLoopHost),
-  )
-}
+const runLoopCommand = (): Effect.Effect<void, Error> =>
+  runLoop({ gtd: selfGtd() }).pipe(Effect.provide(liveLoopHost))
 
 /**
  * `planLanding`'s result — a preview of what `gtd land` would do, plus the

@@ -37,4 +37,4 @@ export {
   buildModeContradictionCheck,
   modeContradictionSkipNotice,
 } from "./ModeContradiction.js"
-export { type ResolvedMode, resolveMode, validateScriptFor } from "./SteeringMode.js"
+export { resolveMode, validateScriptFor } from "./SteeringMode.js"

@@ -143,17 +143,16 @@ only while the lens is listed in `qualityReviews`. See
   scripts write before wiring gtd into a repo.
 - **Repository root invocation.** Every state subcommand must run from the git
   repository root. `--help`/`--version` (and the `help`/`version` subcommands),
-  `lsp`, `check`, and `install` skip this guard entirely (`lsp` still loads
-  `gtd.config.ts`, but needs no git state).
+  `lsp`, `check`, and `install` skip this guard entirely (`lsp` asks
+  `gtd next --json` at the repository root itself).
 - **Linked worktrees are independent.** N `git worktree` worktrees of one
   repository (sharing a single `.git`) each run their own gtd process, so a
   process underway in one worktree neither blocks nor rewrites any other.
 
 ## Editor integration
 
-`gtd lsp` starts an LSP server over stdio for `.gtd/` steering files — the files
-the steps a process has reached declare, plus those the workflow's `steering`
-export lists:
+`gtd lsp` starts an LSP server over stdio for steering files — the file the step
+the process rests on declares, plus any `REVIEW.md`:
 
 - a symbol per `review`-mode chunk that still has an unchecked hunk (an outline
   of what is left to review), plus check/uncheck actions over those chunks
@@ -180,8 +179,7 @@ export lists:
 - a "gtd: reply" code action on an open thread's marker or anywhere in its
   definition: it appends an empty `- H: ` entry after the last one and puts the
   cursor right after it. It is not offered while the agent is the one to answer
-- an `Information` diagnostic on the last entry of every open thread, shown even
-  when a shell `validate:` replaces the live diagnostics
+- an `Information` diagnostic on the last entry of every open thread
 - live diagnostics for both formats as you edit, including thread syntax
   (`- H:`/`- A:` entries); an open thread — last entry the agent's — blocks
   landing at the requirements, architecture and review gates
@@ -194,15 +192,17 @@ has never run gtd, `.gtd/` may not exist yet and editors differ on opening a
 file whose parent directory is missing. This bites only the very first sketch in
 a fresh repository.
 
-Which format a file gets is config-driven via each step's `file`/`mode`, with a
-fallback to basename dispatch (`REVIEW.md` → `review`) when no config is in
-sight.
+Which format a file gets is the resting step's `mode`, read the way any driver
+reads it: from `gtd next --json`'s `file` and `mode`. Any other file named
+`REVIEW.md` gets `review`. Outside a repository with at least one commit, only
+that `REVIEW.md` fallback applies. So does a file from any repository other than
+the one the editor's workspace belongs to: asking `gtd next` there would run
+that repository's `gtd.config.ts`.
 
 `qa` and `review` are gtd's two built-in steering-file formats: each has its own
 outline, actions, go-to-definition, and a validator gtd implements itself.
-Overriding one of their `validate:` commands does not lose the outline or the
-actions — those come from the format, not from whoever validates — but `gtd lsp`
-never runs a shell command per keystroke, so live diagnostics become one
-`Information` notice pointing at `gtd validate` instead. Any other mode name has
+`gtd lsp` reads no workflow configuration, so it always shows the built-in
+validator's live diagnostics — even when a workflow overrides that mode's
+`validate:` command, which `gtd validate` runs instead. Any other mode name has
 no built-in format and gets no live editor support at all; `gtd validate` still
 formats and validates it like any other mode.

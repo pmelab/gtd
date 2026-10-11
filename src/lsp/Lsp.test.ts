@@ -1,21 +1,26 @@
 import { execFileSync } from "node:child_process"
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { PassThrough } from "node:stream"
 import { Effect } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
-  basenameFallbackMode,
+  basenameFallbackFormat,
   bindSteeringServer,
-  buildSteeringMap,
-  capabilitiesForDocument,
   diagnosticsFor,
-  externalValidatorNotice,
+  formatForDocument,
   makeNodeLspEnv,
   makeSteeringLanguageService,
-  resolveSteeringFile,
-  resolvedModeForDocument,
+  parseCurrentRest,
   resolveWorkspaceRoot,
   startLspServer,
   steeringFileOutcome,
@@ -24,6 +29,7 @@ import {
   toDocumentLink,
   toDocumentSymbol,
   toLocation,
+  type CurrentRest,
   type ExecuteCommandOutcome,
   type LspEnv,
   type SteeringConnection,
@@ -35,120 +41,58 @@ import {
   TextDocumentSyncKind,
   type Diagnostic,
 } from "vscode-languageserver/node"
-import { resolveMode, type ResolvedMode } from "../emit/index.js"
 import { steeringFormatFor } from "../steering/index.js"
-import type { WorkflowDefinition } from "../workflow/index.js"
-import { InMemRepo, testLayers } from "../testing/index.js"
-import { CONFIG_SCAFFOLD } from "../install/index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!
 
-/** Test-local stand-in for the old `resolveBuiltInMode` — resolves `mode` against the built-in registry alone, with no workflow definition. */
-const resolveBuiltInMode = (mode: string): ResolvedMode | undefined => {
-  const resolved = resolveMode(undefined, "", mode)
-  return resolved.kind === "resolved" ? resolved : undefined
-}
-
-/** Test-local stand-in for the old `resolveSteeringMode` — resolves `mode` against a definition, discarding the "unknown" arm. */
-const resolveSteeringMode = (
-  def: Pick<WorkflowDefinition, "modes">,
-  mode: string,
-): ResolvedMode | undefined => {
-  const resolved = resolveMode(def, "state", mode)
-  return resolved.kind === "resolved" ? resolved : undefined
-}
-
-describe("basenameFallbackMode", () => {
-  it("maps REVIEW.md to the built-in `review` mode, and anything else (including TODO.md) to undefined", () => {
-    expect(basenameFallbackMode("REVIEW.md")).toEqual(resolveBuiltInMode("review"))
-    expect(basenameFallbackMode("TODO.md")).toBeUndefined()
-    expect(basenameFallbackMode("NOTES.md")).toBeUndefined()
+describe("basenameFallbackFormat", () => {
+  it("maps REVIEW.md to the built-in `review` format, and anything else (including TODO.md) to undefined", () => {
+    expect(basenameFallbackFormat("REVIEW.md")).toBe(REVIEW_FORMAT)
+    expect(basenameFallbackFormat("TODO.md")).toBeUndefined()
+    expect(basenameFallbackFormat("NOTES.md")).toBeUndefined()
   })
 })
 
-describe("buildSteeringMap", () => {
-  const node = (name: string, options: { file?: string; mode?: string }) => ({ name, ...options })
-  const QA_REVIEW: WorkflowDefinition["modes"] = { qa: {}, review: {} }
+describe("formatForDocument", () => {
+  const rest = (file?: string, mode?: string): CurrentRest => ({ state: "s", file, mode })
 
-  it("maps each reached step's `file:` to an absolute path keyed to its resolved mode", () => {
-    const { map, warnings } = buildSteeringMap(
-      { modes: QA_REVIEW },
-      [
-        node("grilling", { file: ".gtd/TODO.md", mode: "qa" }),
-        node("reviewing", { file: ".gtd/REVIEW.md", mode: "review" }),
-        node("idle", {}),
-      ],
-      "/repo",
+  it("gives the rest's own file the built-in format its mode names", () => {
+    expect(formatForDocument("file:///repo/PLAN.md", rest("PLAN.md", "qa"), "/repo")).toBe(
+      QA_FORMAT,
     )
-    expect(warnings).toEqual([])
-    expect(map.get("/repo/.gtd/TODO.md")?.format).toBe(QA_FORMAT)
-    expect(map.get("/repo/.gtd/REVIEW.md")?.format).toBe(REVIEW_FORMAT)
-    expect(map.size).toBe(2)
   })
 
-  it("keeps the FIRST declaring step's mode on a path conflict, warning about the later one", () => {
-    const { map, warnings } = buildSteeringMap(
-      { modes: QA_REVIEW },
-      [
-        node("first", { file: "SHARED.md", mode: "qa" }),
-        node("second", { file: "SHARED.md", mode: "review" }),
-      ],
-      "/repo",
-    )
-    expect(map.get("/repo/SHARED.md")?.format).toBe(QA_FORMAT)
-    expect(map.size).toBe(1)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('step "second"')
+  it("falls back to basename dispatch for any other path", () => {
+    const r = rest("PLAN.md", "qa")
+    expect(formatForDocument("file:///repo/.gtd/REVIEW.md", r, "/repo")).toBe(REVIEW_FORMAT)
+    expect(formatForDocument("file:///repo/.gtd/TODO.md", r, "/repo")).toBeUndefined()
+    expect(formatForDocument("file:///repo/NOTES.md", undefined, "/repo")).toBeUndefined()
   })
 
-  it("ignores a step declaring no `file:` and `mode:` pair", () => {
-    const { map, warnings } = buildSteeringMap(
-      { modes: QA_REVIEW },
-      [node("idle", {}), node("drafting", { file: "PLAN.md" })],
-      "/repo",
-    )
-    expect(map.size).toBe(0)
-    expect(warnings).toEqual([])
-  })
-
-  it("skips (with a warning) a step whose `mode:` does not resolve — an unregistered, undeclared name", () => {
-    const { map, warnings } = buildSteeringMap(
-      { modes: {} },
-      [node("drafting", { file: "docs/adr.md", mode: "adr" })],
-      "/repo",
-    )
-    expect(map.size).toBe(0)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('mode "adr" is not defined by the active workflow')
+  it("gives no format to a mode with no built-in format, or a rest with no mode", () => {
+    expect(formatForDocument("file:///repo/adr.md", rest("adr.md", "adr"), "/repo")).toBeUndefined()
+    expect(formatForDocument("file:///repo/PLAN.md", rest("PLAN.md"), "/repo")).toBeUndefined()
   })
 })
 
-describe("resolvedModeForDocument", () => {
-  it("prefers the config-driven map over the basename fallback", () => {
-    const resolved = resolveBuiltInMode("qa")!
-    const map = new Map([["/repo/PLAN.md", resolved]])
-    expect(resolvedModeForDocument("file:///repo/PLAN.md", map)).toBe(resolved)
+describe("parseCurrentRest", () => {
+  it("reads state, file and mode off a gtd next --json document, ignoring the rest", () => {
+    expect(
+      parseCurrentRest(
+        '{"schema":1,"kind":"capture","state":"grilling","file":".gtd/TODO.md","mode":"qa"}',
+      ),
+    ).toEqual({ state: "grilling", file: ".gtd/TODO.md", mode: "qa" })
+    expect(parseCurrentRest('{"state":"idle"}')).toEqual({
+      state: "idle",
+      file: undefined,
+      mode: undefined,
+    })
   })
 
-  it("falls back to basename dispatch for a path the map doesn't cover", () => {
-    const map = new Map()
-    expect(resolvedModeForDocument("file:///repo/.gtd/REVIEW.md", map)?.format).toBe(REVIEW_FORMAT)
-    expect(resolvedModeForDocument("file:///repo/.gtd/TODO.md", map)).toBeUndefined()
-    expect(resolvedModeForDocument("file:///repo/NOTES.md", map)).toBeUndefined()
-  })
-})
-
-describe("capabilitiesForDocument", () => {
-  it("carries the built-in format and a live validate for a mapped qa document", () => {
-    const map = new Map([["/repo/PLAN.md", resolveBuiltInMode("qa")!]])
-    const caps = capabilitiesForDocument("file:///repo/PLAN.md", map)
-    expect(caps.format).toBe(QA_FORMAT)
-    expect(caps.liveValidate).toBe(QA_FORMAT.validate)
-  })
-
-  it("is empty for a document dispatching to no mode at all", () => {
-    expect(capabilitiesForDocument("file:///repo/NOTES.md", new Map())).toEqual({})
+  it("rejects a document with no state", () => {
+    expect(() => parseCurrentRest('{"kind":"capture"}')).toThrow(/not a gtd next --json document/)
+    expect(() => parseCurrentRest("null")).toThrow(/not a gtd next --json document/)
   })
 })
 
@@ -351,7 +295,7 @@ describe("documentLinksFor", () => {
       "- [ ] ./src/a.ts#1",
       "",
     ].join("\n")
-    const links = documentLinksFor(resolveBuiltInMode("review"), content, "/repo")
+    const links = documentLinksFor(REVIEW_FORMAT, content, "/repo")
     expect(links).toEqual([
       {
         range: { start: { line: 5, character: 6 }, end: { line: 5, character: 18 } },
@@ -372,7 +316,7 @@ describe("documentLinksFor", () => {
       "[^fn1]: details",
       "",
     ].join("\n")
-    const links = documentLinksFor(resolveBuiltInMode("review"), content, "/repo")
+    const links = documentLinksFor(REVIEW_FORMAT, content, "/repo")
     // Exactly one link — the pointer token itself, never the `[^fn1]` marker
     // sitting later in the same note.
     expect(links).toEqual([
@@ -393,7 +337,7 @@ describe("documentLinksFor", () => {
       "- [ ] ./src/a.ts",
       "",
     ].join("\n")
-    const links = documentLinksFor(resolveBuiltInMode("review"), content, "/repo")
+    const links = documentLinksFor(REVIEW_FORMAT, content, "/repo")
     expect(links).toEqual([
       {
         range: { start: { line: 5, character: 6 }, end: { line: 5, character: 16 } },
@@ -412,7 +356,7 @@ describe("documentLinksFor", () => {
       "- [ ] ./src/a.ts#42-70",
       "",
     ].join("\n")
-    const links = documentLinksFor(resolveBuiltInMode("review"), content, "/repo")
+    const links = documentLinksFor(REVIEW_FORMAT, content, "/repo")
     expect(links).toEqual([
       {
         range: { start: { line: 5, character: 6 }, end: { line: 5, character: 22 } },
@@ -423,23 +367,11 @@ describe("documentLinksFor", () => {
 
   it("returns none for a qa-mode document — qa declares no documentLinks member", () => {
     const content = ["## Open Questions", "", "### Which API?", "", "- [ ] REST", ""].join("\n")
-    expect(documentLinksFor(resolveBuiltInMode("qa"), content, "/repo")).toEqual([])
+    expect(documentLinksFor(QA_FORMAT, content, "/repo")).toEqual([])
   })
 
-  it("returns none for an unresolved mode", () => {
+  it("returns none for a document with no format", () => {
     expect(documentLinksFor(undefined, "anything", "/repo")).toEqual([])
-  })
-})
-
-describe("externalValidatorNotice", () => {
-  it("names the mode and the command, pointing at gtd validate", () => {
-    const diagnostic = externalValidatorNotice("qa", "npx my-linter $GTD_FILE")
-    expect(diagnostic.message).toBe(
-      'mode "qa" is validated by a shell command (`npx my-linter $GTD_FILE`) — run `gtd validate`; no live diagnostics',
-    )
-    expect(diagnostic.severity).toBe(3) // DiagnosticSeverity.Information
-    expect(diagnostic.source).toBe("gtd")
-    expect(diagnostic.range.start).toEqual({ line: 0, character: 0 })
   })
 })
 
@@ -458,28 +390,19 @@ describe("diagnosticsFor open threads", () => {
   ].join("\n")
 
   it("one Information diagnostic on the last entry", () => {
-    const d = diagnosticsFor(resolveBuiltInMode("qa"), doc)
+    const d = diagnosticsFor(QA_FORMAT, doc)
     expect(d).toHaveLength(1)
     expect(d[0]?.severity).toBe(DiagnosticSeverity.Information)
     expect(d[0]?.range.start.line).toBe(8)
   })
 
   it("none while waiting on the agent", () => {
-    expect(diagnosticsFor(resolveBuiltInMode("qa"), doc.replace("    - A: because\n", ""))).toEqual(
-      [],
-    )
-  })
-
-  it("also under a shell validate:", () => {
-    const def = { modes: { qa: { validate: "npx my-linter $GTD_FILE" } } }
-    const d = diagnosticsFor(resolveSteeringMode(def, "qa"), doc)
-    expect(d).toHaveLength(2)
-    expect(d[1]?.message).toContain("[^t1]")
+    expect(diagnosticsFor(QA_FORMAT, doc.replace("    - A: because\n", ""))).toEqual([])
   })
 
   it("malformed thread findings stay Warnings", () => {
     const bad = doc.replace("    - H: why", "    - A: why")
-    const d = diagnosticsFor(resolveBuiltInMode("qa"), bad)
+    const d = diagnosticsFor(QA_FORMAT, bad)
     expect(d.some((x) => x.severity === DiagnosticSeverity.Warning)).toBe(true)
   })
 })
@@ -503,24 +426,15 @@ describe("toCodeAction reply reveal", () => {
 })
 
 describe("diagnosticsFor", () => {
-  it("publishes a built-in format's own validate findings for an unoverridden built-in mode", () => {
+  it("publishes a built-in format's own validate findings", () => {
     const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
-    const diagnostics = diagnosticsFor(resolveBuiltInMode("qa"), malformed)
+    const diagnostics = diagnosticsFor(QA_FORMAT, malformed)
     expect(diagnostics).toHaveLength(1)
     expect(diagnostics[0]?.message).toContain("has no question text")
     expect(diagnostics[0]?.severity).toBe(2) // DiagnosticSeverity.Warning
   })
 
-  it("suppresses built-in findings and publishes the external-validator notice instead when validate: is overridden", () => {
-    const def = { modes: { qa: { validate: "npx my-linter $GTD_FILE" } } }
-    const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
-    const diagnostics = diagnosticsFor(resolveSteeringMode(def, "qa"), malformed)
-    expect(diagnostics).toHaveLength(1)
-    expect(diagnostics[0]?.severity).toBe(3) // DiagnosticSeverity.Information
-    expect(diagnostics[0]?.message).toContain("npx my-linter")
-  })
-
-  it("publishes nothing for an unresolved mode", () => {
+  it("publishes nothing for a document with no format", () => {
     expect(diagnosticsFor(undefined, "anything")).toEqual([])
   })
 
@@ -534,7 +448,7 @@ describe("diagnosticsFor", () => {
       "- [ ] ./src/thing.ts#1-1 — ./src/other.ts#2",
       "",
     ].join("\n")
-    const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
+    const diagnostics = diagnosticsFor(REVIEW_FORMAT, content)
     expect(diagnostics).toHaveLength(1)
     expect(diagnostics[0]?.message).toContain("starts with a second pointer")
     // The finding's own range (the second pointer token, `./src/other.ts#2`)
@@ -558,7 +472,7 @@ describe("diagnosticsFor", () => {
       "some notes.",
       "",
     ].join("\n")
-    const diagnostics = diagnosticsFor(resolveBuiltInMode("qa"), content)
+    const diagnostics = diagnosticsFor(QA_FORMAT, content)
     const ordering = diagnostics.find((d) => String(d.message).includes("must come last"))
     expect(ordering?.range).toEqual({
       start: { line: 6, character: 0 },
@@ -575,7 +489,7 @@ describe("diagnosticsFor", () => {
       "- [ ] ./src/thing.ts#1",
       "",
     ].join("\n")
-    const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
+    const diagnostics = diagnosticsFor(REVIEW_FORMAT, content)
     const headerFinding = diagnostics.find((d) => String(d.message).includes("# Review: <hash>"))
     expect(headerFinding?.range).toEqual({
       start: { line: 0, character: 0 },
@@ -593,7 +507,7 @@ describe("diagnosticsFor", () => {
       "",
     ].join("\n")
     const lines = content.split("\n")
-    const diagnostics = diagnosticsFor(resolveBuiltInMode("review"), content)
+    const diagnostics = diagnosticsFor(REVIEW_FORMAT, content)
     const baseFinding = diagnostics.find((d) => String(d.message).includes("base: <hash>"))
     expect(baseFinding?.range).toEqual({
       start: { line: 0, character: 0 },
@@ -603,11 +517,16 @@ describe("diagnosticsFor", () => {
 })
 
 const fakeEnv = (overrides: Partial<LspEnv> = {}): LspEnv => ({
-  steeringMapFor: async () => new Map(),
+  currentRest: async () => ({ state: "idle", file: undefined, mode: undefined }),
   gitTopLevel: async () => undefined,
-  currentSteeringFile: async () => ({ state: "idle", file: undefined }),
   cwd: "/cwd",
   ...overrides,
+})
+
+/** A repository at `/repo` resting on a step that declares `file`/`mode`. */
+const mapped = (file: string, mode: string): Partial<LspEnv> => ({
+  currentRest: async () => ({ state: "working", file, mode }),
+  gitTopLevel: async () => "/repo",
 })
 
 describe("makeSteeringLanguageService", () => {
@@ -623,28 +542,15 @@ describe("makeSteeringLanguageService", () => {
   ].join("\n")
 
   it("returns outline symbols for a mapped document, and none for an unmapped one", async () => {
-    const resolved = resolveBuiltInMode("qa")!
-    const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/PLAN.md", resolved]]) })
+    const env = fakeEnv({ ...mapped("PLAN.md", "qa") })
     const service = makeSteeringLanguageService(env, () => {})
-    const mapped = await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)
-    expect(mapped.length).toBeGreaterThan(0)
+    const symbols = await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)
+    expect(symbols.length).toBeGreaterThan(0)
     const unmapped = await service.documentSymbol("file:///repo/OTHER.md", questionsDoc)
     expect(unmapped).toEqual([])
   })
 
-  it("suppresses built-in diagnostics but keeps outline/actions live when validate: is shell-overridden", async () => {
-    const def = { modes: { qa: { validate: "npx my-linter $GTD_FILE" } } }
-    const resolved = resolveSteeringMode(def, "qa")!
-    const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/PLAN.md", resolved]]) })
-    const service = makeSteeringLanguageService(env, () => {})
-    const diagnostics = await service.diagnostics("file:///repo/PLAN.md", questionsDoc)
-    expect(diagnostics).toHaveLength(1)
-    expect(diagnostics[0]?.severity).toBe(3) // Information notice, not a built-in finding
-    const symbols = await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)
-    expect(symbols.length).toBeGreaterThan(0)
-  })
-
-  it("dispatches an unmapped REVIEW.md via the basename fallback (resolveBuiltInMode)", async () => {
+  it("dispatches an unmapped REVIEW.md via the basename fallback", async () => {
     const service = makeSteeringLanguageService(fakeEnv(), () => {})
     const symbols = await service.documentSymbol("file:///repo/REVIEW.md", reviewDoc)
     expect(symbols.map((s) => s.name)).toContain("Chunk (0/1)")
@@ -668,8 +574,7 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("codeAction maps a mapped document's actions, and returns none for an unmapped one", async () => {
-    const resolved = resolveBuiltInMode("review")!
-    const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]) })
+    const env = fakeEnv({ ...mapped("REVIEW.md", "review") })
     const service = makeSteeringLanguageService(env, () => {})
     const range = { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } }
     const actions = await service.codeAction("file:///repo/REVIEW.md", reviewDoc, range)
@@ -680,9 +585,8 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("definition swallows a rejecting gitTopLevel and falls back to the workspace root", async () => {
-    const resolved = resolveBuiltInMode("review")!
     const env = fakeEnv({
-      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      ...mapped("REVIEW.md", "review"),
       gitTopLevel: () => Promise.reject(new Error("not a git repo")),
     })
     const service = makeSteeringLanguageService(env, () => {})
@@ -695,9 +599,8 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("definition returns nothing when neither gitTopLevel nor the workspace root resolves", async () => {
-    const resolved = resolveBuiltInMode("review")!
     const env = fakeEnv({
-      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      ...mapped("REVIEW.md", "review"),
       gitTopLevel: async () => undefined,
     })
     const service = makeSteeringLanguageService(env, () => {})
@@ -709,9 +612,8 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("definition resolves through gitTopLevel when it succeeds", async () => {
-    const resolved = resolveBuiltInMode("review")!
     const env = fakeEnv({
-      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      ...mapped("REVIEW.md", "review"),
       gitTopLevel: async () => "/repo",
     })
     const service = makeSteeringLanguageService(env, () => {})
@@ -723,9 +625,8 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("definition on a '#42-70' range pointer jumps to the START line, 0-based", async () => {
-    const resolved = resolveBuiltInMode("review")!
     const env = fakeEnv({
-      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      ...mapped("REVIEW.md", "review"),
       gitTopLevel: async () => "/repo",
     })
     const service = makeSteeringLanguageService(env, () => {})
@@ -750,8 +651,7 @@ describe("makeSteeringLanguageService", () => {
     ])
   })
 
-  it("definition on a footnote marker jumps within the SAME document, never touching gitTopLevel", async () => {
-    const resolved = resolveBuiltInMode("review")!
+  it("definition on a footnote marker jumps within the SAME document, asking gitTopLevel only to dispatch the format", async () => {
     const gitTopLevel = vi.fn(async () => "/repo")
     const footnoteDoc = [
       "# Review: abc1234",
@@ -765,7 +665,7 @@ describe("makeSteeringLanguageService", () => {
       "",
     ].join("\n")
     const env = fakeEnv({
-      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      ...mapped("REVIEW.md", "review"),
       gitTopLevel,
     })
     const service = makeSteeringLanguageService(env, () => {})
@@ -779,11 +679,10 @@ describe("makeSteeringLanguageService", () => {
         range: { start: { line: 7, character: 0 }, end: { line: 7, character: 0 } },
       },
     ])
-    expect(gitTopLevel).not.toHaveBeenCalled()
+    expect(gitTopLevel).toHaveBeenCalledTimes(1)
   })
 
   it("definition on a footnote definition line jumps to its first marker's line AND exact (non-zero) column, within the SAME document", async () => {
-    const resolved = resolveBuiltInMode("review")!
     const gitTopLevel = vi.fn(async () => "/repo")
     const footnoteDoc = [
       "# Review: abc1234",
@@ -797,7 +696,7 @@ describe("makeSteeringLanguageService", () => {
       "",
     ].join("\n")
     const env = fakeEnv({
-      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      ...mapped("REVIEW.md", "review"),
       gitTopLevel,
     })
     const service = makeSteeringLanguageService(env, () => {})
@@ -811,12 +710,11 @@ describe("makeSteeringLanguageService", () => {
         range: { start: { line: 5, character: 18 }, end: { line: 5, character: 18 } },
       },
     ])
-    expect(gitTopLevel).not.toHaveBeenCalled()
+    expect(gitTopLevel).toHaveBeenCalledTimes(1)
   })
 
   it("definition on an orphan marker (no matching definition) returns [], never throwing", async () => {
-    const resolved = resolveBuiltInMode("review")!
-    const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]) })
+    const env = fakeEnv({ ...mapped("REVIEW.md", "review") })
     const service = makeSteeringLanguageService(env, () => {})
     const orphanDoc = [
       "# Review: abc1234",
@@ -835,8 +733,7 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("definition on an orphan definition (no marker references it) returns [], never throwing", async () => {
-    const resolved = resolveBuiltInMode("review")!
-    const env = fakeEnv({ steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]) })
+    const env = fakeEnv({ ...mapped("REVIEW.md", "review") })
     const service = makeSteeringLanguageService(env, () => {})
     const orphanDoc = [
       "# Review: abc1234",
@@ -857,9 +754,8 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("documentLink resolves each hunk pointer to a link covering exactly the token, resolved against gitTopLevel", async () => {
-    const resolved = resolveBuiltInMode("review")!
     const env = fakeEnv({
-      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      ...mapped("REVIEW.md", "review"),
       gitTopLevel: async () => "/repo",
     })
     const service = makeSteeringLanguageService(env, () => {})
@@ -872,9 +768,8 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("documentLink returns none for a qa-mode document — qa declares no documentLinks member", async () => {
-    const resolved = resolveBuiltInMode("qa")!
     const env = fakeEnv({
-      steeringMapFor: async () => new Map([["/repo/PLAN.md", resolved]]),
+      ...mapped("PLAN.md", "qa"),
       gitTopLevel: async () => "/repo",
     })
     const service = makeSteeringLanguageService(env, () => {})
@@ -883,9 +778,8 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("documentLink returns none when neither gitTopLevel nor the workspace root resolves", async () => {
-    const resolved = resolveBuiltInMode("review")!
     const env = fakeEnv({
-      steeringMapFor: async () => new Map([["/repo/REVIEW.md", resolved]]),
+      ...mapped("REVIEW.md", "review"),
       gitTopLevel: async () => undefined,
     })
     const service = makeSteeringLanguageService(env, () => {})
@@ -893,14 +787,48 @@ describe("makeSteeringLanguageService", () => {
     expect(links).toEqual([])
   })
 
-  it("degrades to an empty steering map (and warns) when steeringMapFor rejects, instead of rejecting the request", async () => {
+  it("degrades to basename dispatch (and warns once) when currentRest rejects, instead of rejecting the request", async () => {
     const warnings: string[] = []
-    const env = fakeEnv({ steeringMapFor: () => Promise.reject(new Error("bad gtd.config.ts")) })
+    const env = fakeEnv({
+      gitTopLevel: async () => "/repo",
+      currentRest: () => Promise.reject(new Error("no commits yet")),
+    })
     const service = makeSteeringLanguageService(env, (m) => warnings.push(m))
-    const symbols = await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)
-    expect(symbols).toEqual([])
+    expect(await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)).toEqual([])
+    expect(await service.documentSymbol("file:///repo/REVIEW.md", reviewDoc)).not.toEqual([])
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain("bad gtd.config.ts")
+    expect(warnings[0]).toContain("no commits yet")
+  })
+
+  it("never asks a repository outside the workspace's for its rest — it would run that repository's gtd.config.ts", async () => {
+    const roots: string[] = []
+    const env = fakeEnv({
+      gitTopLevel: async (dir) => (dir.startsWith("/untrusted") ? "/untrusted" : "/repo"),
+      currentRest: async (root) => {
+        roots.push(root)
+        return { state: "working", file: "PLAN.md", mode: "qa" }
+      },
+    })
+    const service = makeSteeringLanguageService(env, () => {})
+    service.initialize({ rootUri: "file:///repo", capabilities: {} } as never)
+    expect(await service.documentSymbol("file:///untrusted/PLAN.md", questionsDoc)).toEqual([])
+    expect(await service.documentSymbol("file:///untrusted/REVIEW.md", reviewDoc)).not.toEqual([])
+    expect(roots).toEqual([])
+  })
+
+  it("asks the repository a workspace opened on a subfolder belongs to", async () => {
+    const roots: string[] = []
+    const env = fakeEnv({
+      gitTopLevel: async () => "/repo",
+      currentRest: async (root) => {
+        roots.push(root)
+        return { state: "working", file: "PLAN.md", mode: "qa" }
+      },
+    })
+    const service = makeSteeringLanguageService(env, () => {})
+    service.initialize({ rootUri: "file:///repo/packages/app", capabilities: {} } as never)
+    expect(await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)).not.toEqual([])
+    expect(roots).toEqual(["/repo"])
   })
 
   describe("executeCommand", () => {
@@ -911,7 +839,9 @@ describe("makeSteeringLanguageService", () => {
 
     it("resolves to 'show' when the current state has a file, and 'inform' when it doesn't", async () => {
       const withFile = makeSteeringLanguageService(
-        fakeEnv({ currentSteeringFile: async () => ({ state: "grilling", file: ".gtd/TODO.md" }) }),
+        fakeEnv({
+          currentRest: async () => ({ state: "grilling", file: ".gtd/TODO.md", mode: "qa" }),
+        }),
         () => {},
       )
       expect(await withFile.executeCommand("gtd.openSteeringFile", [])).toEqual({
@@ -926,9 +856,29 @@ describe("makeSteeringLanguageService", () => {
       })
     })
 
-    it("resolves to 'error' when currentSteeringFile rejects", async () => {
+    it("asks for the rest at the git root of a workspace opened on a subfolder", async () => {
+      const roots: string[] = []
       const service = makeSteeringLanguageService(
-        fakeEnv({ currentSteeringFile: () => Promise.reject(new Error("no repo here")) }),
+        fakeEnv({
+          gitTopLevel: async () => "/repo",
+          currentRest: async (root) => {
+            roots.push(root)
+            return { state: "grilling", file: ".gtd/TODO.md", mode: "qa" }
+          },
+        }),
+        () => {},
+      )
+      service.initialize({ rootUri: "file:///repo/packages/app", capabilities: {} } as never)
+      expect(await service.executeCommand("gtd.openSteeringFile", [])).toEqual({
+        kind: "show",
+        uri: "file:///repo/.gtd/TODO.md",
+      })
+      expect(roots).toEqual(["/repo"])
+    })
+
+    it("resolves to 'error' when currentRest rejects", async () => {
+      const service = makeSteeringLanguageService(
+        fakeEnv({ currentRest: () => Promise.reject(new Error("no repo here")) }),
         () => {},
       )
       const outcome = await service.executeCommand("gtd.openSteeringFile", [])
@@ -1184,28 +1134,10 @@ describe("bindSteeringServer", () => {
   })
 })
 
-describe("resolveSteeringFile", () => {
-  it("resolves idle's .gtd/TODO.md with no stat — gtd names the path, never checks it exists", async () => {
-    // The shipped workflows, whose `idle` step names `.gtd/TODO.md`. One
-    // commit, nothing under `.gtd/` — the repo-relative path resolves purely
-    // from the workflow + state, never by stat-ing the worktree for it.
-    const repo = new InMemRepo()
-    repo.writeFile("README.md", "hello")
-    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
-    repo.commitAllWithPrefix("chore: initial commit")
-
-    const resolved = await Effect.runPromise(
-      resolveSteeringFile.pipe(Effect.provide(testLayers(repo))),
-    )
-
-    expect(resolved.state).toBe("idle")
-    expect(resolved.file).toBe(".gtd/TODO.md")
-    expect(repo.hasPath(".gtd/TODO.md")).toBe(false)
-  })
-})
-
 describe("makeNodeLspEnv", () => {
   let dir: string
+  let bin: string
+  let calls: string
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "gtd-lsp-node-env-test-"))
@@ -1213,193 +1145,78 @@ describe("makeNodeLspEnv", () => {
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
     execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
     execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
-    writeFileSync(join(dir, "gtd.config.ts"), CONFIG_SCAFFOLD)
-    execFileSync("git", ["add", "gtd.config.ts"], { cwd: dir })
-    execFileSync("git", ["commit", "-q", "-m", "initial"], { cwd: dir })
+    execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "initial"], { cwd: dir })
+    // A stand-in `gtd`: logs each call and prints a fixed beat.
+    bin = mkdtempSync(join(tmpdir(), "gtd-lsp-fake-gtd-"))
+    calls = join(bin, "calls.log")
+    writeFileSync(
+      join(bin, "gtd"),
+      [
+        "#!/bin/sh",
+        `echo "$@" >> '${calls}'`,
+        `echo '{"schema":1,"state":"working","file":".gtd/PLAN.md","mode":"qa"}'`,
+      ].join("\n"),
+    )
+    chmodSync(join(bin, "gtd"), 0o755)
   })
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
+    rmSync(bin, { recursive: true, force: true })
   })
 
-  it("wires the real git/config/repo-files layers: steeringMapFor, gitTopLevel and currentSteeringFile all resolve against a real repo", async () => {
-    const env = makeNodeLspEnv(() => {})
+  const callCount = (): number => readFileSync(calls, "utf8").trim().split("\n").length
 
-    const map = await env.steeringMapFor(dir)
-    expect(map).toBeInstanceOf(Map)
-
-    const realDir = realpathSync(dir)
-    const topLevel = await env.gitTopLevel(dir)
-    expect(topLevel).toBe(realDir)
-
-    const { state, file } = await env.currentSteeringFile(dir)
-    expect(state).toBe("idle")
-    expect(file).toBe(".gtd/TODO.md")
-
-    // Calling again for the same root exercises the memoised-runtime path
-    // (`runtimeFor`'s cache hit) rather than constructing a fresh one.
-    const topLevelAgain = await env.gitTopLevel(dir)
-    expect(topLevelAgain).toBe(realDir)
-  })
-})
-
-describe("makeNodeLspEnv's steering-map memo (HEAD + config identity)", () => {
-  let dir: string
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "gtd-lsp-memo-test-"))
-    execFileSync("git", ["init", "-q"], { cwd: dir })
-    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
-    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
-    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir })
+  it("reads the rest off `gtd next --json`, and the git root off git", async () => {
+    const env = makeNodeLspEnv([join(bin, "gtd")])
+    mkdirSync(join(dir, "sub"))
+    expect(await env.gitTopLevel(join(dir, "sub"))).toBe(dir)
+    // Through a symlink the root keeps the symlinked spelling, so URIs built
+    // from it match the editor's — on every platform, not only macOS's /var.
+    const link = join(bin, "link")
+    symlinkSync(dir, link)
+    expect(await env.gitTopLevel(join(link, "sub"))).toBe(link)
+    expect(await env.currentRest(dir)).toEqual({
+      state: "working",
+      file: ".gtd/PLAN.md",
+      mode: "qa",
+    })
+    expect(readFileSync(calls, "utf8")).toBe("next --json\n")
   })
 
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true })
+  it("runs gtd once per HEAD: a repeat request is served from memory, a landing re-reads", async () => {
+    const env = makeNodeLspEnv([join(bin, "gtd")])
+    await Promise.all([env.currentRest(dir), env.currentRest(dir)])
+    await env.currentRest(dir)
+    expect(callCount()).toBe(1)
+
+    execFileSync("git", ["commit", "--allow-empty", "-q", "-m", "second"], { cwd: dir })
+    await env.currentRest(dir)
+    expect(callCount()).toBe(2)
   })
 
-  /** A one-step workflow whose `steering:` export is the only thing this suite cares about — it lands in `buildSteeringMap`'s declared list regardless of the process's actual trace. */
-  const writeWorkflow = (steering: Record<string, string>) =>
+  it("rejects with gtd's own stderr, replays the failure briefly, then retries", async () => {
+    const good = readFileSync(join(bin, "gtd"), "utf8")
     writeFileSync(
-      join(dir, "gtd.config.ts"),
-      [
-        `import { human } from "@pmelab/gtd/flows"`,
-        ``,
-        `export default async () => {`,
-        `  await human("first")`,
-        `}`,
-        ``,
-        `export const steering = ${JSON.stringify(steering)}`,
-        ``,
-      ].join("\n"),
+      join(bin, "gtd"),
+      ["#!/bin/sh", `echo "$@" >> '${calls}'`, "echo 'gtd: no commits' >&2", "exit 1"].join("\n"),
     )
-
-  const commit = (message: string) => {
-    execFileSync("git", ["add", "-A"], { cwd: dir })
-    execFileSync("git", ["commit", "--allow-empty", "-q", "-m", message], { cwd: dir })
-  }
-
-  it("a landing that moves HEAD from outside the editor is reflected on the very next request, without a restart", async () => {
-    writeWorkflow({ "TODO.md": "qa" })
-    commit("initial")
-    const env = makeNodeLspEnv(() => {})
-
-    const before = await env.steeringMapFor(dir)
-    expect(before.has(join(dir, "TODO.md"))).toBe(true)
-
-    // "gtd land" moving HEAD, from outside the editor entirely.
-    writeWorkflow({})
-    commit("second")
-
-    const after = await env.steeringMapFor(dir)
-    expect(after.has(join(dir, "TODO.md"))).toBe(false)
-  })
-
-  it("a leftover .gtdrc appearing fails the next request, and deleting it recovers", async () => {
-    writeWorkflow({ "TODO.md": "qa" })
-    commit("initial")
-    const env = makeNodeLspEnv(() => {})
-    expect((await env.steeringMapFor(dir)).has(join(dir, "TODO.md"))).toBe(true)
-
-    writeFileSync(join(dir, ".gtdrc.json"), "{}\n")
-    await expect(env.steeringMapFor(dir)).rejects.toThrow(/\.gtdrc\.json: no longer read/)
-
-    rmSync(join(dir, ".gtdrc.json"))
-    expect((await env.steeringMapFor(dir)).has(join(dir, "TODO.md"))).toBe(true)
-  })
-
-  it("an edited gtd.config.ts takes effect on the next request", async () => {
-    writeWorkflow({ "TODO.md": "qa" })
-    commit("initial")
-    const env = makeNodeLspEnv(() => {})
-
-    const before = await env.steeringMapFor(dir)
-    expect(before.has(join(dir, "PLAN.md"))).toBe(false)
-
-    // Same HEAD — this is a working-tree-only edit, exactly like an editor
-    // autosave of gtd.config.ts before the next commit.
-    writeWorkflow({ "TODO.md": "qa", "PLAN.md": "review" })
-
-    const after = await env.steeringMapFor(dir)
-    expect(after.has(join(dir, "PLAN.md"))).toBe(true)
-  })
-
-  it("an edited module that gtd.config.ts re-exports 'steering' FROM takes effect on the next request — a split workflow is not stale forever", async () => {
-    writeFileSync(
-      join(dir, "steps.ts"),
-      [`export const steering = { "TODO.md": "qa" }`, ``].join("\n"),
-    )
-    writeFileSync(
-      join(dir, "gtd.config.ts"),
-      [
-        `import { human } from "@pmelab/gtd/flows"`,
-        `export { steering } from "./steps.js"`,
-        ``,
-        `export default async () => {`,
-        `  await human("first")`,
-        `}`,
-        ``,
-      ].join("\n"),
-    )
-    commit("initial")
-    const env = makeNodeLspEnv(() => {})
-
-    const before = await env.steeringMapFor(dir)
-    expect(before.has(join(dir, "PLAN.md"))).toBe(false)
-
-    // Same HEAD, gtd.config.ts itself untouched — only the sibling module it
-    // imports `steering` from changes, exactly as an editor autosave would.
-    writeFileSync(
-      join(dir, "steps.ts"),
-      [`export const steering = { "TODO.md": "qa", "PLAN.md": "review" }`, ``].join("\n"),
-    )
-
-    const after = await env.steeringMapFor(dir)
-    expect(after.has(join(dir, "PLAN.md"))).toBe(true)
-
-    // A SECOND edit to the now-already-known "steps.ts" — this is the one
-    // the stat-after-read bug missed: the first edit's post-hoc stat gets
-    // pinned as the "known" fingerprint, and a second edit measured the same
-    // racy way never budges it. Also pins that a dependency dropping out
-    // (steering back down to one entry) is picked up too.
-    writeFileSync(
-      join(dir, "steps.ts"),
-      [`export const steering = { "TODO.md": "qa" }`, ``].join("\n"),
-    )
-
-    const afterAgain = await env.steeringMapFor(dir)
-    expect(afterAgain.has(join(dir, "PLAN.md"))).toBe(false)
-  })
-
-  it("two requests with no HEAD move and no config edit resolve the process once — a hit issues exactly one git subprocess", async () => {
-    writeWorkflow({ "TODO.md": "qa" })
-    commit("initial")
-
-    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim()
-    const binDir = mkdtempSync(join(tmpdir(), "gtd-lsp-gitshim-"))
-    const logFile = join(binDir, "calls.log")
-    writeFileSync(
-      join(binDir, "git"),
-      ["#!/bin/bash", `echo "$@" >> '${logFile}'`, `exec '${realGit}' "$@"`].join("\n"),
-    )
-    chmodSync(join(binDir, "git"), 0o755)
-
-    const originalPath = process.env["PATH"]
-    process.env["PATH"] = `${binDir}:${originalPath}`
+    let now = 1_000
+    vi.spyOn(Date, "now").mockImplementation(() => now)
     try {
-      const env = makeNodeLspEnv(() => {})
-      await env.steeringMapFor(dir) // miss: full resolution, several git calls
-      writeFileSync(logFile, "")
-      await env.steeringMapFor(dir) // hit: memoised
+      const env = makeNodeLspEnv([join(bin, "gtd")], 5000)
+      await expect(env.currentRest(dir)).rejects.toThrow("gtd: no commits")
 
-      const calls = readFileSync(logFile, "utf8")
-        .trim()
-        .split("\n")
-        .filter((line) => line.length > 0)
-      expect(calls).toEqual(["rev-parse --verify HEAD"])
+      writeFileSync(join(bin, "gtd"), good)
+      now += 4_999
+      await expect(env.currentRest(dir)).rejects.toThrow("gtd: no commits")
+      expect(callCount()).toBe(1)
+
+      now += 1
+      expect((await env.currentRest(dir)).state).toBe("working")
+      expect(callCount()).toBe(2)
     } finally {
-      process.env["PATH"] = originalPath
-      rmSync(binDir, { recursive: true, force: true })
+      vi.restoreAllMocks()
     }
   })
 })
@@ -1409,10 +1226,12 @@ describe("startLspServer's requirement set", () => {
     // A type-only assertion: this line fails to COMPILE (not merely to run)
     // if `startLspServer`'s Effect ever gains a requirement in `R`, since
     // `Effect.Effect<void, Error, never>` only accepts an Effect whose own
-    // `R` is exactly `never`. Calling `startLspServer()` builds the Effect
+    // `R` is exactly `never`. Calling `startLspServer` builds the Effect
     // value without running it (no `createConnection`, no IO) — `Effect.gen`
     // only executes its generator body when the Effect is actually run.
-    const typedAsRequiringNothing: Effect.Effect<void, Error, never> = startLspServer()
+    const typedAsRequiringNothing: Effect.Effect<void, Error, never> = startLspServer({
+      gtd: ["gtd"],
+    })
     expect(typedAsRequiringNothing).toBeDefined()
   })
 
@@ -1436,7 +1255,7 @@ describe("startLspServer's requirement set", () => {
       stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`)
     }
     try {
-      const result = Effect.runPromise(startLspServer())
+      const result = Effect.runPromise(startLspServer({ gtd: ["gtd"] }))
       send({ jsonrpc: "2.0", method: "exit" })
       await expect(result).resolves.toBeUndefined()
       await new Promise((resolve) => setImmediate(resolve))

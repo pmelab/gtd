@@ -587,9 +587,9 @@ interface ReplaySetup {
   /**
    * The working tree `git add -A` would commit, read at most once — memoized
    * HERE, per `ReplaySetup` (built fresh every `restAt` call), rather than on
-   * `Workspace` itself: the LSP memoizes one runtime (and its `Workspace`)
-   * per root across requests (`runtimeCache`), so a workspace-scoped memo
-   * would keep serving the FIRST request's working tree forever. A new
+   * `Workspace` itself: a long-lived runtime reusing one `Workspace` across
+   * requests would otherwise keep serving the FIRST request's working tree
+   * forever. A new
    * `ReplaySetup` per `restAt` call is what makes each request see the
    * working tree as it stands right then, while still reading it only once
    * across that one request's `decideLanding`/`startRefusal` replay.
@@ -906,11 +906,10 @@ export const restAt = (
     }
     // No `pending` tree: `restAt` resolves the LANDED process only, never a
     // pending working-tree edit (that's `decideLanding`'s own `replayFor`
-    // call, below, deciding what landing right now WOULD do). The LSP's
-    // steering-map memo (`src/lsp/Lsp.ts`) depends on this staying true — it's
-    // what makes HEAD's hash a complete cache key for everything `rest`
-    // exposes (`trace`, `state`, `hints.file`); passing a pending tree here
-    // would make the memo serve a stale map on every cache hit.
+    // call, below, deciding what landing right now WOULD do). `gtd lsp` caches
+    // `gtd next --json`'s `state`/`file`/`mode` per HEAD and depends on this
+    // staying true; passing a pending tree here would make it serve a stale
+    // steering file on every cache hit.
     const outcome = yield* Effect.promise(() => replayFor(setup))
     const error = replayError(outcome)
     if (error !== undefined || outcome.kind !== "rest") {

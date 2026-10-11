@@ -101,11 +101,11 @@ file exports: `defaults` and `envDefaults` (the file's process and environment
 settings, see [Settings](#settings)), `summary` (the prompt `gtd summary`
 prints, see [Summary](#summary)), `base` (see [Workflows](#workflows)),
 `steering` — steering file paths with their mode, e.g.
-`{ ".gtd/docs/adr.md": "adr" }`, which `gtd lsp` serves even before a step
-declaring them is reached — `skills`, `doors` (see [Doors](#doors)) and `config`
-(see [The `config` export](#the-config-export)). gtd ignores every other
-non-function export. **A helper you export is a workflow too**, startable by
-name — keep helpers un-exported, or export them from another module you import.
+`{ ".gtd/docs/adr.md": "adr" }` — `skills`, `doors` (see [Doors](#doors)) and
+`config` (see [The `config` export](#the-config-export)). gtd ignores every
+other non-function export. **A helper you export is a workflow too**, startable
+by name — keep helpers un-exported, or export them from another module you
+import.
 
 gtd resolves `@pmelab/gtd/flows` and `@pmelab/gtd/workflows` itself, to its own
 copy, so a repository — JavaScript or not (Python, Rust, notes) — needs no
@@ -1078,7 +1078,7 @@ gtd requires a repository with **at least one commit** before any state command
 (`land`, `--workflow`, `door`, `doors`, `next`, `abandon`, `restore`,
 `validate`, `summary`) will run — there is no workflow state to derive from an
 empty history. `gtd install`, `gtd lsp`, and `gtd check` are unaffected, since
-none of them needs a process history (`gtd lsp` still loads `gtd.config.ts`).
+none of them needs a process history (`gtd lsp` then serves `REVIEW.md` alone).
 
 ## Judge settings
 

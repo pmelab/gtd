@@ -1,8 +1,7 @@
-import { statSync } from "node:fs"
+import { execFile } from "node:child_process"
 import { basename, dirname, resolve as resolvePath } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { Effect, Layer, ManagedRuntime } from "effect"
-import { NodeContext } from "@effect/platform-node"
+import { Effect } from "effect"
 import {
   createConnection,
   ProposedFeatures,
@@ -23,26 +22,16 @@ import {
   type Range,
 } from "vscode-languageserver/node"
 import { TextDocument } from "vscode-languageserver-textdocument"
-import { Narrator, GitService, Host, Workspace } from "../platform/index.js"
-import {
-  ConfigDiscovery,
-  ConfigService,
-  LEGACY_RC_FILES,
-  legacyRcDirs,
-  WORKFLOW_MODULE,
-  walkUp,
-  type StateMode,
-  type WorkflowDefinition,
-} from "../workflow/index.js"
-import { currentRest, type RestRequirements } from "../edge/index.js"
-import { resolveMode, type ResolvedMode } from "../emit/index.js"
+import type { BeatDocument } from "../wire/index.js"
 import {
   FOOTNOTE_ACTION_TITLE,
   THREAD_REPLY_ACTION_TITLE,
   openThreadFindings,
+  steeringFormatFor,
   viewOf,
   type SteeringAction,
   type SteeringFinding,
+  type SteeringFormat,
   type SteeringLink,
   type SteeringOutlineNode,
   type SteeringPointer,
@@ -169,34 +158,19 @@ const toDiagnostic =
     source: "gtd",
   })
 
-/** The one `Information` diagnostic a shell-`validate:`d mode gets instead of live findings. */
-export const externalValidatorNotice = (mode: StateMode, command: string): Diagnostic => ({
-  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-  message: `mode "${mode}" is validated by a shell command (\`${command}\`) — run \`gtd validate\`; no live diagnostics`,
-  severity: DiagnosticSeverity.Information,
-  source: "gtd",
-})
-
-/** Diagnostics for one document, given its resolved mode (or `undefined` — an unmapped path): a live built-in `validate` when one applies, the external-validator notice when a command displaced it, or none. */
 export const diagnosticsFor = (
-  resolved: ResolvedMode | undefined,
+  format: SteeringFormat | undefined,
   content: string,
 ): Diagnostic[] => {
-  const caps = resolved?.capabilities ?? {}
+  if (format === undefined) return []
   const lines = content.split(/\r?\n/)
-  // Built-in parse is free, so open threads show even when a shell validator displaced live findings.
-  const open = (): Diagnostic[] =>
-    openThreadFindings(content).map((f) => ({
+  return [
+    ...format.validate(content).map(toDiagnostic(lines)),
+    ...openThreadFindings(content).map((f) => ({
       ...toDiagnostic(lines)(f),
       severity: DiagnosticSeverity.Information,
-    }))
-  if (caps.liveValidate !== undefined) {
-    return [...caps.liveValidate(content).map(toDiagnostic(lines)), ...open()]
-  }
-  if (caps.externalValidate === true && resolved?.validate?.kind === "command") {
-    return [externalValidatorNotice(resolved.mode, resolved.validate.command), ...open()]
-  }
-  return []
+    })),
+  ]
 }
 
 /** A `SteeringLink` → a `DocumentLink`, resolving its target file against `root` — same resolution `toLocation` already does for a foreign `pointerAt` jump. `line` is 0-based; the target URI's `#L<line+1>` fragment names the 1-based line, mirroring a familiar (GitHub-style) file-link convention. */
@@ -207,85 +181,36 @@ export const toDocumentLink =
     target: `${pathToFileURL(resolvePath(root, link.path)).toString()}#L${link.line + 1}`,
   })
 
-/** Document links for one document, given its resolved mode and `root` (needed to resolve each link's target path). `undefined` mode, or a format declaring no `documentLinks` (`qa`), yields none. */
 export const documentLinksFor = (
-  resolved: ResolvedMode | undefined,
+  format: SteeringFormat | undefined,
   content: string,
   root: string,
-): DocumentLink[] => {
-  const format = resolved?.capabilities.format
-  if (format === undefined) return []
-  return viewOf(format, content).documentLinks.map(toDocumentLink(root))
-}
+): DocumentLink[] =>
+  format === undefined ? [] : viewOf(format, content).documentLinks.map(toDocumentLink(root))
 
-// ── Config-driven path→mode dispatch (pure) ─────────────────────────────────
+// ── Path → format dispatch (pure) ───────────────────────────────────────────
 
-/** Fallback for any path the workflow's `file:` map doesn't cover. `TODO.md` is intentionally not mapped — the bundled `idle` state declares no `mode:` for it. */
-export const basenameFallbackMode = (name: string): ResolvedMode | undefined => {
-  if (name !== "REVIEW.md") return undefined
-  const resolved = resolveMode(undefined, "", "review")
-  return resolved.kind === "resolved" ? resolved : undefined
-}
+/** Fallback for any path the current rest doesn't name. `TODO.md` is intentionally not mapped — the bundled `idle` step declares no `mode` for it. */
+export const basenameFallbackFormat = (name: string): SteeringFormat | undefined =>
+  name === "REVIEW.md" ? steeringFormatFor("review") : undefined
 
-/** One `buildSteeringMap` finding: a `mode:` that didn't resolve, or a path two steps both declare (first wins). */
-export type FileModeWarning = string
+export type CurrentRest = Pick<BeatDocument, "state" | "file" | "mode">
 
-/** A step's declared steering file and its mode, as replay reached it. */
-export interface SteeringStep {
-  readonly name: string
-  readonly file?: string | undefined
-  readonly mode?: string | undefined
-}
-
-/**
- * The `file:`/`mode:` pairs of the steps the current process has reached, as
- * an absolute-path → `ResolvedMode` map. A flow is code, so only a step replay
- * reached is known; a path two steps both declare keeps the first one's mode,
- * warning.
- */
-export const buildSteeringMap = (
-  def: Pick<WorkflowDefinition, "modes">,
-  steps: readonly SteeringStep[],
+export const formatForDocument = (
+  uri: string,
+  rest: CurrentRest | undefined,
   root: string,
-): {
-  readonly map: ReadonlyMap<string, ResolvedMode>
-  readonly warnings: readonly FileModeWarning[]
-} => {
-  const map = new Map<string, ResolvedMode>()
-  const warnings: FileModeWarning[] = []
-  for (const node of steps) {
-    const { file, mode } = node
-    if (file === undefined || mode === undefined) continue
-    const absolute = resolvePath(root, file)
-    const existing = map.get(absolute)
-    if (existing !== undefined) {
-      if (existing.mode !== mode) {
-        warnings.push(
-          `"${absolute}" is already mapped to mode "${existing.mode}" by an earlier step; step "${node.name}"'s mode ("${mode}") is ignored`,
-        )
-      }
-      continue
-    }
-    const resolved = resolveMode(def, node.name, mode as StateMode)
-    if (resolved.kind === "unknown") {
-      warnings.push(`${resolved.message}, skipped`)
-      continue
-    }
-    map.set(absolute, resolved)
+): SteeringFormat | undefined => {
+  const path = fileURLToPath(uri)
+  if (
+    rest?.file !== undefined &&
+    rest.mode !== undefined &&
+    resolvePath(root, rest.file) === path
+  ) {
+    return steeringFormatFor(rest.mode)
   }
-  return { map, warnings }
+  return basenameFallbackFormat(basename(path))
 }
-
-export const resolvedModeForDocument = (
-  uri: string,
-  steeringMap: ReadonlyMap<string, ResolvedMode>,
-): ResolvedMode | undefined =>
-  steeringMap.get(fileURLToPath(uri)) ?? basenameFallbackMode(basename(fileURLToPath(uri)))
-
-export const capabilitiesForDocument = (
-  uri: string,
-  steeringMap: ReadonlyMap<string, ResolvedMode>,
-) => resolvedModeForDocument(uri, steeringMap)?.capabilities ?? {}
 
 export const resolveWorkspaceRoot = (params: {
   readonly workspaceFolders?: ReadonlyArray<{ readonly uri: string }> | null
@@ -322,33 +247,12 @@ export const steeringFileOutcome = (
 /**
  * Everything protocol-independent `SteeringLanguageService` needs from its
  * environment, so the service is testable against a fake. Its methods may
- * reject (bad config, no git repo, unresolvable process state); the service
- * catches every rejection and degrades gracefully, so an `LspEnv`
- * implementation needn't defend against its own failures.
+ * reject; the service catches every rejection and degrades gracefully.
  */
 export interface LspEnv {
-  /**
-   * The active workflow's `file:`/`mode:` map for `root`, memoised by
-   * `makeNodeLspEnv` on HEAD's hash plus the `(path, size, mtimeMs)` of every
-   * file the LAST resolution's `ConfigService.load` reported touching
-   * (`workflowFiles` — `gtd.config.ts` PLUS whatever it imports, e.g. a sibling module a split workflow re-
-   * exports `steering`/steps from). That file SET is itself re-measured on
-   * every miss, so it self-corrects the next time anything in it actually
-   * changes — it is not a static, one-time-discovered list.
-   *
-   * HEAD plus that file set is the COMPLETE dependency set, because nothing
-   * `reachedSteeringSteps` reads off `rest` depends on the working tree:
-   * `rest.trace`, `rest.state` and `rest.hints.file` all come from `restAt`
-   * (`src/edge/Edge.ts`), whose `replayFor(setup)` call passes no `pending` tree —
-   * see the comment there, which this memo depends on staying true.
-   */
-  readonly steeringMapFor: (root: string) => Promise<ReadonlyMap<string, ResolvedMode>>
+  readonly currentRest: (root: string) => Promise<CurrentRest>
   /** The git working-tree root of `dir`, or `undefined` outside any repository. */
   readonly gitTopLevel: (dir: string) => Promise<string | undefined>
-  /** The current process state/actor and its rendered `file:`, scoped to `root`. */
-  readonly currentSteeringFile: (
-    root: string,
-  ) => Promise<{ readonly state: string; readonly file: string | undefined }>
   /** The process's own cwd — the `gtd.openSteeringFile` root when no workspace folder was ever given. */
   readonly cwd: string
 }
@@ -397,9 +301,8 @@ const revealPositionArgs = (
 
 /**
  * Builds the whole `SteeringLanguageService` over `env`. Every `env` call is
- * wrapped in a try/catch that warns and degrades gracefully — an unmapped or
- * failed lookup behaves like "no config resolved" (empty results), never a
- * rejected request.
+ * wrapped in a try/catch that degrades gracefully — a failed lookup behaves
+ * like a document no rest names (basename dispatch), never a rejected request.
  */
 export const makeSteeringLanguageService = (
   env: LspEnv,
@@ -407,17 +310,11 @@ export const makeSteeringLanguageService = (
 ): SteeringLanguageService => {
   let workspaceRoot: string | undefined
 
-  const rootFor = (uri: string): string => workspaceRoot ?? dirname(fileURLToPath(uri))
-
-  const safeSteeringMap = async (root: string): Promise<ReadonlyMap<string, ResolvedMode>> => {
-    try {
-      return await env.steeringMapFor(root)
-    } catch (e) {
-      warn(
-        `failed to load gtd config at "${root}" — falling back to basename dispatch: ${errorText(e)}`,
-      )
-      return new Map()
-    }
+  // A repository gtd cannot read (no commits yet) fails the same way on every keystroke.
+  let lastWarning: string | undefined
+  const warnOnce = (message: string): void => {
+    if (message !== lastWarning) warn(message)
+    lastWarning = message
   }
 
   const safeGitTopLevel = async (dir: string): Promise<string | undefined> => {
@@ -428,12 +325,38 @@ export const makeSteeringLanguageService = (
     }
   }
 
-  const capabilitiesFor = async (uri: string) =>
-    capabilitiesForDocument(uri, await safeSteeringMap(rootFor(uri)))
+  const repoRootFor = async (uri: string): Promise<string | undefined> =>
+    (await safeGitTopLevel(dirname(fileURLToPath(uri)))) ?? workspaceRoot
+
+  // `gtd next` evaluates the repository's gtd.config.ts, so only the repository
+  // the user opened is asked — never one a stray document happens to live in.
+  let workspaceRepo: Promise<string> | undefined
+  const trusted = async (root: string): Promise<boolean> => {
+    if (workspaceRoot === undefined) return true
+    const ws = workspaceRoot
+    workspaceRepo ??= safeGitTopLevel(ws).then((top) => top ?? ws)
+    return root === (await workspaceRepo)
+  }
+
+  const formatFor = async (uri: string): Promise<SteeringFormat | undefined> => {
+    const root = await repoRootFor(uri)
+    if (root === undefined || !(await trusted(root))) {
+      return formatForDocument(uri, undefined, "")
+    }
+    try {
+      return formatForDocument(uri, await env.currentRest(root), root)
+    } catch (e) {
+      warnOnce(
+        `failed to read the current rest at "${root}" — falling back to basename dispatch: ${errorText(e)}`,
+      )
+      return formatForDocument(uri, undefined, root)
+    }
+  }
 
   return {
     initialize: (params) => {
       workspaceRoot = resolveWorkspaceRoot(params)
+      workspaceRepo = undefined
       return {
         capabilities: {
           textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -449,37 +372,31 @@ export const makeSteeringLanguageService = (
     },
 
     documentSymbol: async (uri, text) => {
-      const caps = await capabilitiesFor(uri)
-      if (caps.format === undefined) return []
-      return viewOf(caps.format, text).outline.map(toDocumentSymbol)
+      const format = await formatFor(uri)
+      return format === undefined ? [] : viewOf(format, text).outline.map(toDocumentSymbol)
     },
 
     codeAction: async (uri, text, range) => {
-      const caps = await capabilitiesFor(uri)
-      if (caps.format === undefined) return []
-      return viewOf(caps.format, text).actionsAt(range).map(toCodeAction(uri, text))
+      const format = await formatFor(uri)
+      if (format === undefined) return []
+      return viewOf(format, text).actionsAt(range).map(toCodeAction(uri, text))
     },
 
     definition: async (uri, text, position) => {
-      const caps = await capabilitiesFor(uri)
-      const pointer =
-        caps.format !== undefined ? viewOf(caps.format, text).pointerAt(position) : undefined
+      const format = await formatFor(uri)
+      const pointer = format !== undefined ? viewOf(format, text).pointerAt(position) : undefined
       if (pointer === undefined) return []
       if (pointer.path === undefined) return [toLocation("", uri)(pointer)]
-      const root = (await safeGitTopLevel(dirname(fileURLToPath(uri)))) ?? workspaceRoot
+      const root = await repoRootFor(uri)
       return root === undefined ? [] : [toLocation(root, uri)(pointer)]
     },
 
-    diagnostics: async (uri, text) => {
-      const map = await safeSteeringMap(rootFor(uri))
-      return diagnosticsFor(resolvedModeForDocument(uri, map), text)
-    },
+    diagnostics: async (uri, text) => diagnosticsFor(await formatFor(uri), text),
 
     documentLink: async (uri, text) => {
-      const map = await safeSteeringMap(rootFor(uri))
-      const root = (await safeGitTopLevel(dirname(fileURLToPath(uri)))) ?? workspaceRoot
+      const root = await repoRootFor(uri)
       if (root === undefined) return []
-      return documentLinksFor(resolvedModeForDocument(uri, map), text, root)
+      return documentLinksFor(await formatFor(uri), text, root)
     },
 
     executeCommand: async (command, args) => {
@@ -495,9 +412,11 @@ export const makeSteeringLanguageService = (
         }
       }
       if (command !== OPEN_STEERING_FILE_COMMAND) return { kind: "unknown" }
-      const root = workspaceRoot ?? env.cwd
+      const start = workspaceRoot ?? env.cwd
+      // `gtd next` runs only at a repository root, and `file` is relative to it.
+      const root = (await safeGitTopLevel(start)) ?? start
       try {
-        const { state, file } = await env.currentSteeringFile(root)
+        const { state, file } = await env.currentRest(root)
         const outcome = steeringFileOutcome(state, file, root)
         return outcome.kind === "inform"
           ? {
@@ -601,237 +520,73 @@ export const bindSteeringServer = (
   connection.listen()
 }
 
-// ── The Node adapter: the only place layers are built ───────────────────────
+// ── The Node adapter ────────────────────────────────────────────────────────
 
-/**
- * `Host.Live`'s own home/env, resolved ONCE — the only place this module
- * reaches for the real environment; every per-root layer below overrides just
- * `root`, never touching `process.cwd()`/`process.env` itself.
- */
-const liveHost = Effect.runSync(Effect.provide(Host, Host.Live))
-
-const hostLayerForRoot = (root: string) => Host.layer({ ...liveHost, root })
-
-/** `GitService.Live` scoped to `root`, with the Node command executor it needs to shell out to `git`. */
-const gitLayerForRoot = (root: string) =>
-  GitService.Live.pipe(Layer.provide(Layer.merge(hostLayerForRoot(root), NodeContext.layer)))
-
-const workspaceLayerForRoot = (root: string) =>
-  Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayerForRoot(root), gitLayerForRoot(root))))
-
-/** The layers `LspEnv`'s Effects run against. `Narrator` is a permanent no-op — the LSP talks stdio JSON-RPC, with nothing to narrate onto — provided only so the shared `Narrator` requirement typechecks. */
-const layersForRoot = (root: string) =>
-  Layer.mergeAll(
-    gitLayerForRoot(root),
-    ConfigService.Live,
-    ConfigDiscovery.Live,
-    workspaceLayerForRoot(root),
-    hostLayerForRoot(root),
-    Narrator.layer(() => {}, false),
-  )
-
-type RootRuntime = ManagedRuntime.ManagedRuntime<
-  GitService | ConfigService | ConfigDiscovery | Workspace | Host | Narrator,
-  never
->
-
-/**
- * One `ManagedRuntime` per root, memoised — caches the runtime (the
- * constructed service layer), not the config: `currentSteeringFile` and a
- * `steeringMapFor` cache miss still call `ConfigService.load` fresh through
- * it. A `steeringMapFor` hit skips that load entirely, but its own memo (see
- * `makeNodeLspEnv`) is keyed on the `(path, size, mtimeMs)` of every file the
- * LAST such load reported touching, so an edit to a leftover rc file, `gtd.config.ts`,
- * or a module `gtd.config.ts` imports still forces the next request to
- * reload — only an unrelated repeat request skips it.
- */
-const runtimeCache = new Map<string, RootRuntime>()
-
-const runtimeFor = (root: string): RootRuntime => {
-  const cached = runtimeCache.get(root)
-  if (cached !== undefined) return cached
-  const runtime = ManagedRuntime.make(layersForRoot(root))
-  runtimeCache.set(root, runtime)
-  return runtime
-}
-
-/** The current state/actor and its rendered `file:` (`undefined` when the state declares none), exactly like the CLI's `currentRest`. Carries its requirements rather than providing them — the caller runs it through the memoised `runtimeFor(root)`. */
-export const resolveSteeringFile: Effect.Effect<
-  { readonly state: string; readonly file: string | undefined },
-  Error,
-  RestRequirements
-> = currentRest.pipe(Effect.map((rest) => ({ state: rest.state, file: rest.hints.file })))
-
-/**
- * `reachedSteeringSteps`'s result — cached by `makeNodeLspEnv`'s steering-map
- * memo, since building the final map from it (`buildSteeringMap`) is pure and
- * cheap. `dependencyFiles` is every file THIS resolution's `ConfigService.load`
- * reported touching (`workflowFiles` — see `ConfigOperations`)
- * — the memo re-stats exactly this set on its next call to decide whether the
- * cached `{def, steps}` is still good, so it stays correct even when it
- * doesn't know in advance what a split workflow's `gtd.config.ts` imports.
- */
-interface ReachedSteeringSteps {
-  readonly def: Pick<WorkflowDefinition, "modes">
-  readonly steps: readonly SteeringStep[]
-  readonly dependencyFiles: readonly string[]
-}
-
-// A repository whose process cannot be resolved (no commits yet, a diverged
-// history) still has a config: it maps nothing but keeps the basename fallback.
-const reachedSteeringSteps: Effect.Effect<ReachedSteeringSteps, Error, RestRequirements> =
-  Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
-    const rest = yield* Effect.either(currentRest)
-    const reached =
-      rest._tag === "Left"
-        ? []
-        : rest.right.trace.map((step) => ({
-            name: step.name,
-            file: step.request.options.file,
-            mode: step.request.options.mode,
-          }))
-    // A step the process has reached wins; the `steering` export covers the rest.
-    const declared = Object.entries(config.workflow.steering).map(([file, mode]) => ({
-      name: "the steering export",
-      file,
-      mode,
-    }))
-    return {
-      def: config.workflow,
-      steps: [...reached, ...declared],
-      dependencyFiles: config.workflowFiles,
-    }
+const run = (command: string, args: readonly string[], cwd: string): Promise<string> =>
+  new Promise((resolve, reject) => {
+    execFile(command, [...args], { cwd, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error === null) resolve(stdout)
+      else reject(new Error(stderr.trim() !== "" ? stderr.trim() : error.message))
+    })
   })
 
-/** A cheap `(size, mtimeMs)` fingerprint of `path` — a stat, never a read. `"missing"` when it doesn't exist, so a file's creation OR deletion still changes the identity. */
-const fingerprintOf = (path: string): string => {
-  try {
-    const stat = statSync(path)
-    return `${stat.size}:${stat.mtimeMs}`
-  } catch {
-    return "missing"
-  }
+const optionalString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined
+
+export const parseCurrentRest = (stdout: string): CurrentRest => {
+  const parsed = JSON.parse(stdout) as Record<string, unknown> | null
+  const state = optionalString(parsed?.["state"])
+  if (state === undefined) throw new Error(`not a gtd next --json document: ${stdout}`)
+  return { state, file: optionalString(parsed?.["file"]), mode: optionalString(parsed?.["mode"]) }
 }
 
-/** `paths`' identity, sorted so the same set always reads the same regardless of build order. `known`'s fingerprint wins over a fresh `fingerprintOf` stat where it has one — see `steeringMapFor`'s miss path for why that matters. */
-const identityOf = (paths: readonly string[], known?: ReadonlyMap<string, string>): string =>
-  paths
-    .map((path) => `${path}:${known?.get(path) ?? fingerprintOf(path)}`)
-    .sort()
-    .join("|")
-
 /**
- * Every path a `gtd.config.ts` — or a removed rc file a load refuses — COULD
- * live at for `root`, computed from path strings alone, no filesystem access.
- * Unlike `ConfigOperations.workflowFiles` (which names only what a load
- * actually FOUND), this list is complete whether or not any of it exists yet,
- * so `identityOf` on it catches a file appearing or disappearing, not just an
- * edit to one that already existed.
+ * The Node adapter: process state comes from spawning `gtd` (the same build
+ * serving the LSP), the way any driver reads it. A rest only moves when HEAD
+ * does, so one `gtd next --json` per root and HEAD serves every request in
+ * between — the diagnostics and the outline of the same keystroke included.
  */
-const candidateConfigPaths = (root: string): readonly string[] => [
-  ...walkUp(root, liveHost.home).map((dir) => resolvePath(dir, WORKFLOW_MODULE)),
-  ...legacyRcDirs(root, liveHost.home).flatMap((dir) =>
-    LEGACY_RC_FILES.map((name) => resolvePath(dir, name)),
-  ),
-]
-
-/** The Node adapter: the only place `LspEnv`'s Effects/layers get built and run. `startLspServer` is its production caller; most `Lsp.test.ts` coverage exercises a fake `LspEnv` instead, but this is exported so the real wiring (real git/config/repo-files layers) gets exercised against a real temp repo too. */
-export const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => {
-  // One entry per root: the resolved `{def, steps, dependencyFiles}` plus the
-  // HEAD hash and config identity it was resolved under.
-  const stepsMemo = new Map<
+export const makeNodeLspEnv = (
+  gtd: readonly [string, ...string[]],
+  retryAfterMs = 5000,
+): LspEnv => {
+  const memo = new Map<
     string,
-    {
-      readonly headHash: string
-      readonly configIdentity: string
-      readonly result: ReachedSteeringSteps
-    }
+    { readonly head: string; readonly rest: Promise<CurrentRest>; failedAt?: number }
   >()
-
-  const headHashFor = (root: string): Promise<string> =>
-    runtimeFor(root)
-      .runPromise(Effect.flatMap(GitService, (git) => git.resolveRef("HEAD")))
-      .catch(() => "no-head")
-
-  /** `result.dependencyFiles` beyond `candidateConfigPaths(root)` — a genuine import elsewhere (e.g. a split workflow's sibling module), never `gtd.config.ts` or a leftover rc file, which the static set already names. */
-  const dynamicOnlyPaths = (root: string, result: ReachedSteeringSteps): readonly string[] => {
-    const staticSet = new Set(candidateConfigPaths(root))
-    return result.dependencyFiles.filter((path) => !staticSet.has(path))
-  }
-
-  // `documents.onDidOpen`/`onDidChangeContent` (async diagnostics) and a
-  // direct `documentSymbol`/`codeAction`/etc. request both call
-  // `steeringMapFor` for the SAME root on the SAME edit — often within the
-  // same tick. Two resolutions of one root's `gtd.config.ts` (plus whatever
-  // it imports) were observed to race each other under real concurrency: not
-  // just the stat-vs-read ordering above, but jiti itself returning one
-  // call's STALE import for a sibling module mid-edit while another
-  // concurrent call for the same path was in flight. Serializing every
-  // `steeringMapFor` call per root removes the possibility outright — at
-  // most one resolution for a root is ever in flight, so nothing concurrent
-  // is left to race against.
-  const queues = new Map<string, Promise<unknown>>()
-  const serialized = <T>(root: string, task: () => Promise<T>): Promise<T> => {
-    const settled = (queues.get(root) ?? Promise.resolve()).then(task, task)
-    queues.set(
-      root,
-      settled.then(
-        () => undefined,
-        () => undefined,
-      ),
-    )
-    return settled
-  }
-
   return {
-    cwd: liveHost.root,
+    cwd: process.cwd(),
 
-    steeringMapFor: (root) =>
-      serialized(root, async () => {
-        const headHash = await headHashFor(root)
-        const cached = stepsMemo.get(root)
-        const hit =
-          cached !== undefined &&
-          cached.headHash === headHash &&
-          identityOf([...candidateConfigPaths(root), ...dynamicOnlyPaths(root, cached.result)]) ===
-            cached.configIdentity
-        if (hit) {
-          const { map, warnings } = buildSteeringMap(cached.result.def, cached.result.steps, root)
-          for (const warning of warnings) warn(warning)
-          return map
-        }
-        // Every path already known to matter — static, or dynamic from the
-        // entry this call is about to replace — is stat'd BEFORE this
-        // resolution reads it, never after: stat-after-read lets a same-
-        // window edit pair the edit's NEW stat with the OLD, pre-edit
-        // result, and nothing later distinguishes that pairing from the
-        // truth — a hit stuck wrong forever. Stat-before-read can only pair
-        // an OLDER stat with a result that's already fresh, which the next
-        // check reads as "disk moved past this" and reloads once more —
-        // safe. A dependency no earlier resolution ever named has no
-        // "before" to stat from and is measured after this one, same as
-        // always — but from then on it too is "already known".
-        const staticPaths = candidateConfigPaths(root)
-        const knownDynamic = cached !== undefined ? dynamicOnlyPaths(root, cached.result) : []
-        const before = new Map(
-          [...staticPaths, ...knownDynamic].map((path) => [path, fingerprintOf(path)]),
-        )
-        const result = await runtimeFor(root).runPromise(reachedSteeringSteps)
-        const configIdentity = identityOf(
-          [...staticPaths, ...dynamicOnlyPaths(root, result)],
-          before,
-        )
-        stepsMemo.set(root, { headHash, configIdentity, result })
-        const { map, warnings } = buildSteeringMap(result.def, result.steps, root)
-        for (const warning of warnings) warn(warning)
-        return map
-      }),
+    // `--show-cdup`, not `--show-toplevel`: the root keeps `dir`'s own spelling
+    // (no symlink resolution), so the URIs built from it match the editor's.
+    gitTopLevel: async (dir) =>
+      resolvePath(dir, (await run("git", ["rev-parse", "--show-cdup"], dir)).trim()),
 
-    gitTopLevel: (dir) =>
-      runtimeFor(dir).runPromise(Effect.flatMap(GitService, (git) => git.topLevel())),
-
-    currentSteeringFile: (root) => runtimeFor(root).runPromise(resolveSteeringFile),
+    currentRest: async (root) => {
+      const head = await run("git", ["rev-parse", "HEAD"], root).then(
+        (out) => out.trim(),
+        () => "no-head",
+      )
+      const cached = memo.get(root)
+      // A failure is replayed for a while, not forever: most (no commits, a
+      // broken gtd.config.ts) persist, so retrying per request would spawn gtd on
+      // every keystroke, yet a config fix must still take effect without a commit.
+      if (
+        cached?.head === head &&
+        (cached.failedAt === undefined || Date.now() - cached.failedAt < retryAfterMs)
+      ) {
+        return cached.rest
+      }
+      const entry: { head: string; rest: Promise<CurrentRest>; failedAt?: number } = {
+        head,
+        rest: run(gtd[0], [...gtd.slice(1), "next", "--json"], root).then(parseCurrentRest),
+      }
+      memo.set(root, entry)
+      entry.rest.catch(() => {
+        entry.failedAt = Date.now()
+      })
+      return entry.rest
+    },
   }
 }
 
@@ -840,12 +595,14 @@ export const makeNodeLspEnv = (warn: (message: string) => void): LspEnv => {
  * the client disconnects (`exit` notification), so the process exits cleanly
  * rather than blocking forever.
  */
-export const startLspServer = (): Effect.Effect<void, Error> =>
+export const startLspServer = (options: {
+  readonly gtd: readonly [string, ...string[]]
+}): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
     const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout)
     const documents = new TextDocuments(TextDocument)
     const warn = (message: string): void => connection.console.warn(`gtd lsp: ${message}`)
-    const service = makeSteeringLanguageService(makeNodeLspEnv(warn), warn)
+    const service = makeSteeringLanguageService(makeNodeLspEnv(options.gtd), warn)
 
     bindSteeringServer(connection, documents, service)
 
