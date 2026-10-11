@@ -55,6 +55,43 @@ describe("the commit-message codec", () => {
     expect(parseCommitMessage(one).vars).toEqual({ a: "1", b: "2", c: "" })
   })
 
+  it("writes Gtd-Config trailers sorted by path, after Gtd-Var, and reads paths with spaces back", () => {
+    const message = formatCommitMessage({
+      actor: "human",
+      to: "x",
+      vars: { a: "1" },
+      config: { "lib/my flow.ts": "0123456789abcdef", "gtd.config.ts": "deadbeefdeadbeef" },
+    })
+    expect(message).toBe(
+      "gtd(human): x\n\nGtd-Var: a=1\nGtd-Config: deadbeefdeadbeef gtd.config.ts\nGtd-Config: 0123456789abcdef lib/my flow.ts\nGtd-Format: 1",
+    )
+    expect(parseCommitMessage(message).config).toEqual({
+      "gtd.config.ts": "deadbeefdeadbeef",
+      "lib/my flow.ts": "0123456789abcdef",
+    })
+  })
+
+  it("round-trips a Gtd-Config path that git or the trailer syntax would alter", () => {
+    const config = {
+      " lead.ts": "0123456789abcdef",
+      "trail.ts ": "0123456789abcdef",
+      '"q.ts': "0123456789abcdef",
+    }
+    const message = formatCommitMessage({ actor: "human", to: "x", config })
+    expect(message).toContain('Gtd-Config: 0123456789abcdef " lead.ts"')
+    expect(parseCommitMessage(message).config).toEqual(config)
+  })
+
+  it("ignores a Gtd-Config trailer without a 16-digit hex hash, without a path, or with a control character in its path", () => {
+    const read = (value: string) =>
+      parseCommitMessage(`gtd(human): x\n\nGtd-Config: ${value}`).config
+    expect(read("zzzzzzzzzzzzzzzz gtd.config.ts")).toEqual({})
+    expect(read("deadbeef gtd.config.ts")).toEqual({})
+    expect(read("deadbeefdeadbeef")).toEqual({})
+    expect(read("deadbeefdeadbeef a\x1b]0;x\x07.ts")).toEqual({})
+    expect(read('deadbeefdeadbeef "a\\u001b.ts"')).toEqual({})
+  })
+
   it("writes Gtd-Format last on every message, even one with no other trailer", () => {
     const message = formatCommitMessage({ actor: "agent", to: "building" })
     expect(message).toBe("gtd(agent): building\n\nGtd-Format: 1")

@@ -149,9 +149,9 @@ The step name is the `<to>` in the commit subject the landing writes,
 `Gtd-Step: <name>#<n>` trailer (`<n>` counts how often that name was reached in
 the episode). Other trailers a landing may carry: `Gtd-Judge:` (one per answered
 judge question), `Gtd-Var:` (a process setting), `Gtd-Cost:` (a
-`gtd land --cost`), and `Gtd-Review-Base:` (a workflow's fixed diff base). Every
-commit gtd writes also carries `Gtd-Format:` (see
-[History format](#history-format)).
+`gtd land --cost`), `Gtd-Review-Base:` (a workflow's fixed diff base), and
+`Gtd-Config:` (see [Config purity](#config-purity)). Every commit gtd writes
+also carries `Gtd-Format:` (see [History format](#history-format)).
 
 ### Step options
 
@@ -588,11 +588,51 @@ divergence. Run a gtd release that reads that format to continue the process. A
 commit gtd did not write (its subject does not start with `gtd`) is never read
 for a format.
 
+### Config purity
+
+`gtd.config.ts` and every module it imports are evaluated again on every gtd
+command, and the workflows they build decide how the process's history replays.
+Code that reads anything but its own source can replay the same history
+differently on two machines, or on the same machine an hour later. So the whole
+config — its top level, its imports, and the flows it exports — is pure:
+
+- **No environment reads**: no `process.env`. A value that differs per machine
+  is a setting: declare it in `envDefaults` and read it as `env`, which
+  `GTD_<NAME>` overrides.
+- **No clock**: no `Date.now()`, `new Date()`, timers or randomness.
+- **No network**: no `fetch`, sockets or child processes.
+- **No file reads beyond imports**: no `fs`; the repository's files reach a flow
+  through the [helpers](#helpers).
+
+A `run()` body is exempt — it runs once, and what it leaves is committed. gtd
+does not detect an impure config.
+
+What gtd does detect is a config that **changed** while a process runs. The
+landing that starts a process records a `Gtd-Config: <hash> <path>` trailer for
+`gtd.config.ts` and for every local TypeScript or JavaScript module it imports
+(`.json` and `.cjs` imports are not recorded). Paths are relative to the
+repository root, and JSON-quoted when they begin or end with whitespace; the
+hash is the first 16 hex digits of the file's SHA-256. Every later command
+compares those with the files on disk, and on a difference warns on stderr,
+naming the changed files:
+
+```
+gtd: warning: the config changed since this process started (lib/flow.ts) — the rest of the process replays under the changed config
+```
+
+A file that matches its copy in the commit that started the process counts as
+unchanged, so a pre-commit hook reformatting the config does not warn.
+
+It is a warning, not an error: fixing a config mid-process is legitimate. It
+repeats on every command until the process ends. A process started before
+`Gtd-Config:` existed carries no trailer and is never warned about.
+
 ### Rules for flow code
 
 Flow code is re-run on every gtd command, replaying the process's history, so it
-must reach the same steps every time it sees the same history. A `run()` body
-and code at the module's top level are exempt — they may do anything.
+must reach the same steps every time it sees the same history. A `run()` body is
+exempt — it may do anything. Everything else follows
+[Config purity](#config-purity).
 
 - **No IO or nondeterminism**: no clock, randomness, environment, network or
   filesystem access in flow code. Read the tree through the helpers; do IO
@@ -1269,5 +1309,6 @@ file and exits **1**. Move each key, then delete the file:
 A `.gtdrc` in a directory above several checkouts (a worktree parent) has no
 counterpart: each repository's `gtd.config.ts` carries its own settings, and
 machine-wide ones go in `GTD_<NAME>` or `judge.json`. `$NAME` interpolation is
-gone too — read `process.env` in `gtd.config.ts` instead. `gtd init`, which only
-wrote a `.gtdrc.json`, is removed: `gtd install` scaffolds `gtd.config.ts`.
+gone too — declare a per-machine value in `envDefaults` and override it with
+`GTD_<NAME>` (see [Config purity](#config-purity)). `gtd init`, which only wrote
+a `.gtdrc.json`, is removed: `gtd install` scaffolds `gtd.config.ts`.
