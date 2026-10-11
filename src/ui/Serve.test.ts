@@ -79,7 +79,7 @@ describe("parseServeStatus", () => {
 })
 
 describe("publishServe", () => {
-  it("runs tailscale serve --bg through CommandRunner with the expected flags", async () => {
+  it("runs tailscale serve --bg through UiShell with the expected flags", async () => {
     const commands: string[] = []
     const runner = UiShell.layer((command) => {
       commands.push(command)
@@ -113,7 +113,7 @@ describe("publishServe", () => {
 })
 
 describe("unpublishServe", () => {
-  it("runs tailscale serve --https=<port> off through CommandRunner", async () => {
+  it("runs tailscale serve --https=<port> off through UiShell", async () => {
     const commands: string[] = []
     const runner = UiShell.layer((command) => {
       commands.push(command)

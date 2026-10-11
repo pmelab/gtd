@@ -116,7 +116,7 @@ describe("parseTailscaleStatus", () => {
 })
 
 describe("probeTailscaleStatus", () => {
-  it("runs `tailscale status --json` through CommandRunner", async () => {
+  it("runs `tailscale status --json` through UiShell", async () => {
     const commands: string[] = []
     const runner = UiShell.layer((command) => {
       commands.push(command)

@@ -145,7 +145,7 @@ describe("generateSelfSignedCert", () => {
     // `shellQuote` stops the SHELL from ever seeing a real `/`, but
     // openssl's `-subj "/CN=..."` itself reads `/`-separated `key=value`
     // pairs, so a host containing `/` (or `=`) still confuses openssl's OWN
-    // parser. Real openssl, no fake CommandRunner — this must fail with a
+    // parser. Real openssl, no fake UiShell — this must fail with a
     // UiError, not hang, not throw uncaught, and never execute anything.
     const thrown = await Effect.runPromise(
       generateSelfSignedCert({ host: "exa/mple.local" }).pipe(
@@ -285,7 +285,7 @@ describe("loadCertPair", () => {
     writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
-    // No CommandRunner is provided at all — loadCertPair's own type never
+    // No UiShell is provided at all — loadCertPair's own type never
     // requires it, so it structurally cannot shell out to openssl.
     const pair = await Effect.runPromise(
       loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeContext.layer)),

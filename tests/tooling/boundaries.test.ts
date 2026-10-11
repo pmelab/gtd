@@ -301,3 +301,34 @@ describe("spec 07: src/flows/ imports nothing and its tests reach no other src/"
     ])
   })
 })
+
+describe("spec 08: ui talks like a driver, web sees ui types only", () => {
+  it("flags ui production imports outside ui/wire/steering and value imports from web into ui", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boundaries-spec08-"))
+    for (const folder of ["ui", "web", "wire", "steering", "platform"]) {
+      mkdirSync(join(dir, "src", folder), { recursive: true })
+    }
+    writeFileSync(join(dir, "tsconfig.json"), FIXTURE_TSCONFIG)
+    const files: Record<string, string> = {
+      "src/wire/index.ts": `export const wire = 1\n`,
+      "src/steering/index.ts": `export const steering = 1\n`,
+      "src/platform/index.ts": `export const platform = 1\n`,
+      "src/ui/index.ts": `export const ui = 1\nexport type Router = { ui: number }\n`,
+      "src/ui/Server.ts": `import { wire } from "../wire/index.js"\nimport { steering } from "../steering/index.js"\nimport { platform } from "../platform/index.js"\nimport { ui } from "./index.js"\nvoid wire\nvoid steering\nvoid platform\nvoid ui\n`,
+      "src/ui/Server.test.ts": `import { platform } from "../platform/index.js"\nvoid platform\n`,
+      "src/web/api.ts": `import type { Router } from "../ui/index.js"\nexport type R = Router\n`,
+      "src/web/App.tsx": `import { ui } from "../ui/index.js"\nvoid ui\n`,
+    }
+    for (const [path, content] of Object.entries(files)) writeFileSync(join(dir, path), content)
+
+    const violations = cruise(dir, join(REPO_ROOT, ".dependency-cruiser.mjs"))
+    const byRule = (rule: string) =>
+      violations
+        .filter((v) => v.rules.includes(rule))
+        .map((v) => `${v.from} -> ${v.to}`)
+        .toSorted()
+
+    expect(byRule("ui-talks-like-a-driver")).toEqual(["src/ui/Server.ts -> src/platform/index.ts"])
+    expect(byRule("web-sees-ui-types-only")).toEqual(["src/web/App.tsx -> src/ui/index.ts"])
+  })
+})

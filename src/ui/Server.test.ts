@@ -84,7 +84,7 @@ const tailnetAddress = (address: string): void => {
 }
 
 import { Host } from "../platform/index.js"
-import { UiError, UiRoot, UiShell, UiUsageError } from "./index.js"
+import { UiError, UiShell, UiUsageError } from "./index.js"
 import { liveUiShell } from "./Ports.fixture.js"
 import type { UiConfig } from "../workflow/index.js"
 import type { RunInWorktree } from "./Beat.js"
@@ -260,7 +260,7 @@ describe("resolveCertPair", () => {
         undefined,
       ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
     )
-    // The fake CommandRunner fails every call — reaching its error proves
+    // The fake UiShell fails every call — reaching its error proves
     // the self-signed path (not loadCertPair) was taken.
     expect(thrown.message).toContain("UiShell unexpectedly invoked")
   })
@@ -643,7 +643,7 @@ describe("resolveClientHtml", () => {
     expect(html.match(/<\/script>/g)?.length).toBe(1)
   })
 
-  it("under --dev, rebuilds the client via CommandRunner and reads both files fresh off disk", async () => {
+  it("under --dev, rebuilds the client via UiShell and reads both files fresh off disk", async () => {
     const readCalls: string[] = []
     const devFs = FileSystem.makeNoop({
       readFileString: (path: string) => {
@@ -767,11 +767,11 @@ describe("runUiCommand", () => {
         { selfSigned: false, dev: false },
         { host: "100.90.1.2", cert: certPath, key: keyPath },
         out,
+        tmpDir,
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -806,11 +806,11 @@ describe("runUiCommand", () => {
         { host: "100.64.0.1", selfSigned: false, dev: false },
         { cert: certPath, key: keyPath },
         out,
+        tmpDir,
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -843,11 +843,11 @@ describe("runUiCommand", () => {
         { host: "100.64.0.1", port: 0, selfSigned: false, dev: false },
         { cert: certPath, key: keyPath },
         out,
+        tmpDir,
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -880,11 +880,11 @@ describe("runUiCommand", () => {
         { host: "100.64.0.1", selfSigned: false, dev: false },
         { port: 0, cert: certPath, key: keyPath },
         out,
+        tmpDir,
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -953,11 +953,11 @@ describe("runUiCommand", () => {
           { selfSigned: false, dev: false, port: happyPathPort },
           { cert: certPath, key: keyPath },
           out,
+          tmpDir,
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1041,11 +1041,10 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ selfSigned: false, dev: false }, undefined, out).pipe(
+        runUiCommand({ selfSigned: false, dev: false }, undefined, out, tmpDir).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1095,11 +1094,10 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ selfSigned: false, dev: false }, undefined, out).pipe(
+        runUiCommand({ selfSigned: false, dev: false }, undefined, out, tmpDir).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1144,11 +1142,15 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+        runUiCommand(
+          { selfSigned: false, dev: false },
+          { cert: certPath, key: keyPath },
+          out,
+          tmpDir,
+        ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1186,11 +1188,15 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+        runUiCommand(
+          { selfSigned: false, dev: false },
+          { cert: certPath, key: keyPath },
+          out,
+          tmpDir,
+        ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1254,11 +1260,15 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+        runUiCommand(
+          { selfSigned: false, dev: false },
+          { cert: certPath, key: keyPath },
+          out,
+          tmpDir,
+        ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1321,11 +1331,11 @@ describe("runUiCommand", () => {
           { selfSigned: false, dev: false, port: explicitPort },
           { cert: certPath, key: keyPath },
           out,
+          tmpDir,
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1381,11 +1391,10 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ port: 0, selfSigned: false, dev: false }, undefined, out).pipe(
+        runUiCommand({ port: 0, selfSigned: false, dev: false }, undefined, out, tmpDir).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1435,11 +1444,10 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ selfSigned: false, dev: false }, { port: 0 }, out).pipe(
+        runUiCommand({ selfSigned: false, dev: false }, { port: 0 }, out, tmpDir).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1478,11 +1486,15 @@ describe("runUiCommand", () => {
     )
 
     const fiber = Effect.runFork(
-      runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+      runUiCommand(
+        { selfSigned: false, dev: false },
+        { cert: certPath, key: keyPath },
+        out,
+        tmpDir,
+      ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1495,7 +1507,7 @@ describe("runUiCommand", () => {
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
-  it("skips the Tailscale probe entirely when --host is given explicitly — CommandRunner is never invoked", async () => {
+  it("skips the Tailscale probe entirely when --host is given explicitly — UiShell is never invoked", async () => {
     initGitRepo(tmpDir)
     installFakeGtd(tmpDir, renderablePromptJson)
     const { out, written } = fakeOut()
@@ -1513,11 +1525,11 @@ describe("runUiCommand", () => {
         { selfSigned: false, dev: false, host: "1.2.3.4" },
         { cert: certPath, key: keyPath },
         out,
+        tmpDir,
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1558,11 +1570,10 @@ describe("runUiCommand", () => {
     })
 
     const fiber = Effect.runFork(
-      runUiCommand({ selfSigned: true, dev: false }, undefined, out).pipe(
+      runUiCommand({ selfSigned: true, dev: false }, undefined, out, tmpDir).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1587,7 +1598,7 @@ describe("runUiCommand", () => {
       listen: () => Effect.succeed({ port: 4443, close: () => {} }),
     })
     // A configured ui.cert/ui.key so the FALLBACK's own certificate
-    // resolution needs no further CommandRunner call of its own — isolating
+    // resolution needs no further UiShell call of its own — isolating
     // this test to the one thing under test, the publish failure itself.
     const runner = UiShell.layer((command) => {
       if (command === "tailscale status --json") {
@@ -1608,11 +1619,15 @@ describe("runUiCommand", () => {
     })
 
     const fiber = Effect.runFork(
-      runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+      runUiCommand(
+        { selfSigned: false, dev: false },
+        { cert: certPath, key: keyPath },
+        out,
+        tmpDir,
+      ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1665,11 +1680,15 @@ describe("runUiCommand", () => {
     })
 
     const fiber = Effect.runFork(
-      runUiCommand({ selfSigned: false, dev: false }, { cert: certPath, key: keyPath }, out).pipe(
+      runUiCommand(
+        { selfSigned: false, dev: false },
+        { cert: certPath, key: keyPath },
+        out,
+        tmpDir,
+      ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1739,11 +1758,11 @@ describe("runUiCommand", () => {
           { selfSigned: false, dev: false, port: orphanPort },
           { cert: certPath, key: keyPath },
           out,
+          tmpDir,
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1806,11 +1825,11 @@ describe("runUiCommand", () => {
           { selfSigned: false, dev: false, port: orphanPort },
           { cert: certPath, key: keyPath },
           out,
+          tmpDir,
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1864,11 +1883,11 @@ describe("runUiCommand", () => {
           { selfSigned: false, dev: false, port: orphanPort },
           { cert: certPath, key: keyPath },
           out,
+          tmpDir,
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1917,11 +1936,15 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ selfSigned: false, dev: false, port: orphanPort }, undefined, out).pipe(
+        runUiCommand(
+          { selfSigned: false, dev: false, port: orphanPort },
+          undefined,
+          out,
+          tmpDir,
+        ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1985,11 +2008,15 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ selfSigned: false, dev: false, port: orphanPort }, undefined, out).pipe(
+        runUiCommand(
+          { selfSigned: false, dev: false, port: orphanPort },
+          undefined,
+          out,
+          tmpDir,
+        ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -2043,11 +2070,15 @@ describe("runUiCommand", () => {
       })
 
       const fiber = Effect.runFork(
-        runUiCommand({ selfSigned: false, dev: false, port: orphanPort }, undefined, out).pipe(
+        runUiCommand(
+          { selfSigned: false, dev: false, port: orphanPort },
+          undefined,
+          out,
+          tmpDir,
+        ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -2100,11 +2131,11 @@ describe("runUiCommand", () => {
         { selfSigned: false, dev: true },
         { host: "100.90.1.2", cert: certPath, key: keyPath },
         out,
+        tmpDir,
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provideService(FileSystem.FileSystem, devFs),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -2149,12 +2180,11 @@ describe("runUiCommand", () => {
     })
 
     const exit = await Effect.runPromiseExit(
-      runUiCommand({ selfSigned: false, dev: false }, undefined, out).pipe(
+      runUiCommand({ selfSigned: false, dev: false }, undefined, out, tmpDir).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
         Effect.provideService(FileSystem.FileSystem, FileSystem.makeNoop({} as never)),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -2180,11 +2210,11 @@ describe("runUiCommand", () => {
         { host: "100.64.0.1", port: 4443, selfSigned: false, dev: false },
         { cert: certPath, key: keyPath },
         out,
+        tmpDir,
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -2239,11 +2269,11 @@ describe("runUiCommand", () => {
           { selfSigned: false, dev: false },
           { host: "100.90.1.2", cert: certPath, key: keyPath },
           out,
+          tmpDir,
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(noShell),
           Effect.provide(NodeContext.layer),
-          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
       for (let i = 0; i < 400; i += 1) {
@@ -2421,11 +2451,11 @@ const startRealServer = async (
       { selfSigned: false, dev: false, port: 0 },
       { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0, ...(format ? { format } : {}) },
       out,
+      dir,
     ).pipe(
       Effect.provide(UiListener.Live),
       Effect.provide(noShell),
       Effect.provide(NodeContext.layer),
-      Effect.provide(UiRoot.layer(dir)),
     ),
   )
 
