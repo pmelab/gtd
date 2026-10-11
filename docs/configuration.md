@@ -108,8 +108,11 @@ non-function export. **A helper you export is a workflow too**, startable by
 name — keep helpers un-exported, or export them from another module you import.
 
 gtd resolves `@pmelab/gtd/flows` and `@pmelab/gtd/workflows` itself, to its own
-copy, so a `gtd.config.ts` needs no `package.json` or install. Add `@pmelab/gtd`
-as a dev dependency only if you want editor type-checking for it.
+copy, so a repository — JavaScript or not (Python, Rust, notes) — needs no
+`package.json`, `node_modules` or install: a root `gtd.config.ts` is all it
+takes. The workflows a config imports are always the running gtd's, so pinning
+the gtd version pins them. Add `@pmelab/gtd` as a dev dependency only if you
+want editor type-checking for it.
 
 A direct `@pmelab/gtd/flows` import in `gtd.config.ts` always gets the engine's
 own copy, so it cannot mismatch; a dev-dependency pin only feeds editor
