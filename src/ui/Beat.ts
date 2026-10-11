@@ -3,10 +3,6 @@ import { existsSync, readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { NodeContext } from "@effect/platform-node"
-import { Effect } from "effect"
-import { GitService, Host, Workspace, worktreeGitDir } from "../platform/index.js"
-import type { Actor } from "../workflow/index.js"
 
 /**
  * Finds this checkout's own `package.json` by walking UP from this module's
@@ -69,7 +65,7 @@ export interface Step {
   /** The rest's own machine identity, straight off the beat's `state` field — stable across a workflow edit that rewords `label`, unlike `label` itself. */
   readonly state: string
   readonly kind: StepKind
-  readonly actor: Actor
+  readonly actor: string
   readonly idle: boolean
   readonly rest: string
   /** The beat-reported steering file's path, relative to `path` — `undefined` when this rest has no steering file (a `script`/`stalled` rest, typically). The phone's own `readSteeringFile`/`writeNote`/`done` calls all need this alongside `mode`. */
@@ -339,25 +335,28 @@ const commonGitDir = async (gitDir: string): Promise<string> => {
   }
 }
 
+const GITDIR_POINTER = /^gitdir:\s*(.+)$/m
+
+/** `<path>/.git` itself, or the directory a linked worktree's `.git` file points at. */
+const worktreeGitDir = async (path: string): Promise<string> => {
+  const dotGit = join(path, ".git")
+  const content = await readFile(dotGit, "utf8").catch(() => undefined)
+  const pointer = content === undefined ? null : GITDIR_POINTER.exec(content)
+  if (pointer === null) return dotGit
+  const gitdir = pointer[1]!.trim()
+  return isAbsolute(gitdir) ? gitdir : join(path, gitdir)
+}
+
 /**
- * HEAD's sha, filesystem-only — reuses `WorktreeState.ts`'s `worktreeGitDir`
- * (via a one-off `Host` layer bound to `path`) for the `.git` resolution,
- * then follows `HEAD` itself: either a bare 40-hex sha (detached), or a
- * `ref: refs/heads/x` line resolved against the loose ref file or
- * `packed-refs` — both resolved through `commonGitDir`, never against the
- * per-worktree `gitDir` directly, since a linked worktree's own gitdir has
- * neither. Returns `undefined` on any read failure.
+ * HEAD's sha, filesystem-only — follows `HEAD` itself: either a bare 40-hex
+ * sha (detached), or a `ref: refs/heads/x` line resolved against the loose
+ * ref file or `packed-refs` — both resolved through `commonGitDir`, never
+ * against the per-worktree `gitDir` directly, since a linked worktree's own
+ * gitdir has neither. Returns `undefined` on any read failure.
  */
 export const liveHeadSha = async (path: string): Promise<string | undefined> => {
   try {
-    const gitDir = await Effect.runPromise(
-      worktreeGitDir.pipe(
-        Effect.provide(Workspace.Live),
-        Effect.provide(GitService.Live),
-        Effect.provide(Host.layer({ root: path, home: path, env: process.env })),
-        Effect.provide(NodeContext.layer),
-      ),
-    )
+    const gitDir = await worktreeGitDir(path)
     const head = (await readFile(join(gitDir, "HEAD"), "utf8")).trim()
     if (/^[0-9a-f]{40}$/.test(head)) return head
     const refMatch = /^ref:\s*(.+)$/.exec(head)

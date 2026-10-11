@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
-import { CommandRunner } from "../platform/index.js"
-import { shellQuote } from "../emit/index.js"
+import { UiShell } from "./Ports.js"
+import { shellQuote } from "./Quote.js"
 
 /** What `parseServeStatus` publishes for a mapping found on the requested port: the tailnet hostname `tailscale serve` bound it to, and the loopback URL it forwards to. */
 export interface ServeMapping {
@@ -62,14 +62,14 @@ export type PublishServeResult =
 /**
  * Publishes a loopback target on `servePort` via `tailscale serve --bg`,
  * exactly the shape `probeTailscaleStatus`/`obtainTailscaleCert` already use
- * `CommandRunner.bash` for — no new port. `--set-path=/` matches this
+ * `UiShell.bash` for — no new port. `--set-path=/` matches this
  * package's one-mapping-per-instance design (`01-tailscale-serve-front-door.md`).
  */
 export const publishServe = (
   request: PublishServeRequest,
-): Effect.Effect<PublishServeResult, Error, CommandRunner> =>
+): Effect.Effect<PublishServeResult, Error, UiShell> =>
   Effect.gen(function* () {
-    const runner = yield* CommandRunner
+    const runner = yield* UiShell
     const target = `http://127.0.0.1:${request.targetPort}`
     const command = [
       "tailscale serve --bg",
@@ -95,9 +95,9 @@ export const publishServe = (
  */
 export const unpublishServe = (
   servePort: number,
-): Effect.Effect<PublishServeResult, Error, CommandRunner> =>
+): Effect.Effect<PublishServeResult, Error, UiShell> =>
   Effect.gen(function* () {
-    const runner = yield* CommandRunner
+    const runner = yield* UiShell
     const outcome = yield* runner.bash(`tailscale serve --https=${servePort} off`)
     if (outcome.status !== 0) {
       return {

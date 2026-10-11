@@ -3,10 +3,10 @@ import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { type Plugin } from "vitest/config"
 
-const GENERATED_HTML = resolve(import.meta.dirname, "..", "src/web/generated.html")
+const GENERATED_HTML = resolve(import.meta.dirname, "..", "src/ui/client.generated.html")
 
 /**
- * `src/ui/Server.ts` imports `../web/generated.html` — gitignored,
+ * `src/ui/Server.ts` imports `./client.generated.html` — gitignored,
  * produced only by `npm run build`'s browser step + inline script. Turbo's
  * `test:unit`/`test:e2e:inmem`/`test:e2e:live` tasks all declare
  * `dependsOn: ["build"]` so that import always resolves under `npm test`
@@ -26,7 +26,7 @@ export const ensureWebClient = (): Plugin => {
   return {
     name: "ensure-web-client",
     resolveId(source) {
-      if (ensured || !source.endsWith("web/generated.html")) return null
+      if (ensured || !source.endsWith("ui/client.generated.html")) return null
       ensured = true
       if (!existsSync(GENERATED_HTML)) {
         execSync("npx tsdown --filter web && node scripts/inline-web-client.mjs", {

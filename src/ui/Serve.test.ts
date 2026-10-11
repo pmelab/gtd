@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
-import { CommandRunner } from "../platform/index.js"
+import { UiShell } from "./index.js"
 import {
   deleteServeRecord,
   parseServeStatus,
@@ -81,7 +81,7 @@ describe("parseServeStatus", () => {
 describe("publishServe", () => {
   it("runs tailscale serve --bg through CommandRunner with the expected flags", async () => {
     const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       commands.push(command)
       return Effect.succeed({ status: 0, output: "" })
     })
@@ -95,7 +95,7 @@ describe("publishServe", () => {
   })
 
   it("yields ok: false with the reason and verbatim stderr, never a failed Effect, on a non-zero exit", async () => {
-    const runner = CommandRunner.layer(() =>
+    const runner = UiShell.layer(() =>
       Effect.succeed({
         status: 1,
         output: "starting serve\ntailscale serve: no tailnet HTTPS certs available\n",
@@ -115,7 +115,7 @@ describe("publishServe", () => {
 describe("unpublishServe", () => {
   it("runs tailscale serve --https=<port> off through CommandRunner", async () => {
     const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       commands.push(command)
       return Effect.succeed({ status: 0, output: "" })
     })
@@ -125,7 +125,7 @@ describe("unpublishServe", () => {
   })
 
   it("yields ok: false, never a failed Effect, on a non-zero exit", async () => {
-    const runner = CommandRunner.layer(() =>
+    const runner = UiShell.layer(() =>
       Effect.succeed({ status: 1, output: "", stderr: "no mapping on that port" }),
     )
     const result = await Effect.runPromise(unpublishServe(443).pipe(Effect.provide(runner)))

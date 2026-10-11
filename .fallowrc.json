@@ -42,10 +42,10 @@
   // package.json's build script) — there is no src/web/main.css for fallow to
   // resolve, by design (same reason dist/web/main.js is never a source file
   // either).
-  // Same for src/ui/Server.ts's `import ... from "../web/generated.html"`: that
+  // Same for src/ui/Server.ts's `import ... from "./client.generated.html"`: that
   // file is written by scripts/inline-web-client.mjs during `build` and is
   // gitignored, so it is absent on a fresh checkout when `analyze` runs.
-  "ignoreUnresolvedImports": ["**/main.css", "**/generated.html"],
+  "ignoreUnresolvedImports": ["**/main.css", "**/client.generated.html"],
   // jiti is a peer requirement of eslint's TypeScript config loader, not a direct import.
   // Stryker packages are CLI tools invoked via npx/scripts, not imported in TypeScript source.
   // promptfoo is spawned as a CLI binary from evals/eval.mjs's own child_process call, never
@@ -53,7 +53,7 @@
   // @earendil-works/pi-coding-agent is spawned the same way from evals/run-turn.mjs.
   // react/react-dom/@tanstack/react-query/@trpc/client/@trpc/react-query are imported from
   // production `src/web/**` source but deliberately stay `devDependencies`, never
-  // `dependencies` — they're inlined into `src/web/generated.html` at BUILD time
+  // `dependencies` — they're inlined into `src/ui/client.generated.html` at BUILD time
   // (`tsdown.config.ts`'s `web` bundle) and never required unbundled at runtime.
   // `tests/tooling/turbo.test.ts`'s own "keeps browser-only web-client packages out of
   // dependencies" test pins this the other way from fallow's own default heuristic.

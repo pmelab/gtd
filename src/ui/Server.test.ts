@@ -83,7 +83,9 @@ const tailnetAddress = (address: string): void => {
   }
 }
 
-import { GtdError, GtdUsageError, CommandRunner, Host } from "../platform/index.js"
+import { Host } from "../platform/index.js"
+import { UiError, UiRoot, UiShell, UiUsageError } from "./index.js"
+import { liveUiShell } from "./Ports.fixture.js"
 import type { UiConfig } from "../workflow/index.js"
 import type { RunInWorktree } from "./Beat.js"
 import {
@@ -109,9 +111,7 @@ afterEach(() => {
   for (const dir of gitDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-const noCommandRunner = CommandRunner.layer(() =>
-  Effect.fail(new Error("CommandRunner unexpectedly invoked")),
-)
+const noShell = UiShell.layer(() => Effect.fail(new Error("UiShell unexpectedly invoked")))
 
 /**
  * A real, minimal git repo at `dir` — every `runUiCommand` call reads the
@@ -238,11 +238,11 @@ describe("resolveBindHost", () => {
     expect(Exit.isFailure(exit)).toBe(true)
   })
 
-  it("refuses with a GtdError naming both remedies when no host resolves at all", async () => {
+  it("refuses with a UiError naming both remedies when no host resolves at all", async () => {
     const thrown = await Effect.runPromise(
       resolveBindHost(undefined, undefined, () => undefined).pipe(Effect.flip),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message + thrown.detail.join("\n")).toContain("--host")
     expect(thrown.message + thrown.detail.join("\n")).toMatch(/tailnet|Tailscale/)
   })
@@ -258,11 +258,11 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
+      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
     )
     // The fake CommandRunner fails every call — reaching its error proves
     // the self-signed path (not loadCertPair) was taken.
-    expect(thrown.message).toContain("CommandRunner unexpectedly invoked")
+    expect(thrown.message).toContain("UiShell unexpectedly invoked")
   })
 
   it("with a hostname --host (not an IP literal), passes no IP: literal to openssl — only DNS", async () => {
@@ -270,7 +270,7 @@ describe("resolveCertPair", () => {
     // outright; a hostname `--host` (e.g. "localhost") must not be handed
     // to Tls.ts's `ip` field, only to `host` (DNS).
     const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       commands.push(command)
       return Effect.succeed({ status: 0, output: "" })
     })
@@ -294,7 +294,7 @@ describe("resolveCertPair", () => {
     // IP:<bind-ip>,DNS:<bind-ip> while the printed URL said
     // https://<tailnet-hostname>:.../ — a name mismatch on every load.
     const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       commands.push(command)
       return Effect.succeed({ status: 0, output: "" })
     })
@@ -329,13 +329,13 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer)),
+      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer)),
     )
     expect(pair.cert).toContain("BEGIN CERTIFICATE")
     expect(pair.key).toContain("BEGIN PRIVATE KEY")
   })
 
-  it("refuses with a GtdError naming both remedies when neither --self-signed nor a configured pair is given", async () => {
+  it("refuses with a UiError naming both remedies when neither --self-signed nor a configured pair is given", async () => {
     const thrown = await Effect.runPromise(
       resolveCertPair(
         { selfSigned: false, dev: false },
@@ -343,9 +343,9 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
+      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
     expect(rendered).toContain("--self-signed")
     expect(rendered).toMatch(/ui\.cert/)
@@ -359,9 +359,9 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
+      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
     expect(rendered).toContain("ui.key")
     expect(rendered).not.toContain("no certificate is configured")
@@ -375,9 +375,9 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
+      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
     expect(rendered).toContain("ui.cert")
     expect(rendered).not.toContain("no certificate is configured")
@@ -385,7 +385,7 @@ describe("resolveCertPair", () => {
 
   it("obtains a real tailscale cert for the probed hostname when neither --self-signed nor a configured pair is given, and certDomains is non-empty", async () => {
     const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       commands.push(command)
       const certMatch = command.match(/--cert-file '([^']+)'/)
       const keyMatch = command.match(/--key-file '([^']+)'/)
@@ -426,7 +426,7 @@ describe("resolveCertPair", () => {
       }),
     )
     const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       commands.push(command)
       const certMatch = command.match(/--cert-file '([^']+)'/)
       const keyMatch = command.match(/--key-file '([^']+)'/)
@@ -461,9 +461,9 @@ describe("resolveCertPair", () => {
       resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: [],
-      }).pipe(Effect.provide(noCommandRunner), Effect.provide(NodeContext.layer), Effect.flip),
+      }).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
     expect(rendered).toContain("--self-signed")
     expect(rendered).toMatch(/ui\.cert/)
@@ -471,7 +471,7 @@ describe("resolveCertPair", () => {
   })
 
   it("fails outright on a non-zero tailscale cert exit — no fallback to the refusal, no fallback to self-signed", async () => {
-    const runner = CommandRunner.layer(() =>
+    const runner = UiShell.layer(() =>
       Effect.succeed({ status: 1, output: "tailscale cert: rate limited\n" }),
     )
     const thrown = await Effect.runPromise(
@@ -480,7 +480,7 @@ describe("resolveCertPair", () => {
         certDomains: ["host.tailnet.ts.net"],
       }).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer), Effect.flip),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
     expect(rendered).not.toContain("no certificate is configured")
     expect(rendered).toContain("rate limited")
@@ -493,7 +493,7 @@ describe("UiListener.Live", () => {
   beforeEach(async () => {
     cert = await Effect.runPromise(
       generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
-        Effect.provide(CommandRunner.Live),
+        Effect.provide(liveUiShell),
         Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         Effect.provide(NodeContext.layer),
       ),
@@ -581,7 +581,7 @@ describe("UiListener.Live", () => {
     }
   })
 
-  it("refuses with a GtdError naming EADDRINUSE when the port is already bound", async () => {
+  it("refuses with a UiError naming EADDRINUSE when the port is already bound", async () => {
     const occupied = net.createServer()
     await new Promise<void>((resolve) => occupied.listen(0, "127.0.0.1", resolve))
     const address = occupied.address()
@@ -598,7 +598,7 @@ describe("UiListener.Live", () => {
     )
     occupied.close()
 
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message).toContain("already in use")
   })
 })
@@ -611,7 +611,7 @@ describe("resolveClientHtml", () => {
     const runner = { bash: () => Effect.fail(new Error("unexpectedly shelled out in production")) }
 
     const html = await Effect.runPromise(
-      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, GtdError>,
+      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, UiError>,
     )
     expect(html).toContain("<!doctype html>")
   })
@@ -623,7 +623,7 @@ describe("resolveClientHtml", () => {
     const runner = { bash: () => Effect.fail(new Error("unexpectedly shelled out in production")) }
 
     const html = await Effect.runPromise(
-      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, GtdError>,
+      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, UiError>,
     )
     const bareImports = [...html.matchAll(/^\s*import[^;]*\sfrom\s+["']([^"']+)["']/gm)]
       .map((m) => m[1])
@@ -638,7 +638,7 @@ describe("resolveClientHtml", () => {
     const runner = { bash: () => Effect.fail(new Error("unexpectedly shelled out in production")) }
 
     const html = await Effect.runPromise(
-      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, GtdError>,
+      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, UiError>,
     )
     expect(html.match(/<\/script>/g)?.length).toBe(1)
   })
@@ -664,7 +664,7 @@ describe("resolveClientHtml", () => {
     }
 
     const html = await Effect.runPromise(
-      resolveClientHtml(true, runner, devFs) as Effect.Effect<string, GtdError>,
+      resolveClientHtml(true, runner, devFs) as Effect.Effect<string, UiError>,
     )
     expect(bashCalls.some((c) => c.includes("tsdown"))).toBe(true)
     expect(readCalls.some((p) => p.endsWith("index.html"))).toBe(true)
@@ -695,7 +695,7 @@ describe("resolveClientHtml", () => {
     }
 
     const html = await Effect.runPromise(
-      resolveClientHtml(true, runner, devFs) as Effect.Effect<string, GtdError>,
+      resolveClientHtml(true, runner, devFs) as Effect.Effect<string, UiError>,
     )
     expect(bashCalls.some((c) => c.includes("tailwindcss"))).toBe(true)
     expect(html).not.toContain('href="./main.css"')
@@ -708,14 +708,14 @@ describe("the dark page shell", () => {
   // Package 01-dark-page-shell: components hardcode dark-surface colors and
   // expect a dark page under them — without a body background/text color the
   // page renders as broken paint (dark chips on white) rather than a theme.
-  it("the production bundle's generated.html carries a body background and text color", async () => {
+  it("the production bundle's client.generated.html carries a body background and text color", async () => {
     const explodingFs = FileSystem.makeNoop({
       readFileString: () => Effect.die(new Error("unexpectedly read from disk in production")),
     })
     const runner = { bash: () => Effect.fail(new Error("unexpectedly shelled out in production")) }
 
     const html = await Effect.runPromise(
-      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, GtdError>,
+      resolveClientHtml(false, runner, explodingFs) as Effect.Effect<string, UiError>,
     )
     expect(html).toMatch(/body\s*{[^}]*background/)
     expect(html).toMatch(/body\s*{[^}]*color(?!-scheme)/)
@@ -769,9 +769,9 @@ describe("runUiCommand", () => {
         out,
       ).pipe(
         Effect.provide(fakeUiListener),
-        Effect.provide(noCommandRunner),
+        Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -808,9 +808,9 @@ describe("runUiCommand", () => {
         out,
       ).pipe(
         Effect.provide(fakeUiListener),
-        Effect.provide(noCommandRunner),
+        Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -845,9 +845,9 @@ describe("runUiCommand", () => {
         out,
       ).pipe(
         Effect.provide(fakeUiListener),
-        Effect.provide(noCommandRunner),
+        Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -882,9 +882,9 @@ describe("runUiCommand", () => {
         out,
       ).pipe(
         Effect.provide(fakeUiListener),
-        Effect.provide(noCommandRunner),
+        Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -929,7 +929,7 @@ describe("runUiCommand", () => {
         },
       })
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -957,7 +957,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1007,7 +1007,7 @@ describe("runUiCommand", () => {
       const { out, written } = fakeOut()
 
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1045,7 +1045,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1068,7 +1068,7 @@ describe("runUiCommand", () => {
       const { out, written } = fakeOut()
 
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1099,7 +1099,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1122,7 +1122,7 @@ describe("runUiCommand", () => {
       tailnetAddress("100.90.1.2")
 
       let serveStatusCalls = 0
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         if (command === "tailscale status --json") {
           return Effect.succeed({
             status: 0,
@@ -1148,7 +1148,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1174,7 +1174,7 @@ describe("runUiCommand", () => {
       tailnetAddress("100.90.1.2")
 
       let statusCalls = 0
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         if (command === "tailscale status --json") {
           statusCalls += 1
           return Effect.succeed({ status: 0, output: JSON.stringify({ BackendState: "Stopped" }) })
@@ -1190,7 +1190,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1217,7 +1217,7 @@ describe("runUiCommand", () => {
       tailnetAddress("100.90.1.2")
 
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1258,7 +1258,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1286,7 +1286,7 @@ describe("runUiCommand", () => {
 
       const explicitPort = 19555
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1325,7 +1325,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1345,7 +1345,7 @@ describe("runUiCommand", () => {
       const { out, written } = fakeOut()
 
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1385,7 +1385,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1404,7 +1404,7 @@ describe("runUiCommand", () => {
       const { out, written } = fakeOut()
 
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1439,7 +1439,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1473,7 +1473,7 @@ describe("runUiCommand", () => {
     // The empty-probe case: BackendState isn't "Running", one of the three
     // ways `Tailscale.ts#parseTailscaleStatus` falls back to `undefined` —
     // `attemptServe` bails before ever touching a socket or a record file.
-    const runner = CommandRunner.layer(() =>
+    const runner = UiShell.layer(() =>
       Effect.succeed({ status: 0, output: JSON.stringify({ BackendState: "Stopped" }) }),
     )
 
@@ -1482,7 +1482,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1515,9 +1515,9 @@ describe("runUiCommand", () => {
         out,
       ).pipe(
         Effect.provide(fakeUiListener),
-        Effect.provide(noCommandRunner),
+        Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1544,7 +1544,7 @@ describe("runUiCommand", () => {
     // (mirroring `CommandRunner.Live`) rather than faked, letting
     // `generateSelfSignedCert` read back real PEM files afterward.
     const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       commands.push(command)
       if (command.startsWith("openssl")) {
         try {
@@ -1562,7 +1562,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1589,7 +1589,7 @@ describe("runUiCommand", () => {
     // A configured ui.cert/ui.key so the FALLBACK's own certificate
     // resolution needs no further CommandRunner call of its own — isolating
     // this test to the one thing under test, the publish failure itself.
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       if (command === "tailscale status --json") {
         return Effect.succeed({
           status: 0,
@@ -1612,7 +1612,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1644,10 +1644,10 @@ describe("runUiCommand", () => {
     const fakeUiListener = Layer.succeed(UiListener, {
       listen: ({ tls }) =>
         tls === undefined
-          ? Effect.fail(new GtdError("gtd ui: port 0 is already in use"))
+          ? Effect.fail(new UiError("gtd ui: port 0 is already in use"))
           : Effect.succeed({ port: 4443, close: () => {} }),
     })
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       if (command === "tailscale status --json") {
         return Effect.succeed({
           status: 0,
@@ -1669,7 +1669,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -1704,7 +1704,7 @@ describe("runUiCommand", () => {
       tailnetAddress("100.90.1.2")
 
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1743,7 +1743,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1767,7 +1767,7 @@ describe("runUiCommand", () => {
       tailnetAddress("100.90.1.2")
 
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1810,7 +1810,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1834,7 +1834,7 @@ describe("runUiCommand", () => {
       tailnetAddress("100.90.1.2")
 
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1868,7 +1868,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1895,7 +1895,7 @@ describe("runUiCommand", () => {
       })
 
       const commands: string[] = []
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1921,7 +1921,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -1952,7 +1952,7 @@ describe("runUiCommand", () => {
       // now points somewhere else, as if another process took the port over
       // while this one was up.
       let serveStatusCalls = 0
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -1989,7 +1989,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -2019,7 +2019,7 @@ describe("runUiCommand", () => {
       // proves nothing about whether the mapping is still ours, so teardown
       // must not delete the record on the strength of it.
       let serveStatusCalls = 0
-      const runner = CommandRunner.layer((command) => {
+      const runner = UiShell.layer((command) => {
         commands.push(command)
         if (command === "tailscale status --json") {
           return Effect.succeed({
@@ -2047,7 +2047,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
 
@@ -2074,7 +2074,7 @@ describe("runUiCommand", () => {
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
     const bashCalls: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       bashCalls.push(command)
       return Effect.succeed({ status: 0, output: "" })
     })
@@ -2104,7 +2104,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provideService(FileSystem.FileSystem, devFs),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -2151,10 +2151,10 @@ describe("runUiCommand", () => {
     const exit = await Effect.runPromiseExit(
       runUiCommand({ selfSigned: false, dev: false }, undefined, out).pipe(
         Effect.provide(fakeUiListener),
-        Effect.provide(noCommandRunner),
+        Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
         Effect.provideService(FileSystem.FileSystem, FileSystem.makeNoop({} as never)),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -2172,7 +2172,7 @@ describe("runUiCommand", () => {
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
     const fakeUiListener = Layer.succeed(UiListener, {
-      listen: ({ port }) => Effect.fail(new GtdError(`gtd ui: port ${port} is already in use`)),
+      listen: ({ port }) => Effect.fail(new UiError(`gtd ui: port ${port} is already in use`)),
     })
 
     const exit = await Effect.runPromiseExit(
@@ -2182,9 +2182,9 @@ describe("runUiCommand", () => {
         out,
       ).pipe(
         Effect.provide(fakeUiListener),
-        Effect.provide(noCommandRunner),
+        Effect.provide(noShell),
         Effect.provide(NodeContext.layer),
-        Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(UiRoot.layer(tmpDir)),
       ),
     )
 
@@ -2199,7 +2199,7 @@ describe("runUiCommand", () => {
   })
 
   describe("refusing to start on a step the UI cannot render", () => {
-    /** Runs `runUiCommand` over `beatJson` and returns whether it ever reached `UiListener.listen` plus the thrown error, if any — every case here must refuse before binding, at exit-usage severity (`GtdUsageError`). Pre-written cert/key files (mirroring the URL-printing test above), so `noCommandRunner` (unreachable — `loadCertPair` only reads files) proves a refusal happens before certificate resolution could ever shell out. */
+    /** Runs `runUiCommand` over `beatJson` and returns whether it ever reached `UiListener.listen` plus the thrown error, if any — every case here must refuse before binding, at exit-usage severity (`UiUsageError`). Pre-written cert/key files (mirroring the URL-printing test above), so `noShell` (unreachable — `loadCertPair` only reads files) proves a refusal happens before certificate resolution could ever shell out. */
     const attemptStart = async (
       beatJson: string,
     ): Promise<{ readonly listenCalled: boolean; readonly error: unknown }> => {
@@ -2241,9 +2241,9 @@ describe("runUiCommand", () => {
           out,
         ).pipe(
           Effect.provide(fakeUiListener),
-          Effect.provide(noCommandRunner),
+          Effect.provide(noShell),
           Effect.provide(NodeContext.layer),
-          Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+          Effect.provide(UiRoot.layer(tmpDir)),
         ),
       )
       for (let i = 0; i < 400; i += 1) {
@@ -2267,10 +2267,10 @@ describe("runUiCommand", () => {
         JSON.stringify({ kind: "message", idle: false, actor: "human", label: "just an fyi" }),
       )
       expect(listenCalled).toBe(false)
-      expect(error).toBeInstanceOf(GtdUsageError)
-      expect((error as GtdUsageError).message).toContain("just an fyi")
-      expect((error as GtdUsageError).message).toContain("rests with you")
-      expect((error as GtdUsageError).message).not.toContain("message")
+      expect(error).toBeInstanceOf(UiUsageError)
+      expect((error as UiUsageError).message).toContain("just an fyi")
+      expect((error as UiUsageError).message).toContain("rests with you")
+      expect((error as UiUsageError).message).not.toContain("message")
     })
 
     it("refuses a script step resting with the agent, naming the actor not the content kind", async () => {
@@ -2278,10 +2278,10 @@ describe("runUiCommand", () => {
         JSON.stringify({ kind: "script", idle: false, actor: "agent", label: "run it" }),
       )
       expect(listenCalled).toBe(false)
-      expect(error).toBeInstanceOf(GtdUsageError)
-      expect((error as GtdUsageError).message).toContain("run it")
-      expect((error as GtdUsageError).message).toContain("agent")
-      expect((error as GtdUsageError).message).not.toContain("script")
+      expect(error).toBeInstanceOf(UiUsageError)
+      expect((error as UiUsageError).message).toContain("run it")
+      expect((error as UiUsageError).message).toContain("agent")
+      expect((error as UiUsageError).message).not.toContain("script")
     })
 
     it("refuses a capture step resting with a human but no steering file", async () => {
@@ -2289,8 +2289,8 @@ describe("runUiCommand", () => {
         JSON.stringify({ kind: "capture", idle: false, actor: "human", label: "capture it" }),
       )
       expect(listenCalled).toBe(false)
-      expect(error).toBeInstanceOf(GtdUsageError)
-      expect((error as GtdUsageError).message).toContain("rests with you")
+      expect(error).toBeInstanceOf(UiUsageError)
+      expect((error as UiUsageError).message).toContain("rests with you")
     })
 
     it("refuses a stalled step resting with a human but no steering file", async () => {
@@ -2298,8 +2298,8 @@ describe("runUiCommand", () => {
         JSON.stringify({ kind: "stalled", idle: false, actor: "human", label: "stuck" }),
       )
       expect(listenCalled).toBe(false)
-      expect(error).toBeInstanceOf(GtdUsageError)
-      expect((error as GtdUsageError).message).not.toContain("stalled")
+      expect(error).toBeInstanceOf(UiUsageError)
+      expect((error as UiUsageError).message).not.toContain("stalled")
     })
 
     it("starts on a human, non-idle rest with file/mode even when the beat reports kind message — kind is never read", async () => {
@@ -2366,7 +2366,7 @@ describe("runUiCommand", () => {
         JSON.stringify({ kind: "prompt", idle: false, actor: "human", label: "no file" }),
       )
       expect(listenCalled).toBe(false)
-      expect(error).toBeInstanceOf(GtdUsageError)
+      expect(error).toBeInstanceOf(UiUsageError)
     })
 
     it("starts on a renderable prompt step — the positive control for every refusal above", async () => {
@@ -2405,7 +2405,7 @@ const startRealServer = async (
   const keyPath = join(dir, "key.pem")
   const cert = await Effect.runPromise(
     generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
-      Effect.provide(CommandRunner.Live),
+      Effect.provide(liveUiShell),
       Effect.provide(Host.layer({ root: dir, home: dir, env: process.env })),
       Effect.provide(NodeContext.layer),
     ),
@@ -2423,9 +2423,9 @@ const startRealServer = async (
       out,
     ).pipe(
       Effect.provide(UiListener.Live),
-      Effect.provide(noCommandRunner),
+      Effect.provide(noShell),
       Effect.provide(NodeContext.layer),
-      Effect.provide(Host.layer({ root: dir, home: dir, env: process.env })),
+      Effect.provide(UiRoot.layer(dir)),
     ),
   )
 

@@ -16,78 +16,21 @@ import {
   isSettingName,
   SETTING_NAME_RULE,
 } from "../workflow/index.js"
-// `program.ts` imports only `import type { Command }` from THIS module — a
-// type-only edge, erased at compile time — so this module's own (real, value)
-// dependency on `program.ts` for `runCommand`/`needsOf`/`standaloneKinds`
-// stays one-directional, not circular.
-import { runCommand, SelectorUsageError, type CommandRequirements } from "../program.js"
+// The shared command types live in `program.ts`, which imports nothing from
+// here, so this dependency stays one-directional.
+import {
+  runCommand,
+  SelectorUsageError,
+  type ArtifactOut,
+  type Command,
+  type CommandRequirements,
+  type JsonMode,
+} from "../program.js"
 import { UiListener } from "../ui/index.js"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 
-export type { CommandRequirements }
-
-export type Command =
-  | { readonly kind: "lsp" }
-  | { readonly kind: "init" }
-  | {
-      readonly kind: "ui"
-      // `host`/`port` stay optional/undefined-when-absent: a resolved bind address/port is
-      // `ui: { host?, port? }` config-file values merged in downstream
-      // (`src/ui/Server.ts`, a separate task), which this parser never
-      // reads — an absent flag here must not shadow a configured value with
-      // a parser-invented default.
-      readonly host?: string
-      readonly port?: number
-      readonly selfSigned: boolean
-      readonly dev: boolean
-    }
-  | {
-      readonly kind: "land"
-      readonly cost?: number
-      readonly model?: string
-    }
-  | {
-      readonly kind: "start"
-      readonly actor: string
-      readonly workflow: string
-      readonly vars: Readonly<Record<string, string>>
-      readonly label: string
-    }
-  | { readonly kind: "door"; readonly name: string; readonly args: readonly string[] }
-  | { readonly kind: "doors" }
-  | { readonly kind: "abandon" }
-  | { readonly kind: "restore" }
-  | { readonly kind: "next" }
-  | { readonly kind: "validate" }
-  | {
-      readonly kind: "check"
-      /** Absent only for the bare `gtd check --open-threads` form. */
-      readonly mode?: string
-      readonly file?: string
-      readonly openQuestions?: boolean
-      readonly openThreads?: boolean
-    }
-  | { readonly kind: "uncheck"; readonly file: string }
-  | { readonly kind: "install" }
-  | { readonly kind: "summary" }
-  | { readonly kind: "base" }
-  | { readonly kind: "judge" }
-  | { readonly kind: "judgeAnswer" }
-  | {
-      readonly kind: "judgeRun"
-      readonly provider?: "fixed" | "jev" | "llm"
-      readonly answers?: string
-      readonly model?: string
-    }
-
-/**
- * `--json`'s three shapes: absent, bare (the whole document), or `--json=<path>`
- * (one reduced value). See `src/wire/Select.ts` for how `select` is later resolved.
- */
-export type JsonMode =
-  | { readonly kind: "off" }
-  | { readonly kind: "document" }
-  | { readonly kind: "select"; readonly path: string }
+export type { Command, CommandRequirements } from "../program.js"
+export { needsOf, standaloneKinds } from "../program.js"
 
 export type CliPlan =
   | { readonly kind: "output"; readonly stdout: string }
@@ -104,18 +47,6 @@ export type CliPlan =
       /** Whether `--verbose`/`-v` was present — gates the `Narrator` `Cli.ts` builds for this dispatch (see `runCli`). */
       readonly verbose: boolean
     }
-
-/**
- * What a command kind needs before it may run. `pure`/`removed` never reach
- * `io.layers()` at all (they resolve to `output`/`usage` plans). `state`
- * marks the six kinds sharing the repo-root guard and the at-least-one-commit
- * guard — a repository with no commits has no HEAD to derive workflow state
- * from. `needsOf`/`standaloneKinds` live in
- * `program.ts` (re-exported here) rather than here, since a value import the
- * other way would make the two modules circular.
- */
-export type Needs = "pure" | "removed" | "none" | "fs" | "state"
-export { needsOf, standaloneKinds } from "../program.js"
 
 // ---------------------------------------------------------------------------
 // Flag table
@@ -1305,21 +1236,6 @@ export const nodeCliIo: CliIo = {
       Layer.provideMerge(Host.Live),
       Layer.provideMerge(NodeContext.layer),
     ),
-}
-
-/**
- * The all-or-nothing stdout buffer every `run*Command` handler writes
- * through instead of `io.stdout` directly. `flush()` is called exactly once,
- * by `runCli`, after the command's Effect succeeds; on any failure `flush()`
- * is never reached, so the buffer is simply discarded and nothing reaches
- * `io.stdout`. `ui` is the one handler that calls `flush()` itself,
- * ahead of blocking on `Effect.never` — since it blocks forever, `runCli`'s
- * own flush-on-success would otherwise never fire and its output would never
- * reach stdout.
- */
-export interface ArtifactOut {
-  readonly write: (chunk: string) => void
-  readonly flush: () => void
 }
 
 /**

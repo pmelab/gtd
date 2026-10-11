@@ -9,11 +9,7 @@ import { fileURLToPath } from "node:url"
 import { createHTTPHandler } from "@trpc/server/adapters/standalone"
 import { FileSystem } from "@effect/platform"
 import { Context, Deferred, Effect, Layer, Runtime } from "effect"
-import type { ArtifactOut } from "../cli/index.js"
-import { GtdError, GtdUsageError, CommandRunner, Host } from "../platform/index.js"
-import type { UiConfig } from "../workflow/index.js"
-import generatedClientHtml from "../web/generated.html"
-import { withFileVar } from "../emit/index.js"
+import generatedClientHtml from "./client.generated.html"
 import {
   liveHeadSha,
   liveRunInWorktree,
@@ -24,6 +20,8 @@ import {
   type StepRead,
 } from "./Beat.js"
 import { pickBindHost } from "./Bind.js"
+import { UiError, UiRoot, UiShell, UiUsageError } from "./Ports.js"
+import { withFileVar } from "./Quote.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { appRouter, type RouterContext } from "./Router.js"
@@ -51,7 +49,22 @@ import {
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
 const TRPC_PATH_PREFIX = "/trpc"
 
-/** The fields `Cli.ts`'s parsed `{ kind: "ui" }` command carries — this module never reads `Command` itself to stay independent of its parsing. */
+/** The `ui:` config block, as the composition root decodes it. */
+export interface UiConfig {
+  readonly port?: number | undefined
+  readonly host?: string | undefined
+  readonly cert?: string | undefined
+  readonly key?: string | undefined
+  readonly format?: string | undefined
+}
+
+/** Where `gtd ui` prints its URL; `flush` hands it to stdout before the server blocks. */
+export interface UiOut {
+  readonly write: (chunk: string) => void
+  readonly flush: () => void
+}
+
+/** The `gtd ui` flags. */
 export interface UiCommandOptions {
   readonly host?: string
   readonly port?: number
@@ -76,11 +89,11 @@ export const resolveBindHost = (
   host: string | undefined,
   config: UiConfig | undefined,
   pickHost: () => string | undefined = () => pickBindHost(os.networkInterfaces()),
-): Effect.Effect<string, GtdError> => {
+): Effect.Effect<string, UiError> => {
   const resolved = host ?? config?.host ?? pickHost()
   return resolved === undefined
     ? Effect.fail(
-        new GtdError("gtd ui: no Tailscale interface found to bind to, and no --host given", [
+        new UiError("gtd ui: no Tailscale interface found to bind to, and no --host given", [
           "join a tailnet, so a CGNAT (100.64.0.0/10) address is available",
           "or pass --host <address> to bind explicitly",
         ]),
@@ -101,7 +114,7 @@ export const resolveCertPair = (
   bindHost: string,
   displayHost: string,
   tailscaleStatus: TailscaleStatus | undefined,
-): Effect.Effect<CertPair, GtdError, CommandRunner | FileSystem.FileSystem> => {
+): Effect.Effect<CertPair, UiError, UiShell | FileSystem.FileSystem> => {
   // The SAN must match whatever the browser actually dials: `displayHost`
   // (the tailnet hostname when the probe answered, otherwise identical to
   // `bindHost`) goes in as `DNS:`, and `bindHost` goes in as `IP:` only when
@@ -124,7 +137,7 @@ export const resolveCertPair = (
   if (config?.cert !== undefined || config?.key !== undefined) {
     const missing = config.cert === undefined ? "ui.cert" : "ui.key"
     return Effect.fail(
-      new GtdError(`gtd ui: ${missing} is not configured — both cert and key are required`, [
+      new UiError(`gtd ui: ${missing} is not configured — both cert and key are required`, [
         `ui.${config.cert === undefined ? "key" : "cert"} is configured, but ${missing} is not`,
         "pass --self-signed for a throwaway certificate instead",
       ]),
@@ -140,7 +153,7 @@ export const resolveCertPair = (
     return obtainTailscaleCert(certDomain)
   }
   return Effect.fail(
-    new GtdError("gtd ui: HTTPS is mandatory and no certificate is configured", [
+    new UiError("gtd ui: HTTPS is mandatory and no certificate is configured", [
       "pass --self-signed for a throwaway certificate",
       "or configure ui.cert and ui.key",
       "or join a tailnet with HTTPS certs enabled for an automatic one",
@@ -158,7 +171,7 @@ interface UiListenOptions {
 
 /**
  * The subprocess/socket port for the actual listen — isolated behind a
- * service tag (mirroring `CommandRunner`) so tests can swap in a fake
+ * service tag (mirroring `UiShell`) so tests can swap in a fake
  * without a real socket bind or a real certificate. One method, not two:
  * `tls` present picks `https.createServer`, absent picks a plain
  * `http.createServer` — the fake in `Server.test.ts` stays a single
@@ -167,12 +180,12 @@ interface UiListenOptions {
 export class UiListener extends Context.Tag("UiListener")<
   UiListener,
   {
-    readonly listen: (options: UiListenOptions) => Effect.Effect<BoundServer, GtdError>
+    readonly listen: (options: UiListenOptions) => Effect.Effect<BoundServer, UiError>
   }
 >() {
   static readonly Live = Layer.succeed(UiListener, {
     listen: ({ tls, host, port, handler }) =>
-      Effect.async<BoundServer, GtdError>((resume) => {
+      Effect.async<BoundServer, UiError>((resume) => {
         const server =
           tls !== undefined
             ? https.createServer({ cert: tls.cert, key: tls.key }, handler)
@@ -181,8 +194,8 @@ export class UiListener extends Context.Tag("UiListener")<
           resume(
             Effect.fail(
               err.code === "EADDRINUSE"
-                ? new GtdError(`gtd ui: port ${port} is already in use`)
-                : new GtdError(`gtd ui: could not start the server: ${err.message}`),
+                ? new UiError(`gtd ui: port ${port} is already in use`)
+                : new UiError(`gtd ui: could not start the server: ${err.message}`),
             ),
           )
         })
@@ -213,7 +226,7 @@ const normalizePort = (port: number | undefined): number | undefined =>
  * `package.json` naming this package so it works from both the source and the
  * bundled shape without hardcoding a directory depth.
  */
-const findPackageRoot = (): Effect.Effect<string, GtdError> =>
+const findPackageRoot = (): Effect.Effect<string, UiError> =>
   Effect.try({
     try: () => {
       let dir = dirname(fileURLToPath(import.meta.url))
@@ -230,22 +243,19 @@ const findPackageRoot = (): Effect.Effect<string, GtdError> =>
       throw new Error("no @pmelab/gtd package.json found above this module")
     },
     catch: () =>
-      new GtdError("gtd ui --dev: could not locate the gtd source checkout to rebuild the client", [
+      new UiError("gtd ui --dev: could not locate the gtd source checkout to rebuild the client", [
         "--dev is for developing gtd's own web client: run it from a",
         "checked-out gtd repository with devDependencies installed",
       ]),
   })
 
 /** `--dev`: the raw template, read once at startup — editing it needs a server restart, same as the rebuilt script it's inlined into (T5: the server lives for exactly one step, so a mid-step rebuild would have nothing left to reflect). */
-const readDevTemplate = (
-  fs: FileSystem.FileSystem,
-  root: string,
-): Effect.Effect<string, GtdError> =>
+const readDevTemplate = (fs: FileSystem.FileSystem, root: string): Effect.Effect<string, UiError> =>
   fs
     .readFileString(join(root, "src/web/index.html"))
     .pipe(
       Effect.mapError(
-        (e) => new GtdError(`gtd ui --dev: could not read src/web/index.html: ${e.message}`),
+        (e) => new UiError(`gtd ui --dev: could not read src/web/index.html: ${e.message}`),
       ),
     )
 
@@ -258,21 +268,21 @@ const readDevTemplate = (
  * subprocess amplification for free.
  */
 const rebuildDevClientScript = (
-  runner: Context.Tag.Service<typeof CommandRunner>,
+  runner: Context.Tag.Service<typeof UiShell>,
   fs: FileSystem.FileSystem,
   root: string,
-): Effect.Effect<string, GtdError> =>
+): Effect.Effect<string, UiError> =>
   Effect.gen(function* () {
     const outcome = yield* runner
       .bash(`cd ${JSON.stringify(root)} && npx tsdown --filter web`)
       .pipe(
         Effect.mapError(
-          (e) => new GtdError(`gtd ui --dev: could not rebuild the client: ${e.message}`),
+          (e) => new UiError(`gtd ui --dev: could not rebuild the client: ${e.message}`),
         ),
       )
     if (outcome.status !== 0) {
       return yield* Effect.fail(
-        new GtdError(
+        new UiError(
           "gtd ui --dev: rebuilding the client failed",
           outcome.output.trim().split("\n").filter(Boolean),
         ),
@@ -282,7 +292,7 @@ const rebuildDevClientScript = (
       .readFileString(join(root, "dist/web/main.js"))
       .pipe(
         Effect.mapError(
-          (e) => new GtdError(`gtd ui --dev: could not read the rebuilt client: ${e.message}`),
+          (e) => new UiError(`gtd ui --dev: could not read the rebuilt client: ${e.message}`),
         ),
       )
   })
@@ -294,10 +304,10 @@ const rebuildDevClientScript = (
  * teaching tsdown about CSS at all.
  */
 const rebuildDevClientCss = (
-  runner: Context.Tag.Service<typeof CommandRunner>,
+  runner: Context.Tag.Service<typeof UiShell>,
   fs: FileSystem.FileSystem,
   root: string,
-): Effect.Effect<string, GtdError> =>
+): Effect.Effect<string, UiError> =>
   Effect.gen(function* () {
     const outcome = yield* runner
       .bash(
@@ -305,12 +315,12 @@ const rebuildDevClientCss = (
       )
       .pipe(
         Effect.mapError(
-          (e) => new GtdError(`gtd ui --dev: could not rebuild the stylesheet: ${e.message}`),
+          (e) => new UiError(`gtd ui --dev: could not rebuild the stylesheet: ${e.message}`),
         ),
       )
     if (outcome.status !== 0) {
       return yield* Effect.fail(
-        new GtdError(
+        new UiError(
           "gtd ui --dev: rebuilding the stylesheet failed",
           outcome.output.trim().split("\n").filter(Boolean),
         ),
@@ -320,7 +330,7 @@ const rebuildDevClientCss = (
       .readFileString(join(root, "dist/web/main.css"))
       .pipe(
         Effect.mapError(
-          (e) => new GtdError(`gtd ui --dev: could not read the rebuilt stylesheet: ${e.message}`),
+          (e) => new UiError(`gtd ui --dev: could not read the rebuilt stylesheet: ${e.message}`),
         ),
       )
   })
@@ -328,9 +338,9 @@ const rebuildDevClientCss = (
 /** The one piece of content this server ever serves: the client HTML, with its JS AND CSS inlined — a build-time constant in production, resolved ONCE at startup under `--dev` too (T5) and held for the process's whole lifetime, never re-read or rebuilt per request. */
 export const resolveClientHtml = (
   dev: boolean,
-  runner: Context.Tag.Service<typeof CommandRunner>,
+  runner: Context.Tag.Service<typeof UiShell>,
   fs: FileSystem.FileSystem,
-): Effect.Effect<string, GtdError> =>
+): Effect.Effect<string, UiError> =>
   dev
     ? findPackageRoot().pipe(
         Effect.flatMap((root) =>
@@ -344,7 +354,7 @@ export const resolveClientHtml = (
       )
     : Effect.succeed(generatedClientHtml)
 
-export type UiRequirements = CommandRunner | FileSystem.FileSystem | UiListener | Host
+export type UiRequirements = UiShell | FileSystem.FileSystem | UiListener | UiRoot
 
 /** Every dependency `readStep` needs, wired to the real subprocess/filesystem reads — `gtd ui` never injects a fake here, unlike its own test suite. */
 const liveBeatDeps = {
@@ -386,19 +396,19 @@ const isRenderable = (step: Step): step is Step & { readonly file: string } =>
  * order so the narrower cause always wins: unreadable, then a non-human
  * actor, then a human rest whose steering file isn't usable.
  */
-const refusalFor = (step: StepRead): GtdUsageError => {
+const refusalFor = (step: StepRead): UiUsageError => {
   if (step.status !== "ok") {
-    return new GtdUsageError(
+    return new UiUsageError(
       `gtd ui: refuses to start — this worktree can't be read: ${step.status === "broken" ? step.detail : step.label}`,
     )
   }
   if (step.actor !== "human") {
-    return new GtdUsageError(
+    return new UiUsageError(
       `gtd ui: refuses to start — "${step.label}" rests with the ${step.actor}, which has no phone screen`,
     )
   }
   const hint = "gtd next --json reported no steering file for this rest"
-  return new GtdUsageError(
+  return new UiUsageError(
     `gtd ui: refuses to start — "${step.label}" rests with you, but names no steering file to show on the phone`,
     [hint],
   )
@@ -418,8 +428,8 @@ const resolveHostsAndCert = (
   config: UiConfig | undefined,
 ): Effect.Effect<
   { readonly bindHost: string; readonly displayHost: string; readonly certPair: CertPair },
-  GtdError,
-  CommandRunner | FileSystem.FileSystem
+  UiError,
+  UiShell | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const bindHost = yield* resolveBindHost(options.host, config)
@@ -450,15 +460,15 @@ const probeLiveServeMapping = (
 ): Effect.Effect<
   { readonly ok: true; readonly mapping: ServeMapping | undefined } | { readonly ok: false },
   never,
-  CommandRunner
+  UiShell
 > =>
   Effect.gen(function* () {
-    const runner = yield* CommandRunner
+    const runner = yield* UiShell
     const outcome = yield* runner
       .bash("tailscale serve status --json")
       .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
     if (outcome === undefined || outcome.status !== 0) return { ok: false }
-    // `outcome.output` is stdout+stderr MERGED (`CommandRunner.ts`'s own
+    // `outcome.output` is stdout+stderr MERGED (`UiShell.ts`'s own
     // doc comment) — a version-mismatch warning or any other exit-0 stderr
     // chatter appended there would make otherwise-valid JSON unparseable,
     // and an unparseable probe must never read as "nothing published here"
@@ -481,7 +491,7 @@ const probeLiveServeMapping = (
  */
 const clearOrphanForPublish = (
   servePort: number,
-): Effect.Effect<"clear" | "occupied" | "unknowable", never, CommandRunner> =>
+): Effect.Effect<"clear" | "occupied" | "unknowable", never, UiShell> =>
   Effect.gen(function* () {
     const record = readServeRecord(servePort)
     if (record === undefined) {
@@ -521,7 +531,7 @@ const attemptServe = (
   worktree: string,
   uiListener: Context.Tag.Service<typeof UiListener>,
   handler: RequestHandler,
-): Effect.Effect<ServeAttempt, never, CommandRunner> =>
+): Effect.Effect<ServeAttempt, never, UiShell> =>
   Effect.gen(function* () {
     const tailscaleStatus = yield* probeTailscaleStatus()
     if (tailscaleStatus === undefined) {
@@ -592,7 +602,7 @@ const attemptServe = (
  * orphan check clear it, rather than stranding a live mapping behind a deleted
  * record. Never fails — `Effect.ensuring` requires it.
  */
-const teardownServe = (servePort: number): Effect.Effect<void, never, CommandRunner> =>
+const teardownServe = (servePort: number): Effect.Effect<void, never, UiShell> =>
   Effect.gen(function* () {
     const record = readServeRecord(servePort)
     if (record === undefined) return
@@ -617,23 +627,23 @@ const resolveListener = (args: {
   readonly worktree: string
   readonly uiListener: Context.Tag.Service<typeof UiListener>
   readonly handler: RequestHandler
-  readonly out: ArtifactOut
+  readonly out: UiOut
 }): Effect.Effect<
   {
     readonly bound: BoundServer
     readonly url: string
-    readonly teardown: Effect.Effect<void, never, CommandRunner>
+    readonly teardown: Effect.Effect<void, never, UiShell>
   },
-  GtdError,
-  CommandRunner | FileSystem.FileSystem
+  UiError,
+  UiShell | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const { options, config, explicitPort, explicitHost, worktree, uiListener, handler, out } = args
 
     const directBind = (): Effect.Effect<
       { readonly bound: BoundServer; readonly url: string },
-      GtdError,
-      CommandRunner | FileSystem.FileSystem
+      UiError,
+      UiShell | FileSystem.FileSystem
     > =>
       Effect.gen(function* () {
         const { bindHost, displayHost, certPair } = yield* resolveHostsAndCert(options, config)
@@ -682,7 +692,7 @@ const resolveListener = (args: {
 
 /**
  * `gtd ui`: binds an HTTPS server exposing the phone/web client for the ONE
- * worktree `Host` names — never a fleet, never a spawned loop. The server
+ * worktree `UiRoot` names — never a fleet, never a spawned loop. The server
  * lives for exactly one step: it starts, shows that step, takes the human's
  * input, and exits — either because the human handed the turn back (`done`
  * resolves `ctx.handOff()`'s deferred once the response has flushed) or
@@ -692,10 +702,10 @@ const resolveListener = (args: {
 export const runUiCommand = (
   options: UiCommandOptions,
   config: UiConfig | undefined,
-  out: ArtifactOut,
-): Effect.Effect<void, GtdError, UiRequirements> =>
+  out: UiOut,
+): Effect.Effect<void, UiError, UiRequirements> =>
   Effect.gen(function* () {
-    const cwd = yield* Host
+    const cwd = yield* UiRoot
 
     // Read before resolving the bind host or the certificate, so a refusal
     // never invokes openssl (T1's own acceptance bullet).
@@ -710,7 +720,7 @@ export const runUiCommand = (
     const servedState = step.state
     const servedLabel = step.label
 
-    const runner = yield* CommandRunner
+    const runner = yield* UiShell
     const fs = yield* FileSystem.FileSystem
     const uiListener = yield* UiListener
     const runtime = yield* Effect.runtime<UiRequirements>()
@@ -810,7 +820,7 @@ export const runUiCommand = (
           }
           res.once("finish", settle)
           // Cleared the instant `finish` settles first (the normal path) —
-          // `Cli.ts`'s success path sets `process.exitCode` rather than
+          // the CLI's success path sets `process.exitCode` rather than
           // calling `process.exit`, so an uncleared timer keeps the event
           // loop alive for its own full duration regardless of `settled`,
           // delaying every ordinary handoff by up to 2s for nothing.

@@ -3,8 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
-import { CommandRunner, GtdError } from "../platform/index.js"
-import { shellQuote } from "../emit/index.js"
+import { UiError, UiShell } from "./Ports.js"
+import { shellQuote } from "./Quote.js"
 
 /** A certificate and its matching private key, as PEM content — never file paths, so callers (the https server, tests) never re-read the filesystem. */
 export interface CertPair {
@@ -37,9 +37,9 @@ export interface SelfSignedCertRequest {
  */
 export const generateSelfSignedCert = (
   request: SelfSignedCertRequest,
-): Effect.Effect<CertPair, GtdError, CommandRunner> =>
+): Effect.Effect<CertPair, UiError, UiShell> =>
   Effect.gen(function* () {
-    const runner = yield* CommandRunner
+    const runner = yield* UiShell
     const dir = mkdtempSync(join(tmpdir(), "gtd-tls-"))
     const keyPath = join(dir, "key.pem")
     const certPath = join(dir, "cert.pem")
@@ -62,12 +62,12 @@ export const generateSelfSignedCert = (
 
     return yield* runner.bash(command).pipe(
       Effect.mapError(
-        (e) => new GtdError(`gtd ui: could not run openssl to issue a certificate: ${e.message}`),
+        (e) => new UiError(`gtd ui: could not run openssl to issue a certificate: ${e.message}`),
       ),
       Effect.flatMap((outcome) =>
         outcome.status !== 0
           ? Effect.fail(
-              new GtdError("gtd ui: openssl exited without issuing a certificate", [
+              new UiError("gtd ui: openssl exited without issuing a certificate", [
                 `exit status: ${outcome.status ?? "signal"}`,
                 ...outcome.output.trim().split("\n").filter(Boolean),
               ]),
@@ -78,7 +78,7 @@ export const generateSelfSignedCert = (
                 key: readFileSync(keyPath, "utf8"),
               }),
               catch: (e) =>
-                new GtdError(
+                new UiError(
                   `gtd ui: openssl reported success but its output could not be read: ${
                     e instanceof Error ? e.message : String(e)
                   }`,
@@ -103,11 +103,9 @@ export const generateSelfSignedCert = (
  * filesystem. The temp dir (it holds a private key) is removed on every exit
  * path via `Effect.ensuring`, mirroring `generateSelfSignedCert`.
  */
-export const obtainTailscaleCert = (
-  domain: string,
-): Effect.Effect<CertPair, GtdError, CommandRunner> =>
+export const obtainTailscaleCert = (domain: string): Effect.Effect<CertPair, UiError, UiShell> =>
   Effect.gen(function* () {
-    const runner = yield* CommandRunner
+    const runner = yield* UiShell
     const dir = mkdtempSync(join(tmpdir(), "gtd-tls-"))
     const keyPath = join(dir, "key.pem")
     const certPath = join(dir, "cert.pem")
@@ -121,12 +119,12 @@ export const obtainTailscaleCert = (
     return yield* runner.bash(command).pipe(
       Effect.mapError(
         (e) =>
-          new GtdError(`gtd ui: could not run tailscale cert to issue a certificate: ${e.message}`),
+          new UiError(`gtd ui: could not run tailscale cert to issue a certificate: ${e.message}`),
       ),
       Effect.flatMap((outcome) =>
         outcome.status !== 0
           ? Effect.fail(
-              new GtdError("gtd ui: tailscale cert exited without issuing a certificate", [
+              new UiError("gtd ui: tailscale cert exited without issuing a certificate", [
                 `exit status: ${outcome.status ?? "signal"}`,
                 ...outcome.output.trim().split("\n").filter(Boolean),
               ]),
@@ -137,7 +135,7 @@ export const obtainTailscaleCert = (
                 key: readFileSync(keyPath, "utf8"),
               }),
               catch: (e) =>
-                new GtdError(
+                new UiError(
                   `gtd ui: tailscale cert reported success but its output could not be read: ${
                     e instanceof Error ? e.message : String(e)
                   }`,
@@ -150,20 +148,20 @@ export const obtainTailscaleCert = (
 
 /**
  * Loads a certificate/key pair a config already names, used as-is — this
- * never shells out to `openssl`, structurally: it takes no `CommandRunner`.
+ * never shells out to `openssl`, structurally: it takes no `UiShell`.
  * A missing or unreadable path is an Effect failure, not a synchronous
  * throw, naming the offending path.
  */
 export const loadCertPair = (
   certPath: string,
   keyPath: string,
-): Effect.Effect<CertPair, GtdError, FileSystem.FileSystem> =>
+): Effect.Effect<CertPair, UiError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const read = (path: string) =>
       fs
         .readFileString(path)
-        .pipe(Effect.mapError((e) => new GtdError(`gtd ui: could not read ${path}: ${e.message}`)))
+        .pipe(Effect.mapError((e) => new UiError(`gtd ui: could not read ${path}: ${e.message}`)))
     const cert = yield* read(certPath)
     const key = yield* read(keyPath)
     return { cert, key }

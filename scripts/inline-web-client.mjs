@@ -82,7 +82,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const distWebAssetNames = readdirSync("dist/web")
 
   writeFileSync(
-    "src/web/generated.html",
+    "src/ui/client.generated.html",
     buildGeneratedHtml(template, clientScript, cssRaw, distWebAssetNames),
   )
 }

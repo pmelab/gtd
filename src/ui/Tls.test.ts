@@ -6,7 +6,9 @@ import { tmpdir } from "node:os"
 import { NodeContext } from "@effect/platform-node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Effect, Exit } from "effect"
-import { CommandRunner, Host, GtdError } from "../platform/index.js"
+import { Host } from "../platform/index.js"
+import { UiError, UiShell } from "./index.js"
+import { liveUiShell } from "./Ports.fixture.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert } from "./Tls.js"
 
 // `{ spy: true }` keeps every real `node:fs` implementation (a plain
@@ -54,10 +56,10 @@ const withTrackedTlsTmpDir = async (run: () => Promise<unknown>): Promise<string
   return created
 }
 
-const runWithLiveOpenssl = <A>(eff: Effect.Effect<A, GtdError, CommandRunner>) =>
+const runWithLiveOpenssl = <A>(eff: Effect.Effect<A, UiError, UiShell>) =>
   Effect.runPromise(
     eff.pipe(
-      Effect.provide(CommandRunner.Live),
+      Effect.provide(liveUiShell),
       Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       Effect.provide(NodeContext.layer),
     ),
@@ -126,7 +128,7 @@ describe("generateSelfSignedCert", () => {
     const marker = join(tmpDir, "pwned")
     const exit = await Effect.runPromiseExit(
       generateSelfSignedCert({ host: `$(touch ${marker})` }).pipe(
-        Effect.provide(CommandRunner.Live),
+        Effect.provide(liveUiShell),
         Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         Effect.provide(NodeContext.layer),
       ),
@@ -138,26 +140,26 @@ describe("generateSelfSignedCert", () => {
     expect(Exit.isFailure(exit)).toBe(true)
   })
 
-  it("T1: a host containing a slash confuses openssl's own -subj parsing — a named GtdError, never code execution", async () => {
+  it("T1: a host containing a slash confuses openssl's own -subj parsing — a named UiError, never code execution", async () => {
     // Accepted, not fixed (Tls.ts's own comment at the `-subj` line):
     // `shellQuote` stops the SHELL from ever seeing a real `/`, but
     // openssl's `-subj "/CN=..."` itself reads `/`-separated `key=value`
     // pairs, so a host containing `/` (or `=`) still confuses openssl's OWN
     // parser. Real openssl, no fake CommandRunner — this must fail with a
-    // GtdError, not hang, not throw uncaught, and never execute anything.
+    // UiError, not hang, not throw uncaught, and never execute anything.
     const thrown = await Effect.runPromise(
       generateSelfSignedCert({ host: "exa/mple.local" }).pipe(
-        Effect.provide(CommandRunner.Live),
+        Effect.provide(liveUiShell),
         Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         Effect.provide(NodeContext.layer),
         Effect.flip,
       ),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
   })
 
   it("fails naming the openssl binary when the spawn reports a non-zero exit (e.g. absent)", async () => {
-    const missingOpenssl = CommandRunner.layer(() =>
+    const missingOpenssl = UiShell.layer(() =>
       Effect.succeed({ status: 127, output: "bash: openssl: command not found\n" }),
     )
     const thrown = await Effect.runPromise(
@@ -166,12 +168,12 @@ describe("generateSelfSignedCert", () => {
         Effect.flip,
       ),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message).toContain("openssl")
   })
 
   it("removes its private-key tmpdir even after openssl reports a non-zero exit", async () => {
-    const nonZeroExit = CommandRunner.layer(() =>
+    const nonZeroExit = UiShell.layer(() =>
       Effect.succeed({ status: 1, output: "openssl: some failure\n" }),
     )
     const created = await withTrackedTlsTmpDir(() =>
@@ -185,7 +187,7 @@ describe("generateSelfSignedCert", () => {
   it("removes its private-key tmpdir even when reading back the issued cert/key fails", async () => {
     // Reports success without actually writing cert.pem/key.pem into the
     // tmpdir generateSelfSignedCert created — the read-back Effect.try fails.
-    const liesAboutSuccess = CommandRunner.layer(() => Effect.succeed({ status: 0, output: "" }))
+    const liesAboutSuccess = UiShell.layer(() => Effect.succeed({ status: 0, output: "" }))
     let exit: Exit.Exit<unknown, unknown> | undefined
     const created = await withTrackedTlsTmpDir(async () => {
       exit = await Effect.runPromiseExit(
@@ -207,7 +209,7 @@ describe("obtainTailscaleCert", () => {
 
   it("shells out to `tailscale cert <domain>`, writing both PEMs to a temp dir and reading them back as a CertPair", async () => {
     const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       commands.push(command)
       writeFileSync(
         fakeCertFile(command, "--cert-file"),
@@ -230,19 +232,19 @@ describe("obtainTailscaleCert", () => {
   })
 
   it("fails naming tailscale cert's own output on a non-zero exit — no fallback", async () => {
-    const runner = CommandRunner.layer(() =>
+    const runner = UiShell.layer(() =>
       Effect.succeed({ status: 1, output: "tailscale cert: access denied\n" }),
     )
     const thrown = await Effect.runPromise(
       obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner), Effect.flip),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message).toContain("tailscale cert")
     expect(thrown.detail.join("\n")).toContain("access denied")
   })
 
   it("removes its private-key tmpdir even after a non-zero exit", async () => {
-    const runner = CommandRunner.layer(() => Effect.succeed({ status: 1, output: "denied" }))
+    const runner = UiShell.layer(() => Effect.succeed({ status: 1, output: "denied" }))
     const created = await withTrackedTlsTmpDir(() =>
       Effect.runPromiseExit(
         obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner)),
@@ -252,7 +254,7 @@ describe("obtainTailscaleCert", () => {
   })
 
   it("removes its private-key tmpdir even when reading back the issued cert/key fails", async () => {
-    const liesAboutSuccess = CommandRunner.layer(() => Effect.succeed({ status: 0, output: "" }))
+    const liesAboutSuccess = UiShell.layer(() => Effect.succeed({ status: 0, output: "" }))
     let exit: Exit.Exit<unknown, unknown> | undefined
     const created = await withTrackedTlsTmpDir(async () => {
       exit = await Effect.runPromiseExit(
@@ -264,16 +266,14 @@ describe("obtainTailscaleCert", () => {
   })
 
   it("fails naming tailscale on a spawn failure (binary absent)", async () => {
-    const missingTailscale = CommandRunner.layer(() =>
-      Effect.fail(new Error("spawn tailscale ENOENT")),
-    )
+    const missingTailscale = UiShell.layer(() => Effect.fail(new Error("spawn tailscale ENOENT")))
     const thrown = await Effect.runPromise(
       obtainTailscaleCert("host.tailnet.ts.net").pipe(
         Effect.provide(missingTailscale),
         Effect.flip,
       ),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message).toContain("tailscale")
   })
 })
@@ -294,7 +294,7 @@ describe("loadCertPair", () => {
     expect(pair.key).toContain("BEGIN PRIVATE KEY")
   })
 
-  it("refuses with a GtdError, not an uncaught throw, when the certificate path is missing", async () => {
+  it("refuses with a UiError, not an uncaught throw, when the certificate path is missing", async () => {
     const certPath = join(tmpDir, "does-not-exist-cert.pem")
     const keyPath = join(tmpDir, "key.pem")
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
@@ -306,11 +306,11 @@ describe("loadCertPair", () => {
     const thrown = await Effect.runPromise(
       loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeContext.layer), Effect.flip),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message).toContain(certPath)
   })
 
-  it("refuses with a GtdError when the key path is missing", async () => {
+  it("refuses with a UiError when the key path is missing", async () => {
     const certPath = join(tmpDir, "cert.pem")
     const keyPath = join(tmpDir, "does-not-exist-key.pem")
     writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
@@ -318,7 +318,7 @@ describe("loadCertPair", () => {
     const thrown = await Effect.runPromise(
       loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeContext.layer), Effect.flip),
     )
-    expect(thrown).toBeInstanceOf(GtdError)
+    expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message).toContain(keyPath)
   })
 })

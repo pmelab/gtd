@@ -27,7 +27,6 @@ export {
   type StepDef,
   type WorkflowDefinition,
   knownModes,
-  type Actor,
   type StateMode,
   type StateName,
 } from "./Workflow.js"
