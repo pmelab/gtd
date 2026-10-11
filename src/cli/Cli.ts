@@ -556,6 +556,20 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     ],
   },
   {
+    token: "loop",
+    kind: "loop",
+    arity: "none",
+    details: [
+      "Drive this worktree's process until it rests on you: read",
+      "each beat, run the agent turn or script it demands, and",
+      "land the result. Exits 0 at a human gate, at idle and when",
+      "a landing settles; exits 1 on a stall or a failed turn or",
+      "landing. The agent CLI and the model each workflow hint",
+      "maps to are per-machine settings (GTD_LOOP_* variables, or",
+      "~/.config/gtd/loop.json); see docs/driver.md",
+    ],
+  },
+  {
     token: "summary",
     kind: "summary",
     arity: "none",
@@ -1166,6 +1180,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "next"
       | "validate"
       | "install"
+      | "loop"
       | "doors"
       | "summary"
       | "base"

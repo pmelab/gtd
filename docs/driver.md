@@ -100,6 +100,58 @@ remembered session is gone — retention expired, `~/.claude/projects` wiped —
 `--resume` fails and the driver falls back to `--session-id`). There is no file
 to delete and nothing to restart.
 
+### The bundled driver: `gtd loop`
+
+`gtd loop` is this protocol, shipped with gtd: run it from anywhere inside a
+repository and it drives the process until it rests on you. It reads one
+`gtd next --json` document per beat, refuses any document whose `schema` it does
+not speak, runs the agent turn or script the beat demands, and lands the result
+through `gtd land --json`'s script. It always drives the gtd it was started
+from, never another one on `$PATH`.
+
+- **At a human gate** it prints one line naming the step (and its `label`) and
+  exits 0; the gate's own message goes to the log. The opening beat is yours, as
+  above: it lands even at a clean gate.
+- **At idle, or when a landing settles,** it exits 0.
+- **On a stall, a failed turn or landing, or validation still failing after
+  three fix turns,** it exits 1.
+- **Agent turns** run `claude -p` (or `pi -p`) in the repository root with the
+  prompt on stdin, the beat's session id behind `--session-id`/`--resume`
+  (trying the `resume` hint's flag first, then the other), its `model` and
+  `system`, and background tasks disabled. A turn's reported cost is recorded on
+  the landing with `--cost`/`--model`, failed and fix turns included.
+- **The log** is the file `gtd next --json=log` names: truncated when the run
+  starts, then every turn's output, script output and gate message. The terminal
+  carries only beat headers, landed subjects and the final line.
+
+It does not answer judge gates: a judge gate stops it like any other gate.
+
+**Per-machine settings.** Which agent CLI runs a turn and which real model a
+workflow hint means are your machine's business, never the repository's. Each
+setting is read from an environment variable first, then from an optional JSON
+file, then from the default:
+
+| Setting            | Environment variable    | File key        | Default                                |
+| ------------------ | ----------------------- | --------------- | -------------------------------------- |
+| Agent CLI          | `GTD_LOOP_AGENT`        | `agent`         | `claude`                               |
+| Model for `<hint>` | `GTD_LOOP_MODEL_<HINT>` | `models.<hint>` | none                                   |
+| Model for `smart`  | `GTD_LOOP_MODEL_SMART`  | `models.smart`  | `opus` with `claude`, none with `pi`   |
+| Model for `base`   | `GTD_LOOP_MODEL_BASE`   | `models.base`   | `sonnet` with `claude`, none with `pi` |
+
+`<HINT>` is the hint in upper case, with every character other than a letter or
+digit replaced by `_`. An unmapped `smart` or `base` is dropped, so the agent
+runs its own default model; any other unmapped hint is passed through unchanged,
+so a workflow may name a real model outright. An empty variable counts as unset.
+`GTD_LOOP_AGENT` accepts `claude` or `pi`.
+
+The file is `$GTD_LOOP_CONFIG` when set, else `$XDG_CONFIG_HOME/gtd/loop.json`,
+else `~/.config/gtd/loop.json`. A missing file is fine; an unreadable or invalid
+one, or an unknown key, stops the loop before its first beat:
+
+```json
+{ "agent": "claude", "models": { "smart": "opus", "base": "sonnet" } }
+```
+
 ### Terminal-multiplexer status: a herdr wrapper
 
 [herdr](https://herdr.dev) shows a per-pane status in its sidebar. This wrapper
@@ -597,6 +649,14 @@ while :; do
       system="$(gtd next --json=system)"
       validate="$(gtd next --json=validate)"
       log="$(gtd next --json=log)"
+      # `model` is a hint, not a model name — the bundled workflow ships
+      # `smart` and `base`, which `claude --model` rejects. Resolve them
+      # with the variables `gtd loop` reads; unset, the hint is dropped and
+      # the agent runs its own default. Any other value is a real model name.
+      case "$model" in
+        smart) model="${GTD_LOOP_MODEL_SMART:-}" ;;
+        base) model="${GTD_LOOP_MODEL_BASE:-}" ;;
+      esac
       # The prompt embeds a full diff, so it goes to the agent over stdin,
       # never as an argv positional — argv is capped (~1 MB on macOS, and
       # POSIX guarantees only 4 KB, ARG_MAX), and a diff crosses that far
@@ -667,24 +727,25 @@ lands a human's already-made edit outright, no display needed; `script` reads
 its content off `--json=content` (the raw script, not plain `gtd next`'s prose)
 and runs it; `prompt` pipes plain `gtd next`'s own output to the agent over
 stdin, with `session.id`/`session.resume`/`model`/`system`/`validate` read as
-separate `--json=<path>` calls and mapped onto the agent's session flags —
-trying `resume`'s hinted flag first and falling back to the other on failure,
-since the session id is derived, not remembered (see
-[Driving the loop](#driving-the-loop) above) — and its own `validate` script's
-output re-prompted verbatim on failure (the driver owns only the retry cap).
-Every optional value (`model`, `system`, `validate`, `session.resume`, `idle`,
-`settled`) is read into a shell variable that command substitution always
-assigns — even to the empty string when the field is absent — so `set -u` never
-aborts on it; the guards (`${var:-}`/`${var:+...}`) still matter for VALUE, not
-for `set -u`: an absent field prints nothing, so an unguarded `--model "$model"`
-on an absent field would pass `--model ""` and silently override the harness's
-own default, which `${model:+--model "$model"}` avoids by omitting the flag
-entirely when `model` is empty. Every landed turn is executed — and reported —
-by the emitted script itself, read off `gtd land --json=script`, captured then
-piped to `sh`; `settled`/`idle` are read from the same untouched tree first, per
-the ordering rule above. `settled` ends a run that has nothing left to do: a
-no-op at a `script` rest settles right where it rests (stop immediately, nothing
-more to read), while an ordinary landing that finishes the whole process instead
+separate `--json=<path>` calls — `model` resolved from a hint to a real model
+name first — and mapped onto the agent's session flags — trying `resume`'s
+hinted flag first and falling back to the other on failure, since the session id
+is derived, not remembered (see [Driving the loop](#driving-the-loop) above) —
+and its own `validate` script's output re-prompted verbatim on failure (the
+driver owns only the retry cap). Every optional value (`model`, `system`,
+`validate`, `session.resume`, `idle`, `settled`) is read into a shell variable
+that command substitution always assigns — even to the empty string when the
+field is absent — so `set -u` never aborts on it; the guards
+(`${var:-}`/`${var:+...}`) still matter for VALUE, not for `set -u`: an absent
+field prints nothing, so an unguarded `--model "$model"` on an absent field
+would pass `--model ""` and silently override the harness's own default, which
+`${model:+--model "$model"}` avoids by omitting the flag entirely when `model`
+is empty. Every landed turn is executed — and reported — by the emitted script
+itself, read off `gtd land --json=script`, captured then piped to `sh`;
+`settled`/`idle` are read from the same untouched tree first, per the ordering
+rule above. `settled` ends a run that has nothing left to do: a no-op at a
+`script` rest settles right where it rests (stop immediately, nothing more to
+read), while an ordinary landing that finishes the whole process instead
 resolves `idle` on the FOLLOWING beat's own `gtd next --json=idle` read — the
 reference driver reads once more (a plain `gtd next`) only to DISPLAY that
 gate's own message, the decision to stop already made from `settled`/`idle`
@@ -878,3 +939,7 @@ do not queue it, store it, or hand it to another worktree.
   release, say), you can get version skew between the two — the command that
   validates may not be the command that decided. Keep the two in sync (one `gtd`
   on `PATH`, consistently) if you care about that gap.
+- **`GTD_LOOP_MODEL_SMART` / `GTD_LOOP_MODEL_BASE`** (optional) — the real model
+  names the paste passes to `claude --model` for the workflow's `smart` and
+  `base` hints, the same variables `gtd loop` reads. Unset, the hint is dropped
+  and `claude` runs its own default model.

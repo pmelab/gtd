@@ -927,7 +927,15 @@ describe("parseArgv — doors", () => {
 
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "init", "check", "uncheck", "install", "judgeRun"])
+    expect(standaloneKinds()).toEqual([
+      "lsp",
+      "init",
+      "check",
+      "uncheck",
+      "install",
+      "loop",
+      "judgeRun",
+    ])
   })
 
   it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {
@@ -936,6 +944,7 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("uncheck")).toBe("fs")
     expect(needsOf("init")).toBe("fs")
     expect(needsOf("install")).toBe("none")
+    expect(needsOf("loop")).toBe("none")
     expect(needsOf("judgeRun")).toBe("none")
     for (const kind of [
       "land",

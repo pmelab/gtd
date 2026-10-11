@@ -72,6 +72,7 @@ import {
 } from "./edge/index.js"
 import { planStart, planStep as planStepPure, type JudgeVerdict } from "./step/index.js"
 import { startLspServer } from "./lsp/index.js"
+import { liveLoopHost, runLoop } from "./loop/index.js"
 import {
   BUILT_IN_MODE_NAMES,
   steeringFormatFor,
@@ -180,6 +181,7 @@ export type Command =
     }
   | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "install" }
+  | { readonly kind: "loop" }
   | { readonly kind: "summary" }
   | { readonly kind: "base" }
   | { readonly kind: "judge" }
@@ -246,6 +248,14 @@ const runInstallCommand = (out: ArtifactOut): Effect.Effect<void> =>
     const briefing = renderBriefing()
     out.write(briefing.endsWith("\n") ? briefing : briefing + "\n")
   })
+
+// The loop spawns this same gtd, never whichever one is first on PATH.
+const runLoopCommand = (): Effect.Effect<void, Error> => {
+  const script = process.argv[1]
+  return runLoop({ gtd: script === undefined ? ["gtd"] : [process.execPath, script] }).pipe(
+    Effect.provide(liveLoopHost),
+  )
+}
 
 /**
  * Scaffolds a minimal `.gtdrc.json` — no `workflow:` key, since the built-in
@@ -1262,6 +1272,7 @@ export const needsOf = (kind: Command["kind"]): Needs => {
   switch (kind) {
     case "lsp":
     case "install":
+    case "loop":
     case "judgeRun":
       return "none"
     case "init":
@@ -1280,6 +1291,7 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "check",
   "uncheck",
   "install",
+  "loop",
   "judgeRun",
 ]
 
@@ -1340,6 +1352,8 @@ const dispatchVoidCommand = (
       return runUncheckCommand(command.file)
     case "install":
       return runInstallCommand(out)
+    case "loop":
+      return runLoopCommand()
     case "summary":
       return runSummaryCommand(out)
     case "base":

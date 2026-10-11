@@ -209,6 +209,16 @@ export default {
       from: { path: "^src/web/" },
       to: { path: "^src/ui/", dependencyTypesNot: ["type-only"] },
     },
+
+    // --- spec 09 ---
+    {
+      name: "loop-imports-only-wire",
+      comment:
+        "src/loop/ is a driver: it reaches core only through the wire contract and the gtd binary it spawns.",
+      severity: "error",
+      from: { path: "^src/loop/" },
+      to: { path: "^src/(?!loop/|wire/)" },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },
