@@ -144,7 +144,8 @@ function buildRepo(dir, { backdropCount, episodeLength }) {
   const fi = new FastImport()
   fi.commit("chore: initial commit", {
     "README.md": "# bench-replay fixture\n",
-    ".gtdrc.json": JSON.stringify({ env: { testCommand: "true" } }, null, 2) + "\n",
+    "gtd.config.ts":
+      'import { feature } from "@pmelab/gtd/workflows"\nexport default feature({ testCommand: "true" })\n',
   })
   for (let i = 1; i <= backdropCount; i++) fi.commit(`chore: backdrop ${i}`)
   appendEpisode(fi, episodeLength)

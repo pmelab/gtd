@@ -2,8 +2,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
 
   A state's `mode:` names a steering-file MODE (see STATES.md §12): a
   `format:` and/or `validate:` shell
-  command, declared in a `modes:` map — either inside `workflow:` or as the
-  top-level `.gtdrc` `modes:` layer over it. Each command runs via bash with
+  command, declared in the `modes` map of the `config` export of
+  `gtd.config.ts`. Each command runs via bash with
   `$GTD_FILE` set to the steering file's path;
   `format` rewrites the file in place, `validate` exits 0 for valid and
   non-zero with its output as the findings.
@@ -26,22 +26,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: gtd validate reports a custom mode's validate command as findings and exits non-zero
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: |
-            status=0
-            grep -q '^## Status' $GTD_FILE || {
-              echo "$GTD_FILE: missing a '## Status' section"
-              status=1
-            }
-            grep -q '^## Decision' $GTD_FILE || {
-              echo "$GTD_FILE: missing a '## Decision' section"
-              status=1
-            }
-            exit $status
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -49,6 +33,24 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: `status=0
+      grep -q '^## Status' $GTD_FILE || {
+        echo "$GTD_FILE: missing a '## Status' section"
+        status=1
+      }
+      grep -q '^## Decision' $GTD_FILE || {
+        echo "$GTD_FILE: missing a '## Decision' section"
+        status=1
+      }
+      exit $status
+      `,
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -72,12 +74,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # in-memory worktree, so the validate command is a scripted double keyed by
     # its rendered command string (see tests/integration/support/steps/steering.steps.ts).
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: "adr-validate $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -85,6 +81,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: "adr-validate $GTD_FILE",
+          },
+        },
       }
       """
     And the shell command "adr-validate .gtd/docs/adr.md" exits 1 with:
@@ -105,12 +109,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: gtd validate exits 0 when the custom mode's validate command is happy
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: "grep -q '^## Decision' $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -118,6 +116,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: "grep -q '^## Decision' $GTD_FILE",
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -136,12 +142,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @inmem
   Scenario: gtd validate exits 0 when the custom mode's validate command is happy (scripted)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: "adr-validate $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -149,6 +149,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: "adr-validate $GTD_FILE",
+          },
+        },
       }
       """
     And the shell command "adr-validate .gtd/docs/adr.md" exits 0 with:
@@ -171,13 +179,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: the mode's format command rewrites the file in place before validation
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          format: "sed 's/^status: draft$/status: accepted/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
-          validate: "grep -q '^status: accepted$' $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -185,6 +186,15 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            format: "sed 's/^status: draft$/status: accepted/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE",
+            validate: "grep -q '^status: accepted$' $GTD_FILE",
+          },
+        },
       }
       """
       # Validation therefore passes only because formatting ran FIRST, in place.
@@ -203,13 +213,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @inmem
   Scenario: the mode's format command rewrites the file in place before validation (scripted)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          format: "adr-format $GTD_FILE"
-          validate: "adr-validate $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -217,6 +220,15 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            format: "adr-format $GTD_FILE",
+            validate: "adr-validate $GTD_FILE",
+          },
+        },
       }
       """
     And the shell command "adr-format .gtd/docs/adr.md" rewrites ".gtd/docs/adr.md" to:
@@ -245,16 +257,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: gtd land no longer runs the mode's validate command — an invalid custom-mode steering file lands regardless
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: |
-            grep -q '^## Decision' $GTD_FILE || {
-              echo "$GTD_FILE: an ADR needs a '## Decision' section"
-              exit 1
-            }
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -262,6 +264,18 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: `grep -q '^## Decision' $GTD_FILE || {
+        echo "$GTD_FILE: an ADR needs a '## Decision' section"
+        exit 1
+      }
+      `,
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -289,12 +303,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @inmem
   Scenario: gtd land no longer runs the mode's validate command — an invalid custom-mode steering file lands regardless (scripted)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: "adr-validate $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -302,6 +310,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: "adr-validate $GTD_FILE",
+          },
+        },
       }
       """
     And the shell command "adr-validate .gtd/docs/adr.md" exits 1 with:
@@ -333,12 +349,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: a valid custom-mode steering file passes the gate and the turn is captured
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: "grep -q '^## Decision' $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -346,6 +356,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: "grep -q '^## Decision' $GTD_FILE",
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -368,15 +386,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: gtd land no longer runs the mode's format command at all — a broken formatter can't block the commit any more
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          format: |
-            echo "adr-fmt: cannot parse $GTD_FILE" >&2
-            exit 3
-          validate: "true"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -384,6 +393,17 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            format: `echo "adr-fmt: cannot parse $GTD_FILE" >&2
+      exit 3
+      `,
+            validate: "true",
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -405,13 +425,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @inmem
   Scenario: gtd land no longer runs the mode's format command at all — a broken formatter can't block the commit any more (scripted)
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          format: "adr-format-broken $GTD_FILE"
-          validate: "adr-validate-never-runs $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -419,6 +432,15 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            format: "adr-format-broken $GTD_FILE",
+            validate: "adr-validate-never-runs $GTD_FILE",
+          },
+        },
       }
       """
     And the shell command "adr-format-broken .gtd/docs/adr.md" exits 3 with:
@@ -444,16 +466,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: a modes: entry named after a built-in overrides only the half it declares
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          validate: |
-            grep -q '^## Open Questions' $GTD_FILE || {
-              echo "$GTD_FILE: my house rule — every plan lists its open questions"
-              exit 1
-            }
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -461,6 +473,18 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start" })
         await agent("grilling", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
+      }
+
+      export const config = {
+        modes: {
+          qa: {
+            validate: `grep -q '^## Open Questions' $GTD_FILE || {
+        echo "$GTD_FILE: my house rule — every plan lists its open questions"
+        exit 1
+      }
+      `,
+          },
+        },
       }
       """
       # gtd's own open-questions parser accepts this file (no "## Open
@@ -479,12 +503,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   @live
   Scenario: declaring only a format: for a built-in mode KEEPS gtd's own validation
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          format: "sed -i.bak 's/[[:space:]]*$//' $GTD_FILE && rm -f $GTD_FILE.bak"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -492,6 +510,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start" })
         await agent("grilling", "Draft the plan.", { file: ".gtd/TODO.md", mode: "qa" })
+      }
+
+      export const config = {
+        modes: {
+          qa: {
+            format: "sed -i.bak 's/[[:space:]]*$//' $GTD_FILE && rm -f $GTD_FILE.bak",
+          },
+        },
       }
       """
       # The mode declares a formatter and no validator, so gtd's open-questions
@@ -519,12 +545,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # of its own, so the project brings its own formatter for that mode via the
     # top-level key, and gtd's own built-in qa validation still runs underneath.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          format: "sed -E 's/([^ ]) +/\\1 /g' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -532,6 +552,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start" })
         await agent("grilling", "plan", { file: ".gtd/TODO.md", mode: "qa" })
+      }
+
+      export const config = {
+        modes: {
+          qa: {
+            format: "sed -E 's/([^ ]) +/\\1 /g' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE",
+          },
+        },
       }
       """
     And a file ".gtd/TODO.md" with:
@@ -545,18 +573,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And ".gtd/TODO.md" contains "Build a thing. Plan: add src/thing.ts."
 
   @live
-  Scenario: a top-level modes: entry layers over the workflow's own, half by half
-    # A workflow (gtd.config.ts) no longer declares modes of its own — `.gtdrc`
-    # `modes:` is the only place one lives — so both halves are declared on the
-    # one entry here; what is still under test is that they run in order.
+  Scenario: a custom mode declaring only format: formats the file and has nothing to validate
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          format: "sed 's/^status: draft$/status: accepted/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
-          validate: "grep -q '^status: accepted$' $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -565,33 +583,13 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
       }
-      """
-      # Validation passes only because both halves survived the merge and ran in order.
-    And a file ".gtd/docs/adr.md" with:
-      """
-      status: draft
-      """
-    And gtd lands "gtd(human): idle → drafting"
-    When I run gtd with args "validate"
-    Then it succeeds
-    And stdout contains ".gtd/docs/adr.md: valid"
 
-  @live
-  Scenario: a custom mode declaring only format: formats the file and has nothing to validate
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          format: "sed 's/draft/DRAFT/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE" # no validate: — that half is a no-op
-      """
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "start a decision record" })
-        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      export const config = {
+        modes: {
+          adr: {
+            format: "sed 's/draft/DRAFT/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE",
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -612,12 +610,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # skip notice either) now still gets a real script: the existence guard
     # plus its own format: command, evaluated once the script actually runs.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          format: "sed 's/draft/DRAFT/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -625,6 +617,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            format: "sed 's/draft/DRAFT/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE",
+          },
+        },
       }
       """
     And a file "NOTES.md" with:
@@ -651,12 +651,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # always exits 0 (a house rule gtd itself has nothing to say about), yet
     # the step is still refused because a question in the file is unanswered.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          validate: "true"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human, requireAnswers } from "@pmelab/gtd/flows"
@@ -669,6 +663,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
           mode: "qa",
         })
         requireAnswers(".gtd/TODO.md")
+      }
+
+      export const config = {
+        modes: {
+          qa: {
+            validate: "true",
+          },
+        },
       }
       """
     And the shell command "true" exits 0 with:
@@ -713,15 +715,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # hooks.ts's Before/After) makes that bare `gtd` resolve to THIS build
     # under test, never a stray globally-installed gtd.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        adr:
-          validate: |
-            v=$(gtd version)
-            echo "path-shim: $v"
-            exit 1
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -729,6 +722,17 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start a decision record" })
         await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
+      }
+
+      export const config = {
+        modes: {
+          adr: {
+            validate: `v=$(gtd version)
+      echo "path-shim: $v"
+      exit 1
+      `,
+          },
+        },
       }
       """
     And a file ".gtd/docs/adr.md" with:
@@ -749,12 +753,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # `file:line:col:` prefix still shows up, but only INSIDE that message
     # text, exactly as the line number already did before this package.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        qa:
-          validate: 'gtd check qa "$GTD_FILE"'
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -762,6 +760,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start" })
         await agent("drafting", "Write the plan.", { file: ".gtd/docs/PLAN.md", mode: "qa" })
+      }
+
+      export const config = {
+        modes: {
+          qa: {
+            validate: "gtd check qa \"$GTD_FILE\"",
+          },
+        },
       }
       """
     And a file ".gtd/docs/PLAN.md" with:
@@ -801,12 +807,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # the whole point is that the check still fires at this first-write beat,
     # ahead of `fileExistsGuard`.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        review:
-          format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' $GTD_FILE && rm -f $GTD_FILE.bak"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -814,6 +814,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start" })
         await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+      }
+
+      export const config = {
+        modes: {
+          review: {
+            format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' $GTD_FILE && rm -f $GTD_FILE.bak",
+          },
+        },
       }
       """
     And a file "NOTES.md" with:
@@ -864,13 +872,6 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # script exits 0 (see world.ts's validateVerdict) — the raw script text
     # is the deterministic way to prove the line is really there.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        review:
-          format: "true"
-          validate: "true"
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -878,6 +879,15 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export default async () => {
         await human("idle", { message: "start" })
         await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+      }
+
+      export const config = {
+        modes: {
+          review: {
+            format: "true",
+            validate: "true",
+          },
+        },
       }
       """
     And a file "NOTES.md" with:

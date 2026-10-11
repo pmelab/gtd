@@ -2,7 +2,7 @@ import { builtInLenses } from "./steps.js"
 import { lensesOf } from "./review.js"
 
 // The bundled workflow's default skills, one list per SCOPE, keyed by the
-// scope's full name — the same name a `.gtdrc` `skills:` entry addresses. A
+// scope's full name — the same name a `config.skills` entry addresses. A
 // nested scope with no entry inherits its parent's; group scopes
 // (`packages.item.fix`, `build.fix`, `build.review.fix`, `build.quality`) run
 // no turn and carry no key. `build.quality.<lens>` is one key per

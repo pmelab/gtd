@@ -461,17 +461,16 @@ const pendingTree = (
  * process is being started.
  */
 const settingsFor = (
-  config: Pick<ConfigOperations, "rcVars" | "rcEnv">,
   workflow: Pick<ResolvedWorkflow, "vars" | "env">,
   pinnedVars: Readonly<Record<string, string>>,
   hostEnv: Readonly<Record<string, string | undefined>>,
   startOverrides: Readonly<Record<string, string>> = {},
 ): { readonly vars: Record<string, string>; readonly env: Record<string, string> } => ({
   vars: {
-    ...resolveVars(workflow.vars, config.rcVars, startOverrides, hostEnv),
+    ...resolveVars(workflow.vars, startOverrides, hostEnv),
     ...pinnedVars,
   },
-  env: resolveVars(workflow.env, config.rcEnv, {}, hostEnv),
+  env: resolveVars(workflow.env, {}, hostEnv),
 })
 
 /** The workflow a run replays on: its pinned one, else the default. */
@@ -815,7 +814,7 @@ export const restAt = (
     const run = yield* computeProcessRun(git, config.workflow, ref)
     const resolved = yield* workflowOf(config, run)
     const def = resolved.def
-    const { vars, env } = settingsFor(config, resolved, run.pinnedVars, host.env, startOverrides)
+    const { vars, env } = settingsFor(resolved, run.pinnedVars, host.env, startOverrides)
     const skills = yield* resolveScopeSkills(def, vars)
     const access = yield* resolveScopeAccess(def, skills, vars)
     const budget = yield* Effect.try({
@@ -924,9 +923,8 @@ export const startRefusal = (
   ConfigRequirements
 > =>
   Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
     const host = yield* Host
-    const { vars, env } = settingsFor(config, resolved, {}, host.env, startVars)
+    const { vars, env } = settingsFor(resolved, {}, host.env, startVars)
     const skills = yield* resolveScopeSkills(resolved.def, vars)
     const access = yield* resolveScopeAccess(resolved.def, skills, vars)
     const workspace = rest.setup.workspace
@@ -1166,6 +1164,6 @@ export const summaryFor = (
         .map((entry) => ({ hash: entry.hash, state: entry.state })),
       processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
       processCostByModel: costByModel(run.costEntries),
-      ...settingsFor(config, resolved, run.pinnedVars, host.env),
+      ...settingsFor(resolved, run.pinnedVars, host.env),
     })
   })

@@ -20,9 +20,9 @@ export interface TextContext {
   readonly read?: (path: string) => string | undefined
   /** The scope the step runs in (`"build.review"`); the fixture pushes no scopes, so this stands in for the caller's. */
   readonly scope?: string
-  /** Stands in for `.gtdrc` `skills:`, keyed by scope full name. */
+  /** Stands in for `config.skills`, keyed by scope full name. */
   readonly skills?: Readonly<Record<string, readonly string[]>>
-  /** Stands in for `.gtdrc` `access:`, keyed by scope full name. */
+  /** Stands in for `config.access`, keyed by scope full name. */
   readonly access?: Readonly<Record<string, ScopeAccess>>
 }
 
@@ -30,7 +30,7 @@ const unavailable = (): never => {
   throw new Error("not available while rendering a text outside a replay")
 }
 
-/** Mirrors `Replay.ts`'s scope walk: for each prefix of the step's memory scope, innermost first, a `.gtdrc` entry, then the bundled export. */
+/** Mirrors `Replay.ts`'s scope walk: for each prefix of the step's memory scope, innermost first, a `config` entry, then the bundled export. */
 const skillsForOf =
   (context: TextContext) =>
   (localName: string): readonly string[] => {

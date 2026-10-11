@@ -2,44 +2,10 @@
 Feature: flow branches read their paths from "vars"
 
   A flow reads the paths it branches on from `vars`, so repointing a path var
-  (a top-level `.gtdrc` `vars:` key, or a `GTD_` override) reroutes the
+  (a `GTD_` override, or a `--var` at the start) reroutes the
   branch along with any prompt or `file:` reading or writing the same path,
-  instead of desyncing the flow. The workflow's own `vars:` supply the
+  instead of desyncing the flow. The workflow's own `defaults` supply the
   default the override replaces.
-
-  Scenario: a top-level "vars:" repoint reroutes a templated "on" pattern to the new path
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, changes, human, vars } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "start" })
-        do {
-          await agent("working", "do the work")
-        } while (!changes(vars.outFile ?? "").some((c) => c.status === "added"))
-        await human("captured", { message: "done" })
-      }
-
-      export const defaults = { outFile: "OUT.md" }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        outFile: RENAMED.md
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → working"
-    And a file "RENAMED.md" with:
-      """
-      the renamed output
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): working → captured"
 
   Scenario: authoring at the OLD literal path no longer matches once the var is repointed
     Given a test project
@@ -58,11 +24,7 @@ Feature: flow branches read their paths from "vars"
 
       export const defaults = { outFile: "OUT.md" }
       """
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        outFile: RENAMED.md
-      """
+    And an environment variable "GTD_OUTFILE" set to "RENAMED.md"
     And a file "NOTE.md" with:
       """
       a note
@@ -122,11 +84,7 @@ Feature: flow branches read their paths from "vars"
 
       export const defaults = { outFile: "OUT.md" }
       """
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        outFile: RENAMED.md
-      """
+    And an environment variable "GTD_OUTFILE" set to "RENAMED.md"
     And a file "NOTE.md" with:
       """
       a note

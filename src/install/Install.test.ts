@@ -101,11 +101,12 @@ describe("renderBriefing", () => {
     expect(renderBriefing()).toMatch(/investigate the repository and ask/i)
   })
 
-  it("instructs `gtd init`, treating an existing-config refusal as success", () => {
+  it("points repository settings at gtd.config.ts, never a removed .gtdrc or gtd init", () => {
     const briefing = renderBriefing()
-    expect(briefing).toContain("gtd init")
-    expect(briefing).toMatch(/already exists.{0,40}success/is)
-    expect(briefing).toMatch(/do not hand-roll/i)
+    expect(briefing).toMatch(/Make sure a .gtd\.config\.ts. governs the repository/)
+    expect(briefing).toContain("`config` export")
+    expect(briefing).not.toContain("gtd init")
+    expect(briefing).not.toContain(".gtdrc")
   })
 
   it("instructs committing the config before the first drive", () => {
@@ -177,13 +178,13 @@ describe("renderBriefing", () => {
     expect(briefing).toMatch(/--model smart.{0,20}fails/is)
   })
 
-  it("names GTD_PLANNERMODEL/GTD_CODERMODEL exports, wrapped in gtd-install markers, not written to .gtdrc", () => {
+  it("names GTD_PLANNERMODEL/GTD_CODERMODEL exports, wrapped in gtd-install markers, not written to gtd.config.ts", () => {
     const briefing = renderBriefing()
     expect(briefing).toContain("GTD_PLANNERMODEL")
     expect(briefing).toContain("GTD_CODERMODEL")
     expect(briefing).toContain("# gtd-install: model exports")
     expect(briefing).toContain("# gtd-install: end")
-    expect(briefing).toMatch(/NOT into.{0,20}\.gtdrc/is)
+    expect(briefing).toMatch(/NOT into.{0,20}gtd\.config\.ts/is)
   })
 
   it("states gtd-door inherits exports only via exec, and GTD_* is highest precedence", () => {

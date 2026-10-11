@@ -120,10 +120,6 @@ Feature: gtd loop drives a process until it rests on a human
 
   Scenario: Re-prompts the validator's whole output, stderr included, until the steering file passes
     Given a test project
-    And a file ".gtdrc.json" with:
-      """
-      { "modes": { "notes": { "validate": "grep -q approved \"$GTD_FILE\" || { echo \"NOTES lacks the word approved\" >&2; exit 1; }" } } }
-      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -131,6 +127,14 @@ Feature: gtd loop drives a process until it rests on a human
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("drafting", "Write .gtd/NOTES.md.", { file: ".gtd/NOTES.md", mode: "notes" })
+      }
+
+      export const config = {
+        modes: {
+          notes: {
+            validate: "grep -q approved \"$GTD_FILE\" || { echo \"NOTES lacks the word approved\" >&2; exit 1; }",
+          },
+        },
       }
       """
     And a file "NOTE.md" with:

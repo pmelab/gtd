@@ -34,8 +34,8 @@ none is optional. See
 [Setup](https://github.com/pmelab/gtd/blob/main/docs/setup.md) for the list, the
 install flags, and the never-install-the-plugin caveat. Skills are declared per
 scope, and restricted per turn where the driver can; each bundled scope has its
-own addressable `.gtdrc` `skills:` entry — see
-[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#the-skills-key)
+own addressable `config.skills` entry in `gtd.config.ts` — see
+[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#skills)
 to repoint one to a set your own harness has instead.
 
 Each scope also declares which files its agent turns may read and write;
@@ -45,8 +45,10 @@ enforces it at the OS level. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#file-access).
 
 > **`fastTestCommand` is required, with no fallback to `testCommand`.** Set it
-> (everything but e2e) under `env:` in `.gtdrc` or as `GTD_FASTTESTCOMMAND`; gtd
-> stops at the start gate, writing `.gtd/SETUP.md`, until it is.
+> (everything but e2e) as a workflow option in `gtd.config.ts`
+> (`feature({ fastTestCommand: "npm run test:fast" })`) or as
+> `GTD_FASTTESTCOMMAND`; gtd stops at the start gate, writing `.gtd/SETUP.md`,
+> until it is.
 
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
 > is a TypeScript module, and every gtd command that looks at workflow state —
@@ -96,7 +98,8 @@ that.
 The fastest way to understand it is to drive a few beats by hand. Any git
 repository with at least one commit will do once `gtd install` has written its
 `gtd.config.ts` and you have committed it — the first two beats need nothing
-else. Later beats run your test command, set under `env:` in `.gtdrc`.
+else. Later beats run your test command, set as the `testCommand` workflow
+option in `gtd.config.ts`.
 
 ### Beat 1 — `gtd next` says whose turn it is
 
@@ -415,11 +418,10 @@ noted in steps 3 and 4 below.
    With no `--provider`, `gtd judge run` picks jev when `TYPESAFE_API_KEY` is
    set and non-empty and no `--model` is given, else llm — never falling back
    across them; the `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment
-   variables, a user-level `~/.config/gtd/judge.json` `{ provider, model }`, and
-   a `.gtdrc` `judge:` key choose the judge without editing the driver (flags
-   win over all three, in that order); `--model` with `--provider fixed`/`jev`
-   is refused. jev and llm exit 1 with nothing on stdout when they cannot answer
-   every question):
+   variables and a user-level `~/.config/gtd/judge.json` `{ provider, model }`
+   choose the judge without editing the driver (flags win over both, in that
+   order); `--model` with `--provider fixed`/`jev` is refused. jev and llm exit
+   1 with nothing on stdout when they cannot answer every question):
    - Every red round after the first: was the failure identical, new, or
      progress?
    - After you review: is each of your notes an edit, a question, a nit or
@@ -520,6 +522,14 @@ naming the workflow, the key and what was expected. See
 and remember gtd evaluates that file on every command. A shared workflow package
 bundling its own `@pmelab/gtd` is checked against the running gtd and refused,
 naming which side to upgrade, on a flows protocol mismatch.
+
+Everything else a repository configures — steering-file modes, `gtd ui`
+settings, per-scope skills and file access — goes in the same file's `config`
+export, built with `defineConfig` from `@pmelab/gtd/flows`, which rejects an
+unknown key. `gtd.config.ts` is the only repository config: gtd 23 removed the
+`.gtdrc` files, and a leftover one — in the repository, above it, or in your
+home directory — fails every command until you delete it. See
+[Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
 
 ## License
 

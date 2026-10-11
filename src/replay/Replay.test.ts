@@ -680,7 +680,7 @@ describe("replay: skills resolution", () => {
     expect(await wireSkills(flow, { skills: { a: ["x"], "a.review": ["own"] } })).toEqual(["own"])
   })
 
-  it("ranks .gtdrc above the scope() option above the export", async () => {
+  it("ranks the config export above the scope() option above the export", async () => {
     const flow = inScope({ name: "a", skills: ["option"] }, step)
     expect(await wireSkills(flow, { skills: { a: ["bundled"] } })).toEqual(["option"])
     expect(
@@ -688,7 +688,7 @@ describe("replay: skills resolution", () => {
     ).toEqual(["rc"])
   })
 
-  it("lets a parent .gtdrc entry reach a nested scope with no list, but not one with its own", async () => {
+  it("lets a parent config entry reach a nested scope with no list, but not one with its own", async () => {
     const bare = inScope({ name: "a" }, async () => {
       await scope("b", step)
     })
@@ -813,7 +813,7 @@ describe("replay: access resolution", () => {
     expect(await wireAccess(reopen)).toEqual({ read: null, write: null })
   })
 
-  it("ranks .gtdrc above the scope() option above the export", async () => {
+  it("ranks the config export above the scope() option above the export", async () => {
     const flow: Flow = async () => {
       await scope({ name: "a", access: { write: ["option"] } }, step)
     }

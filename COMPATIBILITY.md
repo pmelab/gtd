@@ -44,12 +44,14 @@ histories written by an older or newer gtd.
 - **The `gtd.config.ts` shape** — every exported function and workflow factory
   (or call of one) is a workflow, the shipped factories' options are the
   settings below, and the reserved exports (`defaults`, `envDefaults`, `doors`,
-  `skills`, `access`, …) keep their meaning. See
+  `skills`, `access`, `config`, …) keep their meaning. See
   [Shape](docs/configuration.md#shape).
+- **The `config` export** — the keys `defineConfig` accepts (`modes`, `ui`,
+  `skills`, `access`) and their values. See
+  [The `config` export](docs/configuration.md#the-config-export).
 - **Bundled workflow and step names** — `feature`, `fix`, `review`, and each
   step's full name, plus which steps a bundled workflow reaches and in what
   order: changing either strands every process resting on it.
-- **`.gtdrc`** — its keys and their values, as published in `schema.json`.
 - **Settings** — the setting names the bundled workflows read (`testCommand`,
   `reviewBase`, …), the `GTD_*` variables, and the judge providers (`fixed`,
   `jev`, `llm`) with their variables and the user-level `judge.json`.

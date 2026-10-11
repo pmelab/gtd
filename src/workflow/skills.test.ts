@@ -6,7 +6,7 @@ const FILE = "/repo/gtd.config.ts"
 
 const failure = async (skills: (vars: Record<string, string>) => unknown): Promise<string> => {
   const exit = await Effect.runPromiseExit(
-    resolveScopeSkills({ skills: skills as never, skillsKeys: [], skillsOrigin: FILE }, {}),
+    resolveScopeSkills({ skills: skills as never, configuredSkills: {}, skillsOrigin: FILE }, {}),
   )
   expect(Exit.isFailure(exit)).toBe(true)
   return Exit.isFailure(exit) ? String(Cause.squash(exit.cause)) : ""
@@ -38,19 +38,15 @@ describe("resolveScopeSkills", () => {
     )
   })
 
-  it("reports an unknown key with its own origin", async () => {
+  it("reports an unknown config key at gtd.config.ts", async () => {
     const exit = await Effect.runPromiseExit(
       resolveScopeSkills(
-        {
-          skills: () => ({ a: ["x"] }),
-          skillsKeys: [{ key: "nope", origin: "/repo/.gtdrc.json" }],
-          skillsOrigin: FILE,
-        },
+        { skills: () => ({ a: ["x"] }), configuredSkills: { nope: [] }, skillsOrigin: FILE },
         {},
       ),
     )
     expect(String(Exit.isFailure(exit) ? Cause.squash(exit.cause) : "")).toContain(
-      '/repo/.gtdrc.json: skills.nope: "skills.nope" is not a scope that runs a turn — known scopes: a',
+      `${FILE}: config.skills.nope: "skills.nope" is not a scope that runs a turn — known scopes: a`,
     )
   })
 })
@@ -59,13 +55,17 @@ describe("resolveScopeAccess", () => {
   const run = (
     def: {
       access: (vars: Record<string, string>) => unknown
-      accessKeys?: { key: string; origin: string }[]
+      configuredAccess?: Record<string, object>
     },
     skills: Record<string, readonly string[]> = {},
   ) =>
     Effect.runPromiseExit(
       resolveScopeAccess(
-        { access: def.access as never, accessKeys: def.accessKeys ?? [], skillsOrigin: FILE },
+        {
+          access: def.access as never,
+          configuredAccess: def.configuredAccess ?? {},
+          skillsOrigin: FILE,
+        },
         skills,
         {},
       ),
@@ -91,10 +91,7 @@ describe("resolveScopeAccess", () => {
     const exit = await run(
       {
         access: () => ({ fromAccess: {} }),
-        accessKeys: [
-          { key: "fromSkills", origin: "/repo/.gtdrc" },
-          { key: "fromAccess", origin: "/repo/.gtdrc" },
-        ],
+        configuredAccess: { fromSkills: {}, fromAccess: {} },
       },
       { fromSkills: ["s"] },
     )
@@ -103,13 +100,10 @@ describe("resolveScopeAccess", () => {
 
   it("reports an unknown key with the exact message and known scopes", async () => {
     const text = message(
-      await run(
-        { access: () => ({ b: {} }), accessKeys: [{ key: "nope", origin: "/repo/.gtdrc" }] },
-        { a: ["x"] },
-      ),
+      await run({ access: () => ({ b: {} }), configuredAccess: { nope: {} } }, { a: ["x"] }),
     )
     expect(text).toContain(
-      '/repo/.gtdrc: access.nope: "access.nope" is not a scope that runs a turn — known scopes: a, b',
+      `${FILE}: config.access.nope: "access.nope" is not a scope that runs a turn — known scopes: a, b`,
     )
   })
 })

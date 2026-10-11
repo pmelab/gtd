@@ -732,29 +732,29 @@ export const side = async () => {
 
 export const defaults = { deployTarget: "npm test", reviewer: "nobody" }
 `
-  const seeded = () => repoWith(VARS, { ".gtdrc.yaml": "vars:\n  deployTarget: npm run rc\n" })
+  const seeded = () => repoWith(VARS)
 
-  it("a .gtdrc vars: entry overrides the workflow's default", async () => {
+  it("resolve from the workflow's defaults", async () => {
     const rest = await provide(currentRest, seeded())
-    expect(rest.vars).toEqual({ deployTarget: "npm run rc", reviewer: "nobody" })
+    expect(rest.vars).toEqual({ deployTarget: "npm test", reviewer: "nobody" })
   })
 
-  it("a started workflow's Gtd-Var overrides both the workflow default and .gtdrc", async () => {
+  it("a started workflow's Gtd-Var overrides the workflow default", async () => {
     const repo = seeded()
     await enter(repo, "side", "deployTarget=npm run entry")
     const rest = await provide(currentRest, repo)
     expect(rest.vars.deployTarget).toBe("npm run entry")
   })
 
-  it("GTD_<NAME> beats .gtdrc while nothing is pinned", async () => {
+  it("GTD_<NAME> beats the default while nothing is pinned", async () => {
     const rest = await provide(currentRest, seeded(), { GTD_DEPLOYTARGET: "echo env-wins" })
     expect(rest.vars.deployTarget).toBe("echo env-wins")
   })
 
-  it("a pinned value beats a GTD_<NAME> exported later, and .gtdrc edited later", async () => {
+  it("a pinned value beats a GTD_<NAME> exported later, and a default edited later", async () => {
     const repo = seeded()
     await enter(repo, "side", "deployTarget=npm run entry")
-    repo.writeFile(".gtdrc.yaml", "vars:\n  deployTarget: npm run edited\n")
+    repo.writeFile("gtd.config.ts", VARS.replace('"npm test"', '"npm run edited"'))
     const rest = await provide(currentRest, repo, { GTD_DEPLOYTARGET: "echo env-late" })
     expect(rest.vars.deployTarget).toBe("npm run entry")
   })
@@ -762,8 +762,9 @@ export const defaults = { deployTarget: "npm test", reviewer: "nobody" }
   it("a started workflow pins every process setting, so a later default change is ignored", async () => {
     const repo = seeded()
     await enter(repo, "side")
+    repo.writeFile("gtd.config.ts", VARS.replace('"nobody"', '"somebody"'))
     const run = await provide(currentRun, repo)
-    expect(run.pinnedVars).toEqual({ reviewer: "nobody", deployTarget: "npm run rc" })
+    expect(run.pinnedVars).toEqual({ reviewer: "nobody", deployTarget: "npm test" })
   })
 
   it("ignores a GTD_ env var naming no declared var", async () => {
@@ -783,20 +784,20 @@ export default async () => {
 export const defaults = { floor: "0.7" }
 export const envDefaults = { testCommand: "npm test" }
 `
-  const seeded = () => repoWith(ENVV, { ".gtdrc.yaml": "env:\n  testCommand: npm run rc\n" })
+  const seeded = () => repoWith(ENVV)
 
-  it("resolve from envDefaults, .gtdrc env: and GTD_<NAME>, and never reach vars", async () => {
+  it("resolve from envDefaults and GTD_<NAME>, and never reach vars", async () => {
     const repo = seeded()
-    expect((await provide(currentRest, repo)).env).toEqual({ testCommand: "npm run rc" })
+    expect((await provide(currentRest, repo)).env).toEqual({ testCommand: "npm test" })
     const rest = await provide(currentRest, repo, { GTD_TESTCOMMAND: "echo env" })
     expect(rest.env.testCommand).toBe("echo env")
     expect(rest.vars).toEqual({ floor: "0.7" })
   })
 
-  it("are read live mid-process: an edited .gtdrc env: applies, and nothing is recorded", async () => {
+  it("are read live mid-process: an edited envDefaults applies, and nothing is recorded", async () => {
     const repo = seeded()
     await land(repo, { "a.txt": "a\n" })
-    repo.writeFile(".gtdrc.yaml", "env:\n  testCommand: npm run edited\n")
+    repo.writeFile("gtd.config.ts", ENVV.replace('"npm test"', '"npm run edited"'))
     const rest = await provide(currentRest, repo)
     expect(rest.state).toBe("working")
     expect(rest.env.testCommand).toBe("npm run edited")

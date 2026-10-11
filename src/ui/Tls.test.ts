@@ -124,7 +124,7 @@ describe("generateSelfSignedCert", () => {
     expect(key).toContain("PRIVATE KEY")
   })
 
-  it("T1: a .gtdrc-supplied ui.host containing a command substitution never executes it — real openssl, just a failed certificate request", async () => {
+  it("T1: a config-supplied ui.host containing a command substitution never executes it — real openssl, just a failed certificate request", async () => {
     const marker = join(tmpDir, "pwned")
     const exit = await Effect.runPromiseExit(
       generateSelfSignedCert({ host: `$(touch ${marker})` }).pipe(

@@ -1,7 +1,7 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v3 exposes `init`, `land` (with `--cost=<n>`/`--model=<name>`),
+  gtd v3 exposes `land` (with `--cost=<n>`/`--model=<name>`),
   `abandon`, `restore`, `next`, `validate`, `check <mode> <file>`,
   `uncheck <file>`, `lsp`, `version`, and `help` as its
   subcommands. `--workflow
@@ -25,6 +25,12 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with args "bogus-subcommand"
     Then it fails
 
+  Scenario: The removed `init` subcommand is now unknown, exit 2
+    Given a test project
+    When I run gtd with args "init"
+    Then the exit code is 2
+    And stderr contains "unknown command 'init'"
+
   Scenario: The removed `run` subcommand is now unknown
     Given a test project
     When I run gtd with args "run"
@@ -34,7 +40,6 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Given a test project
     When I run gtd with "--help"
     Then it succeeds
-    And stdout contains "init "
     And stdout contains "land"
     And stdout contains "--workflow <name>"
     And stdout contains "--var"
@@ -102,7 +107,6 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
       | validate --json          |
       | check qa TODO.md --json  |
       | uncheck REVIEW.md --json |
-      | init --json              |
       | install --json           |
       | abandon --json           |
       | restore --json           |

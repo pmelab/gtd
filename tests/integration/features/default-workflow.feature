@@ -594,10 +594,13 @@ Feature: The bundled unified workflow — one flow, end to end
     Given a test project
     And the workflow gtd install scaffolds
     # The bundled access would refuse the collecting turn's src/ write below.
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      access:
-        build.review: {}
+      export const config = {
+        access: {
+          "build.review": {},
+        },
+      }
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"

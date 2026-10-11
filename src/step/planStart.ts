@@ -47,7 +47,7 @@ const checkOverrides = (
         new GtdUsageError(
           `${commandLabel}: --var pins process settings only; ${environmentOnly.join(", ")} ${
             environmentOnly.length === 1 ? "is an environment setting" : "are environment settings"
-          } — set it under "env:" in .gtdrc or with a GTD_<NAME> environment variable`,
+          } — set it as a workflow option in gtd.config.ts or with a GTD_<NAME> environment variable`,
         ),
       )
     }
@@ -97,18 +97,16 @@ export const planStart = (
     if ("refusal" in first) return refusal(`${commandLabel}: ${first.refusal}`)
     const { firstStep } = first
 
-    const config = yield* (yield* ConfigService).load
-    const declaredNames = Object.keys({ ...workflow.vars, ...config.rcVars })
     const overrideRefusal = yield* checkOverrides(
       commandLabel,
       varOverrides,
-      declaredNames,
-      Object.keys({ ...workflow.env, ...config.rcEnv }),
+      Object.keys(workflow.vars),
+      Object.keys(workflow.env),
     )
     if (overrideRefusal !== undefined) return overrideRefusal
 
     const baseOf = workflow.def.base
-    const vars = resolveVars(workflow.vars, config.rcVars, varOverrides, (yield* Host).env)
+    const vars = resolveVars(workflow.vars, varOverrides, (yield* Host).env)
     const multiline = multilineSetting(vars)
     if (multiline !== undefined) {
       return refusal(

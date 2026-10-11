@@ -295,25 +295,30 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   @inmem
   Scenario: a lens skills key loads only while the lens is in qualityReviews
     Given a test project
-    And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      vars:
-        qualityReviews: "owasp-security"
-      skills:
-        build.quality.ponytail-review: [my-org-checklist]
+      import { feature } from "@pmelab/gtd/workflows"
+      export { skills } from "@pmelab/gtd/workflows"
+
+      export default feature({ qualityReviews: "owasp-security" })
+      export const config = {
+        skills: { "build.quality.ponytail-review": ["my-org-checklist"] },
+      }
       """
     When I run gtd next
     Then it fails
     And stderr contains "gtd config:"
     And stderr contains "\"skills.build.quality.ponytail-review\" is not a scope that runs a turn"
 
-    Given a gtd config file at ".gtdrc" with:
+    Given a gtd config file at "gtd.config.ts" with:
       """
-      vars:
-        qualityReviews: "owasp-security, ponytail-review"
-      skills:
-        build.quality.ponytail-review: [my-org-checklist]
+      import { feature } from "@pmelab/gtd/workflows"
+      export { skills } from "@pmelab/gtd/workflows"
+
+      export default feature({ qualityReviews: "owasp-security, ponytail-review" })
+      export const config = {
+        skills: { "build.quality.ponytail-review": ["my-org-checklist"] },
+      }
       """
     When I run gtd next
     Then it succeeds

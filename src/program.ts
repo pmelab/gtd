@@ -15,13 +15,11 @@ import {
   loopLogPath,
 } from "./platform/index.js"
 import {
-  configPresentAt,
   WORKFLOW_MODULE,
   ConfigDiscovery,
-  loadRcConfig,
+  refuseLegacyRc,
   ConfigService,
   formatDiagnostic,
-  renderInitScaffold,
   seededValidateCommand,
   type PendingChange,
   type StateMode,
@@ -141,7 +139,6 @@ const writeSelection = (
 
 export type Command =
   | { readonly kind: "lsp" }
-  | { readonly kind: "init" }
   | {
       readonly kind: "ui"
       // `host`/`port` stay optional/undefined-when-absent: a resolved bind address/port is
@@ -246,7 +243,7 @@ const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
 /**
  * Prints the briefing, emitted by the binary itself so it's always current.
  * At a repository root no `gtd.config.ts` governs yet, it also writes one
- * importing gtd's shipped workflows, left uncommitted like `gtd init`'s file.
+ * importing gtd's shipped workflows, left uncommitted.
  * Anywhere else it writes nothing.
  */
 const runInstallCommand = (
@@ -273,41 +270,6 @@ const runLoopCommand = (): Effect.Effect<void, Error> => {
     Effect.provide(liveLoopHost),
   )
 }
-
-/**
- * Scaffolds a minimal `.gtdrc.json`. Uses its own more permissive
- * location check, which also allows a directory outside any repository. The
- * file is left uncommitted, and the message says to commit it before the
- * first `gtd land`, which would otherwise capture it as a pending change.
- */
-const runInitCommand = (
-  out: ArtifactOut,
-): Effect.Effect<void, Error, GitService | Workspace | Host | ConfigDiscovery> =>
-  Effect.gen(function* () {
-    const git = yield* GitService
-    const host = yield* Host
-    const inRepo = yield* assertInitLocation(git, host)
-    if (yield* configPresentAt(host.root)) {
-      return yield* Effect.fail(
-        new Error("gtd init: a gtd config already exists — remove it before re-initializing"),
-      )
-    }
-    const scaffold = renderInitScaffold()
-    const workspace = yield* Workspace
-    yield* workspace.write(".gtdrc.json", scaffold.config)
-    const wrote =
-      `Wrote .gtdrc.json with a Prettier formatting suggestion. The workflows gtd runs\n` +
-      `live in gtd.config.ts — \`gtd install\` scaffolds one.\n\n`
-    const nextSteps = inRepo
-      ? `Review and commit it before starting: an uncommitted .gtdrc.json counts as a\n` +
-        `pending change, so the initial state would capture it on the first landing. Once\n` +
-        `committed, run \`gtd land\` to begin.\n`
-      : `This directory is not a git repository, so there is nothing to commit here. The\n` +
-        `config applies to any gtd repository nested below it — gtd discovers it by\n` +
-        `walking up from the repository root. Run \`gtd land\` from such a repo to\n` +
-        `begin.\n`
-    out.write(wrote + nextSteps)
-  })
 
 /**
  * `planLanding`'s result — a preview of what `gtd land` would do, plus the
@@ -513,13 +475,12 @@ const runJudgeRunCommand = (
 ): Effect.Effect<void, Error, Host | Narrator | ConfigDiscovery> =>
   Effect.gen(function* () {
     const host = yield* Host
-    const { judge } = yield* loadRcConfig
+    yield* refuseLegacyRc
     const input = yield* readStdin()
     const verdict = yield* Effect.tryPromise({
       try: () =>
         runJudge({
           provider: command.provider,
-          configured: judge,
           answers: command.answers,
           model: command.model,
           cwd: host.scratchDir,
@@ -1250,33 +1211,6 @@ const assertRepositoryHasCommits = (git: GitOperations): Effect.Effect<void, Err
   })
 
 /**
- * `gtd init` may run either at a repository root or in a directory outside
- * any repository — the latter scaffolds a shared config a nested repo picks
- * up by walking up the cwd→home chain. The one placement it must refuse is a
- * repository subdirectory, since config discovery only walks up. Returns
- * whether cwd is inside a repository, so the caller can tailor the
- * "commit before starting" guidance.
- */
-const assertInitLocation = (git: GitOperations, host: HostOps): Effect.Effect<boolean, Error> =>
-  Effect.gen(function* () {
-    const topLevel = yield* Effect.either(git.topLevel())
-    // topLevel fails only outside a git repository — there, init is allowed.
-    if (topLevel._tag === "Left") return false
-    const topReal = yield* host.realPath(topLevel.right)
-    const cwdReal = yield* host.realPath(host.root)
-    if (topReal !== cwdReal) {
-      return yield* Effect.fail(
-        new Error(
-          `gtd init must be run from the repository root (${topLevel.right}) or from a ` +
-            `directory outside any git repository; the current directory is a repository ` +
-            `subdirectory: ${host.root}`,
-        ),
-      )
-    }
-    return true
-  })
-
-/**
  * What a command kind needs before it may run. Defined here, not in
  * `Cli.ts`, to avoid a circular value dependency (`Cli.ts` already depends
  * on this module for `runCommand`). `"state"` means the kind derives
@@ -1290,7 +1224,6 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "loop":
     case "judgeRun":
       return "none"
-    case "init":
     case "check":
     case "uncheck":
       return "fs"
@@ -1302,7 +1235,6 @@ export const needsOf = (kind: Command["kind"]): Needs => {
 /** The kinds that never touch the repo-root guard — pinned so a new standalone kind can't be added silently. */
 export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
-  "init",
   "check",
   "uncheck",
   "install",
@@ -1326,8 +1258,6 @@ const dispatchVoidCommand = (
   switch (command.kind) {
     case "lsp":
       return runLspCommand()
-    case "init":
-      return runInitCommand(out)
     case "ui":
       return runUiCliCommand(command, out)
     case "land":
@@ -1403,8 +1333,8 @@ export const runCommand = (
     yield* assertRepositoryHasCommits(git)
     // One extra load here, own to this block, just to read `.warnings` ahead
     // of `dispatch`'s own (unrelated) load(s) — `ConfigService.load` isn't
-    // memoized, and `load`'s pipeline (`src/workflow/load.ts`) narrates one "config: layer ..."
-    // line per level on EVERY call, so a second bare load under --verbose
+    // memoized, and `load` (`src/workflow/load.ts`) narrates a "config: module ..."
+    // line on EVERY call, so a second bare load under --verbose
     // would double that output. Silence narration on this one call only (a
     // scoped Narrator override, never touching the outer context `dispatch`
     // runs under) — this load exists purely to surface `.warnings`, not to

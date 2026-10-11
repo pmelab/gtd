@@ -9,11 +9,6 @@ Feature: gtd in a repository with no commits yet
   the `{"state":"error","prompt":…}` envelope on stderr (stdout stays
   byte-empty), still exiting `1`.
 
-  `gtd init` is exempt — it writes only config and derives no workflow state
-  — so it still succeeds in a commitless repository, and its own next-steps
-  message ("review and commit it") is exactly how a fresh project satisfies
-  the precondition.
-
   @live
   Scenario: gtd land refuses in a repository with no commits
     Given a git repository with no commits
@@ -86,11 +81,3 @@ Feature: gtd in a repository with no commits yet
     And stdout is empty
     And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
     And stderr contains "\"state\":\"error\""
-
-  @live
-  Scenario: gtd init is exempt — it still succeeds in a repository with no commits
-    Given a git repository with no commits
-    When I run gtd with args "init"
-    Then it succeeds
-    And stdout contains "Wrote .gtdrc.json"
-    And stdout contains "commit"

@@ -1,7 +1,7 @@
 // The bundled workflow's settings, in two kinds. A process setting changes
 // which step comes next, so it is pinned for the whole process at its start;
 // an environment setting only changes how a step runs on this machine, so it
-// is read live on every invocation. `.gtdrc` `vars:`/`env:`, `--var` (process
+// is read live on every invocation. A factory option, `--var` (process
 // settings only) and `GTD_<NAME>` override either.
 
 /** Process settings. */

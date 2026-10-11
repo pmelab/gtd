@@ -1,10 +1,10 @@
 @inmem
 Feature: process settings are pinned at process start, environment settings are read live
 
-  A process setting (`defaults`, `.gtdrc` `vars:`) changes which step comes
+  A process setting (`defaults`, or a workflow factory's option) changes which step comes
   next, so it is resolved once and recorded as `Gtd-Var:` trailers in the
   process's first commit; later edits and `GTD_<NAME>` exports are ignored for
-  the running process. An environment setting (`envDefaults`, `.gtdrc` `env:`)
+  the running process. An environment setting (`envDefaults`, or a factory option)
   only changes how a step runs on this machine, so it is read fresh on every
   call and never recorded.
 
@@ -39,12 +39,24 @@ Feature: process settings are pinned at process start, environment settings are 
     And the last commit body contains "Gtd-Var: route=fast"
     And the last commit body does not contain "Gtd-Var: checker"
 
-  Scenario: a process setting edited in .gtdrc mid-process does not re-route the process
+  Scenario: a process setting edited in gtd.config.ts mid-process does not re-route the process
     Given gtd lands "gtd(human): idle → working"
-    And a file ".gtdrc" with:
+    And a file "gtd.config.ts" with:
       """
-      vars:
-        route: slow
+      import { agent, env, human, vars } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("working", "do the work")
+        if (vars.route === "fast") {
+          await agent("fast", `fast lane, check with ${env.checker}`)
+        } else {
+          await agent("slow", `slow lane, check with ${env.checker}`)
+        }
+      }
+
+      export const defaults = { route: "slow" }
+      export const envDefaults = { checker: "make check" }
       """
     And a file "work.txt" with:
       """
@@ -74,7 +86,7 @@ Feature: process settings are pinned at process start, environment settings are 
     Then it succeeds
     And the last commit body contains "Gtd-Var: route=slow"
 
-  Scenario: an environment setting edited in .gtdrc mid-process shows on the next step
+  Scenario: an environment setting edited in gtd.config.ts mid-process shows on the next step
     Given gtd lands "gtd(human): idle → working"
     And a file "work.txt" with:
       """
@@ -84,10 +96,22 @@ Feature: process settings are pinned at process start, environment settings are 
     When I run gtd next
     Then it succeeds
     And stdout contains "check with make check"
-    Given a file ".gtdrc" with:
+    Given a file "gtd.config.ts" with:
       """
-      env:
-        checker: just check
+      import { agent, env, human, vars } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("working", "do the work")
+        if (vars.route === "fast") {
+          await agent("fast", `fast lane, check with ${env.checker}`)
+        } else {
+          await agent("slow", `slow lane, check with ${env.checker}`)
+        }
+      }
+
+      export const defaults = { route: "fast" }
+      export const envDefaults = { checker: "just check" }
       """
     When I run gtd next
     Then it succeeds
@@ -105,33 +129,23 @@ Feature: process settings are pinned at process start, environment settings are 
     Then it succeeds
     And stdout contains "check with ci check"
 
-  Scenario: an environment setting under vars: fails to load, naming env:
-    Given a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        checker: just check
-      """
-    When I run gtd next
-    Then it fails
-    And stderr contains "\"vars.checker\" is an environment setting — move it under \"env:\""
-
-  Scenario: a process setting under env: fails to load, naming vars:
-    Given a gtd config file at ".gtdrc" with:
-      """
-      env:
-        route: slow
-      """
-    When I run gtd next
-    Then it fails
-    And stderr contains "\"env.route\" is a process setting — move it under \"vars:\""
-
   Scenario: a multi-line process setting refuses the first landing, naming the setting
-    Given a file ".gtdrc" with:
+    Given a file "gtd.config.ts" with:
       """
-      vars:
-        route: |
-          fast
-          slow
+      import { agent, env, human, vars } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+        await agent("working", "do the work")
+        if (vars.route === "fast") {
+          await agent("fast", `fast lane, check with ${env.checker}`)
+        } else {
+          await agent("slow", `slow lane, check with ${env.checker}`)
+        }
+      }
+
+      export const defaults = { route: "fast\nslow" }
+      export const envDefaults = { checker: "make check" }
       """
     When I run gtd land
     Then it fails
@@ -167,28 +181,6 @@ Feature: process settings are pinned at process start, environment settings are 
     When I run gtd land
     Then it fails
     And stderr contains "reads the environment setting \"checker\""
-    And the last commit subject is "chore: add gtd.config.ts"
-
-  Scenario: a .gtdrc vars: key outside the setting-name rule is refused
-    Given a file ".gtdrc" with:
-      """
-      vars:
-        "a=b": "1"
-      """
-    When I run gtd land
-    Then it fails
-    And stderr contains "not a valid setting name"
-    And the last commit subject is "chore: add gtd.config.ts"
-
-  Scenario: a .gtdrc env: key containing a space is refused
-    Given a file ".gtdrc" with:
-      """
-      env:
-        "a b": "1"
-      """
-    When I run gtd land
-    Then it fails
-    And stderr contains "not a valid setting name"
     And the last commit subject is "chore: add gtd.config.ts"
 
   Scenario: a workflow defaults key outside the setting-name rule is refused

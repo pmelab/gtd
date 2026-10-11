@@ -162,12 +162,14 @@ Feature: gtd ui — the phone/web client's HTTPS listener
           message: "answer the plan",
         })
       }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      modes:
-        custom-mode:
-          validate: "true"
+
+      export const config = {
+        modes: {
+          "custom-mode": {
+            validate: "true",
+          },
+        },
+      }
       """
     And a file "NOTE.md" with:
       """
@@ -382,11 +384,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
         await human("idle", { message: "write NOTE.md to start" })
         await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
       }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      ui:
-        format: 'printf "FORMATTED\n" >> $GTD_FILE'
+
+      export const config = {
+        ui: {
+          format: "printf \"FORMATTED\\n\" >> $GTD_FILE",
+        },
+      }
       """
     And a file "NOTE.md" with:
       """

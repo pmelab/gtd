@@ -86,7 +86,7 @@ const tailnetAddress = (address: string): void => {
 import { Host } from "../platform/index.js"
 import { UiError, UiShell, UiUsageError } from "./index.js"
 import { liveUiShell } from "./Ports.fixture.js"
-import type { UiConfig } from "../workflow/index.js"
+import type { UiConfig } from "./Server.js"
 import type { RunInWorktree } from "./Beat.js"
 import {
   buildFormatCommand,
@@ -2423,7 +2423,7 @@ const refusalDataFrom = async <T>(promise: Promise<unknown>): Promise<T | undefi
  */
 const startRealServer = async (
   dir: string,
-  /** `ui.format`'s own value for this server, `undefined` (the default) meaning no formatter configured — the same config field a real `.gtdrc` would carry. */
+  /** `ui.format`'s own value for this server, `undefined` (the default) meaning no formatter configured — the same field a real `config.ui` would carry. */
   format?: string,
   /** The fake `gtd`'s own beat JSON — `renderablePromptJson` (the default) unless a test needs a different rest (an idle one, for package 02). */
   beatJson: string = renderablePromptJson,

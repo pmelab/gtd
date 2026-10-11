@@ -55,23 +55,19 @@ export interface WorkflowDefinition {
   readonly base?: WorkflowBase | undefined
   /** Steering files by path, with their mode — what the LSP knows before a step declaring one is reached. */
   readonly steering: Readonly<Record<string, StateMode>>
-  /** Every mode a step may name: the built-in registry merged with `.gtdrc` `modes:`. */
+  /** Every mode a step may name: the built-in registry merged with `config.modes`. */
   readonly modes: Readonly<Record<StateMode, ModeDef>>
   /** Bundled skill lists keyed by scope full name, given the process's resolved vars — the fallback beneath `configuredSkills` and a `scope()` option. */
   readonly skills: (
     vars: Readonly<Record<string, string>>,
   ) => Readonly<Record<string, readonly string[]>>
-  /** `.gtdrc` `skills:` entries by scope full name; they outrank a `scope()` option, which outranks `skills`. */
+  /** `config.skills` entries by scope full name; they outrank a `scope()` option, which outranks `skills`. Their keys are checked against `skills` once the process's settings are known. */
   readonly configuredSkills: Readonly<Record<string, readonly string[]>>
-  /** Every well-shaped `.gtdrc` `skills:` key with its file, checked against `skills` once the process's settings are known. */
-  readonly skillsKeys: readonly { readonly key: string; readonly origin: string }[]
   /** Bundled access keyed by scope full name, given the process's resolved vars — the fallback beneath `configuredAccess` and a `scope()` option. */
   readonly access: (vars: Readonly<Record<string, string>>) => Readonly<Record<string, ScopeAccess>>
-  /** `.gtdrc` `access:` entries by scope full name; they outrank a `scope()` option, which outranks `access`. */
+  /** `config.access` entries by scope full name; they outrank a `scope()` option, which outranks `access`. */
   readonly configuredAccess: Readonly<Record<string, ScopeAccess>>
-  /** Every well-shaped `.gtdrc` `access:` key with its file, checked once the process's settings are known. */
-  readonly accessKeys: readonly { readonly key: string; readonly origin: string }[]
-  /** The file the `skills` and `access` exports came from, for error reports. */
+  /** The file the `skills`, `access` and `config` exports came from, for error reports. */
   readonly skillsOrigin: string
   /** The flow's first step on an ordinary start — where a finished episode waits. */
   readonly initial: StateName

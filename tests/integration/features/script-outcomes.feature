@@ -25,9 +25,9 @@ Feature: Emitted required/optional scripts print their own outcome lines
       }
       """
     # The process base the abandon scenario names is this last setup commit.
-    And a gtd config file at ".gtdrc" with:
+    And a commit "chore: add README.md" that adds "README.md" with:
       """
-      vars: {}
+      # a project
       """
 
   Scenario: a landed transition's required script prints the transition row
@@ -57,5 +57,5 @@ Feature: Emitted required/optional scripts print their own outcome lines
     When I run gtd with args "abandon"
     Then it succeeds
     And the emitted script printed "abandoned the process resting at \"working\""
-    And the emitted script printed "chore: add .gtdrc"
+    And the emitted script printed "chore: add README.md"
     And the emitted script printed "resting at \"idle\""

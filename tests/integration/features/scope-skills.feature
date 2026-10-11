@@ -4,7 +4,7 @@ Feature: skills are declared per scope
   `scope({ name, skills }, fn)` sets the skill list every agent step inside
   runs with. A nested scope inherits its parent's list and replaces it
   wholesale when it sets its own; two agent steps in one memory scope with
-  different lists fail the process. A top-level `.gtdrc` `skills:` key is a
+  different lists fail the process. A `config.skills` key in `gtd.config.ts` is a
   scope's FULL name and replaces that scope's list wholesale (`[]` means
   none). A key that is not a scope running a turn is a load error listing the
   known scopes. `agent()` takes no `skills` option.
@@ -65,7 +65,7 @@ Feature: skills are declared per scope
     And stdout contains "\"child-skill\""
     And stdout does not contain "parent-skill"
 
-  Scenario: a parent .gtdrc entry reaches a nested scope that sets no list
+  Scenario: a parent config entry reaches a nested scope that sets no list
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -78,18 +78,19 @@ Feature: skills are declared per scope
           scope("deeper", () => agent("doing", "do the work", { allowEmpty: true })),
         )
       }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      skills:
-        outer: [rc-skill]
+
+      export const config = {
+        skills: {
+          outer: ["rc-skill"],
+        },
+      }
       """
     When I run gtd next with "--json=skills"
     Then it succeeds
     And stdout contains "\"rc-skill\""
     And stdout does not contain "parent-skill"
 
-  Scenario: a .gtdrc entry on a parent does not reach a nested scope with its own list
+  Scenario: a config entry on a parent does not reach a nested scope with its own list
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -104,11 +105,12 @@ Feature: skills are declared per scope
           ),
         )
       }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      skills:
-        outer: [rc-skill]
+
+      export const config = {
+        skills: {
+          outer: ["rc-skill"],
+        },
+      }
       """
     When I run gtd next with "--json=skills"
     Then it succeeds
@@ -151,10 +153,13 @@ Feature: skills are declared per scope
   Scenario: an unknown key exits 1 and lists the known scopes
     Given a test project
     And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      skills:
-        no.such.scope: [whatever]
+      export const config = {
+        skills: {
+          "no.such.scope": ["whatever"],
+        },
+      }
       """
     When I run gtd next
     Then it fails
@@ -175,11 +180,12 @@ Feature: skills are declared per scope
           agent("doing", "do the work", { allowEmpty: true }),
         )
       }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      skills:
-        idle: []
+
+      export const config = {
+        skills: {
+          idle: [],
+        },
+      }
       """
     When I run gtd next
     Then it succeeds
@@ -188,7 +194,7 @@ Feature: skills are declared per scope
     Then it succeeds
     And stdout does not contain "\"skills\""
 
-  Scenario: a gtd.config.ts skills export is addressable by a .gtdrc scope key
+  Scenario: a gtd.config.ts skills export is addressable by a config scope key
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -203,11 +209,9 @@ Feature: skills are declared per scope
     When I run gtd next with "--json=skills"
     Then it succeeds
     And stdout contains "\"bundled-default\""
-
-    Given a gtd config file at ".gtdrc" with:
+    Given the file "gtd.config.ts" ends with:
       """
-      skills:
-        custom: [my-org-skill]
+      export const config = { skills: { custom: ["my-org-skill"] } }
       """
     When I run gtd next with "--json=skills"
     Then it succeeds
@@ -217,10 +221,13 @@ Feature: skills are declared per scope
   Scenario: a build.quality.<lens> entry replaces that lens's skills only
     Given a test project
     And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      skills:
-        build.quality.owasp-security: [my-org-checklist]
+      export const config = {
+        skills: {
+          "build.quality.owasp-security": ["my-org-checklist"],
+        },
+      }
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security, ponytail-review"
     And gtd starts workflow "fix"
@@ -259,10 +266,13 @@ Feature: skills are declared per scope
     Given a test project
     And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to "my-lens"
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      skills:
-        build.quality.my-lens: [my-org-checklist]
+      export const config = {
+        skills: {
+          "build.quality.my-lens": ["my-org-checklist"],
+        },
+      }
       """
     And gtd starts workflow "fix"
     And the environment variable "GTD_QUALITYREVIEWS" is unset
@@ -273,10 +283,13 @@ Feature: skills are declared per scope
   Scenario: a lens pinned from --var at entry stays valid for the rest of the process
     Given a test project
     And the workflow gtd install scaffolds
-    And a gtd config file at ".gtdrc" with:
+    And the file "gtd.config.ts" ends with:
       """
-      skills:
-        build.quality.my-lens: [my-org-checklist]
+      export const config = {
+        skills: {
+          "build.quality.my-lens": ["my-org-checklist"],
+        },
+      }
       """
     When I run gtd with args "--workflow fix --var qualityReviews=my-lens"
     Then it succeeds

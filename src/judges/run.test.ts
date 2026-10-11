@@ -78,27 +78,22 @@ describe("runJudge", () => {
   })
 })
 
-describe("runJudge with a configured judge:", () => {
-  it("uses the configured provider when no flag or variable is given", async () => {
-    expect(
-      await runJudge({
-        provider: undefined,
-        configured: { provider: "fixed" },
-        env,
-        input: doc,
-        cwd,
-      }),
-    ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
-  })
-  it("layers per field: a flag provider with a configured model", async () => {
+describe("runJudge with a user-level judge.json", () => {
+  const home = (config: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-judge-home-"))
+    mkdirSync(join(dir, "gtd"))
+    writeFileSync(join(dir, "gtd", "judge.json"), config)
+    return dir
+  }
+
+  it("layers per field: a flag provider with the file's model", async () => {
     const dir = shimDir(
       `echo '${JSON.stringify({ structured_output: { q: { answer: "yes", p: 0.8 } } })}'`,
     )
     expect(
       await runJudge({
         provider: "llm",
-        configured: { provider: "jev", model: "rc" },
-        env: { PATH: `${dir}:/bin:/usr/bin` },
+        env: { PATH: `${dir}:/bin:/usr/bin`, XDG_CONFIG_HOME: home('{"model":"file"}') },
         input: doc,
         cwd,
       }),
@@ -108,29 +103,12 @@ describe("runJudge with a configured judge:", () => {
     expect(
       await runJudge({
         provider: undefined,
-        configured: { provider: "fixed" },
-        env: { ...env, GTD_JUDGE_PROVIDER: "", GTD_JUDGE_MODEL: "" },
-        input: doc,
-        cwd,
-      }),
-    ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
-  })
-})
-
-describe("runJudge with a user-level judge.json", () => {
-  const home = (config: string): string => {
-    const dir = mkdtempSync(join(tmpdir(), "gtd-judge-home-"))
-    mkdirSync(join(dir, "gtd"))
-    writeFileSync(join(dir, "gtd", "judge.json"), config)
-    return dir
-  }
-
-  it("ranks the user file above .gtdrc judge:", async () => {
-    expect(
-      await runJudge({
-        provider: undefined,
-        configured: { provider: "jev" },
-        env: { ...env, XDG_CONFIG_HOME: home('{"provider":"fixed"}') },
+        env: {
+          ...env,
+          GTD_JUDGE_PROVIDER: "",
+          GTD_JUDGE_MODEL: "",
+          XDG_CONFIG_HOME: home('{"provider":"fixed"}'),
+        },
         input: doc,
         cwd,
       }),

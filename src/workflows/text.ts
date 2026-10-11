@@ -869,7 +869,7 @@ every commit is machine-authored.
   load (a stricter validation, an escape a value must now spell differently)
   — a public surface, not an internal one, either way — add a literal
   \`BREAKING CHANGE:\` footer naming what breaks and, for the second case,
-  the exact escape or rewrite a committed \`.gtdrc\` needs. A \`!\` on the
+  the exact escape or rewrite a committed config needs. A \`!\` on the
   type prefix alone (\`feat!:\`/\`refactor!:\`) is NOT enough: this repo's
   own commit-analyzer has missed that marker before, cutting no release
   until a follow-up commit carried the literal footer instead

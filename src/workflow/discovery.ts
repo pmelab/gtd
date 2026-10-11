@@ -1,13 +1,6 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer } from "effect"
-
-/** One config level's file path plus its raw, parsed-but-undecoded content. */
-export interface ConfigLevel {
-  readonly filepath: string
-  readonly config: unknown
-}
 
 /** The workflow module found on the cwd→home walk, with its source. */
 export interface WorkflowModule {
@@ -15,33 +8,34 @@ export interface WorkflowModule {
   readonly source: string
 }
 
+/** A leftover rc file, and whether the user running gtd owns it — and so can delete it. */
+interface LegacyRcFile {
+  readonly path: string
+  readonly owned: boolean
+}
+
 interface ConfigDiscoveryOps {
-  /** Every level found walking `root` up through `home`, OUTERMOST→INNERMOST. */
-  readonly levels: (root: string, home: string) => Effect.Effect<readonly ConfigLevel[], Error>
+  /** Every removed `.gtdrc`-family file on the `root`→`home` walk and in `home` itself, innermost first. */
+  readonly legacyRcFiles: (
+    root: string,
+    home: string,
+  ) => Effect.Effect<readonly LegacyRcFile[], Error>
   /** The innermost `gtd.config.ts` walking `root` up through `home`, if any. */
   readonly workflowModule: (
     root: string,
     home: string,
   ) => Effect.Effect<WorkflowModule | undefined, Error>
-  /** Whether a gtd config lives directly at `dir` — no ancestor walk. */
-  readonly presentAt: (dir: string) => Effect.Effect<boolean, Error>
 }
 
-/**
- * The one file a workflow is defined in. Searched on the same cwd→home walk as
- * the `.gtdrc` family, but separately: a directory may hold both, and a
- * `.gtdrc` there still contributes `vars`/`modes`/`ui`.
- */
 export const WORKFLOW_MODULE = "gtd.config.ts"
 
 /**
- * Exported (via the `src/workflow/` barrel) so `src/testing/Layers.ts`'s
- * in-memory `ConfigDiscovery` counterpart shares this EXACT list — a second,
- * independently-maintained copy would let it drift (a new search place added
- * here, or reordered) with every `@inmem` scenario still silently resolving
- * against the stale one: a green suite over a broken product.
+ * The file names gtd read repository settings from before `gtd.config.ts` took
+ * them over. Still looked for, only to refuse them: a leftover one would
+ * otherwise be silently ignored. Shared with the in-memory counterpart in
+ * `src/testing/Layers.ts`, so both tiers refuse the same names.
  */
-export const SEARCH_PLACES = [
+export const LEGACY_RC_FILES = [
   ".gtdrc",
   ".gtdrc.json",
   ".gtdrc.yaml",
@@ -50,50 +44,21 @@ export const SEARCH_PLACES = [
   "gtd.config.yaml",
 ]
 
-/**
- * One config file's content, parsed by its extension. Shared with
- * `src/testing/Layers.ts`'s in-memory tier so both resolve a level the same
- * way. A parse failure is a HARD error (the file exists and says something
- * malformed), `null` included — that is not an empty config.
- */
-export const parseConfigLevel = (filepath: string, content: string): unknown => {
-  let parsed: unknown
-  try {
-    // YAML is a JSON superset, so `.json` only needs its own parser for the
-    // stricter errors it gives on JSON-shaped input.
-    parsed = filepath.endsWith(".json") ? JSON.parse(content) : parseYaml(content)
-  } catch (e) {
-    throw new Error(`${filepath}: ${e instanceof Error ? e.message : String(e)}`)
-  }
-  if (parsed === null) throw new Error(`${filepath}: config must be a plain object, got null`)
-  return parsed
+/** The directories searched for a leftover rc file: the walk, plus `home` when the walk misses it. */
+export const legacyRcDirs = (root: string, home: string): readonly string[] => {
+  const chain = walkUp(root, home)
+  return chain.includes(home) ? chain : [...chain, home]
 }
 
-/**
- * One candidate path's parsed config, or `undefined` when it is not a usable
- * config file at all. Unreadable for ANY reason (ENOENT, EISDIR, ENOTDIR,
- * EACCES, a dangling symlink) and empty-but-readable both mean "walk on to
- * the next search place", never "fail the whole load" — a directory merely
- * NAMED `.gtdrc` must not kill every gtd command.
- */
-const readConfigLevel = (filepath: string): unknown => {
-  let content: string
+const legacyRcFileAt = (path: string): LegacyRcFile | undefined => {
   try {
-    content = readFileSync(filepath, "utf8")
+    const stat = statSync(path)
+    if (!stat.isFile()) return undefined
+    // Above home, a shared directory (`/tmp`) can hold another user's file.
+    return { path, owned: process.getuid === undefined || stat.uid === process.getuid() }
   } catch {
     return undefined
   }
-  return content.trim() === "" ? undefined : parseConfigLevel(filepath, content)
-}
-
-/** The first `SEARCH_PLACES` entry in `dir` that is a readable, non-empty config file — no ancestor walk. */
-const configLevelAt = (dir: string): ConfigLevel | undefined => {
-  for (const name of SEARCH_PLACES) {
-    const filepath = join(dir, name)
-    const config = readConfigLevel(filepath)
-    if (config !== undefined) return { filepath, config }
-  }
-  return undefined
 }
 
 /**
@@ -117,20 +82,12 @@ export const walkUp = (from: string, home: string): ReadonlyArray<string> => {
   return chain
 }
 
-const levels = (root: string, home: string): Effect.Effect<readonly ConfigLevel[], Error> =>
-  Effect.try({
-    try: () => {
-      const chain = walkUp(root, home)
-      const found: ConfigLevel[] = []
-      // Outermost→innermost so merging in order makes innermost win.
-      for (let i = chain.length - 1; i >= 0; i--) {
-        const level = configLevelAt(chain[i]!)
-        if (level) found.push(level)
-      }
-      return found
-    },
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
+const legacyRcFiles = (root: string, home: string): Effect.Effect<readonly LegacyRcFile[], Error> =>
+  Effect.sync(() =>
+    legacyRcDirs(root, home).flatMap((dir) =>
+      LEGACY_RC_FILES.flatMap((name) => legacyRcFileAt(join(dir, name)) ?? []),
+    ),
+  )
 
 const workflowModule = (
   root: string,
@@ -144,12 +101,6 @@ const workflowModule = (
       }
       return undefined
     },
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
-
-const presentAt = (dir: string): Effect.Effect<boolean, Error> =>
-  Effect.try({
-    try: () => configLevelAt(dir) !== undefined,
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
@@ -167,5 +118,5 @@ export class ConfigDiscovery extends Context.Tag("ConfigDiscovery")<
   ConfigDiscovery,
   ConfigDiscoveryOps
 >() {
-  static Live = Layer.succeed(ConfigDiscovery, { levels, presentAt, workflowModule })
+  static Live = Layer.succeed(ConfigDiscovery, { legacyRcFiles, workflowModule })
 }

@@ -21,8 +21,12 @@ else `default`, and is not startable as `--workflow default`.
 **gtd.config.ts**: The TypeScript module a workflow lives in — the innermost one
 walking up from the current directory, never merged. Code gtd evaluates on every
 command that resolves workflow state, so it carries the same trust as any other
-script in the repository. _Avoid_: workflow file, workflow config, `.gtdrc`
-workflow
+script in the repository. The only repository config. _Avoid_: workflow file,
+workflow config, rc file
+
+**Config export**: `gtd.config.ts`'s reserved `config` export, built with
+`defineConfig` — the repository settings a workflow does not own: modes, `ui`,
+per-scope skills and access. _Avoid_: `.gtdrc` (removed), rc config
 
 **Flow**: An async function that awaits [steps](#step) — plain code, branching
 over what the last step left in the tree. The workflow's one kind of logic.
@@ -161,9 +165,9 @@ state file, gate file, doc
 
 **Mode**: A named pair of shell commands over one steering file — `format:` to
 normalize it in place, `validate:` to report findings. Zero findings means
-valid. Declared under `.gtdrc` `modes:` (`qa`/`review` are seeded
-automatically); a step naming an undeclared mode is a load-time error, never a
-silent fallback.
+valid. Declared in the [config export](#config-export)'s `modes` (`qa`/`review`
+are seeded automatically); a step naming an undeclared mode is a load-time
+error, never a silent fallback.
 
 **Steering format**: What a steering file's CONTENT is — the shape a mode's NAME
 identifies (`qa`'s open-questions checkboxes, `review`'s hunk pointers),
@@ -208,16 +212,16 @@ rewinds an in-flight process. `gtd land` never moves HEAD, so it never writes
 this ref.
 
 **Process setting**: A flat string value flow code reads as `vars` and may
-branch on — the workflow's `defaults`, then `.gtdrc` `vars:`, then the `--var`
-on `--workflow`, then `GTD_<NAME>`. Resolved once at process start and recorded
-in the process's first commit; a later edit does not reach the running process.
-gtd blesses no names. Avoid: "Vars".
+branch on — the workflow's `defaults` (a factory option, for the shipped
+workflows), then the `--var` on `--workflow`, then `GTD_<NAME>`. Resolved once
+at process start and recorded in the process's first commit; a later edit does
+not reach the running process. gtd blesses no names. Avoid: "Vars".
 
 **Environment setting**: A flat string value flow code reads as `env`, only
 where it cannot change the next step — the workflow's `envDefaults`, then
-`.gtdrc` `env:`, then `GTD_<NAME>`. Read live on every call, never recorded;
-`testCommand` is the bundled workflow's data, not a key gtd interprets. Avoid:
-"Vars", "env var" (that is a shell variable).
+`GTD_<NAME>`. Read live on every call, never recorded; `testCommand` is the
+bundled workflow's data, not a key gtd interprets. Avoid: "Vars", "env var"
+(that is a shell variable).
 
 ### Bundled workflow
 

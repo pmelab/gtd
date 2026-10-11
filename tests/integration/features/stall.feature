@@ -25,9 +25,9 @@ Feature: gtd next --json — attempt commits and the derived stall
         await run("checking", "true")
       }
       """
-    And a gtd config file at ".gtdrc" with:
+    And a commit "chore: add README.md" that adds "README.md" with:
       """
-      vars: {}
+      # a project
       """
 
   Scenario: an agent turn that changes nothing lands an empty attempt, and the next read reports stalled
@@ -224,7 +224,7 @@ Feature: gtd next --json — attempt commits and the derived stall
     When I run gtd land
     Then it succeeds
     And stdout contains "nothing to do at \"idle\""
-    And the last commit subject is "chore: add .gtdrc"
+    And the last commit subject is "chore: add README.md"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout does not contain "stalled"

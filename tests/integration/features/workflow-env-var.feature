@@ -23,7 +23,7 @@ Feature: "--var" pins process settings only
     When I run gtd with args "--workflow working --var checker=true"
     Then the exit code is 2
     And stderr contains "pins process settings only"
-    And stderr contains "env:"
+    And stderr contains "set it as a workflow option in gtd.config.ts"
 
   Scenario: "--var" naming an undeclared setting still refuses with exit 1
     When I run gtd with args "--workflow working --var nonsense=true"

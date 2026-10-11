@@ -18,11 +18,12 @@ their prompts instead of spelling out their technique in prose. Without a source
 installed, your harness has nothing to load at the steps that name it, and the
 prompt carries no prose standing in for it. gtd itself never installs, resolves,
 or verifies any of this — a repo can also repoint any scope's configured skill
-list (`.gtdrc` `skills:`, see below) to name a different set its own harness has
-instead, or set it to `[]` to drop the skill names from that scope.
+list (`config.skills` in `gtd.config.ts`, see below) to name a different set its
+own harness has instead, or set it to `[]` to drop the skill names from that
+scope.
 
 **Install the skills, never the ponytail plugin** — its hooks inject into every
-turn and bypass the per-scope `skills:` key above.
+turn and bypass the per-scope `skills` entries above.
 
 A name missing from a scope's configured list is skipped silently and costs
 nothing. A missing `qualityReviews` entry does not share that rule — see
@@ -37,18 +38,19 @@ and `spec-challenge` need no skill.
 
 Every bundled scope that runs agent turns has its own addressable full name, and
 a driver that can restrict a turn's skills passes that scope's list — see
-[Configuration](./configuration.md#the-skills-key) for the full list and its
-validation rules. Two routes, and they combine:
+[Configuration](./configuration.md#skills) for the full list and its validation
+rules. Two routes, and they combine:
 
-- **Instead of the bundled set** — repoint the scope's `.gtdrc` `skills:` entry.
-  It also feeds the `skills` key on `gtd next --json` at that scope's turns — a
+- **Instead of the bundled set** — repoint the scope's `config.skills` entry. It
+  also feeds the `skills` key on `gtd next --json` at that scope's turns — a
   driver that reads it can preload the same names (see
   [Writing your own driver](./driver.md)):
 
-  ```yaml
-  # .gtdrc — packages.item loads your own skill instead of the bundled pair
-  skills:
-    packages.item: [my-org-tdd-skill]
+  ```ts
+  // gtd.config.ts — packages.item loads your own skill instead of the bundled pair
+  export const config = defineConfig({
+    skills: { "packages.item": ["my-org-tdd-skill"] },
+  })
   ```
 
 - **In addition to the bundled set** — there is no append mechanism: an entry
@@ -56,11 +58,17 @@ validation rules. Two routes, and they combine:
   skills plus your own means writing the whole list — bundled names included —
   into your own value:
 
-  ```yaml
-  # .gtdrc — keep the bundled pair, add one more
-  skills:
-    packages.item:
-      [test-driven-development, incremental-implementation, my-org-tdd-skill]
+  ```ts
+  // gtd.config.ts — keep the bundled pair, add one more
+  export const config = defineConfig({
+    skills: {
+      "packages.item": [
+        "test-driven-development",
+        "incremental-implementation",
+        "my-org-tdd-skill",
+      ],
+    },
+  })
   ```
 
   The cost of this route: a later gtd release that changes `packages.item`'s
@@ -73,25 +81,25 @@ Both routes share the same safety rules:
   An over-long list costs nothing.
 - A skill carrying `disable-model-invocation: true` is skipped just as silently
   — the agent cannot load it at all, only a human can, by slash command. Naming
-  one in `skills:` is a no-op with no error. This is the trap most likely to
-  bite when picking your own set: check the skill's frontmatter before relying
-  on it here.
+  one in `skills` is a no-op with no error. This is the trap most likely to bite
+  when picking your own set: check the skill's frontmatter before relying on it
+  here.
 
 ### Extending the quality-review lap
 
 `qualityReviews` (default
 `correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
-is a skill set too, but a different shape from a scope's `skills:` entry above:
+is a skill set too, but a different shape from a scope's `skills` entry above:
 each entry is its own full turn and its own scope, not a list handed to one
 scope. Extend it for a project-specific concern — a company security checklist,
-a house style skill — the same way as any other var, via `.gtdrc`:
+a house style skill — the same way as any other setting, as a factory option:
 
-```yaml
-# .gtdrc — keep the bundled six, add a company checklist
-vars:
+```ts
+// gtd.config.ts — keep the bundled six, add a company checklist
+export default feature({
   qualityReviews:
-    correctness, owasp-security, ponytail-review, test-audit, conventions,
-    spec-challenge, acme-security-checklist
+    "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, acme-security-checklist",
+})
 ```
 
 or, highest precedence, via the matching `GTD_<NAME>` environment variable:
@@ -100,21 +108,21 @@ or, highest precedence, via the matching `GTD_<NAME>` environment variable:
 GTD_QUALITYREVIEWS="correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, acme-security-checklist" gtd next
 ```
 
-Unlike a scope's `skills:` entry, gtd DOES split this one — on every comma, one
+Unlike a scope's `skills` entry, gtd DOES split this one — on every comma, one
 lens per entry — because each entry is its own turn rather than one step's skill
 list. Keep entries free of commas and of characters that don't belong in a
 filename: each trimmed entry becomes part of a queued review file's name. The
 built-in names `correctness`, `conventions` and `spec-challenge` are lenses gtd
 defines itself — a brief rides in the prompt, no skill needed — and are exempt
 from the warning below; a user skill of the same name is shadowed. For any other
-name, it does NOT share `skills:`'s "costs nothing" rule for a name your harness
+name, it does NOT share `skills`'s "costs nothing" rule for a name your harness
 lacks: `reviewing` still burns its own full turn with no lens loaded, since the
 queue file exists whether or not anything can load it — a typo costs a whole
 turn, silently. Blanking the whole var, in contrast, does switch the lap off
 outright.
 
-`qualityReviews` and `.gtdrc` `skills:` keys `build.quality.<lens>` are a pair,
-not alternatives: `qualityReviews` decides how many turns the lap runs (one per
+`qualityReviews` and `config.skills` keys `build.quality.<lens>` are a pair, not
+alternatives: `qualityReviews` decides how many turns the lap runs (one per
 lens, in order), and each lens is its own scope, so its own skills. By default a
 lens scope's skills ARE the lens; a `build.quality.<lens>` entry REPLACES them
 with the configured list — the prompt body still names which lens the turn is
@@ -135,9 +143,8 @@ only while the lens is listed in `qualityReviews`. See
   scripts write before wiring gtd into a repo.
 - **Repository root invocation.** Every state subcommand must run from the git
   repository root. `--help`/`--version` (and the `help`/`version` subcommands),
-  `lsp`, `init`, `check`, and `install` skip this guard entirely (`lsp` still
-  loads `gtd.config.ts`, but needs no git state; `init` may even run outside a
-  repository to seed a shared parent-dir config).
+  `lsp`, `check`, and `install` skip this guard entirely (`lsp` still loads
+  `gtd.config.ts`, but needs no git state).
 - **Linked worktrees are independent.** N `git worktree` worktrees of one
   repository (sharing a single `.git`) each run their own gtd process, so a
   process underway in one worktree neither blocks nor rewrites any other.

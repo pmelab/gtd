@@ -21,10 +21,13 @@ describe("Narrator", () => {
       Effect.gen(function* () {
         const narrator = yield* Narrator
         yield* narrator.narrate("rest resolved: build.review.closing")
-        yield* narrator.narrate("config: layer /repo/.gtdrc")
+        yield* narrator.narrate("config: module /repo/gtd.config.ts")
       }).pipe(Effect.provide(Narrator.layer((chunk) => lines.push(chunk), true))),
     )
-    expect(lines).toEqual(["rest resolved: build.review.closing\n", "config: layer /repo/.gtdrc\n"])
+    expect(lines).toEqual([
+      "rest resolved: build.review.closing\n",
+      "config: module /repo/gtd.config.ts\n",
+    ])
   })
 
   it("warn writes to the sink even when verbose: false", async () => {
@@ -84,8 +87,8 @@ describe("renderFailure", () => {
   })
 
   it("prints a GtdError's detail lines, each indented two spaces, after the prefixed message", () => {
-    const error = new GtdError("gtd: bad config", ["testCommand: .gtdrc.json"])
-    expect(renderFailure(error)).toBe("gtd: bad config\n  testCommand: .gtdrc.json")
+    const error = new GtdError("gtd: bad config", ["testCommand: gtd.config.ts"])
+    expect(renderFailure(error)).toBe("gtd: bad config\n  testCommand: gtd.config.ts")
   })
 
   it("prints every detail line, in order, for a multi-detail GtdError", () => {

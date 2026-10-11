@@ -895,12 +895,12 @@ describe("makeSteeringLanguageService", () => {
 
   it("degrades to an empty steering map (and warns) when steeringMapFor rejects, instead of rejecting the request", async () => {
     const warnings: string[] = []
-    const env = fakeEnv({ steeringMapFor: () => Promise.reject(new Error("bad .gtdrc")) })
+    const env = fakeEnv({ steeringMapFor: () => Promise.reject(new Error("bad gtd.config.ts")) })
     const service = makeSteeringLanguageService(env, (m) => warnings.push(m))
     const symbols = await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)
     expect(symbols).toEqual([])
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain("bad .gtdrc")
+    expect(warnings[0]).toContain("bad gtd.config.ts")
   })
 
   describe("executeCommand", () => {
@@ -1295,19 +1295,17 @@ describe("makeNodeLspEnv's steering-map memo (HEAD + config identity)", () => {
     expect(after.has(join(dir, "TODO.md"))).toBe(false)
   })
 
-  it("an edited .gtdrc (registering a previously-unknown mode) takes effect on the next request", async () => {
-    writeWorkflow({ "TODO.md": "customMode" })
+  it("a leftover .gtdrc appearing fails the next request, and deleting it recovers", async () => {
+    writeWorkflow({ "TODO.md": "qa" })
     commit("initial")
     const env = makeNodeLspEnv(() => {})
+    expect((await env.steeringMapFor(dir)).has(join(dir, "TODO.md"))).toBe(true)
 
-    // "customMode" doesn't resolve yet — buildSteeringMap skips it, warning.
-    const before = await env.steeringMapFor(dir)
-    expect(before.has(join(dir, "TODO.md"))).toBe(false)
+    writeFileSync(join(dir, ".gtdrc.json"), "{}\n")
+    await expect(env.steeringMapFor(dir)).rejects.toThrow(/\.gtdrc\.json: no longer read/)
 
-    writeFileSync(join(dir, ".gtdrc.yaml"), 'modes:\n  customMode:\n    validate: "true"\n')
-
-    const after = await env.steeringMapFor(dir)
-    expect(after.has(join(dir, "TODO.md"))).toBe(true)
+    rmSync(join(dir, ".gtdrc.json"))
+    expect((await env.steeringMapFor(dir)).has(join(dir, "TODO.md"))).toBe(true)
   })
 
   it("an edited gtd.config.ts takes effect on the next request", async () => {

@@ -109,7 +109,7 @@ workflow that fails to load breaks every gtd command in the repository.
   step you add must fit one of them; there is no sixth.
 
 Options (all optional): `label`, `file` (a `.gtd/` path), `mode` (needs `file`;
-`qa`, `review`, or a `.gtdrc` `modes:` name), `message` (human/judge), `model`,
+`qa`, `review`, or a `config.modes` name), `message` (human/judge), `model`,
 `system` (agent), `allowEmpty` (agent), `acceptClean` (human), `base` (the
 commit the step reviews since — what `gtd base` prints).
 
@@ -150,7 +150,7 @@ the pending landing — call it right after the step whose turn you reject.
   `export const base = (workflow, vars) => commitish | undefined` fixes a
   started process's diff base (blank = default-branch merge-base).
   `--var <name>=<value>` only pins process settings: names the workflow's
-  `defaults` or `.gtdrc` `vars:` declare — never an environment setting.
+  `defaults` declare — never an environment setting.
 
 ## Landing rules you are designing for
 

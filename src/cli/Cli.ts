@@ -185,8 +185,8 @@ const FLAGS: readonly FlagRow[] = [
     valueHint: "<name>",
     help: [
       "(gtd judge run only) the answerer: fixed | jev | llm;",
-      "omitted: GTD_JUDGE_PROVIDER, then judge.json, then .gtdrc",
-      "judge:, then jev when TYPESAFE_API_KEY is set, else llm",
+      "omitted: GTD_JUDGE_PROVIDER, then judge.json, then jev",
+      "when TYPESAFE_API_KEY is set, else llm",
     ],
   },
   {
@@ -230,8 +230,7 @@ const FLAGS: readonly FlagRow[] = [
     help: [
       "(gtd land, with --cost) tag that cost's model",
       "(gtd judge run, llm answerer) the claude model; omitted:",
-      "GTD_JUDGE_MODEL, then judge.json, then .gtdrc judge:, then",
-      "haiku",
+      "GTD_JUDGE_MODEL, then judge.json, then haiku",
     ],
   },
   {
@@ -287,8 +286,8 @@ const FLAGS: readonly FlagRow[] = [
     help: [
       "(with --workflow; repeatable) pin a process setting for the",
       "new process; the name must already be declared by the",
-      "workflow's defaults or the .gtdrc vars: (environment",
-      "settings are not pinnable)",
+      "workflow's defaults (environment settings are not",
+      "pinnable)",
     ],
   },
   {
@@ -376,19 +375,6 @@ interface CommandRow {
 }
 
 const COMMAND_ROWS: readonly CommandRow[] = [
-  {
-    token: "init",
-    kind: "init",
-    arity: "none",
-    details: [
-      "Scaffold a minimal .gtdrc.json for this repo with a Prettier",
-      "formatting suggestion. It writes no workflow — `gtd install`",
-      "scaffolds the gtd.config.ts that names the workflows.",
-      "Takes no argument. Run once per repo; refuses if a gtd",
-      "config already exists. Leaves the file uncommitted for you",
-      "to review and commit",
-    ],
-  },
   {
     token: "land",
     kind: "land",
@@ -667,12 +653,11 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "(TYPESAFE_API_KEY). --provider llm asks the `claude` CLI",
       "on PATH (Claude Code only), model haiku unless --model.",
       "No --provider: GTD_JUDGE_PROVIDER, then ~/.config/gtd/",
-      "judge.json, then .gtdrc judge: provider, else jev when",
-      "TYPESAFE_API_KEY is set and no model is given, else llm;",
-      "--model likewise falls back to GTD_JUDGE_MODEL, then the",
-      "file's and judge:'s model. Needs no repository. jev and",
-      "llm exit 1 when they cannot answer every question, with",
-      "nothing on stdout",
+      "judge.json, else jev when TYPESAFE_API_KEY is set and no",
+      "model is given, else llm; --model likewise falls back to",
+      "GTD_JUDGE_MODEL, then the file's model. Needs no",
+      "repository. jev and llm exit 1 when they cannot answer",
+      "every question, with nothing on stdout",
     ],
   },
 ]
@@ -726,10 +711,9 @@ export const renderHelp = (): string => {
     return renderBlock(header, row.details)
   })
   const commands = [
-    commandBlocks[0], // init
-    commandBlocks[1], // land
+    commandBlocks[0], // land
     START_SHORT_FORM,
-    ...commandBlocks.slice(2), // abandon..base
+    ...commandBlocks.slice(1), // abandon..base
     VERSION_BLOCK,
     HELP_BLOCK,
   ].join("")
@@ -1175,7 +1159,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const command: Command = {
     kind: kind as
       | "lsp"
-      | "init"
       | "abandon"
       | "restore"
       | "next"

@@ -2,7 +2,7 @@ import type { ScopeAccess } from "../flows/index.js"
 import { lensesOf } from "./review.js"
 
 // The bundled workflow's default file access, keyed by scope full name — the
-// name a `.gtdrc` `access:` entry addresses. Only planning and review scopes
+// name a `config.access` entry addresses. Only planning and review scopes
 // are restricted, and only on writes; no scope restricts reads. A step's own
 // steering file is folded in per step, so it is not listed here. Build and fix
 // scopes carry no entry: no project layout is assumed.

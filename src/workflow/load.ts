@@ -2,24 +2,16 @@ import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { Context, Effect, Layer, Schema } from "effect"
-import { ArrayFormatter } from "effect/ParseResult"
+import { Context, Effect, Layer } from "effect"
 import { GtdError, Narrator } from "../platform/index.js"
 import { replay, type TreeView } from "../replay/index.js"
 import * as flows from "../flows/index.js"
 import type { StateMode, WorkflowDefinition } from "./Workflow.js"
 import type { Door, Flow } from "../flows/index.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
-import { ConfigSchema, type UiConfig } from "./ConfigSchema.js"
-import { compileConfig, type CompiledConfig, type ConfigLayer } from "./compile.js"
-import { interpolate } from "./interpolate.js"
+import { compileConfig, type CompiledConfig } from "./compile.js"
 import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
-import {
-  ConfigDiscovery,
-  WORKFLOW_MODULE,
-  type ConfigLevel,
-  type WorkflowModule,
-} from "./discovery.js"
+import { ConfigDiscovery, WORKFLOW_MODULE, type WorkflowModule } from "./discovery.js"
 import {
   dedupeDiagnostics,
   formatDiagnostic,
@@ -45,123 +37,13 @@ export interface ConfigOperations {
   readonly workflowNamed: (name: string) => ResolvedWorkflow | undefined
   /** Every door `gtd door` accepts. A door's `workflow` resolves through `workflowNamed`. */
   readonly doors: ReadonlyMap<string, Door>
-  readonly rcVars: Record<string, string>
-  readonly rcEnv: Record<string, string>
-  /** The top-level `ui:` key, decoded as-is (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
-  readonly ui?: UiConfig
+  /** `config.ui` (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
+  readonly ui?: flows.UiSettings
   /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
   readonly warnings: readonly Diagnostic[]
-  /** Every `.gtdrc`-family file this load actually found, outermost→innermost — the `.gtdrc` half of what backs `workflow`/`rcVars`/`ui`. */
-  readonly configFiles: readonly string[]
-  /** Every real file `gtd.config.ts`'s evaluation touched (itself plus any relative import) — the other half. A caller that must know when `workflow` might have changed (the LSP's steering-map memo) watches `configFiles` + `workflowFiles` together; watching `gtd.config.ts`'s own path alone misses an edit to a module it imports. */
+  /** Every real file `gtd.config.ts`'s evaluation touched (itself plus any relative import). A caller that must know when `workflow` might have changed (the LSP's steering-map memo) watches all of them; watching `gtd.config.ts`'s own path alone misses an edit to a module it imports. */
   readonly workflowFiles: readonly string[]
 }
-
-const isPlainObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v)
-
-/**
- * Detect whether a gtd config lives at THIS single directory — no ancestor
- * walk, so a global `~/.gtdrc` or an ancestor project's config does NOT
- * count. `gtd init` refuses only when it would overwrite the repo's own
- * config, not merely because a global default layer exists upstream.
- */
-export const configPresentAt = (dir: string): Effect.Effect<boolean, Error, ConfigDiscovery> =>
-  Effect.flatMap(ConfigDiscovery, (discovery) => discovery.presentAt(dir))
-
-/** A `ParseResult` path segment is a `PropertyKey` (string, number, or symbol); a `Diagnostic.path` segment is only ever string or number — a decode error's path never contains a symbol, but the conversion is total either way. */
-const toPathSegment = (key: PropertyKey): string | number =>
-  typeof key === "number" ? key : String(key)
-
-/**
- * `Schema.optional(SomeStruct)`'s other union branch also fails on a
- * genuinely-present-but-invalid `ui:`, with a redundant "Expected undefined,
- * actual …" — a decode-mechanics artifact, not a fact about the user's file.
- * Dropped whenever a more specific issue exists at the same-or-deeper path.
- */
-const dropOptionalUndefinedArtifacts = <
-  T extends { readonly message: string; readonly path: ReadonlyArray<PropertyKey> },
->(
-  all: readonly T[],
-): readonly T[] => {
-  const samePathOrDeeper = (
-    outer: ReadonlyArray<PropertyKey>,
-    inner: ReadonlyArray<PropertyKey>,
-  ): boolean => inner.length >= outer.length && outer.every((seg, i) => inner[i] === seg)
-  return all.filter(
-    (issue) =>
-      !issue.message.startsWith("Expected undefined, actual") ||
-      !all.some((other) => other !== issue && samePathOrDeeper(issue.path, other.path)),
-  )
-}
-
-/**
- * One decoded level, or none — with its own findings either way. Decode
- * failures (schema shape, excess properties) become `Diagnostic`s here
- * rather than failing the whole load immediately, so every level's own
- * findings surface together through `load`'s single sorted/deduped report,
- * the same as every other producer in this package.
- */
-const decodeLevel = (
-  level: ConfigLevel,
-  env: Readonly<Record<string, string | undefined>>,
-): Effect.Effect<{
-  readonly layer: ConfigLayer | undefined
-  readonly diagnostics: readonly Diagnostic[]
-}> =>
-  Effect.gen(function* () {
-    if (!isPlainObject(level.config)) {
-      return {
-        layer: undefined,
-        diagnostics: [
-          {
-            severity: "error" as const,
-            path: [],
-            message: `config must be a plain object, got ${Array.isArray(level.config) ? "array" : String(level.config)}`,
-            origin: level.filepath,
-          },
-        ],
-      }
-    }
-    const { $schema: _schema, ...cleaned } = level.config
-    const result = yield* Schema.decodeUnknown(ConfigSchema)(cleaned, {
-      onExcessProperty: "error",
-    }).pipe(Effect.either)
-    if (result._tag === "Left") {
-      const issues = dropOptionalUndefinedArtifacts(ArrayFormatter.formatErrorSync(result.left))
-      const diagnostics: Diagnostic[] = issues.map((issue) => ({
-        severity: "error",
-        path: issue.path.map(toPathSegment),
-        message:
-          issue.path.length > 0
-            ? `"${issue.path.map(String).join(".")}" ${issue.message}`
-            : issue.message,
-        origin: level.filepath,
-      }))
-      return { layer: undefined, diagnostics }
-    }
-    const interpolated = interpolate(result.right, env)
-    return {
-      layer: { origin: level.filepath, dir: dirname(level.filepath), value: interpolated.value },
-      diagnostics: interpolated.diagnostics.map((d) => ({ ...d, origin: level.filepath })),
-    }
-  })
-
-/** Everything the `.gtdrc` half of a load reads, findings not yet judged. */
-const readRc = Effect.gen(function* () {
-  const narrator = yield* Narrator
-  const host = yield* Host
-  const discovery = yield* ConfigDiscovery
-  const levels = yield* discovery.levels(host.root, host.home)
-  for (const level of levels) yield* narrator.narrate(`config: layer ${level.filepath}`)
-  const decoded = yield* Effect.forEach(levels, (level) => decodeLevel(level, host.env))
-  const layers = decoded.flatMap((d) => (d.layer !== undefined ? [d.layer] : []))
-  return {
-    levels,
-    compiled: compileConfig(layers),
-    decodeDiagnostics: decoded.flatMap((d) => d.diagnostics),
-  }
-})
 
 // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
 // prints `message` verbatim and would print a duplicated `detail` twice.
@@ -178,34 +60,46 @@ export const failOnErrors = (diagnostics: readonly Diagnostic[]): Effect.Effect<
     ? Effect.fail(configError(diagnostics))
     : Effect.void
 
+const MIGRATION_DOC =
+  "https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc"
+
 /**
- * The `.gtdrc` half of `load`: no repository, no `gtd.config.ts` evaluation.
- * Any error diagnostic fails it.
+ * `.gtdrc` is gone, but a leftover one — a repository's or the user's own —
+ * must fail loudly rather than be silently ignored. One the user cannot delete
+ * (another account's, in a shared ancestor) only warns: failing would lock them
+ * out of gtd with no way to fix it.
  */
-export const loadRcConfig: Effect.Effect<CompiledConfig, Error, Narrator | Host | ConfigDiscovery> =
+export const refuseLegacyRc: Effect.Effect<void, GtdError, Host | ConfigDiscovery | Narrator> =
   Effect.gen(function* () {
-    const { levels, compiled, decodeDiagnostics } = yield* readRc
-    yield* failOnErrors(
-      dedupeDiagnostics(
-        sortDiagnostics(
-          [...decodeDiagnostics, ...compiled.diagnostics],
-          levels.map((level) => level.filepath),
-        ),
+    const host = yield* Host
+    const files = yield* Effect.orDie((yield* ConfigDiscovery).legacyRcFiles(host.root, host.home))
+    for (const file of files.filter((f) => !f.owned)) {
+      yield* (yield* Narrator).warn(
+        `gtd: warning: ${file.path} is a removed .gtdrc file owned by another user — ignored`,
+      )
+    }
+    const found = files.filter((f) => f.owned).map((f) => f.path)
+    if (found.length === 0) return
+    return yield* Effect.fail(
+      new GtdError(
+        [
+          "gtd config:",
+          ...found.map((file) => `  - ${file}: no longer read — delete it`),
+          "  gtd 23 removed the .gtdrc files; move each key they set:",
+          "    vars    → an option of the workflow factory in gtd.config.ts, or its `defaults` export",
+          "    env     → an option of the workflow factory in gtd.config.ts, or its `envDefaults` export",
+          "    judge   → ~/.config/gtd/judge.json, or GTD_JUDGE_PROVIDER / GTD_JUDGE_MODEL",
+          "    modes, ui, skills, access → the `config` export of gtd.config.ts (`defineConfig`)",
+          "    $schema → nothing; drop it",
+          `  see ${MIGRATION_DOC}`,
+        ].join("\n"),
       ),
     )
-    return compiled
   })
 
 /**
- * Build the whole config pipeline — discover levels by walking `Host`'s
- * cwd→home chain (`ConfigDiscovery`, kept behind a `Context.Tag` since its
- * production implementation reads real disk through cosmiconfig directly,
- * incompatible with an in-memory `@inmem` `Workspace`), decode each level
- * individually against `ConfigSchema`, then compile every successfully-decoded
- * layer (`src/workflow/compile.ts`). A decode failure never short-circuits the
- * whole load: every level's own findings — decode AND compile alike — are
- * sorted/deduped together into ONE report, so a config broken at two ancestor
- * layers reports both instead of just the first one reached.
+ * Find and evaluate `gtd.config.ts`, then check what it exports. Every finding
+ * is collected into ONE sorted report rather than failing on the first.
  */
 export const load: Effect.Effect<
   ConfigOperations,
@@ -214,13 +108,8 @@ export const load: Effect.Effect<
 > = Effect.gen(function* () {
   const host = yield* Host
   const discovery = yield* ConfigDiscovery
-  const { levels, compiled, decodeDiagnostics } = yield* readRc
+  yield* refuseLegacyRc
   const module = yield* discovery.workflowModule(host.root, host.home)
-  const rcOrder = levels.map((level) => level.filepath)
-  const report = (found: readonly Diagnostic[], layerOrder: readonly string[]): Diagnostic[] =>
-    dedupeDiagnostics(
-      sortDiagnostics([...decodeDiagnostics, ...compiled.diagnostics, ...found], layerOrder),
-    )
   if (module === undefined) {
     const missing: Diagnostic = {
       severity: "error",
@@ -228,22 +117,23 @@ export const load: Effect.Effect<
       message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — run \`gtd install\` to scaffold one`,
       origin: host.root,
     }
-    return yield* Effect.fail(configError(report([missing], rcOrder)))
+    return yield* Effect.fail(configError([missing]))
   }
+  yield* (yield* Narrator).narrate(`config: module ${module.filepath}`)
   const shipped = yield* Effect.tryPromise({
     try: shippedModules,
     catch: (e) => new GtdError(`gtd: ${e instanceof Error ? e.message : String(e)}`),
   })
   const loaded = yield* Effect.try({
-    try: () => loadWorkflows(module, shipped, compiled),
+    try: () => loadWorkflows(module, shipped),
     catch: (e) =>
       new GtdError(
         `gtd config:\n  - ${module.filepath}: ${e instanceof Error ? e.message : String(e)}`,
       ),
   })
-  const diagnostics = report(
-    [...loaded.diagnostics, ...wrongKindDiagnostics(loaded.settings, compiled)],
-    [...rcOrder, module.filepath],
+  const compiled = loaded.config
+  const diagnostics = dedupeDiagnostics(
+    sortDiagnostics([...compiled.diagnostics, ...loaded.diagnostics]),
   )
   yield* failOnErrors(diagnostics)
   if (loaded.default === undefined) {
@@ -259,11 +149,9 @@ export const load: Effect.Effect<
     steering,
     modes: compiled.modes,
     skills: entry.file.skills,
-    configuredSkills: compiled.rcSkills,
-    skillsKeys: compiled.skillsKeys,
+    configuredSkills: compiled.skills,
     access: entry.file.access,
     configuredAccess: compiled.access,
-    accessKeys: compiled.accessKeys,
     skillsOrigin: entry.file.origin,
     initial,
   })
@@ -284,59 +172,11 @@ export const load: Effect.Effect<
       const entry = loaded.catalogue.get(name)
       return entry === undefined ? undefined : resolve(name, entry)
     },
-    rcVars: compiled.rcVars,
-    rcEnv: compiled.rcEnv,
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
     warnings: diagnostics.filter((d) => d.severity === "warning"),
-    configFiles: levels.map((level) => level.filepath),
     workflowFiles: loaded.file.dependencyFiles,
   }
 })
-
-/** A name under the wrong key (or under both) in a `.gtdrc` layer: each is an error at its own origin. */
-const wrongKindDiagnostics = (
-  settings: Settings,
-  compiled: CompiledConfig,
-): readonly Diagnostic[] => {
-  const isEnvOnly = (key: string): boolean => Object.hasOwn(settings.envDefaults, key)
-  const isVarOnly = (key: string): boolean => Object.hasOwn(settings.defaults, key)
-  const error = (path: readonly string[], message: string, origin: string): Diagnostic => ({
-    severity: "error",
-    path,
-    message,
-    origin,
-  })
-  const diagnostics: Diagnostic[] = []
-  for (const { key, origin } of compiled.varsKeys) {
-    if (isEnvOnly(key)) {
-      diagnostics.push(
-        error(
-          ["vars", key],
-          `"vars.${key}" is an environment setting — move it under "env:"`,
-          origin,
-        ),
-      )
-    }
-  }
-  for (const { key, origin } of compiled.envKeys) {
-    if (isVarOnly(key)) {
-      diagnostics.push(
-        error(["env", key], `"env.${key}" is a process setting — move it under "vars:"`, origin),
-      )
-    }
-    const inVars = compiled.varsKeys.some((v) => v.key === key)
-    if (inVars) {
-      diagnostics.push(
-        error(
-          ["env", key],
-          `"${key}" is declared under both "vars:" and "env:" — a setting is one kind or the other`,
-          origin,
-        ),
-      )
-    }
-  }
-  return diagnostics
-}
 
 interface Settings {
   readonly defaults: Readonly<Record<string, string>>
@@ -373,7 +213,7 @@ interface Loaded {
   readonly doors: ReadonlyMap<string, Door>
   /** What an ordinary start runs; absent only alongside an error in `diagnostics`. */
   readonly default: (LoadedWorkflow & { readonly name: string }) | undefined
-  readonly settings: Settings
+  readonly config: CompiledConfig
   readonly diagnostics: readonly Diagnostic[]
 }
 
@@ -549,6 +389,7 @@ const RESERVED_EXPORTS: ReadonlySet<string> = new Set([
   "skills",
   "access",
   "doors",
+  "config",
 ])
 
 /** The rules every declared setting meets, whether a file's export or a factory's build. */
@@ -672,11 +513,7 @@ const namespaceOf = (exported: unknown): Record<string, unknown> =>
  * jiti resolved evaluating this module, module AND every relative import it
  * pulled in, transitively.
  */
-const loadWorkflows = (
-  module: WorkflowModule,
-  shipped: ShippedModules,
-  compiled: CompiledConfig,
-): Loaded => {
+const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded => {
   const cache: Record<string, unknown> = {}
   const exports = namespaceOf(
     jiti(shipped).evalModule(module.source, { filename: module.filepath, cache }),
@@ -693,10 +530,8 @@ const loadWorkflows = (
   // stays the same workflow.
   const built = new Map<unknown, LoadedWorkflow | undefined>()
   const rejections: Rejection[] = []
-  const declarers = declarersOf([...exported, [defaultName, value]], file, compiled)
   for (const [name, entry] of [...exported, [defaultName, value] as const]) {
-    if (!built.has(entry))
-      built.set(entry, buildWorkflow(name, entry, file, compiled, rejections, declarers))
+    if (!built.has(entry)) built.set(entry, buildWorkflow(name, entry, file, rejections))
   }
   const catalogue = new Map(
     exported.flatMap(([name, entry]) => {
@@ -710,7 +545,7 @@ const loadWorkflows = (
     catalogue,
     doors: rejections.length > 0 ? new Map() : checkDoors(doorsFrom(exports), catalogue),
     default: defaultWorkflow && { ...defaultWorkflow, name: defaultName },
-    settings: mergeSettings([...built.values()].filter((w) => w !== undefined)),
+    config: compileConfig(exports["config"], module.filepath),
     diagnostics: nameRejections(rejections),
   }
 }
@@ -729,83 +564,18 @@ const defaultExport = (exports: Record<string, unknown>): unknown => {
   return value
 }
 
-const mergeSettings = (all: readonly Settings[]): Settings => ({
-  defaults: Object.assign({}, ...all.map((s) => s.defaults)) as Record<string, string>,
-  envDefaults: Object.assign({}, ...all.map((s) => s.envDefaults)) as Record<string, string>,
-})
-
-/** Each setting name, with who declares it: the file's exports, or a factory's own build. */
-const declarersOf = (
-  exported: readonly (readonly [string, unknown])[],
-  file: LoadedFile,
-  compiled: CompiledConfig,
-): ReadonlyMap<string, Set<unknown>> => {
-  const declarers = new Map<string, Set<unknown>>()
-  const declare = (key: string, who: unknown): void => {
-    declarers.set(key, (declarers.get(key) ?? new Set()).add(who))
-  }
-  for (const key of [...Object.keys(file.defaults), ...Object.keys(file.envDefaults)])
-    declare(key, file)
-  for (const [, value] of exported) {
-    const own = ownBuild(value, { ...compiled.rcVars, ...compiled.rcEnv })
-    if (own?.ok) {
-      for (const key of [
-        ...Object.keys(own.build.defaults ?? {}),
-        ...Object.keys(own.build.envDefaults ?? {}),
-      ])
-        declare(key, value)
-    }
-  }
-  return declarers
-}
-
-/**
- * A factory's build as its call alone gives it — or, when the call fails, with
- * the `.gtdrc` values for just the options it flagged, since a name the factory
- * itself rejects is its own.
- */
-const ownBuild = (
-  value: unknown,
-  rc: Readonly<Record<string, unknown>>,
-): ReturnType<typeof flows.configure> => {
-  const bare = flows.configure(value)
-  if (bare === undefined || bare.ok) return bare
-  const flagged = new Set(bare.issues.map((issue) => issue.path[0]))
-  return flows.configure(
-    value,
-    Object.fromEntries(Object.entries(rc).filter(([key]) => flagged.has(key))),
-  )
-}
-
-/**
- * One exported workflow: a plain flow as-is, a factory validated and built.
- * `.gtdrc` `vars:`/`env:` values reach a factory as options, so the factory
- * judges them — except a name some other loaded workflow declares and this one
- * does not, which belongs to that workflow.
- */
+/** One exported workflow: a plain flow as-is, a factory validated and built. */
 const buildWorkflow = (
   name: string,
   value: unknown,
   file: LoadedFile,
-  compiled: CompiledConfig,
   rejections: Rejection[],
-  declarers: ReadonlyMap<string, Set<unknown>>,
 ): LoadedWorkflow | undefined => {
-  if (flows.configure(value) === undefined)
+  const result = flows.configure(value)
+  if (result === undefined)
     return { flow: value as Flow, file, defaults: file.defaults, envDefaults: file.envDefaults }
-  const belongsElsewhere = (key: string): boolean => {
-    const who = declarers.get(key)
-    return who !== undefined && !who.has(value)
-  }
-  const overrides = Object.fromEntries(
-    Object.entries({ ...compiled.rcVars, ...compiled.rcEnv }).filter(
-      ([key]) => !belongsElsewhere(key),
-    ),
-  )
-  const result = flows.configure(value, overrides)!
   if (!result.ok) {
-    for (const issue of result.issues)
-      rejections.push(optionDiagnostic(name, issue, overrides, file, compiled))
+    for (const issue of result.issues) rejections.push(optionDiagnostic(name, issue, file))
     return undefined
   }
   return { flow: result.build.flow, file, ...builtSettings(name, file, result.build) }
@@ -824,32 +594,18 @@ const builtSettings = (name: string, file: LoadedFile, build: flows.WorkflowBuil
   return { defaults, envDefaults }
 }
 
-/** A rejected option, reported where its value came from: the innermost `.gtdrc` that set it, else `gtd.config.ts`. */
+/** A rejected factory option, reported at `gtd.config.ts`. */
 const optionDiagnostic = (
   workflow: string,
   issue: flows.OptionIssue,
-  overrides: Readonly<Record<string, unknown>>,
   file: LoadedFile,
-  compiled: CompiledConfig,
-): Rejection => {
-  const [key] = issue.path
-  const label = issue.path.length > 0 ? `option "${issue.path.join(".")}"` : "options"
-  const message = `${label}: ${issue.message}`
-  const fromRc = typeof key === "string" && Object.hasOwn(overrides, key)
-  if (!fromRc)
-    return { workflow, severity: "error", path: issue.path, message, origin: file.origin }
-  const kind = Object.hasOwn(compiled.rcEnv, key) ? "env" : "vars"
-  const origin = [...(kind === "env" ? compiled.envKeys : compiled.varsKeys)]
-    .reverse()
-    .find((entry) => entry.key === key)?.origin
-  return {
-    workflow,
-    severity: "error",
-    path: [kind, ...issue.path],
-    message,
-    origin: origin ?? file.origin,
-  }
-}
+): Rejection => ({
+  workflow,
+  severity: "error",
+  path: issue.path,
+  message: `${issue.path.length > 0 ? `option "${issue.path.join(".")}"` : "options"}: ${issue.message}`,
+  origin: file.origin,
+})
 
 /** One rejected option, before the workflows rejecting it alike are named together. */
 interface Rejection extends Diagnostic {

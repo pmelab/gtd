@@ -3,8 +3,8 @@ Feature: the bundled workflow's health check runs "testCommand"
 
   `build.health.check` prints a script that runs the `testCommand` var and,
   when it fails, leaves its output in `.gtd/FEEDBACK.md`, stamped with the
-  commit it ran at. The var defaults to `npm test`; `.gtdrc` `vars:` and
-  `GTD_TESTCOMMAND` override it.
+  commit it ran at. The var defaults to `npm test`; the `testCommand` factory option
+  and `GTD_TESTCOMMAND` override it.
 
   Background:
     Given a test project

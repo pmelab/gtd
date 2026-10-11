@@ -294,12 +294,13 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
         await human("idle", { message: "write NOTE.md to start" })
         await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
       }
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      ui:
-        cert: cert.pem
-        key: key.pem
+
+      export const config = {
+        ui: {
+          cert: "cert.pem",
+          key: "key.pem",
+        },
+      }
       """
     And a self-signed TLS cert and key at "cert.pem" and "key.pem"
     And a file "NOTE.md" with:
@@ -468,19 +469,16 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     And the file ".gtd/PLAN.md" contains "handed back"
 
   @inmem
-  Scenario: a config file with ui.loop fails to decode
-    # Exit 1, not 2: `ConfigSchema.ts`'s own doc comment on `UiSchema` records
-    # the deliberate deviation — every OTHER `.gtdrc` decode failure in this
-    # codebase exits 1 (`EXIT_RUNTIME_ERROR`, via `Config.ts#formatSchemaError`),
-    # and a `ui:`-only exception to `EXIT_USAGE_ERROR` would be the one config
-    # error in the whole CLI a user couldn't infer the reason for.
+  Scenario: a config export with ui.loop fails to load
+    # Exit 1, like every other config error: a `ui`-only usage exit would be
+    # the one config error in the CLI a user couldn't infer the reason for.
     Given a test project
-    And a gtd config file at ".gtdrc" with:
+    And the workflow gtd install scaffolds
+    And the file "gtd.config.ts" ends with:
       """
-      ui:
-        loop: "claude -p"
+      export const config = { ui: { loop: "claude -p" } }
       """
     When I run gtd with args "ui"
     Then it fails
     And the exit code is 1
-    And stderr contains "loop"
+    And stderr contains "config.ui.loop: is not a known key"

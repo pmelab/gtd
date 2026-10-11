@@ -3,8 +3,8 @@ Feature: a shipped workflow is configured by calling its factory, which validate
 
   `feature`, `review` and `fix` from `@pmelab/gtd/workflows` are factories:
   `feature({ testCommand: "npm run ci" })` is the feature workflow with that
-  setting. Exported uncalled, a factory is a workflow too, configured by the
-  `.gtdrc` `vars:`/`env:` entries alone. Either way gtd validates the options
+  setting. Exported uncalled, a factory is a workflow too, with its defaults.
+  Either way gtd validates the options
   when it loads the config, and a rejected one fails every command, naming the
   workflow, the key path and what was expected.
 
@@ -46,20 +46,6 @@ Feature: a shipped workflow is configured by calling its factory, which validate
     Then it fails
     And stderr contains "judgeBudgetBytes: workflow \"default\" option \"judgeBudgetBytes\": Expected string, actual 65536"
 
-  Scenario: a .gtdrc entry reaches the factory, which rejects an unknown one at the file that set it
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      export { feature as default, feature, fix } from "@pmelab/gtd/workflows"
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      env:
-        testComand: npm run ci
-      """
-    When I run gtd next
-    Then it fails
-    And stderr contains ".gtdrc: env.testComand: workflows \"feature\", \"fix\" option \"testComand\": is unexpected"
-
   Scenario: a factory of your own declares its settings, which a start records
     Given a gtd config file at "gtd.config.ts" with:
       """
@@ -78,19 +64,15 @@ Feature: a shipped workflow is configured by calling its factory, which validate
         },
       }
 
-      export const greeter = defineWorkflow(schema, (options) => ({
+      const greeting = defineWorkflow(schema, (options) => ({
         flow: async () => {
           await human("idle", { message: "hello" })
         },
         defaults: { greeting: options.greeting ?? "hi" },
       }))
 
+      export const greeter = greeting({ greeting: "hey" })
       export default greeter
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      vars:
-        greeting: hey
       """
     When I run gtd with args "--workflow greeter"
     Then it succeeds
@@ -112,17 +94,14 @@ Feature: a shipped workflow is configured by calling its factory, which validate
         },
       }
 
-      export default defineWorkflow(schema, () => ({
+      const silent = defineWorkflow(schema, () => ({
         flow: async () => {
           await human("idle", { message: "hello" })
         },
       }))
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      env:
-        nope: x
+
+      export default silent({ nope: "x" })
       """
     When I run gtd next
     Then it fails
-    And stderr contains "env.nope: workflow \"default\" option \"nope\": is unexpected"
+    And stderr contains "gtd.config.ts: nope: workflow \"default\" option \"nope\": is unexpected"

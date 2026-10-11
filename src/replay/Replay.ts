@@ -67,11 +67,11 @@ export interface ReplayInput {
   readonly pending?: PendingTurn
   /** Bundled skill lists keyed by scope full name — `WorkflowDefinition.skills` applied to the process's vars. The fallback beneath a `scope()` option and `configuredSkills`. */
   readonly skills?: Readonly<Record<string, readonly string[]>>
-  /** `.gtdrc` `skills:` entries by scope full name; kept apart from `skills` so they outrank a `scope()` option while the bundled export does not. */
+  /** `config.skills` entries by scope full name; kept apart from `skills` so they outrank a `scope()` option while the bundled export does not. */
   readonly configuredSkills?: Readonly<Record<string, readonly string[]>>
   /** Bundled access keyed by scope full name — the fallback beneath a `scope()` option and `configuredAccess`. */
   readonly access?: Readonly<Record<string, ScopeAccess>>
-  /** `.gtdrc` `access:` entries by scope full name; they outrank a `scope()` option. */
+  /** `config.access` entries by scope full name; they outrank a `scope()` option. */
   readonly configuredAccess?: Readonly<Record<string, ScopeAccess>>
 }
 
@@ -327,7 +327,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   const judgeCuts = new WeakMap<object, readonly string[]>()
 
   // Resolved per memory scope `memory`: for each prefix of it, innermost
-  // first, a `.gtdrc` entry, then the innermost `scope()` call at that prefix
+  // first, a `config` entry, then the innermost `scope()` call at that prefix
   // (an unnamed scope counts at its parent's prefix), then the bundled export.
   const resolveScoped = <T>(
     memory: string,

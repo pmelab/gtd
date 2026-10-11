@@ -1,8 +1,7 @@
 /**
  * One config-compile finding. `path` mirrors the raw config's own JSON shape
  * (e.g. `["machines","design","states","triage","on",0]`) so a user can find
- * exactly where to fix it; `origin` is the layer filepath that declared the
- * value, or `BUILT_IN_ORIGIN` for a finding no config layer declared.
+ * exactly where to fix it; `origin` is the file it came from.
  */
 export interface Diagnostic {
   readonly severity: "error" | "warning"
@@ -10,9 +9,6 @@ export interface Diagnostic {
   readonly path: readonly (string | number)[]
   readonly origin: string
 }
-
-/** The origin stamped on a finding no config layer declared — never a real layer filepath, always sorted last. */
-export const BUILT_IN_ORIGIN = "(built-in default)"
 
 const compareSegment = (a: string | number, b: string | number): number => {
   if (typeof a === "number" && typeof b === "number") return a - b
@@ -34,27 +30,9 @@ export const compareConfigPaths = (
   return a.length - b.length
 }
 
-/**
- * Sort by origin first (outermost layer to innermost, per `layerOrder`;
- * `BUILT_IN_ORIGIN` always last), then by config path. `layerOrder` is the
- * list of layer origins, outermost first — the same order `ConfigLayer[]` is
- * given to `compileWorkflow` in.
- */
-export const sortDiagnostics = (
-  diagnostics: readonly Diagnostic[],
-  layerOrder: readonly string[],
-): Diagnostic[] => {
-  const originRank = (origin: string): number => {
-    if (origin === BUILT_IN_ORIGIN) return layerOrder.length + 1
-    const i = layerOrder.indexOf(origin)
-    return i === -1 ? layerOrder.length : i
-  }
-  return [...diagnostics].sort((a, b) => {
-    const rankDiff = originRank(a.origin) - originRank(b.origin)
-    if (rankDiff !== 0) return rankDiff
-    return compareConfigPaths(a.path, b.path)
-  })
-}
+/** Sort by config path, so a report lists findings in the order of the file's shape. */
+export const sortDiagnostics = (diagnostics: readonly Diagnostic[]): Diagnostic[] =>
+  [...diagnostics].sort((a, b) => compareConfigPaths(a.path, b.path))
 
 /** One finding, printable: `<origin>: <path>: <message>` — the structured replacement for the old prose bullet list. */
 export const formatDiagnostic = (d: Diagnostic): string => {
@@ -62,11 +40,7 @@ export const formatDiagnostic = (d: Diagnostic): string => {
   return `${d.origin}: ${path}: ${d.message}`
 }
 
-/**
- * Dedup by `(severity, path, message, origin)`, first occurrence wins. A repeat
- * WITHIN one layer collapses to one line, but the same problem in two files
- * stays two lines, because each is a separate edit in a file the user owns.
- */
+/** Dedup by `(severity, path, message, origin)`, first occurrence wins. */
 export const dedupeDiagnostics = (diagnostics: readonly Diagnostic[]): Diagnostic[] => {
   const seen = new Set<string>()
   const out: Diagnostic[] = []

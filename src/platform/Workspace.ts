@@ -209,9 +209,8 @@ const fetchTree = (
  * flat non-zero-exit signal. An ABSOLUTE `path` on any of these four (plus
  * `write`) fails loudly rather than silently escaping the repo — that escape
  * is `atPath`/`writeAtPath`'s job alone, named so it reads as deliberate at
- * each call site: `src/workflow/load.ts`'s cwd→home discovery walk and a
- * `.gtdrc` file-ref resolved against its own, possibly-ancestor, declaring
- * directory (read-only, both); and `program.ts`'s `gtd check`/`gtd uncheck`,
+ * each call site: `src/workflow/load.ts`'s cwd→home discovery walk
+ * (read-only); and `program.ts`'s `gtd check`/`gtd uncheck`,
  * whose `<file>` argument is an arbitrary CLI-given path — absolute or
  * relative to `root` — never a repo-scoped one.
  * Keeping the escape on separately-named members is what makes "a

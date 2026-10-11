@@ -132,8 +132,8 @@ from, never another one on `$PATH`.
   the log — on the opening beat too, landing nothing, so the conservative
   default is never taken unseen. **That document's evidence, diffs included,
   goes to the provider**: with `TYPESAFE_API_KEY` exported that is TypeSafe's
-  API unless something picks another, and a repository's `.gtdrc` `judge:` may
-  pick one; your user-level `judge.json` outranks it.
+  API unless something picks another — `GTD_JUDGE_PROVIDER` or your user-level
+  `judge.json`.
 
 **Per-machine settings.** Which agent CLI runs a turn and which real model a
 workflow hint means are your machine's business, never the repository's. Each
@@ -829,11 +829,11 @@ contract: exit 1, why on stderr, nothing on stdout.
 
 With no `--provider`, `gtd judge run` picks `jev` when `TYPESAFE_API_KEY` is set
 and non-empty — the keyed speed-up — and `llm` otherwise. It never falls back
-from one to the other: a failing jev does not retry through `claude`. A repo can
-pin the choice without editing the driver: a `judge: { provider, model }` key in
-`.gtdrc`, overridden per field by the `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL`
-environment variables, with the `--provider` / `--model` flags winning over
-both.
+from one to the other: a failing jev does not retry through `claude`. A machine
+can pin the choice without editing the driver: a user-level
+`~/.config/gtd/judge.json` `{ provider, model }`, overridden per field by the
+`GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment variables, with the
+`--provider` / `--model` flags winning over both.
 
 **Calibration risk: the `llm` provider's `p` is self-reported by the model, not
 a measured probability.** Workflows gate on `p` floors (0.9 / 0.7), and a model

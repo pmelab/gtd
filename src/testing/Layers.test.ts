@@ -1,13 +1,12 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
-import { ConfigDiscovery, SEARCH_PLACES, walkUp } from "../workflow/index.js"
+import { ConfigDiscovery, LEGACY_RC_FILES, walkUp } from "../workflow/index.js"
 import { InMemRepo } from "./index.js"
 import { testLayers } from "./Layers.js"
 
-// The in-memory `ConfigDiscovery` counterpart walks the SAME root→home chain,
-// reads the SAME `SEARCH_PLACES` and parses through the SAME
-// `parseConfigLevel` as `ConfigDiscovery.Live` — all three imported from it,
-// never copied.
+// The in-memory `ConfigDiscovery` counterpart walks the SAME root→home chain
+// and looks for the SAME `LEGACY_RC_FILES` as `ConfigDiscovery.Live` — both
+// imported from it, never copied.
 
 const ROOT = "/home/user/project/sub"
 const MIDDLE = "/home/user/project"
@@ -33,52 +32,27 @@ const runDiscovery = <A>(
   )
 
 describe("the in-memory ConfigDiscovery counterpart", () => {
-  it("combines the shared walkUp(root, home) chain with the shared SEARCH_PLACES, outermost to innermost, first match per directory wins", async () => {
+  it("finds every leftover rc file on the shared walk, innermost first", async () => {
     const repo = new InMemRepo()
-    seed(repo, HOME, SEARCH_PLACES[0]!, "outer: true\n")
-    seed(repo, MIDDLE, SEARCH_PLACES[1]!, '{"middle": true}\n')
-    // Two candidates at the innermost dir — SEARCH_PLACES[0] must win over [1].
-    seed(repo, ROOT, SEARCH_PLACES[0]!, "inner: true\n")
-    seed(repo, ROOT, SEARCH_PLACES[1]!, '{"innerLoses": true}\n')
-
-    const levels = await runDiscovery(repo, (d) => d.levels(ROOT, HOME))
-
-    // Derived independently from the two shared imports, not hard-coded —
-    // this is what "same chain, same SEARCH_PLACES" actually means.
-    const expectedDirs = [...walkUp(ROOT, HOME)].reverse()
-    expect(expectedDirs).toEqual([HOME, MIDDLE, ROOT])
-    const expectedFilepaths = [
-      `${HOME}/${SEARCH_PLACES[0]}`,
-      `${MIDDLE}/${SEARCH_PLACES[1]}`,
-      `${ROOT}/${SEARCH_PLACES[0]}`,
-    ]
-
-    expect(levels.map((l) => l.filepath)).toEqual(expectedFilepaths)
+    seed(repo, HOME, LEGACY_RC_FILES[1]!, "{}\n")
+    seed(repo, ROOT, LEGACY_RC_FILES[0]!, "vars: {}\n")
+    seed(repo, ROOT, LEGACY_RC_FILES[1]!, "{}\n")
+    seed(repo, ABOVE_HOME, LEGACY_RC_FILES[0]!, "never-walked: true\n")
+    const found = (await runDiscovery(repo, (d) => d.legacyRcFiles(ROOT, HOME))).map((f) => f.path)
+    expect(walkUp(ROOT, HOME)).toEqual([ROOT, MIDDLE, HOME])
+    expect(found).toEqual([
+      `${ROOT}/${LEGACY_RC_FILES[0]}`,
+      `${ROOT}/${LEGACY_RC_FILES[1]}`,
+      `${HOME}/${LEGACY_RC_FILES[1]}`,
+    ])
   })
 
-  it("stops the walk at home — a config above home is never seen", async () => {
+  it("also searches home when the walk never reaches it", async () => {
     const repo = new InMemRepo()
-    seed(repo, ABOVE_HOME, SEARCH_PLACES[0]!, "should-never-be-read: true\n")
-    seed(repo, HOME, SEARCH_PLACES[0]!, "home: true\n")
-
-    const levels = await runDiscovery(repo, (d) => d.levels(ROOT, HOME))
-
-    expect(levels.map((l) => l.filepath)).toEqual([`${HOME}/${SEARCH_PLACES[0]}`])
-  })
-
-  it("rejects a bare YAML/JSON null with the SAME error text ConfigDiscovery.Live produces — both tiers share parseConfigLevel", async () => {
-    const repo = new InMemRepo()
-    seed(repo, ROOT, SEARCH_PLACES[0]!, "null\n")
-
-    const failure = await Effect.runPromise(
-      Effect.gen(function* () {
-        const discovery = yield* ConfigDiscovery
-        return yield* Effect.flip(discovery.levels(ROOT, HOME))
-      }).pipe(Effect.provide(testLayers(repo, { root: ROOT, home: HOME }))),
-    )
-
-    expect(failure.message).toBe(
-      `${ROOT}/${SEARCH_PLACES[0]}: config must be a plain object, got null`,
-    )
+    seed(repo, HOME, LEGACY_RC_FILES[1]!, "{}\n")
+    const found = (
+      await runDiscovery(repo, (d) => d.legacyRcFiles("/elsewhere/project", HOME))
+    ).map((f) => f.path)
+    expect(found).toEqual([`${HOME}/${LEGACY_RC_FILES[1]}`])
   })
 })
