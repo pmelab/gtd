@@ -1,6 +1,7 @@
 import { Effect, Option, Schema } from "effect"
-import type { ArtifactOut, Command, JsonMode, Needs } from "./cli/index.js"
 import {
+  CommandRunner,
+  GtdError,
   GtdUsageError,
   Narrator,
   GitService,
@@ -28,7 +29,13 @@ import {
 } from "./workflow/index.js"
 import type { Door } from "./flows/index.js"
 import { runJudge } from "./judges/index.js"
-import { runUiCommand, type UiRequirements } from "./ui/index.js"
+import {
+  runUiCommand,
+  UiShell,
+  UiUsageError,
+  type UiConfig,
+  type UiRequirements,
+} from "./ui/index.js"
 import {
   resolveSession,
   beatDocument,
@@ -130,6 +137,93 @@ const writeSelection = (
     }
   })
 
+export type Command =
+  | { readonly kind: "lsp" }
+  | { readonly kind: "init" }
+  | {
+      readonly kind: "ui"
+      // `host`/`port` stay optional/undefined-when-absent: a resolved bind address/port is
+      // `ui: { host?, port? }` config-file values merged in downstream
+      // (`src/ui/Server.ts`), which the argv parser never
+      // reads — an absent flag here must not shadow a configured value with
+      // a parser-invented default.
+      readonly host?: string
+      readonly port?: number
+      readonly selfSigned: boolean
+      readonly dev: boolean
+    }
+  | {
+      readonly kind: "land"
+      readonly cost?: number
+      readonly model?: string
+    }
+  | {
+      readonly kind: "start"
+      readonly actor: string
+      readonly workflow: string
+      readonly vars: Readonly<Record<string, string>>
+      readonly label: string
+    }
+  | { readonly kind: "door"; readonly name: string; readonly args: readonly string[] }
+  | { readonly kind: "doors" }
+  | { readonly kind: "abandon" }
+  | { readonly kind: "restore" }
+  | { readonly kind: "next" }
+  | { readonly kind: "validate" }
+  | {
+      readonly kind: "check"
+      /** Absent only for the bare `gtd check --open-threads` form. */
+      readonly mode?: string
+      readonly file?: string
+      readonly openQuestions?: boolean
+      readonly openThreads?: boolean
+    }
+  | { readonly kind: "uncheck"; readonly file: string }
+  | { readonly kind: "install" }
+  | { readonly kind: "summary" }
+  | { readonly kind: "base" }
+  | { readonly kind: "judge" }
+  | { readonly kind: "judgeAnswer" }
+  | {
+      readonly kind: "judgeRun"
+      readonly provider?: "fixed" | "jev" | "llm"
+      readonly answers?: string
+      readonly model?: string
+    }
+
+/**
+ * `--json`'s three shapes: absent, bare (the whole document), or `--json=<path>`
+ * (one reduced value). See `src/wire/Select.ts` for how `select` is later resolved.
+ */
+export type JsonMode =
+  | { readonly kind: "off" }
+  | { readonly kind: "document" }
+  | { readonly kind: "select"; readonly path: string }
+
+/**
+ * What a command kind needs before it may run. `pure`/`removed` never reach
+ * `io.layers()` at all (they resolve to `output`/`usage` plans). `state`
+ * marks the six kinds sharing the repo-root guard and the at-least-one-commit
+ * guard — a repository with no commits has no HEAD to derive workflow state
+ * from.
+ */
+export type Needs = "pure" | "removed" | "none" | "fs" | "state"
+
+/**
+ * The all-or-nothing stdout buffer every `run*Command` handler writes
+ * through instead of `io.stdout` directly. `flush()` is called exactly once,
+ * by `runCli`, after the command's Effect succeeds; on any failure `flush()`
+ * is never reached, so the buffer is simply discarded and nothing reaches
+ * `io.stdout`. `ui` is the one handler that calls `flush()` itself,
+ * ahead of blocking on `Effect.never` — since it blocks forever, `runCli`'s
+ * own flush-on-success would otherwise never fire and its output would never
+ * reach stdout.
+ */
+export interface ArtifactOut {
+  readonly write: (chunk: string) => void
+  readonly flush: () => void
+}
+
 export type CommandRequirements =
   | GitService
   | ConfigService
@@ -137,10 +231,11 @@ export type CommandRequirements =
   | Workspace
   | Host
   | Narrator
-  // `gtd ui`'s own ports, folded in whole (`UiRequirements` already names
-  // `UiListener`): a port `src/ui/**` adds fails HERE, and therefore in
+  | CommandRunner
+  // `gtd ui`'s own ports, minus the shell `runUiCliCommand` provides from
+  // `CommandRunner`: a port `src/ui/**` adds fails HERE, and therefore in
   // `Cli.ts`'s and `testLayers`'s own typechecks, instead of at runtime.
-  | UiRequirements
+  | Exclude<UiRequirements, UiShell>
 
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
 const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
@@ -1069,6 +1164,9 @@ const runUiCliCommand = (
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
+    // ui declares its own `UiConfig`; a `ui:` schema key it doesn't know fails here.
+    const uiConfig: KeysCoveredBy<NonNullable<typeof config.ui>, UiConfig> | undefined = config.ui
+    const { root } = yield* Host
     yield* runUiCommand(
       {
         ...(command.host !== undefined ? { host: command.host } : {}),
@@ -1076,10 +1174,21 @@ const runUiCliCommand = (
         selfSigned: command.selfSigned,
         dev: command.dev,
       },
-      config.ui,
+      uiConfig,
       out,
+      root,
+    ).pipe(
+      Effect.provideServiceEffect(UiShell, CommandRunner),
+      Effect.mapError((error) =>
+        error instanceof UiUsageError
+          ? new GtdUsageError(error.message, error.detail)
+          : new GtdError(error.message, error.detail),
+      ),
     )
   })
+
+/** `A`, or `never` when `A` has a key `B` lacks. */
+type KeysCoveredBy<A, B> = Exclude<keyof A, keyof B> extends never ? A : never
 
 /**
  * Everything gtd derives is resolved against the process cwd, so running

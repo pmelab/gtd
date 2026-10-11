@@ -77,10 +77,6 @@ export default {
       from: { path: "^src/([^/]+)/" },
       to: {
         path: "^src/(?!$1/)[^/]+/(?!index\\.ts$)",
-        // `src/ui/Server.ts` imports `../web/generated.html`, a build-time
-        // asset inlined by scripts/inline-web-client.mjs — not a module
-        // crossing a boundary.
-        pathNot: "\\.html$",
       },
     },
     {
@@ -195,6 +191,23 @@ export default {
       severity: "error",
       from: { path: "^src/flows/.+\\.test\\.tsx?$" },
       to: { path: "^src/(?!flows/)" },
+    },
+
+    // --- spec 08 ---
+    {
+      name: "ui-talks-like-a-driver",
+      comment:
+        "src/ui/ reaches gtd only through the binary and the contracts: its production code imports src/wire/, src/steering/ and itself — never cli, platform or web source (the web client arrives as the generated client.generated.html).",
+      severity: "error",
+      from: { path: "^src/ui/", pathNot: productionExcluded },
+      to: { path: "^src/", pathNot: "^src/(ui|wire|steering)/" },
+    },
+    {
+      name: "web-sees-ui-types-only",
+      comment: "The web client may name the ui router's types, never import ui code.",
+      severity: "error",
+      from: { path: "^src/web/" },
+      to: { path: "^src/ui/", dependencyTypesNot: ["type-only"] },
     },
   ],
   options: {

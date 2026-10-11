@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
-import { CommandRunner } from "../platform/index.js"
+import { UiShell } from "./index.js"
 import { parseTailscaleStatus, probeTailscaleStatus } from "./Tailscale.js"
 
 const running = (self: Record<string, unknown>, top: Record<string, unknown> = {}): string =>
@@ -116,9 +116,9 @@ describe("parseTailscaleStatus", () => {
 })
 
 describe("probeTailscaleStatus", () => {
-  it("runs `tailscale status --json` through CommandRunner", async () => {
+  it("runs `tailscale status --json` through UiShell", async () => {
     const commands: string[] = []
-    const runner = CommandRunner.layer((command) => {
+    const runner = UiShell.layer((command) => {
       commands.push(command)
       return Effect.succeed({
         status: 0,
@@ -137,13 +137,13 @@ describe("probeTailscaleStatus", () => {
   })
 
   it("resolves undefined, never a failed Effect, when the spawn itself fails (binary absent)", async () => {
-    const runner = CommandRunner.layer(() => Effect.fail(new Error("spawn ENOENT")))
+    const runner = UiShell.layer(() => Effect.fail(new Error("spawn ENOENT")))
     const status = await Effect.runPromise(probeTailscaleStatus().pipe(Effect.provide(runner)))
     expect(status).toBeUndefined()
   })
 
   it("resolves undefined, never a failed Effect, on a non-zero exit", async () => {
-    const runner = CommandRunner.layer(() => Effect.succeed({ status: 1, output: "not logged in" }))
+    const runner = UiShell.layer(() => Effect.succeed({ status: 1, output: "not logged in" }))
     const status = await Effect.runPromise(probeTailscaleStatus().pipe(Effect.provide(runner)))
     expect(status).toBeUndefined()
   })
@@ -154,7 +154,7 @@ describe("probeTailscaleStatus", () => {
       { CertDomains: ["host.tailnet.ts.net"] },
     )
     const warning = 'Warning: client version "1.102.5" != tailscaled server version "1.102.4"\n'
-    const runner = CommandRunner.layer(() =>
+    const runner = UiShell.layer(() =>
       Effect.succeed({ status: 0, output: `${json}${warning}`, stdout: json, stderr: warning }),
     )
     const status = await Effect.runPromise(probeTailscaleStatus().pipe(Effect.provide(runner)))

@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { CommandRunner } from "../platform/index.js"
+import { UiShell } from "./Ports.js"
 
 /** What `resolveBindHost`/`resolveCertPair` need out of `tailscale status --json`: a display hostname and the domains a `tailscale cert` call is available for. */
 export interface TailscaleStatus {
@@ -47,7 +47,7 @@ export const parseTailscaleStatus = (json: string): TailscaleStatus | undefined 
 }
 
 /**
- * Probes the real system via `CommandRunner` (already in `resolveCertPair`'s
+ * Probes the real system via `UiShell` (already in `resolveCertPair`'s
  * requirements — no new port). Every empty case — the binary absent from
  * `$PATH`, a spawn failure, a non-zero exit — resolves to `undefined` rather
  * than failing the Effect: detection is a best-effort default, never a
@@ -56,10 +56,10 @@ export const parseTailscaleStatus = (json: string): TailscaleStatus | undefined 
 export const probeTailscaleStatus = (): Effect.Effect<
   TailscaleStatus | undefined,
   never,
-  CommandRunner
+  UiShell
 > =>
   Effect.gen(function* () {
-    const runner = yield* CommandRunner
+    const runner = yield* UiShell
     const outcome = yield* runner
       .bash("tailscale status --json")
       .pipe(Effect.catchAll(() => Effect.succeed(undefined)))

@@ -12,7 +12,6 @@ import { FileSystem } from "@effect/platform"
 import { Effect, Layer } from "effect"
 import { isAbsolute, join } from "node:path"
 import {
-  GtdError,
   Narrator,
   GitService,
   Host,
@@ -29,7 +28,7 @@ import {
   walkUp,
 } from "../workflow/index.js"
 import { fakeGitOperations } from "./FakeGitOperations.js"
-import { UiListener } from "../ui/index.js"
+import { UiError, UiListener } from "../ui/index.js"
 import { InMemRepo } from "./InMemRepo.js"
 import type { CommandRequirements } from "../program.js"
 
@@ -230,7 +229,7 @@ export function testLayers(
     // `UiListener`. A call reaching this one is a test gap, not silence.
     Layer.succeed(UiListener, {
       listen: () =>
-        Effect.fail(new GtdError("gtd ui: UiListener has no test double wired into testLayers()")),
+        Effect.fail(new UiError("gtd ui: UiListener has no test double wired into testLayers()")),
     }),
     // `gtd ui`'s two remaining ports, for the same reason and with the same
     // loudness: the only `@inmem` scenarios that reach `gtd ui` refuse at a

@@ -2,7 +2,7 @@ import { defineConfig } from "tsdown"
 
 // Two configs, browser-first: the phone/web client bundles for the browser
 // platform, then `scripts/inline-web-client.mjs` folds its output into
-// src/web/generated.html (gitignored), which the node config below imports
+// src/ui/client.generated.html (gitignored), which the node config below imports
 // through the ".html" text loader. tsdown builds array
 // entries in PARALLEL (see its `buildWithConfigs`), so this ordering is not
 // self-enforcing — `npm run build`'s script runs `tsdown --filter web`,

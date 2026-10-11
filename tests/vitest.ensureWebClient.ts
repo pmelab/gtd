@@ -1,12 +1,26 @@
 import { execSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { type Plugin } from "vitest/config"
 
-const GENERATED_HTML = resolve(import.meta.dirname, "..", "src/web/generated.html")
+const REPO_ROOT = resolve(import.meta.dirname, "..")
+const GENERATED_HTML = resolve(REPO_ROOT, "src/ui/client.generated.html")
+
+export const isGeneratedClientImport = (source: string): boolean =>
+  source.endsWith("/client.generated.html")
+
+/** `npm run build`'s own steps up to and including the inline script, so the fallback cannot drift from the real build. */
+export const fallbackBuildCommand = (): string => {
+  const build: string = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf8")).scripts
+    .build
+  const steps = build.split(" && ")
+  return steps
+    .slice(0, steps.findIndex((step) => step.includes("inline-web-client")) + 1)
+    .join(" && ")
+}
 
 /**
- * `src/ui/Server.ts` imports `../web/generated.html` — gitignored,
+ * `src/ui/Server.ts` imports `./client.generated.html` — gitignored,
  * produced only by `npm run build`'s browser step + inline script. Turbo's
  * `test:unit`/`test:e2e:inmem`/`test:e2e:live` tasks all declare
  * `dependsOn: ["build"]` so that import always resolves under `npm test`
@@ -26,12 +40,17 @@ export const ensureWebClient = (): Plugin => {
   return {
     name: "ensure-web-client",
     resolveId(source) {
-      if (ensured || !source.endsWith("web/generated.html")) return null
+      if (ensured || !isGeneratedClientImport(source)) return null
       ensured = true
       if (!existsSync(GENERATED_HTML)) {
-        execSync("npx tsdown --filter web && node scripts/inline-web-client.mjs", {
-          cwd: resolve(import.meta.dirname, ".."),
+        // npm-script names (`tsdown`) resolve only with the local bin on PATH.
+        execSync(fallbackBuildCommand(), {
+          cwd: REPO_ROOT,
           stdio: "inherit",
+          env: {
+            ...process.env,
+            PATH: `${resolve(REPO_ROOT, "node_modules/.bin")}:${process.env["PATH"] ?? ""}`,
+          },
         })
       }
       return null // Fall through to the default resolver now that the file exists.

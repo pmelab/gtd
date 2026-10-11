@@ -316,9 +316,24 @@ describe("liveHeadSha in a linked worktree", () => {
     await expect(liveHeadSha(linked)).resolves.toBe(expected)
   })
 
-  it("spawns no subprocess", () => {
-    const source = liveHeadSha.toString()
-    expect(source).not.toMatch(/CommandRunner|\brun\(/)
+  it("resolves an ordinary checkout's HEAD against its own path, not the test process's cwd", async () => {
+    const { main } = makeMainAndLinkedWorktree()
+    expect(process.cwd()).not.toBe(main)
+    const expected = gitExecIn(main, "rev-parse", "HEAD")
+
+    await expect(liveHeadSha(main)).resolves.toBe(expected)
+  })
+
+  it("spawns no subprocess: it still resolves with no git or bash on $PATH", async () => {
+    const { linked } = makeMainAndLinkedWorktree()
+    const expected = gitExecIn(linked, "rev-parse", "HEAD")
+    const path = process.env["PATH"]
+    process.env["PATH"] = ""
+    try {
+      await expect(liveHeadSha(linked)).resolves.toBe(expected)
+    } finally {
+      process.env["PATH"] = path
+    }
   })
 })
 

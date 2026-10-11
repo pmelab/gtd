@@ -18,5 +18,5 @@ export {
 } from "./Git.js"
 export { Narrator, GtdError, GtdUsageError, renderFailure } from "./Commentary.js"
 export { CommandRunner } from "./CommandRunner.js"
-export { worktreeGitDir, loopLogPath } from "./WorktreeState.js"
+export { loopLogPath } from "./WorktreeState.js"
 export { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
