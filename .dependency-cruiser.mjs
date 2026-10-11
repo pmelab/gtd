@@ -88,14 +88,6 @@ export default {
       to: { path: "^src/[^/]+/(?!index\\.ts$)" },
     },
     {
-      name: "judges-is-leaf",
-      comment:
-        "src/judges/ imports nothing else from src/ — a later extraction is a git mv plus a bin entry.",
-      severity: "error",
-      from: { path: "^src/judges/" },
-      to: { path: "^src/(?!judges/)" },
-    },
-    {
       name: "judges-only-from-dispatch",
       comment:
         "Only the CLI dispatch (src/program.ts) imports src/judges/; flows and engine never do.",
@@ -218,6 +210,16 @@ export default {
       severity: "error",
       from: { path: "^src/loop/" },
       to: { path: "^src/(?!loop/|wire/)" },
+    },
+
+    // --- spec 10 ---
+    {
+      name: "judges-imports-only-wire",
+      comment:
+        "src/judges/ reads the judge document through the wire contract and nothing else from src/ — a later extraction is a git mv plus a bin entry.",
+      severity: "error",
+      from: { path: "^src/judges/" },
+      to: { path: "^src/(?!judges/|wire/)" },
     },
 
     // --- spec 11 ---

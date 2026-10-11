@@ -185,8 +185,8 @@ const FLAGS: readonly FlagRow[] = [
     valueHint: "<name>",
     help: [
       "(gtd judge run only) the answerer: fixed | jev | llm;",
-      "omitted: GTD_JUDGE_PROVIDER, then .gtdrc judge:, then jev",
-      "when TYPESAFE_API_KEY is set, else llm",
+      "omitted: GTD_JUDGE_PROVIDER, then judge.json, then .gtdrc",
+      "judge:, then jev when TYPESAFE_API_KEY is set, else llm",
     ],
   },
   {
@@ -230,7 +230,8 @@ const FLAGS: readonly FlagRow[] = [
     help: [
       "(gtd land, with --cost) tag that cost's model",
       "(gtd judge run, llm answerer) the claude model; omitted:",
-      "GTD_JUDGE_MODEL, then .gtdrc judge:, then haiku",
+      "GTD_JUDGE_MODEL, then judge.json, then .gtdrc judge:, then",
+      "haiku",
     ],
   },
   {
@@ -665,11 +666,11 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "does not cover are left out. --provider jev asks TypeSafe",
       "(TYPESAFE_API_KEY). --provider llm asks the `claude` CLI",
       "on PATH (Claude Code only), model haiku unless --model.",
-      "No --provider: GTD_JUDGE_PROVIDER, then .gtdrc judge:",
-      "provider, else jev when TYPESAFE_API_KEY is set and no",
-      "model is given, else llm; --model likewise falls back to",
-      "GTD_JUDGE_MODEL, then judge: model. Needs no repository,",
-      "only .gtdrc files. jev and",
+      "No --provider: GTD_JUDGE_PROVIDER, then ~/.config/gtd/",
+      "judge.json, then .gtdrc judge: provider, else jev when",
+      "TYPESAFE_API_KEY is set and no model is given, else llm;",
+      "--model likewise falls back to GTD_JUDGE_MODEL, then the",
+      "file's and judge:'s model. Needs no repository. jev and",
       "llm exit 1 when they cannot answer every question, with",
       "nothing on stdout",
     ],

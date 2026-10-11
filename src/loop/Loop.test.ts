@@ -64,6 +64,8 @@ interface Script {
   readonly env?: Record<string, string>
   readonly files?: Record<string, string>
   readonly landScript?: Result
+  readonly judge?: (request: Request) => Result
+  readonly answer?: (request: Request) => Result
 }
 
 const fakeHost = (script: Script) => {
@@ -73,15 +75,23 @@ const fakeHost = (script: Script) => {
   let beats = 0
   let lands = 0
   let validations = 0
-  const gtd = (args: readonly string[]): Result => {
-    const [verb, json] = args
-    if (verb === "next" && json === "--json") {
+  const gtdVerbs: Record<string, (args: readonly string[], request: Request) => Result> = {
+    next: ([json]) => {
+      if (json !== "--json") return ok("PLAIN NEXT\n")
       const doc = script.beats[beats++]
       return doc === undefined ? { code: 1, stdout: "", stderr: "no more beats" } : ok(doc)
-    }
-    if (verb === "next") return ok("PLAIN NEXT\n")
-    if (verb === "land") return ok(script.lands?.[lands++] ?? landing())
-    throw new Error(`unexpected gtd ${args.join(" ")}`)
+    },
+    land: () => ok(script.lands?.[lands++] ?? landing()),
+    judge: ([sub], request) =>
+      sub === "answer"
+        ? (script.answer?.(request) ?? ok(script.lands?.[lands++] ?? landing()))
+        : (script.judge?.(request) ?? { code: 1, stdout: "", stderr: "no judge configured" }),
+  }
+  const gtd = (request: Request): Result => {
+    const [verb = "", ...rest] = request.args.slice(1)
+    const handle = gtdVerbs[verb]
+    if (handle === undefined) throw new Error(`unexpected gtd ${request.args.join(" ")}`)
+    return handle(rest, request)
   }
   // `sh` arity tells the three apart: `-c <script>` runs a script beat, the
   // validate wrapper passes four args, and a landing script arrives on stdin.
@@ -92,7 +102,7 @@ const fakeHost = (script: Script) => {
   }
   const respond = (request: Request): Result => {
     if (request.command === "git") return ok("/repo\n")
-    if (request.command === "node") return gtd(request.args.slice(1))
+    if (request.command === "node") return gtd(request)
     if (request.command === "sh") return sh(request)
     return script.agent?.(request) ?? ok(envelope({}))
   }
@@ -128,6 +138,12 @@ const fakeHost = (script: Script) => {
     agentCalls: () => requests.filter((r) => r.command === "claude" || r.command === "pi"),
     landCalls: () =>
       requests.filter((r) => r.command === "node" && r.args[1] === "land").map((r) => r.args),
+    judgeCalls: () =>
+      requests.filter((r) => r.command === "node" && r.args[1] === "judge" && r.args[2] === "run"),
+    answerCalls: () =>
+      requests.filter(
+        (r) => r.command === "node" && r.args[1] === "judge" && r.args[2] === "answer",
+      ),
     landScripts: () => requests.filter((r) => r.command === "sh" && r.args.length === 0),
   }
 }
@@ -430,6 +446,73 @@ describe("runLoop — agent turns", () => {
       agent: () => ok(JSON.stringify({ type: "error", message: "boom" })),
     })
     expect(failure(await h.run())).toBe("agent turn failed on both session flags")
+  })
+})
+
+describe("runLoop — judge gates", () => {
+  const judgment = JSON.stringify({ schema: WIRE_SCHEMA, state: {}, questions: [] })
+  const judgeGate = (state = "judging"): string =>
+    beat({ kind: "message", state, content: "a judgment is pending", judge: judgment })
+  const VERDICT = '[{"id":"q","answer":true,"p":0.9}]\n'
+
+  it("pipes the beat's judge document to gtd judge run and lands its verdict through gtd judge answer", async () => {
+    const host = fakeHost({
+      beats: [prompt(), judgeGate(), gate()],
+      judge: () => ok(VERDICT),
+    })
+    expect(EffectExit.isSuccess(await host.run())).toBe(true)
+    expect(host.judgeCalls().map((r) => r.stdin)).toEqual([judgment])
+    expect(host.answerCalls().map((r) => [r.args.slice(1), r.stdin])).toEqual([
+      [["judge", "answer", "--json"], VERDICT],
+    ])
+    expect(host.landScripts()).toHaveLength(2)
+    expect(host.said()).toContain("your turn — gate")
+  })
+
+  it("hands a judge gate to the human when gtd judge run fails, logging why", async () => {
+    const host = fakeHost({ beats: [prompt(), judgeGate()] })
+    expect(EffectExit.isSuccess(await host.run())).toBe(true)
+    expect(host.answerCalls()).toEqual([])
+    expect(host.said()).toContain("your turn — judging")
+    expect(host.log()).toContain("no judge configured")
+  })
+
+  it("hands a judge gate to the human when gtd judge answer rejects the verdict, landing nothing", async () => {
+    const host = fakeHost({
+      beats: [prompt(), judgeGate()],
+      judge: () => ok(VERDICT),
+      answer: () => ({ code: 2, stdout: "", stderr: "the verdict does not match" }),
+    })
+    expect(EffectExit.isSuccess(await host.run())).toBe(true)
+    expect(host.landScripts()).toHaveLength(1)
+    expect(host.said()).toContain("your turn — judging")
+    expect(host.log()).toContain("the verdict does not match")
+  })
+
+  it("does not judge the same state twice in a row", async () => {
+    const host = fakeHost({
+      beats: [prompt(), judgeGate(), judgeGate()],
+      judge: () => ok(VERDICT),
+    })
+    expect(EffectExit.isSuccess(await host.run())).toBe(true)
+    expect(host.judgeCalls()).toHaveLength(1)
+    expect(host.said()).toContain("your turn — judging")
+  })
+
+  it("stops at an opening judge gate the judge could not answer, landing nothing", async () => {
+    const host = fakeHost({ beats: [judgeGate()] })
+    expect(EffectExit.isSuccess(await host.run())).toBe(true)
+    expect(host.landCalls()).toEqual([])
+    expect(host.answerCalls()).toEqual([])
+    expect(host.landScripts()).toEqual([])
+    expect(host.said()).toContain("your turn — judging")
+  })
+
+  it("judges the opening beat too", async () => {
+    const host = fakeHost({ beats: [judgeGate(), gate()], judge: () => ok(VERDICT) })
+    expect(EffectExit.isSuccess(await host.run())).toBe(true)
+    expect(host.answerCalls()).toHaveLength(1)
+    expect(host.landCalls()).toEqual([])
   })
 })
 

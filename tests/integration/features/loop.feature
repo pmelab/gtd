@@ -235,3 +235,107 @@ Feature: gtd loop drives a process until it rests on a human
       | {"models": {"smart": "haiku"}}                 |       | haiku |
       | {"models": {"smart": "haiku"}}                 | fable | fable |
       | {"agent": "claude", "models": {"base": "x"}}   |       | opus  |
+
+  Scenario: Answers a judge gate through gtd judge run and lands the verdict
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, judge } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        const { answers } = await judge("review", {
+          questions: [{ id: "done", primitive: "noul", instructions: "Is it done?", criteria: "c" }],
+          evidence: { note: "review" },
+        })
+        if (answers.done?.answer === "yes") {
+          await human("shipped", { message: "the judge says done" })
+        } else {
+          await human("doubted", { message: "the judge was not sure" })
+        }
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And an empty user-level loop config
+    And a user-level judge config with:
+      """
+      { "provider": "fixed" }
+      """
+    And an environment variable "GTD_JUDGE_ANSWERS" set to "[{\"id\":\"done\",\"answer\":true,\"p\":0.9}]"
+    When I run gtd loop
+    Then it succeeds
+    And stderr contains "● your turn — shipped"
+    And the commit subjects from oldest to newest are:
+      """
+      chore: initial commit
+      chore: add gtd.config.ts
+      gtd(human): idle → review
+      gtd(judge): review → shipped
+      """
+    And the last commit body contains "Gtd-Judge:"
+
+  Scenario: Leaves a judge gate to the human when gtd judge run fails
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, judge } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await judge("review", {
+          questions: [{ id: "done", primitive: "noul", instructions: "Is it done?", criteria: "c" }],
+          evidence: { note: "review" },
+        })
+        await human("doubted", { message: "the judge was not sure" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And an empty user-level loop config
+    And a user-level judge config with:
+      """
+      { "provider": "fixed" }
+      """
+    And the environment variable "GTD_JUDGE_ANSWERS" is unset
+    When I run gtd loop
+    Then it succeeds
+    And stderr contains "● your turn — review"
+    And the log file contains "needs --answers <path> or GTD_JUDGE_ANSWERS"
+
+  Scenario: Lands nothing at an opening judge gate the judge cannot answer
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, judge } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await judge("review", {
+          questions: [{ id: "done", primitive: "noul", instructions: "Is it done?", criteria: "c" }],
+          evidence: { note: "review" },
+        })
+        await human("doubted", { message: "the judge was not sure" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And an empty user-level loop config
+    And a user-level judge config with:
+      """
+      { "provider": "fixed" }
+      """
+    And the environment variable "GTD_JUDGE_ANSWERS" is unset
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → review"
+    When I run gtd loop
+    Then it succeeds
+    And stderr contains "● your turn — review"
+    And the last commit subject is "gtd(human): idle → review"

@@ -22,7 +22,9 @@ interface Ctx {
   readonly log: string
 }
 
-type Outcome = "stop" | { readonly cost: number; readonly model: string | undefined }
+type Outcome =
+  | "stop"
+  | { readonly cost: number; readonly model: string | undefined; readonly landing?: string }
 const LAND: Outcome = { cost: 0, model: undefined }
 
 const fromEither = <A>(either: Either.Either<A, string>): Effect.Effect<A, Error> =>
@@ -57,12 +59,17 @@ const gitRoot = Effect.gen(function* () {
   return exit.stdout.trim()
 })
 
-const gtd = (ctx: Omit<Ctx, "log">, args: readonly string[]): Effect.Effect<string, Error> =>
+const gtd = (
+  ctx: Omit<Ctx, "log">,
+  args: readonly string[],
+  stdin?: string,
+): Effect.Effect<string, Error> =>
   Effect.flatMap(
     ctx.host.spawn({
       command: ctx.gtd[0],
       args: [...ctx.gtd.slice(1), ...args],
       cwd: ctx.root,
+      ...(stdin === undefined ? {} : { stdin }),
       output: "capture",
     }),
     (exit) =>
@@ -199,16 +206,47 @@ const runScript = (ctx: Ctx, content: string): Effect.Effect<Outcome, Error> =>
 const stop = (ctx: Ctx, sgr: string, headline: string, prose: string): Effect.Effect<Outcome> =>
   Effect.as(Effect.zipRight(ctx.host.appendLog(ctx.log, prose), rest(ctx, sgr, headline)), "stop")
 
+// A judge gate is answered by `gtd judge run`, whose own configuration picks
+// the provider, and planned by `gtd judge answer` (a pure read, like `gtd
+// land`). Any failure of either leaves the gate to the human, which routes
+// the workflow its cautious way: a judge gate never fails toward less work.
+const judgeGate = (ctx: Ctx, doc: Beat): Effect.Effect<string | undefined> =>
+  gtd(ctx, ["judge", "run"], doc.judge).pipe(
+    Effect.flatMap((verdict) => gtd(ctx, ["judge", "answer", "--json"], verdict)),
+    Effect.tap(() => ctx.host.say(`  ${paint(ctx.host, "2", "⚖ judged")}\n`)),
+    Effect.catchAll((error) =>
+      Effect.as(ctx.host.appendLog(ctx.log, `${error.message}\n`), undefined),
+    ),
+  )
+
 // The opening beat is the human's even at a clean gate: they re-ran the loop
 // resting there, so landing it is their decision — an `acceptClean` gate
 // advances, any other gate lands a harmless no-op and prints on the next beat.
-const messageBeat = (ctx: Ctx, beat: number, doc: Beat): Effect.Effect<Outcome> => {
-  if (beat === 1) return Effect.succeed(LAND)
-  const label = doc.label === undefined ? "" : ` (${doc.label})`
-  return stop(ctx, "33", `your turn — ${doc.state}${label}`, doc.content)
-}
+// A judge gate is the exception: landing it unanswered takes the conservative
+// default, which must never happen unseen, so an unanswered one always stops.
+// `judged` is the state the previous beat answered: resting there again means
+// the verdict moved nothing, so the human gets it rather than a second bill.
+const messageBeat = (
+  ctx: Ctx,
+  beat: number,
+  doc: Beat,
+  judged: string | undefined,
+): Effect.Effect<Outcome> =>
+  Effect.gen(function* () {
+    const isJudge = doc.judge !== undefined && doc.judge !== ""
+    const landing = isJudge && judged !== doc.state ? yield* judgeGate(ctx, doc) : undefined
+    if (landing !== undefined) return { ...LAND, landing }
+    if (beat === 1 && !isJudge) return LAND
+    const label = doc.label === undefined ? "" : ` (${doc.label})`
+    return yield* stop(ctx, "33", `your turn — ${doc.state}${label}`, doc.content)
+  })
 
-const kindBeat = (ctx: Ctx, beat: number, doc: Beat): Effect.Effect<Outcome, Error> => {
+const kindBeat = (
+  ctx: Ctx,
+  beat: number,
+  doc: Beat,
+  judged: string | undefined,
+): Effect.Effect<Outcome, Error> => {
   switch (doc.kind) {
     case "stalled":
       return Effect.zipRight(
@@ -216,7 +254,7 @@ const kindBeat = (ctx: Ctx, beat: number, doc: Beat): Effect.Effect<Outcome, Err
         Effect.fail(new Error(doc.content.trimEnd())),
       )
     case "message":
-      return messageBeat(ctx, beat, doc)
+      return messageBeat(ctx, beat, doc, judged)
     case "capture":
       return Effect.succeed(LAND)
     case "script":
@@ -229,12 +267,17 @@ const kindBeat = (ctx: Ctx, beat: number, doc: Beat): Effect.Effect<Outcome, Err
 }
 
 // `idle` past the opening beat is where an ordinary process ends.
-const runBeat = (ctx: Ctx, beat: number, doc: Beat): Effect.Effect<Outcome, Error> =>
+const runBeat = (
+  ctx: Ctx,
+  beat: number,
+  doc: Beat,
+  judged: string | undefined,
+): Effect.Effect<Outcome, Error> =>
   beat > 1 && doc.idle
     ? Effect.flatMap(gtd(ctx, ["next"]), (message) =>
         stop(ctx, "32", `done — ${doc.state}`, message),
       )
-    : kindBeat(ctx, beat, doc)
+    : kindBeat(ctx, beat, doc, judged)
 
 const costFlags = (outcome: Exclude<Outcome, "stop">): readonly string[] =>
   outcome.cost > 0
@@ -248,9 +291,9 @@ const costFlags = (outcome: Exclude<Outcome, "stop">): readonly string[] =>
 // moves the tree, and a read taken afterwards would plan something else.
 const land = (ctx: Ctx, outcome: Exclude<Outcome, "stop">): Effect.Effect<boolean, Error> =>
   Effect.gen(function* () {
-    const doc = yield* fromEither(
-      decodeLand(yield* gtd(ctx, ["land", "--json", ...costFlags(outcome)])),
-    )
+    // A judged beat was planned by `gtd judge answer` already, and ran no agent turn to bill.
+    const landed = outcome.landing ?? (yield* gtd(ctx, ["land", "--json", ...costFlags(outcome)]))
+    const doc = yield* fromEither(decodeLand(landed))
     const exit = yield* ctx.host.spawn({
       command: "sh",
       args: [],
@@ -290,10 +333,12 @@ export const runLoop = (options: LoopOptions): Effect.Effect<void, Error, LoopHo
     const ctx: Ctx = { ...base, log: resolve(root, doc.log) }
     // gtd never truncates the log; a run starts it fresh.
     yield* host.resetLog(ctx.log)
+    let judged: string | undefined
     for (let beat = 1; ; beat++) {
       if (beat > 1) doc = yield* readBeat(ctx)
       yield* header(ctx, beat, doc)
-      const outcome = yield* runBeat(ctx, beat, doc)
+      const outcome = yield* runBeat(ctx, beat, doc, judged)
       if (outcome === "stop" || (yield* land(ctx, outcome))) return
+      judged = outcome.landing === undefined ? undefined : doc.state
     }
   })

@@ -414,20 +414,22 @@ noted in steps 3 and 4 below.
    users only; model `haiku`, `--model <name>` overrides) and reuses its login.
    With no `--provider`, `gtd judge run` picks jev when `TYPESAFE_API_KEY` is
    set and non-empty and no `--model` is given, else llm — never falling back
-   across them; a `.gtdrc` `judge: { provider, model }` key and the
-   `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment variables choose the
-   judge without editing the driver (flags win over both); `--model` with
-   `--provider fixed`/`jev` is refused. jev and llm exit 1 with nothing on
-   stdout when they cannot answer every question):
+   across them; the `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment
+   variables, a user-level `~/.config/gtd/judge.json` `{ provider, model }`, and
+   a `.gtdrc` `judge:` key choose the judge without editing the driver (flags
+   win over all three, in that order); `--model` with `--provider fixed`/`jev`
+   is refused. jev and llm exit 1 with nothing on stdout when they cannot answer
+   every question):
    - Every red round after the first: was the failure identical, new, or
      progress?
    - After you review: is each of your notes an edit, a question, a nit or
      praise?
 
-   The reference driver answers these itself (`gtd judge run`, auto selection:
-   jev when `TYPESAFE_API_KEY` is set, else `llm` via `claude`, default model
-   haiku, `--model <name>` overrides); if that fails it shows you the message
-   and stops. **The `llm` provider's `p` is self-reported by the model, not a
+   gtd itself never calls a judge: `gtd loop`, the Claude Code mod and the
+   reference driver answer these through `gtd judge run` (auto selection: jev
+   when `TYPESAFE_API_KEY` is set, else `llm` via `claude`, default model haiku,
+   `--model <name>` overrides); if that fails it shows you the message and
+   stops. **The `llm` provider's `p` is self-reported by the model, not a
    measured probability, so a confidently wrong verdict can clear the 0.7 floor
    and skip a gate unattended.**
 

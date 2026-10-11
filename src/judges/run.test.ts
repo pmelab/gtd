@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -114,5 +114,62 @@ describe("runJudge with a configured judge:", () => {
         cwd,
       }),
     ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
+  })
+})
+
+describe("runJudge with a user-level judge.json", () => {
+  const home = (config: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-judge-home-"))
+    mkdirSync(join(dir, "gtd"))
+    writeFileSync(join(dir, "gtd", "judge.json"), config)
+    return dir
+  }
+
+  it("ranks the user file above .gtdrc judge:", async () => {
+    expect(
+      await runJudge({
+        provider: undefined,
+        configured: { provider: "jev" },
+        env: { ...env, XDG_CONFIG_HOME: home('{"provider":"fixed"}') },
+        input: doc,
+        cwd,
+      }),
+    ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
+  })
+  it("ranks GTD_JUDGE_PROVIDER above the user file", async () => {
+    await expect(
+      runJudge({
+        provider: undefined,
+        env: { ...env, GTD_JUDGE_PROVIDER: "jev", XDG_CONFIG_HOME: home('{"provider":"fixed"}') },
+        input: doc,
+        cwd,
+      }),
+    ).rejects.toThrow("gtd judge run: --provider jev needs TYPESAFE_API_KEY")
+  })
+  it("falls back to ~/.config without XDG_CONFIG_HOME", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-judge-home-"))
+    mkdirSync(join(dir, ".config", "gtd"), { recursive: true })
+    writeFileSync(join(dir, ".config", "gtd", "judge.json"), '{"provider":"fixed"}')
+    expect(
+      await runJudge({ provider: undefined, env: { ...env, HOME: dir }, input: doc, cwd }),
+    ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
+  })
+  it("rejects an unknown key or provider, naming the file", async () => {
+    await expect(
+      runJudge({
+        provider: undefined,
+        env: { ...env, XDG_CONFIG_HOME: home('{"provider":"gpt"}') },
+        input: doc,
+        cwd,
+      }),
+    ).rejects.toThrow(/judge\.json: "provider" must be one of fixed, jev, llm/)
+    await expect(
+      runJudge({
+        provider: undefined,
+        env: { ...env, XDG_CONFIG_HOME: home('{"answers":"x"}') },
+        input: doc,
+        cwd,
+      }),
+    ).rejects.toThrow(/judge\.json: unknown key "answers"/)
   })
 })

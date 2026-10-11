@@ -106,17 +106,18 @@ const JudgeSchema = Schema.Struct({
   provider: Schema.optional(
     Schema.Literal("fixed", "jev", "llm").annotations({
       description:
-        "Judge provider `gtd judge run` uses when no --provider flag and no GTD_JUDGE_PROVIDER is set. Absent means auto: jev when TYPESAFE_API_KEY is set, otherwise llm.",
+        "Judge provider `gtd judge run` uses when no --provider flag, no GTD_JUDGE_PROVIDER and no user-level judge.json says. Absent means auto: jev when TYPESAFE_API_KEY is set, otherwise llm.",
     }),
   ),
   model: Schema.optional(
     Schema.String.annotations({
       description:
-        "Model for provider llm, used when no --model flag and no GTD_JUDGE_MODEL is set. Pairing it with another provider is an error.",
+        "Model for provider llm, used when no --model flag, no GTD_JUDGE_MODEL and no user-level judge.json says. Pairing it with another provider is an error.",
     }),
   ),
 }).annotations({
-  description: "Which judge `gtd judge run` uses, when no flag or GTD_JUDGE_* variable says.",
+  description:
+    "Which judge `gtd judge run` uses, when no flag, GTD_JUDGE_* variable or user-level judge.json says.",
 })
 
 export const ConfigSchema = Schema.Struct({

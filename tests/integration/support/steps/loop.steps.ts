@@ -21,6 +21,12 @@ Given("a user-level loop config with:", (world: GtdWorld, json: string) => {
   writeFileSync(join(dir, "loop.json"), String(json))
 })
 
+Given("a user-level judge config with:", (world: GtdWorld, json: string) => {
+  const dir = join(configHome(world), "gtd")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "judge.json"), String(json))
+})
+
 const assertIsolated = (world: GtdWorld): void =>
   assert.ok(
     world.envVars["XDG_CONFIG_HOME"],

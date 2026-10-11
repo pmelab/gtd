@@ -1,11 +1,6 @@
-export type Primitive = "noul" | "choice" | "score"
+import type { JudgeQuestion } from "../wire/index.js"
 
-export interface Question {
-  readonly id: string
-  readonly primitive: Primitive
-  readonly instructions: string
-  readonly criteria: string
-}
+export type Question = JudgeQuestion
 
 export interface Verdict {
   readonly id: string

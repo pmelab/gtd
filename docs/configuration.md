@@ -873,17 +873,27 @@ read it.
 
 Per field, the first one set wins: the `--provider` / `--model` flag, then the
 `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment variables (an empty value
-counts as unset), then `judge:`, then the automatic pick (`jev` when
-`TYPESAFE_API_KEY` is set and no model is given, otherwise `llm`). A model
-resolved for a provider other than `llm` is an error, whichever layer supplied
-each half. A repository can pin `jev` here while a laptop flips to `llm` with
-`GTD_JUDGE_PROVIDER=llm`, without touching the driver. `GTD_<NAME>` does not
-reach `judge:`.
+counts as unset), then the user-level file, then `judge:`, then the automatic
+pick (`jev` when `TYPESAFE_API_KEY` is set and no model is given, otherwise
+`llm`). A model resolved for a provider other than `llm` is an error, whichever
+layer supplied each half. A repository can pin `jev` here while a laptop flips
+to `llm` with `GTD_JUDGE_PROVIDER=llm`, without touching the driver.
+`GTD_<NAME>` does not reach `judge:`.
 
 ```yaml
 # .gtdrc
 judge:
   provider: jev
+```
+
+The user-level file is `$XDG_CONFIG_HOME/gtd/judge.json`, else
+`~/.config/gtd/judge.json`: a JSON object with the same two optional keys. A
+missing file is fine; an unreadable or invalid one, an unknown key, or a
+provider outside the three fails `gtd judge run`. It is your machine's choice,
+so it outranks a repository's `judge:`:
+
+```json
+{ "provider": "llm", "model": "sonnet" }
 ```
 
 ### The `skills:` key

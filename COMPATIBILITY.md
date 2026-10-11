@@ -50,7 +50,7 @@ histories written by an older or newer gtd.
 - **`.gtdrc`** — its keys and their values, as published in `schema.json`.
 - **Settings** — the setting names the bundled workflows read (`testCommand`,
   `reviewBase`, …), the `GTD_*` variables, and the judge providers (`fixed`,
-  `jev`, `llm`) with their variables.
+  `jev`, `llm`) with their variables and the user-level `judge.json`.
 
 ## No promise
 

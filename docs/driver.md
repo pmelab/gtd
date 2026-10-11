@@ -124,7 +124,16 @@ from, never another one on `$PATH`.
   starts, then every turn's output, script output and gate message. The terminal
   carries only beat headers, landed subjects and the final line.
 
-It does not answer judge gates: a judge gate stops it like any other gate.
+- **At a judge gate** it pipes the beat's `judge` document through
+  `gtd judge run` — whose own settings pick the provider, see
+  [The `judge:` key](./configuration.md#the-judge-key) — and lands the verdict
+  through `gtd judge answer --json`'s script. If either command fails, or the
+  same gate comes back on the very next beat, it stops there with the reason in
+  the log — on the opening beat too, landing nothing, so the conservative
+  default is never taken unseen. **That document's evidence, diffs included,
+  goes to the provider**: with `TYPESAFE_API_KEY` exported that is TypeSafe's
+  API unless something picks another, and a repository's `.gtdrc` `judge:` may
+  pick one; your user-level `judge.json` outranks it.
 
 **Per-machine settings.** Which agent CLI runs a turn and which real model a
 workflow hint means are your machine's business, never the repository's. Each
@@ -337,12 +346,14 @@ falls back to the `gtd` on your `PATH`.
   kept in the foreground, with a 10-minute timeout.
 - A subagent's hand-back is dropped before it reaches the session, so the main
   conversation never takes a turn because a beat finished.
-- A judge gate is answered with `gtd judge run --provider jev` when
-  `TYPESAFE_API_KEY` (or `TYPESAFE_AI_KEY`) is set. Otherwise a small subagent
-  answers it with the same prompt gtd's `llm` provider sends, on
-  `GTD_JUDGE_MODEL` (haiku by default), with no `claude -p`. Only when neither
-  produces a complete verdict does the dialog ask you, and **Continue with the
-  safe choice** lands it unanswered, which routes the workflow its cautious way.
+- A judge gate is answered with `gtd judge run` when `GTD_JUDGE_PROVIDER` names
+  `fixed` or `jev`, or when `TYPESAFE_API_KEY` (or `TYPESAFE_AI_KEY`) is set and
+  `GTD_JUDGE_PROVIDER` is not `llm`. Otherwise a small subagent answers it with
+  the same prompt gtd's `llm` provider sends, on `GTD_JUDGE_MODEL` (haiku by
+  default), with no `claude -p`. Only when neither produces a complete verdict
+  does the dialog ask you — on the opening beat too, where nothing lands
+  unanswered — and **Continue with the safe choice** lands it unanswered, which
+  routes the workflow its cautious way.
 - Script and check beats append to the log `gtd next --json` names.
 - The mod checks the [`schema`](./cli.md#schema) of every document it reads and
   stops on one it does not read, naming which side to upgrade: the plugin when

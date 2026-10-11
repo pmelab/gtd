@@ -124,6 +124,13 @@ describe("drive", () => {
     expect(calls).toEqual(["land", "sh:true", "land:[v]", "sh:true"])
   })
 
+  test("an opening judge gate left unanswered stops without landing", async () => {
+    const gate: Beat = { kind: "message", state: "judge-review", judge: { questions: [] } }
+    const { io, calls } = fake([gate])
+    expect(await drive(io)).toMatchObject({ kind: "gate", state: "judge-review", isJudge: true })
+    expect(calls).toEqual([])
+  })
+
   test("a failing landing script stops the loop", async () => {
     const { io } = fake([{ kind: "capture" }], [], { sh: async () => 1 })
     expect(await drive(io)).toMatchObject({ kind: "error", text: "landing script exited 1" })
