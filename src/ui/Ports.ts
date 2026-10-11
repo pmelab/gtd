@@ -39,8 +39,3 @@ export class UiShell extends Context.Tag("UiShell")<
     bash: (command: string) => Effect.Effect<ShellOutcome, Error>,
   ): Layer.Layer<UiShell> => Layer.succeed(UiShell, { bash })
 }
-
-/** The worktree `gtd ui` serves. */
-export class UiRoot extends Context.Tag("UiRoot")<UiRoot, { readonly root: string }>() {
-  static readonly layer = (root: string): Layer.Layer<UiRoot> => Layer.succeed(UiRoot, { root })
-}

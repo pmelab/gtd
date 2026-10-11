@@ -20,7 +20,7 @@ import {
   type StepRead,
 } from "./Beat.js"
 import { pickBindHost } from "./Bind.js"
-import { UiError, UiRoot, UiShell, UiUsageError } from "./Ports.js"
+import { UiError, UiShell, UiUsageError } from "./Ports.js"
 import { withFileVar } from "./Quote.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
@@ -49,7 +49,6 @@ import {
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
 const TRPC_PATH_PREFIX = "/trpc"
 
-/** The `ui:` config block, as the composition root decodes it. */
 export interface UiConfig {
   readonly port?: number | undefined
   readonly host?: string | undefined
@@ -64,7 +63,6 @@ export interface UiOut {
   readonly flush: () => void
 }
 
-/** The `gtd ui` flags. */
 export interface UiCommandOptions {
   readonly host?: string
   readonly port?: number
@@ -354,7 +352,7 @@ export const resolveClientHtml = (
       )
     : Effect.succeed(generatedClientHtml)
 
-export type UiRequirements = UiShell | FileSystem.FileSystem | UiListener | UiRoot
+export type UiRequirements = UiShell | FileSystem.FileSystem | UiListener
 
 /** Every dependency `readStep` needs, wired to the real subprocess/filesystem reads — `gtd ui` never injects a fake here, unlike its own test suite. */
 const liveBeatDeps = {
@@ -692,7 +690,7 @@ const resolveListener = (args: {
 
 /**
  * `gtd ui`: binds an HTTPS server exposing the phone/web client for the ONE
- * worktree `UiRoot` names — never a fleet, never a spawned loop. The server
+ * worktree at `root` — never a fleet, never a spawned loop. The server
  * lives for exactly one step: it starts, shows that step, takes the human's
  * input, and exits — either because the human handed the turn back (`done`
  * resolves `ctx.handOff()`'s deferred once the response has flushed) or
@@ -703,13 +701,12 @@ export const runUiCommand = (
   options: UiCommandOptions,
   config: UiConfig | undefined,
   out: UiOut,
+  root: string,
 ): Effect.Effect<void, UiError, UiRequirements> =>
   Effect.gen(function* () {
-    const cwd = yield* UiRoot
-
     // Read before resolving the bind host or the certificate, so a refusal
     // never invokes openssl (T1's own acceptance bullet).
-    const step = yield* Effect.promise(() => readStep({ path: cwd.root }, liveBeatDeps))
+    const step = yield* Effect.promise(() => readStep({ path: root }, liveBeatDeps))
     if (step.status === "broken" || !isRenderable(step)) {
       return yield* Effect.fail(refusalFor(step))
     }
@@ -735,7 +732,7 @@ export const runUiCommand = (
     // reachable by anything on the tailnet.
     const clientHtml = yield* resolveClientHtml(options.dev, runner, fs)
 
-    const formatCommand = buildFormatCommand(config?.format, cwd.root)
+    const formatCommand = buildFormatCommand(config?.format, root)
     const writeDeps: WriteDeps = {
       headSha: liveHeadSha,
       actorAt: liveActorAt,
@@ -773,7 +770,7 @@ export const runUiCommand = (
     // timer drives this — it rides the `step` query the client already
     // issues.
     const readServedStep = async (): Promise<StepRead> => {
-      const read = await readStep({ path: cwd.root }, liveBeatDeps)
+      const read = await readStep({ path: root }, liveBeatDeps)
       const movedOn = read.status === "broken" || read.state !== servedState || !isRenderable(read)
       if (!movedOn) return read
       endServer()
@@ -799,16 +796,16 @@ export const runUiCommand = (
         readStep: readServedStep,
         writeNote: (request) =>
           isServedFile(request.filePath)
-            ? writeNote({ ...request, worktreePath: cwd.root }, writeDeps)
+            ? writeNote({ ...request, worktreePath: root }, writeDeps)
             : Promise.resolve({ ok: false, reason: "file-vanished" }),
         writeValue: (request) =>
           isServedFile(request.filePath)
-            ? writeValue({ ...request, worktreePath: cwd.root }, writeDeps)
+            ? writeValue({ ...request, worktreePath: root }, writeDeps)
             : Promise.resolve({ ok: false, reason: "file-vanished" }),
-        resolveDiff: (path, line, endLine) => resolveDiff(cwd.root, path, line, endLine, diffDeps),
+        resolveDiff: (path, line, endLine) => resolveDiff(root, path, line, endLine, diffDeps),
         readSteeringFile: (request) =>
           isServedFile(request.filePath)
-            ? readSteeringFile({ ...request, worktreePath: cwd.root }, readDeps)
+            ? readSteeringFile({ ...request, worktreePath: root }, readDeps)
             : Promise.resolve({ ok: false, reason: "file-vanished" }),
         handOff: () => {
           let settled = false
@@ -843,7 +840,7 @@ export const runUiCommand = (
       config,
       explicitPort,
       explicitHost,
-      worktree: cwd.root,
+      worktree: root,
       uiListener,
       handler,
       out,

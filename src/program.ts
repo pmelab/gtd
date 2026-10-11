@@ -29,7 +29,13 @@ import {
 } from "./workflow/index.js"
 import type { Door } from "./flows/index.js"
 import { runJudge } from "./judges/index.js"
-import { runUiCommand, UiRoot, UiShell, UiUsageError, type UiRequirements } from "./ui/index.js"
+import {
+  runUiCommand,
+  UiShell,
+  UiUsageError,
+  type UiConfig,
+  type UiRequirements,
+} from "./ui/index.js"
 import {
   resolveSession,
   beatDocument,
@@ -226,10 +232,10 @@ export type CommandRequirements =
   | Host
   | Narrator
   | CommandRunner
-  // `gtd ui`'s own ports, minus the two `runUiCliCommand` provides from
-  // `CommandRunner`/`Host`: a port `src/ui/**` adds fails HERE, and therefore
-  // in `Cli.ts`'s and `testLayers`'s own typechecks, instead of at runtime.
-  | Exclude<UiRequirements, UiShell | UiRoot>
+  // `gtd ui`'s own ports, minus the shell `runUiCliCommand` provides from
+  // `CommandRunner`: a port `src/ui/**` adds fails HERE, and therefore in
+  // `Cli.ts`'s and `testLayers`'s own typechecks, instead of at runtime.
+  | Exclude<UiRequirements, UiShell>
 
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
 const runLspCommand = (): Effect.Effect<void, Error> => startLspServer()
@@ -1158,6 +1164,9 @@ const runUiCliCommand = (
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
+    // ui declares its own `UiConfig`; a `ui:` schema key it doesn't know fails here.
+    const uiConfig: KeysCoveredBy<NonNullable<typeof config.ui>, UiConfig> | undefined = config.ui
+    const { root } = yield* Host
     yield* runUiCommand(
       {
         ...(command.host !== undefined ? { host: command.host } : {}),
@@ -1165,11 +1174,11 @@ const runUiCliCommand = (
         selfSigned: command.selfSigned,
         dev: command.dev,
       },
-      config.ui,
+      uiConfig,
       out,
+      root,
     ).pipe(
       Effect.provideServiceEffect(UiShell, CommandRunner),
-      Effect.provideServiceEffect(UiRoot, Host),
       Effect.mapError((error) =>
         error instanceof UiUsageError
           ? new GtdUsageError(error.message, error.detail)
@@ -1177,6 +1186,9 @@ const runUiCliCommand = (
       ),
     )
   })
+
+/** `A`, or `never` when `A` has a key `B` lacks. */
+type KeysCoveredBy<A, B> = Exclude<keyof A, keyof B> extends never ? A : never
 
 /**
  * Everything gtd derives is resolved against the process cwd, so running
