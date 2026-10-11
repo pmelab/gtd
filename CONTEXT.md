@@ -33,14 +33,20 @@ _Avoid_: machine, state table, graph
 subject that lands it and, up to its last dot, its
 [memory scope](#memory-scope). _Avoid_: state, node, phase
 
-**Workflow module**: A TypeScript module in which every exported function (bar
-`default`, `summary` and `base`) is a workflow named by its export; its
-`defaults`, `envDefaults`, `steering`, `skills`, `summary` and `base` exports
-configure every workflow in the file. The bundled module is never scanned: its
-helpers — a single step or a phase such as a health loop or a review round —
-stay helpers another workflow may import, and only `feature`, `review` and `fix`
-are startable. The full step names its helpers declare are public, versioned
-API. _Avoid_: machine, sub-workflow, fragment
+**Workflow module**: A TypeScript module in which every exported function or
+[workflow factory](#workflow-factory) (bar `default`, `summary` and `base`) is a
+workflow named by its export; its `defaults`, `envDefaults`, `steering`,
+`skills`, `summary` and `base` exports configure every workflow in the file. The
+bundled module is never scanned: its helpers — a single step or a phase such as
+a health loop or a review round — stay helpers another workflow may import, and
+only `feature`, `review` and `fix` are startable. The full step names its
+helpers declare are public, versioned API. _Avoid_: machine, sub-workflow,
+fragment
+
+**Workflow factory**: A function, made with `defineWorkflow`, that returns a
+workflow configured by its options; gtd validates the options when it loads the
+config. The shipped `feature`, `review` and `fix` are factories, and their
+options are the bundled settings. _Avoid_: preset, template, builder
 
 **Actor**: Who is expected to act at a step — `agent`, `human`, `check` (a `run`
 step, executed by the driver) or `judge`. gtd itself executes nothing. _Avoid_:

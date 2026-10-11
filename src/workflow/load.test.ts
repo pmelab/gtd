@@ -93,6 +93,11 @@ const minimalWorkflow = (first: string) =>
     ``,
   ].join("\n")
 
+// The rc-layering tests' settings are no shipped workflow's options, which a
+// shipped factory would reject — so they run under a plain flow.
+const plainWorkflow = () =>
+  writeFileSync(join(projectDir, "gtd.config.ts"), minimalWorkflow("idle"))
+
 describe("ConfigService", () => {
   it("the scaffolded config runs the shipped feature workflow by default", async () => {
     const cfg = await getConfig()
@@ -264,6 +269,7 @@ describe("ConfigService", () => {
   })
 
   it("configFiles names every .gtdrc-family file this load actually found, outermost→innermost", async () => {
+    plainWorkflow()
     writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: hi\n`)
 
     const cfg = await getConfig()
@@ -561,6 +567,7 @@ describe("ConfigService", () => {
   })
 
   it("loads JSON config (gtd.config.json)", async () => {
+    plainWorkflow()
     writeFileSync(
       join(projectDir, "gtd.config.json"),
       JSON.stringify({ vars: { greeting: "json" } }),
@@ -572,6 +579,7 @@ describe("ConfigService", () => {
   })
 
   it("reads a top-level `vars:` key into `rcVars`, coercing scalars to strings", async () => {
+    plainWorkflow()
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
       [`vars:`, `  greeting: hi`, `  attempts: 3`, `  strict: true`, ``].join("\n"),
@@ -678,6 +686,7 @@ describe("ConfigService", () => {
   })
 
   it("merges `vars:` levels low->high: cwd's overlays the ancestor's, cwd wins on overlap", async () => {
+    plainWorkflow()
     const child = join(projectDir, "a", "b")
     mkdirSync(child, { recursive: true })
 
@@ -874,6 +883,7 @@ describe("ConfigService", () => {
   })
 
   it("strip: a config carrying $schema decodes without an excess-property error", async () => {
+    plainWorkflow()
     writeFileSync(
       join(projectDir, ".gtdrc.json"),
       JSON.stringify({
@@ -897,6 +907,7 @@ describe("ConfigService", () => {
   })
 
   it("expands a `$NAME` in `vars:` from the environment (host.env, not process.env)", async () => {
+    plainWorkflow()
     writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  model: $BUILD_MODEL\n`)
 
     const cfg = await getConfig(undefined, { BUILD_MODEL: "smart" })
@@ -1009,6 +1020,7 @@ describe("ConfigService — discovery walks past an unreadable candidate", () =>
   })
 
   it("still finds a real config in a directory whose OWN first-priority candidate is a directory", async () => {
+    plainWorkflow()
     mkdirSync(join(projectDir, ".gtdrc"))
     writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: "past the directory"\n`)
 
@@ -1063,5 +1075,230 @@ describe("configPresentAt", () => {
         ),
       ),
     ).rejects.toThrow()
+  })
+})
+
+describe("ConfigService — workflow factory options", () => {
+  const configWith = (body: string) =>
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [`import { feature, fix, review } from "@pmelab/gtd/workflows"`, body, ``].join("\n"),
+    )
+
+  it("an option given in gtd.config.ts becomes the workflow's setting of its kind", async () => {
+    configWith(
+      `export default feature({ qualityReviews: "correctness", testCommand: "npm run ci" })`,
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.defaultWorkflow.name).toBe("default")
+    expect(cfg.defaultWorkflow.vars["qualityReviews"]).toBe("correctness")
+    expect(cfg.defaultWorkflow.env["testCommand"]).toBe("npm run ci")
+  })
+
+  it("an exported factory and its call are each a workflow, configured on their own", async () => {
+    configWith(
+      [
+        `export { feature as default, feature }`,
+        `export const strict = review({ reviewNoteActionable: "0.9" })`,
+      ].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.defaultWorkflow.name).toBe("feature")
+    expect(cfg.workflowNames).toEqual(["feature", "strict"])
+    expect(cfg.workflowNamed("strict")?.vars["reviewNoteActionable"]).toBe("0.9")
+    expect(cfg.workflowNamed("feature")?.vars["reviewNoteActionable"]).toBe("0.7")
+  })
+
+  it("an invalid option in gtd.config.ts names the workflow, the key path and the expectation", async () => {
+    configWith(`export default feature()\nexport const repair = fix({ judgeBudgetBytes: 65536 })`)
+
+    const error = await getConfig().catch((e: Error) => e.message)
+
+    expect(error).toContain(
+      `gtd.config.ts: judgeBudgetBytes: workflow "repair" option "judgeBudgetBytes"`,
+    )
+  })
+
+  it("a misspelled option fails the load, listing the options there are", async () => {
+    configWith(`export default feature({ testComand: "npm test" })`)
+
+    const error = await getConfig().catch((e: Error) => e.message)
+
+    expect(error).toMatch(/gtd\.config\.ts: testComand: workflow "default" option "testComand"/)
+  })
+
+  it("a .gtdrc value reaches the factory, which rejects an unknown one at the file that set it — once for every workflow alike", async () => {
+    configWith(`export { feature as default, feature, fix }`)
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  testComand: npm test\n`)
+
+    const error = await getConfig().catch((e: Error) => e.message)
+
+    expect(error).toMatch(
+      /\.gtdrc\.yaml: env\.testComand: workflows "feature", "fix" option "testComand"/,
+    )
+    expect(String(error).match(/testComand: workflow/g)).toHaveLength(1)
+  })
+
+  it("a .gtdrc value overrides the option a call was given", async () => {
+    configWith(`export default feature({ coderModel: "cheap" })`)
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `env:\n  coderModel: local\n`)
+
+    const cfg = await getConfig()
+
+    expect(cfg.defaultWorkflow.env["coderModel"]).toBe("local")
+  })
+
+  const greeter = [
+    `import { defineWorkflow, human } from "@pmelab/gtd/flows"`,
+    `const schema = { "~standard": { version: 1, vendor: "t", validate: (value) => {`,
+    `  const issues = Object.keys(value).filter((k) => k !== "greeting").map((k) => ({ message: "is unexpected", path: [k] }))`,
+    `  return issues.length > 0 ? { issues } : { value }`,
+    `} } }`,
+    `export const greeter = defineWorkflow(schema, (o) => ({`,
+    `  flow: async () => { await human("idle") },`,
+    `  defaults: { greeting: o.greeting ?? "hi" },`,
+    `}))`,
+  ]
+
+  it("a .gtdrc setting one factory declares does not reach another factory", async () => {
+    configWith([...greeter, `export default feature`].join("\n"))
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: hey\n`)
+
+    const cfg = await getConfig()
+
+    expect(cfg.workflowNamed("greeter")?.vars["greeting"]).toBe("hey")
+    expect(cfg.workflowNamed("feature")?.vars["greeting"]).toBeUndefined()
+  })
+
+  it("a .gtdrc fixing an invalid call option keeps that option the factory's own", async () => {
+    configWith([...greeter, `export default feature({ judgeBudgetBytes: 1 as never })`].join("\n"))
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  judgeBudgetBytes: "65536"\n`)
+
+    const cfg = await getConfig()
+
+    expect(cfg.defaultWorkflow.vars["judgeBudgetBytes"]).toBe("65536")
+    expect(cfg.workflowNamed("greeter")?.vars["judgeBudgetBytes"]).toBeUndefined()
+  })
+
+  it("a .gtdrc fixing an invalid call option does not send a plain sibling's setting to the factory", async () => {
+    configWith(
+      [
+        `import { human, vars } from "@pmelab/gtd/flows"`,
+        `export default feature({ judgeBudgetBytes: 1 as never })`,
+        `export const defaults = { greeting: "hi" }`,
+        `export const hello = async () => { await human("idle", { message: vars.greeting }) }`,
+      ].join("\n"),
+    )
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      `vars:\n  judgeBudgetBytes: "65536"\n  greeting: hey\n`,
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.defaultWorkflow.vars["judgeBudgetBytes"]).toBe("65536")
+  })
+
+  it("a rejected vars: entry is reported under vars, at the innermost .gtdrc that set it", async () => {
+    configWith(`export default feature`)
+    const child = join(projectDir, "a")
+    mkdirSync(child)
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  qualityReviewz: outer\n`)
+    writeFileSync(join(child, ".gtdrc.yaml"), `vars:\n  qualityReviewz: inner\n`)
+
+    const error = await getConfig(child).catch((e: Error) => e.message)
+
+    expect(error).toContain(`${join(child, ".gtdrc.yaml")}: vars.qualityReviewz: `)
+  })
+
+  it("a door naming a rejected factory reports the option error alone", async () => {
+    configWith(
+      [
+        `export default feature({ testComand: "x" } as never)`,
+        `export const doors = { go: { workflow: "default" } }`,
+      ].join("\n"),
+    )
+
+    const error = await getConfig().catch((e: Error) => e.message)
+
+    expect(error).toContain(`option "testComand"`)
+    expect(error).not.toContain("door")
+  })
+
+  it("a .gtdrc setting a plain sibling workflow declares does not reach a factory", async () => {
+    configWith(
+      [
+        `import { human, vars } from "@pmelab/gtd/flows"`,
+        `export default feature`,
+        `export const defaults = { greeting: "hi" }`,
+        `export const hello = async () => { await human("idle", { message: vars.greeting }) }`,
+      ].join("\n"),
+    )
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  greeting: hey\n`)
+
+    const cfg = await getConfig()
+
+    expect(cfg.rcVars).toEqual({ greeting: "hey" })
+    expect(cfg.workflowNamed("hello")?.vars).toEqual({ greeting: "hi" })
+  })
+})
+
+describe("ConfigService — a factory's built settings", () => {
+  it("are held to the setting-name rule, like a file's defaults", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { defineWorkflow, human } from "@pmelab/gtd/flows"`,
+        `const any = { "~standard": { version: 1, vendor: "t", validate: (value) => ({ value }) } }`,
+        `export default defineWorkflow(any, () => ({`,
+        `  flow: async () => { await human("idle") },`,
+        `  defaults: { "x=y": "z" },`,
+        `}))`,
+        ``,
+      ].join("\n"),
+    )
+
+    await expect(getConfig()).rejects.toThrow(
+      /workflow "default" builds defaults "x=y", not a valid setting name/,
+    )
+  })
+
+  it("a build declaring one name as both a process and an environment setting is refused", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { defineWorkflow, human } from "@pmelab/gtd/flows"`,
+        `const any = { "~standard": { version: 1, vendor: "t", validate: (value) => ({ value }) } }`,
+        `export default defineWorkflow(any, () => ({`,
+        `  flow: async () => { await human("idle") },`,
+        `  defaults: { x: "1" },`,
+        `  envDefaults: { x: "2" },`,
+        `}))`,
+        ``,
+      ].join("\n"),
+    )
+
+    await expect(getConfig()).rejects.toThrow(`"x" declared in both "defaults" and "envDefaults"`)
+  })
+
+  it("a build declaring a setting that is no string is refused", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { defineWorkflow, human } from "@pmelab/gtd/flows"`,
+        `const any = { "~standard": { version: 1, vendor: "t", validate: (value) => ({ value }) } }`,
+        `export default defineWorkflow(any, () => ({`,
+        `  flow: async () => { await human("idle") },`,
+        `  defaults: { x: 1 },`,
+        `}))`,
+        ``,
+      ].join("\n"),
+    )
+
+    await expect(getConfig()).rejects.toThrow(/builds defaults "x", whose value is not a string/)
   })
 })

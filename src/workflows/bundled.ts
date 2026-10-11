@@ -17,6 +17,7 @@ import { architecture, design } from "./planning.js"
 import type { FrozenScenarios } from "./scenarios.js"
 import { buildTail, type ReviewOutcome } from "./review.js"
 import { ARCHITECTURE, FEEDBACK, REQUIREMENTS, REVIEW } from "./steps.js"
+import { shipped } from "./options.js"
 import * as t from "./text.js"
 
 // gtd's bundled workflows. Any change to the tree starts a process:
@@ -25,13 +26,15 @@ import * as t from "./text.js"
 // the quality lap → human review, which signs off (the episode ends back at
 // `idle`) or sends a full re-plan lap. `feature` is that ordinary start;
 // `gtd --workflow fix` and `gtd --workflow review --var reviewBase=<commitish>`
-// enter the same build tail further in.
+// enter the same build tail further in. Each of the three is a factory over
+// the settings in `./vars.ts`; its flow is exported too, for composing.
 //
 // Every part is exported for other workflows to compose; see the modules
 // re-exported below.
 
 export { threads, type ThreadInfo } from "../flows/index.js"
 export { defaults, envDefaults } from "./vars.js"
+export { ShippedOptions } from "./options.js"
 export { skills } from "./skills.js"
 export { access } from "./access.js"
 export { agentWithSkills } from "./text.js"
@@ -107,18 +110,20 @@ export const ordinaryStart = async (): Promise<void> => {
 }
 
 /** Repair a red baseline through the build tail, as its own reviewed commit. */
-export const fix = async (): Promise<void> => {
+export const fixFlow = async (): Promise<void> => {
   if (await baseline("fix-precheck")) return
   return afterTail(await buildTail(true, start()))
 }
 
 /** Pure review of everything since `reviewBase`. */
-export const review = async (): Promise<void> => {
+export const reviewFlow = async (): Promise<void> => {
   await gate("review-gate", t.reviewGateBlockedMessage())
   return afterTail(await buildTail(false, start()))
 }
 
-export const feature = ordinaryStart
+export const feature = shipped(ordinaryStart)
+export const fix = shipped(fixFlow)
+export const review = shipped(reviewFlow)
 
 export default feature
 
