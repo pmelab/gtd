@@ -60,9 +60,11 @@ enforces it at the OS level. See
 
 Run `gtd install` at your repository's root. It writes a `gtd.config.ts` that
 runs gtd's shipped workflows — commit it; gtd refuses to run without one — and
-prints a briefing. Pipe that briefing into your coding agent and answer its
-questions. It should build you a script that will autonomously run the process
-for you. Ask your agent if you have any questions.
+prints a briefing. The repository need not be a JavaScript project: gtd resolves
+the config's `@pmelab/gtd/*` imports itself, so a Python, Rust or notes
+repository needs no `package.json` and no install. Pipe that briefing into your
+coding agent and answer its questions. It should build you a script that will
+autonomously run the process for you. Ask your agent if you have any questions.
 
 ## Why
 
