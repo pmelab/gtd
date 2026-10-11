@@ -263,6 +263,24 @@ export default {
       // `vscode-languageserver/node` is a subpath export depcruise leaves unresolved.
       to: { path: "^(node_modules/)?vscode-languageserver" },
     },
+
+    // --- spec 17 ---
+    {
+      name: "workflow-kit-imports-only-flows-and-steering",
+      comment:
+        "src/workflow-kit/ is policy-free building blocks: its production code imports src/flows/, src/steering/ and itself — no other boundary, package or builtin.",
+      severity: "error",
+      from: { path: "^src/workflow-kit/", pathNot: productionExcluded },
+      to: { pathNot: "^src/(workflow-kit|flows|steering)/" },
+    },
+    {
+      name: "workflow-kit-never-imports-workflows",
+      comment:
+        "The kit carries no workflow's policy, so no kit file — tests included — imports src/workflows/.",
+      severity: "error",
+      from: { path: "^src/workflow-kit/" },
+      to: { path: "^src/workflows/" },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },

@@ -8,10 +8,10 @@ import {
   numeric,
   quote,
   read,
-  scope,
   vars,
   type JudgeQuestion,
 } from "../flows/index.js"
+import * as kit from "../workflow-kit/index.js"
 import { describeEscalation, escalate, escalationExhausted, ESCALATION, FEEDBACK } from "./steps.js"
 import * as t from "./text.js"
 
@@ -35,21 +35,23 @@ export const fastSuiteGuard = (): string[] =>
 /** Fix turns a run of red checks gets before it escalates. */
 export const FIX_CAP = 3
 
-/** Run the suite as step `name`; resolves `true` when it passed. A failure is in `.gtd/FEEDBACK.md`. */
-export const baseline = async (name: string, label = "Checking the baseline"): Promise<boolean> => {
-  for (;;) {
-    const green = await check(name, env.testCommand ?? "", {
-      report: FEEDBACK,
-      label,
-      preamble: fastSuiteGuard(),
-    })
-    if (read(SETUP) === undefined) return green
-  }
-}
+const unconfigured = (): boolean => read(SETUP) !== undefined
 
-/** How many escalation rounds a run of red checks has spent — reset once the suite goes green. */
-export interface EscalationCount {
-  rounds: number
+/** Run the suite as step `name`; resolves `true` when it passed. A failure is in `.gtd/FEEDBACK.md`. */
+export const baseline = (name: string, label = "Checking the baseline"): Promise<boolean> =>
+  kit.untilSettled(
+    () =>
+      check(name, env.testCommand ?? "", { report: FEEDBACK, label, preamble: fastSuiteGuard() }),
+    unconfigured,
+  )
+
+export type { EscalationCount } from "../workflow-kit/index.js"
+
+const escalationSteps: kit.EscalationSteps = {
+  limit: 2,
+  describe: describeEscalation,
+  stop: escalate,
+  exhausted: escalationExhausted,
 }
 
 /**
@@ -57,15 +59,8 @@ export interface EscalationCount {
  * agent writes `.gtd/ESCALATION.md`, a human narrows it. From the third round
  * on, the human is told the budget is spent instead.
  */
-export const escalation = async (count: EscalationCount): Promise<void> => {
-  if (count.rounds >= 2) return escalationExhausted()
-  count.rounds++
-  await describeEscalation()
-  await escalate()
-}
-
-const STAMP = /\n<!-- gtd check [0-9a-f]+ -->\n?$/
-const stripStamp = (text: string): string => text.replace(STAMP, "\n")
+export const escalation = (count: kit.EscalationCount): Promise<void> =>
+  kit.escalation(count, escalationSteps)
 
 /** "Is this red round the same failure as the last one?" — asked of two reports, or of nothing when one is empty. */
 export const retryQuestion = (comparable: boolean): JudgeQuestion =>
@@ -107,7 +102,7 @@ export interface HealthOptions {
   /** Fix turns already spent before this call. */
   readonly fixesSoFar?: number
   /** Escalation rounds shared with other callers in the same run of red checks. */
-  readonly escalations?: EscalationCount
+  readonly escalations?: kit.EscalationCount
   /** `fast` runs `fastTestCommand` (default `full`: `testCommand`). */
   readonly suite?: "full" | "fast"
   /** Paths removed on a green run. */
@@ -130,37 +125,25 @@ const runSuite = (options: HealthOptions): Promise<boolean> => {
  * first once `FIX_CAP` fixes are spent, or a judge calls the failure
  * identical to the previous round's.
  */
-export const healthy = async (
-  fix: () => Promise<void>,
-  options: HealthOptions = {},
-): Promise<void> => {
-  const escalations = options.escalations ?? { rounds: 0 }
-  let fixes = options.fixesSoFar ?? 0
-  let previous: string | undefined
-  for (;;) {
-    const green = await runSuite(options)
+export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): Promise<void> =>
+  kit.healthy(fix, {
     // Unconfigured: straight back to the check, no fix turn or count.
-    if (options.suite === "fast" && read(SETUP) !== undefined) continue
-    if (green) {
-      escalations.rounds = 0
-      return
-    }
-    const current = stripStamp(read(FEEDBACK) ?? "")
-    const stuck = previous !== undefined && (await sameFailure(previous, current))
-    previous = current
-    if (stuck || fixes >= FIX_CAP) {
-      await escalation(escalations)
-      fixes = 0
-    }
-    fixes++
-    await fix()
-  }
-}
+    check:
+      options.suite === "fast"
+        ? () => kit.untilSettled(() => runSuite(options), unconfigured)
+        : () => runSuite(options),
+    report: FEEDBACK,
+    fixCap: FIX_CAP,
+    fixesSoFar: options.fixesSoFar ?? 0,
+    sameFailure,
+    escalations: options.escalations ?? { rounds: 0 },
+    escalation: escalationSteps,
+  })
 
 /** Hold the process at `<name>.blocked` until the suite is green. */
 export const gate = (name: string, message: string): Promise<void> =>
-  scope(name, async () => {
-    while (!(await baseline("check"))) {
-      await human("blocked", { message, label: "Baseline is red", file: FEEDBACK })
-    }
-  })
+  kit.gate(
+    name,
+    () => baseline("check"),
+    () => human("blocked", { message, label: "Baseline is red", file: FEEDBACK }),
+  )
