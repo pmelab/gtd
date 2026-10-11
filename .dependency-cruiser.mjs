@@ -175,7 +175,8 @@ export default {
         "The facade must load standalone in any copy of it, so its production code imports nothing outside itself, not even a package or builtin.",
       severity: "error",
       from: { path: "^src/flows/", pathNot: productionExcluded },
-      to: { pathNot: "^src/flows/" },
+      // Type-only imports are erased before the facade runs; the next rule says which are allowed.
+      to: { pathNot: "^src/flows/", dependencyTypesNot: ["type-only"] },
     },
     {
       name: "flows-tests-import-no-src",
@@ -230,6 +231,19 @@ export default {
       severity: "error",
       from: { pathNot: "^src/workflows/" },
       to: { path: "^src/workflows/" },
+    },
+
+    // --- spec 12 ---
+    {
+      name: "flows-types-only-from-standard-schema",
+      comment:
+        "src/flows/ names one package's types, @standard-schema/spec, so a workflow's options schema can come from any validation library — and no package at runtime.",
+      severity: "error",
+      from: { path: "^src/flows/", pathNot: productionExcluded },
+      to: {
+        dependencyTypes: ["type-only"],
+        pathNot: ["^src/flows/", "^node_modules/@standard-schema/spec/"],
+      },
     },
   ],
   options: {

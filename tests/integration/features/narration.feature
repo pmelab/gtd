@@ -12,7 +12,7 @@ Feature: The stderr narration channel, and the -v/-V swap
     And a gtd config file at ".gtdrc" with:
       """
       vars:
-        greeting: hi
+        qualityReviews: correctness
       """
     When I run gtd next
     Then it succeeds
@@ -25,7 +25,7 @@ Feature: The stderr narration channel, and the -v/-V swap
     And a gtd config file at ".gtdrc" with:
       """
       vars:
-        greeting: hi
+        qualityReviews: correctness
       """
     When I run gtd with args "next --verbose"
     Then it succeeds

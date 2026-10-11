@@ -512,7 +512,10 @@ can add its own. `gtd --workflow <name>` starts any workflow by name.
 The workflow itself is a plain async TypeScript function, and the
 `gtd.config.ts` at the repository root names it: the one `gtd install` writes
 re-exports the shipped workflows from `@pmelab/gtd/workflows`, and the pieces
-they are built from are exported for yours to reuse. See
+they are built from are exported for yours to reuse. Each shipped workflow is a
+factory — `feature({ testCommand: "npm run ci" })` — whose options gtd validates
+when it loads the config: a misspelled or mistyped one fails every command,
+naming the workflow, the key and what was expected. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md) —
 and remember gtd evaluates that file on every command. A shared workflow package
 bundling its own `@pmelab/gtd` is checked against the running gtd and refused,

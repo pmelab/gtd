@@ -41,9 +41,11 @@ histories written by an older or newer gtd.
   number) and `@pmelab/gtd/workflows` (also resolvable as
   `@pmelab/gtd/workflow`), step functions' options included. See
   [Reusing the shipped workflows](docs/configuration.md#reusing-the-shipped-workflows).
-- **The `gtd.config.ts` shape** — every exported function is a workflow, and the
-  reserved exports (`defaults`, `envDefaults`, `doors`, `skills`, `access`, …)
-  keep their meaning. See [Shape](docs/configuration.md#shape).
+- **The `gtd.config.ts` shape** — every exported function and workflow factory
+  (or call of one) is a workflow, the shipped factories' options are the
+  settings below, and the reserved exports (`defaults`, `envDefaults`, `doors`,
+  `skills`, `access`, …) keep their meaning. See
+  [Shape](docs/configuration.md#shape).
 - **Bundled workflow and step names** — `feature`, `fix`, `review`, and each
   step's full name, plus which steps a bundled workflow reaches and in what
   order: changing either strands every process resting on it.

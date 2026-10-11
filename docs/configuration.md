@@ -68,11 +68,12 @@ workflows themselves.
 ### Shape
 
 **Every exported function is a workflow**, named by its export, and gtd starts
-one with `gtd --workflow <name>` (see [Workflows](#workflows)). The `default`
-export is the ordinary start — what a bare change in the tree begins — and is
-required; a default that is also a named export goes by that name. The names
-`default`, `summary`, `base`, `defaults`, `envDefaults`, `steering`, `skills`,
-`access` and `doors` are reserved: they are never workflows.
+one with `gtd --workflow <name>` (see [Workflows](#workflows)). So is every
+exported [workflow factory](#workflow-factories) and every call of one. The
+`default` export is the ordinary start — what a bare change in the tree begins —
+and is required; a default that is also a named export goes by that name. The
+names `default`, `summary`, `base`, `defaults`, `envDefaults`, `steering`,
+`skills`, `access` and `doors` are reserved: they are never workflows.
 
 ```ts
 import { agent, human, run } from "@pmelab/gtd/flows"
@@ -299,10 +300,11 @@ The script renderers (`checkScript`, `revertScript`, `restoreScript`,
 ### Reusing the shipped workflows
 
 `@pmelab/gtd/workflows` is gtd's shipped workflows (`@pmelab/gtd/workflow` still
-resolves to the same module): its default export is the `feature` flow, and
+resolves to the same module): its default export is the `feature` factory, and
 every part of it is a named export another workflow can import — its `defaults`,
-`envDefaults`, `summary`, `base` and `skills`, the three startable workflows
-(`feature`, `review`, `fix`), the phases (`ordinaryStart`, `unwind`,
+`envDefaults`, `summary`, `base` and `skills`, the three startable workflows as
+[factories](#workflow-factories) (`feature`, `review`, `fix`) and as plain flows
+(`ordinaryStart`, `reviewFlow`, `fixFlow`), the phases (`unwind`,
 `planAndBuild`, `design`, `architecture`, `packages`, `buildTail`, `qualityLap`,
 `healthy`, `gate`, …) and every single step (`triage`, `build`, `fixCheck`,
 `reviewing`, `collecting`, …). A step's name is relative to the `scope()` it
@@ -352,6 +354,73 @@ export const doors = { hotfix: { workflow: "hotfix" } }
 A config's doors are its `doors` export alone: re-export the shipped one, or
 spread it into your own (`{ ...doors, hotfix: { workflow: "hotfix" } }`), to
 keep `fix` and `review` (see [Doors](#doors)).
+
+### Workflow factories
+
+`feature`, `review` and `fix` are factories: calling one with options returns
+that workflow configured. Their options are the
+[bundled workflow's settings](#the-bundled-workflows-settings), each a string,
+and each becomes that workflow's own default of its kind — beneath `.gtdrc`,
+`--var` and `GTD_<NAME>`, which still layer on top:
+
+```ts
+import { feature, review } from "@pmelab/gtd/workflows"
+
+export { summary, base, steering, skills, access } from "@pmelab/gtd/workflows"
+
+export default feature({ testCommand: "npm run test:ci", coderModel: "fast" })
+export const strictReview = review({ reviewNoteActionable: "0.9" })
+```
+
+Exported without a call, a factory is a workflow too, configured by `.gtdrc`
+alone — which is what the config `gtd install` writes does. Either way gtd hands
+the factory the `.gtdrc` `vars:` and `env:` entries as options (bar a name
+another workflow in the file declares — its own `defaults`/`envDefaults`, or a
+factory's built settings — which belongs to that workflow) and **validates the
+options when it loads the config**. A rejected option fails every command,
+reported where the value came from:
+
+```text
+gtd config:
+  - /repo/gtd.config.ts: testComand: workflow "default" option "testComand": is unexpected, expected: "reviewBase" | … | "coderModel"
+  - /repo/.gtdrc: env.qualityReview: workflows "feature", "fix", "review" option "qualityReview": is unexpected, expected: …
+```
+
+Unknown options are rejected, not dropped, so a misspelled or removed option
+fails the load — and, typed, fails `tsc` too, when `@pmelab/gtd` is installed
+for editor type-checking.
+
+Make a factory of your own with `defineWorkflow` from `@pmelab/gtd/flows`. Its
+options schema is any [Standard Schema](https://standardschema.dev) — Effect
+Schema, Zod, Valibot, ArkType — and should reject unknown keys; validation must
+be synchronous. The build function gets the validated options and returns the
+flow, plus the settings it declares:
+
+```ts
+import { defineWorkflow, human } from "@pmelab/gtd/flows"
+import { z } from "zod"
+
+export const greeter = defineWorkflow(
+  z.strictObject({ greeting: z.string().optional() }),
+  (options) => ({
+    flow: async () => {
+      await human("idle", { message: options.greeting ?? "hello" })
+    },
+  }),
+)
+```
+
+Read a setting through `vars`/`env` in flow code, as before, when `--var` or
+`GTD_<NAME>` should reach it; an option read straight from `options` is fixed by
+the config.
+
+A `.gtdrc` value is validated by the schema, but the setting it becomes is the
+raw string: `--var`, `GTD_<NAME>` and the pinned value never pass through the
+schema, so a schema that transforms (trims, lowercases) or constrains a setting
+does not bind them. Keep the schema a plain check.
+
+Awaiting a factory's call inside a composed flow throws — compose `fixFlow`,
+`reviewFlow` and the other plain flows instead.
 
 ### Judges
 
@@ -1147,8 +1216,8 @@ that reflows the steering file changes which branch the flow takes next.
 
 ### The bundled workflow's settings
 
-Overridable through `.gtdrc` (`vars:` or `env:`, by kind) or `GTD_<NAME>`.
-**Environment settings:**
+Overridable as [factory options](#workflow-factories), through `.gtdrc` (`vars:`
+or `env:`, by kind) or `GTD_<NAME>`. **Environment settings:**
 
 - **`testCommand`** (`npm test`) — the suite every health check and baseline
   gate runs. It is interpolated into a POSIX `sh` script, so keep it

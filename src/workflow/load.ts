@@ -235,17 +235,20 @@ export const load: Effect.Effect<
     catch: (e) => new GtdError(`gtd: ${e instanceof Error ? e.message : String(e)}`),
   })
   const loaded = yield* Effect.try({
-    try: () => loadWorkflows(module, shipped),
+    try: () => loadWorkflows(module, shipped, compiled),
     catch: (e) =>
       new GtdError(
         `gtd config:\n  - ${module.filepath}: ${e instanceof Error ? e.message : String(e)}`,
       ),
   })
-  const diagnostics = report(wrongKindDiagnostics(loaded.file, compiled), [
-    ...rcOrder,
-    module.filepath,
-  ])
+  const diagnostics = report(
+    [...loaded.diagnostics, ...wrongKindDiagnostics(loaded.settings, compiled)],
+    [...rcOrder, module.filepath],
+  )
   yield* failOnErrors(diagnostics)
+  if (loaded.default === undefined) {
+    return yield* Effect.die("unreachable: a default fails to build only with an error reported")
+  }
 
   const initial = yield* firstStep(loaded.default, headTree(yield* Workspace))
   const steering = loaded.file.steering as Record<string, StateMode>
@@ -268,8 +271,8 @@ export const load: Effect.Effect<
   const resolve = (name: string, entry: LoadedWorkflow): ResolvedWorkflow => ({
     name,
     def: define(entry),
-    vars: { ...entry.file.defaults },
-    env: { ...entry.file.envDefaults },
+    vars: { ...entry.defaults },
+    env: { ...entry.envDefaults },
   })
   const defaultWorkflow = resolve(loaded.default.name, loaded.default)
   return {
@@ -292,11 +295,11 @@ export const load: Effect.Effect<
 
 /** A name under the wrong key (or under both) in a `.gtdrc` layer: each is an error at its own origin. */
 const wrongKindDiagnostics = (
-  file: LoadedFile,
+  settings: Settings,
   compiled: CompiledConfig,
 ): readonly Diagnostic[] => {
-  const isEnvOnly = (key: string): boolean => Object.hasOwn(file.envDefaults, key)
-  const isVarOnly = (key: string): boolean => Object.hasOwn(file.defaults, key)
+  const isEnvOnly = (key: string): boolean => Object.hasOwn(settings.envDefaults, key)
+  const isVarOnly = (key: string): boolean => Object.hasOwn(settings.defaults, key)
   const error = (path: readonly string[], message: string, origin: string): Diagnostic => ({
     severity: "error",
     path,
@@ -335,12 +338,15 @@ const wrongKindDiagnostics = (
   return diagnostics
 }
 
-interface LoadedFile extends Pick<
-  WorkflowDefinition,
-  "summary" | "base" | "steering" | "skills" | "access"
-> {
+interface Settings {
   readonly defaults: Readonly<Record<string, string>>
   readonly envDefaults: Readonly<Record<string, string>>
+}
+
+interface LoadedFile
+  extends
+    Pick<WorkflowDefinition, "summary" | "base" | "steering" | "skills" | "access">,
+    Settings {
   readonly origin: string
   /**
    * Every real file this module's evaluation touched — `origin` itself plus
@@ -354,7 +360,8 @@ interface LoadedFile extends Pick<
   readonly dependencyFiles: readonly string[]
 }
 
-interface LoadedWorkflow {
+/** A startable workflow; its settings are its file's, under whatever its factory declared. */
+interface LoadedWorkflow extends Settings {
   readonly flow: Flow
   readonly file: LoadedFile
 }
@@ -364,8 +371,10 @@ interface Loaded {
   /** Every startable workflow. */
   readonly catalogue: ReadonlyMap<string, LoadedWorkflow>
   readonly doors: ReadonlyMap<string, Door>
-  /** What an ordinary start runs. */
-  readonly default: LoadedWorkflow & { readonly name: string }
+  /** What an ordinary start runs; absent only alongside an error in `diagnostics`. */
+  readonly default: (LoadedWorkflow & { readonly name: string }) | undefined
+  readonly settings: Settings
+  readonly diagnostics: readonly Diagnostic[]
 }
 
 type JitiInstance = {
@@ -542,23 +551,25 @@ const RESERVED_EXPORTS: ReadonlySet<string> = new Set([
   "doors",
 ])
 
-/** A module's per-file exports: `defaults`, `envDefaults`, `steering`, `skills`, `access`, `summary`, `base`. */
-const fileFrom = (
-  exports: Record<string, unknown>,
-  origin: string,
-  dependencyFiles: readonly string[],
-): LoadedFile => {
-  const defaults = stringRecord(exports, "defaults")
-  const envDefaults = stringRecord(exports, "envDefaults")
-  for (const [exportName, record] of [
+/** The rules every declared setting meets, whether a file's export or a factory's build. */
+const checkSettings = (
+  defaults: Readonly<Record<string, unknown>>,
+  envDefaults: Readonly<Record<string, unknown>>,
+  declares: (kind: "defaults" | "envDefaults") => string,
+): void => {
+  for (const [kind, record] of [
     ["defaults", defaults],
     ["envDefaults", envDefaults],
   ] as const) {
-    const bad = Object.keys(record).find((name) => !isSettingName(name))
-    if (bad !== undefined) {
-      throw new Error(
-        `the "${exportName}" export declares ${JSON.stringify(bad)}, not a valid setting name — ${SETTING_NAME_RULE}`,
-      )
+    for (const [name, setting] of Object.entries(record)) {
+      if (!isSettingName(name)) {
+        throw new Error(
+          `${declares(kind)} ${JSON.stringify(name)}, not a valid setting name — ${SETTING_NAME_RULE}`,
+        )
+      }
+      if (typeof setting !== "string") {
+        throw new Error(`${declares(kind)} ${JSON.stringify(name)}, whose value is not a string`)
+      }
     }
   }
   const both = Object.keys(defaults).filter((name) => Object.hasOwn(envDefaults, name))
@@ -567,6 +578,17 @@ const fileFrom = (
       `${both.map((name) => `"${name}"`).join(", ")} declared in both "defaults" and "envDefaults" — a setting is a process setting or an environment setting, not both`,
     )
   }
+}
+
+/** A module's per-file exports: `defaults`, `envDefaults`, `steering`, `skills`, `access`, `summary`, `base`. */
+const fileFrom = (
+  exports: Record<string, unknown>,
+  origin: string,
+  dependencyFiles: readonly string[],
+): LoadedFile => {
+  const defaults = stringRecord(exports, "defaults")
+  const envDefaults = stringRecord(exports, "envDefaults")
+  checkSettings(defaults, envDefaults, (kind) => `the "${kind}" export declares`)
   return {
     defaults,
     envDefaults,
@@ -643,39 +665,209 @@ const namespaceOf = (exported: unknown): Record<string, unknown> =>
   (typeof exported === "object" && exported !== null ? exported : {}) as Record<string, unknown>
 
 /**
- * Evaluate `gtd.config.ts`. Every exported function but the reserved names is
- * a workflow named by its export. `cache` is jiti's OWN per-call module cache
- * (unrelated to the instance's `moduleCache: false`) — passing an empty object
- * in has the side effect of collecting every real file jiti resolved
- * evaluating this module, module AND every relative import it pulled in,
- * transitively.
+ * Evaluate `gtd.config.ts`. Every exported function or factory workflow but
+ * the reserved names is a workflow named by its export. `cache` is jiti's OWN
+ * per-call module cache (unrelated to the instance's `moduleCache: false`) —
+ * passing an empty object in has the side effect of collecting every real file
+ * jiti resolved evaluating this module, module AND every relative import it
+ * pulled in, transitively.
  */
-const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded => {
+const loadWorkflows = (
+  module: WorkflowModule,
+  shipped: ShippedModules,
+  compiled: CompiledConfig,
+): Loaded => {
   const cache: Record<string, unknown> = {}
   const exports = namespaceOf(
     jiti(shipped).evalModule(module.source, { filename: module.filepath, cache }),
   )
   const file = fileFrom(exports, module.filepath, Object.keys(cache))
-  const catalogue = new Map<string, LoadedWorkflow>()
-  for (const [name, value] of Object.entries(exports)) {
-    if (RESERVED_EXPORTS.has(name) || typeof value !== "function") continue
-    catalogue.set(name, { flow: value as Flow, file })
+  const exported = Object.entries(exports).filter(
+    ([name, value]) => !RESERVED_EXPORTS.has(name) && isWorkflow(value),
+  )
+  const value = defaultExport(exports)
+  // A default that is also a named export goes by that name.
+  const defaultName = exported.find(([, other]) => other === value)?.[0] ?? "default"
+
+  // Built once per exported value, so a default that is also a named export
+  // stays the same workflow.
+  const built = new Map<unknown, LoadedWorkflow | undefined>()
+  const rejections: Rejection[] = []
+  const declarers = declarersOf([...exported, [defaultName, value]], file, compiled)
+  for (const [name, entry] of [...exported, [defaultName, value] as const]) {
+    if (!built.has(entry))
+      built.set(entry, buildWorkflow(name, entry, file, compiled, rejections, declarers))
   }
-  const flow = exports.default
-  if (flow === undefined) {
+  const catalogue = new Map(
+    exported.flatMap(([name, entry]) => {
+      const workflow = built.get(entry)
+      return workflow === undefined ? [] : [[name, workflow] as const]
+    }),
+  )
+  const defaultWorkflow = built.get(value)
+  return {
+    file,
+    catalogue,
+    doors: rejections.length > 0 ? new Map() : checkDoors(doorsFrom(exports), catalogue),
+    default: defaultWorkflow && { ...defaultWorkflow, name: defaultName },
+    settings: mergeSettings([...built.values()].filter((w) => w !== undefined)),
+    diagnostics: nameRejections(rejections),
+  }
+}
+
+const isWorkflow = (value: unknown): boolean =>
+  typeof value === "function" || flows.isFactoryWorkflow(value)
+
+const defaultExport = (exports: Record<string, unknown>): unknown => {
+  const value = exports.default
+  if (value === undefined) {
     throw new Error(
       "no default export — export the workflow an ordinary start runs (`gtd install` scaffolds one)",
     )
   }
-  if (typeof flow !== "function") throw new Error("the default export is not a function")
-  // A default that is also a named export goes by that name.
-  const name = [...catalogue].find(([, entry]) => entry.flow === flow)?.[0] ?? "default"
-  return {
-    file,
-    catalogue,
-    doors: checkDoors(doorsFrom(exports), catalogue),
-    default: { flow: flow as Flow, file, name },
+  if (!isWorkflow(value)) throw new Error("the default export is not a function")
+  return value
+}
+
+const mergeSettings = (all: readonly Settings[]): Settings => ({
+  defaults: Object.assign({}, ...all.map((s) => s.defaults)) as Record<string, string>,
+  envDefaults: Object.assign({}, ...all.map((s) => s.envDefaults)) as Record<string, string>,
+})
+
+/** Each setting name, with who declares it: the file's exports, or a factory's own build. */
+const declarersOf = (
+  exported: readonly (readonly [string, unknown])[],
+  file: LoadedFile,
+  compiled: CompiledConfig,
+): ReadonlyMap<string, Set<unknown>> => {
+  const declarers = new Map<string, Set<unknown>>()
+  const declare = (key: string, who: unknown): void => {
+    declarers.set(key, (declarers.get(key) ?? new Set()).add(who))
   }
+  for (const key of [...Object.keys(file.defaults), ...Object.keys(file.envDefaults)])
+    declare(key, file)
+  for (const [, value] of exported) {
+    const own = ownBuild(value, { ...compiled.rcVars, ...compiled.rcEnv })
+    if (own?.ok) {
+      for (const key of [
+        ...Object.keys(own.build.defaults ?? {}),
+        ...Object.keys(own.build.envDefaults ?? {}),
+      ])
+        declare(key, value)
+    }
+  }
+  return declarers
+}
+
+/**
+ * A factory's build as its call alone gives it — or, when the call fails, with
+ * the `.gtdrc` values for just the options it flagged, since a name the factory
+ * itself rejects is its own.
+ */
+const ownBuild = (
+  value: unknown,
+  rc: Readonly<Record<string, unknown>>,
+): ReturnType<typeof flows.configure> => {
+  const bare = flows.configure(value)
+  if (bare === undefined || bare.ok) return bare
+  const flagged = new Set(bare.issues.map((issue) => issue.path[0]))
+  return flows.configure(
+    value,
+    Object.fromEntries(Object.entries(rc).filter(([key]) => flagged.has(key))),
+  )
+}
+
+/**
+ * One exported workflow: a plain flow as-is, a factory validated and built.
+ * `.gtdrc` `vars:`/`env:` values reach a factory as options, so the factory
+ * judges them — except a name some other loaded workflow declares and this one
+ * does not, which belongs to that workflow.
+ */
+const buildWorkflow = (
+  name: string,
+  value: unknown,
+  file: LoadedFile,
+  compiled: CompiledConfig,
+  rejections: Rejection[],
+  declarers: ReadonlyMap<string, Set<unknown>>,
+): LoadedWorkflow | undefined => {
+  if (flows.configure(value) === undefined)
+    return { flow: value as Flow, file, defaults: file.defaults, envDefaults: file.envDefaults }
+  const belongsElsewhere = (key: string): boolean => {
+    const who = declarers.get(key)
+    return who !== undefined && !who.has(value)
+  }
+  const overrides = Object.fromEntries(
+    Object.entries({ ...compiled.rcVars, ...compiled.rcEnv }).filter(
+      ([key]) => !belongsElsewhere(key),
+    ),
+  )
+  const result = flows.configure(value, overrides)!
+  if (!result.ok) {
+    for (const issue of result.issues)
+      rejections.push(optionDiagnostic(name, issue, overrides, file, compiled))
+    return undefined
+  }
+  return { flow: result.build.flow, file, ...builtSettings(name, file, result.build) }
+}
+
+/** A factory's settings over its file's, held to the rules a file's own exports are. */
+const builtSettings = (name: string, file: LoadedFile, build: flows.WorkflowBuild): Settings => {
+  checkSettings(
+    build.defaults ?? {},
+    build.envDefaults ?? {},
+    (kind) => `workflow "${name}" builds ${kind}`,
+  )
+  const defaults = { ...file.defaults, ...build.defaults }
+  const envDefaults = { ...file.envDefaults, ...build.envDefaults }
+  checkSettings(defaults, envDefaults, (kind) => `workflow "${name}" builds ${kind}`)
+  return { defaults, envDefaults }
+}
+
+/** A rejected option, reported where its value came from: the innermost `.gtdrc` that set it, else `gtd.config.ts`. */
+const optionDiagnostic = (
+  workflow: string,
+  issue: flows.OptionIssue,
+  overrides: Readonly<Record<string, unknown>>,
+  file: LoadedFile,
+  compiled: CompiledConfig,
+): Rejection => {
+  const [key] = issue.path
+  const label = issue.path.length > 0 ? `option "${issue.path.join(".")}"` : "options"
+  const message = `${label}: ${issue.message}`
+  const fromRc = typeof key === "string" && Object.hasOwn(overrides, key)
+  if (!fromRc)
+    return { workflow, severity: "error", path: issue.path, message, origin: file.origin }
+  const kind = Object.hasOwn(compiled.rcEnv, key) ? "env" : "vars"
+  const origin = [...(kind === "env" ? compiled.envKeys : compiled.varsKeys)]
+    .reverse()
+    .find((entry) => entry.key === key)?.origin
+  return {
+    workflow,
+    severity: "error",
+    path: [kind, ...issue.path],
+    message,
+    origin: origin ?? file.origin,
+  }
+}
+
+/** One rejected option, before the workflows rejecting it alike are named together. */
+interface Rejection extends Diagnostic {
+  readonly workflow: string
+}
+
+const nameRejections = (rejections: readonly Rejection[]): Diagnostic[] => {
+  const grouped = new Map<string, { readonly first: Rejection; readonly workflows: string[] }>()
+  for (const rejection of rejections) {
+    const key = JSON.stringify([rejection.origin, rejection.path, rejection.message])
+    const group = grouped.get(key)
+    if (group === undefined) grouped.set(key, { first: rejection, workflows: [rejection.workflow] })
+    else group.workflows.push(rejection.workflow)
+  }
+  return [...grouped.values()].map(({ first: { workflow: _, ...diagnostic }, workflows }) => ({
+    ...diagnostic,
+    message: `${workflows.length > 1 ? "workflows" : "workflow"} ${workflows.map((w) => `"${w}"`).join(", ")} ${diagnostic.message}`,
+  }))
 }
 
 // The repository's HEAD, read lazily.
@@ -740,7 +932,7 @@ const settingReads = (kind: string, watch: ReturnType<typeof watchedEmptySetting
 }
 
 const replayToFirstStep = (
-  loaded: Loaded["default"],
+  loaded: NonNullable<Loaded["default"]>,
   vars: Readonly<Record<string, string>>,
   env: Readonly<Record<string, string>>,
   tree: TreeView,
@@ -774,7 +966,10 @@ const replayToFirstStep = (
  * read) nor the tree: a flow that reads the repository before reaching it is
  * replayed again over HEAD, and must reach the same step there.
  */
-const firstStep = (loaded: Loaded["default"], head: TreeView): Effect.Effect<string, GtdError> =>
+const firstStep = (
+  loaded: NonNullable<Loaded["default"]>,
+  head: TreeView,
+): Effect.Effect<string, GtdError> =>
   Effect.gen(function* () {
     const empty = watchedEmptyTree()
     const vars = watchedEmptySettings()

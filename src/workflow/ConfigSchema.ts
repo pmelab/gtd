@@ -1,10 +1,10 @@
 import { Schema } from "effect"
 
-/** The `vars:` shape: a flat name -> scalar map (`compileVarsMap` coerces every scalar to a string). */
+/** The `vars:` shape: a flat name -> scalar map (`compileVarsMap` coerces every scalar to a string). Its names are the workflow's business, never core's. */
 const varsJsonSchema = {
   type: "object",
   description:
-    "Flat name -> scalar map merged into the workflow's process settings (defaults), pinned for the whole process at its start. Scalars are coerced to strings.",
+    "Flat name -> scalar map merged into the workflow's process settings (defaults), pinned for the whole process at its start. A workflow built by a factory receives these entries as options and validates them itself. Scalars are coerced to strings.",
   additionalProperties: { type: ["string", "number", "boolean"] },
 } as const
 
@@ -12,7 +12,7 @@ const varsJsonSchema = {
 const envJsonSchema = {
   type: "object",
   description:
-    "Flat name -> scalar map merged into the workflow's environment settings (envDefaults) — values that change how a step runs on this machine, like the test command or a model hint. Read fresh on every gtd call, never pinned to a process. GTD_<NAME> environment variables override these entries. Scalars are coerced to strings.",
+    "Flat name -> scalar map merged into the workflow's environment settings (envDefaults) — values that change how a step runs on this machine. A workflow built by a factory receives these entries as options and validates them itself. Read fresh on every gtd call, never pinned to a process. GTD_<NAME> environment variables override these entries. Scalars are coerced to strings.",
   additionalProperties: { type: ["string", "number", "boolean"] },
 } as const
 
