@@ -255,6 +255,8 @@ as a major release (not a `schema` bump). Whose turn is next lives in `kind`.
 | 2         | usage error      |
 | 130 / 143 | SIGINT / SIGTERM |
 
+Stability tiers: see [COMPATIBILITY.md](../COMPATIBILITY.md).
+
 Every command follows this table uniformly, `next`/`land` included: `0` on
 success, `1` on refusal, `2` on usage error, `130`/`143` when gtd itself dies by
 that signal — a parent's `wait` sees a real signal death (`WIFSIGNALED`), not a
