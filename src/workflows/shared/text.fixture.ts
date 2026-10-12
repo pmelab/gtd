@@ -5,8 +5,8 @@ import {
   type FlowContext,
   type ScopeAccess,
   type StepRequest,
-} from "../flows/index.js"
-import { foldAccess } from "../replay/index.js"
+} from "../../flows/index.js"
+import { foldAccess } from "../../replay/index.js"
 import { access as bundledAccess } from "./access.js"
 import { skills as bundledSkills } from "./skills.js"
 import { defaults, envDefaults } from "./vars.js"

@@ -1,5 +1,5 @@
 import { builtInLenses } from "./steps.js"
-import { lensesOf, lensScopes } from "../workflow-kit/index.js"
+import { lensesOf, lensScopes } from "../../workflow-kit/index.js"
 
 // The bundled workflow's default skills, one list per SCOPE, keyed by the
 // scope's full name — the same name a `config.skills` entry addresses. A
@@ -23,6 +23,8 @@ export const skills = (
   "build.review": ["code-review-and-quality"],
   "build.review.fix.nits": ["incremental-implementation", "code-simplification"],
   "build.review.fix.risks": ["debugging-and-error-recovery", "incremental-implementation"],
+  // `fix`'s turn over the notes a review handed on.
+  notes: ["incremental-implementation", "code-simplification"],
   ...lensScopes(
     "build.quality",
     lensesOf(vars.qualityReviews ?? ""),

@@ -6,7 +6,7 @@ import {
   requireThreadsClosed,
   type CodeThreadInfo,
   type ThreadInfo,
-} from "../flows/index.js"
+} from "../../flows/index.js"
 
 const withThreads = (
   list: readonly ThreadInfo[],

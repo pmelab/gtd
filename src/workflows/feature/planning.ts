@@ -7,14 +7,13 @@ import {
   requireThreadsClosed,
   requireProgress,
   scope,
-} from "../flows/index.js"
+} from "../../flows/index.js"
+import { ARCHITECTURE, REQUIREMENTS } from "../shared/steps.js"
 import {
   answerProductQuestions,
   answerTechnicalQuestions,
-  ARCHITECTURE,
   author,
   decompose,
-  REQUIREMENTS,
   triage,
 } from "./steps.js"
 

@@ -7,43 +7,22 @@ import {
   revertScript,
   run,
   start,
-  type Doors,
-  type WorkflowBase,
-  type Summary,
-} from "../flows/index.js"
-import { baseline, gate } from "./health.js"
+} from "../../flows/index.js"
+import { gate } from "../shared/health.js"
+import { shipped } from "../shared/options.js"
+import type { FrozenScenarios } from "../shared/scenarios.js"
+import { FEEDBACK, REVIEW } from "../shared/steps.js"
+import { refusePendingHandOff } from "../shared/tail.js"
+import * as t from "../shared/text.js"
 import { packages } from "./packages.js"
 import { architecture, design } from "./planning.js"
-import type { FrozenScenarios } from "./scenarios.js"
 import { buildTail, type ReviewOutcome } from "./review.js"
-import { ARCHITECTURE, FEEDBACK, REQUIREMENTS, REVIEW } from "./steps.js"
-import { shipped } from "./options.js"
-import * as t from "./text.js"
 
-// gtd's bundled workflows. Any change to the tree starts a process:
-// `idle` → `unwind` reverts the sketch (its intent survives in history) → a
+// The ordinary start. Any change to the tree starts a process: `idle` →
+// `unwind` reverts the sketch (its intent survives in history) → a
 // green-baseline gate → design, architecture and one package per concern →
 // the quality lap → human review, which signs off (the episode ends back at
-// `idle`) or sends a full re-plan lap. `feature` is that ordinary start;
-// `gtd --workflow fix` and `gtd --workflow review --var reviewBase=<commitish>`
-// enter the same build tail further in. Each of the three is a factory over
-// the settings in `./vars.ts`; its flow is exported too, for composing.
-//
-// Every part is exported for other workflows to compose; see the modules
-// re-exported below.
-
-export { threads, type ThreadInfo } from "../flows/index.js"
-export { defaults, envDefaults } from "./vars.js"
-export { ShippedOptions } from "./options.js"
-export { skills } from "./skills.js"
-export { access } from "./access.js"
-export { agentWithSkills } from "./text.js"
-export * from "./steps.js"
-export * from "./health.js"
-export * from "./planning.js"
-export * from "./packages.js"
-export * from "./scenarios.js"
-export * from "./review.js"
+// `idle`) or sends a full re-plan lap.
 
 /** Revert the sketch that started the process out of the working tree; its intent survives in history. */
 export const unwind = (): Promise<void> => {
@@ -97,6 +76,7 @@ export const afterTail = async (outcome: ReviewOutcome): Promise<void> => {
 /** An ordinary start: wait at `idle`, unwind the sketch, check the baseline, then plan and build. */
 export const ordinaryStart = async (): Promise<void> => {
   await human("idle", { message: t.idleMessage(), label: "Idle", file: ".gtd/TODO.md" })
+  refusePendingHandOff()
   await unwind()
   if (changes(FEEDBACK).some((c) => c.status !== "deleted")) {
     await human("unwind-failed", {
@@ -109,36 +89,4 @@ export const ordinaryStart = async (): Promise<void> => {
   await planAndBuild(start())
 }
 
-/** Repair a red baseline through the build tail, as its own reviewed commit. */
-export const fixFlow = async (): Promise<void> => {
-  if (await baseline("fix-precheck")) return
-  return afterTail(await buildTail(true, start()))
-}
-
-/** Pure review of everything since `reviewBase`. */
-export const reviewFlow = async (): Promise<void> => {
-  await gate("review-gate", t.reviewGateBlockedMessage())
-  return afterTail(await buildTail(false, start()))
-}
-
 export const feature = shipped(ordinaryStart)
-export const fix = shipped(fixFlow)
-export const review = shipped(reviewFlow)
-
-export default feature
-
-export const summary: Summary = t.summaryPrompt
-
-export const steering = { [REQUIREMENTS]: "qa", [ARCHITECTURE]: "qa", [REVIEW]: "review" }
-
-export const base: WorkflowBase = (workflow, vars) =>
-  workflow === "review" ? (vars.reviewBase ?? "") : undefined
-
-export const doors: Doors = {
-  fix: { workflow: "fix" },
-  review: {
-    workflow: "review",
-    args: [{ name: "base", optional: true }],
-    vars: ({ base }) => (base === undefined ? {} : { reviewBase: base }),
-  },
-}

@@ -2,7 +2,8 @@
 // export is also exported as `feature`, so a process shows that name.
 export const CONFIG_SCAFFOLD = `// The workflows gtd runs here: gtd's shipped feature, review and fix.
 // Every exported function is startable with \`gtd --workflow <name>\`; the
-// default export is what a change in the tree starts.
+// default export is what a change in the tree starts. Each workflow brings
+// its own doors: \`gtd door review [base]\` and \`gtd door fix\`.
 export {
   feature as default,
   feature,
@@ -11,10 +12,8 @@ export {
   defaults,
   envDefaults,
   summary,
-  base,
   steering,
   skills,
   access,
-  doors,
 } from "@pmelab/gtd/workflows"
 `

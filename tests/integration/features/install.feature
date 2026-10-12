@@ -17,7 +17,7 @@ Feature: gtd install — the driver-building briefing and the workflows config
     And stdout contains "gtd door"
     And stderr contains "gtd install: wrote gtd.config.ts"
     And "gtd.config.ts" contains "feature as default,"
-    And "gtd.config.ts" contains "doors,"
+    And "gtd.config.ts" does not contain "doors,"
     And "gtd.config.ts" contains "} from \"@pmelab/gtd/workflows\""
     And the commit count is unchanged
 

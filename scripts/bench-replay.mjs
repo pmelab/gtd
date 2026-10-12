@@ -98,7 +98,7 @@ class FastImport {
  * `design.triage` / `design.gate.answer` alternating forever — a loop the
  * bundled workflow's `design()` genuinely takes for as long as
  * `design.triage` keeps leaving an open question in `.gtd/REQUIREMENTS.md`
- * (see src/workflows/planning.ts's `questionGate`) and the human keeps
+ * (see src/workflows/feature/planning.ts's `questionGate`) and the human keeps
  * landing that gate clean (`acceptClean: true`, allowed by `requireAnswers`'s
  * "an untouched tree is silence" rule). No test suite is ever actually run —
  * `check`/`run` steps only need their tree to show what a real run would have

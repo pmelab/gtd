@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { installContext, type Change, type JudgeAnswer, type StepRequest } from "../flows/index.js"
-import { fixQualityFindings, review, type ReviewOutcome } from "./review.js"
-import * as bundled from "./index.js"
-import { fixtureContext } from "./text.fixture.js"
+import {
+  installContext,
+  type Change,
+  type JudgeAnswer,
+  type StepRequest,
+} from "../../flows/index.js"
+import { review, type ReviewOutcome } from "./review.js"
+import * as bundled from "../index.js"
+import { fixtureContext } from "../shared/text.fixture.js"
 
 afterEach(() => installContext(undefined))
 
@@ -376,45 +381,5 @@ describe("scenario wording in review's fix turns", () => {
       if (!(e instanceof Stop)) throw e
     })
     expect(log.slice(-2)).toEqual(["fix", "scenario-wording"])
-  })
-})
-
-describe("the quality fix loop", () => {
-  it("a fix that resolves QUALITY.md and rewrites a scenario ends after the wording gate", async () => {
-    const QUALITY = ".gtd/QUALITY.md"
-    const log: string[] = []
-    const files = new Map([
-      [QUALITY, "- finding"],
-      ["e2e/a.feature", "Given a"],
-    ])
-    let last: readonly Change[] = []
-    installContext(
-      fixtureContext(
-        {},
-        {
-          step: (request: StepRequest) => {
-            if (request.kind === "restart") return Promise.resolve()
-            log.push(request.name)
-            last = []
-            if (request.name === "fix.quality.fixing") {
-              files.delete(QUALITY)
-              files.set("e2e/a.feature", "Given b")
-              last = [{ path: QUALITY, status: "deleted", before: "- finding", after: undefined }]
-            }
-            return Promise.resolve()
-          },
-          pushScope: () => undefined,
-          popScope: () => undefined,
-          read: (path) => files.get(path),
-          changes: () => last,
-          matches: (path, pattern) => path === pattern,
-          head: () => "h2",
-          start: () => "h0",
-        },
-      ),
-    )
-    const frozen = { at: "h1", texts: { "e2e/a.feature": "Given a" } }
-    expect(await fixQualityFindings({ rounds: 0 }, frozen)).toBe(true)
-    expect(log).toEqual(["fix.quality.fixing", "scenario-wording"])
   })
 })

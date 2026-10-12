@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { toRequest } from "../judges/index.js"
+import { toRequest } from "../../judges/index.js"
 import { fastSuiteGuard, retryQuestion } from "./health.js"
 import { renderText } from "./text.fixture.js"
 

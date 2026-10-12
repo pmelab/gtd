@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import type { Flow } from "./runtime.js"
+import type { Flow, WorkflowBase, WorkflowDoors } from "./runtime.js"
 
 // Registered, so a factory made by any copy of this file is recognised by the
 // engine's copy — the same reason the replay context is.
@@ -11,6 +11,10 @@ export interface WorkflowBuild {
   readonly defaults?: Readonly<Record<string, string>> | undefined
   /** Environment settings this workflow declares, over its file's `envDefaults` export. */
   readonly envDefaults?: Readonly<Record<string, string>> | undefined
+  /** Doors onto this workflow. Two workflows building the same door is a load error unless the config's `doors` export declares that name; a declared door always wins. */
+  readonly doors?: WorkflowDoors | undefined
+  /** This workflow's diff base; the config's `base` export wins when it answers, `undefined` falls through to this. */
+  readonly base?: WorkflowBase | undefined
 }
 
 interface FactoryInternals {

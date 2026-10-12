@@ -1,5 +1,5 @@
-import type { ScopeAccess } from "../flows/index.js"
-import { lensesOf, lensScopes } from "../workflow-kit/index.js"
+import type { ScopeAccess } from "../../flows/index.js"
+import { lensesOf, lensScopes } from "../../workflow-kit/index.js"
 
 // The bundled workflow's default file access, keyed by scope full name — the
 // name a `config.access` entry addresses. Only planning and review scopes

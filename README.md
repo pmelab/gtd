@@ -501,17 +501,24 @@ the agent may overturn the answer. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 
-The bundled workflows are named `feature` (the ordinary start above), `fix` and
-`review`. Two doors start the other two and skip step 1. `gtd door fix` repairs
-a red baseline as its own reviewed commit instead of starting a process. And
+The bundled workflows are named `feature` (the ordinary start above), `review`
+and `fix`. They are independent: `review` and `fix` never plan, and they meet
+only in `.gtd/REVIEW.md`. Each brings its own door. This command:
 
 ```bash
 gtd door review <commitish>
 ```
 
-starts a pure review of everything from `<commitish>` to HEAD — straight to step
-4, no planning and no building. `gtd doors` lists every door; a `gtd.config.ts`
-can add its own. `gtd --workflow <name>` starts any workflow by name.
+starts a pure review of everything from `<commitish>` to HEAD. It goes straight
+to step 4, with no planning and no building. Sign off and it closes. Leave notes
+and the process ends with `.gtd/REVIEW.md` (and the reviewer's original,
+`.gtd/REVIEW.orig.md`) left for `gtd door fix`. Until `fix` consumes them,
+starting `feature` or `review` is refused; remove both files to abandon the
+hand-off. `gtd door fix` fixes those notes and every `Risk:` in one turn, then
+asks for your review of the fix. With no review waiting, it repairs a red
+baseline as its own reviewed commit instead. `gtd doors` lists the doors of the
+workflows your `gtd.config.ts` exports, plus any it adds.
+`gtd --workflow <name>` starts any workflow by name.
 
 The workflow itself is a plain async TypeScript function, and the
 `gtd.config.ts` at the repository root names it: the one `gtd install` writes

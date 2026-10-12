@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { installContext, type Change, type StepRequest } from "../flows/index.js"
+import { installContext, type Change, type StepRequest } from "../../flows/index.js"
 import { declaredTests, packages, SCENARIO_PACKAGE } from "./packages.js"
-import { fixtureContext } from "./text.fixture.js"
+import { fixtureContext } from "../shared/text.fixture.js"
 
 afterEach(() => installContext(undefined))
 

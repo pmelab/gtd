@@ -1,0 +1,82 @@
+import { describe, expect, it } from "vitest"
+import type { StepRequest } from "../../flows/index.js"
+import { captureStep } from "../shared/text.fixture.js"
+import * as steps from "./steps.js"
+
+const capture = (
+  fn: () => Promise<void>,
+  scope: string,
+  skills?: Readonly<Record<string, readonly string[]>>,
+): Promise<StepRequest> => captureStep(fn, { scope, ...(skills !== undefined ? { skills } : {}) })
+
+const agentPrompt = (request: StepRequest): string => {
+  if (request.kind !== "agent") throw new Error(`expected an agent step, got ${request.kind}`)
+  return request.prompt
+}
+
+describe("the feature workflow's own steps declare skills — a step's rendered prompt carries its bundled skills.ts preamble", () => {
+  it("triage carries design.triage's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.triage("base"), "design"))
+    expect(prompt).toContain("spec-driven-development, planning-and-task-breakdown")
+  })
+
+  it("author carries architecture.author's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.author(), "architecture"))
+    expect(prompt).toContain("api-and-interface-design, documentation-and-adrs, ponytail")
+  })
+
+  it("decompose carries architecture.decompose's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.decompose(), "architecture"))
+    expect(prompt).toContain("incremental-implementation, planning-and-task-breakdown")
+  })
+
+  it("build carries packages.item.building's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.build("pkg"), "packages.item"))
+    expect(prompt).toContain("test-driven-development, incremental-implementation")
+  })
+
+  it("fixSuite carries packages.item.fix.suite's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.fixSuite(), "packages.item"))
+    expect(prompt).toContain("debugging-and-error-recovery")
+  })
+
+  it("collecting carries build.review.collecting's bundled skills", async () => {
+    const prompt = agentPrompt(await capture(() => steps.collecting("capture"), "build"))
+    expect(prompt).toContain("code-review-and-quality")
+  })
+
+  it("answerReviewQuestions answers inline in .gtd/REVIEW.md as the reviewer, with its bundled skills", async () => {
+    const request = await capture(
+      () =>
+        steps.answerReviewQuestions([{ id: "note-1", anchor: "calc ./a.ts#1-1", text: "why?" }]),
+      "build",
+    )
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.name).toBe("review.answer-review-questions")
+    expect(request.options).toMatchObject({
+      file: ".gtd/REVIEW.md",
+      mode: "review",
+    })
+    expect(request.prompt).toContain("code-review-and-quality")
+    expect(request.prompt).toContain("note-1 — calc ./a.ts#1-1")
+    expect(request.prompt).toContain("`A: ` line")
+    expect(request.prompt).toContain("gtd check review .gtd/REVIEW.md")
+  })
+
+  it("fixNits fixes every nit in one turn and leaves .gtd/REVIEW.md alone", async () => {
+    const request = await capture(
+      () =>
+        steps.fixNits([
+          { id: "note-1", anchor: "calc ./a.ts#1-1", text: "typo" },
+          { id: "note-2", anchor: "calc ./a.ts#2-2", text: "semicolon" },
+        ]),
+      "build",
+    )
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.name).toBe("review.fix.nits.fixing")
+    expect(request.prompt).toContain("incremental-implementation, code-simplification")
+    expect(request.prompt).toContain("typo")
+    expect(request.prompt).toContain("semicolon")
+    expect(request.prompt).toContain("Leave `.gtd/REVIEW.md` untouched")
+  })
+})

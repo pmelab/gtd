@@ -10,7 +10,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   true dotted-prefix match) doesn't break the ancestor's run; entering a
   sibling or unrelated scope does. These scenarios pin that end to end, via
   `gtd next --json`'s `.memory` field, against the REAL bundled workflow
-  (`src/workflows/bundled.ts`), each reaching its steps by a real landed
+  (`src/workflows/feature/feature.ts`), each reaching its steps by a real landed
   history — not a synthetic config, since the whole point is the SHAPE of
   the actual shipped scopes.
 
@@ -255,9 +255,36 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
   Scenario: two instances of one healthGate-shaped machine never share a session, even with byte-identical check output
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     # build.health and packages.item.health are both healthGate instances at
-    # different points in the tree (src/workflows/bundled.ts) — the proof
+    # different points in the tree (src/workflows/shared/tail.ts) — the proof
     # below is that their computed memory keys never collide, even though
     # both land byte-identical FEEDBACK.md check output.
 
@@ -360,7 +387,34 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # it for a builder's session to resume at; see default-workflow.feature's
     # own sign-off scenarios.)
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -430,7 +484,34 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # which are descendants of `build.review`. Two rounds of review over the
     # same feature are therefore always reviewed with fresh eyes.
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -528,7 +609,34 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # is anchored at THIS pass's own entry into the shared tail, never the
     # original build.fix turn from before the round-trip.
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And gtd starts workflow "fix"
     And a file ".gtd/FEEDBACK.md" with:
@@ -632,7 +740,34 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # for the fix-precheck entry, since that's the one route where
     # build.fix opens the scope directly rather than resuming it.
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     # Blanks the queue so a green health check hands straight to the human
     # review tail — the quality lap itself is covered in its own feature.
     And an environment variable "GTD_QUALITYREVIEWS" set to ""

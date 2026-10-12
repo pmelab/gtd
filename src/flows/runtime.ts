@@ -434,3 +434,6 @@ export interface Door {
 
 /** A workflow module's reserved `doors` export. */
 export type Doors = Readonly<Record<string, Door>>
+
+/** Doors a workflow factory declares on itself: each starts whatever name the config exports the workflow under. */
+export type WorkflowDoors = Readonly<Record<string, Omit<Door, "workflow">>>

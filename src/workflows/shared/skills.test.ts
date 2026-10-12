@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { skills } from "./skills.js"
-import * as workflow from "./index.js"
+import * as workflow from "../index.js"
 
 const { defaults } = workflow
 
@@ -25,6 +25,7 @@ describe("the bundled workflow's skills export", () => {
         "build.review",
         "build.review.fix.nits",
         "build.review.fix.risks",
+        "notes",
         "build.quality.correctness",
         "build.quality.owasp-security",
         "build.quality.ponytail-review",
@@ -55,6 +56,7 @@ describe("the bundled workflow's skills export", () => {
       "build.review": ["code-review-and-quality"],
       "build.review.fix.nits": ["incremental-implementation", "code-simplification"],
       "build.review.fix.risks": ["debugging-and-error-recovery", "incremental-implementation"],
+      notes: ["incremental-implementation", "code-simplification"],
     })
   })
 

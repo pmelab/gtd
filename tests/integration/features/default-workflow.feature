@@ -286,7 +286,34 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: an actionable review round loops back through re-unwind — the human's hand-edit is out of the tree by the time triage runs
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add greeting" that adds "src/greet.ts" with:
@@ -359,7 +386,34 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: re-unwind refuses to land while the human's review-round paths are still un-reverted, then a hand-revert recovers
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add greeting" that adds "src/greet.ts" with:
@@ -433,7 +487,34 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a non-actionable review round (an approving remark, no code edit) short-circuits straight to sign-off
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add greeting" that adds "src/greet.ts" with:
@@ -495,7 +576,34 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: re-unwind actually reverts a hand-edited code line, never resurrects the review file, and leaves the state dir alone
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
@@ -544,7 +652,34 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: re-unwind on a note-only review round reverts nothing and still advances to design.triage
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add thing" that adds "src/thing.ts" with:
@@ -592,7 +727,34 @@ Feature: The bundled unified workflow — one flow, end to end
   @live
   Scenario: a revert that cannot apply is refused, not silently swallowed
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     # The bundled access would refuse the collecting turn's src/ write below.
     And the file "gtd.config.ts" ends with:
       """
@@ -1207,7 +1369,34 @@ Feature: The bundled unified workflow — one flow, end to end
     # the previous review round's boundary, not the whole process. fileA landed
     # before that boundary; fileB after it, on the re-planned lap.
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add fileA.ts" that adds "fileA.ts" with:
@@ -1309,7 +1498,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
   @inmem
   Scenario: the same escalation loop, reached under packages.item instead of build — packages.item.fix.suite.fixing and packages.item.health.describe get their own bundled skills, same as build's
-    # `healthy()` (src/workflows/health.ts) is the one shared loop both
+    # `healthy()` (src/workflows/shared/health.ts) is the one shared loop both
     # `packages.item`'s per-package fix suite and `build`'s own fix loop call
     # — the same escalation shape as "repeated check failures escalate..."
     # below, under the other scope it also resolves under (see the bundled skills map's
@@ -1949,7 +2138,34 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: at await-review, gtd next surfaces the sign-off vs. feedback contract in its human-gate message
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
@@ -1978,7 +2194,34 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a code edit at await-review is feedback — once the review closes it goes to collecting (which turns it into a re-planned round)
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
