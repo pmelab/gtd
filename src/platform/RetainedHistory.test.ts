@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect"
 import { describe, expect, it, vi } from "vitest"
-import { strictGitOperations as stubGit } from "../testing/index.js"
+import { strictGitOperations as stubGit } from "../testkit/index.js"
 import {
   clearRetainedHistory,
   HISTORY_REF,
@@ -10,7 +10,7 @@ import {
 
 /**
  * Unit coverage for the retention edge module (`src/platform/RetainedHistory.ts`),
- * using `strictGitOperations` (`src/testing/StrictGitOperations.ts`) as its
+ * using `strictGitOperations` (`src/testkit/StrictGitOperations.ts`) as its
  * `GitOperations` double — a Proxy failing on any method a test didn't
  * override, so an unexpected call fails loudly instead of silently succeeding.
  */

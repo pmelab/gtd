@@ -99,6 +99,11 @@
       ],
       "outputs": []
     },
+    "test:workflows": {
+      "dependsOn": ["build"],
+      "inputs": ["src/**", "tests/vitest.*.ts", "vitest.config.ts"],
+      "outputs": []
+    },
     "test:e2e:inmem": {
       "dependsOn": ["build"],
       "inputs": [

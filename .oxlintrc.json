@@ -20,8 +20,15 @@
       {
         "patterns": [
           {
-            "group": ["**/testing/*", "./testing/*", "../testing/*"],
-            "message": "src/testing/** is test-only and must never reach src/main.ts's import graph"
+            "group": [
+              "**/testing/*",
+              "./testing/*",
+              "../testing/*",
+              "**/testkit/*",
+              "./testkit/*",
+              "../testkit/*"
+            ],
+            "message": "src/testkit/** and src/web/testing/** are test-only and must never reach src/main.ts's import graph"
           }
         ]
       }
@@ -42,7 +49,7 @@
       }
     },
     {
-      "files": ["src/testing/**"],
+      "files": ["src/testkit/**", "**/*.steps.ts"],
       "rules": {
         "no-restricted-imports": "off"
       }
@@ -51,7 +58,7 @@
       // `.stories.tsx` files are exactly as test-only as `.test.ts` — never
       // part of `src/main.ts`'s production import graph (Storybook-only,
       // excluded from `npm run build`) — so `src/web/testing/**` helpers
-      // built for them need the same carve-out `src/testing/**` gets.
+      // built for them need the same carve-out `src/testkit/**` gets.
       "files": ["**/*.stories.tsx"],
       "rules": {
         "no-restricted-imports": "off"

@@ -33,7 +33,7 @@ import {
   type ScriptedCommand,
   InMemRepo,
   applyEmittedScript,
-} from "../../../src/testing/index.js"
+} from "../../../src/testkit/index.js"
 import type { AppRouter, DiffResult } from "../../../src/ui/index.js"
 import type { SteeringAnchor, SteeringView } from "../../../src/steering/index.js"
 
@@ -176,7 +176,7 @@ const applyScriptToFake = (
   if (error.startsWith("unrecognized script block:")) {
     throw new Error(
       `the in-memory tier could not apply an emitted script — ${error}\n` +
-        `Teach src/testing/EmittedScriptRecognizer.ts about it.\nScript:\n${script}`,
+        `Teach src/testkit/EmittedScriptRecognizer.ts about it.\nScript:\n${script}`,
     )
   }
   return { exitCode: 1, output: `${error}\n` }

@@ -10,7 +10,7 @@ Feature: Emitted required/optional scripts print their own outcome lines
   pasting `required` into a terminal — sees the same feedback. `@live` only:
   the in-memory tier
   never runs an emitted script's outcome block (it recognizes the block as
-  inert and prints nothing — see `src/testing/EmittedScriptRecognizer.ts`'s
+  inert and prints nothing — see `src/testkit/EmittedScriptRecognizer.ts`'s
   own doc comment), so these scenarios would prove nothing under `@inmem`.
 
   Background:

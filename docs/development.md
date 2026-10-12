@@ -7,6 +7,7 @@ npm run build        # tsdown → dist/gtd.bundle.mjs
 npm test             # the whole gate, via turbo — cached and parallel
 npm run test:fast    # every check except the e2e suites
 npx turbo run test:unit         # one task, cached (add --force to bypass)
+npm run test:workflows          # each workflow's .feature files, in memory
 npx turbo run test:e2e:live     # builds first (turbo dependsOn), then @live
 npm run test:changed # local pre-flight: only unit/@inmem tests git says changed
 npm run test:mutation # StrykerJS mutation testing (manual only, ~10 min)

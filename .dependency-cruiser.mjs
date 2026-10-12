@@ -25,7 +25,8 @@ const testMayReach = (own) => [
 ]
 
 // --- spec 03 ---
-const productionExcluded = "(\\.test\\.tsx?|\\.fixture\\.ts|\\.stories\\.tsx?)$|^tests/"
+const productionExcluded =
+  "(\\.test\\.tsx?|\\.fixture\\.ts|\\.steps\\.ts|\\.stories\\.tsx?)$|^tests/"
 
 const compositionRoots = [
   // CLI entrypoint bundled as dist/gtd.bundle.mjs (tsdown.config.ts).
@@ -300,6 +301,29 @@ export default {
       severity: "error",
       from: { path: "^src/workflows/([^/]+)/" },
       to: { path: "^src/workflows/(?!shared/|$1/)[^/]+/" },
+    },
+
+    // --- spec 19 ---
+    {
+      name: "testkit-reaches-only-core-and-flows",
+      comment:
+        "src/testkit/ runs any workflow against the real engine: of src/, it imports src/flows/ and core's barrels — never a workflow, the kit, or a driver. src/ui/ is there for the UiListener port core's commands require.",
+      severity: "error",
+      from: { path: "^src/testkit/" },
+      to: {
+        path: "^src/",
+        pathNot: [
+          "^src/(testkit|flows)/",
+          "^src/(cli|wire|platform|workflow|emit|steering|ui)/index\\.ts$",
+        ],
+      },
+    },
+    {
+      name: "production-never-imports-testkit",
+      comment: "Only tests, fixtures and step files import src/testkit/.",
+      severity: "error",
+      from: { pathNot: [productionExcluded, "^src/testkit/"] },
+      to: { path: "^src/testkit/" },
     },
   ],
   options: {

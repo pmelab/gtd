@@ -4,7 +4,7 @@
 // gtd itself spawns no subprocess at all any more (`gtd renders; the driver
 // executes`) — a mode's `format:`/`validate:` command is emitted text, never
 // run in-process. `ScriptedCommand` below still exists for the world's own
-// fake-shell interpreter (`src/testing/EmittedScriptRecognizer.ts`), which
+// fake-shell interpreter (`src/testkit/EmittedScriptRecognizer.ts`), which
 // simulates a driver running gtd's emitted scripts against the in-memory
 // worktree — a wholly separate mechanism from any gtd-internal layer.
 
@@ -30,7 +30,10 @@ import {
 import { fakeGitOperations } from "./FakeGitOperations.js"
 import { UiError, UiListener } from "../ui/index.js"
 import { InMemRepo } from "./InMemRepo.js"
-import type { CommandRequirements } from "../program.js"
+
+// Read off the CLI's own port rather than imported from the composition root.
+type CommandRequirements = Layer.Layer.Success<ReturnType<CliIo["layers"]>>
+import type { CliIo } from "../cli/index.js"
 
 const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
 
@@ -184,7 +187,7 @@ export interface TestWorldOptions {
    * Effect test has no `--verbose` flag of its own to gate on.
    */
   readonly narrate?: (line: string) => void
-  /** Gates `narrate` above — defaults to `true` (fires whenever a sink is given) since these tests aren't exercising `Cli.ts`'s own `--verbose` gate. `src/testing/cliIo.ts` overrides this with the real decoded flag. */
+  /** Gates `narrate` above — defaults to `true` (fires whenever a sink is given) since these tests aren't exercising `Cli.ts`'s own `--verbose` gate. `src/testkit/cliIo.ts` overrides this with the real decoded flag. */
   readonly verbose?: boolean
 }
 
