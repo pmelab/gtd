@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Effect, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GitService, Host, Workspace, type WorkspaceOps } from "./index.js"
-import { InMemRepo, makeInMemoryWorkspaceOps } from "../testing/index.js"
+import { InMemRepo, makeInMemoryWorkspaceOps } from "../testkit/index.js"
 
 // `execFileSync` is a named export of the built-in `node:child_process` ESM
 // module — not configurable, so `vi.spyOn` can't wrap it directly. `vi.mock`
@@ -31,7 +31,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 })
 
 /**
- * One `Workspace` tier, in the shape `src/testing/GitTiers.ts` establishes
+ * One `Workspace` tier, in the shape `src/testkit/GitTiers.ts` establishes
  * for `GitOperations`: a `root`, a way to seed working-tree/committed
  * content, and `provide` to run an Effect against this tier's `Workspace`.
  */

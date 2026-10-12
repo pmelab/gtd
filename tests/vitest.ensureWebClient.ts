@@ -22,7 +22,7 @@ export const fallbackBuildCommand = (): string => {
 /**
  * `src/ui/Server.ts` imports `./client.generated.html` — gitignored,
  * produced only by `npm run build`'s browser step + inline script. Turbo's
- * `test:unit`/`test:e2e:inmem`/`test:e2e:live` tasks all declare
+ * `test:unit`/`test:workflows`/`test:e2e:inmem`/`test:e2e:live` tasks all declare
  * `dependsOn: ["build"]` so that import always resolves under `npm test`
  * (`test:web`'s storybook project needs no such dependency: it only ever
  * loads `App.stories.tsx` -> `App.tsx`, never `src/ui/Server.ts`). Two

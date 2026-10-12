@@ -110,7 +110,7 @@ export const emitScripts = (
   optional: assembleScript(optional),
 })
 
-/** Exported so `src/testing/EmittedScriptRecognizer.ts` can recognize these by exact string comparison. `printf`, not `echo`, avoids shell-specific backslash-escape quirks. */
+/** Exported so `src/testkit/EmittedScriptRecognizer.ts` can recognize these by exact string comparison. `printf`, not `echo`, avoids shell-specific backslash-escape quirks. */
 export const DID_NOT_RUN_COMMENT =
   "# gtd emitted this and did NOT run it — pipe it into `sh` to land the turn"
 

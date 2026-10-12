@@ -11,17 +11,6 @@
     }
   },
   {
-    "type": "dependency",
-    "from": "src/testing/Layers.ts",
-    "to": "src/program.ts",
-    "unresolvedTo": "../program.js",
-    "dependencyTypes": ["local", "type-only", "import"],
-    "rule": {
-      "severity": "error",
-      "name": "composition-root-not-imported"
-    }
-  },
-  {
     "type": "cycle",
     "from": "src/steering/Inline.ts",
     "to": "src/steering/MarkdownTree.ts",

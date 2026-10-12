@@ -18,7 +18,7 @@ vi.mock("node:os", async (importOriginal) => ({
 import { runCli, type Command } from "./cli/index.js"
 import { EXIT_USAGE_ERROR, stallDiagnosis, noopText, WIRE_SCHEMA } from "./wire/index.js"
 import { formatFinding, needsOf, runCommand, SelectorUsageError } from "./program.js"
-import { InMemRepo, makeCapturingCliIo, testLayers, applyEmittedScript } from "./testing/index.js"
+import { InMemRepo, makeCapturingCliIo, testLayers, applyEmittedScript } from "./testkit/index.js"
 import {
   commitAll,
   DID_NOT_RUN_COMMENT,

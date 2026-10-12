@@ -14,6 +14,9 @@
     // Vitest loads support files via setupFiles in vitest.config.ts — declare them
     // so fallow treats them as entry points rather than dead files.
     "tests/integration/support/**/*.{ts,mjs}",
+    // The same for the `workflows` project: testkit's steps and each workflow's own.
+    "src/testkit/steps.ts",
+    "src/workflows/**/*.steps.ts",
     // Vitest loads the reporter via a string path in vitest.config.ts.
     "tests/vitest.reporter.ts",
 
@@ -79,7 +82,10 @@
     // CSS files as data to check that every token in styles.css still equals
     // the Radix step it claims. fallow only sees imports, so without this it
     // reports the package as unused.
-    "@radix-ui/colors"
+    "@radix-ui/colors",
+    // Imported by src/testkit/steps.ts, which only the vitest `workflows`
+    // project loads — never the bundle (production-never-imports-testkit).
+    "quickpickle"
   ],
   "health": {
     "thresholdOverrides": [

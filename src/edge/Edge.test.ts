@@ -25,7 +25,7 @@ import {
   makeCapturingCliIo,
   makeInMemoryWorkspaceOps,
   testLayers,
-} from "../testing/index.js"
+} from "../testkit/index.js"
 
 type Env = Readonly<Record<string, string | undefined>>
 type Files = Readonly<Record<string, string>>

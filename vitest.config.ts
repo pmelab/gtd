@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { globSync, readFileSync } from "node:fs"
 import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin"
@@ -42,6 +42,27 @@ export default defineConfig({
           include: ["tests/integration/features/**/*.feature"],
           setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,
+        },
+      },
+      {
+        // Workflow `.feature` files beside their workflow, and testkit's own,
+        // run in-process against an in-memory repository: no build needed.
+        plugins: [
+          rawMd(),
+          ensureWebClient(),
+          quickpickle({ stepTimeout: 30_000, skipTags: ["@skip"] }),
+        ],
+        test: {
+          name: "workflows",
+          include: ["src/**/*.feature"],
+          // testkit's generic steps first: a workflow's own steps build on them.
+          setupFiles: [
+            "./src/testkit/steps.ts",
+            ...globSync("src/workflows/**/*.steps.ts")
+              .sort()
+              .map((path) => `./${path}`),
+          ],
+          testTimeout: 120_000,
         },
       },
       {

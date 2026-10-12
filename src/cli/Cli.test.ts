@@ -23,7 +23,7 @@ import {
 } from "./index.js"
 import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 import { type CommandRequirements } from "./Cli.js"
-import { InMemRepo, testLayers } from "../testing/index.js"
+import { InMemRepo, testLayers } from "../testkit/index.js"
 import { CONFIG_SCAFFOLD } from "../install/index.js"
 
 const FLAG_NAMES = [

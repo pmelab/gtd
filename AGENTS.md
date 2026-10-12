@@ -121,9 +121,10 @@ A workflow is CODE, not data: the shipped workflows are plain TypeScript under
 `src/workflows/`, published as `@pmelab/gtd/workflows` and reaching gtd only
 through a repository's `gtd.config.ts`, which imports them or their parts. There
 is no engine-side wiring to trace when its shape changes — edit the flow. The
-tests that pin it are the unit tests beside it in `src/workflows/` and the e2e
-features that set a workflow up with a `gtd config file at "gtd.config.ts"`
-step; they tell you what you broke. A step's full name is public API.
+tests that pin it are the unit tests and `.feature` files beside it in
+`src/workflows/` (`npm run test:workflows`), and the e2e features that set a
+workflow up with a `gtd config file at "gtd.config.ts"` step; they tell you what
+you broke. A step's full name is public API.
 
 The one thing those tests cannot tell you: every step a process can rest at must
 resolve to exactly one content kind a driver already handles
