@@ -1,5 +1,5 @@
 import type { ScopeAccess } from "../flows/index.js"
-import { lensesOf } from "./review.js"
+import { lensesOf, lensScopes } from "../workflow-kit/index.js"
 
 // The bundled workflow's default file access, keyed by scope full name — the
 // name a `config.access` entry addresses. Only planning and review scopes
@@ -16,7 +16,5 @@ export const access = (
   // `{}` reopens what `build.review` restricted: the fixes edit code.
   "build.review.fix.nits": {},
   "build.review.fix.risks": {},
-  ...Object.fromEntries(
-    lensesOf(vars.qualityReviews ?? "").map((lens) => [`build.quality.${lens}`, { write: [] }]),
-  ),
+  ...lensScopes("build.quality", lensesOf(vars.qualityReviews ?? ""), () => ({ write: [] })),
 })

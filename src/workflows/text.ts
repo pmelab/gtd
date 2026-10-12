@@ -10,6 +10,7 @@ import {
   type AgentOptions,
   type SummaryContext,
 } from "../flows/index.js"
+import type { WordingDrift } from "../workflow-kit/index.js"
 import {
   accessPreamble,
   skillsPreamble,
@@ -882,12 +883,6 @@ Token cost: ${it.processCost}
 ${it.processCostByModel.map((m) => `- ${m.model}: ${m.cost}\n`).join("")}
 Print the closing message and stop — this writes nothing itself.
 `
-}
-
-export interface WordingDrift {
-  readonly path: string
-  /** `- `/`+ `-prefixed, in file order. */
-  readonly lines: readonly string[]
 }
 
 export const scenarioWordingMessage = (at: string, drifted: readonly WordingDrift[]): string =>

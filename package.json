@@ -23,6 +23,7 @@
     "dist/",
     "src/flows/",
     "src/workflows/",
+    "src/workflow-kit/",
     "README.md",
     "LICENSE",
     ".claude-plugin/plugin.json",
