@@ -1,12 +1,12 @@
 @inmem
 Feature: doors — named shortcuts that start a workflow with positional args
 
-  A `gtd.config.ts` declares doors through its reserved `doors` export; the
-  one `gtd install` scaffolds re-exports gtd's shipped `fix` and
-  `review [base]`. `gtd door <name> [args…]` starts the door's workflow exactly
-  as `gtd --workflow` would, mapping the positional args to process settings;
-  `gtd doors` lists every door. A door's `workflow` names one of the config's
-  own workflows.
+  Each shipped workflow builds its own doors — `fix` builds `fix`, `review`
+  builds `review [base]` — so a config's doors are those of the workflows it
+  exports, plus its reserved `doors` export. `gtd door <name> [args…]` starts
+  the door's workflow exactly as `gtd --workflow` would, mapping the positional
+  args to process settings; `gtd doors` lists every door. A door's `workflow`
+  names one of the config's own workflows.
 
   Background:
     Given a test project
@@ -16,6 +16,21 @@ Feature: doors — named shortcuts that start a workflow with positional args
     When I run gtd with args "doors --json"
     Then it succeeds
     And stdout contains "[{\"name\":\"fix\",\"workflow\":\"fix\",\"args\":[]},{\"name\":\"review\",\"workflow\":\"review\",\"args\":[{\"name\":\"base\",\"optional\":true}]}]"
+
+  Scenario: a config exporting only fix offers only fix's door
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export { fix, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      """
+    When I run gtd with args "doors --json"
+    Then it succeeds
+    And stdout contains "[{\"name\":\"fix\",\"workflow\":\"fix\",\"args\":[]}]"
 
   Scenario: plain gtd doors prints one sorted line per door with its synopsis
     When I run gtd with args "doors"
@@ -28,7 +43,7 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then it succeeds
     And stdout contains "base"
 
-  Scenario: a config's doors are exactly its own doors export
+  Scenario: a config of plain flows has exactly its own doors export
     Given a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -195,6 +210,27 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then the exit code is 1
     And stderr contains "door \"go\" names workflow \"nope\""
 
+  Scenario: two workflows building the same door is a config error naming the door
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      export { feature as default, fix, fix as mend, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      """
+    When I run gtd with args "doors"
+    Then the exit code is 1
+    And stderr contains "door \"fix\" is built by workflows"
+    And stderr contains "declare it in the \"doors\" export to choose one"
+
+  Scenario: a doors export declaring the clashing name settles it, the declared door winning
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      export { feature as default, fix, fix as mend, defaults, envDefaults } from "@pmelab/gtd/workflows"
+
+      export const doors = { fix: { workflow: "mend" } }
+      """
+    When I run gtd with args "doors --json"
+    Then it succeeds
+    And stdout contains "[{\"name\":\"fix\",\"workflow\":\"mend\",\"args\":[]}]"
+
   Scenario: a door name outside the lowercase-kebab rule is a config error
     Given a gtd config file at "gtd.config.ts" with:
       """
@@ -223,3 +259,99 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then it fails
     And stderr contains "gtd door fix: a process is already underway"
     And the commit count is unchanged
+
+  Scenario: a review exported under another name with no base reviews since the default branch's merge-base
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      export {
+        feature as default,
+        review as audit,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+      """
+    And I mark the current commit as "main"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    When I run gtd with args "door review"
+    Then it succeeds
+    And stdout contains the hash of "main"
+    And the last commit body contains "Gtd-Workflow: audit"
+
+  Scenario: a config importing the deprecated doors export still loads with its workflows' doors
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { doors as shipped } from "@pmelab/gtd/workflows"
+
+      export { feature as default, fix, review } from "@pmelab/gtd/workflows"
+
+      export const doors = { ...shipped }
+      """
+    When I run gtd with args "doors --json"
+    Then it succeeds
+    And stdout contains "[{\"name\":\"fix\",\"workflow\":\"fix\",\"args\":[]},{\"name\":\"review\",\"workflow\":\"review\",\"args\":[{\"name\":\"base\",\"optional\":true}]}]"
+
+  Scenario: a factory of your own brings its door, listed under its export name
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { defineWorkflow, human } from "@pmelab/gtd/flows"
+
+      const schema = {
+        "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) },
+      }
+
+      const make = defineWorkflow(schema, () => ({
+        flow: async () => {
+          await human("idle", { message: "go" })
+        },
+        doors: { go: {} },
+      }))
+
+      export const hotfix = make({})
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+      """
+    When I run gtd with args "doors"
+    Then it succeeds
+    And stdout contains "go → hotfix"
+
+  Scenario: a factory of your own brings its base, which gtd door go starts with
+    Given I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { defineWorkflow, human } from "@pmelab/gtd/flows"
+
+      const schema = {
+        "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) },
+      }
+
+      const make = defineWorkflow(schema, () => ({
+        flow: async () => {
+          await human("idle", { message: "go" })
+        },
+        doors: { go: {} },
+        base: () => "base",
+      }))
+
+      export const hotfix = make({})
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+      """
+    When I run gtd with args "door go"
+    Then it succeeds
+    When I run gtd with args "base"
+    Then it succeeds
+    And stdout contains the hash of "base"

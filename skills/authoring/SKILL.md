@@ -145,10 +145,11 @@ the pending landing — call it right after the step whose turn you reject.
   process waits (the bundled one is `human("idle", …)`).
 - `gtd --workflow <name>` starts a process on the exported workflow `<name>` (an
   unknown name is a usage error); `gtd door <name> [args]` starts one through a
-  `doors` entry `{ workflow, args?, vars? }` (`gtd doors` lists them; bundled:
-  `fix`, `review [base]`; yours merge over them). An
-  `export const base = (workflow, vars) => commitish | undefined` fixes a
-  started process's diff base (blank = default-branch merge-base).
+  `doors` entry `{ workflow, args?, vars? }` (`gtd doors` lists them). A
+  factory's build may return `doors` without `workflow`; exporting the bundled
+  `fix` and `review` brings `fix` and `review [base]`, and yours merge over
+  them. An `export const base = (workflow, vars) => commitish | undefined` fixes
+  a started process's diff base (blank = default-branch merge-base).
   `--var <name>=<value>` only pins process settings: names the workflow's
   `defaults` declare — never an environment setting.
 

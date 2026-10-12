@@ -229,7 +229,11 @@ const finish = async (
 }
 
 /** Write the review; if it marks risks, fix them, keep green, and write it again — once, so the re-review's own risks reach the human unfixed. */
-const reviewOnce = async (p: ReviewPolicy, base: string, carry: string | undefined) => {
+const reviewOnce = async (
+  p: Pick<ReviewPolicy, "file" | "reviewing" | "fixRisks" | "keepGreen">,
+  base: string,
+  carry: string | undefined,
+) => {
   await p.reviewing(base, carry)
   const risks = reviewRisks(read(p.file) ?? "")
   if (risks.length === 0) return
@@ -262,5 +266,59 @@ export const review = async (base: string, p: ReviewPolicy): Promise<ReviewOutco
       }
       reviewed = result.reviewed
     }
+  }
+}
+
+/** What a review round that hands its notes on decides or says, passed in. */
+export interface HandOffPolicy extends Pick<
+  ReviewPolicy,
+  "file" | "reviewing" | "fixRisks" | "keepGreen" | "awaitReview" | "reviewMissing" | "close"
+> {
+  /** Keep `file` with the human's notes for another workflow; `reviewed` holds the reviewer's own version. */
+  readonly handOff: (reviewed: string) => Promise<void>
+  /** `file` was deleted at the gate. */
+  readonly deleted: string
+  /** A thread waits on the agent at the gate, and no turn here answers it. */
+  readonly threadsPending: string
+  /** The review was edited but the edit parses to no note, so `fix` would have nothing to act on. */
+  readonly unparsed: string
+}
+
+/**
+ * A reviewer writes the review over everything since `base` and a human
+ * reviews it. No note signs off and closes; any note ends the round with the
+ * review left in place, for another workflow to read its notes — nothing is
+ * judged or re-planned here.
+ */
+export const reviewToHandOff = async (base: string, p: HandOffPolicy): Promise<void> => {
+  for (;;) {
+    await reviewOnce(p, base, undefined)
+    const reviewed = head()
+    await p.awaitReview(base)
+    if (changes(p.file).some((c) => c.status === "deleted")) refuse(p.deleted)
+    const record = read(p.file)
+    if (record === undefined) {
+      await p.reviewMissing(head())
+      continue
+    }
+    // `fix` runs in a new process, where a code thread is no longer "changed"
+    // and nothing answers it — so none may be left waiting on the agent.
+    requireThreadsClosed(p.file)
+    if (hasThreadFor("agent", p.file)) refuse(p.threadsPending)
+    const since = changesSince(reviewed)
+    const before = since.get(p.file)?.before ?? record
+    if (notesOf(before) === notesOf(record)) {
+      // A hand edit in a sign-off round was never checked or reviewed.
+      if (since.paths.some((f) => !f.startsWith(".gtd/"))) {
+        await p.keepGreen()
+      }
+      await p.close(head())
+      return
+    }
+    // `fix` acts only on parsed notes: an edit with none (a deleted chunk,
+    // stray prose) would be closed away unread, so it is refused here.
+    if (reviewNotes(before, record).length === 0) refuse(p.unparsed)
+    await p.handOff(reviewed)
+    return
   }
 }

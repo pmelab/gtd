@@ -145,7 +145,8 @@ export const load: Effect.Effect<
   const define = (entry: LoadedWorkflow): WorkflowDefinition => ({
     flow: entry.flow,
     summary: entry.file.summary,
-    base: entry.file.base,
+    // A config's own `base` export wins when it answers; else the factory's.
+    base: (w, v) => entry.file.base?.(w, v) ?? entry.base?.(w, v),
     steering,
     modes: compiled.modes,
     skills: entry.file.skills,
@@ -204,6 +205,8 @@ interface LoadedFile
 interface LoadedWorkflow extends Settings {
   readonly flow: Flow
   readonly file: LoadedFile
+  readonly doors?: flows.WorkflowDoors | undefined
+  readonly base?: flows.WorkflowBase | undefined
 }
 
 interface Loaded {
@@ -486,6 +489,33 @@ const doorsFrom = (exports: Record<string, unknown>): ReadonlyMap<string, Door> 
   return new Map(Object.entries(value) as [string, Door][])
 }
 
+/**
+ * Each exported workflow's own doors, onto the name it is exported under. The
+ * `doors` export adds to them and settles a name two workflows both declare.
+ */
+const derivedDoors = (
+  catalogue: ReadonlyMap<string, LoadedWorkflow>,
+  declared: ReadonlyMap<string, Door>,
+): ReadonlyMap<string, Door> => {
+  const doors = new Map<string, Door>()
+  for (const [workflow, loaded] of catalogue) {
+    for (const [name, spec] of Object.entries(loaded.doors ?? {})) {
+      const door: Door = { ...spec, workflow }
+      const problem = doorProblem(name, door)
+      if (problem !== undefined)
+        throw new Error(`workflow "${workflow}" builds door "${name}", which ${problem}`)
+      const other = doors.get(name)
+      if (other !== undefined && !declared.has(name)) {
+        throw new Error(
+          `door "${name}" is built by workflows "${other.workflow}" and "${workflow}" — declare it in the "doors" export to choose one (a declared door replaces the derived one, so restate its args and vars)`,
+        )
+      }
+      doors.set(name, door)
+    }
+  }
+  return new Map([...doors, ...declared])
+}
+
 /** Sort the doors and check each names a startable workflow. */
 const checkDoors = (
   declared: ReadonlyMap<string, Door>,
@@ -543,7 +573,10 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
   return {
     file,
     catalogue,
-    doors: rejections.length > 0 ? new Map() : checkDoors(doorsFrom(exports), catalogue),
+    doors:
+      rejections.length > 0
+        ? new Map()
+        : checkDoors(derivedDoors(catalogue, doorsFrom(exports)), catalogue),
     default: defaultWorkflow && { ...defaultWorkflow, name: defaultName },
     config: compileConfig(exports["config"], module.filepath),
     diagnostics: nameRejections(rejections),
@@ -578,7 +611,13 @@ const buildWorkflow = (
     for (const issue of result.issues) rejections.push(optionDiagnostic(name, issue, file))
     return undefined
   }
-  return { flow: result.build.flow, file, ...builtSettings(name, file, result.build) }
+  return {
+    flow: result.build.flow,
+    file,
+    ...builtSettings(name, file, result.build),
+    doors: result.build.doors,
+    base: result.build.base,
+  }
 }
 
 /** A factory's settings over its file's, held to the rules a file's own exports are. */

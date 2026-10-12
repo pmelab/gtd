@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { StepRequest } from "../flows/index.js"
+import type { StepRequest } from "../../flows/index.js"
 import { captureStep } from "./text.fixture.js"
 import * as steps from "./steps.js"
 
@@ -15,31 +15,6 @@ const agentPrompt = (request: StepRequest): string => {
 }
 
 describe("the bundled workflow's steps declare skills — a bundled step's rendered prompt carries its bundled skills.ts preamble", () => {
-  it("triage carries design.triage's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.triage("base"), "design"))
-    expect(prompt).toContain("spec-driven-development, planning-and-task-breakdown")
-  })
-
-  it("author carries architecture.author's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.author(), "architecture"))
-    expect(prompt).toContain("api-and-interface-design, documentation-and-adrs, ponytail")
-  })
-
-  it("decompose carries architecture.decompose's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.decompose(), "architecture"))
-    expect(prompt).toContain("incremental-implementation, planning-and-task-breakdown")
-  })
-
-  it("build carries packages.item.building's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.build("pkg"), "packages.item"))
-    expect(prompt).toContain("test-driven-development, incremental-implementation")
-  })
-
-  it("fixSuite carries packages.item.fix.suite's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.fixSuite(), "packages.item"))
-    expect(prompt).toContain("debugging-and-error-recovery")
-  })
-
   it("fix carries build.fix's bundled skills", async () => {
     const prompt = agentPrompt(await capture(() => steps.fixCheck(), "build"))
     expect(prompt).toContain("debugging-and-error-recovery")
@@ -104,50 +79,10 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
     expect(prompt).toContain("code-review-and-quality")
   })
 
-  it("collecting carries build.review.collecting's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.collecting("capture"), "build"))
-    expect(prompt).toContain("code-review-and-quality")
-  })
-
   it("an empty configured list leaves that step's skills empty, and its rendered prompt bare", async () => {
     const request = await capture(() => steps.fixCheck(), "build", { build: [] })
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.prompt).not.toContain("Load whatever's listed here")
-  })
-
-  it("answerReviewQuestions answers inline in .gtd/REVIEW.md as the reviewer, with its bundled skills", async () => {
-    const request = await capture(
-      () =>
-        steps.answerReviewQuestions([{ id: "note-1", anchor: "calc ./a.ts#1-1", text: "why?" }]),
-      "build",
-    )
-    if (request.kind !== "agent") throw new Error("unreachable")
-    expect(request.name).toBe("review.answer-review-questions")
-    expect(request.options).toMatchObject({
-      file: ".gtd/REVIEW.md",
-      mode: "review",
-    })
-    expect(request.prompt).toContain("code-review-and-quality")
-    expect(request.prompt).toContain("note-1 — calc ./a.ts#1-1")
-    expect(request.prompt).toContain("`A: ` line")
-    expect(request.prompt).toContain("gtd check review .gtd/REVIEW.md")
-  })
-
-  it("fixNits fixes every nit in one turn and leaves .gtd/REVIEW.md alone", async () => {
-    const request = await capture(
-      () =>
-        steps.fixNits([
-          { id: "note-1", anchor: "calc ./a.ts#1-1", text: "typo" },
-          { id: "note-2", anchor: "calc ./a.ts#2-2", text: "semicolon" },
-        ]),
-      "build",
-    )
-    if (request.kind !== "agent") throw new Error("unreachable")
-    expect(request.name).toBe("review.fix.nits.fixing")
-    expect(request.prompt).toContain("incremental-implementation, code-simplification")
-    expect(request.prompt).toContain("typo")
-    expect(request.prompt).toContain("semicolon")
-    expect(request.prompt).toContain("Leave `.gtd/REVIEW.md` untouched")
   })
 
   it("fixRisks fixes every risk, tolerates an empty turn, and leaves .gtd/REVIEW.md alone", async () => {

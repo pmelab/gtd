@@ -153,7 +153,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
 
   Scenario: prettier plugged into the bundled default's qa mode via a top-level modes: key formats the agent-authored requirements at design.triage, when gtd validate runs it first
     # No `workflow:` re-declaration: the bundled default already gives
-    # `design.triage` `mode: qa` (see src/workflows/bundled.ts); a top-level `modes:` key
+    # `design.triage` `mode: qa` (see src/workflows/feature/steps.ts); a top-level `modes:` key
     # alone is enough to plug a formatter into it. `gtd land` itself no
     # longer runs the format command (package 2, Requirement A) — a driver
     # wanting the file wrapped first runs `gtd validate` ahead of `gtd land`.

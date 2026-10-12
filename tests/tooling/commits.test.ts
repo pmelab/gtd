@@ -31,11 +31,15 @@ const cleanEnv = Object.fromEntries(
 )
 
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync("git", ["-c", "user.name=T", "-c", "user.email=t@t", ...args], {
-    cwd,
-    encoding: "utf8",
-    env: cleanEnv,
-  }).trim()
+  execFileSync(
+    "git",
+    ["-c", "user.name=T", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args],
+    {
+      cwd,
+      encoding: "utf8",
+      env: cleanEnv,
+    },
+  ).trim()
 
 const repo = () => {
   const dir = mkdtempSync(join(tmpdir(), "commits-"))

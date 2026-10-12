@@ -8,9 +8,9 @@ import {
   removeScript,
   run,
   scope,
-} from "../flows/index.js"
-import { healthy } from "./health.js"
-import { freezeScenarios, guarded, type FrozenScenarios } from "./scenarios.js"
+} from "../../flows/index.js"
+import { healthy } from "../shared/health.js"
+import { freezeScenarios, guarded, type FrozenScenarios } from "../shared/scenarios.js"
 import { build, fixSuite } from "./steps.js"
 
 /** Package 0: the e2e scenarios, written red. */

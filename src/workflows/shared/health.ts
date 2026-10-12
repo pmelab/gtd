@@ -10,8 +10,8 @@ import {
   read,
   vars,
   type JudgeQuestion,
-} from "../flows/index.js"
-import * as kit from "../workflow-kit/index.js"
+} from "../../flows/index.js"
+import * as kit from "../../workflow-kit/index.js"
 import { describeEscalation, escalate, escalationExhausted, ESCALATION, FEEDBACK } from "./steps.js"
 import * as t from "./text.js"
 
@@ -45,7 +45,7 @@ export const baseline = (name: string, label = "Checking the baseline"): Promise
     unconfigured,
   )
 
-export type { EscalationCount } from "../workflow-kit/index.js"
+export type { EscalationCount } from "../../workflow-kit/index.js"
 
 const escalationSteps: kit.EscalationSteps = {
   limit: 2,

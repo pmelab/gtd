@@ -281,6 +281,26 @@ export default {
       from: { path: "^src/workflow-kit/" },
       to: { path: "^src/workflows/" },
     },
+    // --- spec 18 ---
+    {
+      name: "workflow-imports-only-flows-kit-steering-shared",
+      comment:
+        "A shipped workflow's folder under src/workflows/ imports, of src/, only src/flows/, src/workflow-kit/, src/steering/, src/workflows/shared/ and itself.",
+      severity: "error",
+      from: { path: "^src/workflows/([^/]+)/", pathNot: productionExcluded },
+      to: {
+        path: "^src/",
+        pathNot: ["^src/(flows|workflow-kit|steering)/", "^src/workflows/(shared|$1)/"],
+      },
+    },
+    {
+      name: "workflows-never-import-each-other",
+      comment:
+        "feature, review and fix interact only through git and steering files; shared/ imports none of them. No workflow folder — tests included — imports another one.",
+      severity: "error",
+      from: { path: "^src/workflows/([^/]+)/" },
+      to: { path: "^src/workflows/(?!shared/|$1/)[^/]+/" },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },

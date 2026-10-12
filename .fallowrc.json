@@ -35,9 +35,6 @@
     // Run by .releaserc.json's prepareCmd, which no package.json script names.
     "scripts/sync-plugin-version.mjs"
   ],
-  // The startable `review` workflow shadows review.ts's step of the same name
-  // in bundled.ts's `export *` — the published name has always been the workflow.
-  "ignoreExports": [{ "file": "src/workflows/bundled.ts", "exports": ["review"] }],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste worth refactoring.
     "minOccurrences": 3

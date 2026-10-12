@@ -582,10 +582,72 @@ describe("ConfigService", () => {
       expect(doors.get("review")?.args).toEqual([{ name: "base", optional: true }])
     })
 
-    it("a config's doors are exactly its doors export", async () => {
-      withDoors(`{ hot: { workflow: "hotfix", args: [{ name: "ticket" }] } }`)
+    it("a config exporting only fix gets only fix's door", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          header,
+          `export default ${flow("main")}`,
+          `export { fix } from "@pmelab/gtd/workflows"`,
+          ``,
+        ].join("\n"),
+      )
       const { doors } = await getConfig()
-      expect([...doors.keys()]).toEqual(["hot"])
+      expect([...doors.keys()]).toEqual(["fix"])
+    })
+
+    it("a door follows the name its workflow is exported under", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `export { feature as default, review as audit } from "@pmelab/gtd/workflows"\n`,
+      )
+      const door = (await getConfig()).doors.get("review")
+      expect(door?.workflow).toBe("audit")
+      expect(door?.vars?.({ base: "main" })).toEqual({ reviewBase: "main" })
+    })
+
+    it("a review factory exported as audit reviews the default branch, or an explicit base", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `export { feature as default, review as audit } from "@pmelab/gtd/workflows"\n`,
+      )
+      const audit = (await getConfig()).workflowNamed("audit")
+      expect(audit?.def.base?.("audit", {})).toBe("")
+      expect(audit?.def.base?.("audit", { reviewBase: "v1" })).toBe("v1")
+    })
+
+    it("a config's own base export wins over the review factory's", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          `export { feature as default, review } from "@pmelab/gtd/workflows"`,
+          `export const base = (w: string) => (w === "review" ? "develop" : undefined)`,
+          ``,
+        ].join("\n"),
+      )
+      expect((await getConfig()).workflowNamed("review")?.def.base?.("review", {})).toBe("develop")
+    })
+
+    it("a door two workflows build is a config error until the doors export settles it", async () => {
+      const both = `export { feature as default, fix, fix as fix2 } from "@pmelab/gtd/workflows"`
+      writeFileSync(join(projectDir, "gtd.config.ts"), `${both}\n`)
+      await expect(getConfig()).rejects.toThrow(/door "fix" is built by workflows "fix" and "fix2"/)
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `${both}\nexport const doors = { fix: { workflow: "fix2" } }\n`,
+      )
+      expect((await getConfig()).doors.get("fix")?.workflow).toBe("fix2")
+    })
+
+    it("a config's doors merge derived doors (exported workflows) with declared doors (doors export)", async () => {
+      withDoors(
+        `{ hot: { workflow: "hotfix", args: [{ name: "ticket" }] } }`,
+        'export { fix } from "@pmelab/gtd/workflows"',
+      )
+      const { doors } = await getConfig()
+      expect([...doors.keys()].sort()).toEqual(["fix", "hot"])
+      expect(doors.get("fix")).toBeDefined()
+      expect(doors.get("hot")?.workflow).toBe("hotfix")
       expect(doors.get("hot")?.args).toEqual([{ name: "ticket" }])
     })
 
@@ -844,6 +906,24 @@ describe("ConfigService — workflow factory options", () => {
 })
 
 describe("ConfigService — a factory's built settings", () => {
+  it("a door a factory builds is held to the door-name rule, naming workflow and door", async () => {
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { defineWorkflow, human } from "@pmelab/gtd/flows"`,
+        `const any = { "~standard": { version: 1, vendor: "t", validate: (value) => ({ value }) } }`,
+        `export const audit = defineWorkflow(any, () => ({`,
+        `  flow: async () => { await human("idle") },`,
+        `  doors: { Bad_Name: {} },`,
+        `}))`,
+        `export default audit`,
+        ``,
+      ].join("\n"),
+    )
+
+    await expect(getConfig()).rejects.toThrow(/workflow "audit" builds door "Bad_Name", which/)
+  })
+
   it("are held to the setting-name rule, like a file's defaults", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),

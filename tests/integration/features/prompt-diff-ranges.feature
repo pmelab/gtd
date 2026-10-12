@@ -11,7 +11,34 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
 
   Background:
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review and fix as feature's own tail: a note is triaged and re-planned.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+
+      export async function fix() {
+        if (await baseline("fix-precheck")) return
+        return afterTail(await buildTail(true, start()))
+      }
+      """
 
   @live
   Scenario: build.review.collecting's captured manifest names a commit and a path, never inlines a diff

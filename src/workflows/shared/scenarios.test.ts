@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { installContext, type StepRequest } from "../flows/index.js"
+import { installContext, type StepRequest } from "../../flows/index.js"
 import {
   driftedScenarios,
   freezeScenarios,

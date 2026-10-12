@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { configure } from "../flows/index.js"
-import * as workflows from "./index.js"
+import { configure } from "../../flows/index.js"
+import * as workflows from "../index.js"
 
 const { defaults, envDefaults, feature, fix, review, ShippedOptions } = workflows
 

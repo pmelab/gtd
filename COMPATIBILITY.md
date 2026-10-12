@@ -35,8 +35,9 @@ histories written by an older or newer gtd.
 ## Follows package SemVer
 
 - **CLI commands and flags** — every command, option and argument in
-  [CLI reference](docs/cli.md), the bundled doors (`fix`, `review [base]`), and
-  the `gtd doors --json` array (a bare array with no `schema`).
+  [CLI reference](docs/cli.md), the doors the bundled `fix` and `review` build
+  (`fix`, `review [base]`), and the `gtd doors --json` array (a bare array with
+  no `schema`).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
   stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
   [Error envelope](docs/cli.md#error-envelope).
@@ -55,6 +56,9 @@ histories written by an older or newer gtd.
 - **Bundled workflow and step names** — `feature`, `fix`, `review`, and each
   step's full name, plus which steps a bundled workflow reaches and in what
   order: changing either strands every process resting on it.
+- **The review hand-off** — what `review` leaves for `fix`: `.gtd/REVIEW.md`
+  with the human's notes beside the reviewer's own `.gtd/REVIEW.orig.md`, read
+  as review notes (see [Steering formats](src/steering/FORMATS.md)).
 - **Settings** — the setting names the bundled workflows read (`testCommand`,
   `reviewBase`, …), the `GTD_*` variables, and the judge providers (`fixed`,
   `jev`, `llm`) with their variables and the user-level `judge.json`.

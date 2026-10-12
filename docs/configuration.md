@@ -47,11 +47,9 @@ export {
   defaults,
   envDefaults,
   summary,
-  base,
   steering,
   skills,
   access,
-  doors,
 } from "@pmelab/gtd/workflows"
 ```
 
@@ -303,16 +301,17 @@ The script renderers (`checkScript`, `revertScript`, `restoreScript`,
 `@pmelab/gtd/workflows` is gtd's shipped workflows (`@pmelab/gtd/workflow` still
 resolves to the same module): its default export is the `feature` factory, and
 every part of it is a named export another workflow can import — its `defaults`,
-`envDefaults`, `summary`, `base` and `skills`, the three startable workflows as
+`envDefaults`, `summary` and `skills`, the three startable workflows as
 [factories](#workflow-factories) (`feature`, `review`, `fix`) and as plain flows
 (`ordinaryStart`, `reviewFlow`, `fixFlow`), the phases (`unwind`,
-`planAndBuild`, `design`, `architecture`, `packages`, `buildTail`, `qualityLap`,
-`healthy`, `gate`, …) and every single step (`triage`, `build`, `fixCheck`,
-`reviewing`, `collecting`, …). A step's name is relative to the `scope()` it
-runs in — the bundled workflow's `scope("build", …)` around `healthy` is what
-makes `build.health.check` — and the full names are part of gtd's versioned API:
-they never change outside a major release, because a rename strands every
-process resting on the old name.
+`planAndBuild`, `design`, `architecture`, `packages`, `buildTail`,
+`handOffTail`, `handOffReview`, `fixReviewNotes`, `qualityLap`, `healthy`,
+`gate`, …) and every single step (`triage`, `build`, `fixCheck`, `reviewing`,
+`collecting`, …). A step's name is relative to the `scope()` it runs in — the
+bundled workflow's `scope("build", …)` around `healthy` is what makes
+`build.health.check` — and the full names are part of gtd's versioned API: they
+never change outside a major release, because a rename strands every process
+resting on the old name.
 
 Re-export `envDefaults` alongside `defaults`: a workflow that re-exports only
 `defaults` loses `testCommand`, `fastTestCommand`, `plannerModel` and
@@ -338,7 +337,6 @@ export {
   defaults,
   envDefaults,
   summary,
-  base,
   steering,
   skills,
 } from "@pmelab/gtd/workflows"
@@ -352,9 +350,8 @@ export async function hotfix() {
 export const doors = { hotfix: { workflow: "hotfix" } }
 ```
 
-A config's doors are its `doors` export alone: re-export the shipped one, or
-spread it into your own (`{ ...doors, hotfix: { workflow: "hotfix" } }`), to
-keep `fix` and `review` (see [Doors](#doors)).
+A config's doors are those its workflows bring plus its `doors` export: export
+`fix` and `review` to keep their doors (see [Doors](#doors)).
 
 ### Workflow factories
 
@@ -367,10 +364,10 @@ and each becomes that workflow's own default of its kind — beneath `--var` and
 ```ts
 import { feature, review } from "@pmelab/gtd/workflows"
 
-export { summary, base, steering, skills, access } from "@pmelab/gtd/workflows"
+export { summary, steering, skills, access } from "@pmelab/gtd/workflows"
 
 export default feature({ testCommand: "npm run test:ci", coderModel: "fast" })
-export const strictReview = review({ reviewNoteActionable: "0.9" })
+export const quickReview = review({ qualityReviews: "correctness" })
 ```
 
 Exported without a call, a factory is a workflow too, with its default options —
@@ -405,6 +402,11 @@ export const greeter = defineWorkflow(
   }),
 )
 ```
+
+The build may also return `doors`, keyed by door name, each a door without its
+`workflow` (see [Doors](#doors)), and `base(workflow, vars)`, the workflow's
+diff base. The config's own `base` export wins when it returns a value; on
+`undefined` this one applies.
 
 Read a setting through `vars`/`env` in flow code, as before, when `--var` or
 `GTD_<NAME>` should reach it; an option read straight from `options` is fixed by
@@ -493,6 +495,9 @@ export const base = (workflow, vars) =>
 gtd --workflow reviewOnly --var reviewBase=main
 ```
 
+A `base` export that answers wins over a workflow factory's own base (the
+shipped `review` takes `reviewBase`); `undefined` falls through to it.
+
 A blank `base` result means the repository's default branch. Any base is pinned
 as its merge-base with `HEAD`, not as the named tip. It is refused when the
 commitish does not resolve, shares no common ancestor with `HEAD`, or its
@@ -503,9 +508,24 @@ settings only, and naming an environment setting is a usage error (exit 2).
 Every process setting is recorded as a `Gtd-Var:` trailer on the process's first
 commit and stays in force for the whole process (see [Settings](#settings)).
 
-The shipped module offers three workflows: `feature` (the ordinary start, and
-its `default`), `fix` (repair a red baseline through the build tail) and
-`review` (a pure review of everything since `--var reviewBase=<commitish>`).
+The shipped module offers three workflows:
+
+- **`feature`** — the ordinary start, and its `default`: plan, build, then a
+  human review whose notes are triaged and, for an edit, re-planned.
+- **`review`** — a pure review of everything since
+  `--var reviewBase=<commitish>`: a green gate, the quality lap, then the human
+  review. A sign-off closes `.gtd/REVIEW.md`. A note ends the process with
+  `.gtd/REVIEW.md` kept and the reviewer's own version copied beside it as
+  `.gtd/REVIEW.orig.md` (`build.review.handing-off`); nothing is triaged or
+  re-planned. Until `fix` runs, starting `feature` or `review` is refused;
+  remove both review files to abandon the hand-off. `fix` refuses a lone
+  `.gtd/REVIEW.orig.md`.
+- **`fix`** — with a handed-off `.gtd/REVIEW.md` in the tree, one turn fixes
+  every note (read from the two review files) and every `Risk:`
+  (`notes.fixing`), both files are removed (`notes.closing`), and the result
+  goes through the build tail to its own hand-off review. With none, it repairs
+  a red baseline (`fix-precheck`) through the same tail. A note at its review is
+  handed to the next `fix`, never re-planned.
 
 **Upgrading:** the old state-named entry flag is gone, replaced by `--workflow`.
 Finish or abandon any process started with it before upgrading — its opening
@@ -533,11 +553,20 @@ export const doors = {
 (required ones first); `vars` is a pure function of the args returning a record
 of process settings — no git runs while it is evaluated.
 
-The shipped doors are `fix` and `review [base]`. `gtd door <name> [args...]`
-starts the process (printing the same script `gtd --workflow` does); an unknown
-door or the wrong number of args is a usage error (exit 2). `gtd doors` lists
-every door, one `name [args] → workflow` line each; `gtd doors --json` prints
-them as data for a driver to offer.
+A [workflow factory](#workflow-factories) may build doors of its own, without a
+`workflow` (it is whatever name the config exports it under): gtd's `fix` builds
+`fix`, its `review` builds `review [base]`. A config's doors are those of every
+workflow it exports, plus its `doors` export, which wins a name clash — a door
+two exported workflows both build is a config error until the `doors` export
+settles it; a declared door replaces the derived one whole, so it restates
+`args` and `vars` itself. A config exporting only `fix` offers only the `fix`
+door. The shipped module's own `doors` export is an empty no-op, and its `base`
+export maps `reviewBase` for a workflow named `review`; both are kept only so an
+older config re-exporting them still loads. `gtd door <name> [args...]` starts
+the process (printing the same script `gtd --workflow` does); an unknown door or
+the wrong number of args is a usage error (exit 2). `gtd doors` lists every
+door, one `name [args] → workflow` line each; `gtd doors --json` prints them as
+data for a driver to offer.
 
 ### Episodes, replay and divergence
 
@@ -681,14 +710,7 @@ reserved `config` export. Build it with `defineConfig` from `@pmelab/gtd/flows`:
 import { defineConfig } from "@pmelab/gtd/flows"
 
 export { feature as default, feature, review, fix } from "@pmelab/gtd/workflows"
-export {
-  summary,
-  base,
-  steering,
-  skills,
-  access,
-  doors,
-} from "@pmelab/gtd/workflows"
+export { summary, steering, skills, access } from "@pmelab/gtd/workflows"
 
 export const config = defineConfig({
   modes: {
@@ -1199,7 +1221,7 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   verdict at `health.judge` needs before a red streak escalates early. Blank,
   non-numeric or non-finite means it can never be cleared, so the early
   escalation is off.
-- **`reviewNoteActionable`** (`0.7`) — `build.review.triage`'s floor a
+- **`reviewNoteActionable`** (`0.7`) — `feature`'s `build.review.triage` floor a
   non-`edit` verdict (`question`, `nit`, `praise`) on a review note must clear.
   Below it, the note counts as `edit` and goes to `build.review.collecting` and
   a replan. A note whose evidence was cut, or that got no verdict, also counts

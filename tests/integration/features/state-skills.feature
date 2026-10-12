@@ -110,6 +110,6 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
     And gtd lands "gtd(check): fix-precheck → build.fix"
     When I run gtd next
     Then it succeeds
-    # build.fix's bundled default (see src/workflows/skills.ts), untouched by the env var.
+    # build.fix's bundled default (see src/workflows/shared/skills.ts), untouched by the env var.
     And stdout contains "debugging-and-error-recovery"
     And stdout does not contain "code-review, testing"

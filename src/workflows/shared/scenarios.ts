@@ -1,5 +1,5 @@
-import { human, scope } from "../flows/index.js"
-import * as kit from "../workflow-kit/index.js"
+import { human, scope } from "../../flows/index.js"
+import * as kit from "../../workflow-kit/index.js"
 import * as t from "./text.js"
 
 export {
@@ -8,7 +8,7 @@ export {
   scenarioText,
   wordingDrift,
   type FrozenScenarios,
-} from "../workflow-kit/index.js"
+} from "../../workflow-kit/index.js"
 
 /** After a turn: stop at `scenario-wording` while wording drifted; accept moves the snapshot. */
 export const holdWording = (frozen: kit.FrozenScenarios | undefined): Promise<void> =>

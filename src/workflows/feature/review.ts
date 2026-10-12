@@ -1,60 +1,23 @@
+import { answered, judge, numeric, vars, type JudgeQuestion } from "../../flows/index.js"
+import type { ReviewNote } from "../../steering/index.js"
+import * as kit from "../../workflow-kit/index.js"
+import { healthy, type EscalationCount } from "../shared/health.js"
+import { guarded, type FrozenScenarios } from "../shared/scenarios.js"
 import {
-  answered,
-  judge,
-  numeric,
-  removeScript,
-  run,
-  scope,
-  vars,
-  type JudgeQuestion,
-} from "../flows/index.js"
-import type { ReviewNote } from "../steering/index.js"
-import * as kit from "../workflow-kit/index.js"
-import { escalation, FIX_CAP, healthy, type EscalationCount } from "./health.js"
-import type { BuiltPlan } from "./packages.js"
-import { guarded, type FrozenScenarios } from "./scenarios.js"
-import {
-  answerReviewQuestions,
-  ARCHITECTURE,
   awaitReview,
-  collecting,
   fixCheck,
-  fixNits,
-  fixQuality,
   fixRisks,
-  QUALITY,
   REQUIREMENTS,
   REVIEW,
   reviewing,
   reviewMissing,
-  reviewQuality,
-} from "./steps.js"
-import * as t from "./text.js"
+} from "../shared/steps.js"
+import { closeReview, tail } from "../shared/tail.js"
+import * as t from "../shared/text.js"
+import type { BuiltPlan } from "./packages.js"
+import { answerReviewQuestions, collecting, fixNits } from "./steps.js"
 
-/** Split a `qualityReviews` value into its lenses: on `,`, trimmed, blanks dropped. */
-export const lensesOf = kit.lensesOf
-
-/**
- * One review turn per lens over the whole change, each appending every
- * finding to `.gtd/QUALITY.md`. Resolves `"findings"` when that file
- * has any.
- */
-export const qualityLap = (): Promise<"clean" | "findings"> =>
-  kit.qualityLap(lensesOf(vars.qualityReviews ?? ""), reviewQuality, QUALITY)
-
-/** Resolves `true` once `.gtd/QUALITY.md` is resolved, `false` when the fix cap escalated instead. */
-export const fixQualityFindings = (
-  escalations: EscalationCount,
-  frozen?: FrozenScenarios,
-): Promise<boolean> =>
-  kit.fixFindings({
-    fix: guarded(frozen, fixQuality),
-    findings: QUALITY,
-    cap: FIX_CAP,
-    escalate: () => escalation(escalations),
-  })
-
-export type { ReviewOutcome } from "../workflow-kit/index.js"
+export type { ReviewOutcome } from "../../workflow-kit/index.js"
 
 const VERDICTS: readonly kit.Verdict[] = ["edit", "question", "nit", "praise"]
 
@@ -120,8 +83,7 @@ export const review = (
     triage,
     answerQuestions: answerReviewQuestions,
     fixNits: (notes) => guarded(frozen, () => fixNits(notes), "review")(),
-    close: (round) =>
-      run("review.closing", removeScript([REVIEW]), { label: "Closing the review", base: round }),
+    close: closeReview,
     captures: {
       edits: t.reviewEditsCapture,
       notes: t.reviewNotesCapture,
@@ -141,31 +103,4 @@ export const buildTail = (
   base: string,
   built?: BuiltPlan,
 ): Promise<kit.ReviewOutcome> =>
-  scope("build", async () => {
-    const frozen = built?.frozen
-    const escalations: EscalationCount = { rounds: 0 }
-    const guardedFix = guarded(frozen, () => fixCheck())
-    let redFirst = fixFirst
-    // fixFirst's own fix + healthy below already is the full run.
-    if (!fixFirst) {
-      await healthy(
-        guarded(frozen, () => fixCheck(built)),
-        { escalations, sweepOnGreen: [ARCHITECTURE] },
-      )
-    }
-    // The lap runs once a tail: after its findings are fixed, review follows.
-    let lapped = false
-    for (;;) {
-      if (redFirst) {
-        await guardedFix()
-        await healthy(guardedFix, { fixesSoFar: 1, escalations })
-        redFirst = false
-      }
-      const lap = lapped ? "clean" : await qualityLap()
-      lapped = true
-      if (lap === "clean") return review(base, escalations, frozen)
-      if (await fixQualityFindings(escalations, frozen)) {
-        await healthy(guardedFix, { escalations })
-      } else redFirst = true
-    }
-  })
+  tail(fixFirst, (escalations, frozen) => review(base, escalations, frozen), built)

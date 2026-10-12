@@ -163,7 +163,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     And gtd lands "gtd(check): review-gate.check → build.health.check"
     And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     # The reviewing prompt makes the agent write this marker verbatim as
-    # `refs.reviewBase` (src/workflows/text.ts). BASE here is
+    # `refs.reviewBase` (src/workflows/shared/text.ts). BASE here is
     # substituted for the real hash "boundary" resolves to — not typed by
     # this scenario — so the assertions below compare `gtd base`'s output
     # against a value this scenario did not itself supply: two independently
