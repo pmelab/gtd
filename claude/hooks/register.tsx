@@ -2,39 +2,28 @@ import { atom, read, update } from "claude-code"
 import type { EngineInterface, Register } from "claude-code"
 
 import type { Run, Stop } from "../types"
-import { accessDenial } from "./access"
+import { accessDenial, mainDenial } from "./access"
 import type { AccessDef } from "./access"
+import { wakePrompt, wakes } from "./assist"
 import { afterReload, drive, isTrue } from "./drive"
-import type { Io, Turn, TurnEnd } from "./drive"
+import type { Io, Opening, Turn, TurnEnd } from "./drive"
 import { doors, enter } from "./doors"
 import { subagentModel } from "./models"
 import { personaSpec, resumable } from "./persona"
-import { JUDGE_SYSTEM, judgePrompt, judgeRunEnv, toVerdicts } from "./judge"
+import { JUDGE_SYSTEM, judgePrompt, judgeQuestions, judgeRunEnv, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
-import { documents } from "./schema"
+import { documents, readDocument } from "./schema"
 import { READ_ONLY_GIT, ship } from "./ship"
 import type { ShipIo } from "./ship"
+import { decideContinue, restId, TOOLS } from "./tools"
 import {
-  ANYONE,
   beatLine,
-  CANCEL,
-  CLOSE,
-  CONTINUE,
-  gateOptions,
-  HANDOFF,
-  handoffQuestion,
   headline,
-  LATER,
   pushText,
-  runningLine,
-  question,
   restartLine,
   RELOAD_CUT_SCRIPT,
-  SAFE,
-  SHIP,
-  shipQuestion,
-  STALE,
+  runningLine,
   TONE,
 } from "./wording"
 
@@ -53,11 +42,9 @@ const TEN_MINUTES = 600_000
 // gtd refuses outside the repository root; every process runs there.
 let root = "."
 let gateUi: { stop(): void } | undefined
-// bumped per rest, so an answer or hand-back for an older rest is ignored
+// bumped per rest, so a browser view of an older rest is ignored
 let gateToken = 0
 let lastGate: { state?: string; head: string } | undefined
-// the question dialog this mod has open, to mark it stale once gtd moves on
-let openAsk: { token: number; text: string } | undefined
 
 let stopRequested = false
 // when the current step began, for the band's elapsed time
@@ -66,6 +53,8 @@ let stepStartedAt = Date.now()
 // together cannot both pass the isRunning check and start two drivers.
 let isDriving = false
 let isShipping = false
+// bumped by every stop, so a queued continue that was mid-check sees it
+let stopCount = 0
 // subagents answering into a file: what each may touch (see tool.call)
 const delegates = new Map<string, { file: string; mayRun: RegExp | undefined }>()
 const ours = new Set<string>()
@@ -229,15 +218,16 @@ async function head($: $) {
   return (await $.process.run(["git", "rev-parse", "HEAD"], { cwd: root })).stdout.trim()
 }
 
-async function start($: $, landTurn?: string) {
+async function start($: $, opening: Opening = {}) {
   if (isDriving) return
   isDriving = true
   closeUi()
   moveOn($)
   stopRequested = false
   await findRoot($)
-  await update($, run, () => ({ isRunning: true, beat: 0 }))
-  void drive(io($), landTurn)
+  // Requests not yet handed to a rest outlive a restart.
+  await update($, run, (r) => ({ isRunning: true, beat: 0, notes: r.notes }))
+  void drive(io($), opening)
     .catch((err: unknown): Stop => ({ kind: "error", text: String(err) }))
     .then(async (stop) => {
       isDriving = false
@@ -245,12 +235,55 @@ async function start($: $, landTurn?: string) {
       const isRepeat =
         stop.kind === "gate" && at.state === lastGate?.state && at.head === lastGate?.head
       lastGate = at
-      await update($, run, (r) => ({ ...r, isRunning: false, stop, isRepeat }))
+      const rest = restId(at.head, stop.state)
+      await update($, run, (r) => ({ ...r, isRunning: false, stop, rest, isRepeat }))
       $.ui.status(undefined)
       $.ui.toast(headline(stop))
-      if (stop.kind === "gate" || stop.kind === "done") await openGate($)
-      else await push($, stop)
+      await push($, stop)
+      await wake($)
     })
+}
+
+// A rest that needs the person hands the session's model a prompt to help them
+// through it; the model moves gtd on only through the mod's tools.
+async function wake($: $) {
+  const r = await read($, run)
+  const stop = r.stop
+  if (!stop || !r.rest) return
+  const branch = stop.kind === "done" ? await shippable($) : undefined
+  if (!wakes(stop, branch)) return
+  const questions = stop.isJudge ? await openQuestions($) : undefined
+  const text = wakePrompt({
+    stop,
+    rest: r.rest,
+    notes: r.notes,
+    isRepeat: r.isRepeat,
+    questions,
+    branch,
+  })
+  await update($, run, (x) => ({ ...x, notes: undefined }))
+  // Not from inside the hook that started the run: a prompt submitted there
+  // would wait on that hook's own turn.
+  $.clock.after(0, () => void $.prompt.submit({ text }))
+}
+
+async function openQuestions($: $) {
+  try {
+    const j = readDocument<Judgment>("judge --json", await gtd($, ["judge", "--json"]))
+    return judgeQuestions(j).filter((q) => typeof q !== "string")
+  } catch {
+    return undefined
+  }
+}
+
+// The branch a finished process can open its pull request from, if any.
+async function shippable($: $) {
+  const branch = (
+    await $.process.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })
+  ).stdout.trim()
+  if (["main", "master", "HEAD"].includes(branch)) return undefined
+  const summary = await $.process.run(["gtd", "summary"], { cwd: root })
+  return summary.exitCode === 0 ? branch : undefined
 }
 
 // A new process starts from the requirements written to the steering file an
@@ -318,38 +351,22 @@ function serveUi($: $, token: number) {
   return isReady
 }
 
-// The engine's own question dialog, not a pane: it is the state herdr, the
-// desktop app and Remote Control recognize as "waiting on you".
-async function openGate($: $) {
+// `gtd ui` on request only: the session's model is the main way through a rest.
+async function browse($: $) {
+  const r = await read($, run)
+  if (r.isRunning || r.stop?.kind !== "gate") return "gtd is not waiting at a step right now."
+  if (r.stop.isJudge) return "This step has no browser view."
+  if (r.url) return `Open in your browser: ${r.url}`
   closeUi()
   const token = ++gateToken
-  await update($, run, (r) => ({ ...r, url: undefined, uiNote: undefined }))
-  const stop = (await read($, run)).stop
-  if (stop?.kind === "done") return offerShip($, token)
-  // A judge gate has no screen in gtd ui: it refuses to start there.
-  if (!stop?.isJudge) await Promise.race([serveUi($, token), $.clock.sleep(8000)])
-  const r = await read($, run)
-  if (token !== gateToken || !r.stop) return
-  await push($, r.stop, r.url)
-  // Also a transcript line: Remote Control and the phone show no dialog.
-  if (r.url) $.ui.log(`Open in your browser: ${r.url}`)
-  const answer = await ask($, token, question(r), gateOptions(r.stop))
-  if (token !== gateToken) return
-  if (answer === CONTINUE || answer === SAFE) await proceed($)
-  if (answer === HANDOFF) await askThrow($)
-}
-
-// The engine's own dialog; undefined when dismissed. Remembered, so it can be
-// marked out of date once gtd moves on without it (a mod cannot close it).
-async function ask($: $, token: number, text: string, options: string[]) {
-  openAsk = { token, text }
-  try {
-    return await $.ui.ask(text, { header: "gtd", options })
-  } catch {
-    return undefined
-  } finally {
-    if (openAsk?.text === text) openAsk = undefined
+  await update($, run, (x) => ({ ...x, url: undefined, uiNote: undefined }))
+  await Promise.race([serveUi($, token), $.clock.sleep(8000)])
+  const now = await read($, run)
+  if (now.url) {
+    if (now.stop) await push($, now.stop, now.url)
+    return `Open in your browser: ${now.url}`
   }
+  return `The browser view did not start${now.uiNote ? `: ${now.uiNote}` : "."}`
 }
 
 // A gate is news even when nobody watches the terminal: a push reaches the
@@ -367,13 +384,8 @@ async function push($: $, stop: Stop, url?: string) {
   }
 }
 
-async function askThrow($: $) {
-  const answer = await ask($, gateToken, handoffQuestion, [ANYONE, CANCEL])
-  if (answer && answer !== CANCEL) await throwNow($, answer === ANYONE ? undefined : answer.trim())
-}
-
 async function throwNow($: $, target: string | undefined) {
-  if ((await read($, run)).isRunning) return $.ui.log("Stop the loop first: /gtd stop.")
+  if ((await read($, run)).isRunning) return "Stop the loop first: /gtd stop."
   closeUi()
   moveOn($)
   const b = await docs($).next()
@@ -396,10 +408,8 @@ async function throwNow($: $, target: string | undefined) {
       uiNote: undefined,
       stop: { kind: "stopped" as const, text: thrown.text },
     }))
-  } else if ((await read($, run)).stop?.kind === "gate") {
-    // Nothing left: the person is still at the gate they tried to throw.
-    void openGate($)
   }
+  return thrown.text
 }
 
 async function enterNow($: $, door: string, args: string[]) {
@@ -420,24 +430,15 @@ async function catchNow($: $, ref: string) {
   if (b.kind === "message") {
     const stop: Stop = { kind: "gate", text: b.content ?? "", state: b.state, label: b.label }
     if (b.judge) stop.isJudge = true
-    await update($, run, (r) => ({ ...r, stop, isRepeat: false }))
-    void openGate($)
+    if (b.file) stop.file = b.file
+    if (b.mode) stop.mode = b.mode
+    const rest = restId(await head($), b.state)
+    await update($, run, (r) => ({ ...r, stop, rest, isRepeat: false }))
+    void wake($)
   } else {
     await start($)
   }
   return caught.text
-}
-
-// A finished process on a feature branch is one answer away from its pull request.
-async function offerShip($: $, token: number) {
-  const branch = (
-    await $.process.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })
-  ).stdout.trim()
-  const summary = await $.process.run(["gtd", "summary"], { cwd: root })
-  if (summary.exitCode !== 0 || ["main", "master", "HEAD"].includes(branch)) return
-  await push($, { kind: "done", text: "", label: `ready to open a pull request for ${branch}` })
-  const answer = await ask($, token, shipQuestion(branch), [SHIP, LATER])
-  if (answer === SHIP && token === gateToken) await shipNow($, false)
 }
 
 // Ship's text turns need git to read the process, so they run as a subagent.
@@ -549,7 +550,7 @@ function shipIo($: $): ShipIo {
 }
 
 async function shipNow($: $, isDry: boolean) {
-  if (isShipping) return $.ui.log("A pull request is already being prepared.")
+  if (isShipping) return "A pull request is already being prepared."
   isShipping = true
   await dismiss($)
   $.ui.status(isDry ? "previewing the pull request…" : "opening the pull request…")
@@ -561,6 +562,7 @@ async function shipNow($: $, isDry: boolean) {
   $.ui.status(undefined)
   for (const line of shipped.text.split("\n")) $.ui.log(line)
   $.ui.toast(shipped.ok ? "pull request ready" : "opening the pull request failed")
+  return shipped.text
 }
 
 // Turns a missing CLI or a wrong directory into an instruction, not a stack trace.
@@ -624,17 +626,125 @@ function moveOn($: $) {
   $.ui.invalidate("ui.render")
 }
 
-async function proceed($: $) {
+// The one way on from a rest, for the model's tool and the band's Continue
+// alike; a string is why it did not move.
+// `isInTurn`: asked from the model's own turn. Its subagents would then count
+// as that turn's background work and keep it open, so the loop starts once the
+// turn has ended; until then the continue waits in the run state.
+async function proceed(
+  $: $,
+  rest?: string,
+  verdicts?: unknown,
+  isInTurn = false,
+): Promise<string | undefined> {
+  const r = await read($, run)
+  const go = await decideContinue(r, rest, verdicts, {
+    current: () => currentRest($, r.stop?.state),
+    validate: () => validateRest($),
+    judgment: async () => {
+      const doc = await gtd($, ["judge", "--json"]).catch(() => undefined)
+      return doc === undefined ? undefined : readDocument<Judgment>("judge --json", doc)
+    },
+  })
+  if (go.refuse !== undefined) return go.refuse
+  const opening = r.stop?.isJudge ? { isAnswered: true, verdict: go.verdict } : {}
+  if (isInTurn) {
+    await update($, run, (x) => ({ ...x, pending: { rest: r.rest ?? "", ...opening } }))
+    return undefined
+  }
+  await leaveRest($)
+  await start($, opening)
+  return undefined
+}
+
+// The rest's own `gtd validate` script, run.
+async function validateRest($: $) {
+  const script = await gtd($, ["validate"])
+  if (script.trim().startsWith("nothing to validate")) return { ok: true, out: "" }
+  const v = await $.process.run(["sh", "-c", script], { cwd: root, timeoutMs: TEN_MINUTES })
+  return { ok: v.exitCode === 0, out: `${v.stdout}${v.stderr}`.trim() }
+}
+
+async function tellModel($: $, text: string, stops: number) {
+  if (stops === stopCount) await $.prompt.submit({ text })
+}
+
+async function leaveRest($: $) {
   moveOn($)
   closeUi()
-  await update($, run, (r) => ({ ...r, stop: undefined, url: undefined, uiNote: undefined }))
-  await start($)
+  await update($, run, (x) => ({
+    ...x,
+    stop: undefined,
+    rest: undefined,
+    pending: undefined,
+    url: undefined,
+    uiNote: undefined,
+  }))
+}
+
+// The rest gtd is at now: HEAD and, when the stop named one, its state.
+// Undefined when gtd cannot say, which checks nothing.
+async function currentRest($: $, state: string | undefined) {
+  try {
+    const now = state === undefined ? undefined : (await docs($).next()).state
+    return restId(await head($), now)
+  } catch {
+    return undefined
+  }
+}
+
+// A continue the model asked for, once its turn is over: only if gtd still
+// waits where the person answered, its file still validates (it can change
+// outside this session, or across a reload), and no stop came in meanwhile.
+async function launchPending($: $) {
+  const stops = stopCount
+  const r = await read($, run)
+  const pending = r.pending
+  if (!pending) return
+  await update($, run, (x) => ({ ...x, pending: undefined }))
+  const now = await currentRest($, r.stop?.state)
+  if (now !== undefined && now !== pending.rest) {
+    $.ui.toast("gtd moved on before it could continue: nothing was landed")
+    return
+  }
+  if (r.stop?.kind === "gate" && !r.stop.isJudge) {
+    const v = await validateRest($)
+    if (!v.ok) {
+      const text = `gtd did not continue: the step's file no longer validates.\n${v.out}\nFix it with the person, then call continue again with rest "${pending.rest}".`
+      if (stops === stopCount) $.clock.after(0, () => void tellModel($, text, stops))
+      return
+    }
+  }
+  // Nothing awaited between this check and `start`'s own reset of the stop
+  // flag, so a stop cannot slip in between; `start` also clears the rest.
+  if (stops !== stopCount) return
+  await start($, pending.isAnswered ? { isAnswered: true, verdict: pending.verdict } : {})
+}
+
+async function note($: $, text: string) {
+  const r = await read($, run)
+  if (!r.isRunning && !r.stop) return "No gtd process is underway here."
+  await update($, run, (x) => ({ ...x, notes: [...(x.notes ?? []), text] }))
+  return "Noted for the next step that waits on the person."
+}
+
+async function bandContinue($: $) {
+  const refused = await proceed($)
+  if (!refused) return
+  $.ui.toast(refused.split("\n")[0]!)
+  for (const line of refused.split("\n")) $.ui.log(line)
 }
 
 async function dismiss($: $) {
   moveOn($)
   closeUi()
-  await update($, run, (r) => ({ ...r, stop: undefined, url: undefined, uiNote: undefined }))
+  await update($, run, (r) => ({
+    ...r,
+    stop: undefined,
+    rest: undefined,
+    url: undefined,
+    uiNote: undefined,
+  }))
 }
 
 const DROPPED = "gtd subagent notice"
@@ -643,12 +753,18 @@ async function refreshBand($: $) {
   if ((await read($, run)).isRunning) $.ui.invalidate("ui.render")
 }
 
+// A continue still waiting for the model's turn to end is dropped too.
+async function stopNow($: $) {
+  stopRequested = true
+  stopCount++
+  if (!(await read($, run)).pending) return "Stopping after the current beat."
+  await update($, run, (x) => ({ ...x, pending: undefined }))
+  return "Cancelled the pending continue; gtd stays where it is."
+}
+
 // `/gtd [verb] …`; anything that is not a verb is a new process's requirements.
 async function command($: $, arg: string): Promise<string | undefined> {
-  if (arg === "stop") {
-    stopRequested = true
-    return "Stopping after the current beat."
-  }
+  if (arg === "stop") return stopNow($)
   const problem = await preflight($)
   if (problem) return problem
   const [verb = "", ...rest] = arg.split(/\s+/)
@@ -656,15 +772,15 @@ async function command($: $, arg: string): Promise<string | undefined> {
     case "status":
       return gtd($, ["next"])
     case "throw":
-      void throwNow($, rest[0])
-      return undefined
+      return throwNow($, rest[0])
+    case "ui":
+      return browse($)
     case "catch":
       return rest[0]
         ? catchNow($, rest[0])
         : "Name the pull request or branch: /gtd catch <number|branch>."
     case "ship":
-      void shipNow($, rest[0] === "-n" || rest[0] === "--dry-run")
-      return undefined
+      return shipNow($, rest[0] === "-n" || rest[0] === "--dry-run")
     case "":
       return resume($)
     default:
@@ -703,12 +819,70 @@ async function resumeAfterReload($: $, was: Run) {
       state: was.state,
       label: was.label,
     }
-    await update($, run, (r) => ({ ...r, stop }))
+    const rest = restId(await head($), was.state)
+    await update($, run, (r) => ({ ...r, stop, rest }))
     $.ui.status(undefined)
     $.ui.toast(headline(stop))
+    await wake($)
     return
   }
-  await start($, next === "land" ? inflight?.memory : undefined)
+  await start($, next === "land" ? { landTurn: inflight?.memory } : {})
+}
+
+// Whether an agent is one of gtd's workers or spawned (at any depth) by one;
+// any other agent works for the session's model and shares its limits.
+const lineage = new Map<string, boolean>()
+async function isOurs($: $, id: string) {
+  if (ours.has(id)) return true
+  const known = lineage.get(id)
+  if (known !== undefined) return known
+  const byId = new Map((await $.agent.list()).map((a) => [a.id, a]))
+  let parent = byId.get(id)?.parentId
+  for (let hops = 0; parent && hops < 16; hops++) {
+    if (ours.has(parent)) break
+    parent = byId.get(parent)?.parentId
+  }
+  const isWorker = parent !== undefined && ours.has(parent)
+  lineage.set(id, isWorker)
+  return isWorker
+}
+
+// What a subagent this mod spawned may not do: write outside its step's
+// access, or, answering into a file, anything but that.
+function subagentDenial(agentId: string, e: Record<string, unknown>) {
+  if (!ours.has(agentId)) return undefined
+  const access = accesses.get(agentId)
+  const denial = access && accessDenial(String(e.tool), e, access, root)
+  if (denial) return denial
+  const delegated = delegates.get(agentId)
+  if (!delegated) return undefined
+  if (e.tool === "Write" && e.file_path !== delegated.file) {
+    return `Write only your answer, to ${delegated.file}.`
+  }
+  if (e.tool === "Bash" && !delegated.mayRun?.test(String(e.command).trim())) {
+    return "Only read-only git commands, without shell syntax, are allowed here."
+  }
+  return undefined
+}
+
+// What the main session may write now (see mainDenial).
+async function phase($: $) {
+  const r = await read($, run)
+  const stop = r.stop
+  const atQa = stop?.kind === "gate" && !stop.isJudge
+  // A continue waiting for the turn to end is as good as running: the file
+  // it validated must not change before it lands.
+  const isRunning = r.isRunning || r.pending !== undefined
+  return { isRunning, mode: atQa ? stop.mode : undefined, file: stop?.file }
+}
+
+// A tool's answer. For `continue`, any text is a refusal the model reads as an
+// error; the other tools report what happened either way.
+function answer(text: string | undefined, isReport = false) {
+  if (text === undefined) {
+    return { result: "gtd continues as soon as this turn ends: end your turn now." }
+  }
+  return isReport ? { result: text } : { deny: text }
 }
 
 export const register: Register = (on) => {
@@ -716,16 +890,17 @@ export const register: Register = (on) => {
     // The band's elapsed time ticks while a step runs.
     $.clock.every(10_000, () => void refreshBand($))
     for (const id of await read($, agents)) ours.add(id)
-    // A reload drops the loop mid-beat and closes an open dialog; gtd keeps
-    // its state in git, so pick both up again.
+    // A reload drops the loop mid-beat; gtd keeps its state in git, so pick it
+    // up again. A rest needs nothing: the model already holds its prompt.
     const was = await read($, run)
     if (was.isRunning) void resumeAfterReload($, was)
-    else if (was.stop?.kind === "gate") void findRoot($).then(() => openGate($))
+    else void findRoot($).then(() => launchPending($))
+    for (const tool of TOOLS) await $.tool.register(tool)
     await $.command.register({
       name: "gtd",
       description: "Drive gtd until it rests on you; pass requirements to start a new process",
       argumentHint:
-        "[requirements | <door> [args] | stop | status | ship [-n] | throw [@user] | catch <pr|branch>]",
+        "[requirements | <door> [args] | stop | status | ui | ship [-n] | throw [@user] | catch <pr|branch>]",
       immediate: true,
     })
     return next(e)
@@ -737,6 +912,7 @@ export const register: Register = (on) => {
   }).catch(($, e, next) => ({ text: next.error.message }))
 
   on("turn.complete", ($, e, next) => {
+    if (!e.agentId) void launchPending($)
     if (e.agentId && ours.has(e.agentId)) {
       const end: TurnEnd =
         e.reason === "answer" ? { ok: true } : { ok: false, why: `agent turn ended: ${e.reason}` }
@@ -750,20 +926,13 @@ export const register: Register = (on) => {
 
   // The loop lands a turn when it ends; work left running in the background
   // would still be writing the tree gtd is committing.
-  on("tool.call", ($, e, next) => {
-    if (!e.agentId || !ours.has(e.agentId)) return next(e)
-    const access = accesses.get(e.agentId)
-    const denial = access && accessDenial(String(e.tool), e, access, root)
+  on("tool.call", async ($, e, next) => {
+    const isWorker = e.agentId !== undefined && (await isOurs($, e.agentId))
+    const denial = isWorker
+      ? subagentDenial(e.agentId!, e)
+      : mainDenial(String(e.tool), e, await phase($), root)
     if (denial) return { deny: denial }
-    const delegated = delegates.get(e.agentId)
-    if (delegated) {
-      if (e.tool === "Write" && e.file_path !== delegated.file) {
-        return { deny: `Write only your answer, to ${delegated.file}.` }
-      }
-      if (e.tool === "Bash" && !delegated.mayRun?.test(String(e.command).trim())) {
-        return { deny: "Only read-only git commands, without shell syntax, are allowed here." }
-      }
-    }
+    if (!e.agentId || !ours.has(e.agentId)) return next(e)
     if (e.tool === "Bash") {
       return next({ ...e, run_in_background: false, timeout: e.timeout ?? TEN_MINUTES })
     }
@@ -781,29 +950,19 @@ export const register: Register = (on) => {
     return next(e)
   })
 
-  // A dialog gtd has moved past still waits for an answer; say it is stale.
-  on("ui.render", { component: "AskUserQuestion" }, ($, e, next) => {
-    const [first] = e.props.questions as { question?: string }[]
-    if (!openAsk || openAsk.token === gateToken || first?.question !== openAsk.text) return next(e)
-    return next({
-      ...e,
-      props: {
-        ...e.props,
-        questions: [
-          {
-            ...first,
-            question: STALE,
-            header: "gtd",
-            multiSelect: false,
-            options: [
-              { label: CLOSE, description: "Nothing happens." },
-              { label: LATER, description: "Nothing happens." },
-            ],
-          },
-        ],
-      },
-    })
-  })
+  on("tool.call", { tool: "mcp__gtd__continue" }, async ($, e) =>
+    answer(await proceed($, String(e.rest ?? ""), e.verdicts, true)),
+  )
+  on("tool.call", { tool: "mcp__gtd__note" }, async ($, e) =>
+    answer(await note($, String(e.text ?? "")), true),
+  )
+  on("tool.call", { tool: "mcp__gtd__handoff" }, async ($, e) =>
+    answer(await throwNow($, typeof e.to === "string" && e.to ? e.to : undefined), true),
+  )
+  on("tool.call", { tool: "mcp__gtd__ship" }, async ($, e) =>
+    answer(await shipNow($, e.dryRun === true), true),
+  )
+  on("tool.call", { tool: "mcp__gtd__browser" }, async ($) => answer(await browse($), true))
 
   on("agent.offer", ($, e, next) => (e.agent.startsWith("gtd:") ? { isOffered: false } : next(e)))
 
@@ -832,7 +991,7 @@ export const register: Register = (on) => {
           <Text color={TONE[stop.kind]} bold>
             gtd {headline(stop)}
           </Text>
-          <Button key="go" label="Continue" variant="primary" onPress={() => proceed($)} />
+          <Button key="go" label="Continue" variant="primary" onPress={() => bandContinue($)} />
           <Button key="dismiss" label="Dismiss" role="dismiss" onPress={() => dismiss($)} />
         </Box>
         {ui && <Text dimColor>{ui}</Text>}

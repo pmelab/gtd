@@ -111,3 +111,30 @@ export function toVerdicts(j: Judgment, reply: unknown): Verdict[] | string {
   }
   return out
 }
+
+// Each question as a person is asked it: its instructions, criteria and the
+// answers it takes; a string is why it cannot be asked.
+export function judgeQuestions(j: Judgment) {
+  return j.questions.map((q) => {
+    const levels = levelsOf(q)
+    if (typeof levels === "string") return levels
+    const meaning = levels.map(([label, text], i) =>
+      q.primitive === "score" ? `${i + 1}: ${text}` : `${label}: ${text}`,
+    )
+    return {
+      id: q.id,
+      instructions: q.instructions,
+      criteria: q.primitive === "noul" ? [q.criteria] : meaning,
+      options: optionsOf(q, levels),
+    }
+  })
+}
+
+// A person's `{ <id>: <answer> }` as gtd's verdicts, held with certainty.
+export function humanVerdicts(j: Judgment, answers: unknown): Verdict[] | string {
+  if (typeof answers !== "object" || answers === null) return "verdicts must be an object"
+  const reply = Object.fromEntries(
+    Object.entries(answers).map(([id, answer]) => [id, { answer, p: 1 }]),
+  )
+  return toVerdicts(j, reply)
+}

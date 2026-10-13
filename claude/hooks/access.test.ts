@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import { accessDenial } from "./access"
+import { accessDenial, mainDenial, RUNNING_DENIAL } from "./access"
 
 const root = "/repo"
 const access = { read: ["src/**", "docs/*.md"], write: [".gtd/REVIEW.md"] }
@@ -76,5 +76,34 @@ describe("accessDenial", () => {
 
   test("other tools pass", () => {
     expect(accessDenial("WebFetch", { url: "x" }, access, root)).toBeUndefined()
+  })
+})
+
+describe("mainDenial", () => {
+  const edit = (path: string) => ({ file_path: path })
+
+  test("while a step runs, every file write is refused and reads are not", () => {
+    const running = { isRunning: true }
+    expect(mainDenial("Edit", edit("/repo/src/a.ts"), running, root)).toBe(RUNNING_DENIAL)
+    expect(mainDenial("NotebookEdit", { notebook_path: "a.ipynb" }, running, root)).toBe(
+      RUNNING_DENIAL,
+    )
+    expect(mainDenial("Read", edit("src/a.ts"), running, root)).toBeUndefined()
+    expect(mainDenial("Bash", { command: "rm -rf src" }, running, root)).toBeUndefined()
+  })
+
+  test("a qa rest allows only its steering file", () => {
+    const qa = { isRunning: false, mode: "qa", file: ".gtd/REQUIREMENTS.md" }
+    expect(mainDenial("Edit", edit("/repo/.gtd/REQUIREMENTS.md"), qa, root)).toBeUndefined()
+    expect(mainDenial("Write", edit(".gtd/REQUIREMENTS.md"), qa, root)).toBeUndefined()
+    expect(mainDenial("Edit", edit("/repo/src/a.ts"), qa, root)).toContain(
+      "only .gtd/REQUIREMENTS.md may change",
+    )
+  })
+
+  test("a review rest, or no rest, writes freely", () => {
+    const review = { isRunning: false, mode: "review", file: ".gtd/REVIEW.md" }
+    expect(mainDenial("Edit", edit("/repo/src/a.ts"), review, root)).toBeUndefined()
+    expect(mainDenial("Edit", edit("/repo/src/a.ts"), { isRunning: false }, root)).toBeUndefined()
   })
 })

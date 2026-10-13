@@ -131,6 +131,26 @@ describe("drive", () => {
     expect(calls).toEqual([])
   })
 
+  test("a person's answer to an opening judge gate lands without asking the judge", async () => {
+    const gate: Beat = { kind: "message", state: "judge-review", judge: { questions: [] } }
+    const asked: string[] = []
+    const judge = async () => (asked.push("judge"), "[auto]")
+    const answered = fake([gate], [{ script: "true", settled: true }], { judge })
+    await drive(answered.io, { isAnswered: true, verdict: "[v]" })
+    const untouched = fake([gate], [{ script: "true", settled: true }], { judge })
+    await drive(untouched.io, { isAnswered: true })
+    expect([answered.calls, untouched.calls, asked]).toEqual([
+      ["land:[v]", "sh:true"],
+      ["land", "sh:true"],
+      [],
+    ])
+  })
+
+  test("a gate carries its steering file's mode", async () => {
+    const { io } = fake([{ kind: "capture" }, { kind: "message", file: "R.md", mode: "qa" }])
+    expect(await drive(io)).toMatchObject({ kind: "gate", file: "R.md", mode: "qa" })
+  })
+
   test("a failing landing script stops the loop", async () => {
     const { io } = fake([{ kind: "capture" }], [], { sh: async () => 1 })
     expect(await drive(io)).toMatchObject({ kind: "error", text: "landing script exited 1" })
@@ -150,7 +170,7 @@ describe("drive", () => {
       ],
       [{ script: "commit" }, { script: "next", settled: true }],
     )
-    await drive(io, "build#a")
+    await drive(io, { landTurn: "build#a" })
     expect(calls).toEqual(["land", "sh:commit", "turn:build#a:false:", "land", "sh:next"])
   })
 })
