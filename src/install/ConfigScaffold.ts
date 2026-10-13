@@ -7,13 +7,13 @@ export const CONFIG_SCAFFOLD = `// The workflows gtd runs here: gtd's shipped fe
 export {
   feature as default,
   feature,
-  review,
-  fix,
   defaults,
   envDefaults,
   summary,
   steering,
   skills,
   access,
-} from "@pmelab/gtd/workflows"
+} from "@pmelab/gtd/workflows/feature"
+export { review } from "@pmelab/gtd/workflows/review"
+export { fix } from "@pmelab/gtd/workflows/fix"
 `

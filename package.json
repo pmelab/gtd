@@ -7,16 +7,55 @@
     "gtd": "dist/gtd.bundle.mjs"
   },
   "exports": {
-    "./flows": "./src/flows/index.ts",
+    "./flows": {
+      "types": "./src/flows/index.ts",
+      "source": "./src/flows/index.ts",
+      "default": "./dist/flows.mjs"
+    },
+    "./wire": {
+      "types": "./src/wire/index.ts",
+      "source": "./src/wire/index.ts",
+      "default": "./dist/wire.mjs"
+    },
+    "./steering": {
+      "types": "./src/steering/index.ts",
+      "source": "./src/steering/index.ts",
+      "default": "./dist/steering.mjs"
+    },
+    "./workflow-kit": {
+      "types": "./src/workflow-kit/index.ts",
+      "source": "./src/workflow-kit/index.ts",
+      "default": "./dist/workflow-kit.mjs"
+    },
     "./workflows": {
       "types": "./src/workflows/index.ts",
       "source": "./src/workflows/index.ts",
       "default": "./dist/workflows.mjs"
     },
+    "./workflows/feature": {
+      "types": "./src/workflows/feature/index.ts",
+      "source": "./src/workflows/feature/index.ts",
+      "default": "./dist/workflows/feature.mjs"
+    },
+    "./workflows/review": {
+      "types": "./src/workflows/review/index.ts",
+      "source": "./src/workflows/review/index.ts",
+      "default": "./dist/workflows/review.mjs"
+    },
+    "./workflows/fix": {
+      "types": "./src/workflows/fix/index.ts",
+      "source": "./src/workflows/fix/index.ts",
+      "default": "./dist/workflows/fix.mjs"
+    },
     "./workflow": {
       "types": "./src/workflows/index.ts",
       "source": "./src/workflows/index.ts",
       "default": "./dist/workflows.mjs"
+    },
+    "./testkit": {
+      "types": "./src/testkit/index.ts",
+      "source": "./src/testkit/index.ts",
+      "default": "./dist/testkit.mjs"
     }
   },
   "files": [
@@ -24,6 +63,17 @@
     "src/flows/",
     "src/workflows/",
     "src/workflow-kit/",
+    "src/wire/",
+    "src/steering/",
+    "src/testkit/",
+    "src/cli/",
+    "src/edge/",
+    "src/emit/",
+    "src/install/",
+    "src/platform/",
+    "src/replay/",
+    "src/step/",
+    "src/workflow/",
     "README.md",
     "LICENSE",
     ".claude-plugin/plugin.json",
@@ -51,7 +101,7 @@
   "scripts": {
     "prepare": "husky",
     "dev": "node dev/run.mjs",
-    "build": "tsdown --filter web && npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css --minify && node scripts/inline-web-client.mjs && tsdown --filter gtd && tsdown --filter workflows",
+    "build": "tsdown --filter web && npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css --minify && node scripts/inline-web-client.mjs && tsdown --filter gtd && tsdown --filter workflows && tsdown --filter entrypoints",
     "postbuild": "node scripts/assert-no-test-doubles.mjs",
     "watch": "tsdown --watch",
     "bench:replay": "node scripts/bench-replay.mjs",
@@ -75,7 +125,7 @@
     "test:web": "vitest run --project storybook",
     "storybook": "storybook dev --host 0.0.0.0",
     "coverage": "vitest run --project unit --coverage",
-    "eval": ": \"${GTD_EVALS_URL:?GTD_EVALS_URL is required — the OpenAI-compatible gateway every graded turn and the judge run through}\" && : \"${GTD_EVALS_KEY:?GTD_EVALS_KEY is required — the gateway bearer key}\" && npx turbo run build && node evals/eval.mjs",
+    "eval": ": \"${GTD_EVALS_URL:?GTD_EVALS_URL is required \u2014 the OpenAI-compatible gateway every graded turn and the judge run through}\" && : \"${GTD_EVALS_KEY:?GTD_EVALS_KEY is required \u2014 the gateway bearer key}\" && npx turbo run build && node evals/eval.mjs",
     "eval:baseline": "node evals/compare-baseline.mjs --record"
   },
   "lint-staged": {
@@ -131,7 +181,17 @@
     "zustand": "^5.0.15"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "quickpickle": ">=1.11.2",
+    "typescript": "^5",
+    "vitest": ">=3.2.0"
+  },
+  "peerDependenciesMeta": {
+    "quickpickle": {
+      "optional": true
+    },
+    "vitest": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@effect/platform": "^0.94.2",

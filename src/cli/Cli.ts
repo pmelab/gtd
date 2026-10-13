@@ -537,9 +537,9 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "runtime — the self-serve version of",
       "https://github.com/pmelab/gtd/blob/main/docs/driver.md's",
       "'Writing your own driver'. At a repository root no",
-      "gtd.config.ts governs yet, it also writes one importing gtd's",
-      "shipped workflows from @pmelab/gtd/workflows; anywhere else",
-      "it writes nothing.",
+      "gtd.config.ts governs yet, it also writes one importing each",
+      "shipped workflow from @pmelab/gtd/workflows/<name>; anywhere",
+      "else it writes nothing.",
     ],
   },
   {

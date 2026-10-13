@@ -1015,6 +1015,25 @@ describe("renderHelp", () => {
     expect(match![1] + "\n").toBe(renderHelp())
   })
 
+  it("README.md and COMPATIBILITY.md list exactly the commands", () => {
+    const commands = new Set(
+      [...renderHelp().matchAll(/^ {2}([a-z]+(?: [a-z]+)?)(?= )/gm)].map(([, name]) => name),
+    )
+    expect(commands).toContain("judge answer")
+    const listed = (file: string, list: RegExp): Set<string> => {
+      const doc = readFileSync(resolve(import.meta.dirname, file), "utf8")
+      const match = doc.match(list)
+      expect(match, file).not.toBeNull()
+      return new Set([...match![1]!.matchAll(/`([a-z]+(?: [a-z]+)?)`/g)].map(([, name]) => name!))
+    }
+    expect(listed("../../README.md", /The `gtd` bin's commands — ([\s\S]*?) — are listed/)).toEqual(
+      commands,
+    )
+    expect(listed("../../COMPATIBILITY.md", /every command \(([\s\S]*?)\), option/)).toEqual(
+      commands,
+    )
+  })
+
   it("docs/cli.md's Exit codes table, pinned beside the rendered help output, is exactly wire's frozen EXIT_CODES", () => {
     const doc = readFileSync(resolve(import.meta.dirname, "../../docs/cli.md"), "utf8")
     const match = doc.match(/### Exit codes\n\n[^\n]*\n[^\n]*\n\n((?:\|.*\n)+)/)

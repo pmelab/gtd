@@ -365,11 +365,21 @@ describe("spec 20: the unit map", () => {
       cruiseFiles({
         "src/ui/index.ts": `export const ui = 1\n`,
         "src/cli/index.ts": `import { ui } from "../ui/index.js"\nexport const cli = ui\n`,
-        "src/program.ts": `import { ui } from "./ui/index.js"\nexport const program = ui\n`,
+        "src/program.ts": `export const program = () => import("./ui/index.js")\n`,
       }),
     ).toEqual([
       "core-imports-only-contracts,only-composition-roots-import-drivers-and-tools: src/cli/index.ts -> src/ui/index.ts",
     ])
+  })
+
+  it("fails a composition root loading a tool eagerly, and passes one loading its types", () => {
+    expect(
+      cruiseFiles({
+        "src/ui/index.ts": `export const ui = 1\nexport type Ui = number\n`,
+        "src/program.ts": `import { ui } from "./ui/index.js"\nexport const program = ui\n`,
+        "src/main.ts": `import type { Ui } from "./ui/index.js"\nexport const main: Ui = 1\n`,
+      }),
+    ).toEqual(["composition-roots-load-tools-lazily: src/program.ts -> src/ui/index.ts"])
   })
 
   it("fails a package no unit is allowed", () => {

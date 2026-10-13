@@ -36,21 +36,21 @@ whole workflow. A `gtd.config.ts` found nowhere is an error naming
 `gtd install`.
 
 `gtd install`, run at a repository root no `gtd.config.ts` governs yet, writes
-one that re-exports gtd's shipped workflows:
+one that re-exports gtd's shipped workflows, each from its own subpath:
 
 ```ts
 export {
   feature as default,
   feature,
-  review,
-  fix,
   defaults,
   envDefaults,
   summary,
   steering,
   skills,
   access,
-} from "@pmelab/gtd/workflows"
+} from "@pmelab/gtd/workflows/feature"
+export { review } from "@pmelab/gtd/workflows/review"
+export { fix } from "@pmelab/gtd/workflows/fix"
 ```
 
 **Upgrading from a gtd that ran its workflows without a `gtd.config.ts`:** run
@@ -105,12 +105,13 @@ other non-function export. **A helper you export is a workflow too**, startable
 by name — keep helpers un-exported, or export them from another module you
 import.
 
-gtd resolves `@pmelab/gtd/flows` and `@pmelab/gtd/workflows` itself, to its own
-copy, so a repository — JavaScript or not (Python, Rust, notes) — needs no
-`package.json`, `node_modules` or install: a root `gtd.config.ts` is all it
-takes. The workflows a config imports are always the running gtd's, so pinning
-the gtd version pins them. Add `@pmelab/gtd` as a dev dependency only if you
-want editor type-checking for it.
+gtd resolves every `@pmelab/gtd/*` subpath but `@pmelab/gtd/testkit` itself (see
+[Entrypoints](https://github.com/pmelab/gtd/blob/main/README.md#entrypoints)),
+to its own copy, so a repository — JavaScript or not (Python, Rust, notes) —
+needs no `package.json`, `node_modules` or install: a root `gtd.config.ts` is
+all it takes. The workflows a config imports are always the running gtd's, so
+pinning the gtd version pins them. Add `@pmelab/gtd` as a dev dependency only if
+you want editor type-checking for it.
 
 A direct `@pmelab/gtd/flows` import in `gtd.config.ts` always gets the engine's
 own copy, so it cannot mismatch; a dev-dependency pin only feeds editor
@@ -299,19 +300,22 @@ The script renderers (`checkScript`, `revertScript`, `restoreScript`,
 ### Reusing the shipped workflows
 
 `@pmelab/gtd/workflows` is gtd's shipped workflows (`@pmelab/gtd/workflow` still
-resolves to the same module): its default export is the `feature` factory, and
-every part of it is a named export another workflow can import — its `defaults`,
-`envDefaults`, `summary` and `skills`, the three startable workflows as
-[factories](#workflow-factories) (`feature`, `review`, `fix`) and as plain flows
-(`ordinaryStart`, `reviewFlow`, `fixFlow`), the phases (`unwind`,
-`planAndBuild`, `design`, `architecture`, `packages`, `buildTail`,
-`handOffTail`, `handOffReview`, `fixReviewNotes`, `qualityLap`, `healthy`,
-`gate`, …) and every single step (`triage`, `build`, `fixCheck`, `reviewing`,
-`collecting`, …). A step's name is relative to the `scope()` it runs in — the
-bundled workflow's `scope("build", …)` around `healthy` is what makes
-`build.health.check` — and the full names are part of gtd's versioned API: they
-never change outside a major release, because a rename strands every process
-resting on the old name.
+resolves to the same module). Each also has its own subpath —
+`@pmelab/gtd/workflows/feature`, `…/review` and `…/fix` — exporting its factory
+as the default, its own parts and the reserved exports (`defaults`,
+`envDefaults`, `summary`, `steering`, `skills`, `access`). The aggregate's
+default export is the `feature` factory, and every part of it is a named export
+another workflow can import — its `defaults`, `envDefaults`, `summary` and
+`skills`, the three startable workflows as [factories](#workflow-factories)
+(`feature`, `review`, `fix`) and as plain flows (`ordinaryStart`, `reviewFlow`,
+`fixFlow`), the phases (`unwind`, `planAndBuild`, `design`, `architecture`,
+`packages`, `buildTail`, `handOffTail`, `handOffReview`, `fixReviewNotes`,
+`qualityLap`, `healthy`, `gate`, …) and every single step (`triage`, `build`,
+`fixCheck`, `reviewing`, `collecting`, …). A step's name is relative to the
+`scope()` it runs in — the bundled workflow's `scope("build", …)` around
+`healthy` is what makes `build.health.check` — and the full names are part of
+gtd's versioned API: they never change outside a major release, because a rename
+strands every process resting on the old name.
 
 Re-export `envDefaults` alongside `defaults`: a workflow that re-exports only
 `defaults` loses `testCommand`, `fastTestCommand`, `plannerModel` and

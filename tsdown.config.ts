@@ -1,13 +1,14 @@
 import { defineConfig } from "tsdown"
 
-// Three configs, browser-first: the phone/web client bundles for the browser
+// Four configs, browser-first: the phone/web client bundles for the browser
 // platform, then `scripts/inline-web-client.mjs` folds its output into
 // src/ui/client.generated.html (gitignored), which the node config below imports
 // through the ".html" text loader. tsdown builds array
 // entries in PARALLEL (see its `buildWithConfigs`), so this ordering is not
 // self-enforcing — `npm run build`'s script runs `tsdown --filter web`,
-// the inline step, `tsdown --filter gtd`, then `tsdown --filter workflows` as
-// separate sequential steps, using each config's `name` to select it.
+// the inline step, `tsdown --filter gtd`, `tsdown --filter workflows`, then
+// `tsdown --filter entrypoints` as separate sequential steps, using each
+// config's `name` to select it.
 export default defineConfig([
   {
     name: "web",
@@ -66,5 +67,31 @@ const require = __createRequire(import.meta.url);`,
     deps: { alwaysBundle: [/.*/] },
     dts: false,
     outputOptions: { codeSplitting: false },
+  },
+  {
+    // Every other package subpath. One build so the entries share chunks;
+    // `tests/tooling/entrypoints.test.ts` pins what each entry may contain.
+    name: "entrypoints",
+    entry: {
+      flows: "src/flows/index.ts",
+      wire: "src/wire/index.ts",
+      steering: "src/steering/index.ts",
+      "workflow-kit": "src/workflow-kit/index.ts",
+      "workflows/feature": "src/workflows/feature/index.ts",
+      "workflows/review": "src/workflows/review/index.ts",
+      "workflows/fix": "src/workflows/fix/index.ts",
+      testkit: "src/testkit/index.ts",
+    },
+    format: ["esm"],
+    platform: "node",
+    target: "node20",
+    outDir: "dist",
+    outExtensions: () => ({ js: ".mjs" }),
+    clean: ["dist/chunks", "dist/workflows", "dist/{flows,wire,steering,workflow-kit,testkit}.mjs"],
+    // The test runner testkit runs inside is the consumer's own: its optional
+    // peers stay imports.
+    deps: { alwaysBundle: (id) => !/^(vitest|quickpickle|@vitest\/)/.test(id) },
+    dts: false,
+    outputOptions: { chunkFileNames: "chunks/[name]-[hash].mjs" },
   },
 ])

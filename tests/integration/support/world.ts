@@ -342,6 +342,9 @@ export class GtdWorld extends QuickPickleWorld {
   /** Absolute path to the extracted driver script inside `driverDocDir`, chmod'd executable. */
   driverDocPath: string | undefined = undefined
 
+  /** The gtd bundle a live spawn runs: this build's, or one installed from the packed tarball. */
+  gtdBin: string = GTD_BIN
+
   /** Env vars the in-memory tier's `EnvVars` layer exposes — never mutates the real `process.env`. */
   envVars: Record<string, string> = {}
 
@@ -520,7 +523,7 @@ export class GtdWorld extends QuickPickleWorld {
   async runGtdLiveWithin(timeout: number, ...args: string[]): Promise<void> {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
     try {
-      const { stdout, stderr } = await execFile(process.execPath, [GTD_BIN, ...args], {
+      const { stdout, stderr } = await execFile(process.execPath, [this.gtdBin, ...args], {
         cwd: this.repoDir,
         env: this.spawnEnv(),
         encoding: "utf-8",
@@ -597,7 +600,7 @@ export class GtdWorld extends QuickPickleWorld {
    */
   private async runGtdLiveWithStdin(stdin: string, ...args: string[]): Promise<void> {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
-    const child = spawn(process.execPath, [GTD_BIN, ...args], {
+    const child = spawn(process.execPath, [this.gtdBin, ...args], {
       cwd: this.repoDir,
       env: this.spawnEnv(),
       stdio: ["pipe", "pipe", "pipe"],
@@ -651,7 +654,7 @@ export class GtdWorld extends QuickPickleWorld {
    * parsing or `eval`.
    */
   async runGtdLandJsonScriptPiped(): Promise<void> {
-    const pipeline = `${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)} land --json=script | sh`
+    const pipeline = `${JSON.stringify(process.execPath)} ${JSON.stringify(this.gtdBin)} land --json=script | sh`
     try {
       const { stdout, stderr } = await execFile("sh", ["-c", pipeline], {
         cwd: this.repoDir,
@@ -666,13 +669,13 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /** `@live` only — runs `command` under `sh -c` in the repo, so a scenario can spell out a real pipe between gtd invocations. */
-  async runShell(command: string): Promise<void> {
+  async runShell(command: string, timeout = 30_000): Promise<void> {
     try {
       const { stdout, stderr } = await execFile("sh", ["-c", command], {
         cwd: this.repoDir,
         env: this.spawnEnv(),
         encoding: "utf-8",
-        timeout: 30_000,
+        timeout,
       })
       this.lastResult = { exitCode: 0, stdout, stderr }
     } catch (err: unknown) {
@@ -691,7 +694,7 @@ export class GtdWorld extends QuickPickleWorld {
    * process.
    */
   async runGtdNextRedirectedAndPiped(): Promise<void> {
-    const bin = `${JSON.stringify(process.execPath)} ${JSON.stringify(GTD_BIN)}`
+    const bin = `${JSON.stringify(process.execPath)} ${JSON.stringify(this.gtdBin)}`
     const directFile = join(mkdtempSync(join(tmpdir(), "gtd-pipe-direct-")), "out")
     const pipedFile = join(mkdtempSync(join(tmpdir(), "gtd-pipe-piped-")), "out")
     const runOpts = {
@@ -800,7 +803,7 @@ export class GtdWorld extends QuickPickleWorld {
     timeoutMessage: string,
     onMarker: () => void = () => {},
   ): Promise<void> {
-    const child = spawn(process.execPath, [GTD_BIN, ...args], {
+    const child = spawn(process.execPath, [this.gtdBin, ...args], {
       cwd: this.repoDir,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -875,7 +878,7 @@ export class GtdWorld extends QuickPickleWorld {
   }> {
     const child = spawn(
       process.execPath,
-      [GTD_BIN, "ui", "--host", "127.0.0.1", "--self-signed", "--port", "0"],
+      [this.gtdBin, "ui", "--host", "127.0.0.1", "--self-signed", "--port", "0"],
       { cwd: this.repoDir, env: this.spawnEnv(), stdio: ["ignore", "pipe", "pipe"] },
     )
     let stdout = ""
@@ -946,7 +949,7 @@ export class GtdWorld extends QuickPickleWorld {
     // (`GTD_TEST_TAILSCALE_DIR`). Scoped to THIS spawn only, not
     // `spawnEnv()`'s general env, per `withServeHome`'s own doc comment.
     assert.ok(this.serveHomeDir !== undefined, "no serveHomeDir on this world (not @live?)")
-    const child = spawn(process.execPath, [GTD_BIN, "ui", "--port", String(servePort)], {
+    const child = spawn(process.execPath, [this.gtdBin, "ui", "--port", String(servePort)], {
       cwd: this.repoDir,
       env: { ...this.spawnEnv(), HOME: this.serveHomeDir },
       stdio: ["ignore", "pipe", "pipe"],
@@ -1081,7 +1084,7 @@ export class GtdWorld extends QuickPickleWorld {
     readonly servePort: number
   }> {
     assert.ok(this.serveHomeDir !== undefined, "no serveHomeDir on this world (not @live?)")
-    const child = spawn(process.execPath, [GTD_BIN, "ui"], {
+    const child = spawn(process.execPath, [this.gtdBin, "ui"], {
       cwd: this.repoDir,
       env: { ...this.spawnEnv(), HOME: this.serveHomeDir },
       stdio: ["ignore", "pipe", "pipe"],

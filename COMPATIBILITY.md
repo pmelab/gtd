@@ -34,17 +34,30 @@ histories written by an older or newer gtd.
 
 ## Follows package SemVer
 
-- **CLI commands and flags** — every command, option and argument in
+- **CLI commands and flags** — every command (`next`, `land`, `abandon`,
+  `restore`, `validate`, `check`, `uncheck`, `install`, `summary`, `base`,
+  `door`, `doors`, `version`, `help`, `ui`, `lsp`, `loop`, `judge`,
+  `judge answer`, `judge run`), option and argument in
   [CLI reference](docs/cli.md), the doors the bundled `fix` and `review` build
   (`fix`, `review [base]`), and the `gtd doors --json` array (a bare array with
   no `schema`).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
   stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
   [Error envelope](docs/cli.md#error-envelope).
-- **Entrypoint exports** — `@pmelab/gtd/flows` (including its `FLOWS_PROTOCOL`
-  number) and `@pmelab/gtd/workflows` (also resolvable as
-  `@pmelab/gtd/workflow`), step functions' options included. See
-  [Reusing the shipped workflows](docs/configuration.md#reusing-the-shipped-workflows).
+- **Entrypoint exports** — every subpath of the one package, each export's name,
+  type and behaviour, step functions' options included (see
+  [Entrypoints](README.md#entrypoints)):
+  - `@pmelab/gtd/flows`, including its `FLOWS_PROTOCOL` number
+  - `@pmelab/gtd/wire`
+  - `@pmelab/gtd/steering`
+  - `@pmelab/gtd/workflow-kit`
+  - `@pmelab/gtd/workflows`, also resolvable as `@pmelab/gtd/workflow` (see
+    [Reusing the shipped workflows](docs/configuration.md#reusing-the-shipped-workflows))
+  - `@pmelab/gtd/workflows/feature`, `@pmelab/gtd/workflows/review`,
+    `@pmelab/gtd/workflows/fix`
+  - `@pmelab/gtd/testkit`'s `testRepo`, `runsItsScript` and `InMemRepo`, with
+    the `TestRepo` and `TestkitWorld` types and its optional peers `vitest` and
+    `quickpickle`
 - **The `gtd.config.ts` shape** — every exported function and workflow factory
   (or call of one) is a workflow, the shipped factories' options are the
   settings below, and the reserved exports (`defaults`, `envDefaults`, `doors`,
@@ -76,6 +89,9 @@ Anything not listed above, e.g.:
 - **UI** — `gtd ui`, the Claude Code mod, and the example drivers in
   [Driver protocol](docs/driver.md).
 - **LSP features** — everything `gtd lsp` offers an editor.
+- **testkit's engine seams** — every other `@pmelab/gtd/testkit` export: the git
+  contract suites, the fake git and workspace operations and the capturing CLI
+  io gtd's own tests run on.
 
 ## Non-goals
 
