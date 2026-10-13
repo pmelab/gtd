@@ -13,6 +13,7 @@ const judgment = {
 const fake = (over: Partial<ContinueIo> = {}) => {
   const calls: string[] = []
   const io: ContinueIo = {
+    current: async () => "abc:design.gate",
     validate: async () => (calls.push("validate"), { ok: true, out: "" }),
     judgment: async () => (calls.push("judgment"), judgment),
     ...over,
@@ -48,6 +49,20 @@ describe("continue", () => {
     const r = await decideContinue(at(gate), "old:design.gate", undefined, io)
     expect(r.refuse).toContain("moved on")
     expect(calls).toEqual([])
+  })
+
+  test("a rest gtd left outside this session is refused, the band's Continue too", async () => {
+    const { io, calls } = fake({ current: async () => "def:building" })
+    for (const rest of ["abc:design.gate", undefined]) {
+      const r = await decideContinue(at(gate), rest, undefined, io)
+      expect(r.refuse).toContain("no longer at that step")
+    }
+    expect(calls).toEqual([])
+  })
+
+  test("when gtd cannot say where it is, nothing is checked against it", async () => {
+    const { io } = fake({ current: async () => undefined })
+    expect(await decideContinue(at(gate), "abc:design.gate", undefined, io)).toEqual({})
   })
 
   test("the band's Continue always means the rest on screen", async () => {

@@ -66,6 +66,8 @@ export const restId = (head: string, state: string | undefined) =>
 export type Proceed = { refuse: string } | { refuse?: undefined; verdict?: string }
 
 export type ContinueIo = {
+  // the rest gtd is at now; undefined when it cannot say
+  current(): Promise<string | undefined>
   // the rest's own `gtd validate` script, run; ok when there is nothing to check
   validate(): Promise<{ ok: boolean; out: string }>
   judgment(): Promise<Judgment | undefined>
@@ -88,6 +90,14 @@ export async function decideContinue(
   if (rest !== undefined && rest !== run.rest) {
     return {
       refuse: "gtd has moved on from that step; it no longer waits there. Nothing was changed.",
+    }
+  }
+  // Another terminal or a branch switch can move gtd under a waiting answer.
+  const now = await io.current()
+  if (now !== undefined && now !== run.rest) {
+    return {
+      refuse:
+        "gtd is no longer at that step (it changed outside this session): /gtd shows where it is.",
     }
   }
   if (stop.kind === "gate" && stop.isJudge) return judged(verdicts, io)

@@ -53,8 +53,6 @@ let stepStartedAt = Date.now()
 // together cannot both pass the isRunning check and start two drivers.
 let isDriving = false
 let isShipping = false
-// a continue the model asked for, waiting for its turn to end
-let afterTurn: Opening | undefined
 // subagents answering into a file: what each may touch (see tool.call)
 const delegates = new Map<string, { file: string; mayRun: RegExp | undefined }>()
 const ours = new Set<string>()
@@ -225,7 +223,8 @@ async function start($: $, opening: Opening = {}) {
   moveOn($)
   stopRequested = false
   await findRoot($)
-  await update($, run, () => ({ isRunning: true, beat: 0 }))
+  // Requests not yet handed to a rest outlive a restart.
+  await update($, run, (r) => ({ isRunning: true, beat: 0, notes: r.notes }))
   void drive(io($), opening)
     .catch((err: unknown): Stop => ({ kind: "error", text: String(err) }))
     .then(async (stop) => {
@@ -629,7 +628,7 @@ function moveOn($: $) {
 // alike; a string is why it did not move.
 // `isInTurn`: asked from the model's own turn. Its subagents would then count
 // as that turn's background work and keep it open, so the loop starts once the
-// turn has ended.
+// turn has ended; until then the continue waits in the run state.
 async function proceed(
   $: $,
   rest?: string,
@@ -638,9 +637,10 @@ async function proceed(
 ): Promise<string | undefined> {
   const r = await read($, run)
   const go = await decideContinue(r, rest, verdicts, {
+    current: () => currentRest($, r.stop?.state),
     validate: async () => {
       const script = await gtd($, ["validate"])
-      if (script.trim() === "nothing to validate") return { ok: true, out: "" }
+      if (script.trim().startsWith("nothing to validate")) return { ok: true, out: "" }
       const v = await $.process.run(["sh", "-c", script], { cwd: root, timeoutMs: TEN_MINUTES })
       return { ok: v.exitCode === 0, out: `${v.stdout}${v.stderr}`.trim() }
     },
@@ -650,23 +650,54 @@ async function proceed(
     },
   })
   if (go.refuse !== undefined) return go.refuse
+  const opening = r.stop?.isJudge ? { isAnswered: true, verdict: go.verdict } : {}
+  if (isInTurn) {
+    await update($, run, (x) => ({ ...x, pending: { rest: r.rest ?? "", ...opening } }))
+    return undefined
+  }
+  await leaveRest($)
+  await start($, opening)
+  return undefined
+}
+
+async function leaveRest($: $) {
   moveOn($)
   closeUi()
   await update($, run, (x) => ({
     ...x,
     stop: undefined,
     rest: undefined,
+    pending: undefined,
     url: undefined,
     uiNote: undefined,
   }))
-  const opening = r.stop?.isJudge ? { isAnswered: true, verdict: go.verdict } : {}
-  if (!isInTurn) {
-    await start($, opening)
+}
+
+// The rest gtd is at now: HEAD and, when the stop named one, its state.
+// Undefined when gtd cannot say, which checks nothing.
+async function currentRest($: $, state: string | undefined) {
+  try {
+    const now = state === undefined ? undefined : (await docs($).next()).state
+    return restId(await head($), now)
+  } catch {
     return undefined
   }
-  afterTurn = opening
-  await update($, run, (x) => ({ ...x, isRunning: true, beat: 0 }))
-  return undefined
+}
+
+// A continue the model asked for, once its turn is over: only if gtd still
+// waits where the person answered.
+async function launchPending($: $) {
+  const r = await read($, run)
+  const pending = r.pending
+  if (!pending) return
+  await update($, run, (x) => ({ ...x, pending: undefined }))
+  const now = await currentRest($, r.stop?.state)
+  if (now !== undefined && now !== pending.rest) {
+    $.ui.toast("gtd moved on before it could continue: nothing was landed")
+    return
+  }
+  await leaveRest($)
+  await start($, pending.isAnswered ? { isAnswered: true, verdict: pending.verdict } : {})
 }
 
 async function note($: $, text: string) {
@@ -701,12 +732,17 @@ async function refreshBand($: $) {
   if ((await read($, run)).isRunning) $.ui.invalidate("ui.render")
 }
 
+// A continue still waiting for the model's turn to end is dropped too.
+async function stopNow($: $) {
+  stopRequested = true
+  if (!(await read($, run)).pending) return "Stopping after the current beat."
+  await update($, run, (x) => ({ ...x, pending: undefined }))
+  return "Cancelled the pending continue; gtd stays where it is."
+}
+
 // `/gtd [verb] …`; anything that is not a verb is a new process's requirements.
 async function command($: $, arg: string): Promise<string | undefined> {
-  if (arg === "stop") {
-    stopRequested = true
-    return "Stopping after the current beat."
-  }
+  if (arg === "stop") return stopNow($)
   const problem = await preflight($)
   if (problem) return problem
   const [verb = "", ...rest] = arg.split(/\s+/)
@@ -761,12 +797,32 @@ async function resumeAfterReload($: $, was: Run) {
       state: was.state,
       label: was.label,
     }
-    await update($, run, (r) => ({ ...r, stop }))
+    const rest = restId(await head($), was.state)
+    await update($, run, (r) => ({ ...r, stop, rest }))
     $.ui.status(undefined)
     $.ui.toast(headline(stop))
+    await wake($)
     return
   }
   await start($, next === "land" ? { landTurn: inflight?.memory } : {})
+}
+
+// Whether an agent is one of gtd's workers or spawned (at any depth) by one;
+// any other agent works for the session's model and shares its limits.
+const lineage = new Map<string, boolean>()
+async function isOurs($: $, id: string) {
+  if (ours.has(id)) return true
+  const known = lineage.get(id)
+  if (known !== undefined) return known
+  const byId = new Map((await $.agent.list()).map((a) => [a.id, a]))
+  let parent = byId.get(id)?.parentId
+  for (let hops = 0; parent && hops < 16; hops++) {
+    if (ours.has(parent)) break
+    parent = byId.get(parent)?.parentId
+  }
+  const isWorker = parent !== undefined && ours.has(parent)
+  lineage.set(id, isWorker)
+  return isWorker
 }
 
 // What a subagent this mod spawned may not do: write outside its step's
@@ -813,7 +869,7 @@ export const register: Register = (on) => {
     // up again. A rest needs nothing: the model already holds its prompt.
     const was = await read($, run)
     if (was.isRunning) void resumeAfterReload($, was)
-    else void findRoot($)
+    else void findRoot($).then(() => launchPending($))
     for (const tool of TOOLS) await $.tool.register(tool)
     await $.command.register({
       name: "gtd",
@@ -831,11 +887,7 @@ export const register: Register = (on) => {
   }).catch(($, e, next) => ({ text: next.error.message }))
 
   on("turn.complete", ($, e, next) => {
-    if (!e.agentId && afterTurn) {
-      const opening = afterTurn
-      afterTurn = undefined
-      void start($, opening)
-    }
+    if (!e.agentId) void launchPending($)
     if (e.agentId && ours.has(e.agentId)) {
       const end: TurnEnd =
         e.reason === "answer" ? { ok: true } : { ok: false, why: `agent turn ended: ${e.reason}` }
@@ -850,8 +902,9 @@ export const register: Register = (on) => {
   // The loop lands a turn when it ends; work left running in the background
   // would still be writing the tree gtd is committing.
   on("tool.call", async ($, e, next) => {
-    const denial = e.agentId
-      ? subagentDenial(e.agentId, e)
+    const isWorker = e.agentId !== undefined && (await isOurs($, e.agentId))
+    const denial = isWorker
+      ? subagentDenial(e.agentId!, e)
       : mainDenial(String(e.tool), e, await phase($), root)
     if (denial) return { deny: denial }
     if (!e.agentId || !ours.has(e.agentId)) return next(e)

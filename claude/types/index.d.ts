@@ -18,6 +18,9 @@ export type Run = {
   stop?: Stop
   // the rest a person is helped at: HEAD and state, so an answer to an older one is refused
   rest?: string
+  // a continue the model asked for, started once its turn ends (and only if
+  // gtd still rests at `rest`); kept here so a reload does not lose a verdict
+  pending?: { rest: string; isAnswered?: boolean; verdict?: string | undefined }
   // requests a person made while a step ran, for the next rest's assistant
   notes?: string[]
   // `gtd ui`'s address while it serves the current rest
