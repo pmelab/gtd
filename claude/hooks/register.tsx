@@ -665,6 +665,10 @@ async function validateRest($: $) {
   return { ok: v.exitCode === 0, out: `${v.stdout}${v.stderr}`.trim() }
 }
 
+async function tellModel($: $, text: string, stops: number) {
+  if (stops === stopCount) await $.prompt.submit({ text })
+}
+
 async function leaveRest($: $) {
   moveOn($)
   closeUi()
@@ -707,12 +711,13 @@ async function launchPending($: $) {
     const v = await validateRest($)
     if (!v.ok) {
       const text = `gtd did not continue: the step's file no longer validates.\n${v.out}\nFix it with the person, then call continue again with rest "${pending.rest}".`
-      $.clock.after(0, () => void $.prompt.submit({ text }))
+      if (stops === stopCount) $.clock.after(0, () => void tellModel($, text, stops))
       return
     }
   }
+  // Nothing awaited between this check and `start`'s own reset of the stop
+  // flag, so a stop cannot slip in between; `start` also clears the rest.
   if (stops !== stopCount) return
-  await leaveRest($)
   await start($, pending.isAnswered ? { isAnswered: true, verdict: pending.verdict } : {})
 }
 
