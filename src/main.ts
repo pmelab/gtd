@@ -1,6 +1,7 @@
 import { Runtime } from "@effect/platform"
 import { NodeRuntime } from "@effect/platform-node"
 import { nodeCliIo, runCli } from "./cli/index.js"
+import { liveToolCommands } from "./program.js"
 
 // `runMain`'s own SIGINT/SIGTERM handling interrupts the fiber and exits 0,
 // which reads as a plain exit rather than a signal death to a parent's `wait`
@@ -22,7 +23,7 @@ process.once("SIGHUP", () => {
   process.kill(process.pid, "SIGTERM")
 })
 
-NodeRuntime.runMain(runCli(process.argv, nodeCliIo), {
+NodeRuntime.runMain(runCli(process.argv, nodeCliIo(liveToolCommands)), {
   teardown: (exit, onExit) => {
     if (deathSignal === undefined) {
       Runtime.defaultTeardown(exit, onExit)

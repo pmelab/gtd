@@ -409,7 +409,7 @@ const simulateModeContradictionCheck = (
 
 /**
  * `src/emit/ModeContradiction.ts`'s `buildModeContradictionCheck` — the
- * contradiction round-trip block `resolveValidateScript` (`src/program.ts`)
+ * contradiction round-trip block `resolveValidateScript` (`src/cli/Program.ts`)
  * emits ahead of `fileExistsGuard` for a mode with a live built-in validator
  * and a declared `format:`. Carries no blank line of its own, so it always
  * arrives here as ONE block.

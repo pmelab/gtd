@@ -1,4 +1,4 @@
-import { globMatches } from "../../src/replay/Glob.js"
+import { globMatches } from "../../src/wire/Glob.js"
 
 export type AccessDef = { read: string[] | null; write: string[] | null }
 

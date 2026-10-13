@@ -30,7 +30,7 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
 
   Scenario: the emitted validate script may write under TMPDIR while gtd itself still writes nothing there
     # Package 2's mode-contradiction round-trip (src/emit/ModeContradiction.ts,
-    # src/program.ts's scratchSamplePath) writes a scratch sample under
+    # src/cli/Program.ts's scratchSamplePath) writes a scratch sample under
     # $TMPDIR — but only the EMITTED SCRIPT does that, once a driver runs it;
     # gtd the process still names no "/tmp" literal and calls no mktemp (see
     # tests/tooling/no-tmp-assumption.test.ts). Inspected via the unexecuted

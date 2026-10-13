@@ -20,6 +20,7 @@ import {
   type CliIo,
   type Command,
   type CliPlan,
+  ToolCommands,
 } from "./index.js"
 import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 import { type CommandRequirements } from "./Cli.js"
@@ -1125,7 +1126,7 @@ describe("runCli — exit codes", () => {
     expect(captured().exitCode).toBe(EXIT_RUNTIME_ERROR)
   })
 
-  it("an unknown --json=<path> selector exits EXIT_USAGE_ERROR, not EXIT_RUNTIME_ERROR — program.ts's SelectorUsageError mapped by report()", async () => {
+  it("an unknown --json=<path> selector exits EXIT_USAGE_ERROR, not EXIT_RUNTIME_ERROR — Program.ts's SelectorUsageError mapped by report()", async () => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
     repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
@@ -1229,11 +1230,13 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
 })
 
 describe("nodeCliIo", () => {
+  const io = nodeCliIo(Layer.succeed(ToolCommands, {} as ToolCommands["Type"]))
+
   it("exposes stdout/stderr/exit/layers", () => {
-    expect(typeof nodeCliIo.stdout).toBe("function")
-    expect(typeof nodeCliIo.stderr).toBe("function")
-    expect(typeof nodeCliIo.exit).toBe("function")
-    expect(typeof nodeCliIo.layers).toBe("function")
+    expect(typeof io.stdout).toBe("function")
+    expect(typeof io.stderr).toBe("function")
+    expect(typeof io.exit).toBe("function")
+    expect(typeof io.layers).toBe("function")
   })
 
   afterEach(() => {
@@ -1247,7 +1250,7 @@ describe("nodeCliIo", () => {
         if (typeof cb === "function") cb()
         return false // the queued-data case
       })
-    nodeCliIo.stdout("a large chunk")
+    io.stdout("a large chunk")
     expect(write).toHaveBeenCalledTimes(1)
     const [chunk, cb] = write.mock.calls[0]!
     expect(chunk).toBe("a large chunk")
@@ -1260,7 +1263,7 @@ describe("nodeCliIo", () => {
     })
     const before = process.exitCode
     try {
-      nodeCliIo.exit(10)
+      io.exit(10)
       expect(process.exitCode).toBe(10)
       expect(exit).not.toHaveBeenCalled()
     } finally {
@@ -1303,5 +1306,5 @@ describe("runCli — flush normalizes the artifact's trailing newline", () => {
 })
 
 // Re-exported so downstream test files can build Command values without
-// importing from program.js — keeps the type import exercised here too.
+// importing from Program.js — keeps the type import exercised here too.
 export type { Command }

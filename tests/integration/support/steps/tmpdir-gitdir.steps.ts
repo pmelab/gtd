@@ -83,7 +83,7 @@ Then(
 
 /**
  * Package 2: the mode-contradiction round-trip's scratch path
- * (`src/program.ts`'s `scratchSamplePath`) resolves under the overridden
+ * (`src/cli/Program.ts`'s `scratchSamplePath`) resolves under the overridden
  * `$TMPDIR` — proving the EMITTED script (never gtd itself, see
  * `tests/tooling/no-tmp-assumption.test.ts`) is the thing that would write
  * there once a driver runs it. Checked against the last result's stdout

@@ -18,7 +18,7 @@ export interface LandFields {
 }
 
 /**
- * `program.ts`'s `LandResult`, expressed structurally so `wire` never
+ * `Program.ts`'s `LandResult`, expressed structurally so `wire` never
  * imports it — the seven fields `LandFields` carries beside `schema`, but in `LandResult`'s
  * own declaration order (`state, subject, cost, model, script, settled,
  * idle`), not the wire's. Deliberately a different shape from `LandFields`:

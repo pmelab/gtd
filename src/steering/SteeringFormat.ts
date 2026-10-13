@@ -1,6 +1,9 @@
 // `InlineNode` aside, pure vocabulary: shared by the registry and the LSP's
 // translation layer without either pulling in the other's dependencies.
 import type { InlineNode } from "./Inline.js"
+import type { SteeringOutlineNode } from "./Outline.js"
+
+export type { SteeringOutlineNode } from "./Outline.js"
 
 /** The same shape `vscode-languageserver`'s `TextEdit` carries, kept format-side so this module stays protocol-independent. */
 export interface SteeringEdit {
@@ -14,26 +17,6 @@ export interface SteeringEdit {
 export interface SteeringAction {
   readonly title: string
   readonly edits: readonly SteeringEdit[]
-}
-
-/**
- * One node of a format's outline tree. `leaf: true` is the only distinction
- * a node carries — whatever icon or symbol kind an editor shows is the LSP
- * translation's call, not this module's.
- */
-export interface SteeringOutlineNode {
-  readonly name: string
-  readonly detail?: string
-  readonly range: {
-    readonly start: { readonly line: number; readonly character: number }
-    readonly end: { readonly line: number; readonly character: number }
-  }
-  readonly selectionRange: {
-    readonly start: { readonly line: number; readonly character: number }
-    readonly end: { readonly line: number; readonly character: number }
-  }
-  readonly leaf?: true
-  readonly children?: readonly SteeringOutlineNode[]
 }
 
 /** A go-to-definition target. `path` absent means "this same document" (a footnote jump); `character` defaults to 0. */

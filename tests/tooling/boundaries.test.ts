@@ -1,7 +1,7 @@
-import { execFileSync, spawnSync } from "node:child_process"
-import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { delimiter, join } from "node:path"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 // AGENTS.md's own-implementation-boundary rules are generic over path SHAPE,
@@ -185,43 +185,7 @@ describe("spec 03: cycle and root-module rules", () => {
       "src/b/index.ts -> src/a/index.ts",
     ])
     expect(byRule("root-no-boundary")).toEqual(["src/Root.ts -> src/a/index.ts"])
-    expect(byRule("composition-root-not-imported").toSorted()).toEqual([
-      "src/Root.test.ts -> src/program.ts",
-      "src/main.ts -> src/program.ts",
-    ])
-  })
-
-  it("lint:boundaries fails once a baseline entry no longer occurs", () => {
-    const dir = buildSpec03Fixture()
-    mkdirSync(join(dir, "tests"))
-    copyFileSync(join(REPO_ROOT, ".dependency-cruiser.mjs"), join(dir, ".dependency-cruiser.mjs"))
-    const bin = join(REPO_ROOT, "node_modules", ".bin")
-    execFileSync(join(bin, "depcruise-baseline"), ["src", "tests"], { cwd: dir })
-    const lint = () =>
-      spawnSync("node", [join(REPO_ROOT, "scripts", "lint-boundaries.mjs")], {
-        cwd: dir,
-        env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}` },
-        encoding: "utf8",
-      })
-
-    expect(lint().status).toBe(0)
-    writeFileSync(join(dir, "src", "Root.ts"), `export const root = 1\n`)
-    const stale = lint()
-    expect(stale.status).toBe(1)
-    expect(stale.stderr).toContain(
-      "1 .dependency-cruiser-known-violations.json entries no longer occur",
-    )
-  })
-
-  // Holds vacuously once later specs empty the baseline — it pins "nothing
-  // else", not that the current cycles are recorded.
-  it("baseline records only violations of the spec 03 rules", () => {
-    const baseline = JSON.parse(
-      readFileSync(join(REPO_ROOT, ".dependency-cruiser-known-violations.json"), "utf8"),
-    ) as Array<{ rule: { name: string } }>
-    const rules = new Set(baseline.map((v) => v.rule.name))
-    for (const rule of rules)
-      expect(["no-circular", "root-no-boundary", "composition-root-not-imported"]).toContain(rule)
+    expect(byRule("composition-root-not-imported")).toEqual(["src/Root.test.ts -> src/program.ts"])
   })
 })
 
@@ -257,7 +221,7 @@ describe("spec 04: src/ root holds only composition roots", () => {
   })
 })
 
-describe("spec 07: src/flows/ imports nothing and its tests reach no other src/", () => {
+describe("unit map: src/flows/ imports nothing and its tests reach no other src/", () => {
   it("flags production imports outside the folder and test imports of other src/ folders", () => {
     const dir = mkdtempSync(join(tmpdir(), "boundaries-spec07-"))
     mkdirSync(join(dir, "src", "flows"), { recursive: true })
@@ -291,9 +255,11 @@ describe("spec 07: src/flows/ imports nothing and its tests reach no other src/"
         .map((v) => `${v.from} -> ${v.to}`)
         .toSorted()
 
-    expect(byRule("flows-imports-nothing")).toEqual([
-      "src/flows/x.ts -> fs",
+    expect(byRule("pure-units-use-no-builtin")).toEqual(["src/flows/x.ts -> fs"])
+    expect(byRule("npm-vitest-only-where-used")).toEqual([
       "src/flows/x.ts -> node_modules/fast-check/index.js",
+    ])
+    expect(byRule("contracts-import-nothing-outside-themselves")).toEqual([
       "src/flows/x.ts -> src/other/index.ts",
     ])
     expect(byRule("flows-tests-import-no-src")).toEqual([
@@ -302,7 +268,7 @@ describe("spec 07: src/flows/ imports nothing and its tests reach no other src/"
   })
 })
 
-describe("spec 08: ui talks like a driver, web sees ui types only", () => {
+describe("unit map: ui imports only contracts, web sees ui types only", () => {
   it("flags ui production imports outside ui/wire/steering and value imports from web into ui", () => {
     const dir = mkdtempSync(join(tmpdir(), "boundaries-spec08-"))
     for (const folder of ["ui", "web", "wire", "steering", "platform"]) {
@@ -328,12 +294,14 @@ describe("spec 08: ui talks like a driver, web sees ui types only", () => {
         .map((v) => `${v.from} -> ${v.to}`)
         .toSorted()
 
-    expect(byRule("ui-talks-like-a-driver")).toEqual(["src/ui/Server.ts -> src/platform/index.ts"])
+    expect(byRule("tools-import-only-contracts")).toEqual([
+      "src/ui/Server.ts -> src/platform/index.ts",
+    ])
     expect(byRule("web-sees-ui-types-only")).toEqual(["src/web/App.tsx -> src/ui/index.ts"])
   })
 })
 
-describe("spec 09: src/loop/ imports only src/wire/", () => {
+describe("unit map: src/loop/ imports only contracts", () => {
   it("flags every other src/ folder, production and test alike, but no package", () => {
     const dir = mkdtempSync(join(tmpdir(), "boundaries-spec09-"))
     for (const folder of ["loop", "wire", "platform"]) {
@@ -352,12 +320,86 @@ describe("spec 09: src/loop/ imports only src/wire/", () => {
     const violations = cruise(dir, join(REPO_ROOT, ".dependency-cruiser.mjs"))
     expect(
       violations
-        .filter((v) => v.rules.includes("loop-imports-only-wire"))
+        .filter((v) => v.rules.includes("drivers-import-only-contracts"))
         .map((v) => `${v.from} -> ${v.to}`)
         .toSorted(),
     ).toEqual([
       "src/loop/Loop.test.ts -> src/platform/index.ts",
       "src/loop/Loop.ts -> src/platform/index.ts",
+    ])
+  })
+})
+
+describe("spec 20: the unit map", () => {
+  const cruiseFiles = (files: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), "boundaries-spec20-"))
+    writeFileSync(join(dir, "tsconfig.json"), FIXTURE_TSCONFIG)
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(join(dir, path, ".."), { recursive: true })
+      writeFileSync(join(dir, path), content)
+    }
+    return cruise(dir, join(REPO_ROOT, ".dependency-cruiser.mjs")).map(
+      (v) => `${v.rules.join(",")}: ${v.from} -> ${v.to}`,
+    )
+  }
+
+  it("fails a React import in src/replay", () => {
+    expect(
+      cruiseFiles({ "src/replay/Replay.ts": `import React from "react"\nvoid React\n` }),
+    ).toEqual(["npm-react-only-where-used: src/replay/Replay.ts -> react"])
+  })
+
+  it("fails one workflow importing another", () => {
+    expect(
+      cruiseFiles({
+        "src/workflows/feature/feature.ts": `export const feature = 1\n`,
+        "src/workflows/review/review.ts": `import { feature } from "../feature/feature.js"\nvoid feature\n`,
+      }),
+    ).toEqual([
+      "workflows-import-only-flows-kit-steering,workflows-never-import-each-other: src/workflows/review/review.ts -> src/workflows/feature/feature.ts",
+    ])
+  })
+
+  it("fails core importing a tool, and passes the composition root doing it", () => {
+    expect(
+      cruiseFiles({
+        "src/ui/index.ts": `export const ui = 1\n`,
+        "src/cli/index.ts": `import { ui } from "../ui/index.js"\nexport const cli = ui\n`,
+        "src/program.ts": `import { ui } from "./ui/index.js"\nexport const program = ui\n`,
+      }),
+    ).toEqual([
+      "core-imports-only-contracts,only-composition-roots-import-drivers-and-tools: src/cli/index.ts -> src/ui/index.ts",
+    ])
+  })
+
+  it("fails a package no unit is allowed", () => {
+    expect(
+      cruiseFiles({
+        "src/cli/index.ts": `import left from "left-pad"\nexport const cli = left\n`,
+        "node_modules/left-pad/package.json": `{"name":"left-pad","main":"index.js"}`,
+        "node_modules/left-pad/index.js": `module.exports = 1\n`,
+      }),
+    ).toEqual(["npm-unlisted: src/cli/index.ts -> node_modules/left-pad/index.js"])
+  })
+
+  it("fails a contract importing a repository-root file", () => {
+    expect(
+      cruiseFiles({
+        "tsdown.config.ts": `export const config = 1\n`,
+        "src/flows/x.ts": `import { config } from "../../tsdown.config.js"\nvoid config\n`,
+      }),
+    ).toEqual(["contracts-import-nothing-outside-themselves: src/flows/x.ts -> tsdown.config.ts"])
+  })
+
+  it("lets a ui test build platform layers, but not reach core elsewhere", () => {
+    expect(
+      cruiseFiles({
+        "src/platform/index.ts": `export const platform = 1\n`,
+        "src/cli/index.ts": `export const cli = 1\n`,
+        "src/ui/Server.test.ts": `import { platform } from "../platform/index.js"\nimport { cli } from "../cli/index.js"\nvoid platform\nvoid cli\n`,
+      }),
+    ).toEqual([
+      "ui-tests-import-only-contracts-and-platform: src/ui/Server.test.ts -> src/cli/index.ts",
     ])
   })
 })

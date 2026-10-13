@@ -8,5 +8,4 @@ export {
   type JudgeVerdict,
 } from "./Trailers.js"
 export { accessShapeFault, foldAccess } from "./Access.js"
-export { globMatches } from "./Glob.js"
 export { formatFault } from "./Format.js"

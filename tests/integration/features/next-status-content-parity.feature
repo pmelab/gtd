@@ -1,7 +1,7 @@
 @inmem
 Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the same resolved rest
 
-  `gtd next` resolves ONE rest through `renderRest`, and `program.ts`'s
+  `gtd next` resolves ONE rest through `renderRest`, and `Program.ts`'s
   `gatherBeatDocument` assembles the ONE `BeatDocument` object that
   `renderBeatPlain`/`renderBeatJson`/`selectPath` (`src/wire/`/`src/wire/Select.ts`)
   each render from — so the three encodings can never independently describe a

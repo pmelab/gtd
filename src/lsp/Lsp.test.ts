@@ -1237,7 +1237,7 @@ describe("startLspServer's requirement set", () => {
 
   it("resolves once the client sends the LSP `exit` notification, running the generator to completion", async () => {
     // A PassThrough never emits `end`/`close` on its own (see the `gtd lsp`
-    // test in src/program.test.ts for why that matters — a real stdin's
+    // test in src/cli/Program.test.ts for why that matters — a real stdin's
     // `end`/`close` listener calls `process.exit(1)`), so it's safe to swap
     // in here without risking the test process itself. `process.stdout` is
     // left alone — swapping it out here breaks vitest's own coverage-report

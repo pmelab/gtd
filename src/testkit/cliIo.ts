@@ -1,4 +1,4 @@
-import type { CliIo } from "../cli/index.js"
+import type { CliIo, ToolCommands } from "../cli/index.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import { testLayers } from "./Layers.js"
 
@@ -11,6 +11,7 @@ export interface CapturedCliResult {
 export const makeCapturingCliIo = (
   repo: InMemRepo,
   env: Readonly<Record<string, string | undefined>> = {},
+  tools: Partial<ToolCommands["Type"]> = {},
 ): { readonly io: CliIo; readonly result: () => CapturedCliResult } => {
   let stdout = ""
   let stderr = ""
@@ -28,7 +29,8 @@ export const makeCapturingCliIo = (
     // `narrate: io.stderr` is the SAME sink `stderr` above already captures
     // errors into — narration lands in the exact same buffer, exactly like a
     // real invocation's narration and remediation share one fd.
-    layers: (verbose) => testLayers(repo, { env, narrate: (line) => (stderr += line), verbose }),
+    layers: (verbose) =>
+      testLayers(repo, { env, narrate: (line) => (stderr += line), verbose, tools }),
   }
   return { io, result: () => ({ stdout, stderr, exitCode }) }
 }

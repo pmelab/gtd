@@ -27,6 +27,7 @@ import { join, relative, resolve, sep } from "node:path"
 import { PassThrough } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
 import { runCli } from "../../../src/cli/index.js"
+import { runJudge } from "../../../src/judges/index.js"
 import { EXIT_OK } from "../../../src/wire/index.js"
 import {
   makeCapturingCliIo,
@@ -133,7 +134,7 @@ const firstJsonObject = (stdout: string): Record<string, unknown> | undefined =>
 const stringField = (json: Record<string, unknown>, key: string): string =>
   typeof json[key] === "string" ? json[key] : ""
 
-/** `gtd validate`'s own "nothing to run" plain-text line — `program.ts`'s `runValidateCommand`. */
+/** `gtd validate`'s own "nothing to run" plain-text line — `Program.ts`'s `runValidateCommand`. */
 const NOTHING_TO_VALIDATE_RE = /^nothing to validate at "/
 
 /** A real `sh` exit + combined output on the live tier, or the recognizer's verdict on the in-memory one. */
@@ -625,7 +626,7 @@ export class GtdWorld extends QuickPickleWorld {
    * The `@inmem` tier's own stdin-piping counterpart: `runCli` runs IN this
    * test process (no subprocess to spawn), so piping means swapping this
    * process's own `process.stdin` for a `PassThrough` pre-loaded with
-   * `stdin` — the same technique `src/program.test.ts`'s `gtd lsp` test and
+   * `stdin` — the same technique `src/cli/Program.test.ts`'s `gtd lsp` test and
    * `src/lsp/Lsp.test.ts` use — restored in a `finally` so a leftover stub can
    * never leak into a later scenario.
    */
@@ -1677,7 +1678,8 @@ export class GtdWorld extends QuickPickleWorld {
   /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */
   async runGtdInMem(...args: string[]): Promise<void> {
     const repo = this.repo!
-    const { io, result } = makeCapturingCliIo(repo, this.envVars)
+    // `gtd judge run` is the one tool command `@inmem` scenarios run for real.
+    const { io, result } = makeCapturingCliIo(repo, this.envVars, { judge: runJudge })
 
     const argv = ["node", "gtd.js", ...args]
 
