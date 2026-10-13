@@ -1,6 +1,6 @@
 {
   "name": "@pmelab/gtd",
-  "version": "24.0.0",
+  "version": "24.1.0",
   "private": false,
   "description": "Git-aware CLI that emits the next prompt for an autonomous coding agent based on the current repository state",
   "bin": {
@@ -125,7 +125,7 @@
     "test:web": "vitest run --project storybook",
     "storybook": "storybook dev --host 0.0.0.0",
     "coverage": "vitest run --project unit --coverage",
-    "eval": ": \"${GTD_EVALS_URL:?GTD_EVALS_URL is required \u2014 the OpenAI-compatible gateway every graded turn and the judge run through}\" && : \"${GTD_EVALS_KEY:?GTD_EVALS_KEY is required \u2014 the gateway bearer key}\" && npx turbo run build && node evals/eval.mjs",
+    "eval": ": \"${GTD_EVALS_URL:?GTD_EVALS_URL is required — the OpenAI-compatible gateway every graded turn and the judge run through}\" && : \"${GTD_EVALS_KEY:?GTD_EVALS_KEY is required — the gateway bearer key}\" && npx turbo run build && node evals/eval.mjs",
     "eval:baseline": "node evals/compare-baseline.mjs --record"
   },
   "lint-staged": {
