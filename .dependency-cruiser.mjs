@@ -406,6 +406,19 @@ export default {
       },
       to: { dependencyTypes: ["core"] },
     },
+
+    // --- spec 21 ---
+    {
+      name: "composition-roots-load-tools-lazily",
+      comment:
+        "Package entrypoints: a composition root reaches a driver or tool only through a dynamic import, so a command that runs none of them loads none.",
+      severity: "error",
+      from: { path: compositionRoots },
+      to: {
+        path: [units.drivers, units.tools],
+        dependencyTypesNot: ["dynamic-import", "type-only"],
+      },
+    },
     ...npmRules,
     {
       name: "npm-standard-schemaspec-types-only",

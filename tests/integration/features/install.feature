@@ -9,7 +9,7 @@ Feature: gtd install — the driver-building briefing and the workflows config
   of a repository, and takes no argument.
 
   @inmem
-  Scenario: at a repository root with no gtd.config.ts, it scaffolds one importing the shipped workflows
+  Scenario: at a repository root with no gtd.config.ts, it scaffolds one importing each shipped workflow from its own subpath
     Given a test project
     And I record the commit count
     When I run gtd with args "install"
@@ -18,7 +18,9 @@ Feature: gtd install — the driver-building briefing and the workflows config
     And stderr contains "gtd install: wrote gtd.config.ts"
     And "gtd.config.ts" contains "feature as default,"
     And "gtd.config.ts" does not contain "doors,"
-    And "gtd.config.ts" contains "} from \"@pmelab/gtd/workflows\""
+    And "gtd.config.ts" contains "} from \"@pmelab/gtd/workflows/feature\""
+    And "gtd.config.ts" contains "export { review } from \"@pmelab/gtd/workflows/review\""
+    And "gtd.config.ts" contains "export { fix } from \"@pmelab/gtd/workflows/fix\""
     And the commit count is unchanged
 
   @inmem

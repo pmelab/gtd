@@ -20,7 +20,9 @@ export const review = shipped(
   {
     review: {
       args: [{ name: "base", optional: true }],
-      vars: ({ base }) => (base === undefined ? {} : { reviewBase: base }),
+      // Annotated: inferred, the literal union only fits under exactOptionalPropertyTypes.
+      vars: ({ base }): Readonly<Record<string, string>> =>
+        base === undefined ? {} : { reviewBase: base },
     },
   },
   (_workflow, vars) => vars.reviewBase || "",

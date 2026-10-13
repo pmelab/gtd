@@ -522,11 +522,12 @@ workflows your `gtd.config.ts` exports, plus any it adds.
 
 The workflow itself is a plain async TypeScript function, and the
 `gtd.config.ts` at the repository root names it: the one `gtd install` writes
-re-exports the shipped workflows from `@pmelab/gtd/workflows`, and the pieces
-they are built from are exported for yours to reuse. Each shipped workflow is a
-factory — `feature({ testCommand: "npm run ci" })` — whose options gtd validates
-when it loads the config: a misspelled or mistyped one fails every command,
-naming the workflow, the key and what was expected. See
+re-exports each shipped workflow from its own subpath
+(`@pmelab/gtd/workflows/feature`, `…/review`, `…/fix`), and the pieces they are
+built from are exported for yours to reuse. Each shipped workflow is a factory —
+`feature({ testCommand: "npm run ci" })` — whose options gtd validates when it
+loads the config: a misspelled or mistyped one fails every command, naming the
+workflow, the key and what was expected. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md) —
 and remember gtd evaluates that file on every command. A shared workflow package
 bundling its own `@pmelab/gtd` is checked against the running gtd and refused,
@@ -539,6 +540,31 @@ unknown key. `gtd.config.ts` is the only repository config: gtd 23 removed the
 `.gtdrc` files, and a leftover one — in the repository, above it, or in your
 home directory — fails every command until you delete it. See
 [Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
+
+## Entrypoints
+
+gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
+[SemVer promise](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md).
+
+| Import                                                                                       | What it is                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@pmelab/gtd/flows`                                                                          | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                                |
+| `@pmelab/gtd/wire`                                                                           | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                           |
+| `@pmelab/gtd/steering`                                                                       | The steering-file formats (`qa`, `review`) and the review-note readers.                                                                                                                                |
+| `@pmelab/gtd/workflow-kit`                                                                   | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails.                                                                                  |
+| `@pmelab/gtd/workflows`                                                                      | Every shipped workflow and all its parts in one module; also resolvable as `@pmelab/gtd/workflow`.                                                                                                     |
+| `@pmelab/gtd/workflows/feature`, `@pmelab/gtd/workflows/review`, `@pmelab/gtd/workflows/fix` | One shipped workflow each: its factory as the default export, its parts, and the reserved exports (`defaults`, `envDefaults`, `summary`, `steering`, `skills`, `access`). `gtd install` imports these. |
+| `@pmelab/gtd/testkit`                                                                        | Runs any workflow against the real engine, in an in-memory or a real repository. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                         |
+
+Types come from the TypeScript sources the package ships. Configs never need an
+install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
+`@pmelab/gtd/*` imports to its own copy.
+
+The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
+`check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `version`,
+`help`, and the tools `ui`, `lsp`, `loop` and `judge` (`judge answer`,
+`judge run`) — are listed in the
+[CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
 
 ## License
 

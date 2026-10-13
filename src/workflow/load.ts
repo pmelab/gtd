@@ -305,19 +305,20 @@ interface ShippedModules {
 // already loaded here: a config runs against the very runtime replay installs
 // its context for. Run from source (tests), a subpath's `source` is served
 // instead of its build. Shipped code never changes in a process, so it is
-// imported once, natively.
+// imported once, natively: where Node can `require` ESM, the first time a
+// config — or a workflow as it runs — requires it, so a command loads only the
+// subpaths its config uses; elsewhere, and from source, all of them up front.
 let shippedMemo: Promise<ShippedModules> | undefined
 const shippedModules = (): Promise<ShippedModules> =>
   (shippedMemo ??= (async () => {
-    const { root, pkg } = ownPackage()
-    const condition = import.meta.url.endsWith(".ts") ? "source" : "default"
+    const fromSource = import.meta.url.endsWith(".ts")
+    const files = subpathFiles(fromSource ? "source" : "default")
     const modules: Record<string, unknown> = { [`${PACKAGE}/flows`]: flows }
     const missing: Record<string, string> = {}
-    for (const [subpath, target] of Object.entries(pkg.exports)) {
-      const id = `${PACKAGE}/${subpath.replace(/^\.\//, "")}`
-      const file = typeof target === "string" ? target : target[condition]
-      if (id in modules || file === undefined) continue
-      const path = join(root, file)
+    if (process.features.require_module && !fromSource) {
+      return { modules: requiredOnUse(modules, files), missing }
+    }
+    for (const [id, path] of files) {
       try {
         modules[id] = await import(pathToFileURL(path).href)
       } catch {
@@ -326,6 +327,33 @@ const shippedModules = (): Promise<ShippedModules> =>
     }
     return { modules, missing }
   })())
+
+/** The file each subpath a config may import serves: all but `flows`, the engine's own, and `testkit`. */
+const subpathFiles = (condition: string): ReadonlyMap<string, string> => {
+  const { root, pkg } = ownPackage()
+  const files = new Map<string, string>()
+  for (const [subpath, target] of Object.entries(pkg.exports)) {
+    const file = typeof target === "string" ? target : target[condition]
+    // testkit imports the consumer's test runner, and no config runs one.
+    if (subpath === "./flows" || subpath === "./testkit" || file === undefined) continue
+    files.set(`${PACKAGE}/${subpath.replace(/^\.\//, "")}`, join(root, file))
+  }
+  return files
+}
+
+const requiredOnUse = (
+  modules: Record<string, unknown>,
+  files: ReadonlyMap<string, string>,
+): Record<string, unknown> => {
+  const require = createRequire(import.meta.url)
+  return new Proxy(modules, {
+    has: (loaded, id) => id in loaded || (typeof id === "string" && files.has(id)),
+    get: (loaded, id) =>
+      typeof id !== "string" || id in loaded
+        ? loaded[id as string]
+        : (loaded[id] = require(files.get(id)!)),
+  })
+}
 
 const stringRecord = (
   exports: Record<string, unknown>,

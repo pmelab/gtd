@@ -1,15 +1,11 @@
 // The `@pmelab/gtd/workflows` entry, built on its own: core never imports it,
 // a repository's `gtd.config.ts` does.
-import type { Doors, Summary } from "../flows/index.js"
+import type { Doors } from "../flows/index.js"
 import { feature } from "./feature/feature.js"
-import * as t from "./shared/text.js"
-import { ARCHITECTURE, REQUIREMENTS, REVIEW } from "./shared/steps.js"
 
 export { threads, type ThreadInfo } from "../flows/index.js"
-export { defaults, envDefaults } from "./shared/vars.js"
+export * from "./shared/reserved.js"
 export { ShippedOptions } from "./shared/options.js"
-export { skills } from "./shared/skills.js"
-export { access } from "./shared/access.js"
 export { agentWithSkills } from "./shared/text.js"
 export * from "./shared/steps.js"
 export * from "./shared/health.js"
@@ -34,10 +30,6 @@ export { base, review, reviewFlow } from "./review/review.js"
 export { fix, fixFlow, fixReviewNotes } from "./fix/fix.js"
 
 export default feature
-
-export const summary: Summary = t.summaryPrompt
-
-export const steering = { [REQUIREMENTS]: "qa", [ARCHITECTURE]: "qa", [REVIEW]: "review" }
 
 /**
  * @deprecated Empty: each shipped workflow builds its own doors, so a config

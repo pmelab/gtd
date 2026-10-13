@@ -542,6 +542,43 @@ describe("ConfigService", () => {
       expect((await getConfig()).defaultWorkflow.name).toBe("feature")
     })
 
+    it("each shipped workflow has its own subpath", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          `export { feature as default, feature } from "@pmelab/gtd/workflows/feature"`,
+          `export { review } from "@pmelab/gtd/workflows/review"`,
+          `export { fix } from "@pmelab/gtd/workflows/fix"`,
+          ``,
+        ].join("\n"),
+      )
+      const config = await getConfig()
+      expect(config.defaultWorkflow.name).toBe("feature")
+      expect(config.workflowNames).toEqual(["feature", "fix", "review"])
+    })
+
+    it("a shipped subpath only a helper file imports resolves", async () => {
+      writeFileSync(
+        join(projectDir, "kit.ts"),
+        [
+          `import { lensesOf } from "@pmelab/gtd/workflow-kit"`,
+          `export const kit = typeof lensesOf`,
+          ``,
+        ].join("\n"),
+      )
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          header,
+          `import { kit } from "./kit"`,
+          `export default ${flow("main")}`,
+          'export const steering = { [`.gtd/${kit}.md`]: "qa" }',
+          ``,
+        ].join("\n"),
+      )
+      expect((await getConfig()).workflow.steering[".gtd/function.md"]).toBe("qa")
+    })
+
     it("steering is the config's own export", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),

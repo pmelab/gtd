@@ -32,6 +32,17 @@ describe("package.json exports", () => {
   }
 })
 
+describe("the entrypoint docs", () => {
+  for (const file of ["README.md", "COMPATIBILITY.md"]) {
+    it(`${file} names every subpath`, () => {
+      const doc = readFileSync(join(root, file), "utf8")
+      for (const subpath of Object.keys(pkg.exports)) {
+        expect(doc).toContain(`\`@pmelab/gtd/${subpath.replace(/^\.\//, "")}\``)
+      }
+    })
+  }
+})
+
 describe("this repository's config", () => {
   it("is gtd.config.ts alone — no removed rc file", () => {
     for (const name of LEGACY_RC_FILES) expect(existsSync(join(root, name))).toBe(false)

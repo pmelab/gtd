@@ -73,6 +73,8 @@
         "stryker.config.json",
         "turbo.json",
         "docs/**",
+        "COMPATIBILITY.md",
+        "README.md",
         "evals/**",
         ".dependency-cruiser.mjs",
         "claude/**",
