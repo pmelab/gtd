@@ -53,6 +53,8 @@ let stepStartedAt = Date.now()
 // together cannot both pass the isRunning check and start two drivers.
 let isDriving = false
 let isShipping = false
+// bumped by every stop, so a queued continue that was mid-check sees it
+let stopCount = 0
 // subagents answering into a file: what each may touch (see tool.call)
 const delegates = new Map<string, { file: string; mayRun: RegExp | undefined }>()
 const ours = new Set<string>()
@@ -638,12 +640,7 @@ async function proceed(
   const r = await read($, run)
   const go = await decideContinue(r, rest, verdicts, {
     current: () => currentRest($, r.stop?.state),
-    validate: async () => {
-      const script = await gtd($, ["validate"])
-      if (script.trim().startsWith("nothing to validate")) return { ok: true, out: "" }
-      const v = await $.process.run(["sh", "-c", script], { cwd: root, timeoutMs: TEN_MINUTES })
-      return { ok: v.exitCode === 0, out: `${v.stdout}${v.stderr}`.trim() }
-    },
+    validate: () => validateRest($),
     judgment: async () => {
       const doc = await gtd($, ["judge", "--json"]).catch(() => undefined)
       return doc === undefined ? undefined : readDocument<Judgment>("judge --json", doc)
@@ -658,6 +655,14 @@ async function proceed(
   await leaveRest($)
   await start($, opening)
   return undefined
+}
+
+// The rest's own `gtd validate` script, run.
+async function validateRest($: $) {
+  const script = await gtd($, ["validate"])
+  if (script.trim().startsWith("nothing to validate")) return { ok: true, out: "" }
+  const v = await $.process.run(["sh", "-c", script], { cwd: root, timeoutMs: TEN_MINUTES })
+  return { ok: v.exitCode === 0, out: `${v.stdout}${v.stderr}`.trim() }
 }
 
 async function leaveRest($: $) {
@@ -685,8 +690,10 @@ async function currentRest($: $, state: string | undefined) {
 }
 
 // A continue the model asked for, once its turn is over: only if gtd still
-// waits where the person answered.
+// waits where the person answered, its file still validates (it can change
+// outside this session, or across a reload), and no stop came in meanwhile.
 async function launchPending($: $) {
+  const stops = stopCount
   const r = await read($, run)
   const pending = r.pending
   if (!pending) return
@@ -696,6 +703,15 @@ async function launchPending($: $) {
     $.ui.toast("gtd moved on before it could continue: nothing was landed")
     return
   }
+  if (r.stop?.kind === "gate" && !r.stop.isJudge) {
+    const v = await validateRest($)
+    if (!v.ok) {
+      const text = `gtd did not continue: the step's file no longer validates.\n${v.out}\nFix it with the person, then call continue again with rest "${pending.rest}".`
+      $.clock.after(0, () => void $.prompt.submit({ text }))
+      return
+    }
+  }
+  if (stops !== stopCount) return
   await leaveRest($)
   await start($, pending.isAnswered ? { isAnswered: true, verdict: pending.verdict } : {})
 }
@@ -735,6 +751,7 @@ async function refreshBand($: $) {
 // A continue still waiting for the model's turn to end is dropped too.
 async function stopNow($: $) {
   stopRequested = true
+  stopCount++
   if (!(await read($, run)).pending) return "Stopping after the current beat."
   await update($, run, (x) => ({ ...x, pending: undefined }))
   return "Cancelled the pending continue; gtd stays where it is."
@@ -848,7 +865,10 @@ async function phase($: $) {
   const r = await read($, run)
   const stop = r.stop
   const atQa = stop?.kind === "gate" && !stop.isJudge
-  return { isRunning: r.isRunning, mode: atQa ? stop.mode : undefined, file: stop?.file }
+  // A continue waiting for the turn to end is as good as running: the file
+  // it validated must not change before it lands.
+  const isRunning = r.isRunning || r.pending !== undefined
+  return { isRunning, mode: atQa ? stop.mode : undefined, file: stop?.file }
 }
 
 // A tool's answer. For `continue`, any text is a refusal the model reads as an
