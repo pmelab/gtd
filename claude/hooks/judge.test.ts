@@ -2,7 +2,14 @@ import { describe, expect, test } from "vitest"
 
 import { SYSTEM_PROMPT, toPrompt } from "../../src/judges/providers/llm.js"
 import type { Question } from "../../src/judges/types.js"
-import { JUDGE_SYSTEM, judgePrompt, judgeRunEnv, toVerdicts } from "./judge"
+import {
+  humanVerdicts,
+  JUDGE_SYSTEM,
+  judgePrompt,
+  judgeQuestions,
+  judgeRunEnv,
+  toVerdicts,
+} from "./judge"
 
 const questions: Question[] = [
   { id: "safe", primitive: "noul", instructions: "Is the diff safe?", criteria: "No secrets." },
@@ -66,5 +73,44 @@ describe("judgeRunEnv", () => {
 
   test("runs gtd judge run with a TypeSafe key, under the name gtd reads", () => {
     expect(judgeRunEnv({ key: "k" })).toEqual({ TYPESAFE_API_KEY: "k" })
+  })
+})
+
+describe("a person answering a judge gate", () => {
+  test("is asked each question with the answers it takes", () => {
+    expect(judgeQuestions({ questions })).toEqual([
+      {
+        id: "safe",
+        instructions: "Is the diff safe?",
+        criteria: ["No secrets."],
+        options: ["yes", "no"],
+      },
+      {
+        id: "kind",
+        instructions: "What changed?",
+        criteria: ["identical: nothing", "progress: some tests pass", "new-failure: a test broke."],
+        options: ["identical", "progress", "new-failure"],
+      },
+      {
+        id: "size",
+        instructions: "How big?",
+        criteria: ["1: one file", "2: many files."],
+        options: [1, 2],
+      },
+    ])
+  })
+
+  test("their answers become certain verdicts, or a reason they don't fit", () => {
+    expect(humanVerdicts({ questions }, { safe: "no", kind: "progress", size: 2 })).toEqual([
+      { id: "safe", answer: "no", p: 1 },
+      { id: "kind", answer: "progress", p: 1 },
+      { id: "size", answer: 2, p: 1 },
+    ])
+    expect(humanVerdicts({ questions }, { safe: "no", kind: "progress" })).toBe(
+      '"size" has no p in [0, 1]',
+    )
+    expect(humanVerdicts({ questions }, { safe: "maybe", kind: "progress", size: 1 })).toBe(
+      '"safe" answer is not one of its options',
+    )
   })
 })

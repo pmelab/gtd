@@ -279,16 +279,30 @@ falls back to the `gtd` on your `PATH`.
 - `/gtd` drives beats until the process rests on you, exactly as the minimal
   driver below does: the opening beat lands, a later gate stops. At idle with
   nothing pending it only tells you how to start.
-- At every human rest the mod starts `gtd ui` for that step and asks in Claude
-  Code's own question dialog: herdr marks the pane as waiting on you, and Collie
-  shows the question as tappable answers. The question carries the `gtd ui` URL,
-  which is also printed as its own transcript line. Only an answer in that
-  dialog, or the band's **Continue**, moves the process on: **I'm done,
-  continue** lands what you changed and drives on. Handing the turn back from
-  `gtd ui` itself, or closing it, leaves the gate open. Continuing without a
-  change at a gate that needs one lands nothing, and the question says so.
-- **Not now** or Escape leaves the gate open; the band above the prompt keeps a
-  **Continue** button.
+- At every rest that needs you (a human gate, a judge gate its judge could not
+  decide, a stuck or failed step, a finished process with a pull request to
+  open) the mod hands the session's own model one prompt: the step's label, its
+  steering file, and gtd's message for it, verbatim. The model helps you through
+  it in plain words. At a question gate it walks the open questions one at a
+  time as Claude Code's question dialog (herdr marks the pane as waiting on you,
+  and Collie shows tappable answers) and records each answer in the steering
+  file the way the message describes. It answers your own questions read-only,
+  and offers to file one as a thread for gtd's agent when the answer should
+  change the plan. At a review gate it walks you through the diff and records
+  your notes. At an undecided judge gate it puts each judge question to you. A
+  stop you asked for (`/gtd stop`, a hand-off) wakes nothing.
+- The model moves gtd only through tools the mod serves, never through `gtd`
+  itself: `continue` (only after you said to; it refuses once gtd has left that
+  rest, and runs the step's `gtd validate` first, sending any findings back
+  instead of landing), `note`, `handoff`, `ship` and `browser`.
+- While a step runs, the session's model may not edit files (Bash is not
+  checked): ask questions and it answers read-only, or ask for a change and it
+  is kept as a note for the next rest. At a question gate it may write only that
+  gate's steering file; at a review gate, code edits count as review feedback.
+- `gtd ui` starts only on request: ask Claude for the browser view, or run
+  `/gtd ui`. Its exit never moves the process on.
+- The band above the prompt keeps a **Continue** button at every rest, which
+  does what `continue` does without the model.
 - While a step runs, the band above the prompt reads like Claude Code's own
   spinner, `✳ gtd ▸ Checking the baseline… (3m · step 3)`, so herdr shows the
   pane as working, even while the session itself waits on a test run. Each step
@@ -299,14 +313,15 @@ falls back to the `gtd` on your `PATH`.
   step waits for that agent and lands its work instead of starting it again,
   unless the agent failed or was killed: then the step runs again. A reload in
   the middle of a script stops the loop, since the script may have partly run;
-  check the tree, then **Continue** runs it again. A reload at a gate opens its
-  question again.
+  check the tree, then **Continue** runs it again. A reload at a gate leaves it
+  as it was.
 - `/gtd <door> [args]` starts a process through one of the doors `gtd doors`
   lists, runs the script `gtd door` prints, then drives like `/gtd`. The bundled
   doors are `fix` (repair a red baseline as its own reviewed commit) and
   `review [base]` (a pure review of everything since the merge-base with `base`,
   the default branch unless named).
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
+  `/gtd ui` starts the browser view of the rest it waits at.
 - `/gtd throw [@user]` hands the process to someone else. It needs a clean tree:
   proceed or stash a half-made answer first, and refuses when `origin` holds
   commits your branch lacks. It pushes the branch (moving the process to a new
@@ -314,12 +329,11 @@ falls back to the `gtd` on your `PATH`.
   request for the hand-off, or refreshes a thrown one (a pull request already
   open for review keeps its description and stays ready), and assigns it to
   `@user` in place of its previous assignees. Without a user it is left for
-  anyone. Every human and judge gate's question also offers **Hand off to
-  someone else**, which asks for the handle.
+  anyone. At any gate you can also ask Claude to hand it off.
 - `/gtd catch <pr|branch>` checks the thrown branch out with `gh pr checkout`,
-  assigns it to you, and shows you the gate it waits at, with the same dialog;
-  it never lands that gate before you have seen it. Agent conversations do not
-  travel: each memory scope starts fresh for the catcher.
+  assigns it to you, and Claude helps you through the gate it waits at; it never
+  lands that gate before you have seen it. Agent conversations do not travel:
+  each memory scope starts fresh for the catcher.
 - `/gtd ship` squashes the finished process into one commit, pushes the branch,
   and opens its pull request, or appends to the open one's description when
   something changed at the level of its motivation, solution or decisions. A
@@ -331,9 +345,9 @@ falls back to the `gtd` on your `PATH`.
   anyone on the branch wrote. `/gtd ship -n` prints the commit message and what
   would happen to the pull request, and writes nothing. It needs `gh`, a clean
   tree, and a branch other than the default. When a process finishes on such a
-  branch, the question dialog offers **Yes, open the pull request**. On a thrown
-  draft, ship writes the title and description properly and marks the pull
-  request ready for review.
+  branch, Claude offers to open the pull request. On a thrown draft, ship writes
+  the title and description properly and marks the pull request ready for
+  review.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A
@@ -351,9 +365,9 @@ falls back to the `gtd` on your `PATH`.
   `GTD_JUDGE_PROVIDER` is not `llm`. Otherwise a small subagent answers it with
   the same prompt gtd's `llm` provider sends, on `GTD_JUDGE_MODEL` (haiku by
   default), with no `claude -p`. Only when neither produces a complete verdict
-  does the dialog ask you — on the opening beat too, where nothing lands
-  unanswered — and **Continue with the safe choice** lands it unanswered, which
-  routes the workflow its cautious way.
+  does Claude ask you — on the opening beat too, where nothing lands unanswered.
+  Your answers land as the verdict; continuing without answering lands it
+  unanswered, which routes the workflow its cautious way.
 - Script and check beats append to the log `gtd next --json` names.
 - The mod checks the [`schema`](./cli.md#schema) of every document it reads and
   stops on one it does not read, naming which side to upgrade: the plugin when

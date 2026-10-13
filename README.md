@@ -329,14 +329,17 @@ Then, in any repository:
 ```
 
 That starts a process from your requirements and drives it until it needs you.
-`/gtd fix` and `/gtd review [base]` take the two doors described below. Every
-human rest opens Claude Code's own question dialog, with a link to `gtd ui` for
-the step; review there, then answer **I'm done, continue**. When the process
-finishes, **Yes, open the pull request** (or `/gtd ship`) squashes it into one
-commit and opens it. A process can change hands at any gate: **Hand off to
-someone else** (or `/gtd throw @dev`) opens a draft pull request assigned to
-them, and `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote
-the requirements can hand the architecture to someone else. See
+`/gtd fix` and `/gtd review [base]` take the two doors described below. At every
+human rest Claude itself takes over: it walks you through the open questions one
+at a time, answers your own questions about the plan or the diff, records what
+you decide in the steering file the way the step asks, and moves the process on
+only when you say so. While a step runs you can keep asking; requests for
+changes wait for the next rest. When the process finishes, Claude offers to
+squash it into one commit and open its pull request (or run `/gtd ship`). A
+process can change hands at any gate: ask Claude to hand it off (or run
+`/gtd throw @dev`) and it opens a draft pull request assigned to them, and
+`/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
+requirements can hand the architecture to someone else. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own

@@ -11,6 +11,7 @@ export type Beat = {
   state?: string
   label?: string
   file?: string
+  mode?: string
   content?: string
   log?: string
   memory?: string
@@ -69,11 +70,15 @@ type Acted = { stop: Stop } | { stop?: undefined; verdict?: string }
 const where = (b: Beat) => ({ state: b.state, label: b.label })
 const failed = (b: Beat, text: string): Acted => ({ stop: { kind: "error", text, ...where(b) } })
 
+// How the opening beat is taken. `landTurn` names a memory scope whose agent
+// turn already ran (a reload cut the loop off while it did): the opening prompt
+// beat lands it, not repeats it. `isAnswered` is a person's answer to an opening
+// judge gate: their `verdict`, or none to land it untouched (the cautious default).
+export type Opening = { landTurn?: string; isAnswered?: boolean; verdict?: string }
+
 // The reference sh driver from docs/driver.md, beat for beat. gtd decides;
 // this only executes what `gtd next` and `gtd land` print.
-// `landTurn` names a memory scope whose agent turn already ran (a reload cut
-// the loop off while it did): the opening prompt beat lands it, not repeats it.
-export async function drive(io: Io, landTurn?: string): Promise<Stop> {
+export async function drive(io: Io, opening: Opening = {}): Promise<Stop> {
   // A judge gate answered on the previous beat that rests on the same state
   // again moved nothing: hand it to the human rather than pay for it twice.
   let judged: string | undefined
@@ -85,7 +90,7 @@ export async function drive(io: Io, landTurn?: string): Promise<Stop> {
     // decision, and an `acceptClean` first step must get to fire.
     if (beat > 1 && isTrue(b.idle)) return { kind: "done", text: await io.plain(), ...where(b) }
 
-    const acted = await act(io, b, beat, judged, beat === 1 ? landTurn : undefined)
+    const acted = await act(io, b, beat, judged, beat === 1 ? opening : {})
     if (acted.stop) return acted.stop
     judged = acted.verdict ? b.state : undefined
     const landed = await land(io, b, acted.verdict, true)
@@ -98,20 +103,22 @@ async function act(
   b: Beat,
   beat: number,
   judged: string | undefined,
-  landTurn: string | undefined,
+  opening: Opening,
 ): Promise<Acted> {
   switch (b.kind) {
     case "stalled":
       return { stop: { kind: "stalled", text: b.content ?? "", ...where(b) } }
     case "message":
-      return message(io, b, beat, judged)
+      return opening.isAnswered && b.judge
+        ? { verdict: opening.verdict }
+        : message(io, b, beat, judged)
     case "capture":
       return {}
     case "script":
       await io.sh(b.content ?? "", b.log)
       return {}
     case "prompt":
-      return agent(io, b, landTurn)
+      return agent(io, b, opening.landTurn)
     default:
       return failed(b, `unknown beat kind '${b.kind}'`)
   }
@@ -126,6 +133,7 @@ async function message(io: Io, b: Beat, beat: number, judged: string | undefined
   const stop: Stop = { kind: "gate", text: b.content ?? "", ...where(b) }
   if (b.judge) stop.isJudge = true
   if (b.file) stop.file = b.file
+  if (b.mode) stop.mode = b.mode
   return { stop }
 }
 
