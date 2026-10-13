@@ -16,7 +16,7 @@ import {
   isSettingName,
   SETTING_NAME_RULE,
 } from "../workflow/index.js"
-// The shared command types live in `program.ts`, which imports nothing from
+// The shared command types live in `Program.ts`, which imports nothing from
 // here, so this dependency stays one-directional.
 import {
   runCommand,
@@ -25,12 +25,12 @@ import {
   type Command,
   type CommandRequirements,
   type JsonMode,
-} from "../program.js"
-import { UiListener } from "../ui/index.js"
+} from "./Program.js"
+import type { ToolCommands } from "./ToolCommands.js"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 
-export type { Command, CommandRequirements } from "../program.js"
-export { needsOf, standaloneKinds } from "../program.js"
+export type { Command, CommandRequirements } from "./Program.js"
+export { needsOf, standaloneKinds } from "./Program.js"
 
 export type CliPlan =
   | { readonly kind: "output"; readonly stdout: string }
@@ -1200,7 +1200,13 @@ const writeStderr = (chunk: string): void => {
   process.stderr.write(chunk)
 }
 
-export const nodeCliIo: CliIo = {
+export type LiveToolCommands = Layer.Layer<
+  ToolCommands,
+  never,
+  Exclude<CommandRequirements, ToolCommands> | NodeContext.NodeContext
+>
+
+export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
   // `process.stdout.write` is asynchronous whenever stdout is a pipe or
   // socket — passing a completion callback (and never force-closing, see
   // `exit` below) keeps a queued remainder from being discarded, so a large
@@ -1224,19 +1230,22 @@ export const nodeCliIo: CliIo = {
     // Dependency order matters: Workspace.Live needs GitService, both need
     // Host, and GitService needs NodeContext's CommandExecutor. Each
     // `provideMerge` satisfies the layers above it AND stays in the output.
-    Layer.mergeAll(
-      ConfigService.Live,
-      ConfigDiscovery.Live,
-      Workspace.Live,
-      Narrator.layer(writeStderr, verbose),
-      UiListener.Live,
-      CommandRunner.Live,
-    ).pipe(
-      Layer.provideMerge(GitService.Live),
-      Layer.provideMerge(Host.Live),
-      Layer.provideMerge(NodeContext.layer),
+    tools.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          ConfigService.Live,
+          ConfigDiscovery.Live,
+          Workspace.Live,
+          Narrator.layer(writeStderr, verbose),
+          CommandRunner.Live,
+        ).pipe(
+          Layer.provideMerge(GitService.Live),
+          Layer.provideMerge(Host.Live),
+          Layer.provideMerge(NodeContext.layer),
+        ),
+      ),
     ),
-}
+})
 
 /**
  * Normalizes an artifact's trailing newlines to exactly one — an emitted

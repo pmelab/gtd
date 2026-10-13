@@ -42,7 +42,7 @@ describe("landFields / renderLandJson", () => {
     expect(renderLandJson(landFields(noop))).toBe(JSON.stringify(noop) + "\n")
   })
 
-  it("landFields is a real reorder, not an identity copy: takes a LandResultSource-shaped value (program.ts's LandResult field order) and pins it into LandFields' own declared order", () => {
+  it("landFields is a real reorder, not an identity copy: takes a LandResultSource-shaped value (Program.ts's LandResult field order) and pins it into LandFields' own declared order", () => {
     // Written in `LandResultSource`'s (== `LandResult`'s) own field order —
     // state/subject/cost/model/script/settled/idle — the opposite of
     // `LandFields`' script/settled/idle/state/subject/cost/model, so this

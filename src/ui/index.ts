@@ -1,4 +1,4 @@
-export { runUiCommand, UiListener, type UiConfig, type UiRequirements } from "./Server.js"
+export { runUiCommand, UiListener, type UiConfig } from "./Server.js"
 export { UiError, UiShell, UiUsageError } from "./Ports.js"
 export { contentHashOf, liveReadFile } from "./Write.js"
 export type { ReadFileResult } from "./Write.js"

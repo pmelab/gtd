@@ -1,6 +1,6 @@
 Feature: gtd check <mode> <file> — the standalone leaf validator
 
-  `gtd check <mode> <file>` (see src/program.ts's runCheckCommand) reads
+  `gtd check <mode> <file>` (see src/cli/Program.ts's runCheckCommand) reads
   <file> and runs the named BUILT-IN steering format's pure parser over its
   contents — the same qa/review parsers gtd validate and the LSP use. Unlike
   every other gtd subcommand, both arguments are given explicitly: it resolves

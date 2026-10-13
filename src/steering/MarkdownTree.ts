@@ -8,7 +8,7 @@ import { gfmFootnote } from "micromark-extension-gfm-footnote"
 import { gfmStrikethrough } from "micromark-extension-gfm-strikethrough"
 import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item"
 import type { Heading, ListItem, Node, Root, RootContent } from "mdast"
-import type { SteeringOutlineNode } from "./SteeringFormat.js"
+import type { SteeringOutlineNode } from "./Outline.js"
 
 /** The same 0-based shape the LSP protocol uses, everywhere a converted mdast position ends up. */
 export interface LspPosition {

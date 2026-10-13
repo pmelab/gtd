@@ -20,7 +20,7 @@ import {
   unansweredQuestions,
 } from "../steering/index.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
-import { globMatches } from "./Glob.js"
+import { globMatches } from "../wire/index.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
 import {
   formatStepId,

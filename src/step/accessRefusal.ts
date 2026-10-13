@@ -1,4 +1,4 @@
-import { globMatches } from "../replay/index.js"
+import { globMatches } from "../wire/index.js"
 import type { PendingChange } from "../workflow/index.js"
 import { ACCESS_REFUSAL } from "../wire/index.js"
 

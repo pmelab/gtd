@@ -73,14 +73,13 @@ a cached result.
 
 ### Import rules
 
-`lint:boundaries` runs dependency-cruiser over `src/` and `tests/`. Its rules
-are generic over path shape — they back-reference the boundary directory and
-file name they matched — so a new `src/<boundary>/` needs no config edit, only
-its own `index.ts`. Pre-existing cycle and root-module violations are recorded
-in `.dependency-cruiser-known-violations.json` (`--ignore-known`; the script
-prints its size, and fails on an entry that no longer occurs) and only shrink.
-Never regenerate it to absorb a new violation — a new violation is a real
-finding to fix, not to record.
+`lint:boundaries` runs dependency-cruiser over `src/`, `tests/` and `claude/`.
+Its rules are generic over path shape — they back-reference the boundary
+directory and file name they matched — so a new `src/<boundary>/` needs only its
+own `index.ts` and a place in the unit map, the commented rule set in
+`.dependency-cruiser.mjs` that says which units, and which npm packages, each
+unit may import. There is no baseline: a violation is a real finding to fix,
+never one to record. CI uploads the current graph as the `unit-map` artifact.
 
 Two conventions the rules read: a `*.fixture.ts` beside an implementation is
 test-support any test in that boundary may import, and a test may reach a

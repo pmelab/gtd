@@ -8,7 +8,6 @@
 // simulates a driver running gtd's emitted scripts against the in-memory
 // worktree — a wholly separate mechanism from any gtd-internal layer.
 
-import { FileSystem } from "@effect/platform"
 import { Effect, Layer } from "effect"
 import { isAbsolute, join } from "node:path"
 import {
@@ -28,12 +27,11 @@ import {
   walkUp,
 } from "../workflow/index.js"
 import { fakeGitOperations } from "./FakeGitOperations.js"
-import { UiError, UiListener } from "../ui/index.js"
 import { InMemRepo } from "./InMemRepo.js"
 
 // Read off the CLI's own port rather than imported from the composition root.
 type CommandRequirements = Layer.Layer.Success<ReturnType<CliIo["layers"]>>
-import type { CliIo } from "../cli/index.js"
+import { ToolCommands, type CliIo } from "../cli/index.js"
 
 const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
 
@@ -189,6 +187,21 @@ export interface TestWorldOptions {
   readonly narrate?: (line: string) => void
   /** Gates `narrate` above — defaults to `true` (fires whenever a sink is given) since these tests aren't exercising `Cli.ts`'s own `--verbose` gate. `src/testkit/cliIo.ts` overrides this with the real decoded flag. */
   readonly verbose?: boolean
+  /** Real or fake driver and tool commands — each one left out fails when called. */
+  readonly tools?: Partial<ToolCommands["Type"]>
+}
+
+const missingTool = (name: string) => () =>
+  Effect.fail(new Error(`gtd ${name}: ToolCommands has no test double wired into testLayers()`))
+
+const missingToolCommands: ToolCommands["Type"] = {
+  ui: missingTool("ui"),
+  lsp: missingTool("lsp"),
+  loop: missingTool("loop"),
+  judge: () =>
+    Promise.reject(
+      new Error("gtd judge run: ToolCommands has no test double wired into testLayers()"),
+    ),
 }
 
 /** The fine-grained `GitService` layer alone — for unit tests that need only git. */
@@ -214,23 +227,15 @@ export function testLayers(
     ConfigService.Live,
     makeInMemoryConfigDiscovery(repo, root),
     Narrator.layer(opts.narrate ?? (() => {}), opts.verbose ?? true),
-    // No `@inmem`/direct-Effect test binds a real socket — `gtd ui`
-    // itself is unit-tested in `src/ui/Server.test.ts` with its own fake
-    // `UiListener`. A call reaching this one is a test gap, not silence.
-    Layer.succeed(UiListener, {
-      listen: () =>
-        Effect.fail(new UiError("gtd ui: UiListener has no test double wired into testLayers()")),
-    }),
-    // `gtd ui`'s two remaining ports, for the same reason and with the same
-    // loudness: the only `@inmem` scenarios that reach `gtd ui` refuse at a
-    // guard BEFORE either is touched (see `tests/integration/features/
-    // ui.feature`), and everything past that guard is unit-tested in
-    // `src/ui/**` against its own doubles. Reaching one of these is a test
-    // gap, not silence — gtd itself spawns no subprocess any more, so there
-    // is deliberately no scripted-command double to fall back on.
+    // Drivers and tools are unit-tested in their own folders; a call reaching
+    // one of these is a test gap, not silence. A test opts into one via `tools`.
+    Layer.succeed(ToolCommands, { ...missingToolCommands, ...opts.tools }),
+    // The only `@inmem` scenarios that reach `gtd ui` refuse at a guard before
+    // its shell is touched (see `tests/integration/features/ui.feature`) — and
+    // gtd itself spawns no subprocess any more, so there is deliberately no
+    // scripted-command double to fall back on.
     CommandRunner.layer(() =>
       Effect.fail(new Error("gtd ui: CommandRunner has no test double wired into testLayers()")),
     ),
-    Layer.succeed(FileSystem.FileSystem, FileSystem.makeNoop({})),
   )
 }

@@ -1,7 +1,7 @@
 @inmem
 Feature: gtd validate — self-validating the resolved rest's steering file
 
-  `gtd validate` (see src/program.ts) resolves the current rest exactly like
+  `gtd validate` (see src/cli/Program.ts) resolves the current rest exactly like
   `gtd next`, renders that state's `file:`, and evaluates it per its `mode:`.
   For the two BUILT-IN modes that means reading the working-tree contents and
   running gtd's own parser — `qa` and `review`, both under src/steering/ (the

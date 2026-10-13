@@ -8,7 +8,7 @@ import { TEST_DOUBLE_SENTINEL } from "./InMemRepo.js"
  * method list to keep in sync with `GitReaderOperations`/`GitWriterOperations`
  * (unlike a plain object literal, which needs a case per port method).
  * `message`, when given, replaces the default per-method wording (e.g.
- * `program.test.ts`'s "GitService must not be called for --version/--help").
+ * `Program.test.ts`'s "GitService must not be called for --version/--help").
  */
 export const strictGitOperations = (
   overrides: Partial<GitOperations>,
