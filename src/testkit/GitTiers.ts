@@ -11,7 +11,7 @@ import {
 } from "node:fs"
 import { join, dirname, basename, sep } from "node:path"
 import { tmpdir } from "node:os"
-import { execSync, spawnSync } from "node:child_process"
+import { execFileSync, execSync, spawnSync } from "node:child_process"
 // Imported directly (not just from *.test.ts) — a leak of this module into
 // the shipped CLI bundle would try to inline `vitest` and fail the build
 // loudly (`deps.alwaysBundle` in `tsdown.config.ts`), a guard alongside the
@@ -44,6 +44,8 @@ export interface GitTierCapabilities {
   readonly linkedWorktrees: boolean
   /** A cwd→home directory chain for config discovery — both tiers walk it through `Workspace`/`Host` now, so this is `true` for either. */
   readonly directoryChainConfig: boolean
+  /** Fetch from another repository — only the Live tier has a remote to reach. */
+  readonly remotes: boolean
 }
 
 export interface GitTierSeed {
@@ -158,6 +160,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       commitHooks: true,
       linkedWorktrees: true,
       directoryChainConfig: true,
+      remotes: true,
     },
     provide,
     provideExit,
@@ -275,6 +278,7 @@ const makeInMemTier = (initialCommit = true): GitTier => {
       commitHooks: false,
       linkedWorktrees: false,
       directoryChainConfig: true,
+      remotes: false,
     },
     provide,
     provideExit,
@@ -1204,8 +1208,8 @@ export const runGitScriptContract = (makeTier: () => GitTier): void => {
     })
 
     it("updateRef with HEAD points the ref at the commit just made", () => {
-      execScript(t, commitAll("feat: just made"))
-      execScript(t, updateRef("refs/gtd/history/x", "HEAD"))
+      run(t, commitAll("feat: just made"))
+      run(t, updateRef("refs/gtd/history/x", "HEAD"))
       expect(t.observe.resolveRef("refs/gtd/history/x")).toBe(t.observe.resolveRef("HEAD"))
     })
 
@@ -1224,7 +1228,8 @@ export const runGitScriptContract = (makeTier: () => GitTier): void => {
   })
 
   describe("fetchHistoryRefs", () => {
-    it("pulls every refs/gtd/history/* from a bare remote and prints the count", () => {
+    it("pulls every refs/gtd/history/* from a bare remote and prints the count", (ctx) => {
+      if (!t.capabilities.remotes) ctx.skip()
       const bare = realpathSync(mkdtempSync(join(tmpdir(), "gtd-git-tier-bare-")))
       try {
         gitExecIn(bare, "init", "-q", "--bare")
@@ -1246,7 +1251,8 @@ export const runGitScriptContract = (makeTier: () => GitTier): void => {
       }
     })
 
-    it("fails loudly when a local history ref conflicts with the remote's", () => {
+    it("fails loudly when a local history ref conflicts with the remote's", (ctx) => {
+      if (!t.capabilities.remotes) ctx.skip()
       const bare = realpathSync(mkdtempSync(join(tmpdir(), "gtd-git-tier-bare-")))
       try {
         gitExecIn(bare, "init", "-q", "--bare")

@@ -1319,7 +1319,7 @@ const differingConfigPaths = (
   git: GitService["Type"],
   workspace: Workspace["Type"],
   root: string,
-  config: { readonly workflowFiles: readonly string[] },
+  config: { readonly fingerprint: ConfigFingerprint },
   run: ProcessRun,
   hash: string,
 ) =>
@@ -1327,7 +1327,7 @@ const differingConfigPaths = (
     const differing: string[] = []
     for (const path of inRepoConfigPaths(
       root,
-      config.workflowFiles,
+      Object.keys(config.fingerprint),
       run.pinnedConfig?.files ?? {},
     )) {
       const atTip = yield* Effect.orElseSucceed(git.readFileAtRef(hash, path), () => undefined)
