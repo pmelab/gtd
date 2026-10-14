@@ -114,7 +114,16 @@ export const inMemoryUiHost = (
   return {
     run,
     headSha: async () => repo.resolveRef("HEAD") ?? undefined,
-    readLocalGtdVersion: async () => undefined,
+    readLocalGtdVersion: async (path) => {
+      const raw = repo.readFile(local(join(path, "node_modules/@pmelab/gtd/package.json")))
+      try {
+        const version =
+          raw === undefined ? undefined : (JSON.parse(raw) as { version?: unknown }).version
+        return typeof version === "string" ? version : undefined
+      } catch {
+        return undefined
+      }
+    },
     readFile: async (absPath) => {
       const content = repo.readFile(local(absPath))
       if (content !== undefined) return { kind: "content", content }

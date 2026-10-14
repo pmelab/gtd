@@ -127,6 +127,17 @@ for (const make of [live, inMemory]) {
       expect(await t.host.readLocalGtdVersion(t.root)).toBeUndefined()
     })
 
+    it("reads a local gtd install's version, and none from a package that names none", async () => {
+      t = make()
+      const pkg = join(t.root, "node_modules/@pmelab/gtd/package.json")
+      await t.host.writeFile(pkg, '{"name":"@pmelab/gtd","version":"9.1.0"}\n')
+      expect(await t.host.readLocalGtdVersion(t.root)).toBe("9.1.0")
+      await t.host.writeFile(pkg, '{"version":9}\n')
+      expect(await t.host.readLocalGtdVersion(t.root)).toBeUndefined()
+      await t.host.writeFile(pkg, "not json\n")
+      expect(await t.host.readLocalGtdVersion(t.root)).toBeUndefined()
+    })
+
     it("sees its own process alive", () => {
       t = make()
       expect(t.host.isPidAlive(process.pid)).toBe(true)
