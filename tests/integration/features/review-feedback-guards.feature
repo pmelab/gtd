@@ -33,8 +33,8 @@ Feature: Review feedback — capture, classification, and the loop-back guards
   minimal custom workflow instead.
 
   Each check step (`build.review.closing`, `re-unwind`) is simulated by
-  making its file changes and running `gtd land`; @inmem never executes the
-  scripts.
+  making its file changes and running `gtd land`, not by running the printed
+  script.
 
   Scenario: a note-like unchecked line outside a file pointer no longer blocks sign-off
     Given a test project

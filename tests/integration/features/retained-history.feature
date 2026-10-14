@@ -49,8 +49,8 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
     When I run gtd land
     Then it succeeds
 
-    # unwind: simulate the revert — @inmem never executes
-    # scripts — by reverting the working tree to the start commit ourselves.
+    # unwind: simulate the revert without running the
+    # printed script, by reverting the working tree to the start commit ourselves.
     Given the file "NOTE.md" is deleted
     When I run gtd land
     Then it succeeds
@@ -81,8 +81,8 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
     When I run gtd land
     Then it succeeds
 
-    # unwind: simulate the revert — @inmem never executes
-    # scripts — by reverting the working tree to the start commit ourselves.
+    # unwind: simulate the revert without running the
+    # printed script, by reverting the working tree to the start commit ourselves.
     Given the file "NOTE.md" is deleted
     When I run gtd land
     Then it succeeds
