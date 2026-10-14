@@ -1,7 +1,7 @@
 import { Given, When, Then } from "quickpickle"
 import { execFileSync } from "node:child_process"
-import { readFileSync, writeFileSync, symlinkSync, existsSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { writeFileSync } from "node:fs"
+import { join } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
@@ -30,28 +30,6 @@ Then("stdout is empty", (world: GtdWorld) => {
   )
 })
 
-const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
-
-Given("prettier is available in the test project", (world: GtdWorld) => {
-  const nodeModulesSrc = join(PROJECT_ROOT, "node_modules")
-  const nodeModulesDest = join(world.repoDir, "node_modules")
-  if (!existsSync(nodeModulesDest)) {
-    symlinkSync(nodeModulesSrc, nodeModulesDest)
-  }
-  writeFileSync(
-    join(world.repoDir, ".prettierrc"),
-    JSON.stringify({
-      printWidth: 100,
-      overrides: [
-        {
-          files: "*.md",
-          options: { printWidth: 80, proseWrap: "always" },
-        },
-      ],
-    }),
-  )
-})
-
 Given("{string} is staged", (world: GtdWorld, path: string) => {
   if (world.repo !== undefined) world.repo.stage(path)
   else execFileSync("git", ["add", path], { cwd: world.repoDir, stdio: "pipe" })
@@ -74,7 +52,7 @@ When("I commit with message {string}", (world: GtdWorld, message: string) => {
 Then(
   "{string} has no lines longer than {int} characters",
   (world: GtdWorld, path: string, limit: number) => {
-    const content = readFileSync(join(world.repoDir, path), "utf-8")
+    const content = world.readRepoFile(path)
     const longLines = content.split("\n").filter((line) => line.length > limit)
     assert.strictEqual(
       longLines.length,
@@ -83,12 +61,3 @@ Then(
     )
   },
 )
-
-Then("{string} still has a line longer than 80 characters", (world: GtdWorld, path: string) => {
-  const content = readFileSync(join(world.repoDir, path), "utf-8")
-  const longLines = content.split("\n").filter((line) => line.length > 80)
-  assert.ok(
-    longLines.length > 0,
-    `Expected at least one line longer than 80 chars in ${path}, but all lines are within limit`,
-  )
-})
