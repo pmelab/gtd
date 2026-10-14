@@ -10,6 +10,7 @@ export const defaults: Readonly<Record<string, string>> = {
   judgeBudgetBytes: "32768",
   judgeIdenticalMinP: "0.7",
   reviewNoteActionable: "0.7",
+  reviewSeverityMinP: "0.7",
   // Decides the turn count: one `build.quality.<lens>` scope per entry, each
   // keyed in `./skills.ts`.
   qualityReviews:

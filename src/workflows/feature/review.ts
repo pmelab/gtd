@@ -1,4 +1,12 @@
-import { answered, judge, numeric, vars, type JudgeQuestion } from "../../flows/index.js"
+import {
+  answered,
+  head,
+  judge,
+  numeric,
+  vars,
+  type JudgeQuestion,
+  type Judgment,
+} from "../../flows/index.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
 import { healthy, type EscalationCount } from "../shared/health.js"
@@ -15,7 +23,7 @@ import {
 import { closeReview, tail } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import type { BuiltPlan } from "./packages.js"
-import { answerReviewQuestions, collecting, fixNits } from "./steps.js"
+import { answerReviewQuestions, collecting, deferNotes, fixNits } from "./steps.js"
 
 export type { ReviewOutcome } from "../../workflow-kit/index.js"
 
@@ -30,32 +38,116 @@ const verdictQuestion = (note: ReviewNote): JudgeQuestion => ({
     "edit: a request to change behaviour, design or scope — anything needing a plan, or any note you are unsure about. question: asks something and wants an answer, with no change requested. nit: a small, local, unambiguous fix (naming, typo, formatting, comment wording) needing no re-plan. praise: an approving remark with nothing to do.",
 })
 
-/**
- * One judge rest, one verdict per note. Dismissing a note is the risky
- * direction, so only a confident non-`edit` verdict on uncut evidence counts;
- * a cut, unanswered or below-floor note is an `edit`, and a blank floor makes
- * every note one.
- */
-const triage = async (notes: readonly ReviewNote[]): Promise<ReadonlyMap<string, kit.Verdict>> => {
-  const { answers, truncated } = await judge("review.triage", {
-    questions: notes.map(verdictQuestion),
-    evidence: Object.fromEntries(
-      notes.map((n) => [
-        n.id,
-        `Anchor: ${n.anchor}\nReviewer's text: ${n.before}\nHuman's text: ${n.text}`,
-      ]),
-    ),
-    message: t.buildReviewTriageMessage(),
-    label: "Judging each note",
-  })
-  const minP = numeric(vars.reviewNoteActionable, Infinity)
-  return new Map(
-    notes.map((n): [string, kit.Verdict] => {
-      const verdict = VERDICTS.find((v) => v !== "edit" && answered(answers[n.id], v, minP))
-      return [n.id, truncated.includes(n.id) || verdict === undefined ? "edit" : verdict]
-    }),
-  )
+type Tier = "critical" | "should" | "could"
+
+interface Severity {
+  readonly tier: Tier
+  readonly reason: string
+  /** Capture order: 0 one-way door, 1 new concept, 2 everything else. */
+  readonly rank: 0 | 1 | 2
 }
+
+/**
+ * Deferring is the risky direction: anything unanswered, cut or below `minP`
+ * is `critical`, never `could`.
+ */
+export const severityOf = (note: ReviewNote, judgment: Judgment, minP: number): Severity => {
+  const ans = (q: string) => judgment.answers[`${note.id}.${q}`]
+  const a = (q: string): string | undefined => ans(q)?.answer
+  const rank = (): 0 | 1 | 2 =>
+    a("reversibility") === "one-way" ? 0 : a("newConcept") === "yes" ? 1 : 2
+  if (note.forced) return { tier: "critical", reason: "critical: forced by `!`", rank: 2 }
+  const unsure =
+    judgment.truncated.includes(note.id) ||
+    ["security", "reversibility", "blastRadius", "newConcept"].some(
+      (q) => !((ans(q)?.p ?? NaN) >= minP),
+    )
+  if (unsure) return { tier: "critical", reason: "critical: judge unsure", rank: 2 }
+  const critical = [
+    ...(a("security") === "yes" ? ["security"] : []),
+    ...(a("reversibility") === "one-way" ? ["one-way door"] : []),
+  ]
+  if (critical.length > 0)
+    return { tier: "critical", reason: `critical: ${critical.join(", ")}`, rank: rank() }
+  const should = [
+    ...(a("blastRadius") === "contract" ? ["contract"] : []),
+    ...(a("newConcept") === "yes" ? ["new concept"] : []),
+  ]
+  if (should.length > 0)
+    return { tier: "should", reason: `should: ${should.join(", ")}`, rank: rank() }
+  return { tier: "could", reason: "could", rank: 2 }
+}
+
+const severityQuestions = (note: ReviewNote): JudgeQuestion[] => [
+  {
+    id: `${note.id}.security`,
+    primitive: "noul",
+    instructions: `Does the change the human asks for in note "${note.id}" (on "${note.anchor}") touch security — authentication, authorisation, secrets, untrusted input or data exposure?`,
+    criteria: "yes: it changes or could weaken a security property. no: it does not.",
+  },
+  {
+    id: `${note.id}.reversibility`,
+    primitive: "choice",
+    instructions: `Once the change in note "${note.id}" ships, can it be undone without breaking anyone who already depends on it?`,
+    criteria:
+      "one-way: a published API, file format, persisted data, protocol or other contract that cannot be taken back. two-way: can be reverted freely.",
+  },
+  {
+    id: `${note.id}.blastRadius`,
+    primitive: "choice",
+    instructions: `How far does the change in note "${note.id}" reach?`,
+    criteria:
+      "local: one function or file. module: a whole module or several files. contract: a public interface other code or users depend on.",
+  },
+  {
+    id: `${note.id}.newConcept`,
+    primitive: "noul",
+    instructions: `Does the change in note "${note.id}" introduce a concept new to this codebase — a new abstraction, entity or term? Judge from the evidence, never a glossary; reusing or extending an existing concept is not new.`,
+    criteria: "yes: a genuinely new concept. no: reuses or extends an existing one.",
+  },
+]
+
+/**
+ * One judge rest: a verdict per unforced note (a forced note is asked
+ * nothing) plus four severity answers. Dismissing a note is the risky
+ * direction, so only a confident non-`edit` verdict on uncut evidence counts;
+ * a cut, unanswered or below-floor note is an `edit`. Severity answers on a
+ * non-`edit` note are ignored. A confident `could` edit becomes `defer`.
+ */
+const triage =
+  (severities: Map<string, Severity>) =>
+  async (notes: readonly ReviewNote[]): Promise<ReadonlyMap<string, kit.Verdict>> => {
+    const asked = notes.filter((n) => !n.forced)
+    const judgment: Judgment =
+      asked.length === 0
+        ? { answers: {}, truncated: [] }
+        : await judge("review.triage", {
+            questions: asked.flatMap((n) => [verdictQuestion(n), ...severityQuestions(n)]),
+            evidence: Object.fromEntries(
+              asked.map((n) => [
+                n.id,
+                `Anchor: ${n.anchor}\nReviewer's text: ${n.before}\nHuman's text: ${n.text}`,
+              ]),
+            ),
+            message: t.buildReviewTriageMessage(),
+            label: "Judging each note",
+          })
+    const { answers, truncated } = judgment
+    const minP = numeric(vars.reviewNoteActionable, Infinity)
+    const severityMinP = numeric(vars.reviewSeverityMinP, Infinity)
+    severities.clear()
+    return new Map(
+      notes.map((n): [string, kit.Verdict] => {
+        const verdict = n.forced
+          ? undefined
+          : VERDICTS.find((v) => v !== "edit" && answered(answers[n.id], v, minP))
+        if (verdict !== undefined && !truncated.includes(n.id)) return [n.id, verdict]
+        const severity = severityOf(n, judgment, severityMinP)
+        severities.set(n.id, severity)
+        return [n.id, severity.tier === "could" ? "defer" : "edit"]
+      }),
+    )
+  }
 
 const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
@@ -69,25 +161,66 @@ export const review = (
   base: string,
   escalations: EscalationCount = { rounds: 0 },
   frozen?: FrozenScenarios,
-): Promise<kit.ReviewOutcome> =>
-  kit.review(base, {
+): Promise<kit.ReviewOutcome> => {
+  const severities = new Map<string, Severity>()
+  // Armed by a defer-only round and spent at the very next gate; a fresh
+  // review (`reviewing`) disarms it, so a later gate never accepts a clean land.
+  let deferred: readonly t.NoteInput[] = []
+  return kit.review(base, {
     file: REVIEW,
     feedback: REQUIREMENTS,
     isCode,
-    reviewing,
+    reviewing: (b, carry) => {
+      deferred = []
+      return reviewing(b, carry)
+    },
     fixRisks: (risks) => guarded(frozen, () => fixRisks(risks), "review")(),
     keepGreen: () => healthy(guarded(frozen, fixCheck, "review"), { escalations }),
-    awaitReview,
+    awaitReview: (b) => {
+      const notes = deferred
+      deferred = []
+      return notes.length > 0
+        ? awaitReview(b, t.buildReviewAwaitAfterDeferMessage(b, notes), true)
+        : awaitReview(b)
+    },
     reviewMissing,
     collecting,
-    triage,
+    triage: triage(severities),
+    defer: (notes) => {
+      deferred = notes.map((n) => ({
+        id: n.id,
+        anchor: n.anchor,
+        text: n.text,
+        label: severities.get(n.id)!.reason,
+      }))
+      return deferNotes(deferred, head())
+    },
     answerQuestions: answerReviewQuestions,
     fixNits: (notes) => guarded(frozen, () => fixNits(notes), "review")(),
     close: closeReview,
     captures: {
       edits: t.reviewEditsCapture,
       notes: t.reviewNotesCapture,
-      editNotes: t.reviewEditNotesCapture,
+      editNotes: (round, edits, answeredAt) =>
+        t.reviewEditNotesCapture(
+          round,
+          edits
+            .map((n, i) => ({ n, i, s: severities.get(n.id) }))
+            // critical before should, then one-way doors, then new concepts
+            .sort(
+              (x, y) =>
+                Number(x.s?.tier === "should") - Number(y.s?.tier === "should") ||
+                (x.s?.rank ?? 2) - (y.s?.rank ?? 2) ||
+                x.i - y.i,
+            )
+            .map(({ n, s }) => ({
+              id: n.id,
+              anchor: n.anchor,
+              text: n.forced ? n.text.replace(/^!\s*/, "") : n.text,
+              ...(s === undefined ? {} : { label: s.reason }),
+            })),
+          answeredAt,
+        ),
     },
     refusals: {
       deleted:
@@ -96,6 +229,7 @@ export const review = (
         "gtd land: no declared pattern matches the pending changes — write .gtd/REQUIREMENTS.md from the feedback, or change nothing when it asks for nothing",
     },
   })
+}
 
 /** The build tail: fix (when entered red), keep green, the quality lap, then human review since `base`. */
 export const buildTail = (

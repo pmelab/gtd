@@ -475,10 +475,21 @@ noted in steps 3 and 4 below.
    turns first), then a fresh review of the change stops at the review again.
    `praise` is dropped; a round of only praise signs off. When a round mixes
    them, questions are answered and nits fixed first, then the edits are planned
-   — risk: the planning lap may redo nit fixes it touches. A hand-edit to code
-   always plans a lap. Only a confident non-`edit` verdict skips the replan — a
-   note whose evidence was cut, or that got no verdict, counts as `edit`. The
-   same `gtd judge answer` / conservative-default shape as step 3's own judged
+   — risk: the planning lap may redo nit fixes it touches.
+
+   Each `edit` note also gets a severity tier from four judge questions
+   (security, reversibility, blast radius, new concept). `critical` and `should`
+   notes are re-planned this round; `could` notes are deferred. A leading `!` on
+   a note forces `critical` and skips the judge. Deferral appends to the
+   committed `.gtd/TODO.md`; it never starts a process on its own, and it ships
+   in the branch/PR unless you delete it. Landing clean at the gate after a
+   deferral signs off without the deferred notes; the gate lists them. To pull
+   one in, edit its line in `.gtd/TODO.md` when you start a process.
+   `reviewSeverityMinP` sets the confidence floor (see
+   [configuration](docs/configuration.md)). A hand-edit to code always plans a
+   lap. Only a confident non-`edit` verdict skips the replan — a note whose
+   evidence was cut, or that got no verdict, counts as `edit`. The same
+   `gtd judge answer` / conservative-default shape as step 3's own judged
    points.
 
 You never talk to it. Every exchange is a file in `.gtd/` that you edit in your

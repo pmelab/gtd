@@ -1,5 +1,11 @@
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  buildReviewTriageMessage,
+  deferNotesScript,
   buildReviewReviewingPrompt,
   agentWithSkills,
   architectureAuthorPrompt,
@@ -14,6 +20,7 @@ import {
   summaryPrompt,
   withSkills,
 } from "./text.js"
+import { applyEmittedScript, InMemRepo } from "../../testkit/index.js"
 import { captureStep, renderText } from "./text.fixture.js"
 
 describe("withSkills", () => {
@@ -351,5 +358,104 @@ describe("buildReviewReviewingPrompt risk marking", () => {
     expect(prompt).toContain("never a style remark")
     expect(prompt).toContain("describe what the fix changed under the")
     expect(prompt).toContain("re-mark only a risk the fix did not resolve")
+  })
+})
+
+describe("deferNotesScript", () => {
+  const run = (notes: Parameters<typeof deferNotesScript>[0], existing?: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), "defer-"))
+    mkdirSync(join(dir, ".gtd"))
+    if (existing !== undefined) writeFileSync(join(dir, ".gtd/TODO.md"), existing)
+    execFileSync("sh", ["-c", deferNotesScript(notes, "abcdef1234567890")], { cwd: dir })
+    return readFileSync(join(dir, ".gtd/TODO.md"), "utf8")
+  }
+  const notes = [{ id: "note-1", anchor: "a.ts:3", text: "plain", label: "could: tiny" }]
+
+  it("creates the file with one section headed by the round's short sha", () => {
+    expect(run(notes)).toBe(
+      "## Deferred review notes (abcdef1)\n\n- note-1 — a.ts:3 (could: tiny): plain\n",
+    )
+  })
+
+  it("appends after a blank line, never truncating", () => {
+    const out = run(notes, "# Sketch\n\nkeep me\n")
+    expect(out.startsWith("# Sketch\n\nkeep me\n\n## Deferred review notes (abcdef1)\n")).toBe(true)
+  })
+
+  it("separates from a file lacking a trailing newline", () => {
+    expect(run(notes, "keep")).toContain("keep\n\n## Deferred")
+  })
+
+  it("lands quotes, dollars and backticks verbatim", () => {
+    const text = 'it\'s $HOME `x` "q" \\n'
+    const out = run([{ id: "note-1", anchor: "a", text }])
+    expect(out).toContain(text)
+  })
+
+  it("is an oxfmt fixed point, for a note longer than one line", () => {
+    const long = [
+      {
+        id: "note-3",
+        anchor: "Parser accepts CRLF ./src/parse.ts#30-31",
+        text: "rename the helper to something clearer please",
+        label: "could",
+      },
+    ]
+    const dir = mkdtempSync(join(tmpdir(), "fmt-"))
+    const file = join(dir, "TODO.md")
+    writeFileSync(file, run(long, "# Sketch\n"))
+    execFileSync("npx", ["oxfmt", "--check", file], { cwd: process.cwd() })
+  })
+})
+
+describe("severity wording", () => {
+  it("triage message names the four severity ids", () => {
+    const m = renderText(() => buildReviewTriageMessage())
+    for (const id of ["note-<n>.security", ".reversibility", ".blastRadius", ".newConcept"])
+      expect(m).toContain(id)
+  })
+
+  it("collecting prompt keeps capture order and carries labels", () => {
+    const p = renderText(() => buildReviewCollectingPrompt("capture"))
+    expect(p).toContain("capture order")
+    expect(p).toContain("(tier: reason)")
+  })
+
+  it("design triage parks deferred review notes", () => {
+    expect(renderText(() => designTriagePrompt("base"))).toContain("## Deferred review notes")
+  })
+})
+
+describe("deferNotesScript — the in-memory recognizer agrees with the real sh script", () => {
+  const notes = [
+    { id: "note-1", anchor: "a.ts:3", text: 'it\'s $HOME `x` "q" 100%', label: "could" },
+    {
+      id: "note-2",
+      anchor: "Parser accepts CRLF ./src/parse.ts#30-31",
+      text: "rename the helper to something clearer please",
+      label: "could",
+    },
+  ]
+  const cases: [string, string | undefined][] = [
+    ["no file", undefined],
+    ["an empty file", ""],
+    ["a file without a trailing newline", "keep"],
+    ["a file with a trailing newline", "# Sketch\n\nkeep\n"],
+  ]
+
+  it.each(cases)("%s", (_name, existing) => {
+    const script = deferNotesScript(notes, "abcdef1234567890")
+    const dir = mkdtempSync(join(tmpdir(), "defer-contract-"))
+    if (existing !== undefined) {
+      mkdirSync(join(dir, ".gtd"))
+      writeFileSync(join(dir, ".gtd/TODO.md"), existing)
+    }
+    execFileSync("sh", ["-c", script], { cwd: dir })
+    const real = readFileSync(join(dir, ".gtd/TODO.md"), "utf8")
+
+    const repo = new InMemRepo()
+    if (existing !== undefined) repo.writeFile(".gtd/TODO.md", existing)
+    expect(applyEmittedScript(repo, new Map(), script).ok).toBe(true)
+    expect(repo.readFile(".gtd/TODO.md")).toBe(real)
   })
 })

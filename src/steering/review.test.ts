@@ -1733,6 +1733,7 @@ describe("reviewNotes", async () => {
         anchor: "Chunk one ./src/a.ts#1-3",
         before: "",
         text: "rename this",
+        forced: false,
       },
     ])
   })
@@ -1753,6 +1754,7 @@ describe("reviewNotes", async () => {
         anchor: "- [ ] ./src/a.ts#1-3[^n1]",
         before: "",
         text: "please split",
+        forced: false,
       },
     ])
   })
@@ -1772,6 +1774,34 @@ describe("reviewNotes", async () => {
     expect(reviewNotes(answered, answered)).toEqual([])
     const more = answered.replace("#1-3", "#1-3[^n2]") + "\n[^n2]: another\n"
     expect(reviewNotes(answered, more).map((n) => n.kind)).toEqual(["footnote"])
+  })
+
+  it("a leading ! forces a pointer note and keeps its text", () => {
+    const [n] = reviewNotes(base, base.replace("#1-3", "#1-3 !  rename this"))
+    expect(n).toMatchObject({ kind: "pointer", text: "! rename this", forced: true })
+  })
+
+  it("a leading ! forces a footnote note", () => {
+    const after = base.replace("#1-3", "#1-3[^n1]") + "\n[^n1]: ! please split\n"
+    expect(reviewNotes(base, after)[0]).toMatchObject({ text: "! please split", forced: true })
+  })
+
+  it("a leading ! forces chunk prose", () => {
+    const [n] = reviewNotes(base, doc("! Prose is wrong."))
+    expect(n).toMatchObject({ kind: "chunk", text: "! Prose is wrong.", forced: true })
+  })
+
+  it("a ! glued to the next word is not a marker", () => {
+    const [n] = reviewNotes(base, base.replace("#1-3", "#1-3 != should be ==="))
+    expect(n).toMatchObject({ text: "!= should be ===", forced: false })
+  })
+
+  it("a mid-text ! or a ! in the pointer path does not force", () => {
+    const [n] = reviewNotes(base, base.replace("#1-3", "#1-3 rename this!"))
+    expect(n).toMatchObject({ text: "rename this!", forced: false })
+    const [m] = reviewNotes(base, base.replace("./src/a.ts#1-3", "./src/a!b.ts#1-3 x"))
+    expect(m).toMatchObject({ forced: false })
+    expect(m!.anchor).toContain("a!b.ts")
   })
 
   it("ids run in document order", () => {

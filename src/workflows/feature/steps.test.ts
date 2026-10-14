@@ -79,4 +79,16 @@ describe("the feature workflow's own steps declare skills — a step's rendered 
     expect(request.prompt).toContain("semicolon")
     expect(request.prompt).toContain("Leave `.gtd/REVIEW.md` untouched")
   })
+
+  it("deferNotes rests at build.review.defer as a script writing .gtd/TODO.md", async () => {
+    const request = await capture(
+      () =>
+        steps.deferNotes([{ id: "note-1", anchor: "a", text: "x", label: "could" }], "abcdef123"),
+      "build",
+    )
+    if (request.kind !== "run") throw new Error("unreachable")
+    expect(request.name).toBe("review.defer")
+    expect(request.body).toContain("## Deferred review notes (abcdef1)")
+    expect(request.options).toMatchObject({ file: ".gtd/TODO.md" })
+  })
 })

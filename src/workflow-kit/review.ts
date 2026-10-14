@@ -24,7 +24,7 @@ export type ReviewOutcome =
       readonly edited: readonly Change[]
     }
 
-export type Verdict = "edit" | "question" | "nit" | "praise"
+export type Verdict = "edit" | "question" | "nit" | "praise" | "defer"
 
 export type ReviewRisk = ReturnType<typeof reviewRisks>[number]
 
@@ -49,6 +49,8 @@ export interface ReviewPolicy {
   readonly triage: (notes: readonly ReviewNote[]) => Promise<ReadonlyMap<string, Verdict>>
   readonly answerQuestions: (notes: readonly ReviewNote[]) => Promise<void>
   readonly fixNits: (notes: readonly ReviewNote[]) => Promise<void>
+  /** Leave `defer` notes out of the round. */
+  readonly defer: (notes: readonly ReviewNote[]) => Promise<void>
   /** Remove `file` at the end of a round at commit `round`. */
   readonly close: (round: string) => Promise<void>
   /** What a collecting turn reads. */
@@ -127,16 +129,16 @@ interface Round {
   readonly unfolded: () => Promise<Finish>
 }
 
-/** Judge every note, then run each verdict's route: answers, then nit fixes, then the edits' lap. */
-const routeNotes = async (
+/** Judge every note, then run each verdict's route: answers, then nit fixes, then deferrals, then the edits' lap. */
+export const routeNotes = async (
   p: ReviewPolicy,
   notes: readonly ReviewNote[],
   r: Round,
 ): Promise<Finish> => {
   const verdicts = await p.triage(notes)
   const of = (v: Verdict): ReviewNote[] => notes.filter((n) => (verdicts.get(n.id) ?? "edit") === v)
-  const [edits, questions, nits] = [of("edit"), of("question"), of("nit")]
-  if (edits.length + questions.length + nits.length === 0) return r.unfolded()
+  const [edits, questions, nits, deferred] = [of("edit"), of("question"), of("nit"), of("defer")]
+  if (edits.length + questions.length + nits.length + deferred.length === 0) return r.unfolded()
 
   let answeredAt: string | undefined
   if (questions.length > 0) {
@@ -147,6 +149,7 @@ const routeNotes = async (
     await p.fixNits(nits)
     await p.keepGreen()
   }
+  if (deferred.length > 0) await p.defer(deferred)
   if (edits.length > 0) {
     await r.close()
     return r.outcome(await collect(p, p.captures.editNotes(r.round, edits, answeredAt)))
@@ -155,7 +158,7 @@ const routeNotes = async (
     await r.close()
     return { next: "rereview", carry: answeredAt }
   }
-  return { next: "await", reviewed: answeredAt! }
+  return { next: "await", reviewed: answeredAt ?? r.round }
 }
 
 /** A code edit, not a thread-only change: lines that only add, answer or remove code threads don't count. */

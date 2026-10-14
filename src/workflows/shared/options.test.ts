@@ -22,6 +22,14 @@ describe("the shipped workflow factories", () => {
     })
   })
 
+  it("default reviewSeverityMinP to 0.7 and let a factory override win", () => {
+    expect(defaults.reviewSeverityMinP).toBe("0.7")
+    expect(configure(feature({ reviewSeverityMinP: "0.9" }))).toMatchObject({
+      ok: true,
+      build: { defaults: { reviewSeverityMinP: "0.9" } },
+    })
+  })
+
   it("build the shipped settings unchanged with no options", () => {
     for (const factory of [feature, fix, review]) {
       expect(configure(factory)).toMatchObject({ ok: true, build: { defaults, envDefaults } })

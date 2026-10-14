@@ -13,6 +13,7 @@ describe("the bundled workflow's access export", () => {
       architecture: { write: [".gtd/REQUIREMENTS.md"] },
       "architecture.decompose": { write: [".gtd/packages/**", ".gtd/ARCHITECTURE.md"] },
       "build.review": { write: [".gtd/REVIEW.md"] },
+      "build.review.defer": { write: [".gtd/TODO.md"] },
       "build.review.fix.nits": {},
       "build.review.fix.risks": {},
       "build.quality.correctness": { write: [] },
@@ -33,8 +34,9 @@ describe("the bundled workflow's access export", () => {
     ).toEqual(["build.quality.correctness", "build.quality.my-lens"])
   })
 
-  it("keys only scopes that run a turn (every key is a skills key)", () => {
-    const known = Object.keys(workflow.skills(defaults))
+  it("keys only turn or script scopes", () => {
+    // `build.review.defer` is a script scope: no turn, so no skills entry.
+    const known = [...Object.keys(workflow.skills(defaults)), "build.review.defer"]
     for (const key of Object.keys(bundled)) expect(known).toContain(key)
   })
 })

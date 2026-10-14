@@ -92,3 +92,10 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): review-gate.check → build.health.check"
+
+  Scenario: a triage commit recorded before severity tiers replays to the same route
+    Given a history whose "build.review.triage" commit carries only "Gtd-Judge" trailers for "note-1" as "edit"
+    When I run gtd next
+    Then it succeeds
+    And the process rests at "build.review.collecting"
+    And stdout contains "critical: judge unsure"

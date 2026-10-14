@@ -174,6 +174,7 @@ describe("review notes, the review → fix hand-off", () => {
         anchor: "Parser accepts CRLF",
         before: "**Line endings are normalized before the split.**",
         text: "**Line endings are normalized before the split.** Also normalize in the writer.",
+        forced: false,
       },
       {
         id: "note-2",
@@ -181,6 +182,7 @@ describe("review notes, the review → fix hand-off", () => {
         anchor: "Parser accepts CRLF ./src/parse.ts#30-31",
         before: "Risk: a lone `\\r` is still kept as content",
         text: "Risk: a lone `\\r` is still kept as content. Treat it as a line break too.",
+        forced: false,
       },
       {
         id: "note-3",
@@ -188,6 +190,7 @@ describe("review notes, the review → fix hand-off", () => {
         anchor: "- [x] ./src/parse.test.ts#1-40 — one case per line ending[^fn1]",
         before: "",
         text: "Add a mixed-endings case.",
+        forced: false,
       },
     ])
   })

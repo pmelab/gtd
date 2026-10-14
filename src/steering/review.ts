@@ -1085,12 +1085,14 @@ export interface ReviewNote {
   readonly before: string
   /** The human's text. */
   readonly text: string
+  /** The human opened `text` with `! ` (kept in `text`; the feature review strips it). */
+  readonly forced?: boolean
 }
 
 const pointerLabel = (f: ReviewFile): string =>
   `${f.path}${f.line === undefined ? "" : `#${f.line}${f.rangeEnd === undefined ? "" : `-${f.rangeEnd}`}`}`
 
-type Found = { line: number; note: Omit<ReviewNote, "id"> }
+type Found = { line: number; note: Omit<ReviewNote, "id" | "forced"> }
 
 const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] =>
   chunk.description === (prior?.description ?? "")
@@ -1162,7 +1164,11 @@ export const reviewNotes = (before: string, after: string): readonly ReviewNote[
     }),
     ...footnoteNotes(before, after),
   ]
-  return found.sort((a, b) => a.line - b.line).map((f, i) => ({ id: `note-${i + 1}`, ...f.note }))
+  return found
+    .sort((a, b) => a.line - b.line)
+    .map((f, i) => {
+      return { id: `note-${i + 1}`, ...f.note, forced: /^!(\s|$)/.test(f.note.text) }
+    })
 }
 
 /** Pointer notes the reviewer opened with `Risk:`, in document order — the ones the workflow fixes before the human gate. */
