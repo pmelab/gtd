@@ -27,10 +27,6 @@ Given("an empty user-level loop config", (world: GtdWorld) => {
   configHome(world)
 })
 
-Given("a user-level loop config with:", (world: GtdWorld, json: string) => {
-  writeUserFile(world, "loop.json", String(json))
-})
-
 Given("a user-level judge config with:", (world: GtdWorld, json: string) => {
   writeUserFile(world, "judge.json", String(json))
 })
