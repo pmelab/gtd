@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: the bundled workflow's health check runs "testCommand"
 
   `build.health.check` prints a script that runs the `testCommand` var and,
@@ -23,9 +23,9 @@ Feature: the bundled workflow's health check runs "testCommand"
     And gtd lands "gtd(agent): build.fix → build.health.check"
 
   Scenario: the default testCommand runs the project's npm test script
-    Given a file "package.json" with:
+    Given the shell command "npm test" exits 1 with:
       """
-      { "name": "fixture", "private": true, "scripts": { "test": "echo default-wins; exit 1" } }
+      default-wins
       """
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     When I run gtd next with "--json"
@@ -34,7 +34,11 @@ Feature: the bundled workflow's health check runs "testCommand"
     And ".gtd/FEEDBACK.md" contains "<!-- gtd check "
 
   Scenario: a GTD_TESTCOMMAND environment variable overrides the default
-    Given an environment variable "GTD_TESTCOMMAND" set to "echo env-wins; exit 1"
+    Given an environment variable "GTD_TESTCOMMAND" set to "run-env-tests"
+    And the shell command "run-env-tests" exits 1 with:
+      """
+      env-wins
+      """
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     When I run gtd next with "--json"
     And I execute the printed check script
@@ -42,6 +46,9 @@ Feature: the bundled workflow's health check runs "testCommand"
 
   Scenario: a green run leaves no FEEDBACK.md and lands on the quality lap
     Given an environment variable "GTD_TESTCOMMAND" set to "true"
+    And the shell command "true" exits 0 with:
+      """
+      """
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     When I run gtd next with "--json"
     And I execute the printed check script

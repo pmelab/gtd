@@ -7,7 +7,7 @@ Feature: review hands its notes to fix — the two workflows meet only in .gtd/R
   finds that review in the tree, fixes every note and `Risk:` in one turn
   (`notes.fixing`), removes both files (`notes.closing`) and hands the result
   to its own review. `@inmem` scenarios simulate each script by hand; the
-  `@live` one executes the hand-off script.
+  `@inmem` one executes the hand-off script.
 
   Background:
     Given a test project
@@ -137,7 +137,7 @@ Feature: review hands its notes to fix — the two workflows meet only in .gtd/R
     Then it succeeds
     And the last commit subject is "gtd(agent): notes.fixing → notes.closing"
 
-  @live
+  @inmem
   Scenario: the hand-off script copies the reviewer's own version beside the human's notes
     Given ".gtd/REVIEW.md" is modified to:
       """

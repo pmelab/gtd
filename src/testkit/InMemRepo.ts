@@ -115,10 +115,11 @@ export class InMemRepo {
       return this.commits.has(ref) ? ref : null
     }
 
-    const tildeMatch = /^(HEAD|[0-9a-f]{40})(~(\d+))?$/.exec(ref)
+    const tildeMatch = /^(HEAD|[0-9a-f]{40})(~(\d+)|\^)?$/.exec(ref)
     if (tildeMatch) {
       const base = tildeMatch[1]!
-      const steps = tildeMatch[3] !== undefined ? parseInt(tildeMatch[3], 10) : 0
+      const steps =
+        tildeMatch[3] !== undefined ? parseInt(tildeMatch[3], 10) : tildeMatch[2] === "^" ? 1 : 0
       let cur: string | null = base === "HEAD" ? this.head : this.commits.has(base) ? base : null
       for (let i = 0; i < steps; i++) {
         if (cur === null) return null
@@ -295,6 +296,16 @@ export class InMemRepo {
     return [...this.worktree.keys()]
       .filter((key) => key === prefix || key.startsWith(dirPrefix))
       .sort()
+  }
+
+  /** Every ref name under `prefix` (`refs/…`), sorted — `git for-each-ref <prefix>`. */
+  refNamesUnder(prefix: string): ReadonlyArray<string> {
+    return [...this.refs.keys()].filter((ref) => ref.startsWith(prefix)).sort()
+  }
+
+  /** Whether `path` is in the index — what `git diff <commit> -- <path>` compares against the worktree. */
+  isTracked(path: string): boolean {
+    return this.index.has(path)
   }
 
   /** `git add -A` — the index becomes exactly the current worktree. */

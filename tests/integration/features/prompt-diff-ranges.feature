@@ -40,7 +40,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       }
       """
 
-  @live
+  @inmem
   Scenario: build.review.collecting's captured manifest names a commit and a path, never inlines a diff
     Given an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"

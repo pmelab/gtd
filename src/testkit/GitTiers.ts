@@ -9,7 +9,7 @@ import {
 } from "node:fs"
 import { join, dirname, basename } from "node:path"
 import { tmpdir } from "node:os"
-import { execSync, execFileSync } from "node:child_process"
+import { execSync, spawnSync } from "node:child_process"
 // Imported directly (not just from *.test.ts) — a leak of this module into
 // the shipped CLI bundle would try to inline `vitest` and fail the build
 // loudly (`deps.alwaysBundle` in `tsdown.config.ts`), a guard alongside the
@@ -29,8 +29,10 @@ import {
   fetchHistoryRefs,
   deleteRef,
 } from "../emit/index.js"
+import { applyEmittedScript } from "./EmittedScriptRecognizer.js"
+import { applyFlowScript } from "./FlowScripts.js"
 import { InMemRepo } from "./InMemRepo.js"
-import { gitTestLayer } from "./Layers.js"
+import { gitTestLayer, type ScriptedCommand } from "./Layers.js"
 
 export interface GitTierCapabilities {
   /** Assert file BYTES on disk, not just index/HEAD state (`hardResetTo`) — only the Live tier has a real working-tree file to read back. */
@@ -59,6 +61,9 @@ export interface GitTierObserve {
   readonly refExists: (ref: string) => boolean
   readonly readWorktreeFile: (path: string) => string
   readonly existsPath: (path: string) => boolean
+  readonly headSubject: () => string
+  /** Paths HEAD's own commit touched, against its parent — not the whole tree. */
+  readonly headTouchedPaths: () => ReadonlyArray<string>
 }
 
 export interface GitTier {
@@ -74,6 +79,15 @@ export interface GitTier {
   readonly emptyRepo: () => GitTier
   readonly seed: GitTierSeed
   readonly observe: GitTierObserve
+  /**
+   * Runs a script gtd hands a driver: real `sh` on Live, the in-memory twin on
+   * InMemory. `commands` declares what each program a check runs does — Live
+   * runs the real thing, so a contract case passes only when the two agree.
+   */
+  readonly runScript: (
+    script: string,
+    commands?: ReadonlyMap<string, ScriptedCommand>,
+  ) => { readonly ok: boolean; readonly stderr: string }
   readonly dispose: () => void
 }
 
@@ -187,6 +201,15 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       },
       readWorktreeFile: (path) => readFileSync(join(root, path), "utf8"),
       existsPath: (path) => existsSync(join(root, path)),
+      headSubject: () => gitExec("log", "-1", "--pretty=%s"),
+      headTouchedPaths: () =>
+        gitExec("show", "--name-only", "--pretty=format:", "HEAD")
+          .split("\n")
+          .filter((line) => line.length > 0),
+    },
+    runScript: (script) => {
+      const result = spawnSync("sh", ["-c", script], { cwd: root, encoding: "utf8" })
+      return { ok: result.status === 0, stderr: result.stderr }
     },
     dispose: () => rmSync(root, { recursive: true, force: true }),
   }
@@ -252,6 +275,19 @@ const makeInMemTier = (initialCommit = true): GitTier => {
         return content
       },
       existsPath: (path) => repo.hasPath(path),
+      headSubject: () => repo.lastCommitSubject() ?? "",
+      headTouchedPaths: () => {
+        const paths = new Set([...repo.pathsAtRef("HEAD~1"), ...repo.pathsAtRef("HEAD")])
+        return [...paths]
+          .filter((p) => repo.fileAtRef("HEAD~1", p) !== repo.fileAtRef("HEAD", p))
+          .sort()
+      },
+    },
+    runScript: (script, commands = new Map()) => {
+      const flow = applyFlowScript(repo, commands, script)
+      if (flow !== undefined) return { ok: flow.ok, stderr: flow.stderr }
+      const applied = applyEmittedScript(repo, commands, script)
+      return { ok: applied.ok, stderr: applied.error ?? "" }
     },
     dispose: () => {},
   }
@@ -998,35 +1034,20 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
 }
 
 /**
- * Runs a `GitScript.ts` builder's output through a REAL shell against `t.root`
- * — the same execution model the eventual driver uses (`bash -c <script>`),
- * so a builder that's syntactically fine but semantically wrong (a missing
- * `&&`, a misquoted path) fails here exactly as it would in production.
+ * The SAME writer postconditions `runGitServiceContract` asserts against
+ * `GitOperations`, asserted here against `GitScript.ts`'s builders as a driver
+ * runs them: real `sh` on Live, the in-memory twin on InMemory.
  */
-const execScript = (t: GitTier, script: string): void => {
-  execFileSync("bash", ["-c", script], { cwd: t.root, stdio: "pipe" })
+const run = (t: GitTier, script: string): void => {
+  const result = t.runScript(script)
+  if (!result.ok) throw new Error(`script failed on ${t.name}: ${result.stderr}`)
 }
 
-/** Names touched by HEAD's own commit — `git show`'s diff against its parent, not the whole tree. */
-const headTouchedPaths = (t: GitTier): ReadonlyArray<string> =>
-  gitExecIn(t.root, "show", "--name-only", "--pretty=format:", "HEAD")
-    .split("\n")
-    .filter((line) => line.length > 0)
-
-const headSubject = (t: GitTier): string => gitExecIn(t.root, "log", "-1", "--pretty=%s")
-
-/**
- * The SAME 9 writer postconditions `runGitServiceContract` asserts against
- * `GitOperations`, asserted here against `GitScript.ts`'s bash builders
- * instead — driven through real `bash` against a real repo (`makeLiveTier`),
- * never the in-memory fake, since a fake root (`/repo`) has no shell to run
- * against.
- */
-export const runGitScriptContract = (): void => {
+export const runGitScriptContract = (makeTier: () => GitTier): void => {
   let t: GitTier
 
   beforeEach(() => {
-    t = makeLiveTier()
+    t = makeTier()
   })
 
   afterEach(() => {
@@ -1037,18 +1058,18 @@ export const runGitScriptContract = (): void => {
     it("stages (git add -A) before committing — a new untracked file lands in the commit", () => {
       t.seed.writeFile("new.ts", "export const x = 1")
       const headBefore = t.observe.resolveRef("HEAD")
-      execScript(t, commitAll("gtd: building"))
+      run(t, commitAll("gtd: building"))
       expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
-      expect(headSubject(t)).toBe("gtd: building")
-      expect(headTouchedPaths(t)).toEqual(["new.ts"])
+      expect(t.observe.headSubject()).toBe("gtd: building")
+      expect(t.observe.headTouchedPaths()).toEqual(["new.ts"])
       expect(t.observe.statusPorcelain().trim()).toBe("")
     })
 
     it("commits even on a clean tree (--allow-empty), never 'nothing to commit'", () => {
       const headBefore = t.observe.resolveRef("HEAD")
-      execScript(t, commitAll("gtd: grilled"))
+      run(t, commitAll("gtd: grilled"))
       expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
-      expect(headSubject(t)).toBe("gtd: grilled")
+      expect(t.observe.headSubject()).toBe("gtd: grilled")
     })
   })
 
@@ -1057,16 +1078,16 @@ export const runGitScriptContract = (): void => {
       t.seed.writeFile("a.txt", "a")
       t.seed.stageAll()
       t.seed.writeFile("b.txt", "b")
-      execScript(t, commitAsIs("feat: squash"))
-      expect(headSubject(t)).toBe("feat: squash")
-      expect(headTouchedPaths(t)).toEqual(["a.txt"])
+      run(t, commitAsIs("feat: squash"))
+      expect(t.observe.headSubject()).toBe("feat: squash")
+      expect(t.observe.headTouchedPaths()).toEqual(["a.txt"])
     })
 
     it("commits even on a clean index (--allow-empty), never 'nothing to commit'", () => {
       const headBefore = t.observe.resolveRef("HEAD")
-      execScript(t, commitAsIs("gtd: empty squash"))
+      run(t, commitAsIs("gtd: empty squash"))
       expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
-      expect(headSubject(t)).toBe("gtd: empty squash")
+      expect(t.observe.headSubject()).toBe("gtd: empty squash")
     })
   })
 
@@ -1074,7 +1095,7 @@ export const runGitScriptContract = (): void => {
     it("moves HEAD back but keeps worktree changes from the second commit", () => {
       const firstHash = t.observe.resolveRef("HEAD")
       t.seed.commit("feat: second", { "second.txt": "second content" })
-      execScript(t, softResetTo(firstHash))
+      run(t, softResetTo(firstHash))
       expect(t.observe.resolveRef("HEAD")).toBe(firstHash)
       expect(t.observe.statusPorcelain()).toContain("second.txt")
     })
@@ -1084,7 +1105,7 @@ export const runGitScriptContract = (): void => {
     it("moves HEAD, index, and working tree content back to the target ref", () => {
       const firstHash = t.observe.resolveRef("HEAD")
       t.seed.commit("feat: second", { "readme.txt": "modified content" })
-      execScript(t, hardResetTo(firstHash))
+      run(t, hardResetTo(firstHash))
       expect(t.observe.resolveRef("HEAD")).toBe(firstHash)
       expect(t.observe.statusPorcelain()).toBe("")
       expect(t.observe.readWorktreeFile("readme.txt")).toBe("hello")
@@ -1095,7 +1116,7 @@ export const runGitScriptContract = (): void => {
     it("moves HEAD and index, leaving the working tree untouched", () => {
       const firstHash = t.observe.resolveRef("HEAD")
       t.seed.commit("feat: second", { "second.txt": "second content" })
-      execScript(t, mixedResetTo(firstHash))
+      run(t, mixedResetTo(firstHash))
       expect(t.observe.resolveRef("HEAD")).toBe(firstHash)
       expect(t.observe.statusPorcelain()).toContain("second.txt")
     })
@@ -1105,7 +1126,7 @@ export const runGitScriptContract = (): void => {
     it("drops both tracked modifications and untracked files", () => {
       t.seed.writeFile("readme.txt", "modified")
       t.seed.writeFile("untracked.txt", "new")
-      execScript(t, discardPending())
+      run(t, discardPending())
       expect(t.observe.statusPorcelain()).toBe("")
     })
   })
@@ -1113,7 +1134,7 @@ export const runGitScriptContract = (): void => {
   describe("updateRef / deleteRef", () => {
     it("updateRef points a ref at a commit", () => {
       const head = t.observe.resolveRef("HEAD")
-      execScript(t, updateRef("refs/gtd/marker", head))
+      run(t, updateRef("refs/gtd/marker", head))
       expect(t.observe.refExists("refs/gtd/marker")).toBe(true)
       expect(t.observe.resolveRef("refs/gtd/marker")).toBe(head)
     })
@@ -1126,14 +1147,14 @@ export const runGitScriptContract = (): void => {
 
     it("deleteRef removes an existing ref, and tolerates deleting it again", () => {
       const head = t.observe.resolveRef("HEAD")
-      execScript(t, updateRef("refs/gtd/marker", head))
-      execScript(t, deleteRef("refs/gtd/marker"))
-      execScript(t, deleteRef("refs/gtd/marker"))
+      run(t, updateRef("refs/gtd/marker", head))
+      run(t, deleteRef("refs/gtd/marker"))
+      run(t, deleteRef("refs/gtd/marker"))
       expect(t.observe.refExists("refs/gtd/marker")).toBe(false)
     })
 
     it("deleteRef tolerates a ref that was never created", () => {
-      expect(() => execScript(t, deleteRef("refs/gtd/never-created"))).not.toThrow()
+      expect(() => run(t, deleteRef("refs/gtd/never-created"))).not.toThrow()
       expect(t.observe.refExists("refs/gtd/never-created")).toBe(false)
     })
   })

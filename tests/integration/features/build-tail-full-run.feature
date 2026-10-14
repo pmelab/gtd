@@ -66,10 +66,13 @@ Feature: after the last package, the full run precedes the quality lap
     Then it succeeds
     And the last commit subject is "gtd(check): build.health.check → build.quality.correctness.reviewing"
 
-  @live
+  @inmem
   Scenario: a green full run's check script sweeps the architecture document
     Given an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And an environment variable "GTD_TESTCOMMAND" set to "true"
+    And the shell command "true" exits 0 with:
+      """
+      """
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/ARCHITECTURE.md" does not exist

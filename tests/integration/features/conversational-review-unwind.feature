@@ -55,7 +55,7 @@ Feature: Review conversation re-unwind — edits from every round are reverted
       """
     And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
 
-  @live
+  @inmem
   Scenario: a hand-edit from an earlier reply round is reverted by the re-unwind, back to its reviewed content
     Given ".gtd/REVIEW.md" is modified to:
       """

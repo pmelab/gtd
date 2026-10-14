@@ -25,6 +25,7 @@ import {
   OUTCOME_MARKER,
 } from "../emit/index.js"
 import { steeringFormatFor, type SteeringFormat } from "../steering/index.js"
+import { applyFlowScript } from "./FlowScripts.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
 
@@ -624,6 +625,11 @@ export const applyEmittedScript = (
   commands: ReadonlyMap<string, ScriptedCommand>,
   script: string,
 ): AppliedScriptResult => {
+  const flow = applyFlowScript(repo, commands, script)
+  if (flow !== undefined) return flow.ok ? { ok: true } : { ok: false, error: flow.error ?? "" }
+  if (script.startsWith("#!")) {
+    return { ok: false, error: `unrecognized script block: ${script.split("\n")[0]}` }
+  }
   const recognizers = recognizersFor(repo, commands)
 
   for (const block of splitBlocks(script)) {

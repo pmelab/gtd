@@ -4,6 +4,7 @@ import { runCli } from "../cli/index.js"
 import { EXIT_OK, type BeatDocument } from "../wire/index.js"
 import { makeCapturingCliIo, type CapturedCliResult } from "./cliIo.js"
 import { applyEmittedScript } from "./EmittedScriptRecognizer.js"
+import { applyFlowScript } from "./FlowScripts.js"
 import { InMemRepo } from "./InMemRepo.js"
 
 /**
@@ -247,7 +248,9 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     commit: (message) => repo.commitAllWithPrefix(message),
     show: (ref, path) => repo.fileAtRef(ref, path) ?? undefined,
     runScript: (script) => {
-      for (const line of script.split("\n")) runLine(repo, line.trim())
+      const flow = applyFlowScript(repo, new Map(), script)
+      if (flow === undefined) for (const line of script.split("\n")) runLine(repo, line.trim())
+      else if (!flow.ok) throw new Error(`testkit: ${flow.error ?? ""}`)
     },
     gtd,
     start: (workflow, ...args) => begin(["--workflow", workflow, ...args]),

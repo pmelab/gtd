@@ -318,8 +318,6 @@ export class GtdWorld extends QuickPickleWorld {
   pipedByteCount: number | undefined = undefined
   /** Path to a stub agent script for `driver-doc` scenarios (@live only) — the `claude` shim translates the docs/driver.md driver's argv into this stub's `$GTD_LOOP_*` env. */
   stubAgentPath: string | undefined = undefined
-  /** Explicit `$GTD_TESTCOMMAND` override for a real `checking`/`fix-precheck` script run (@live only). */
-  gtdTestCommandOverride: string | undefined = undefined
   /** A scenario-scoped temp dir holding a `gtd` shim so a bare `gtd` invoked by name resolves to this build, not a globally-installed one. Live tier only. */
   pathShimDir: string | undefined = undefined
   /** State dir for the fake `tailscale` CLI `pathShimDir` also carries (`hooks.ts#FAKE_TAILSCALE_SCRIPT`) — one `<port>.mapping` file per published serve port. Live tier only. */
@@ -471,7 +469,7 @@ export class GtdWorld extends QuickPickleWorld {
     return parsed !== undefined ? stringField(parsed, "file") : ""
   }
 
-  private async runEmittedScript(script: string): Promise<EmittedRun> {
+  async runEmittedScript(script: string): Promise<EmittedRun> {
     return this.repo !== undefined
       ? applyScriptToFake(this.repo, this.scriptedCommands, script)
       : this.runScriptWithSh(script)
@@ -506,7 +504,6 @@ export class GtdWorld extends QuickPickleWorld {
     return {
       ...inherited,
       ...pathEnv,
-      ...optionalEnv("GTD_TESTCOMMAND", this.gtdTestCommandOverride),
       ...optionalEnv("GTD_TEST_TAILSCALE_DIR", this.tailscaleStateDir),
       ...this.envVars,
       ...this.liveEnvOverrides,

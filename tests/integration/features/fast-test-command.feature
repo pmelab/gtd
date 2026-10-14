@@ -34,7 +34,7 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
     Then it succeeds
     And the last commit subject is "gtd(check): start-gate.check → design.triage"
 
-  @live
+  @inmem
   Scenario: an unset fastTestCommand makes the printed check script write SETUP.md
     Given a test project
     And the workflow gtd install scaffolds
@@ -54,12 +54,16 @@ Feature: fastTestCommand is required — unset, the workflow rests at its check 
     Then ".gtd/SETUP.md" contains "fastTestCommand"
     And ".gtd/FEEDBACK.md" does not exist
 
-  @live
+  @inmem
   Scenario: the package loop's health check renders fastTestCommand, not testCommand
     Given a test project
     And the workflow gtd install scaffolds
-    And an environment variable "GTD_FASTTESTCOMMAND" set to "echo fast-suite-ran; exit 1"
-    And an environment variable "GTD_TESTCOMMAND" set to "echo full-suite-ran; exit 1"
+    And an environment variable "GTD_FASTTESTCOMMAND" set to "run-fast-suite"
+    And an environment variable "GTD_TESTCOMMAND" set to "run-full-suite"
+    And the shell command "run-fast-suite" exits 1 with:
+      """
+      fast-suite-ran
+      """
     And a file "NOTE.md" with:
       """
       a sketch

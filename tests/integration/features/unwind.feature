@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: unwind reverts the sketch in the working tree, never the index
 
   `unwind` prints a script that reverse-applies the commit that started the

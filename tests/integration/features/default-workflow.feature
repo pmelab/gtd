@@ -26,7 +26,7 @@ Feature: The bundled unified workflow — one flow, end to end
   `build.review.closing`, `re-unwind`) is simulated on the `@inmem` scenarios
   below by writing or deleting its outcome files directly and running
   `gtd land` — `@inmem` never executes the scripts themselves. The scenarios
-  that need `re-unwind`'s real scoped revert are tagged `@live`, running it
+  that need `re-unwind`'s real scoped revert are tagged `@inmem`, running it
   for real via "I execute the printed check script", as is the one that
   pins what `gtd next` leaves behind in a real repository.
 
@@ -573,7 +573,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And stdout contains "\"idle\":true"
 
-  @live
+  @inmem
   Scenario: re-unwind actually reverts a hand-edited code line, never resurrects the review file, and leaves the state dir alone
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -649,7 +649,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And ".gtd/REVIEW.md" does not exist
     And ".gtd/marker.md" exists
 
-  @live
+  @inmem
   Scenario: re-unwind on a note-only review round reverts nothing and still advances to design.triage
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -724,7 +724,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(check): re-unwind → design.triage"
     And the git status is clean
 
-  @live
+  @inmem
   Scenario: a revert that cannot apply is refused, not silently swallowed
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -2064,7 +2064,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # stays at the gate for the reviewer to restore + tick.
     And the commit count is unchanged
 
-  @live
+  @inmem
   Scenario: gtd next at await-review leaves HEAD untouched and writes no worktree ref
     Given a test project
     And the workflow gtd install scaffolds
