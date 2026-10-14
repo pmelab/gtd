@@ -17,7 +17,7 @@ vi.mock("node:os", async (importOriginal) => ({
 
 import { runCli, type Command } from "./index.js"
 import { EXIT_USAGE_ERROR, stallDiagnosis, noopText, WIRE_SCHEMA } from "../wire/index.js"
-import { formatFinding, needsOf, runCommand, SelectorUsageError } from "./Program.js"
+import { needsOf, runCommand, SelectorUsageError } from "./Program.js"
 import { InMemRepo, makeCapturingCliIo, testLayers, applyEmittedScript } from "../testkit/index.js"
 import {
   commitAll,
@@ -955,12 +955,6 @@ describe("gtd check <mode> <file>", () => {
     // 0-based column 24, printed 1-based as 25.
     expect(stderr).toContain(
       'REVIEW.md:6:25: Chunk "Add calculator" hunk ./src/calc.ts#1\'s note starts with a second pointer (./src/other.ts#2) — give it its own "- [ ]" line',
-    )
-  })
-
-  it("a line-carrying finding with no range prints '<file>:<line>: <message>' — the flat-shape fallback no built-in format reaches", async () => {
-    expect(formatFinding("FAKE.md", { message: "positioned but rangeless", line: 4 })).toBe(
-      "FAKE.md:5: positioned but rangeless",
     )
   })
 

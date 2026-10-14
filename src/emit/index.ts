@@ -1,6 +1,7 @@
 export {
   type EmitStep,
   fileExistsGuard,
+  withFileVar,
   commandForFile,
   binaryGuard,
   failurePromptWrapper,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { steeringFormatFor } from "./index.js"
+import { formatFinding, steeringFormatFor } from "./index.js"
 import type { SteeringFinding, SteeringFormat } from "./SteeringFormat.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
@@ -87,5 +87,13 @@ describe("SteeringFinding range invariants", () => {
     const findings = format.validate(content)
     expect(findings.length).toBeGreaterThan(0)
     assertRangeInvariants(findings)
+  })
+})
+
+describe("formatFinding", () => {
+  it("a line-carrying finding with no range prints '<file>:<line>: <message>' — the flat-shape fallback no built-in format reaches", () => {
+    expect(formatFinding("FAKE.md", { message: "positioned but rangeless", line: 4 })).toBe(
+      "FAKE.md:5: positioned but rangeless",
+    )
   })
 })
