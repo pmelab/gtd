@@ -39,12 +39,9 @@ describe("resolvedRefOrCorrupted", () => {
   })
 })
 
-/**
- * `GitScript.ts`'s bash builders, run through real `bash` against a real git
- * repo — the Live tier only, since the in-memory fake's root has no shell to
- * execute against. Asserts the same 9 writer postconditions as the contract
- * above, driven via the emitted script instead of the `GitOperations` port.
- */
-describe("GitScript", () => {
-  runGitScriptContract()
-})
+/** `GitScript.ts`'s builders as a driver runs them: real `sh` against the in-memory twin. */
+for (const makeTier of gitTiers) {
+  describe(`GitScript [${makeTier().name}]`, () => {
+    runGitScriptContract(makeTier)
+  })
+}

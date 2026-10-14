@@ -37,7 +37,14 @@ decided by the tiers in [COMPATIBILITY.md](COMPATIBILITY.md).
 - never run a process in the background when its output is what you are after —
   a long test run, an eval, a build. Run it in the foreground and wait for the
   result; a backgrounded run gets reported on from a partial log or not at all
-- create cucumber.js scenarios for each new feature
+- create cucumber.js scenarios for each new feature, tagged `@inmem`. `@live` is
+  for the few scenarios only a real process shows — a signal's exit status, a
+  real shell, the bundled binary's wiring — never for logic
+- reach every external resource (git, a shell, a file outside the repository,
+  the network, a spawned program) through a port with a live and an in-memory
+  implementation, and hold the two together with a contract test that runs the
+  same cases against both. A scenario needing a resource the in-memory tier
+  lacks is a missing twin, not a reason to go `@live`
 - use composable "Given" steps (small, reusable steps) instead of one-off setup
   steps
 - make Given steps generic and expose actual file content/changes in scenario

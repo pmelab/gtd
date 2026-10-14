@@ -1,8 +1,23 @@
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { changedConfigFiles, configFingerprint } from "./fingerprint.js"
+
+const read = (path: string): string | undefined => {
+  try {
+    return readFileSync(path, "utf8")
+  } catch {
+    return undefined
+  }
+}
 
 describe("the config fingerprint", () => {
   it("hashes each file under its root-relative path, skipping one that cannot be read", () => {
@@ -14,6 +29,7 @@ describe("the config fingerprint", () => {
     const fingerprint = configFingerprint(
       [join(root, "gtd.config.ts"), join(root, "lib", "flow.ts"), join(root, "gone.ts")],
       root,
+      read,
     )
 
     expect(Object.keys(fingerprint).sort()).toEqual(["gtd.config.ts", "lib/flow.ts"])
@@ -22,7 +38,7 @@ describe("the config fingerprint", () => {
     expect(
       changedConfigFiles(
         fingerprint,
-        configFingerprint([join(root, "gtd.config.ts"), join(root, "lib", "flow.ts")], root),
+        configFingerprint([join(root, "gtd.config.ts"), join(root, "lib", "flow.ts")], root, read),
       ),
     ).toEqual(["lib/flow.ts"])
   })
@@ -34,7 +50,7 @@ describe("the config fingerprint", () => {
     symlinkSync(real, link)
 
     expect(
-      Object.keys(configFingerprint([join(realpathSync(real), "gtd.config.ts")], link)),
+      Object.keys(configFingerprint([join(realpathSync(real), "gtd.config.ts")], link, read)),
     ).toEqual(["gtd.config.ts"])
   })
 
@@ -42,7 +58,7 @@ describe("the config fingerprint", () => {
     const root = mkdtempSync(join(tmpdir(), "gtd-fingerprint-"))
     writeFileSync(join(root, "a\x1b.ts"), "export const a = 1\n")
 
-    expect(configFingerprint([join(root, "a\x1b.ts")], root)).toEqual({})
+    expect(configFingerprint([join(root, "a\x1b.ts")], root, read)).toEqual({})
   })
 
   it("names a file only one side has as changed", () => {

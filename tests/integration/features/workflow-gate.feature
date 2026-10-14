@@ -9,13 +9,11 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   gate that loops back to the check once the human repairs the failures — the
   same shape as `escalate`.
 
-  `@inmem` scenarios never execute the unwind/check scripts; they simulate
-  their outcome directly — the unwind's revert by deleting whatever the
-  entry commit added, the check's suite run by writing (red) or not writing
-  (green) `.gtd/FEEDBACK.md` — exactly as the shared `checking` state is
-  tested elsewhere. `@live` scenarios prove the real scripts (`I execute the
-  printed check script`), with a real test command standing in for the suite
-  (`GTD_TESTCOMMAND`).
+  Some scenarios simulate the scripts' outcome directly — the unwind's revert
+  by deleting whatever the entry commit added, the check's suite run by
+  writing (red) or not writing (green) `.gtd/FEEDBACK.md`. Others run the
+  printed scripts (`I execute the printed check script`), with a scripted
+  test command standing in for the suite (`GTD_TESTCOMMAND`).
 
   @inmem
   Scenario: a red baseline halts at start-gate.blocked, then a fix re-runs the gate to green
@@ -121,11 +119,14 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Then it succeeds
     And the last commit subject is "gtd(check): start-gate.check → start-gate.blocked"
 
-  @live
+  @inmem
   Scenario: a green baseline proceeds from the gate into design.triage
     Given a test project
     And the workflow gtd install scaffolds
-    And GTD_TESTCOMMAND is set to "true"
+    And an environment variable "GTD_TESTCOMMAND" set to "true"
+    And the shell command "true" exits 0 with:
+      """
+      """
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     Given a file "NOTE.md" with:
       """
@@ -151,11 +152,14 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     And the last commit subject is "gtd(check): start-gate.check → design.triage"
     And ".gtd/FEEDBACK.md" does not exist
 
-  @live
+  @inmem
   Scenario: the unwind reverts a note and a hand-edited code change alike, restoring the start commit while both survive in the entry commit
     Given a test project
     And the workflow gtd install scaffolds
-    And GTD_TESTCOMMAND is set to "true"
+    And an environment variable "GTD_TESTCOMMAND" set to "true"
+    And the shell command "true" exits 0 with:
+      """
+      """
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a file "src/real.ts" with:
       """
@@ -190,11 +194,14 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       gtd(check): unwind → start-gate.check
       """
 
-  @live
+  @inmem
   Scenario: a red baseline halts at start-gate.blocked with the failing output recorded
     Given a test project
     And the workflow gtd install scaffolds
-    And GTD_TESTCOMMAND is set to "false"
+    And an environment variable "GTD_TESTCOMMAND" set to "false"
+    And the shell command "false" exits 1 with:
+      """
+      """
     And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     Given a file "NOTE.md" with:
       """

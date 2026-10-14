@@ -5,6 +5,7 @@ import type {
   SteeringOutlineNode,
   SteeringPointer,
 } from "./SteeringFormat.js"
+export { formatFinding } from "./SteeringFormat.js"
 import { qaDescriptor } from "./qa.js"
 import { reviewDescriptor } from "./review.js"
 export { reviewNotes, reviewRisks, type ReviewNote } from "./review.js"

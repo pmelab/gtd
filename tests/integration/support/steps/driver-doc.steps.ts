@@ -84,20 +84,12 @@ function toFailedResult(err: unknown): { exitCode: number; stdout: string; stder
   return { exitCode, stdout: e.stdout ?? "", stderr: e.stderr ?? "" }
 }
 
-// The bundled workflows's `vars.testCommand` override, rendered into
-// the REAL `checking`/`fix-precheck` script via the `GTD_<NAME>` env layer —
-// a workflow parameter for the gtd under test, not driver configuration.
-Given("GTD_TESTCOMMAND is set to {string}", (world: GtdWorld, value: string) => {
-  world.gtdTestCommandOverride = value
-})
-
 // The MINIMAL env the driver spawns with — PATH (the shim dir first, so
 // `gtd` and `claude` resolve to this build's bundle and the stub) and HOME,
 // nothing else. That absence is itself the copy-paste-complete proof: no
-// $GTD_* var, no $NODE_*, no test-harness leak. The one exception is
-// $GTD_TESTCOMMAND when a scenario set it: it parameterizes the WORKFLOW
-// under test (the bundled template's `vars.testCommand`), not the driver;
-// likewise any `an environment variable` step (e.g. `GTD_FASTTESTCOMMAND`).
+// $GTD_* var, no $NODE_*, no test-harness leak. The one exception is an
+// `an environment variable` step (e.g. `GTD_FASTTESTCOMMAND`): it
+// parameterizes the WORKFLOW under test, not the driver.
 // The git config isolation (vitest.config.ts) is harness, not a driver
 // dependency: without it the driver's commits read the developer's ~/.gitconfig.
 const gitConfigEnv = Object.fromEntries(
@@ -109,9 +101,6 @@ function driverEnv(world: GtdWorld): Record<string, string> {
     PATH: `${world.pathShimDir}:${process.env["PATH"] ?? ""}`,
     HOME: process.env["HOME"] ?? "",
     ...gitConfigEnv,
-    ...(world.gtdTestCommandOverride !== undefined
-      ? { GTD_TESTCOMMAND: world.gtdTestCommandOverride }
-      : {}),
     ...world.envVars,
   }
 }
@@ -127,8 +116,8 @@ When("I run the driver from the docs", async (world: GtdWorld) => {
     // 120s, matching e2e-live's own `stepTimeout` (see vitest.config.ts):
     // the reference driver now issues one real subprocess per field read
     // (`gtd next --json=<path>`/`gtd land --json=<path>`) instead of one
-    // combined `--sh` read per beat, so a multi-beat scenario like the
-    // fix-precheck escalation below spawns several times as many processes.
+    // combined `--sh` read per beat, so a multi-beat scenario spawns several
+    // times as many processes.
     const { stdout, stderr } = await execFile(path, [], {
       cwd: world.repoDir,
       env: driverEnv(world),
@@ -166,30 +155,3 @@ Then("the log file does not contain {string}", (world: GtdWorld, text: string) =
     `Expected the log file ("${loopLogPath(world)}") not to contain "${text}". Got:\n${content}`,
   )
 })
-
-// Regex variants of the two assertions above — needed for the computed
-// session id (a real @live commit-derived value), which isn't a fixed
-// literal, and for a regex BACKREFERENCE proving the SAME id came back on a
-// resumed turn.
-Then("the log file matches {string}", (world: GtdWorld, pattern: string) => {
-  const path = join(world.repoDir, loopLogPath(world))
-  const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-  assert.ok(
-    new RegExp(pattern).test(content),
-    `Expected the log file ("${loopLogPath(world)}") to match /${pattern}/. Got:\n${content}`,
-  )
-})
-
-Then(
-  "the log file matches {string} {int} times",
-  (world: GtdWorld, pattern: string, count: number) => {
-    const path = join(world.repoDir, loopLogPath(world))
-    const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-    const matches = content.match(new RegExp(pattern, "g")) ?? []
-    assert.strictEqual(
-      matches.length,
-      count,
-      `Expected the log file ("${loopLogPath(world)}") to match /${pattern}/ exactly ${count} times, found ${matches.length}. Got:\n${content}`,
-    )
-  },
-)

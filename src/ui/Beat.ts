@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import type { RunInWorktree } from "./Ports.js"
 import { existsSync, readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join } from "node:path"
@@ -95,16 +96,6 @@ export interface MovedOnStep {
 }
 
 export type StepRead = Step | BrokenStep | MovedOnStep
-
-/** One subprocess's outcome — `spawnError` set (never `status`/`stdout`/`stderr`) when the process could never start at all (no `bash`, bad cwd), so callers can tell "never ran" from "ran and exited non-zero". */
-export interface SpawnOutcome {
-  readonly status: number | null
-  readonly stdout: string
-  readonly stderr: string
-  readonly spawnError?: string
-}
-
-export type RunInWorktree = (cwd: string, command: string) => Promise<SpawnOutcome>
 
 /**
  * The real subprocess spawn: `bash -c <command>` with `cwd` set to the

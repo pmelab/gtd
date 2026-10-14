@@ -1,1 +1,1 @@
-export { startLspServer } from "./Lsp.js"
+export { nodeLspIo, serveLspOver, startLspServer, type LspIo } from "./Lsp.js"

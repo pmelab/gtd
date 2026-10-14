@@ -1,4 +1,3 @@
-@live
 Feature: gtd lsp — the steering-file LSP server (stdio)
 
   Minimal protocol-level smoke for `gtd lsp` (see src/lsp/Lsp.ts): the server
@@ -20,9 +19,10 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   hyphens: it must jump to the full file, not a truncated directory prefix.
   One more scenario proves a `qa`-mode code action is offered from a wrapped
   option's continuation line, not just its own `- [ ]` line (see
-  `QuestionOption.endLine` in src/steering/qa.ts). Real subprocess I/O
-  (spawn + stdio JSON-RPC framing), so this runs @live.
+  `QuestionOption.endLine` in src/steering/qa.ts). The handshake runs a
+  spawned `gtd lsp` over stdio; the rest run the same server in-process.
 
+  @live
   Scenario: the initialize handshake succeeds and advertises symbol/code-action support
     Given a test project
     And an LSP server started in the test project
@@ -31,6 +31,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And the LSP response result has a "documentSymbolProvider" capability
     And the LSP response result has a "codeActionProvider" capability
 
+  @inmem
   Scenario: with no config, .gtd/TODO.md is NOT dispatched by basename — it yields no symbols
     Given a test project
     And an LSP server started in the test project
@@ -49,6 +50,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result is an empty symbol list
 
+  @inmem
   Scenario: documentSymbol is served for a CUSTOM-named qa file mapped via a real gtd.config.ts (config-driven dispatch)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -83,6 +85,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result contains a symbol named "[unanswered] Which operations?"
 
+  @inmem
   Scenario: gtd.openSteeringFile resolves the current state's steering file and asks the client to show it
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -106,6 +109,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/PLAN.md"
 
+  @inmem
   Scenario: gtd.openSteeringFile renders file: with the process's own start vars, matching what gtd next reports (issue #156)
     # A step started with `--var planFile=OTHER.md` renders its `file`
     # against THAT override, the same file `gtd next` reports.
@@ -137,6 +141,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/OTHER.md"
 
+  @inmem
   Scenario: initialize advertises definition support and a definition on a hunk line jumps into the file
     Given a test project
     And an LSP server started in the test project
@@ -157,6 +162,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result points to "src/calc.ts" at line 4
 
+  @inmem
   Scenario: a definition on a hunk whose path contains hyphens jumps to the file, not a parent folder
     # Regression: the pointer regex's non-greedy path group split the path at
     # its first hyphen and called the remainder a note, so the jump landed on
@@ -178,6 +184,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result points to "src/server/email/budget-threshold.ts" at line 30
 
+  @inmem
   Scenario: a code action is offered on a wrapped option's continuation line, not just its checkbox line
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -215,6 +222,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result contains a code action titled "gtd: pick this option"
 
+  @inmem
   Scenario: 'gtd: add a footnote' inserts a marker and a seeded definition; applying the edits shows both
     Given a test project
     And an LSP server started in the test project
@@ -235,6 +243,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the applied document contains "[^fn1]new add function"
     And the applied document matches "^\[\^fn1\]:$"
 
+  @inmem
   Scenario: gtd.revealPosition jumps the client to the end of the new footnote definition's line, independent of the edits standing on their own
     Given a test project
     And an LSP server started in the test project
@@ -258,6 +267,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/REVIEW.md" with a selection at line 6 character 7, taking focus
 
+  @inmem
   Scenario: a footnote thread appears in the outline with its waiting-on detail
     Given a test project
     And an LSP server started in the test project
@@ -279,6 +289,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result contains a symbol named "[^t1]" with detail "waiting on you"
 
+  @inmem
   Scenario: an open thread is flagged with an Information diagnostic
     Given a test project
     And an LSP server started in the test project
@@ -300,6 +311,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/REVIEW.md" with exactly one Information diagnostic containing "waiting on you"
 
+  @inmem
   Scenario: 'gtd: reply' appends an empty H entry and the cursor lands right after it
     Given a test project
     And an LSP server started in the test project
@@ -326,6 +338,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/REVIEW.md" with a selection at line 10 character 9, taking focus
 
+  @inmem
   Scenario: a textDocument/definition round trip jumps marker to definition, then definition back to the marker's exact column
     Given a test project
     And an LSP server started in the test project
@@ -360,6 +373,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result points to ".gtd/REVIEW.md" at line 5 character 38
 
+  @inmem
   Scenario: a marker in a qa file jumps to its definition — proving qa now serves pointerAt
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -399,6 +413,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result points to ".gtd/PLAN.md" at line 10
 
+  @inmem
   Scenario: a landing that moves HEAD is reflected on the very next request, without a server restart
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -444,6 +459,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP response result contains a symbol named "[unanswered] Which operations?"
 
+  @inmem
   Scenario: a thread in a qa document is a symbol nested under its question, waiting on you
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -483,6 +499,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And the LSP response result contains a symbol named "[^t1]" nested under "Which API?"
     And the LSP response result contains a symbol named "[^t1]" with detail "waiting on you"
 
+  @inmem
   Scenario: 'gtd: reply' on a qa thread's definition inserts an empty H entry and reveals right after it
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -526,6 +543,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/PLAN.md" with a selection at line 13 character 9, taking focus
 
+  @inmem
   Scenario: 'gtd: reply' is not offered on a qa thread waiting on the agent
     Given a test project
     And a gtd config file at "gtd.config.ts" with:

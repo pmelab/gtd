@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: a process gtd started without a gtd.config.ts continues once one exists
 
   Before gtd stopped shipping its workflows as a built-in default, a repository

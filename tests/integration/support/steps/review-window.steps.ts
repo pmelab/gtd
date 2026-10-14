@@ -32,10 +32,13 @@ Then("the current commit is the same as {string}", (world: GtdWorld, name: strin
 // the main worktree used in these scenarios) — asserts no ref anywhere under
 // that prefix exists, not just a specific named one.
 Then("no ref under {string} was created", (world: GtdWorld, prefix: string) => {
-  const out = execFileSync("git", ["for-each-ref", prefix], {
-    cwd: world.repoDir,
-    encoding: "utf-8",
-  }).trim()
+  const out =
+    world.repo !== undefined
+      ? world.repo.refNamesUnder(prefix).join("\n")
+      : execFileSync("git", ["for-each-ref", prefix], {
+          cwd: world.repoDir,
+          encoding: "utf-8",
+        }).trim()
   assert.strictEqual(out, "", `Expected no ref under "${prefix}", found:\n${out}`)
 })
 

@@ -14,6 +14,11 @@ const strykerConfig = JSON.parse(readFileSync("./stryker.config.json", "utf8"))
 
 isolateGitConfig()
 
+const featuresTagged = (tag: string): string[] =>
+  globSync("tests/integration/features/**/*.feature").filter((path) =>
+    new RegExp(`^\\s*${tag}\\b`, "m").test(readFileSync(path, "utf8")),
+  )
+
 export default defineConfig({
   test: {
     reporters: ["./tests/vitest.reporter.ts"],
@@ -42,7 +47,7 @@ export default defineConfig({
         test: {
           name: "e2e-inmem",
           pool: "threads",
-          include: ["tests/integration/features/**/*.feature"],
+          include: featuresTagged("@inmem"),
           setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,
         },
@@ -72,10 +77,8 @@ export default defineConfig({
         // 120s, not 30s: package 02's driver rewrite reads each field as its
         // own `gtd next --json=<path>`/`gtd land --json=<path>` call rather
         // than one combined `--sh` read — the reference driver now spawns
-        // roughly 6x as many real subprocesses per beat. `driver-doc.steps.ts`'s
-        // own multi-beat scenarios (e.g. the fix-precheck escalation and the
-        // `--resume` fallback) run comfortably under 30s in isolation but
-        // crossed 60s under `npm test`'s concurrent turbo task load. Keep this
+        // roughly 6x as many real subprocesses per beat, and its multi-beat
+        // scenarios crossed 60s under `npm test`'s concurrent turbo task load. Keep this
         // and `driver-doc.steps.ts`'s own execFile timeout equal, and both
         // below `testTimeout`, so a slow step fails as a step, not a test.
         plugins: [
@@ -93,7 +96,9 @@ export default defineConfig({
           // longer live here: vitest resolves it before projects split, so
           // it can only be set root-level (which would also slow down
           // e2e-inmem) or, as here, per npm-script CLI flag.
-          include: ["tests/integration/features/**/*.feature"],
+          // Only the files carrying a live scenario: each file pays the world's
+          // setup before quickpickle skips its @inmem scenarios.
+          include: featuresTagged("@live"),
           setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,
         },

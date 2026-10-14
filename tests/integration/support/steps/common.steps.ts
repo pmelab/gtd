@@ -61,11 +61,17 @@ Given("a file {string} with:", (world: GtdWorld, path: string, content: string) 
 // A deterministic, root-proof stand-in for a permission error: reading a
 // DIRECTORY where a steering file is expected fails EISDIR the same way on
 // every machine, unlike `chmod 000` (a no-op when the suite runs as root).
+// In memory a directory is the files under it — one placeholder makes it one.
 Given("a directory at {string}", (world: GtdWorld, path: string) => {
-  mkdirSync(join(world.repoDir, path), { recursive: true })
+  if (world.repo !== undefined) world.repo.writeFile(join(path, ".keep"), "")
+  else mkdirSync(join(world.repoDir, path), { recursive: true })
 })
 
 Then("{string} is still a directory", (world: GtdWorld, path: string) => {
+  if (world.repo !== undefined) {
+    assert.ok(world.repo.readFile(path) === undefined && world.repo.hasPath(path))
+    return
+  }
   assert.ok(
     statSync(join(world.repoDir, path)).isDirectory(),
     `expected ${path} to still be a directory`,
@@ -405,19 +411,8 @@ Then("stdout contains no ANSI escape sequence", (world: GtdWorld) => {
   )
 })
 
-/**
- * Asserts on `world.lastScriptOutput`, distinct from `world.lastResult.stdout`
- * (gtd's own plain-text line). LIVE tier only: the in-memory tier's
- * `applyEmittedScript` treats an outcome block as inert and prints nothing,
- * so a scenario tagged `@inmem` asking this would silently prove nothing —
- * this fails loudly instead, naming the tier.
- */
+/** Asserts on `world.lastScriptOutput`, distinct from `world.lastResult.stdout` (gtd's own plain-text line). */
 Then("the emitted script printed {string}", (world: GtdWorld, text: string) => {
-  assert.strictEqual(
-    world.tier,
-    "live",
-    "the emitted script's own stdout is a @live-only observation — the in-memory tier never runs an outcome block, it only recognizes it as inert",
-  )
   assert.ok(
     world.lastScriptOutput.includes(text),
     `Expected the emitted script's output to contain "${text}". Got:\n${world.lastScriptOutput}`,

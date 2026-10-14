@@ -1,13 +1,5 @@
 import { execSync } from "node:child_process"
-import {
-  existsSync,
-  readFileSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-  mkdirSync,
-} from "node:fs"
+import { existsSync, readFileSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -310,7 +302,7 @@ describe("ConfigService", () => {
     expect(cfg.workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
   })
 
-  it("workflowFiles names gtd.config.ts AND a sibling module it imports from — a caller watching only gtd.config.ts's own path misses that module's edits", async () => {
+  it("the fingerprint covers gtd.config.ts AND a sibling module it imports from", async () => {
     writeFileSync(
       join(projectDir, "steps.ts"),
       [`export const steering = { ".gtd/PLAN.md": "qa" }`, ``].join("\n"),
@@ -323,19 +315,13 @@ describe("ConfigService", () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.steering[".gtd/PLAN.md"]).toBe("qa")
-    expect(cfg.workflowFiles.map((f) => realpathSync(f))).toEqual(
-      expect.arrayContaining([
-        realpathSync(join(projectDir, "gtd.config.ts")),
-        realpathSync(join(projectDir, "steps.ts")),
-      ]),
-    )
+    expect(Object.keys(cfg.fingerprint).sort()).toEqual(["gtd.config.ts", "steps.ts"])
   })
 
-  it("workflowFiles names gtd.config.ts but no shipped module it imports", async () => {
+  it("the fingerprint covers gtd.config.ts but no shipped module it imports", async () => {
     const cfg = await getConfig()
 
-    expect(cfg.workflowFiles).toHaveLength(1)
-    expect(cfg.workflowFiles[0]).toMatch(/\/gtd\.config\.ts$/)
+    expect(Object.keys(cfg.fingerprint)).toEqual(["gtd.config.ts"])
   })
 
   it.each([

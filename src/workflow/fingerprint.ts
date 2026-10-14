@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { readFileSync, realpathSync } from "node:fs"
+import { realpathSync } from "node:fs"
 import { relative, sep } from "node:path"
 
 /** Path (relative to `root`) → content hash of every file a config load touched. */
@@ -27,19 +27,18 @@ const realOr = (path: string): string => {
 // feeds a warning, and the load that listed the file already read it.
 // Paths are real paths: a loader may report `/private/var/…` for a root
 // reached through the `/var` symlink, and the two must still relate.
-export const configFingerprint = (files: readonly string[], root: string): ConfigFingerprint => {
+export const configFingerprint = (
+  files: readonly string[],
+  root: string,
+  read: (path: string) => string | undefined,
+): ConfigFingerprint => {
   const fingerprint: Record<string, string> = {}
   const realRoot = realOr(root)
   for (const file of files) {
     const path = relative(realRoot, realOr(file)).split(sep).join("/")
     if (CONTROL_CHARACTER.test(path)) continue
-    let content: Buffer
-    try {
-      content = readFileSync(file)
-    } catch {
-      continue
-    }
-    fingerprint[path] = contentHash(content)
+    const content = read(file)
+    if (content !== undefined) fingerprint[path] = contentHash(content)
   }
   return fingerprint
 }

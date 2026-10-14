@@ -3,15 +3,11 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   Package 02 inverts `gtd ui`'s own control flow: handoff (the phone's "Done"
   action) EXITS the process instead of spawning a configured loop command —
   there is no more `ui.loop`, no shim `$PATH`, no SIGINT-then-SIGKILL child
-  management. `ui.feature`'s own `@inmem` scenarios only cover `gtd ui`'s
-  fast, deterministic refusal paths reachable with no real filesystem beneath
-  them; a successful bind and the handoff round trip both need a REAL worktree
-  (`gtd ui` reads its own beat via a real `gtd next --json` subprocess spawn
-  BEFORE it ever resolves a bind host or a certificate — see
-  `src/ui/Server.ts#runUiCommand`), so every scenario here that actually binds
-  is `@live`, spawning a real OS process exactly like
-  `spawnGtdUiAndSignal`/`spawnGtdUiAndHandOff` (`tests/integration/support/world.ts`)
-  already did for the SIGINT/SIGTERM cases.
+  management. Scenarios run the server in-process against the in-memory
+  worktree, a fake tailnet standing in for `tailscale`; what only a real
+  process shows — a signal's exit status, a serve mapping torn down on that
+  signal, a fallback bind reachable on this machine's tailnet address — runs
+  `@live`.
 
   @live
   Scenario: gtd ui binds for real and exits 130 on SIGINT — the same signal Ctrl-C sends
@@ -133,7 +129,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Then the reported exit status is 143
     And no tailscale serve mapping or ownership record survives on port 18446
 
-  @live
+  @inmem
   Scenario: handing off exits 0, with the human's note durably on disk and no child process spawned
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -166,7 +162,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Then the reported exit status is 0
     And the file ".gtd/PLAN.md" contains "handed back"
 
-  @live
+  @inmem
   Scenario: handing off with no note (package 04's Done control) exits the same way the note-carrying handoff does
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -199,7 +195,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Then the reported exit status is 0
     And the file ".gtd/PLAN.md" contains "Paragraph zero here."
 
-  @live
+  @inmem
   Scenario: a review step hands off with no note (the review screen's Done control) and exits
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -231,7 +227,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     Then the reported exit status is 0
     And the file ".gtd/REVIEW.md" contains "new add function"
 
-  @live
+  @inmem
   Scenario: no --host given, gtd ui publishes through tailscale serve and tears the mapping down on handoff
     # Package 01's serve-first front door: no --host/--self-signed given, so
     # `runUiCommand` probes and publishes through `tailscale serve` instead of
@@ -325,7 +321,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   # every scenario above, which pins an explicit `--port` and so only ever
   # exercises the one-element-list branch. 8443 is seeded as a foreign
   # mapping first, so the walk must land on 10000.
-  @live
+  @inmem
   Scenario: no --port given, 8443 already carries a foreign mapping, gtd ui's own candidate walk lands on 10000 and tears only that down
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -357,7 +353,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     And no tailscale serve mapping or ownership record survives on port 10000
     And the foreign tailscale serve mapping on port 8443 is untouched
 
-  @live
+  @inmem
   Scenario: picking a question option writes the tick through to disk over a real setValue round trip
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -395,7 +391,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     When I pick option 0 of question 0 in ".gtd/PLAN.md" mode "qa" via a spawned gtd ui
     Then the file ".gtd/PLAN.md" contains "[x] Option A"
 
-  @live
+  @inmem
   Scenario: a note on an already-answered question lands as a footnote on its heading
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -436,7 +432,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     And the file ".gtd/PLAN.md" contains "### Which colour?[^"
     And the file ".gtd/PLAN.md" contains "- H: reconsider this"
 
-  @live
+  @inmem
   Scenario: a page reload does not kill gtd ui — it survives and still hands off through done
     # No `pagehide` beacon exists any more (package 03 Task 8) to mistake a
     # reload for a close — a real GET against the served origin (the exact

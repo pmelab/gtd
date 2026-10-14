@@ -7,7 +7,7 @@ import { NodeContext } from "@effect/platform-node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Effect, Exit } from "effect"
 import { Host } from "../platform/index.js"
-import { UiError, UiShell } from "./index.js"
+import { liveUiHost, UiError, UiHost, UiShell } from "./index.js"
 import { liveUiShell } from "./Ports.fixture.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert } from "./Tls.js"
 
@@ -56,11 +56,12 @@ const withTrackedTlsTmpDir = async (run: () => Promise<unknown>): Promise<string
   return created
 }
 
-const runWithLiveOpenssl = <A>(eff: Effect.Effect<A, UiError, UiShell>) =>
+const runWithLiveOpenssl = <A>(eff: Effect.Effect<A, UiError, UiShell | UiHost>) =>
   Effect.runPromise(
     eff.pipe(
       Effect.provide(liveUiShell),
       Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+      Effect.provide(liveUiHost),
       Effect.provide(NodeContext.layer),
     ),
   )
@@ -130,6 +131,7 @@ describe("generateSelfSignedCert", () => {
       generateSelfSignedCert({ host: `$(touch ${marker})` }).pipe(
         Effect.provide(liveUiShell),
         Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -151,6 +153,7 @@ describe("generateSelfSignedCert", () => {
       generateSelfSignedCert({ host: "exa/mple.local" }).pipe(
         Effect.provide(liveUiShell),
         Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
         Effect.flip,
       ),
@@ -165,6 +168,7 @@ describe("generateSelfSignedCert", () => {
     const thrown = await Effect.runPromise(
       generateSelfSignedCert({ host: "example.local", ip: "192.168.1.5" }).pipe(
         Effect.provide(missingOpenssl),
+        Effect.provide(liveUiHost),
         Effect.flip,
       ),
     )
@@ -178,7 +182,10 @@ describe("generateSelfSignedCert", () => {
     )
     const created = await withTrackedTlsTmpDir(() =>
       Effect.runPromiseExit(
-        generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(nonZeroExit)),
+        generateSelfSignedCert({ host: "example.local" }).pipe(
+          Effect.provide(nonZeroExit),
+          Effect.provide(liveUiHost),
+        ),
       ),
     )
     expect(existsSync(created)).toBe(false)
@@ -191,7 +198,10 @@ describe("generateSelfSignedCert", () => {
     let exit: Exit.Exit<unknown, unknown> | undefined
     const created = await withTrackedTlsTmpDir(async () => {
       exit = await Effect.runPromiseExit(
-        generateSelfSignedCert({ host: "example.local" }).pipe(Effect.provide(liesAboutSuccess)),
+        generateSelfSignedCert({ host: "example.local" }).pipe(
+          Effect.provide(liesAboutSuccess),
+          Effect.provide(liveUiHost),
+        ),
       )
     })
     expect(Exit.isFailure(exit!)).toBe(true)
@@ -222,7 +232,10 @@ describe("obtainTailscaleCert", () => {
       return Effect.succeed({ status: 0, output: "" })
     })
     const pair = await Effect.runPromise(
-      obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner)),
+      obtainTailscaleCert("host.tailnet.ts.net").pipe(
+        Effect.provide(runner),
+        Effect.provide(liveUiHost),
+      ),
     )
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("tailscale cert")
@@ -236,7 +249,11 @@ describe("obtainTailscaleCert", () => {
       Effect.succeed({ status: 1, output: "tailscale cert: access denied\n" }),
     )
     const thrown = await Effect.runPromise(
-      obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner), Effect.flip),
+      obtainTailscaleCert("host.tailnet.ts.net").pipe(
+        Effect.provide(runner),
+        Effect.provide(liveUiHost),
+        Effect.flip,
+      ),
     )
     expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message).toContain("tailscale cert")
@@ -247,7 +264,10 @@ describe("obtainTailscaleCert", () => {
     const runner = UiShell.layer(() => Effect.succeed({ status: 1, output: "denied" }))
     const created = await withTrackedTlsTmpDir(() =>
       Effect.runPromiseExit(
-        obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(runner)),
+        obtainTailscaleCert("host.tailnet.ts.net").pipe(
+          Effect.provide(runner),
+          Effect.provide(liveUiHost),
+        ),
       ),
     )
     expect(existsSync(created)).toBe(false)
@@ -258,7 +278,10 @@ describe("obtainTailscaleCert", () => {
     let exit: Exit.Exit<unknown, unknown> | undefined
     const created = await withTrackedTlsTmpDir(async () => {
       exit = await Effect.runPromiseExit(
-        obtainTailscaleCert("host.tailnet.ts.net").pipe(Effect.provide(liesAboutSuccess)),
+        obtainTailscaleCert("host.tailnet.ts.net").pipe(
+          Effect.provide(liesAboutSuccess),
+          Effect.provide(liveUiHost),
+        ),
       )
     })
     expect(Exit.isFailure(exit!)).toBe(true)
@@ -270,6 +293,7 @@ describe("obtainTailscaleCert", () => {
     const thrown = await Effect.runPromise(
       obtainTailscaleCert("host.tailnet.ts.net").pipe(
         Effect.provide(missingTailscale),
+        Effect.provide(liveUiHost),
         Effect.flip,
       ),
     )

@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process"
 import { splitLabels } from "../criteria.js"
+import { liveJudgeIo, type JudgeIo } from "./io.js"
 import type { Answerer, Question, Verdict } from "../types.js"
 
 export interface LlmOptions {
@@ -7,6 +7,7 @@ export interface LlmOptions {
   readonly cwd: string
   readonly model?: string | undefined
   readonly timeoutMs?: number
+  readonly io?: JudgeIo
 }
 
 const DEFAULT_MODEL = "haiku"
@@ -117,51 +118,31 @@ export const toLlmVerdicts = (questions: readonly Question[], stdout: string): V
   return questions.map((q) => toVerdict(q, out[q.id]))
 }
 
-const run = (
-  argv: readonly string[],
-  stdin: string,
-  { env, cwd, timeoutMs }: { env: LlmOptions["env"]; cwd: string; timeoutMs: number },
-): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const child = execFile(
-      "claude",
-      argv,
-      {
-        cwd,
-        env: env as NodeJS.ProcessEnv,
-        timeout: timeoutMs,
-        killSignal: "SIGKILL",
-        maxBuffer: 64 * 1024 * 1024,
-      },
-      (e, stdout, stderr) => {
-        if (!e) return resolve(stdout)
-        const { code, killed, message } = e as NodeJS.ErrnoException & { killed?: boolean }
-        reject(
-          new Error(
-            code === "ENOENT"
-              ? "gtd judge run: --provider llm needs `claude` on PATH"
-              : killed
-                ? `gtd judge run: claude timed out after ${timeoutMs} ms`
-                : typeof code === "number"
-                  ? `gtd judge run: claude exited ${code}: ${stderr.slice(0, 2048)}`
-                  : `gtd judge run: claude failed to start: ${message}`,
-          ),
-        )
-      },
-    )
-    child.stdin?.on("error", () => {})
-    child.stdin?.end(stdin)
-  })
+const run = async (io: JudgeIo, call: Parameters<JudgeIo["claude"]>[0]): Promise<string> => {
+  const outcome = await io.claude(call)
+  if (outcome.kind === "missing") return fail("--provider llm needs `claude` on PATH")
+  if (outcome.kind === "timeout") return fail(`claude timed out after ${call.timeoutMs} ms`)
+  if (outcome.kind === "unstartable") return fail(`claude failed to start: ${outcome.message}`)
+  if (outcome.code !== 0)
+    return fail(`claude exited ${outcome.code}: ${outcome.stderr.slice(0, 2048)}`)
+  return outcome.stdout
+}
 
 export const llm =
-  ({ env, cwd, model = DEFAULT_MODEL, timeoutMs = TIMEOUT_MS }: LlmOptions): Answerer =>
+  ({
+    env,
+    cwd,
+    model = DEFAULT_MODEL,
+    timeoutMs = TIMEOUT_MS,
+    io = liveJudgeIo,
+  }: LlmOptions): Answerer =>
   async (questions, state) => {
     const schema = JSON.stringify(toSchema(questions))
     const prompt = toPrompt(questions, state)
     // `disableAllHooks` is load-bearing: a hook-driven host session must not
     // fire on, or hijack, this nested call. Never `--bare`: it skips login reuse.
-    const stdout = await run(
-      [
+    const stdout = await run(io, {
+      argv: [
         "-p",
         "--model",
         model,
@@ -177,8 +158,10 @@ export const llm =
         "--settings",
         '{"disableAllHooks":true}',
       ],
-      prompt,
-      { env, cwd, timeoutMs },
-    )
+      stdin: prompt,
+      env,
+      cwd,
+      timeoutMs,
+    })
     return toLlmVerdicts(questions, stdout)
   }

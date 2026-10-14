@@ -12,7 +12,6 @@ import {
   ConfigDiscovery,
   ConfigService,
   changedConfigFiles,
-  configFingerprint,
   contentHash,
   multilineSetting,
   resolveVars,
@@ -972,7 +971,7 @@ export const restAt = (
           }))
         : []
     const memory = memoryOf(outcome.trace, run)
-    const configNow = configFingerprint(config.workflowFiles, host.root)
+    const configNow = config.fingerprint
     // Only the current rest warns, so a command must read it once — a second
     // read warns twice. An earlier ref (restore's tip) would warn about a
     // process the command is not acting on.
@@ -1320,7 +1319,7 @@ const differingConfigPaths = (
   git: GitService["Type"],
   workspace: Workspace["Type"],
   root: string,
-  config: { readonly workflowFiles: readonly string[] },
+  config: { readonly fingerprint: ConfigFingerprint },
   run: ProcessRun,
   hash: string,
 ) =>
@@ -1328,7 +1327,7 @@ const differingConfigPaths = (
     const differing: string[] = []
     for (const path of inRepoConfigPaths(
       root,
-      config.workflowFiles,
+      Object.keys(config.fingerprint),
       run.pinnedConfig?.files ?? {},
     )) {
       const atTip = yield* Effect.orElseSucceed(git.readFileAtRef(hash, path), () => undefined)

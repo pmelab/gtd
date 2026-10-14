@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import type { RunInWorktree, SpawnOutcome } from "./Beat.js"
+import type { RunInWorktree, SpawnOutcome } from "./index.js"
 import { type DiffDeps, parseUnifiedDiff, resolveDiff, selectHunks, sliceHunk } from "./Diff.js"
 
 const WORKTREE = "/repo"

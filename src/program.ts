@@ -39,12 +39,14 @@ export const liveToolCommands = Layer.effect(
     return {
       ui: (request, out) =>
         lazy("ui", async () => {
-          const { runUiCommand, UiListener, UiShell, UiUsageError } = await import("./ui/index.js")
+          const { runUiCommand, UiListener, UiShell, UiUsageError, liveUiHost } =
+            await import("./ui/index.js")
           return () =>
             runUiCommand(request.flags, uiConfigOf(request.config), out, request.root).pipe(
               Effect.provideService(UiShell, shell),
               Effect.provideService(FileSystem.FileSystem, fs),
               Effect.provide(UiListener.Live),
+              Effect.provide(liveUiHost),
               Effect.mapError((error) =>
                 error instanceof UiUsageError
                   ? new GtdUsageError(error.message, error.detail)

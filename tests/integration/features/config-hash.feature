@@ -1,4 +1,3 @@
-@live
 Feature: a config change during a running process is visible
 
   The landing that starts a process records a `Gtd-Config: <hash> <path>`
@@ -32,6 +31,7 @@ Feature: a config change during a running process is visible
       export const working = work
       """
 
+  @inmem
   Scenario: a "--workflow" start records the hash of the config and of its local import
     When I run gtd with args "--workflow working"
     Then it succeeds
@@ -39,6 +39,7 @@ Feature: a config change during a running process is visible
     And the last commit body contains "Gtd-Config: c59960854e8032b7 brief.ts"
     And the last commit body contains "Gtd-Config: c7f10857be1c6f92 gtd.config.ts"
 
+  @inmem
   Scenario: the landing that starts an ordinary process records the hashes too
     Given a file "NOTE.md" with:
       """
@@ -49,6 +50,7 @@ Feature: a config change during a running process is visible
     And the last commit subject is "gtd(human): idle → working"
     And the last commit body contains "Gtd-Config: c59960854e8032b7 brief.ts"
 
+  @inmem
   Scenario: an unchanged config warns about nothing
     When I run gtd with args "--workflow working"
     Then it succeeds
@@ -56,6 +58,7 @@ Feature: a config change during a running process is visible
     Then it succeeds
     And stderr does not contain "the config changed since this process started"
 
+  @inmem
   Scenario: changing a local import mid-process warns, naming the file, and the process goes on
     When I run gtd with args "--workflow working"
     Then it succeeds
@@ -75,6 +78,7 @@ Feature: a config change during a running process is visible
     Then it succeeds
     And stderr contains "the config changed since this process started (brief.ts)"
 
+  @inmem
   Scenario: a process started before the trailer existed replays without a warning
     Given the working tree is committed with message:
       """
@@ -88,6 +92,7 @@ Feature: a config change during a running process is visible
     And stdout contains "do the work"
     And stderr does not contain "the config changed since this process started"
 
+  @live
   Scenario: a pre-commit hook reformatting the config while the process starts warns about nothing
     Given an executable pre-commit hook with:
       """
@@ -108,6 +113,7 @@ Feature: a config change during a running process is visible
     Then it succeeds
     And stderr does not contain "the config changed since this process started"
 
+  @inmem
   Scenario: a config that makes a step the process already entered its first step still warns
     Given a file "NOTE.md" with:
       """
@@ -129,6 +135,7 @@ Feature: a config change during a running process is visible
     Then it succeeds
     And stderr contains "the config changed since this process started (brief.ts, gtd.config.ts)"
 
+  @inmem
   Scenario: answering a judge step after a config change warns once
     Given a gtd config file at "gtd.config.ts" with:
       """

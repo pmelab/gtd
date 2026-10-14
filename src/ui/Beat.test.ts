@@ -15,8 +15,8 @@ import {
   readLocalGtdVersionAt,
   readStep,
   type BeatDeps,
-  type SpawnOutcome,
 } from "./Beat.js"
+import type { SpawnOutcome } from "./index.js"
 
 const ok = (stdout: string, stderr = ""): SpawnOutcome => ({ status: 0, stdout, stderr })
 const failed = (stderr: string, status = 1): SpawnOutcome => ({ status, stdout: "", stderr })

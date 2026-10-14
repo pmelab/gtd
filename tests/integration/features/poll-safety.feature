@@ -1,19 +1,19 @@
-@live
+@inmem
 Feature: Reads are safe to poll — a settled rest answers identically and mutates nothing
 
   `gtd next` must be safe to poll: nothing may move between
   the run that reports a rest and any following call. Session id and resume
   are a pure derivation of history and write nothing, and no command records
   that a beat was dispatched — largely guaranteed already, but a gap in
-  proof. These scenarios assert it directly against the git dir itself, at
+  proof. These scenarios assert it directly against the repository, at
   both a resting PROMPT turn (where `gtd next --json` derives
   `session`/`memory`/`model` — the very properties the requirement names —
   the one structured surface gtd has now, see AGENTS.md)
   and a resting human GATE, so a future change cannot quietly reintroduce a
   driver-scoped write at either shape. A third scenario is a negative
   control: without it, the snapshot helper could stop observing anything at
-  all and every "unchanged" assertion above would still pass vacuously.
-  `@live` only: the in-memory tier has no git dir to observe a write against.
+  all and every "unchanged" assertion above would still pass vacuously. That
+  no git read writes to a real git dir is the git port's own contract.
 
   Scenario: repeated reads at a resting prompt turn change nothing — session, memory, and model all stay put
     Given a test project

@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: A review sign-off lands even when its mode declares a format: command that fails on a missing file
 
   Package 2, Requirement A removed the mode's `format:`/`validate:` pair from

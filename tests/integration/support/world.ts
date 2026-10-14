@@ -4,7 +4,7 @@ import {
   type InfoConstructor,
   type QuickPickleWorldInterface,
 } from "quickpickle"
-import { vi, type TestContext } from "vitest"
+import type { TestContext } from "vitest"
 import { Effect } from "effect"
 import assert from "node:assert"
 import { execSync, execFile as execFileCb, spawn } from "node:child_process"
@@ -22,12 +22,13 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs"
-import { constants as osConstants, tmpdir } from "node:os"
+import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
 import { join, relative, resolve, sep } from "node:path"
 import { PassThrough } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
 import { runCli } from "../../../src/cli/index.js"
 import { runJudge } from "../../../src/judges/index.js"
+import { inMemoryJudgeIo, type ScriptedClaude } from "./judge-io.js"
 import { EXIT_OK } from "../../../src/wire/index.js"
 import {
   makeCapturingCliIo,
@@ -35,7 +36,18 @@ import {
   InMemRepo,
   applyEmittedScript,
 } from "../../../src/testkit/index.js"
-import type { AppRouter, DiffResult } from "../../../src/ui/index.js"
+import {
+  runUiCommand,
+  UiUsageError,
+  type AppRouter,
+  type DiffResult,
+  type ServeRecord,
+  type UiConfig,
+  type UiHandler,
+} from "../../../src/ui/index.js"
+import { GtdError, GtdUsageError } from "../../../src/platform/index.js"
+import { NodeContext } from "@effect/platform-node"
+import { inMemoryUiHost, inMemoryUiLayers, type FakeTailnet } from "./ui-host.js"
 import type { SteeringAnchor, SteeringView } from "../../../src/steering/index.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
@@ -68,6 +80,41 @@ export type Tier = "live" | "inmem"
  * "Save & Done" always attaches to the anchor the human was looking at,
  * which every one of these scenarios sets up as paragraph 0).
  */
+/** Where `gtd ui` listens: a direct bind, a serve port, or the default serve walk. */
+type UiTarget = "direct" | "default" | number
+
+interface UiSession {
+  readonly client: ReturnType<typeof import("@trpc/client").createTRPCClient<AppRouter>>
+  readonly headSha: () => string
+  /** `path`'s content, empty when absent. */
+  readonly read: (path: string) => string
+  /** A plain GET of the served page; its status. */
+  readonly reload: () => Promise<number>
+  /** Settles once `gtd ui` has exited. */
+  readonly finished: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+  /** Ends a session that does not end itself. */
+  readonly stop: () => Promise<void>
+}
+
+const UI_ARGS = (target: UiTarget): string[] =>
+  target === "direct"
+    ? ["--host", "127.0.0.1", "--self-signed", "--port", "0"]
+    : target === "default"
+      ? []
+      : ["--port", String(target)]
+
+/** A `fetch` answered by `handler` in-process; its after-response callbacks run once the response is out. */
+const bridgeFetch =
+  (handler: UiHandler): typeof globalThis.fetch =>
+  async (input, init) => {
+    const after: Array<() => void> = []
+    const response = await handler(new Request(input, init), (callback) => after.push(callback))
+    setImmediate(() => after.forEach((callback) => callback()))
+    return response
+  }
+
+type ToolUi = NonNullable<NonNullable<Parameters<typeof makeCapturingCliIo>[2]>["ui"]>
+
 const doneNoteRequest = (
   filePath: string,
   headSha: string,
@@ -137,7 +184,7 @@ const stringField = (json: Record<string, unknown>, key: string): string =>
 /** `gtd validate`'s own "nothing to run" plain-text line — `Program.ts`'s `runValidateCommand`. */
 const NOTHING_TO_VALIDATE_RE = /^nothing to validate at "/
 
-/** A real `sh` exit + combined output on the live tier, or the recognizer's verdict on the in-memory one. */
+/** A real `sh` exit + combined output on the live tier, or the in-memory twin's on the in-memory one. */
 interface EmittedRun {
   readonly exitCode: number
   readonly output: string
@@ -172,7 +219,7 @@ const applyScriptToFake = (
   script: string,
 ): EmittedRun => {
   const applied = applyEmittedScript(repo, commands, script)
-  if (applied.ok) return { exitCode: 0, output: "" }
+  if (applied.ok) return { exitCode: 0, output: applied.output }
   const error = applied.error ?? ""
   if (error.startsWith("unrecognized script block:")) {
     throw new Error(
@@ -180,7 +227,7 @@ const applyScriptToFake = (
         `Teach src/testkit/EmittedScriptRecognizer.ts about it.\nScript:\n${script}`,
     )
   }
-  return { exitCode: 1, output: `${error}\n` }
+  return { exitCode: applied.status, output: applied.output }
 }
 
 /** Includes mtime, not just content, since a rewrite that lands the same bytes still bumps it. */
@@ -191,11 +238,13 @@ interface FileFingerprint {
 }
 
 /** A point-in-time fingerprint of the repo. `@live` only: the in-memory tier has no git dir to observe. */
-export interface RepoSnapshot {
-  readonly gitDirFiles: readonly FileFingerprint[]
-  readonly gitStatus: string
-  readonly worktreeFiles: readonly string[]
-}
+export type RepoSnapshot =
+  | {
+      readonly gitDirFiles: readonly FileFingerprint[]
+      readonly gitStatus: string
+      readonly worktreeFiles: readonly string[]
+    }
+  | { readonly inMemory: string }
 
 /** Sorted so two snapshots compare deterministically. */
 const listFiles = (root: string): string[] =>
@@ -287,11 +336,25 @@ export class GtdWorld extends QuickPickleWorld {
   /**
    * What the last driven write command's `required`/`optional` scripts
    * printed — distinct from `lastResult.stdout` (gtd's own plain-text line).
-   * LIVE tier only: the in-memory `applyEmittedScript` never runs outcome
-   * blocks. Reset at the start of every `driveWriteCommand` call so a
+   * Reset at the start of every `driveWriteCommand` call so a
    * scenario never reads a stale prior command's output.
    */
   lastScriptOutput: string = ""
+  /** The handler of the `gtd ui` running in memory, once it has bound. */
+  uiHandler: UiHandler | undefined = undefined
+  /** `~/.gtd/serve` in memory. */
+  serveRecords = new Map<number, ServeRecord>()
+  /** The tailnet a fake `tailscale` reports in memory. */
+  tailnet: FakeTailnet = { mappings: new Map(), failPublish: false }
+  private uiScratch = new Map<string, string>()
+  /** Files outside the repository in memory, by absolute path — user-level config. */
+  userFiles = new Map<string, string>()
+  /** The judge's network in memory: what a stubbed server would answer. */
+  judgeFetch: typeof fetch | undefined = undefined
+  /** The in-memory `claude`: absent from PATH until a scenario scripts it. */
+  scriptedClaude: ScriptedClaude | undefined = undefined
+  /** Every in-memory `claude` call's argv, oldest first. */
+  claudeCalls: string[][] = []
   savedCommitCount: number | undefined = undefined
   /** Named JSON fields captured from a prior `--json` output — lets a scenario prove two turns' values for the same field are the same or different without knowing the exact value in advance. */
   recordedJsonFields: Record<string, string | undefined> = {}
@@ -318,8 +381,6 @@ export class GtdWorld extends QuickPickleWorld {
   pipedByteCount: number | undefined = undefined
   /** Path to a stub agent script for `driver-doc` scenarios (@live only) — the `claude` shim translates the docs/driver.md driver's argv into this stub's `$GTD_LOOP_*` env. */
   stubAgentPath: string | undefined = undefined
-  /** Explicit `$GTD_TESTCOMMAND` override for a real `checking`/`fix-precheck` script run (@live only). */
-  gtdTestCommandOverride: string | undefined = undefined
   /** A scenario-scoped temp dir holding a `gtd` shim so a bare `gtd` invoked by name resolves to this build, not a globally-installed one. Live tier only. */
   pathShimDir: string | undefined = undefined
   /** State dir for the fake `tailscale` CLI `pathShimDir` also carries (`hooks.ts#FAKE_TAILSCALE_SCRIPT`) — one `<port>.mapping` file per published serve port. Live tier only. */
@@ -471,7 +532,7 @@ export class GtdWorld extends QuickPickleWorld {
     return parsed !== undefined ? stringField(parsed, "file") : ""
   }
 
-  private async runEmittedScript(script: string): Promise<EmittedRun> {
+  async runEmittedScript(script: string): Promise<EmittedRun> {
     return this.repo !== undefined
       ? applyScriptToFake(this.repo, this.scriptedCommands, script)
       : this.runScriptWithSh(script)
@@ -506,7 +567,6 @@ export class GtdWorld extends QuickPickleWorld {
     return {
       ...inherited,
       ...pathEnv,
-      ...optionalEnv("GTD_TESTCOMMAND", this.gtdTestCommandOverride),
       ...optionalEnv("GTD_TEST_TAILSCALE_DIR", this.tailscaleStateDir),
       ...this.envVars,
       ...this.liveEnvOverrides,
@@ -634,12 +694,16 @@ export class GtdWorld extends QuickPickleWorld {
    * never leak into a later scenario.
    */
   private async runGtdInMemWithStdin(stdin: string, ...args: string[]): Promise<void> {
+    await this.withStdin(stdin, () => this.runGtdInMem(...args))
+  }
+
+  private async withStdin<T>(stdin: string, run: () => Promise<T>): Promise<T> {
     const saved = Object.getOwnPropertyDescriptor(process, "stdin")
     const fake = new PassThrough()
     Object.defineProperty(process, "stdin", { value: fake, configurable: true })
     fake.end(stdin)
     try {
-      await this.runGtdInMem(...args)
+      return await run()
     } finally {
       if (saved) Object.defineProperty(process, "stdin", saved)
     }
@@ -670,6 +734,7 @@ export class GtdWorld extends QuickPickleWorld {
 
   /** `@live` only — runs `command` under `sh -c` in the repo, so a scenario can spell out a real pipe between gtd invocations. */
   async runShell(command: string, timeout = 30_000): Promise<void> {
+    if (this.repo !== undefined) return this.runPipelineInMem(command)
     try {
       const { stdout, stderr } = await execFile("sh", ["-c", command], {
         cwd: this.repoDir,
@@ -996,76 +1061,162 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
-   * Package 01's own serve-path counterpart of `spawnGtdUiAndHandOff`. The
-   * printed URL names the fake tailnet hostname, which resolves nowhere
-   * real, so the tRPC round trip dials the loopback TARGET port directly
-   * instead — read out of the real ownership record `attemptServe` writes to
-   * `~/.gtd/serve/<servePort>.json` (`src/ui/Serve.ts#writeServeRecord`),
-   * over PLAIN http (no TLS: the loopback listener never terminates TLS,
-   * `tailscaled` would). Returns once the process has exited on its own, so
-   * the caller can assert the mapping/record are both gone (Task 4's own
-   * teardown guarantee).
+   * A running `gtd ui` and a tRPC client talking to it. Live: a spawned
+   * process, over TLS on a direct bind or plain http on a serve target. In
+   * memory: the same server in-process, the client's `fetch` handed straight
+   * to its handler.
    */
+  private async openUi(target: UiTarget): Promise<UiSession> {
+    const { createTRPCClient, httpBatchLink } = await import("@trpc/client")
+    const connect = (url: string, fetch: typeof globalThis.fetch = globalThis.fetch) =>
+      createTRPCClient<AppRouter>({
+        links: [httpBatchLink({ url: `${url}trpc`, fetch: fetch as never })],
+      })
+    if (this.repo !== undefined) return this.openUiInMem(target, connect)
+    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
+    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    const spawned = await this.spawnUiFor(target)
+    let base = spawned.boundUrl
+    if (spawned.servePort !== undefined) {
+      const { readServeRecord } = await import("../../../src/ui/index.js")
+      const servePort = spawned.servePort
+      const record = await this.withServeHome(() => readServeRecord(servePort))
+      assert.ok(record !== undefined, `no ownership record for serve port ${servePort}`)
+      base = `http://127.0.0.1:${record.targetPort}/`
+      this.lastServePort = servePort
+    }
+    const finished = spawned.exited.finally(() => this.restoreTlsReject(previousTlsReject))
+    return {
+      client: connect(base),
+      headSha: () => execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim(),
+      read: (path) => this.readRepoFile(path),
+      reload: async () => (await fetch(base)).status,
+      finished,
+      stop: async () => {
+        spawned.child.kill("SIGTERM")
+        await finished
+      },
+    }
+  }
+
+  private async spawnUiFor(target: UiTarget): Promise<{
+    readonly child: ReturnType<typeof spawn>
+    readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+    readonly boundUrl: string
+    readonly servePort?: number
+  }> {
+    if (target === "direct") return this.spawnBoundGtdUi()
+    if (target === "default")
+      return { ...(await this.spawnBoundGtdUiServeDefaultPort()), boundUrl: "" }
+    return { ...(await this.spawnBoundGtdUiServe(target)), boundUrl: "", servePort: target }
+  }
+
+  private async openUiInMem(
+    target: UiTarget,
+    connect: (url: string, fetch: typeof globalThis.fetch) => UiSession["client"],
+  ): Promise<UiSession> {
+    const abort = new AbortController()
+    const run = this.gtdInMemUntil(abort.signal, "ui", ...UI_ARGS(target))
+    const handler = await this.boundUiHandler(run)
+    if (target !== "direct") {
+      this.lastServePort = target === "default" ? [...this.serveRecords.keys()][0] : target
+    }
+    const fetchInMem = bridgeFetch(handler)
+    return {
+      client: connect("http://inmem/", fetchInMem),
+      headSha: () => this.repo!.resolveRef("HEAD")!,
+      read: (path) => this.readRepoFile(path),
+      reload: async () => (await fetchInMem("http://inmem/")).status,
+      finished: run.then((result) => ({ code: result.exitCode, signal: null })),
+      stop: async () => {
+        abort.abort()
+        await run
+      },
+    }
+  }
+
+  /** The handler of the `gtd ui` `run` started, once it binds — or its refusal. */
+  private async boundUiHandler(run: Promise<{ readonly stderr: string }>): Promise<UiHandler> {
+    this.uiHandler = undefined
+    const refused = run.then((result) => result.stderr)
+    for (let i = 0; i < 500 && this.uiHandler === undefined; i += 1) {
+      const stderr = await Promise.race([refused, delay(2).then(() => undefined)])
+      if (stderr !== undefined) assert.fail(`gtd ui never bound: ${stderr}`)
+    }
+    assert.ok(this.uiHandler !== undefined, "gtd ui never bound")
+    return this.uiHandler
+  }
+
+  /** Ends a session on its own `done`, recording how it exited. */
+  private async handOffThrough(
+    session: UiSession,
+    done: (client: UiSession["client"]) => Promise<unknown>,
+  ): Promise<void> {
+    await done(session.client)
+    await this.recordSpawnedExit(session.finished)
+  }
+
+  private async noteRequest(
+    session: UiSession,
+    filePath: string,
+    mode: string | undefined,
+    text: string,
+    anchor?: SteeringAnchor,
+  ) {
+    const { contentHashOf } = await import("../../../src/ui/index.js")
+    return doneNoteRequest(
+      filePath,
+      session.headSha(),
+      contentHashOf(session.read(filePath)),
+      mode,
+      text,
+      anchor,
+    )
+  }
+
+  /** Hands off a note through `gtd ui` on `servePort`'s tailscale serve front door. */
   async spawnGtdUiServeAndHandOff(
     servePort: number,
     filePath: string,
     mode: string,
     text: string,
   ): Promise<void> {
-    const { exited } = await this.spawnBoundGtdUiServe(servePort)
-
-    const { readServeRecord } = await import("../../../src/ui/index.js")
-    const record = await this.withServeHome(() => readServeRecord(servePort))
-    assert.ok(
-      record !== undefined,
-      `no ownership record found at $HOME/.gtd/serve/${servePort}.json (sandboxed $HOME: ${this.serveHomeDir})`,
-    )
-
-    const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-      import("../../../src/ui/index.js"),
-      import("@trpc/client"),
-    ])
-    const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
-    const content = readFileSync(join(this.repoDir, filePath), "utf8")
-    const client = createTRPCClient<AppRouter>({
-      links: [httpBatchLink({ url: `http://127.0.0.1:${record!.targetPort}/trpc` })],
-    })
-    await client.done.mutate(doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text))
-
-    const { code, signal } = await exited
-    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
+    const session = await this.openUi(servePort)
+    const note = await this.noteRequest(session, filePath, mode, text)
+    await this.handOffThrough(session, (client) => client.done.mutate(note))
   }
 
-  /**
-   * Arms `hooks.ts`'s fake `tailscale` CLI to fail its NEXT `serve --bg` —
-   * `FAKE_TAILSCALE_SCRIPT`'s own `fail-publish` marker, otherwise unused —
-   * the one seam Task 3's "publish fails, falls back to a reachable direct
-   * bind, exit 0 on handoff" bullet needs a real spawned process to
-   * exercise. A `Given` step (composable, generic) rather than folded into
-   * the spawn itself.
-   */
+  /** Arms the fake `tailscale` to fail every later `serve --bg`. */
   armFailPublish(): void {
-    assert.ok(
-      this.tailscaleStateDir !== undefined,
-      "no fake tailscale state dir on this world (not @live?)",
-    )
+    if (this.repo !== undefined) {
+      this.tailnet.failPublish = true
+      return
+    }
+    assert.ok(this.tailscaleStateDir !== undefined, "no fake tailscale state dir on this world")
     writeFileSync(join(this.tailscaleStateDir, "fail-publish"), "")
   }
 
-  /**
-   * Package 01 Task 6's own seed for the candidate-walk scenario: writes a
-   * mapping straight into the fake `tailscale` CLI's own state dir with NO
-   * matching ownership record under `serveHomeDir` — exactly what a foreign
-   * `gtd ui` (a different worktree/process) publishing on `port` first looks
-   * like to THIS instance's own orphan check (`Server.ts#clearOrphanForPublish`),
-   * which reads the mapping as occupied and the missing record as "not ours".
-   */
+  /** A mapping on `port` with no ownership record: what another `gtd ui` publishing first looks like. */
   seedForeignServeMapping(port: number): void {
-    assert.ok(
-      this.tailscaleStateDir !== undefined,
-      "no fake tailscale state dir on this world (not @live?)",
-    )
+    if (this.repo !== undefined) {
+      this.tailnet.mappings.set(port, "http://127.0.0.1:9999")
+      return
+    }
+    assert.ok(this.tailscaleStateDir !== undefined, "no fake tailscale state dir on this world")
     writeFileSync(join(this.tailscaleStateDir, `${port}.mapping`), "http://127.0.0.1:9999")
+  }
+
+  /** Whether the fake `tailscale` still maps `port`. */
+  serveMappingExists(port: number): boolean {
+    if (this.repo !== undefined) return this.tailnet.mappings.has(port)
+    return existsSync(join(this.tailscaleStateDir!, `${port}.mapping`))
+  }
+
+  /** The ownership record `gtd ui` keeps for `port`. */
+  async serveRecordOf(port: number): Promise<ServeRecord | undefined> {
+    if (this.repo !== undefined) return this.serveRecords.get(port)
+    const { readServeRecord } = await import("../../../src/ui/index.js")
+    return this.withServeHome(() => readServeRecord(port))
   }
 
   /**
@@ -1125,42 +1276,15 @@ export class GtdWorld extends QuickPickleWorld {
     return { child, exited, stdout: () => stdout, servePort }
   }
 
-  /**
-   * Package 01 Task 6's end-to-end proof of the default candidate walk: no
-   * `--port` given at all, a foreign mapping seeded on 8443 (`Given the
-   * scenario's own `seedForeignServeMapping`), so the walk must land on
-   * 10000 — asserted by the caller reading `servePort` back off the
-   * returned promise. Otherwise mirrors `spawnGtdUiServeAndHandOff`.
-   */
+  /** The default candidate walk: no `--port`, so `gtd ui` picks the serve port itself. */
   async spawnGtdUiServeAndHandOffDefaultPort(
     filePath: string,
     mode: string,
     text: string,
-  ): Promise<number> {
-    const { exited, servePort } = await this.spawnBoundGtdUiServeDefaultPort()
-
-    const { readServeRecord } = await import("../../../src/ui/index.js")
-    const record = await this.withServeHome(() => readServeRecord(servePort))
-    assert.ok(
-      record !== undefined,
-      `no ownership record found at $HOME/.gtd/serve/${servePort}.json (sandboxed $HOME: ${this.serveHomeDir})`,
-    )
-
-    const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-      import("../../../src/ui/index.js"),
-      import("@trpc/client"),
-    ])
-    const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
-    const content = readFileSync(join(this.repoDir, filePath), "utf8")
-    const client = createTRPCClient<AppRouter>({
-      links: [httpBatchLink({ url: `http://127.0.0.1:${record!.targetPort}/trpc` })],
-    })
-    await client.done.mutate(doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text))
-
-    const { code, signal } = await exited
-    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
-    this.lastServePort = servePort
-    return servePort
+  ): Promise<void> {
+    const session = await this.openUi("default")
+    const note = await this.noteRequest(session, filePath, mode, text)
+    await this.handOffThrough(session, (client) => client.done.mutate(note))
   }
 
   /**
@@ -1192,13 +1316,9 @@ export class GtdWorld extends QuickPickleWorld {
       `expected the fallback reason line before the bound URL, got:\n${stdout()}`,
     )
 
-    // The REAL `node:os` — `ui.steps.ts`'s suite-wide `vi.mock("node:os", ...)`
-    // pins `networkInterfaces()` to `{}` so the in-process `gtd ui` scenarios
-    // never see this machine's tailnet, but THIS scenario needs the machine's
-    // actual interfaces to know which address the spawned server bound to.
+    // This machine's own interfaces: where the spawned server bound to.
     const { pickBindHost } = await import("../../../src/ui/index.js")
-    const realOs = await vi.importActual<typeof import("node:os")>("node:os")
-    const bindHost = pickBindHost(realOs.networkInterfaces())
+    const bindHost = pickBindHost(networkInterfaces())
     assert.ok(
       bindHost !== undefined,
       "no 100.64.0.0/10 interface found on this machine — the direct-bind fallback this scenario exercises needs one (CI supplies a loopback alias; see .github/workflows/test.yml)",
@@ -1231,364 +1351,149 @@ export class GtdWorld extends QuickPickleWorld {
     await this.recordSpawnedExit(exited)
   }
 
-  /**
-   * Requirement A end to end: a REAL `gtd ui` subprocess, a REAL HTTPS tRPC
-   * `done` call against it, then the process observed exiting ON ITS OWN
-   * (never signalled) — proving `handOff` actually terminates the server
-   * once the response has flushed, with the note durably on disk first.
-   * `filePath`'s content and the fresh `HEAD` sha are read directly (the
-   * same tokens the phone client would have rendered) so the compare-and-
-   * swap succeeds for real, not against a stale/guessed token.
-   */
+  /** A `done` carrying a note, then `gtd ui` exiting on its own. */
   async spawnGtdUiAndHandOff(
     filePath: string,
     mode: string | undefined,
     text: string,
     anchor?: SteeringAnchor,
   ): Promise<void> {
-    const { boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
-    try {
-      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-        import("../../../src/ui/index.js"),
-        import("@trpc/client"),
-      ])
-      // `git rev-parse HEAD` directly, not `liveHeadSha` — `createTestProject`
-      // is a PLAIN `git init` (no `--separate-git-dir`), and `liveHeadSha`'s
-      // own relative-`.git`-path fallback resolves against the CALLING
-      // process's cwd (this test file's), never `this.repoDir`, on a plain
-      // repo shaped that way.
-      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
-      const content = readFileSync(join(this.repoDir, filePath), "utf8")
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      await client.done.mutate(
-        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text, anchor),
-      )
-    } finally {
-      this.restoreTlsReject(previousTlsReject)
-    }
-
-    await this.recordSpawnedExit(exited)
+    const session = await this.openUi("direct")
+    const note = await this.noteRequest(session, filePath, mode, text, anchor)
+    await this.handOffThrough(session, (client) => client.done.mutate(note))
   }
 
-  /**
-   * Package 04's own real acceptance of the Q&A deck's Done control: a REAL
-   * `gtd ui` subprocess, a REAL `done` mutation carrying NO `note` at all —
-   * the exact request the phone's own "Done" tap sends when there's nothing
-   * to leave behind — then the process observed exiting ON ITS OWN, the
-   * same way `spawnGtdUiAndHandOff`'s own note-carrying `done` call does.
-   * No `filePath`/token/content is read here at all: with no note, `done`
-   * has nothing to compare-and-swap.
-   */
+  /** A `done` with no note — the Done control. */
   async spawnGtdUiAndHandOffNoNote(): Promise<void> {
-    const { boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
-    try {
-      const { createTRPCClient, httpBatchLink } = await import("@trpc/client")
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      await client.done.mutate({})
-    } finally {
-      this.restoreTlsReject(previousTlsReject)
-    }
-
-    await this.recordSpawnedExit(exited)
+    const session = await this.openUi("direct")
+    await this.handOffThrough(session, (client) => client.done.mutate({}))
   }
 
-  /**
-   * Package 03's own on-disk round trip: a REAL `gtd ui` subprocess, a REAL
-   * `setValue` tRPC mutation against it, splicing through
-   * `SteeringFormat.apply` server-side (never `annotate`/`done` — this is
-   * the checkbox write-through, not a note or a handoff). Unlike
-   * `spawnGtdUiAndHandOff`/`spawnGtdUiAndClose`, `setValue` never ends the
-   * turn, so the process does NOT exit on its own — this kills it (SIGTERM,
-   * the same re-raise contract `spawnGtdUiAndSignal` uses) once the mutation
-   * has resolved, so the scenario itself is what tears the spawned process
-   * down, not a server-side handoff.
-   */
+  /** A `setValue` write against the file's real token; `setValue` never ends the turn. */
   async spawnGtdUiAndSetValue(
     filePath: string,
     mode: string | undefined,
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<void> {
-    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    const session = await this.openUi("direct")
+    const { contentHashOf } = await import("../../../src/ui/index.js")
     try {
-      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-        import("../../../src/ui/index.js"),
-        import("@trpc/client"),
-      ])
-      // `git rev-parse HEAD` directly — see `spawnGtdUiAndHandOff`'s identical
-      // comment for why, not `liveHeadSha`.
-      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
-      const content = readFileSync(join(this.repoDir, filePath), "utf8")
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      await client.setValue.mutate({
+      await session.client.setValue.mutate({
         filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
+        expectedHeadSha: session.headSha(),
+        expectedContentHash: contentHashOf(session.read(filePath)),
         mode,
         anchor,
         ...opts,
       })
     } finally {
-      if (previousTlsReject === undefined) delete process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-      else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
+      await session.stop()
     }
-
-    child.kill("SIGTERM")
-    await exited
   }
 
-  /**
-   * Package 02's own idle round trip: a REAL `gtd ui` subprocess bound on an
-   * IDLE worktree, a REAL `setValue` write that creates `filePath` from
-   * scratch (there is nothing on disk yet — `content` reads as `""`, so this
-   * splices through `freeform.ts#freeFormApply`'s own append fallback, never
-   * `annotate`, which has no existing block to attach a footnote to), then a
-   * REAL `done` mutation carrying NO note — the same two-call shape a phone
-   * screen drives: the human's edit lands first, "hand off" is a separate
-   * tap. `done` schedules the exit, so this ends on `recordSpawnedExit` like
-   * `spawnGtdUiAndHandOff`, never a SIGTERM.
-   */
+  /** The idle round trip: a write that creates `filePath`, then a `done` with no note. */
   async spawnGtdUiAndSketchThenHandOff(filePath: string, text: string): Promise<void> {
-    const { boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
-    try {
-      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-        import("../../../src/ui/index.js"),
-        import("@trpc/client"),
-      ])
-      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
-      const absPath = join(this.repoDir, filePath)
-      const content = existsSync(absPath) ? readFileSync(absPath, "utf8") : ""
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
+    const session = await this.openUi("direct")
+    const { contentHashOf } = await import("../../../src/ui/index.js")
+    await this.handOffThrough(session, async (client) => {
       await client.setValue.mutate({
         filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
+        expectedHeadSha: session.headSha(),
+        expectedContentHash: contentHashOf(session.read(filePath)),
         mode: undefined,
         anchor: { kind: "paragraph", line: 0 },
         text,
       })
       await client.done.mutate({})
-    } finally {
-      this.restoreTlsReject(previousTlsReject)
-    }
-
-    await this.recordSpawnedExit(exited)
+    })
   }
 
-  /**
-   * Package 01 Task 10's own render-structure proof: a REAL `gtd ui`
-   * subprocess, a REAL `readSteeringFile` tRPC query against it — the same
-   * round trip a phone client's own first load drives — stashing the
-   * returned `SteeringView` on `lastSteeringView` for a `Then` step to assert
-   * node shapes against. `setValue`'s own teardown pattern: `readSteeringFile`
-   * never ends the turn, so this kills the process (SIGTERM) once the query
-   * has resolved.
-   */
+  /** The `readSteeringFile` view a phone's first load renders, kept on `lastSteeringView`. */
   async spawnGtdUiAndReadView(filePath: string, mode: string | undefined): Promise<void> {
-    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    const session = await this.openUi("direct")
     try {
-      const { createTRPCClient, httpBatchLink } = await import("@trpc/client")
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      const result = await client.readSteeringFile.query({ filePath, mode })
+      const result = await session.client.readSteeringFile.query({ filePath, mode })
       assert.ok(result.ok, `expected readSteeringFile to succeed, got: ${JSON.stringify(result)}`)
       this.lastSteeringView = result.view
     } finally {
-      this.restoreTlsReject(previousTlsReject)
+      await session.stop()
     }
-
-    child.kill("SIGTERM")
-    await exited
   }
 
-  /**
-   * Package 04's own range-resolution proof: a REAL `gtd ui` subprocess, a
-   * REAL `diff` tRPC query against it — the same round trip a review hunk's
-   * screen drives to fetch what it renders — stashing the returned
-   * `DiffResult` on `lastDiffResult` for a later `Then` step to assert
-   * against. Mirrors `spawnGtdUiAndReadView`'s own teardown: `diff` never
-   * ends the turn, so this kills the process (SIGTERM) once the query has
-   * resolved.
-   */
+  /** The `diff` a review hunk's screen fetches, kept on `lastDiffResult`. */
   async spawnGtdUiAndResolveDiff(
     path: string,
     line: number | undefined,
     endLine: number | undefined,
   ): Promise<void> {
-    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    const session = await this.openUi("direct")
     try {
-      const { createTRPCClient, httpBatchLink } = await import("@trpc/client")
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      this.lastDiffResult = await client.diff.query({
+      this.lastDiffResult = await session.client.diff.query({
         path,
         ...(line !== undefined ? { line } : {}),
         ...(endLine !== undefined ? { endLine } : {}),
       })
     } finally {
-      this.restoreTlsReject(previousTlsReject)
+      await session.stop()
     }
-
-    child.kill("SIGTERM")
-    await exited
   }
 
-  /**
-   * Package 01 Task 10's own stale-token proof: a REAL `gtd ui` subprocess, a
-   * REAL `setValue` mutation carrying a deliberately WRONG
-   * `expectedContentHash` (the file's real HEAD sha, so only the content-hash
-   * half of the compare-and-swap token is stale) — asserts the mutation
-   * rejects as a real `TRPCClientError` (`Server.test.ts`'s own
-   * `refusalDataFrom` pattern) and stashes its typed `writeRefusal` on
-   * `lastWriteRefusal`, rather than letting an unexpected success pass
-   * silently. `setValue`'s own teardown pattern: kills the process afterward.
-   */
+  /** A `setValue` whose content-hash token can never match, keeping the refusal on `lastWriteRefusal`. */
   async spawnGtdUiAndSetValueWithStaleHash(
     filePath: string,
     mode: string | undefined,
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<void> {
-    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
-    try {
-      const { createTRPCClient, httpBatchLink, TRPCClientError } = await import("@trpc/client")
-      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      try {
-        await client.setValue.mutate({
-          filePath,
-          expectedHeadSha: headSha,
-          // Deliberately wrong — the real content on disk never hashes to
-          // this fixed 64-hex-digit string, so `verifyForWrite` refuses
-          // `stale-token`/`moved: "content-hash"` regardless of what's
-          // actually on disk.
-          expectedContentHash: "0".repeat(64),
-          mode,
-          anchor,
-          ...opts,
-        })
-        this.lastWriteRefusal = undefined
-      } catch (error) {
-        assert.ok(
-          error instanceof TRPCClientError,
-          `expected a real TRPCClientError, got: ${String(error)}`,
-        )
-        const data = (error as InstanceType<typeof TRPCClientError>).data as
-          | { writeRefusal?: { reason: string; moved?: string } }
-          | undefined
-        assert.ok(data?.writeRefusal, `expected a writeRefusal on the rejected mutation's data`)
-        this.lastWriteRefusal = data!.writeRefusal
-      }
-    } finally {
-      this.restoreTlsReject(previousTlsReject)
-    }
-
-    child.kill("SIGTERM")
-    await exited
+    await this.setValueExpectingRefusal(filePath, mode, anchor, opts)
   }
 
-  /**
-   * Package 01's own EISDIR proof: a REAL `gtd ui` subprocess, a REAL
-   * `setValue` mutation against a `filePath` that resolves to a DIRECTORY on
-   * disk — `liveReadFile` sees a real `EISDIR`, deterministic on every
-   * machine (unlike `chmod 000`, a no-op when the suite runs as root).
-   * Deliberately never reads `filePath` through this process's own `fs` first
-   * (that would throw here, not inside the server) — the request carries a
-   * fixed, always-wrong `expectedContentHash` instead, which never matters:
-   * `verifyForWrite` refuses `file-vanished` on the unreadable read, before
-   * the compare-and-swap ever inspects it. Mirrors
-   * `spawnGtdUiAndSetValueWithStaleHash`'s own refusal-capture shape.
-   */
+  /** A `setValue` against a path that is a directory — refused before the token is ever compared. */
   async spawnGtdUiAndSetValueAgainstUnreadableFile(
     filePath: string,
     mode: string | undefined,
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<void> {
-    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
-    try {
-      const { createTRPCClient, httpBatchLink, TRPCClientError } = await import("@trpc/client")
-      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      try {
-        await client.setValue.mutate({
-          filePath,
-          expectedHeadSha: headSha,
-          expectedContentHash: "0".repeat(64),
-          mode,
-          anchor,
-          ...opts,
-        })
-        this.lastWriteRefusal = undefined
-      } catch (error) {
-        assert.ok(
-          error instanceof TRPCClientError,
-          `expected a real TRPCClientError, got: ${String(error)}`,
-        )
-        const data = (error as InstanceType<typeof TRPCClientError>).data as
-          | { writeRefusal?: { reason: string; moved?: string } }
-          | undefined
-        assert.ok(data?.writeRefusal, `expected a writeRefusal on the rejected mutation's data`)
-        this.lastWriteRefusal = data!.writeRefusal
-      }
-    } finally {
-      this.restoreTlsReject(previousTlsReject)
-    }
-
-    child.kill("SIGTERM")
-    await exited
+    await this.setValueExpectingRefusal(filePath, mode, anchor, opts)
   }
 
-  /**
-   * Package 01 Task 10's own `ui.format` round trip: a REAL `gtd ui`
-   * subprocess, two REAL `setValue` mutations against the SAME anchor — the
-   * first against the file's real on-disk token, the second reusing that
-   * first mutation's own RETURNED `contentHash` (never a fresh read), which
-   * only succeeds if the configured `ui.format` command's rewrite is exactly
-   * what the returned hash already reflects (Task 6's whole point: a
-   * client's own next edit is never spuriously refused `stale-token`/
-   * `moved: "content-hash"` against a hash formatting just moved out from
-   * under it). Stashes both the first hash and the second write's own
-   * success on `formatWriteResult`.
-   */
+  private async setValueExpectingRefusal(
+    filePath: string,
+    mode: string | undefined,
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ): Promise<void> {
+    const session = await this.openUi("direct")
+    const { TRPCClientError } = await import("@trpc/client")
+    try {
+      await session.client.setValue.mutate({
+        filePath,
+        expectedHeadSha: session.headSha(),
+        // Never the hash of anything on disk.
+        expectedContentHash: "0".repeat(64),
+        mode,
+        anchor,
+        ...opts,
+      })
+      this.lastWriteRefusal = undefined
+    } catch (error) {
+      assert.ok(
+        error instanceof TRPCClientError,
+        `expected a TRPCClientError, got: ${String(error)}`,
+      )
+      const data = (error as InstanceType<typeof TRPCClientError>).data as
+        | { writeRefusal?: { reason: string; moved?: string } }
+        | undefined
+      assert.ok(data?.writeRefusal, "expected a writeRefusal on the rejected mutation's data")
+      this.lastWriteRefusal = data!.writeRefusal
+    } finally {
+      await session.stop()
+    }
+  }
+
+  /** Two writes, the second reusing the first's returned hash — `ui.format`'s rewrite must already be in it. */
   async spawnGtdUiAndWriteTwiceReusingHash(
     filePath: string,
     mode: string | undefined,
@@ -1596,31 +1501,21 @@ export class GtdWorld extends QuickPickleWorld {
     firstText: string,
     secondText: string,
   ): Promise<void> {
-    const { child, boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
+    const session = await this.openUi("direct")
+    const { contentHashOf } = await import("../../../src/ui/index.js")
     try {
-      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-        import("../../../src/ui/index.js"),
-        import("@trpc/client"),
-      ])
-      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
-      const content = readFileSync(join(this.repoDir, filePath), "utf8")
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      const first = await client.setValue.mutate({
+      const headSha = session.headSha()
+      const first = await session.client.setValue.mutate({
         filePath,
         expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
+        expectedContentHash: contentHashOf(session.read(filePath)),
         mode,
         anchor,
         text: firstText,
       })
       let secondOk = true
       try {
-        await client.setValue.mutate({
+        await session.client.setValue.mutate({
           filePath,
           expectedHeadSha: headSha,
           expectedContentHash: first.contentHash,
@@ -1633,61 +1528,112 @@ export class GtdWorld extends QuickPickleWorld {
       }
       this.formatWriteResult = { firstContentHash: first.contentHash, secondOk }
     } finally {
-      this.restoreTlsReject(previousTlsReject)
+      await session.stop()
     }
-
-    child.kill("SIGTERM")
-    await exited
   }
 
-  /**
-   * Requirement B's real-process acceptance (package 03 Task 9): a REAL `gtd
-   * ui` subprocess, a plain GET against its served origin — a page reload,
-   * the exact request a pull-to-refresh reissues, no `pagehide` beacon exists
-   * any more to mistake it for a close (Task 8) — THEN the same real `done`
-   * handoff `spawnGtdUiAndHandOff` drives. Proves the server is still alive
-   * through the reload and exits 0 through `done`, never through a beacon.
-   */
+  /** A page reload, then a `done`: the reload must not end the server. */
   async spawnGtdUiReloadThenHandOff(filePath: string, mode: string, text: string): Promise<void> {
-    const { boundUrl, exited } = await this.spawnBoundGtdUi()
-
-    const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
-    process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
-    try {
-      const reload = await fetch(boundUrl)
-      assert.strictEqual(reload.status, 200, "the reload must still be served, not a dead port")
-
-      const [{ contentHashOf }, { createTRPCClient, httpBatchLink }] = await Promise.all([
-        import("../../../src/ui/index.js"),
-        import("@trpc/client"),
-      ])
-      // `git rev-parse HEAD` directly — see `spawnGtdUiAndHandOff`'s identical
-      // comment for why, not `liveHeadSha`.
-      const headSha = execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim()
-      const content = readFileSync(join(this.repoDir, filePath), "utf8")
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      await client.done.mutate(
-        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
-      )
-    } finally {
-      this.restoreTlsReject(previousTlsReject)
-    }
-
-    await this.recordSpawnedExit(exited)
+    const session = await this.openUi("direct")
+    assert.strictEqual(await session.reload(), 200, "the reload must still be served")
+    const note = await this.noteRequest(session, filePath, mode, text)
+    await this.handOffThrough(session, (client) => client.done.mutate(note))
   }
 
   /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */
   async runGtdInMem(...args: string[]): Promise<void> {
-    const repo = this.repo!
+    this.lastResult = await this.gtdInMem(...args)
+  }
+
+  /**
+   * A `gtd … | gtd … | sh` pipeline in memory: each gtd reads the previous
+   * stdout as its stdin, and a closing `sh` runs the last one's script on the
+   * in-memory shell. Like `sh` without `pipefail`, the last command's status
+   * is the pipeline's.
+   */
+  private async runPipelineInMem(command: string): Promise<void> {
+    let stdin = ""
+    let stderr = ""
+    let last = { exitCode: 0, stdout: "", stderr: "" }
+    for (const segment of command.trim().split(/\s*\|\s*/)) {
+      last = await this.runSegmentInMem(segment, stdin)
+      stdin = last.stdout
+      stderr += last.stderr
+    }
+    this.lastResult = { exitCode: last.exitCode, stdout: last.stdout, stderr }
+  }
+
+  private async runSegmentInMem(
+    segment: string,
+    stdin: string,
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    if (segment === "sh") {
+      const run = await this.runEmittedScript(stdin)
+      return { exitCode: run.exitCode, stdout: run.output, stderr: "" }
+    }
+    if (!segment.startsWith("gtd ")) {
+      throw new Error(`cannot run \`${segment}\` in memory — only gtd and sh`)
+    }
+    const args = segment.slice("gtd ".length).split(/\s+/)
+    return this.withStdin(stdin, () => this.gtdInMem(...args))
+  }
+
+  /** One in-process gtd run against the in-memory repository, leaving `lastResult` alone. */
+  async gtdInMem(...args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    return this.gtdInMemUntil(undefined, ...args)
+  }
+
+  /** `gtd ui` in memory: the real server, on the in-memory host, shell and listener. */
+  private uiTool(): ToolUi {
+    return (request, out) => {
+      const host = inMemoryUiHost(request.root, this.repo!, {
+        gtd: (...args) => this.gtdInMem(...args),
+        sh: (script) => this.runEmittedScript(script),
+        serveRecords: this.serveRecords,
+        scratch: this.uiScratch,
+      })
+      const layers = inMemoryUiLayers(host, this.tailnet, this.uiScratch, (handler) => {
+        this.uiHandler = handler
+      })
+      return runUiCommand(
+        request.flags,
+        request.config as UiConfig | undefined,
+        out,
+        request.root,
+      ).pipe(
+        Effect.provide(layers),
+        Effect.provide(NodeContext.layer),
+        Effect.mapError((error) =>
+          error instanceof UiUsageError
+            ? new GtdUsageError(error.message, error.detail)
+            : new GtdError(error.message, error.detail),
+        ),
+      )
+    }
+  }
+
+  /** One in-process gtd run, interrupted when `signal` aborts. */
+  private async gtdInMemUntil(
+    signal: AbortSignal | undefined,
+    ...args: string[]
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     // `gtd judge run` is the one tool command `@inmem` scenarios run for real.
-    const { io, result } = makeCapturingCliIo(repo, this.envVars, { judge: runJudge })
-
-    const argv = ["node", "gtd.js", ...args]
-
-    await Effect.runPromise(runCli(argv, io))
-    this.lastResult = result()
+    const judgeIo = inMemoryJudgeIo(this.repoDir, this.repo!, {
+      userFiles: this.userFiles,
+      fetch: this.judgeFetch,
+      claude: this.scriptedClaude,
+      calls: this.claudeCalls,
+    })
+    const { io, result } = makeCapturingCliIo(this.repo!, this.envVars, {
+      judge: (request) => runJudge({ ...request, io: judgeIo }),
+      ui: this.uiTool(),
+    })
+    await Effect.runPromise(runCli(["node", "gtd.js", ...args], io), { signal }).catch(
+      (error: unknown) => {
+        if (signal?.aborted !== true) throw error
+      },
+    )
+    return result()
   }
 
   // ── Observation helpers — branch on tier ──────────────────────────────────
@@ -1797,23 +1743,25 @@ export class GtdWorld extends QuickPickleWorld {
    * freshly committed repo has tracked files whose mtime sits in the same
    * coarse tick as `.git/index`'s, so git rewrites the index on every
    * `git status` until wall-clock time moves past it — this would otherwise
-   * make an "unchanged" snapshot comparison flake. `@live` only.
+   * make an "unchanged" snapshot comparison flake. The in-memory repo has
+   * no index on disk to refresh.
    */
   async settleGitIndex(): Promise<void> {
+    if (this.repo !== undefined) return
     this.gitStatus()
     await delay(1100)
     this.gitStatus()
   }
 
   /**
-   * `@live` only — throws against the in-memory tier, which has no real git
-   * dir. Resolves `--git-dir` against `repoDir`, never
+   * Live: resolves `--git-dir` against `repoDir`, never
    * `realpathSync(repoDir)`, so the excluded prefix lands in the same
    * (possibly symlinked, e.g. macOS's `/var` -> `/private/var`) namespace
    * `listFiles(repoDir)` walks — otherwise the comparison never matches and
    * the whole `.git` tree silently folds into `worktreeFiles`.
    */
   snapshotRepo(): RepoSnapshot {
+    if (this.repo !== undefined) return { inMemory: this.repo.snapshot() }
     const gitDirRel = execSync("git rev-parse --git-dir", {
       cwd: this.repoDir,
       encoding: "utf-8",

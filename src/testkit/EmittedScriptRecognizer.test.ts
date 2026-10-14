@@ -42,7 +42,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     const result = applyEmittedScript(repo, NO_COMMANDS, commitAll("gtd(agent): building"))
     twin.commitAllWithPrefix("gtd(agent): building")
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
   })
 
@@ -60,7 +60,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
 
     const result = applyEmittedScript(repo, NO_COMMANDS, commitAll(message))
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.lastCommitMessage()).toBe(message)
   })
 
@@ -77,7 +77,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     const result = applyEmittedScript(repo, NO_COMMANDS, commitAsIs("gtd(agent): as-is"))
     twin.commitAsIs("gtd(agent): as-is")
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
   })
 
@@ -97,7 +97,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     const result = applyEmittedScript(repo, NO_COMMANDS, softResetTo(first))
     twin.softResetTo(first)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
     expect(repo.resolveRef("HEAD")).toBe(first)
   })
@@ -118,7 +118,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     const result = applyEmittedScript(repo, NO_COMMANDS, mixedResetTo(first))
     twin.mixedResetTo(first)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
   })
 
@@ -138,7 +138,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     const result = applyEmittedScript(repo, NO_COMMANDS, hardResetTo(first))
     twin.hardResetTo(first)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
     expect(repo.hasPath("b.txt")).toBe(false)
   })
@@ -158,7 +158,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     const result = applyEmittedScript(repo, NO_COMMANDS, discardPending())
     twin.discardPending()
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
     expect(repo.readFile("a.txt")).toBe("1")
     expect(repo.hasPath("untracked.txt")).toBe(false)
@@ -176,7 +176,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     const result = applyEmittedScript(repo, NO_COMMANDS, updateRef("refs/gtd/base", hash))
     twin.updateRef("refs/gtd/base", hash)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.resolveRef("refs/gtd/base")).toBe(hash)
     expect(snapshot(repo)).toEqual(snapshot(twin))
   })
@@ -194,7 +194,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     const result = applyEmittedScript(repo, NO_COMMANDS, deleteRef("refs/gtd/base"))
     twin.deleteRef("refs/gtd/base")
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.resolveRef("refs/gtd/base")).toBeNull()
     expect(snapshot(repo)).toEqual(snapshot(twin))
   })
@@ -210,7 +210,7 @@ describe("applyEmittedScript — gtd check <mode> <file>", () => {
 
     const result = applyEmittedScript(repo, NO_COMMANDS, "gtd check qa '.gtd/TODO.md'")
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
   })
 
   it("fails on invalid qa-mode content (a bare ### heading with no question text)", () => {
@@ -220,7 +220,7 @@ describe("applyEmittedScript — gtd check <mode> <file>", () => {
     const result = applyEmittedScript(repo, NO_COMMANDS, "gtd check qa '.gtd/TODO.md'")
 
     expect(result.ok).toBe(false)
-    expect(result.error).toContain("gtd check qa")
+    expect(result.output).toContain('.gtd/TODO.md is not valid under mode "qa"')
   })
 })
 
@@ -231,7 +231,7 @@ describe("applyEmittedScript — Emit.ts's fileExistsGuard", () => {
 
     const result = applyEmittedScript(repo, NO_COMMANDS, fileExistsGuard(".gtd/PLAN.md"))
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
   })
 
   it("stops the whole script (successfully) when the file is absent — unlike every other guard, it does not fail", () => {
@@ -240,7 +240,7 @@ describe("applyEmittedScript — Emit.ts's fileExistsGuard", () => {
     const script = [fileExistsGuard(".gtd/PLAN.md"), "gtd check qa '.gtd/PLAN.md'"].join("\n\n")
     const result = applyEmittedScript(repo, NO_COMMANDS, script)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
   })
 
   it("a subsequent block after the guard trips is never applied", () => {
@@ -262,7 +262,7 @@ describe("applyEmittedScript — ModeContradiction.ts's skip notice", () => {
 
     const result = applyEmittedScript(repo, NO_COMMANDS, modeContradictionSkipNotice("adr"))
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
   })
 })
 
@@ -284,7 +284,7 @@ describe("applyEmittedScript — ModeContradiction.ts's contradiction round-trip
 
     const result = applyEmittedScript(repo, commands, block)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.readFile(samplePath)).toBeUndefined()
   })
 
@@ -359,7 +359,7 @@ describe("applyEmittedScript — the scripted-command table", () => {
 
     const result = applyEmittedScript(repo, commands, "./run-check.sh")
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
   })
 
   it("an 'exit' hit with a non-zero status fails the script", () => {
@@ -370,8 +370,7 @@ describe("applyEmittedScript — the scripted-command table", () => {
 
     const result = applyEmittedScript(repo, commands, "./run-check.sh")
 
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain("./run-check.sh")
+    expect(result).toMatchObject({ ok: false, status: 1, output: "boom\n" })
   })
 
   it("a 'rewrite' hit mutates the repo's file", () => {
@@ -383,7 +382,7 @@ describe("applyEmittedScript — the scripted-command table", () => {
 
     const result = applyEmittedScript(repo, commands, "./format-feedback.sh")
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.readFile("FEEDBACK.md")).toBe("new")
   })
 })
@@ -434,7 +433,7 @@ describe("applyEmittedScript — a tripped precondition stops the script", () =>
 
     const result = applyEmittedScript(repo, NO_COMMANDS, script)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.lastCommitMessage()).toBe("gtd(agent): lands")
   })
 })
@@ -455,7 +454,7 @@ describe("applyEmittedScript — a realistic assembled multi-block script", () =
 
     const result = applyEmittedScript(repo, NO_COMMANDS, script)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.lastCommitMessage()).toBe("gtd(agent): second")
     expect(repo.resolveRef("refs/gtd/base")).toBe(first)
   })
@@ -479,7 +478,7 @@ describe("applyEmittedScript — a realistic src/emit/Emit.ts-assembled script",
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
     twin.commitAllWithPrefix("gtd(agent): building")
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
   })
 
@@ -505,7 +504,7 @@ describe("applyEmittedScript — a realistic src/emit/Emit.ts-assembled script",
     const { required } = emitScripts(steps)
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.resolveRef("refs/worktree/gtd/history")).toBe(tip)
     expect(repo.lastCommitMessage()).toBe("chore: squashed")
     expect(repo.hasPath(".gtd/TODO.md")).toBe(false)
@@ -520,7 +519,7 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
 
     const result = applyEmittedScript(repo, NO_COMMANDS, transitionOutcome("idle", "working"))
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(before)
   })
 
@@ -531,7 +530,7 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
 
     const result = applyEmittedScript(repo, NO_COMMANDS, commitOutcome("gtd(agent): x"))
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(before)
   })
 
@@ -553,7 +552,7 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
     twin.commitAllWithPrefix("gtd(agent): building")
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
   })
 
@@ -567,7 +566,7 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
     ])
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(before)
   })
 })
@@ -583,7 +582,7 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
     const script = combinedScript(required, "")
     const result = applyEmittedScript(repo, NO_COMMANDS, script)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
   })
 
@@ -605,7 +604,7 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
 
     const result = applyEmittedScript(repo, NO_COMMANDS, script)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
     expect(repo.resolveRef("refs/gtd/marker")).toBe(repo.resolveRef("HEAD"))
   })
@@ -625,7 +624,7 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
 
     const result = applyEmittedScript(repo, NO_COMMANDS, script)
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
   })
 

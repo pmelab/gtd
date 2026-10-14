@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: Markdown formatting is the project's own tool, plugged into a steering-file mode
 
   gtd ships no formatter (there is no `gtd format` subcommand, and no prettier
@@ -13,12 +13,15 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
   driver that wants a steering file formatted before it lands must run the
   mode's format/validate script itself first.
 
-  A git `pre-commit` hook remains a perfectly good alternative, and the last
-  scenarios pin that it still works — gtd never fights it.
+  The formatter here is scripted: what it does to the text is the project's
+  business; that gtd runs it, and when, is gtd's.
 
-  Scenario: prettier plugged into the workflow's qa mode via a top-level modes: key rewraps TODO.md
+  Scenario: a formatter plugged into the workflow's qa mode via a top-level modes: key rewraps TODO.md
     Given a test project
-    And prettier is available in the test project
+    And the shell command "wrap-prose $GTD_FILE" rewrites "$GTD_FILE" to:
+      """
+      A plan, wrapped by the project's formatter.
+      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, changes, human } from "@pmelab/gtd/flows"
@@ -40,14 +43,14 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       export const config = {
         modes: {
           qa: {
-            format: "npx prettier --write $GTD_FILE",
+            format: "wrap-prose $GTD_FILE",
           },
         },
       }
       """
     And a file ".gtd/TODO.md" with:
       """
-      This is a very long line that exceeds eighty characters and should be wrapped by prettier when gtd validates it.
+      This is a very long line that exceeds eighty characters and should be wrapped by the formatter when gtd validates it.
       """
     And gtd lands "gtd(human): idle → grilling"
     When I run gtd with args "validate"
@@ -57,7 +60,10 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
 
   Scenario: gtd land no longer formats before committing the turn — gtd validate is what still runs the mode's format command
     Given a test project
-    And prettier is available in the test project
+    And the shell command "wrap-prose $GTD_FILE" rewrites "$GTD_FILE" to:
+      """
+      A plan, wrapped by the project's formatter.
+      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, changes, human } from "@pmelab/gtd/flows"
@@ -79,7 +85,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       export const config = {
         modes: {
           qa: {
-            format: "npx prettier --write $GTD_FILE",
+            format: "wrap-prose $GTD_FILE",
           },
         },
       }
@@ -109,49 +115,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     Then it succeeds
     And the last commit subject is "gtd(human): grilling-answer → grilling"
 
-  Scenario: Pre-commit hook wraps long lines in TODO.md
-    Given a test project
-    And prettier is available in the test project
-    And an executable pre-commit hook with:
-      """
-      #!/bin/sh
-      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^\.gtd/(TODO|REVIEW)\.md$')
-
-      if [ -n "$FILES" ]; then
-        npx prettier --write $FILES
-        git add $FILES
-      fi
-      """
-    And a file ".gtd/TODO.md" with:
-      """
-      This is a very long line that exceeds eighty characters and should be wrapped by prettier when committed.
-      """
-    And ".gtd/TODO.md" is staged
-    When I commit with message "docs: test formatting"
-    Then ".gtd/TODO.md" has no lines longer than 80 characters
-
-  Scenario: Pre-commit hook wraps long lines in REVIEW.md
-    Given a test project
-    And prettier is available in the test project
-    And an executable pre-commit hook with:
-      """
-      #!/bin/sh
-      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^\.gtd/(TODO|REVIEW)\.md$')
-
-      if [ -n "$FILES" ]; then
-        npx prettier --write $FILES
-        git add $FILES
-      fi
-      """
-    And a file ".gtd/REVIEW.md" with:
-      """
-      This is a very long line that exceeds eighty characters and should be wrapped by prettier when committed.
-      """
-    And ".gtd/REVIEW.md" is staged
-    When I commit with message "review: test formatting"
-    Then ".gtd/REVIEW.md" has no lines longer than 80 characters
-
-  Scenario: prettier plugged into the bundled default's qa mode via a top-level modes: key formats the agent-authored requirements at design.triage, when gtd validate runs it first
+  Scenario: a formatter plugged into the bundled default's qa mode via a top-level modes: key formats the agent-authored requirements at design.triage, when gtd validate runs it first
     # No `workflow:` re-declaration: the bundled default already gives
     # `design.triage` `mode: qa` (see src/workflows/feature/steps.ts); a top-level `modes:` key
     # alone is enough to plug a formatter into it. `gtd land` itself no
@@ -159,13 +123,16 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     # wanting the file wrapped first runs `gtd validate` ahead of `gtd land`.
     Given a test project
     And the workflow gtd install scaffolds
-    And prettier is available in the test project
+    And the shell command "wrap-prose $GTD_FILE" rewrites "$GTD_FILE" to:
+      """
+      A plan, wrapped by the project's formatter.
+      """
     And the file "gtd.config.ts" ends with:
       """
       export const config = {
         modes: {
           qa: {
-            format: "npx prettier --write $GTD_FILE",
+            format: "wrap-prose $GTD_FILE",
           },
         },
       }
@@ -196,16 +163,19 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     Then it succeeds
     And the last commit subject is "gtd(human): design.gate.answer → architecture.author"
 
-  Scenario: prettier plugged into the bundled default's qa mode formats the human-edited requirements at design.gate.answer, when gtd validate runs it first
+  Scenario: a formatter plugged into the bundled default's qa mode formats the human-edited requirements at design.gate.answer, when gtd validate runs it first
     Given a test project
     And the workflow gtd install scaffolds
-    And prettier is available in the test project
+    And the shell command "wrap-prose $GTD_FILE" rewrites "$GTD_FILE" to:
+      """
+      A plan, wrapped by the project's formatter.
+      """
     And the file "gtd.config.ts" ends with:
       """
       export const config = {
         modes: {
           qa: {
-            format: "npx prettier --write $GTD_FILE",
+            format: "wrap-prose $GTD_FILE",
           },
         },
       }
@@ -248,13 +218,16 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
   Scenario: gtd validate formats the requirements file at design.triage and reports it valid — plain prose with no Open Questions passes the qa validator trivially
     Given a test project
     And the workflow gtd install scaffolds
-    And prettier is available in the test project
+    And the shell command "wrap-prose $GTD_FILE" rewrites "$GTD_FILE" to:
+      """
+      A plan, wrapped by the project's formatter.
+      """
     And the file "gtd.config.ts" ends with:
       """
       export const config = {
         modes: {
           qa: {
-            format: "npx prettier --write $GTD_FILE",
+            format: "wrap-prose $GTD_FILE",
           },
         },
       }
@@ -278,24 +251,3 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     Then it succeeds
     And stdout contains ".gtd/REQUIREMENTS.md: valid"
     And ".gtd/REQUIREMENTS.md" has no lines longer than 80 characters
-
-  Scenario: Pre-commit hook does not modify other markdown files
-    Given a test project
-    And prettier is available in the test project
-    And an executable pre-commit hook with:
-      """
-      #!/bin/sh
-      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^\.gtd/(TODO|REVIEW)\.md$')
-
-      if [ -n "$FILES" ]; then
-        npx prettier --write $FILES
-        git add $FILES
-      fi
-      """
-    And a file "notes.md" with:
-      """
-      This is a very long line that exceeds eighty characters and should NOT be wrapped because it is not TODO or REVIEW.
-      """
-    And "notes.md" is staged
-    When I commit with message "docs: test other file"
-    Then "notes.md" still has a line longer than 80 characters

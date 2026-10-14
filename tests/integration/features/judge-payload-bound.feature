@@ -10,6 +10,10 @@ Feature: judgeBudgetBytes bounds a judge's evidence, and truncation is visible a
   Scenario: evidence the budget cuts gets a truncation notice on the gate's message
     Given a test project
     And a file "BIG.md" padded to at least 2000 bytes with a repeating line
+    And the working tree is committed with message:
+      """
+      chore: add BIG.md
+      """
     And a gtd config file at "gtd.config.ts" with:
       """
       import { human, judge, read } from "@pmelab/gtd/flows"
@@ -61,6 +65,10 @@ Feature: judgeBudgetBytes bounds a judge's evidence, and truncation is visible a
   Scenario: the budget is split across evidence keys, and the flow reads which ones were cut
     Given a test project
     And a file "BIG.md" padded to at least 2000 bytes with a repeating line
+    And the working tree is committed with message:
+      """
+      chore: add BIG.md
+      """
     And a file "SMALL.md" with:
       """
       short

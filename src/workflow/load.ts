@@ -12,6 +12,7 @@ import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { compileConfig, type CompiledConfig } from "./compile.js"
 import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
 import { ConfigDiscovery, WORKFLOW_MODULE, type WorkflowModule } from "./discovery.js"
+import { configFingerprint, type ConfigFingerprint } from "./fingerprint.js"
 import {
   dedupeDiagnostics,
   formatDiagnostic,
@@ -41,8 +42,8 @@ export interface ConfigOperations {
   readonly ui?: flows.UiSettings
   /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
   readonly warnings: readonly Diagnostic[]
-  /** Every real file `gtd.config.ts`'s evaluation touched (itself plus any relative import). A caller that must know when `workflow` might have changed (the LSP's steering-map memo) watches all of them; watching `gtd.config.ts`'s own path alone misses an edit to a module it imports. */
-  readonly workflowFiles: readonly string[]
+  /** The content hash of every file `gtd.config.ts`'s evaluation touched — itself plus any relative import — by path relative to the root. */
+  readonly fingerprint: ConfigFingerprint
 }
 
 // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
@@ -175,9 +176,21 @@ export const load: Effect.Effect<
     },
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
     warnings: diagnostics.filter((d) => d.severity === "warning"),
-    workflowFiles: loaded.file.dependencyFiles,
+    fingerprint: configFingerprint(
+      loaded.file.dependencyFiles,
+      host.root,
+      module.read ?? readFromDisk,
+    ),
   }
 })
+
+const readFromDisk = (path: string): string | undefined => {
+  try {
+    return readFileSync(path, "utf8")
+  } catch {
+    return undefined
+  }
+}
 
 interface Settings {
   readonly defaults: Readonly<Record<string, string>>
@@ -253,7 +266,14 @@ const memoized = (transform: Transform): Transform => {
 
 let jitiModule: JitiModule | undefined
 let transform: Transform | undefined
-const jiti = (shipped: ShippedModules): JitiInstance => {
+/** Relative specifiers a module imports, served from somewhere other than the disk. */
+interface LocalModules {
+  /** The path a specifier names, or nothing when it names no module. */
+  readonly resolve: (specifier: string) => string | undefined
+  readonly load: (path: string) => unknown
+}
+
+const jiti = (shipped: ShippedModules, local?: LocalModules): JitiInstance => {
   const require = createRequire(import.meta.url)
   jitiModule ??= require("jiti") as JitiModule
   // jiti's own Babel transform, which its package exports don't name.
@@ -261,7 +281,16 @@ const jiti = (shipped: ShippedModules): JitiInstance => {
     require(join(dirname(require.resolve("jiti/package.json")), "dist", "babel.cjs")) as Transform,
   )
   return jitiModule.createJiti(import.meta.url, {
-    virtualModules: shipped.modules,
+    // Consulted when a module is required, so a local module is evaluated
+    // only once an import actually runs.
+    virtualModules: new Proxy(shipped.modules, {
+      has: (modules, id) =>
+        id in modules || (typeof id === "string" && local?.resolve(id) !== undefined),
+      get: (modules, id) => {
+        const path = typeof id === "string" ? local?.resolve(id) : undefined
+        return path === undefined ? modules[id as string] : local!.load(path)
+      },
+    }),
     alias: shipped.missing,
     // No transpile cache on disk, and a fresh module every load — nothing a
     // later command could read back instead of the source.
@@ -572,11 +601,12 @@ const namespaceOf = (exported: unknown): Record<string, unknown> =>
  * pulled in, transitively.
  */
 const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded => {
-  const cache: Record<string, unknown> = {}
-  const exports = namespaceOf(
-    jiti(shipped).evalModule(module.source, { filename: module.filepath, cache }),
-  )
-  const file = fileFrom(exports, module.filepath, Object.keys(cache))
+  const { exports: evaluated, files } =
+    module.read === undefined
+      ? evaluateFromDisk(module, shipped)
+      : evaluateRead(module, module.read, shipped)
+  const exports = namespaceOf(evaluated)
+  const file = fileFrom(exports, module.filepath, files)
   const exported = Object.entries(exports).filter(
     ([name, value]) => !RESERVED_EXPORTS.has(name) && isWorkflow(value),
   )
@@ -609,6 +639,60 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
     config: compileConfig(exports["config"], module.filepath),
     diagnostics: nameRejections(rejections),
   }
+}
+
+const evaluateFromDisk = (
+  module: WorkflowModule,
+  shipped: ShippedModules,
+): { readonly exports: unknown; readonly files: readonly string[] } => {
+  const cache: Record<string, unknown> = {}
+  const exports = jiti(shipped).evalModule(module.source, { filename: module.filepath, cache })
+  return { exports, files: Object.keys(cache) }
+}
+
+// How jiti finds a TypeScript module behind a specifier: as written, its
+// `.js` spelling as `.ts`, with `.ts` appended, or as a directory index.
+const moduleCandidates = (path: string): readonly string[] => [
+  path,
+  path.replace(/\.js$/, ".ts"),
+  path.replace(/\.mjs$/, ".mts"),
+  `${path}.ts`,
+  join(path, "index.ts"),
+]
+
+/**
+ * Evaluates the config with every local module it imports taken from `read`
+ * instead of the disk. jiti matches a virtual module on the specifier as
+ * written, so each module gets its own instance resolving against its own
+ * directory. A specifier `read` cannot serve falls through to the disk, and
+ * fails the way a missing file does.
+ */
+const evaluateRead = (
+  module: WorkflowModule,
+  read: (path: string) => string | undefined,
+  shipped: ShippedModules,
+): { readonly exports: unknown; readonly files: readonly string[] } => {
+  const files = [module.filepath]
+  const evaluated = new Map<string, unknown>()
+  const evaluate = (filepath: string, source: string): unknown =>
+    jiti(shipped, {
+      resolve: (specifier) =>
+        /^\.\.?\//.test(specifier)
+          ? moduleCandidates(join(dirname(filepath), specifier)).find(
+              (candidate) => read(candidate) !== undefined,
+            )
+          : undefined,
+      load: (path) => {
+        if (!evaluated.has(path)) {
+          // A placeholder first, so an import cycle ends here.
+          evaluated.set(path, {})
+          files.push(path)
+          evaluated.set(path, evaluate(path, read(path)!))
+        }
+        return evaluated.get(path)
+      },
+    }).evalModule(source, { filename: filepath })
+  return { exports: evaluate(module.filepath, module.source), files }
 }
 
 const isWorkflow = (value: unknown): boolean =>

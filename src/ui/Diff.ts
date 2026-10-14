@@ -1,4 +1,4 @@
-import type { RunInWorktree } from "./Beat.js"
+import type { RunInWorktree } from "./Ports.js"
 import { resolveWithinRoot } from "./SafePath.js"
 import { shellQuote } from "./Quote.js"
 

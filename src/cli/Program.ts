@@ -66,7 +66,7 @@ import {
   openThreads,
   parseCodeThreads,
   unansweredQuestions,
-  type SteeringFinding,
+  formatFinding,
   type SteeringFormat,
 } from "../steering/index.js"
 import {
@@ -850,13 +850,6 @@ const runValidateCommand = (out: ArtifactOut): Effect.Effect<void, Error, Comman
         : `nothing to validate at "${rest.state}"\n`,
     )
   })
-
-/** `file:line:col: message` — the shape editors and grep already jump on. Stored 0-based, printed 1-based. A finding with a `line` but no `range`, or none at all, degrades to the shorter forms. */
-export const formatFinding = (file: string, finding: SteeringFinding): string => {
-  if (finding.line === undefined) return finding.message
-  const col = finding.range !== undefined ? `:${finding.range.start.character + 1}` : ""
-  return `${file}:${finding.line + 1}${col}: ${finding.message}`
-}
 
 /**
  * Runs `<mode>`'s parser over `<file>`, exiting non-zero on any finding.

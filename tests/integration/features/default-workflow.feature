@@ -23,12 +23,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
   Every `check`-actor state here (`start-gate.check`, `unwind`,
   `packages.item.health.check`, `packages.item.closing`, `build.health.check`,
-  `build.review.closing`, `re-unwind`) is simulated on the `@inmem` scenarios
-  below by writing or deleting its outcome files directly and running
-  `gtd land` — `@inmem` never executes the scripts themselves. The scenarios
-  that need `re-unwind`'s real scoped revert are tagged `@live`, running it
-  for real via "I execute the printed check script", as is the one that
-  pins what `gtd next` leaves behind in a real repository.
+  `build.review.closing`, `re-unwind`) is mostly simulated by writing or
+  deleting its outcome files directly and running `gtd land`. The scenarios
+  that need `re-unwind`'s scoped revert run the printed script via "I execute
+  the printed check script", which the in-memory script twin applies.
 
   Every scenario reaches its mid-flow step through a real replayed history —
   the bundled entries (`start-gate.check`, `fix-precheck`,
@@ -48,8 +46,8 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
 
-    # unwind: simulate the revert — @inmem never executes
-    # scripts — by reverting the working tree to the start commit ourselves.
+    # unwind: simulate the revert without running the
+    # printed script, by reverting the working tree to the start commit ourselves.
     Given the file "src/greeter.ts" is deleted
     When I run gtd land
     Then it succeeds
@@ -370,8 +368,8 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): build.review.collecting → re-unwind"
 
-    # re-unwind: simulate the revert — @inmem never executes
-    # scripts — by reverting the human's hand-edit ourselves. The human's own
+    # re-unwind: simulate the revert without running the
+    # printed script, by reverting the human's hand-edit ourselves. The human's own
     # commit ADDED src/calc.ts, so a real reverse-apply of it DELETES the  # gtd-path-exempt: scenario fixture, not a repo file
     # file, not merely rewrites its content. The human's intent survives only
     # in their own "await-review → closing" commit, for design.triage to
@@ -462,8 +460,8 @@ Feature: The bundled unified workflow — one flow, end to end
 
     # re-unwind: the revert applied nothing — the tree is still
     # byte-for-byte the human's hand-edit, the exact shape a failed apply
-    # leaves (an @inmem scenario never executes the check script, which makes
-    # this the correct way to simulate that failure). The require-revert
+    # leaves (not running the check script at all is how this scenario
+    # simulates that failure). The require-revert
     # guard refuses: `src/calc.ts` still differs from the review base's  # gtd-path-exempt: scenario fixture, not a repo file
     # parent (it didn't exist there at all).
     When I run gtd land
@@ -573,7 +571,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And stdout contains "\"idle\":true"
 
-  @live
+  @inmem
   Scenario: re-unwind actually reverts a hand-edited code line, never resurrects the review file, and leaves the state dir alone
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -649,7 +647,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And ".gtd/REVIEW.md" does not exist
     And ".gtd/marker.md" exists
 
-  @live
+  @inmem
   Scenario: re-unwind on a note-only review round reverts nothing and still advances to design.triage
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -724,7 +722,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(check): re-unwind → design.triage"
     And the git status is clean
 
-  @live
+  @inmem
   Scenario: a revert that cannot apply is refused, not silently swallowed
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -1121,8 +1119,8 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(human): idle → unwind"
 
-    # Simulate the unwind's revert — @inmem never executes
-    # scripts — by reverting the working tree to the start commit ourselves:
+    # Simulate the unwind's revert without running the
+    # printed script, by reverting the working tree to the start commit ourselves:
     # BOTH the scratch note and the hand-edited real code change go, alike.
     Given the file "src/real.ts" is deleted
     And the file "SCRATCH.md" is deleted
@@ -2064,7 +2062,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # stays at the gate for the reviewer to restore + tick.
     And the commit count is unchanged
 
-  @live
+  @inmem
   Scenario: gtd next at await-review leaves HEAD untouched and writes no worktree ref
     Given a test project
     And the workflow gtd install scaffolds

@@ -22,6 +22,7 @@ import { GTD_VERSION } from "../install/index.js"
 import { processHistoryRef } from "../platform/index.js"
 import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
 import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
+import { contentHash } from "../workflow/index.js"
 import {
   fakeGitOperations,
   InMemRepo,
@@ -201,7 +202,7 @@ describe("currentRun", () => {
     const before = headOf(repo)
     const opening = await enter(repo, "side")
     expect(repo.lastCommitMessage()).toBe(
-      "gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Format: 1",
+      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Config: ${contentHash(LINEAR)} gtd.config.ts\nGtd-Format: 1`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -233,7 +234,9 @@ export const again = async () => {
     const repo = repoWith(STARTS_AT_INITIAL)
     const before = headOf(repo)
     const opening = await enter(repo, "again")
-    expect(repo.lastCommitMessage()).toBe("gtd(human): idle\n\nGtd-Workflow: again\nGtd-Format: 1")
+    expect(repo.lastCommitMessage()).toBe(
+      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Config: ${contentHash(STARTS_AT_INITIAL)} gtd.config.ts\nGtd-Format: 1`,
+    )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
     expect(run.workflow).toBe("again")

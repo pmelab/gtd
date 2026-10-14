@@ -22,3 +22,20 @@ Given(
     world.scriptedCommands.set(command, { kind: "rewrite", file, content: normalized })
   },
 )
+
+Given("the binary {string} is not on PATH", (world: GtdWorld, binary: string) => {
+  world.scriptedCommands.set(binary, { kind: "missing" })
+})
+
+Given(
+  "the shell command {string} appends to {string}:",
+  (world: GtdWorld, command: string, file: string, content: string) => {
+    const normalized = content.endsWith("\n") ? content : content + "\n"
+    world.scriptedCommands.set(command, {
+      kind: "rewrite",
+      file,
+      content: normalized,
+      append: true,
+    })
+  },
+)

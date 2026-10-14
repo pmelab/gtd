@@ -9,18 +9,8 @@ Feature: gtd in a repository with no commits yet
   the `{"state":"error","prompt":…}` envelope on stderr (stdout stays
   byte-empty), still exiting `1`.
 
-  @live
-  Scenario: gtd land refuses in a repository with no commits
-    Given a git repository with no commits
-    And I record the commit count
-    When I run gtd land
-    Then it fails
-    And the exit code is 1
-    And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
-    And the commit count is unchanged
-
   @inmem
-  Scenario: gtd land refuses in a repository with no commits (scripted)
+  Scenario: gtd land refuses in a repository with no commits
     Given a git repository with no commits
     And I record the commit count
     When I run gtd land

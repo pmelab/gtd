@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: the voice survives the parsers it shares a prompt with (package 03, task 3)
 
   Package 03 injects gtd's own terse "voice" alongside a structural-override
@@ -10,19 +10,13 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
   `gtd validate` must actually accept it through the real validator, then
   `gtd land` advances — not just look plausible.
 
-  Both scenarios are `@live`, not `@inmem`: the seeded `qa`/`review` validator
-  renders as a literal `gtd check <mode> '<file>'` COMMAND inside the script
-  `gtd validate` prints (see src/workflow/SteeringFormats.ts's `seededValidateCommand`).
-  `gtd land`'s own emitted script carries no such command any more (package 2,
-  Requirement A) — validating a styled file is a driver step run explicitly,
-  ahead of landing, never something `gtd land` does for you. Only the `@live`
-  tier's PATH shim (world.ts's `pathShimDir`) makes that bare `gtd` resolve to
-  THIS build under test — an `@inmem` twin would have no real subprocess to
-  run it in and would have to stub the command with a scripted double, which
-  proves nothing about `src/steering/`'s `qa`/`review` descriptors actually
-  parsing styled prose. `steering-modes.feature` already covers the scripted-double
-  shape for a custom mode; this file is only about gtd's own two built-in
-  parsers surviving the voice.
+  The seeded `qa`/`review` validator renders as a literal
+  `gtd check <mode> '<file>'` command inside the script `gtd validate` prints;
+  `gtd land`'s own script carries no such command — validating a styled file
+  is a driver step run ahead of landing. In memory, the script twin runs that
+  `gtd check` through gtd's own built-in `qa`/`review` parsers, not a scripted
+  double, so a parser that chokes on styled prose fails here.
+  `steering-modes.feature` covers the scripted-double shape for a custom mode.
 
   Scenario: a styled REQUIREMENTS.md passes gtd check qa and design.triage advances
     Given a test project

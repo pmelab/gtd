@@ -41,6 +41,13 @@ export interface SteeringFinding {
   }
 }
 
+/** `file:line:col: message` — the shape editors and grep already jump on. Stored 0-based, printed 1-based. A finding with a `line` but no `range`, or none at all, degrades to the shorter forms. */
+export const formatFinding = (file: string, finding: SteeringFinding): string => {
+  if (finding.line === undefined) return finding.message
+  const col = finding.range !== undefined ? `:${finding.range.start.character + 1}` : ""
+  return `${file}:${finding.line + 1}${col}: ${finding.message}`
+}
+
 /** A hunk pointer's document-link target: `range` covers the pointer token itself; `line` is 0-based, so a `#42` suffix resolves down by one and a bare `./path` lands at 0. */
 export interface SteeringLink {
   readonly range: {

@@ -24,12 +24,23 @@ import {
   modeContradictionSkipNotice,
   OUTCOME_MARKER,
 } from "../emit/index.js"
-import { steeringFormatFor, type SteeringFormat } from "../steering/index.js"
+import {
+  BUILT_IN_MODE_NAMES,
+  formatFinding,
+  steeringFormatFor,
+  type SteeringFormat,
+} from "../steering/index.js"
+import { renderFormat } from "../wire/index.js"
+import { applyFlowScript, rewritten } from "./FlowScripts.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
 
 export interface AppliedScriptResult {
   readonly ok: boolean
+  /** The exit status `sh` would report. */
+  readonly status: number
+  /** What the script printed, stdout and stderr together, as `sh` would. */
+  readonly output: string
   /** Present exactly when `ok` is `false` — names the block/line that stopped the script. */
   readonly error?: string
 }
@@ -70,10 +81,14 @@ const extractQuotedTokens = (text: string): string[] => {
   return tokens
 }
 
+/** What the in-memory tier prints for `$PATH` — there is none to name. */
+const IN_MEMORY_PATH = "(in-memory: no PATH)"
+
 type BlockOutcome =
-  | { readonly kind: "noop" }
+  | { readonly kind: "noop"; readonly output?: string }
   | { readonly kind: "applied" }
-  | { readonly kind: "failed"; readonly error: string }
+  /** `error` is what the block printed on its way out; `status` defaults to 1. */
+  | { readonly kind: "failed"; readonly error: string; readonly status?: number }
   /**
    * `fileExistsGuard` tripping on an absent file. The one shape that succeeds
    * EARLY, skipping every remaining block — every other guard here either
@@ -103,11 +118,9 @@ const recognizePrecondition = (repo: InMemRepo, block: string): BlockOutcome | u
   if (!match) return undefined
   const expected = match[1]!
   const actual = repo.resolveRef("HEAD")
-  if (actual === expected) return { kind: "noop" }
-  return {
-    kind: "failed",
-    error: `precondition failed: HEAD is ${actual ?? "(no commits)"}, expected ${expected}`,
-  }
+  return actual === expected
+    ? { kind: "noop" }
+    : { kind: "failed", error: "precondition failed: HEAD moved" }
 }
 
 /**
@@ -216,10 +229,13 @@ const recognizeFileExistsGuard = (repo: InMemRepo, block: string): BlockOutcome 
   return repo.readFile(file) !== undefined ? { kind: "noop" } : { kind: "stopped" }
 }
 
-/** `binaryGuard`. The in-memory tier has no real `$PATH` to probe — a scripted command IS the stand-in for "this binary exists" — so this always no-ops; the guard actually tripping is `@live`-only coverage. */
+/** `binaryGuard`. The in-memory tier has no `$PATH`: a binary is present unless declared `missing`. */
 const BINARY_GUARD_MESSAGE_RE = /^gtd: mode "([^"]+)": "(format|validate)" command not found: (.+)$/
 
-const recognizeBinaryGuard = (block: string): BlockOutcome | undefined => {
+const recognizeBinaryGuard = (
+  commands: ReadonlyMap<string, ScriptedCommand>,
+  block: string,
+): BlockOutcome | undefined => {
   const [binary, , message] = extractQuotedTokens(block)
   if (binary === undefined || message === undefined) return undefined
   const match = BINARY_GUARD_MESSAGE_RE.exec(message)
@@ -227,12 +243,29 @@ const recognizeBinaryGuard = (block: string): BlockOutcome | undefined => {
   const [, mode, key, messageBinary] = match
   if (messageBinary !== binary) return undefined
   if (binaryGuard(binary, mode!, key as "format" | "validate") !== block) return undefined
-  return { kind: "noop" }
+  if (commands.get(binary)?.kind !== "missing") return { kind: "noop" }
+  return { kind: "failed", error: `${message}\n$PATH: ${IN_MEMORY_PATH}`, status: 127 }
 }
 
 /** Recognized by `OUTCOME_MARKER` rather than re-derived and string-compared: an outcome only prints, so no git effect a loose match could miss — unlike `recognizeGitBuilders`, where a near-miss would silently skip a real mutation. */
-const recognizeOutcome = (block: string): BlockOutcome | undefined =>
-  block.startsWith(OUTCOME_MARKER) ? { kind: "noop" } : undefined
+const recognizeOutcome = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
+  if (!block.startsWith(`${OUTCOME_MARKER}\nprintf `)) return undefined
+  const line = block.slice(OUTCOME_MARKER.length + 1)
+  const [format, ...args] = shellWords(repo, line.slice("printf ".length))
+  return { kind: "noop", output: renderFormat(format!.replace(/\\n/g, "\n"), ...args) }
+}
+
+/** The word list of `printf`'s arguments: quoted literals, and the `"$(git …)"` lookups outcome lines carry. */
+const shellWords = (repo: InMemRepo, text: string): string[] =>
+  [
+    ...text.matchAll(
+      /'((?:[^']|'\\'')*)'|"\$\(git (rev-parse --short|log -1 --format=%s) '([^']*)'\)"/g,
+    ),
+  ].map((m) => {
+    if (m[1] !== undefined) return m[1].replaceAll("'\\''", "'")
+    const hash = repo.resolveRef(m[3]!) ?? ""
+    return m[2] === "rev-parse --short" ? hash.slice(0, 7) : (repo.lastCommitSubject(hash) ?? "")
+  })
 
 /**
  * `failurePromptWrapper`. The constants below bracket the template's one
@@ -255,13 +288,30 @@ const expandFileVar = (text: string): string | undefined => {
     .replace(/\$\{GTD_FILE\}|\$GTD_FILE\b/g, file)
 }
 
-/** A mode's `format:`/`validate:` command: `gtd check`, or a scripted command. */
+/**
+ * A mode's `format:`/`validate:` command, under `withFileVar` or not:
+ * `gtd check`, or a scripted command — keyed by the command as expanded, or
+ * as written in the config (`fmt $GTD_FILE`), which is the only key a command
+ * run on a scratch path can have.
+ */
 const recognizeModeCommand = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
-  command: string,
-): BlockOutcome | undefined =>
-  recognizeGtdCheck(repo, command) ?? recognizeScriptedCommand(repo, commands, command)
+  block: string,
+): BlockOutcome | undefined => {
+  const command = expandFileVar(block) ?? block
+  const exact =
+    recognizeGtdCheck(repo, command) ?? recognizeScriptedCommand(repo, commands, command)
+  if (exact !== undefined) return exact
+  const match = FILE_VAR_PREFIX_RE.exec(block)
+  if (match === null) return undefined
+  const scripted = commands.get(block.slice(match[0].length))
+  const [file] = extractQuotedTokens(match[1]!)
+  if (scripted === undefined || file === undefined) return undefined
+  const bound =
+    scripted.kind === "rewrite" && scripted.file === "$GTD_FILE" ? { ...scripted, file } : scripted
+  return recognizeScriptedCommand(repo, new Map([[command, bound]]), command)
+}
 
 const FAILURE_PROMPT_HEADER = 'gtd_validate_status=0\ngtd_validate_out="$( {\n'
 const FAILURE_PROMPT_MIDDLE =
@@ -289,10 +339,12 @@ const recognizeFailurePromptWrapper = (
   const [prompt] = extractQuotedTokens(promptQuoted)
   if (prompt === undefined || failurePromptWrapper(inner, prompt) !== block) return undefined
 
-  const innerOutcome = recognizeModeCommand(repo, commands, expandFileVar(inner) ?? inner)
+  const innerOutcome = recognizeModeCommand(repo, commands, inner)
   if (innerOutcome === undefined) return undefined
   if (innerOutcome.kind === "failed") {
-    return { kind: "failed", error: `${prompt}\n\n${innerOutcome.error}` }
+    // `"$( … )"` strips the captured output's trailing newlines.
+    const captured = innerOutcome.error.replace(/\n+$/, "")
+    return { kind: "failed", error: `${prompt}\n\n${captured}`, status: innerOutcome.status ?? 1 }
   }
   return innerOutcome
 }
@@ -309,7 +361,7 @@ const recognizeModeContradictionSkipNotice = (block: string): BlockOutcome | und
   if (!match) return undefined
   const mode = match[1]!
   if (modeContradictionSkipNotice(mode) !== block) return undefined
-  return { kind: "noop" }
+  return { kind: "noop", output: `${message}\n` }
 }
 
 /** Everything `parseModeContradictionCheck` recovers from a matched block — enough for `simulateModeContradictionCheck` to run it, with no further parsing. */
@@ -385,7 +437,7 @@ const simulateModeContradictionCheck = (
   const { mode, samplePath, sample, formatCommand, format } = parsed
   repo.writeFile(samplePath, sample)
   const command = expandFileVar(formatCommand) ?? formatCommand
-  const formatOutcome = recognizeScriptedCommand(repo, commands, command)
+  const formatOutcome = recognizeModeCommand(repo, commands, formatCommand)
   if (formatOutcome === undefined) {
     repo.deleteFile(samplePath)
     return {
@@ -433,7 +485,8 @@ const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undef
   const [file] = extractQuotedTokens(match[2]!)
   const format = steeringFormatFor(mode)
   if (format === undefined || file === undefined) {
-    return { kind: "failed", error: `gtd check: no built-in steering format named "${mode}"` }
+    const known = BUILT_IN_MODE_NAMES.join(", ")
+    return { kind: "failed", error: `gtd check: unknown mode "${mode}" — known modes: ${known}` }
   }
   // An ABSENT file has nothing to check and exits 0 — `runCheckCommand`'s own
   // documented behavior. Validating `""` instead would report every "missing
@@ -441,14 +494,14 @@ const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undef
   // (a case the review-doc guard owns) into a script failure.
   const content = repo.readFile(file)
   if (content === undefined) return { kind: "noop" }
-  const findings = format.validate(content)
-  if (findings.length > 0) {
-    const formatted = findings.map((f) =>
-      f.line !== undefined ? `${file}:${f.line + 1}: ${f.message}` : f.message,
-    )
-    return { kind: "failed", error: `gtd check ${mode} ${file}: ${formatted.join("; ")}` }
+  const findings = format.validate(content).map((finding) => formatFinding(file, finding))
+  if (findings.length === 0) return { kind: "noop" }
+  return {
+    kind: "failed",
+    error:
+      `gtd check: ${file} is not valid under mode "${mode}" (${findings.length} finding(s)):\n` +
+      findings.join("\n"),
   }
-  return { kind: "noop" }
 }
 
 const GTD_UNCHECK_RE = /^gtd uncheck (.+)$/
@@ -477,6 +530,7 @@ const recognizeDidNotRunComment = (block: string): BlockOutcome | undefined =>
   block === DID_NOT_RUN_COMMENT ? { kind: "noop" } : undefined
 
 /** `combinedScript`'s optional half. ALWAYS reports `noop` whatever the inner result, mirroring bash's `( … ) || <warning>`, where the subshell's exit status is swallowed and must never fail the outer script. */
+const PRESENTATION_FAILURE_TEXT = `${extractQuotedTokens(PRESENTATION_FAILURE_WARNING)[0]!.replace(/\\n$/, "")}\n`
 const PRESENTATION_SUBSHELL_PREFIX = `${PRESENTATION_ONLY_COMMENT}\n(\n`
 const PRESENTATION_SUBSHELL_SUFFIX = `\n) || ${PRESENTATION_FAILURE_WARNING}`
 
@@ -495,8 +549,9 @@ const recognizePresentationSubshell = (
     PRESENTATION_SUBSHELL_PREFIX.length,
     block.length - PRESENTATION_SUBSHELL_SUFFIX.length,
   )
-  applyEmittedScript(repo, commands, inner)
-  return { kind: "noop" }
+  const result = applyEmittedScript(repo, commands, inner)
+  if (result.ok) return { kind: "noop", output: result.output }
+  return { kind: "noop", output: `${result.output}${PRESENTATION_FAILURE_TEXT}` }
 }
 
 /** Anything left over must be an EXACT hit in the scripted-command table — mirrors `ScriptedCommand`'s two `kind`s (`Layers.ts`). */
@@ -508,16 +563,16 @@ const recognizeScriptedCommand = (
   const scripted = commands.get(block)
   if (scripted === undefined) return undefined
   if (scripted.kind === "rewrite") {
-    repo.writeFile(scripted.file, scripted.content)
+    repo.writeFile(scripted.file, rewritten(repo, scripted))
     return { kind: "applied" }
   }
-  if (scripted.status !== 0) {
-    return {
-      kind: "failed",
-      error: `scripted command "${block}" exited ${scripted.status}: ${scripted.output}`,
-    }
+  if (scripted.kind === "missing") {
+    return { kind: "failed", error: `sh: ${block.split(" ")[0]}: not found`, status: 127 }
   }
-  return { kind: "noop" }
+  if (scripted.status !== 0) {
+    return { kind: "failed", error: scripted.output, status: scripted.status }
+  }
+  return { kind: "noop", output: scripted.output }
 }
 
 /**
@@ -586,7 +641,7 @@ const recognizersFor = (
   (block) => recognizeDidNotRunComment(block),
   (block) => recognizePrecondition(repo, block),
   (block) => recognizeFileExistsGuard(repo, block),
-  (block) => recognizeBinaryGuard(block),
+  (block) => recognizeBinaryGuard(commands, block),
   (block) => recognizeGitBuilders(repo, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
   (block) => recognizePresentationSubshell(repo, commands, block),
@@ -595,10 +650,9 @@ const recognizersFor = (
   (block) => recognizeGtdCheck(repo, block),
   (block) => recognizeGtdUncheck(repo, block),
   (block) => {
-    const command = expandFileVar(block)
-    return command === undefined ? undefined : recognizeModeCommand(repo, commands, command)
+    return FILE_VAR_PREFIX_RE.test(block) ? recognizeModeCommand(repo, commands, block) : undefined
   },
-  (block) => recognizeOutcome(block),
+  (block) => recognizeOutcome(repo, block),
   (block) => recognizeScriptedCommand(repo, commands, block),
 ]
 
@@ -624,19 +678,48 @@ export const applyEmittedScript = (
   commands: ReadonlyMap<string, ScriptedCommand>,
   script: string,
 ): AppliedScriptResult => {
-  const recognizers = recognizersFor(repo, commands)
+  const flow = applyFlowScript(repo, commands, script)
+  if (flow !== undefined) {
+    return flow.ok
+      ? { ok: true, status: 0, output: flow.output }
+      : { ok: false, status: 1, output: flow.output, error: flow.error ?? "" }
+  }
+  return script.startsWith("#!") ? unrecognized(script) : applyBlocks(repo, commands, script)
+}
 
+const applyBlocks = (
+  repo: InMemRepo,
+  commands: ReadonlyMap<string, ScriptedCommand>,
+  script: string,
+): AppliedScriptResult => {
+  const recognizers = recognizersFor(repo, commands)
+  let output = ""
   for (const block of splitBlocks(script)) {
     const outcome = recognizeBlock(recognizers, block)
-
-    if (outcome === undefined) {
-      return { ok: false, error: `unrecognized script block: ${block.split("\n")[0]}` }
-    }
-    if (outcome.kind === "stopped") return { ok: true }
-    if (outcome.kind === "failed") {
-      return { ok: false, error: outcome.error }
-    }
+    if (outcome === undefined) return unrecognized(block, output)
+    if (outcome.kind === "noop") output += outcome.output ?? ""
+    if (outcome.kind === "stopped") break
+    if (outcome.kind === "failed") return failedAt(outcome, output)
   }
-
-  return { ok: true }
+  return { ok: true, status: 0, output }
 }
+
+const failedAt = (
+  outcome: { readonly error: string; readonly status?: number },
+  output: string,
+): AppliedScriptResult => {
+  const printed = outcome.error.length === 0 || outcome.error.endsWith("\n") ? "" : "\n"
+  return {
+    ok: false,
+    status: outcome.status ?? 1,
+    output: `${output}${outcome.error}${printed}`,
+    error: outcome.error,
+  }
+}
+
+const unrecognized = (block: string, output = ""): AppliedScriptResult => ({
+  ok: false,
+  status: 1,
+  output,
+  error: `unrecognized script block: ${block.split("\n")[0]}`,
+})

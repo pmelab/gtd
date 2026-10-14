@@ -1,4 +1,4 @@
-import { quote, read, refuse, removeScript, run, scope, vars } from "../../flows/index.js"
+import { read, refuse, removeScript, run, scope, showScript, vars } from "../../flows/index.js"
 import * as kit from "../../workflow-kit/index.js"
 import { escalation, FIX_CAP, healthy, type EscalationCount } from "./health.js"
 import { guarded, type FrozenScenarios } from "./scenarios.js"
@@ -95,15 +95,6 @@ export const tail = <T>(
     return finish(escalations, frozen)
   })
 
-// The committed blob, not the working copy: the human's notes already landed over it.
-const handOffScript = (reviewed: string): string =>
-  [
-    "#!/usr/bin/env sh",
-    "set -e",
-    `git show ${quote(`${reviewed}:${REVIEW}`)} > ${quote(REVIEW_ORIG)}`,
-    "",
-  ].join("\n")
-
 /**
  * The review and fix workflows' human review since `base`: a sign-off closes
  * `.gtd/REVIEW.md`; a note leaves it, with the reviewer's own version as
@@ -119,7 +110,8 @@ export const handOffReview = (base: string, escalations: EscalationCount): Promi
     reviewMissing,
     close: closeReview,
     handOff: (reviewed) =>
-      run("review.handing-off", handOffScript(reviewed), {
+      // The committed blob, not the working copy: the human's notes already landed over it.
+      run("review.handing-off", showScript(reviewed, REVIEW, REVIEW_ORIG), {
         label: "Handing your notes to fix",
       }),
     threadsPending:

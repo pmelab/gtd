@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
-import { UiShell } from "./Ports.js"
+import { UiShell, type ServeRecord } from "./Ports.js"
 import { shellQuote } from "./Quote.js"
 
 /** What `parseServeStatus` publishes for a mapping found on the requested port: the tailnet hostname `tailscale serve` bound it to, and the loopback URL it forwards to. */
@@ -108,15 +108,6 @@ export const unpublishServe = (
     }
     return { ok: true }
   })
-
-/** The ownership record published alongside a live serve mapping, so teardown/orphan-checks touch only a mapping THIS instance published. `worktree` is plumbed through verbatim — the caller (Task 3/4) decides what path it holds. */
-export interface ServeRecord {
-  readonly pid: number
-  readonly servePort: number
-  readonly targetPort: number
-  readonly target: string
-  readonly worktree: string
-}
 
 // `~/.gtd/serve/` is the one gtd state directory outside a worktree — there is
 // no other, so it's created on demand rather than assumed to pre-exist.

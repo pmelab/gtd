@@ -115,10 +115,11 @@ export class InMemRepo {
       return this.commits.has(ref) ? ref : null
     }
 
-    const tildeMatch = /^(HEAD|[0-9a-f]{40})(~(\d+))?$/.exec(ref)
+    const tildeMatch = /^(HEAD|[0-9a-f]{40})(~(\d+)|\^)?$/.exec(ref)
     if (tildeMatch) {
       const base = tildeMatch[1]!
-      const steps = tildeMatch[3] !== undefined ? parseInt(tildeMatch[3], 10) : 0
+      const steps =
+        tildeMatch[3] !== undefined ? parseInt(tildeMatch[3], 10) : tildeMatch[2] === "^" ? 1 : 0
       let cur: string | null = base === "HEAD" ? this.head : this.commits.has(base) ? base : null
       for (let i = 0; i < steps; i++) {
         if (cur === null) return null
@@ -295,6 +296,38 @@ export class InMemRepo {
     return [...this.worktree.keys()]
       .filter((key) => key === prefix || key.startsWith(dirPrefix))
       .sort()
+  }
+
+  /** Everything git would keep on disk, serialized — two snapshots compare equal exactly when nothing was written. */
+  snapshot(): string {
+    const sorted = (m: Map<string, string>) =>
+      [...m.entries()].sort(([a], [b]) => a.localeCompare(b))
+    return JSON.stringify({
+      head: this.head,
+      branch: this.currentBranch,
+      commits: [...this.commits.keys()].sort(),
+      branches: sorted(this.branches),
+      refs: sorted(this.refs),
+      index: sorted(this.index),
+      worktree: sorted(this.worktree),
+    })
+  }
+
+  /** Every ref name under `prefix` (`refs/…`), sorted — `git for-each-ref <prefix>`. */
+  refNamesUnder(prefix: string): ReadonlyArray<string> {
+    return [...this.refs.keys()].filter((ref) => ref.startsWith(prefix)).sort()
+  }
+
+  /** Whether `path` is in the index — what `git diff <commit> -- <path>` compares against the worktree. */
+  isTracked(path: string): boolean {
+    return this.index.has(path)
+  }
+
+  /** `git add <path>` — the index takes `path` as the worktree has it, or drops it. */
+  stage(path: string): void {
+    const content = this.worktree.get(path)
+    if (content === undefined) this.index.delete(path)
+    else this.index.set(path, content)
   }
 
   /** `git add -A` — the index becomes exactly the current worktree. */

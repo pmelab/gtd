@@ -199,7 +199,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
       src/other.ts
       """
 
-  @live
+  @inmem
   Scenario: gtd base writes nothing — the repository is byte-identical before and after the call
     Given a test project
     And a gtd config file at "gtd.config.ts" with:

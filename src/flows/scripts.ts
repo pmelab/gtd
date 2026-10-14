@@ -118,3 +118,9 @@ export const moveScript = (from: string, to: string): string =>
     `mv -- ${quote(from)} ${quote(to)}`,
     "",
   ].join("\n")
+
+/** Write `path` as committed at `ref` to `to`. */
+export const showScript = (ref: string, path: string, to: string): string =>
+  ["#!/usr/bin/env sh", "set -e", `git show ${quote(`${ref}:${path}`)} > ${quote(to)}`, ""].join(
+    "\n",
+  )

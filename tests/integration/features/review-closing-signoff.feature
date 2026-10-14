@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: A tick with no comment signs off — build.review.closing reaches idle
 
   After the human's review turn lands, the flow reads that review commit. A

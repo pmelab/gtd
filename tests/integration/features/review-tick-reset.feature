@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: Review checkboxes reset on land — a tick is read-progress, never sign-off
 
   At the human review gate (`build.review.await-review`), `gtd land`'s

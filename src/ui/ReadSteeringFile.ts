@@ -1,7 +1,8 @@
 import type { SteeringView } from "../steering/index.js"
 import { resolveWithinRoot } from "./SafePath.js"
 import { steeringViewFor } from "./View.js"
-import { contentHashOf, type ReadFileResult } from "./Write.js"
+import type { ReadFileResult } from "./Ports.js"
+import { contentHashOf } from "./Write.js"
 
 /**
  * What a screen needs before it can render AND, later, write back through
