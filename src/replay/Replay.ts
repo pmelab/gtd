@@ -260,7 +260,8 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   const treeAt = (hash: string): TreeView | undefined =>
     hash === input.episode.base.hash
       ? input.episode.base.tree
-      : commits.find((c) => c.hash === hash)?.tree
+      : (commits.find((c) => c.hash === hash)?.tree ??
+        (hash === input.start ? input.startTree : undefined))
 
   let cursor = 0
   let pendingUsed = false

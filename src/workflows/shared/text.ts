@@ -10,7 +10,7 @@ import {
   type AgentOptions,
   type SummaryContext,
 } from "../../flows/index.js"
-import type { WordingDrift } from "../../workflow-kit/index.js"
+import type { RemovedAssertions } from "../../workflow-kit/index.js"
 import {
   accessPreamble,
   skillsPreamble,
@@ -286,11 +286,13 @@ ${footnoteFoldIn}${codeThreadReplies()}
      only, as fenced TypeScript (or the repository's language)
   3. \`## Call Stacks\` — seam level, entry point → module
      boundary; one line per hop, never per line of code
-  4. \`## E2E Scenarios\` — Gherkin in fenced \`gherkin\` blocks
-     (whatever e2e framework the repository uses), each preceded
-     by a line \`- e2e: <path>\`. With no user-visible
-     behaviour change, the literal line \`No e2e change.\` plus a
-     one-line reason — never empty or missing
+  4. \`## E2E Scenarios\` — one line per user-visible behaviour,
+     \`- e2e: <path> — <behaviour> (covers <concern>)\`, in plain
+     words: the builder writes the scenario in the repository's
+     own e2e framework, so never spell out Gherkin here. With no
+     user-visible behaviour change, the literal line
+     \`No e2e change.\` plus a one-line reason — never empty or
+     missing
   5. \`## Unit Tests\` — one \`### <interface>\` per entry of
      \`## Interfaces\`, each test a line
      \`- unit: <path> — <behaviour> (covers <concern>)\`;
@@ -339,16 +341,12 @@ ${stateFileRules}
   requirement(s) — both, independently, if merged — its tasks, and
   each task's acceptance criteria as \`- [ ]\` checkboxes and
   relevant paths:
-  - \`.gtd/packages/00-e2e-scenarios.md\` — package 0: it writes
-    \`## E2E Scenarios\` as tests in the repository's own e2e
-    framework and leaves them red. Write no such file when
-    \`## E2E Scenarios\` says "No e2e change."
-  - \`01-…\` onward — the unit-test packages. A requirement no test
+  - \`01-…\` onward — one vertical slice each: the unit tests,
+    the code, the wiring (CLI entry, workflow composition, config)
+    and every \`## E2E Scenarios\` entry its concern covers, so the
+    slice ends with its scenarios passing. A requirement no test
     covers (docs, README, deletions, config) becomes a chore
     package, or a task of one; chore packages declare no tests
-  - the last numbered package is the wiring package: CLI entry,
-    workflow composition, config. A red e2e after it is a bug, not
-    missing work
 - Every package with tests has a \`## Tests\` section, one line per
   declared test, copied from the architecture entries:
   \`- unit: \\\`<path>\\\`\` or \`- e2e: \\\`<path>\\\`\`. Chore packages have
@@ -398,10 +396,10 @@ export const packagesItemBuildingPrompt = (pkg: string): string =>
 - Write the tests the package declares under \`## Tests\` first,
   then the code that makes them pass; the turn is refused unless
   every declared test is in your diff
-- Package 0 (\`.gtd/packages/00-e2e-scenarios.md\`) writes the scenarios verbatim
-  from \`## E2E Scenarios\` of \`.gtd/ARCHITECTURE.md\`, with only
-  step code that typechecks, and leaves them red — no
-  implementation
+- A declared e2e test is a scenario in the repository's own e2e
+  framework for the behaviour its \`## E2E Scenarios\` entry names.
+  Word it to fit the existing steps — reuse and generalise them
+  rather than adding one-off ones
 - Implement every task the package describes, no more, no less,
   fanning independent ones out to parallel subagents where your
   harness supports it; leave other package files untouched
@@ -473,26 +471,13 @@ analysis.
 /** What the tail's full-run fix needs of a `BuiltPlan` (structural: `packages.ts` imports this module). */
 export interface BuildContext {
   readonly ranges: readonly { readonly pkg: string; readonly from: string; readonly to: string }[]
-  readonly scenarios: {
-    readonly added: readonly string[]
-    readonly changed: readonly string[]
-  }
 }
 
-const buildContextPrompt = (built: BuildContext): string => {
-  const list = (paths: readonly string[]): string =>
-    paths.length === 0 ? "  (none)" : paths.map((path) => `  - ${path}`).join("\n")
-  return `- Read \`.gtd/ARCHITECTURE.md\` — the plan every package was built from
-- A red scenario that is NEW in this plan likely means missing wiring
-  between packages; new scenarios:
-${list(built.scenarios.added)}
-- A red CHANGED or existing scenario or test is a regression a package
-  introduced; scenarios this plan changed:
-${list(built.scenarios.changed)}
+const buildContextPrompt = (built: BuildContext): string =>
+  `- Read \`.gtd/ARCHITECTURE.md\` — the plan every package was built from
 - Each package's commits, to bisect a break:
 ${built.ranges.map((r) => `  git log --oneline ${r.from}..${r.to}  # ${r.pkg}`).join("\n")}
 `
-}
 
 export const buildFixPrompt = (built?: BuildContext): string =>
   `${stateFileRules}
@@ -888,7 +873,27 @@ actionability, and never dismiss a real note or edit as approval.
   the sign-off
 `
 
-export const buildReviewReviewingPrompt = (base: string, carry?: string): string =>
+const scenariosPrompt = (removed: readonly RemovedAssertions[]): string =>
+  `- When a \`.feature\` file changed since the base, the first chunk is
+  \`## Scenarios\`: one pointer per added or changed scenario, its note
+  saying in plain words what behaviour it now pins down — the human
+  signs off the scenarios here, nowhere else
+${
+  removed.length === 0
+    ? ""
+    : `- These assertions of scenarios that existed at the base are gone:
+${removed.map(({ path, lines }) => lines.map((l) => `    ${path}: ${l}\n`).join("")).join("")}  Under \`## Scenarios\`, open the note of each scenario that lost one
+  with \`Weakened:\`, naming the lost line and whether
+  \`.gtd/REQUIREMENTS.md\` asked for it; a deleted file gets its note
+  in the chunk's explanation
+`
+}`
+
+export const buildReviewReviewingPrompt = (
+  base: string,
+  carry?: string,
+  removed: readonly RemovedAssertions[] = [],
+): string =>
   `${styleBlock}
 
 ${styleFormatContract}
@@ -931,7 +936,7 @@ review the changes:
   A note sitting entirely on the line(s) beneath the pointer is
   also valid. Either way, the note must never start with a bare \`./path\` token
   — that parses as a second pointer, not a note
-No diff is given — read the changes yourself. The range runs
+${scenariosPrompt(removed)}No diff is given — read the changes yourself. The range runs
 from \`${base}\` to the working tree (committed turns
 plus anything pending); on a feedback round that's the previous
 review's boundary, so it covers only what's new.
@@ -986,19 +991,3 @@ ${it.processCostByModel.map((m) => `- ${m.model}: ${m.cost}\n`).join("")}
 Print the closing message and stop — this writes nothing itself.
 `
 }
-
-export const scenarioWordingMessage = (at: string, drifted: readonly WordingDrift[]): string =>
-  `The e2e scenario wording was frozen when package 0 landed, and the last
-turn changed it. Removed lines are marked \`-\`, added ones \`+\`:
-
-${drifted.map(({ path, lines }) => `${path}\n${lines.join("\n")}`).join("\n\n")}
-
-To accept the change, land untouched.
-
-To reject it, run
-
-    git checkout ${at} -- ${drifted.map(({ path }) => quote(path)).join(" ")}
-
-and land. Restoring only some of the files is a partial accept: every file
-still differing from the frozen wording is accepted.
-`

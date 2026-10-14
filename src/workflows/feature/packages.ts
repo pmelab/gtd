@@ -1,6 +1,5 @@
 import {
   changesSince,
-  type Change,
   glob,
   head,
   read,
@@ -10,11 +9,7 @@ import {
   scope,
 } from "../../flows/index.js"
 import { healthy } from "../shared/health.js"
-import { freezeScenarios, guarded, type FrozenScenarios } from "../shared/scenarios.js"
 import { build, fixSuite } from "./steps.js"
-
-/** Package 0: the e2e scenarios, written red. */
-export const SCENARIO_PACKAGE = ".gtd/packages/00-e2e-scenarios.md"
 
 export interface DeclaredTest {
   readonly level: "unit" | "e2e"
@@ -70,26 +65,19 @@ export interface PackageRange {
 
 export interface BuiltPlan {
   readonly ranges: readonly PackageRange[]
-  /** Paths package 0 added / modified outside `.gtd/`. */
-  readonly scenarios: { readonly added: readonly string[]; readonly changed: readonly string[] }
-  /** The wording snapshot after this run, to guard the tail and later laps. */
-  readonly frozen: FrozenScenarios | undefined
 }
 
 /** Build `pkg`, check its declared tests, keep the fast suite green, and close it out, which removes it. */
-export const packageItem = async (pkg: string, frozen?: FrozenScenarios): Promise<PackageRange> => {
+export const packageItem = async (pkg: string): Promise<PackageRange> => {
   const from = head()
   // Rechecked after every fix too: a fix deleting a red declared test would
-  // otherwise green the suite. Before the wording gate, so it refuses the turn.
+  // otherwise green the suite.
   const declared = (turn: () => Promise<void>) => async () => {
     await turn()
     requireDeclaredTests(pkg, from)
   }
-  await guarded(
-    frozen,
-    declared(() => build(pkg)),
-  )()
-  await healthy(guarded(frozen, declared(fixSuite)), { suite: "fast" })
+  await declared(() => build(pkg))()
+  await healthy(declared(fixSuite), { suite: "fast" })
   await run("closing", removeScript([pkg, ".gtd/SATISFIED.md"]), {
     label: "Closing out the package",
   })
@@ -99,31 +87,12 @@ export const packageItem = async (pkg: string, frozen?: FrozenScenarios): Promis
 /** The first queued package — the one a package step works on. */
 export const nextPackage = (): string | undefined => [...glob(".gtd/packages/*.md")].sort()[0]
 
-const outsideGtd = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
-
 /** Build every package file under `.gtd/packages/`, in name order. */
-export const packages = (carried?: FrozenScenarios): Promise<BuiltPlan> =>
+export const packages = (): Promise<BuiltPlan> =>
   scope("packages", async () => {
-    let frozen = carried
     const ranges: PackageRange[] = []
-    // Captured right after package 0: a later diff to the tree would also hold what 01…N touch.
-    let touched: readonly Change[] = []
     for (let pkg = nextPackage(); pkg !== undefined; pkg = nextPackage()) {
-      const range = await scope("item", () =>
-        packageItem(pkg, pkg === SCENARIO_PACKAGE ? undefined : frozen),
-      )
-      ranges.push(range)
-      if (pkg === SCENARIO_PACKAGE) {
-        touched = changesSince(range.from).filter(
-          (c) => outsideGtd(c.path) && c.status !== "deleted",
-        )
-        frozen = freezeScenarios(
-          touched.filter((c) => c.path.endsWith(".feature")).map((c) => c.path),
-          frozen,
-        )
-      }
+      ranges.push(await scope("item", () => packageItem(pkg)))
     }
-    const paths = (status: string): string[] =>
-      touched.filter((c) => c.status === status).map((c) => c.path)
-    return { ranges, scenarios: { added: paths("added"), changed: paths("modified") }, frozen }
+    return { ranges }
   })

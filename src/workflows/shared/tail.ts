@@ -1,7 +1,6 @@
 import { read, refuse, removeScript, run, scope, showScript, vars } from "../../flows/index.js"
 import * as kit from "../../workflow-kit/index.js"
 import { escalation, FIX_CAP, healthy, type EscalationCount } from "./health.js"
-import { guarded, type FrozenScenarios } from "./scenarios.js"
 import {
   ARCHITECTURE,
   awaitReview,
@@ -29,21 +28,13 @@ export const qualityLap = (): Promise<"clean" | "findings"> =>
   kit.qualityLap(kit.lensesOf(vars.qualityReviews ?? ""), reviewQuality, QUALITY)
 
 /** Resolves `true` once `.gtd/QUALITY.md` is resolved, `false` when the fix cap escalated instead. */
-export const fixQualityFindings = (
-  escalations: EscalationCount,
-  frozen?: FrozenScenarios,
-): Promise<boolean> =>
+export const fixQualityFindings = (escalations: EscalationCount): Promise<boolean> =>
   kit.fixFindings({
-    fix: guarded(frozen, fixQuality),
+    fix: fixQuality,
     findings: QUALITY,
     cap: FIX_CAP,
     escalate: () => escalation(escalations),
   })
-
-/** What the tail's full run knows of a plan the process built. */
-export interface TailPlan extends BuildContext {
-  readonly frozen: FrozenScenarios | undefined
-}
 
 /** `.gtd/REVIEW.md` removed at the end of a round at commit `round`. */
 export const closeReview = (round: string): Promise<void> =>
@@ -67,32 +58,28 @@ export const refusePendingHandOff = (): void => {
  */
 export const tail = <T>(
   fixFirst: boolean,
-  finish: (escalations: EscalationCount, frozen: FrozenScenarios | undefined) => Promise<T>,
-  built?: TailPlan,
+  finish: (escalations: EscalationCount) => Promise<T>,
+  built?: BuildContext,
 ): Promise<T> =>
   scope("build", async () => {
-    const frozen = built?.frozen
     const escalations: EscalationCount = { rounds: 0 }
-    const guardedFix = guarded(frozen, () => fixCheck())
+    const fix = () => fixCheck()
     const repair = async () => {
-      await guardedFix()
-      await healthy(guardedFix, { fixesSoFar: 1, escalations })
+      await fix()
+      await healthy(fix, { fixesSoFar: 1, escalations })
     }
     // fixFirst's own fix + healthy below already is the full run.
     if (fixFirst) await repair()
     else {
-      await healthy(
-        guarded(frozen, () => fixCheck(built)),
-        { escalations, sweepOnGreen: [ARCHITECTURE] },
-      )
+      await healthy(() => fixCheck(built), { escalations, sweepOnGreen: [ARCHITECTURE] })
     }
     // The lap runs once a tail: after its findings are fixed, review follows.
     if ((await qualityLap()) === "findings") {
-      if (await fixQualityFindings(escalations, frozen)) {
-        await healthy(guardedFix, { escalations })
+      if (await fixQualityFindings(escalations)) {
+        await healthy(fix, { escalations })
       } else await repair()
     }
-    return finish(escalations, frozen)
+    return finish(escalations)
   })
 
 /**

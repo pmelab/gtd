@@ -400,19 +400,20 @@ noted in steps 3 and 4 below.
    questions and all. Every plan gets the technical pass: its document has four
    sections, in order — `## Interfaces`, `## Call Stacks`, `## E2E Scenarios`,
    `## Unit Tests` — behind a leading `## Open Questions` when there are any.
-   `## E2E Scenarios` is never empty: it holds the scenarios, or, when nothing
+   `## E2E Scenarios` is never empty: it names each user-visible behaviour in
+   plain words (the builder writes the scenario itself), or, when nothing
    user-visible changes, the line `No e2e change.` with a one-line reason.
 
-3. **You wait.** The work is split into packages and built one at a time, each
-   one starting from the unit tests it declares (a build turn missing one is
-   refused), checked against the fast suite and fixed until it passes before
-   moving on. A package that rewords a frozen `.feature` step stops at a wording
-   gate: accept the change, or reject it and the original is restored. After the
-   last package a full run (e2e included) has its own fix loop before the
-   quality lap. Two points along the process are judged rather than always
-   asking you outright — each stops and hands you a verdict to make
-   (`gtd judge answer`, or land with a clean tree to accept the conservative
-   default, which never skips work;
+3. **You wait.** The work is split into vertical slices and built one at a time,
+   each one starting from the unit and e2e tests it declares (a build turn
+   missing one is refused), checked against the fast suite and fixed until it
+   passes before moving on. Scenario wording is not frozen: you sign the
+   scenarios off once, in the review's `## Scenarios` chunk, where any assertion
+   an existing scenario lost is marked `Weakened:`. After the last package a
+   full run (e2e included) has its own fix loop before the quality lap. Two
+   points along the process are judged rather than always asking you outright —
+   each stops and hands you a verdict to make (`gtd judge answer`, or land with
+   a clean tree to accept the conservative default, which never skips work;
    `gtd judge run --provider fixed --answers <path>` — or the
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
    between `gtd judge --json` and `gtd judge answer`;

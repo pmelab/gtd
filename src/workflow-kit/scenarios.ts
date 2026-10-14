@@ -1,130 +1,55 @@
-import { head, read } from "../flows/index.js"
+import type { Change } from "../flows/index.js"
 
-/** Mutable: an accepted change moves the snapshot forward. */
-export interface FrozenScenarios {
-  at: string
-  texts: Record<string, string>
-}
+const DOC_STRING = /^("""|```)/
+const THEN = /^Then\s/
+const CONTINUATION = /^(And|But|\*)\s/
 
-const DOC_STRING = /^(\s*)("""|```)/
-
-/**
- * Gherkin wording only: lines trimmed; blank, `#` comment and `@` tag lines
- * dropped — except inside a doc string, whose content is test input: kept
- * whole, indented relative to its opening delimiter (as Gherkin reads it).
- */
-export const scenarioText = (source: string): string => {
+/** Trimmed `Then` step lines, an `And`/`But`/`*` continuing one included; doc strings skipped. */
+export const assertionLines = (source: string): readonly string[] => {
   const out: string[] = []
-  let doc: { readonly indent: number; readonly fence: string } | undefined
+  let fence: string | undefined
+  let inThen = false
   for (const line of source.split("\n")) {
-    const delimiter = DOC_STRING.exec(line)
-    if (doc === undefined && delimiter !== null) {
-      doc = { indent: delimiter[1]!.length, fence: delimiter[2]! }
-      out.push(line.trim())
-    } else if (doc !== undefined && line.trim().startsWith(doc.fence)) {
-      doc = undefined
-      out.push(line.trim())
-    } else if (doc !== undefined) {
-      const lead = line.length - line.trimStart().length
-      out.push(line.slice(Math.min(lead, doc.indent)).trimEnd())
-    } else {
-      const trimmed = line.trim()
-      if (trimmed !== "" && !trimmed.startsWith("#") && !trimmed.startsWith("@")) out.push(trimmed)
+    const trimmed = line.trim()
+    if (fence !== undefined) {
+      if (trimmed.startsWith(fence)) fence = undefined
+      continue
+    }
+    const delimiter = DOC_STRING.exec(trimmed)
+    if (delimiter !== null) fence = delimiter[1]
+    else if (THEN.test(trimmed)) {
+      inThen = true
+      out.push(trimmed)
+    } else if (CONTINUATION.test(trimmed)) {
+      if (inThen) out.push(trimmed)
+    } else if (trimmed !== "" && !trimmed.startsWith("#") && !trimmed.startsWith("|")) {
+      inThen = false
     }
   }
-  return out.join("\n")
+  return out
 }
 
-const textOf = (path: string): string | undefined => {
-  const source = read(path)
-  return source === undefined ? undefined : scenarioText(source)
-}
-
-/** Snapshot `.feature` paths at `head()`, merged over `previous`; `undefined` when nothing is frozen. */
-export const freezeScenarios = (
-  paths: readonly string[],
-  previous?: FrozenScenarios,
-): FrozenScenarios | undefined => {
-  if (paths.length === 0) return previous
-  const texts: Record<string, string> = { ...previous?.texts }
-  for (const path of paths) {
-    const text = textOf(path)
-    if (text !== undefined) texts[path] = text
-  }
-  return Object.keys(texts).length === 0 ? previous : { at: head(), texts }
-}
-
-/** Paths whose wording differs from the snapshot (a deleted file counts). */
-export const driftedScenarios = (frozen: FrozenScenarios): readonly string[] =>
-  Object.entries(frozen.texts)
-    .filter(([path, text]) => textOf(path) !== text)
-    .map(([path]) => path)
-
-// Blank lines survive only inside doc strings, where they are wording.
-const lines = (text: string | undefined): string[] =>
-  text === undefined || text === "" ? [] : text.split("\n")
-
-/** `table[i][j]`: the longest common subsequence of `a[i..]` and `b[j..]`. */
-const lcsTable = (a: readonly string[], b: readonly string[]): number[][] => {
-  const table = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0))
-  for (let i = a.length - 1; i >= 0; i--) {
-    for (let j = b.length - 1; j >= 0; j--) {
-      table[i]![j] =
-        a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!)
-    }
-  }
-  return table
-}
-
-/** Changed lines in file order, `- ` / `+ `-prefixed, so a moved or repeated step still shows. */
-const lineDiff = (a: readonly string[], b: readonly string[]): string[] => {
-  const table = lcsTable(a, b)
-  const out: string[] = []
-  let i = 0
-  let j = 0
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      i++
-      j++
-    } else if (table[i + 1]![j]! >= table[i]![j + 1]!) out.push(`- ${a[i++]}`)
-    else out.push(`+ ${b[j++]}`)
-  }
-  return [...out, ...a.slice(i).map((l) => `- ${l}`), ...b.slice(j).map((l) => `+ ${l}`)]
-}
-
-export interface WordingDrift {
+export interface RemovedAssertions {
   readonly path: string
-  /** `- `/`+ `-prefixed, in file order. */
   readonly lines: readonly string[]
 }
 
-export const wordingDrift = (frozen: FrozenScenarios, path: string): WordingDrift => ({
-  path,
-  lines: lineDiff(lines(frozen.texts[path]), lines(textOf(path))),
-})
-
 /**
- * After a turn: rest at `stop` while wording drifted from `frozen`. Whatever
- * still differs after it is accepted and moves the snapshot; what was
- * restored stays frozen as it was.
+ * Assertions a `.feature` file that existed before `changes` lost — the one
+ * way rewording a scenario can weaken it. Counted per line, so dropping one
+ * of two identical `Then`s still shows.
  */
-export const holdWording = async (
-  frozen: FrozenScenarios | undefined,
-  stop: (at: string, drifted: readonly WordingDrift[]) => Promise<void>,
-): Promise<void> => {
-  if (frozen === undefined) return
-  const drifted = driftedScenarios(frozen)
-  if (drifted.length === 0) return
-  await stop(
-    frozen.at,
-    drifted.map((path) => wordingDrift(frozen, path)),
-  )
-  const accepted = driftedScenarios(frozen)
-  if (accepted.length === 0) return
-  for (const path of accepted) {
-    const text = textOf(path)
-    if (text === undefined) delete frozen.texts[path]
-    else frozen.texts[path] = text
-  }
-  frozen.at = head()
-}
+export const removedAssertions = (changes: readonly Change[]): readonly RemovedAssertions[] =>
+  changes
+    .filter((c) => c.path.endsWith(".feature") && c.before !== undefined)
+    .map((c) => {
+      const left = new Map<string, number>()
+      for (const line of assertionLines(c.after ?? "")) left.set(line, (left.get(line) ?? 0) + 1)
+      const lines = assertionLines(c.before ?? "").filter((line) => {
+        const n = left.get(line) ?? 0
+        left.set(line, n - 1)
+        return n <= 0
+      })
+      return { path: c.path, lines }
+    })
+    .filter((r) => r.lines.length > 0)

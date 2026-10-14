@@ -9,7 +9,6 @@ export { ShippedOptions } from "./shared/options.js"
 export { agentWithSkills } from "./shared/text.js"
 export * from "./shared/steps.js"
 export * from "./shared/health.js"
-export * from "./shared/scenarios.js"
 export {
   closeReview,
   fixQualityFindings,
@@ -18,7 +17,6 @@ export {
   qualityLap,
   REVIEW_ORIG,
   tail,
-  type TailPlan,
 } from "./shared/tail.js"
 export { lensesOf } from "../workflow-kit/index.js"
 export * from "./feature/steps.js"

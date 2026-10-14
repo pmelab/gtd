@@ -1,4 +1,5 @@
-import { env, human } from "../../flows/index.js"
+import { changesSince, env, human } from "../../flows/index.js"
+import { removedAssertions } from "../../workflow-kit/index.js"
 import * as t from "./text.js"
 
 // The bundled workflow's single steps. A step's name is relative to the
@@ -90,14 +91,18 @@ export const fixQuality = (): Promise<void> =>
 
 /** Write `.gtd/REVIEW.md` over everything since `base`, carrying the answers of commit `carry` when given. */
 export const reviewing = (base: string, carry?: string): Promise<void> =>
-  t.agentWithSkills("review.reviewing", t.buildReviewReviewingPrompt(base, carry), {
-    label: "Reviewing",
-    file: REVIEW,
-    mode: "review",
-    model: planner(),
-    system: t.reviewerSystem(),
-    base,
-  })
+  t.agentWithSkills(
+    "review.reviewing",
+    t.buildReviewReviewingPrompt(base, carry, removedAssertions(changesSince(base))),
+    {
+      label: "Reviewing",
+      file: REVIEW,
+      mode: "review",
+      model: planner(),
+      system: t.reviewerSystem(),
+      base,
+    },
+  )
 
 /** Fix the `Risk:`-marked notes the reviewer named; an empty turn means the risk was judged false. */
 export const fixRisks = (notes: readonly t.NoteInput[]): Promise<void> =>

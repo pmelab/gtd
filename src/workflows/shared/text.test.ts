@@ -188,23 +188,10 @@ describe("buildFixPrompt with build context", () => {
       { pkg: "00-scenarios", from: "aaa1111", to: "bbb2222" },
       { pkg: "01-engine", from: "bbb2222", to: "ccc3333" },
     ],
-    scenarios: { added: ["tests/new.feature"], changed: ["tests/old.feature"] },
   }
 
   it("points at the architecture document", () => {
     expect(renderText(() => buildFixPrompt(built))).toContain(".gtd/ARCHITECTURE.md")
-  })
-
-  it("lists new scenario paths as likely missing wiring", () => {
-    const prompt = renderText(() => buildFixPrompt(built))
-    expect(prompt).toContain("tests/new.feature")
-    expect(prompt).toContain("missing wiring")
-  })
-
-  it("lists changed or existing scenarios as regressions", () => {
-    const prompt = renderText(() => buildFixPrompt(built))
-    expect(prompt).toContain("regression")
-    expect(prompt).toContain("tests/old.feature")
   })
 
   it("lists one range line per package", () => {
@@ -457,5 +444,23 @@ describe("deferNotesScript — the in-memory recognizer agrees with the real sh 
     if (existing !== undefined) repo.writeFile(".gtd/TODO.md", existing)
     expect(applyEmittedScript(repo, new Map(), script).ok).toBe(true)
     expect(repo.readFile(".gtd/TODO.md")).toBe(real)
+  })
+})
+
+describe("buildReviewReviewingPrompt scenarios", () => {
+  it("names each removed assertion and asks for a Weakened: note", () => {
+    const prompt = renderText(() =>
+      buildReviewReviewingPrompt("base", undefined, [
+        { path: "e2e/a.feature", lines: ["Then it is shown"] },
+      ]),
+    )
+    expect(prompt).toContain("e2e/a.feature: Then it is shown")
+    expect(prompt).toContain("`Weakened:`")
+  })
+
+  it("asks for no Weakened: note when nothing was removed", () => {
+    const prompt = renderText(() => buildReviewReviewingPrompt("base"))
+    expect(prompt).toContain("## Scenarios")
+    expect(prompt).not.toContain("Weakened:")
   })
 })

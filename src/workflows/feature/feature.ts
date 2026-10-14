@@ -10,7 +10,6 @@ import {
 } from "../../flows/index.js"
 import { gate } from "../shared/health.js"
 import { shipped } from "../shared/options.js"
-import type { FrozenScenarios } from "../shared/scenarios.js"
 import { FEEDBACK, REVIEW } from "../shared/steps.js"
 import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
@@ -53,12 +52,10 @@ export const reUnwind = async (
 /** Plan, build and review until a review round signs off; feedback re-plans from scratch. */
 export const planAndBuild = async (firstBase: string): Promise<void> => {
   let base = firstBase
-  let carried: FrozenScenarios | undefined
   for (;;) {
     await design(base)
     await architecture()
-    const built = await packages(carried)
-    carried = built.frozen
+    const built = await packages()
     const outcome = await buildTail(false, base, built)
     if (outcome.verdict === "signoff") return
     await reUnwind(outcome)

@@ -2,8 +2,8 @@
 // the count-and-shape rule — the expected package files, via `matchGtdFiles`'s
 // descriptor branch — through `checkGtdFilesChanged`); `.gtd/ARCHITECTURE.md`
 // must survive, so it may not appear among the changed files. On top, every
-// test the architecture declares must be declared by a package: e2e ones by
-// package 00, unit ones by any — four prose-only packages would otherwise pass.
+// test the architecture declares must be declared by some package — prose-only
+// packages would otherwise pass.
 import { SHARED_CHECKS, safeGrade } from "./shared.mjs"
 import spec from "../cases/architecture-decompose.mjs"
 
@@ -24,21 +24,13 @@ const declaredIn = (text) => {
 }
 
 export function checkDeclaredTests(result, caseDef, variant) {
-  const { scenarioPackage, e2e, unit } = caseDef.expect[variant].declaredTests
-  const files = result.packageFiles ?? {}
-  const scenario = files[scenarioPackage]
-  if (scenario === undefined)
-    return fail(`no ${scenarioPackage} — package 00 writes the e2e scenarios`)
-  const inScenario = declaredIn(scenario)
-  const missingE2e = e2e.filter((path) => !inScenario.includes(`e2e: ${path}`))
-  if (missingE2e.length > 0) {
-    return fail(`${scenarioPackage} does not declare e2e: ${missingE2e.join(", ")}`)
-  }
-  const all = Object.values(files).flatMap(declaredIn)
-  const missingUnit = unit.filter((path) => !all.includes(`unit: ${path}`))
-  if (missingUnit.length > 0) {
-    return fail(`no package declares unit: ${missingUnit.join(", ")}`)
-  }
+  const { e2e, unit } = caseDef.expect[variant].declaredTests
+  const all = Object.values(result.packageFiles ?? {}).flatMap(declaredIn)
+  const missing = [
+    ...e2e.map((path) => `e2e: ${path}`),
+    ...unit.map((path) => `unit: ${path}`),
+  ].filter((entry) => !all.includes(entry))
+  if (missing.length > 0) return fail(`no package declares ${missing.join(", ")}`)
   return undefined
 }
 
