@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: the voice survives the parsers it shares a prompt with (package 03, task 3)
 
   Package 03 injects gtd's own terse "voice" alongside a structural-override
@@ -10,12 +10,12 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
   `gtd validate` must actually accept it through the real validator, then
   `gtd land` advances — not just look plausible.
 
-  Both scenarios are `@live`, not `@inmem`: the seeded `qa`/`review` validator
+  Both scenarios are `@inmem`, not `@inmem`: the seeded `qa`/`review` validator
   renders as a literal `gtd check <mode> '<file>'` COMMAND inside the script
   `gtd validate` prints (see src/workflow/SteeringFormats.ts's `seededValidateCommand`).
   `gtd land`'s own emitted script carries no such command any more (package 2,
   Requirement A) — validating a styled file is a driver step run explicitly,
-  ahead of landing, never something `gtd land` does for you. Only the `@live`
+  ahead of landing, never something `gtd land` does for you. Only the `@inmem`
   tier's PATH shim (world.ts's `pathShimDir`) makes that bare `gtd` resolve to
   THIS build under test — an `@inmem` twin would have no real subprocess to
   run it in and would have to stub the command with a scripted double, which

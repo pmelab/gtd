@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: A declared mode command guards its own missing binary
 
   A mode's `format:`/`validate:` command is rendered into the driver's own
@@ -35,6 +35,7 @@ Feature: A declared mode command guards its own missing binary
         },
       }
       """
+    And the binary "gtd-test-nonexistent-binary" is not on PATH
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -43,7 +44,7 @@ Feature: A declared mode command guards its own missing binary
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "mode \"adr\": \"validate\" command not found: gtd-test-nonexistent-binary"
-    And stderr contains "gtd-path-shim"
+    And stderr contains "$PATH: "
 
   Scenario: a mode's format: command names an uninstalled binary and the resolved $PATH
     Given a test project
@@ -64,6 +65,7 @@ Feature: A declared mode command guards its own missing binary
         },
       }
       """
+    And the binary "gtd-test-nonexistent-formatter" is not on PATH
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -72,7 +74,7 @@ Feature: A declared mode command guards its own missing binary
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "mode \"adr\": \"format\" command not found: gtd-test-nonexistent-formatter"
-    And stderr contains "gtd-path-shim"
+    And stderr contains "$PATH: "
 
   Scenario: a pipeline validate: command emits no guard — an uninstalled binary inside it still exits raw, not with the guard's own message
     # POSIX sh has no `pipefail` — a pipeline's exit status is its LAST
@@ -101,6 +103,9 @@ Feature: A declared mode command guards its own missing binary
         },
       }
       """
+    And the shell command "gtd-test-nonexistent-binary .gtd/docs/adr.md | cat" exits 0 with:
+      """
+      """
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -128,6 +133,10 @@ Feature: A declared mode command guards its own missing binary
           },
         },
       }
+      """
+    And the shell command "FOO=1 gtd-test-nonexistent-binary .gtd/docs/adr.md" exits 127 with:
+      """
+      sh: gtd-test-nonexistent-binary: not found
       """
     And a file ".gtd/docs/adr.md" with:
       """

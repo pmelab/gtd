@@ -219,7 +219,7 @@ for (const makeTier of gitTiers) {
           "exit 0",
         ]
         const result = run(checkScript(FAILING_WITH_OUTPUT, { ...options, preamble }))
-        expect(result.stderr).toBe("set it up\n")
+        expect(result.output).toBe("set it up\n")
         expect(read(".gtd/SETUP.md")).toBe("set it\nup\n")
         expect(read("drop.txt")).toBeUndefined()
         expect(read(REPORT)).toBe("old")

@@ -137,7 +137,7 @@ const stringField = (json: Record<string, unknown>, key: string): string =>
 /** `gtd validate`'s own "nothing to run" plain-text line — `Program.ts`'s `runValidateCommand`. */
 const NOTHING_TO_VALIDATE_RE = /^nothing to validate at "/
 
-/** A real `sh` exit + combined output on the live tier, or the recognizer's verdict on the in-memory one. */
+/** A real `sh` exit + combined output on the live tier, or the in-memory twin's on the in-memory one. */
 interface EmittedRun {
   readonly exitCode: number
   readonly output: string
@@ -172,7 +172,7 @@ const applyScriptToFake = (
   script: string,
 ): EmittedRun => {
   const applied = applyEmittedScript(repo, commands, script)
-  if (applied.ok) return { exitCode: 0, output: "" }
+  if (applied.ok) return { exitCode: 0, output: applied.output }
   const error = applied.error ?? ""
   if (error.startsWith("unrecognized script block:")) {
     throw new Error(
@@ -180,7 +180,7 @@ const applyScriptToFake = (
         `Teach src/testkit/EmittedScriptRecognizer.ts about it.\nScript:\n${script}`,
     )
   }
-  return { exitCode: 1, output: `${error}\n` }
+  return { exitCode: applied.status, output: applied.output }
 }
 
 /** Includes mtime, not just content, since a rewrite that lands the same bytes still bumps it. */
@@ -191,11 +191,13 @@ interface FileFingerprint {
 }
 
 /** A point-in-time fingerprint of the repo. `@live` only: the in-memory tier has no git dir to observe. */
-export interface RepoSnapshot {
-  readonly gitDirFiles: readonly FileFingerprint[]
-  readonly gitStatus: string
-  readonly worktreeFiles: readonly string[]
-}
+export type RepoSnapshot =
+  | {
+      readonly gitDirFiles: readonly FileFingerprint[]
+      readonly gitStatus: string
+      readonly worktreeFiles: readonly string[]
+    }
+  | { readonly inMemory: string }
 
 /** Sorted so two snapshots compare deterministically. */
 const listFiles = (root: string): string[] =>
@@ -287,8 +289,7 @@ export class GtdWorld extends QuickPickleWorld {
   /**
    * What the last driven write command's `required`/`optional` scripts
    * printed — distinct from `lastResult.stdout` (gtd's own plain-text line).
-   * LIVE tier only: the in-memory `applyEmittedScript` never runs outcome
-   * blocks. Reset at the start of every `driveWriteCommand` call so a
+   * Reset at the start of every `driveWriteCommand` call so a
    * scenario never reads a stale prior command's output.
    */
   lastScriptOutput: string = ""
@@ -1794,23 +1795,25 @@ export class GtdWorld extends QuickPickleWorld {
    * freshly committed repo has tracked files whose mtime sits in the same
    * coarse tick as `.git/index`'s, so git rewrites the index on every
    * `git status` until wall-clock time moves past it — this would otherwise
-   * make an "unchanged" snapshot comparison flake. `@live` only.
+   * make an "unchanged" snapshot comparison flake. The in-memory repo has
+   * no index on disk to refresh.
    */
   async settleGitIndex(): Promise<void> {
+    if (this.repo !== undefined) return
     this.gitStatus()
     await delay(1100)
     this.gitStatus()
   }
 
   /**
-   * `@live` only — throws against the in-memory tier, which has no real git
-   * dir. Resolves `--git-dir` against `repoDir`, never
+   * Live: resolves `--git-dir` against `repoDir`, never
    * `realpathSync(repoDir)`, so the excluded prefix lands in the same
    * (possibly symlinked, e.g. macOS's `/var` -> `/private/var`) namespace
    * `listFiles(repoDir)` walks — otherwise the comparison never matches and
    * the whole `.git` tree silently folds into `worktreeFiles`.
    */
   snapshotRepo(): RepoSnapshot {
+    if (this.repo !== undefined) return { inMemory: this.repo.snapshot() }
     const gitDirRel = execSync("git rev-parse --git-dir", {
       cwd: this.repoDir,
       encoding: "utf-8",

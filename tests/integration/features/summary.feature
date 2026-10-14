@@ -85,7 +85,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
     # deduped, never listed a second time under humanCommits.
     And stdout does not contain "entering building"
 
-  @live
+  @inmem
   Scenario: gtd summary writes nothing — the repository is byte-identical before and after the call
     Given a test project
     And a gtd config file at "gtd.config.ts" with:

@@ -5,9 +5,11 @@ import {
   writeFileSync,
   existsSync,
   readFileSync,
+  readdirSync,
   realpathSync,
+  statSync,
 } from "node:fs"
-import { join, dirname, basename } from "node:path"
+import { join, dirname, basename, sep } from "node:path"
 import { tmpdir } from "node:os"
 import { execSync, spawnSync } from "node:child_process"
 // Imported directly (not just from *.test.ts) — a leak of this module into
@@ -30,7 +32,6 @@ import {
   deleteRef,
 } from "../emit/index.js"
 import { applyEmittedScript } from "./EmittedScriptRecognizer.js"
-import { applyFlowScript } from "./FlowScripts.js"
 import { InMemRepo } from "./InMemRepo.js"
 import { gitTestLayer, type ScriptedCommand } from "./Layers.js"
 
@@ -61,6 +62,8 @@ export interface GitTierObserve {
   readonly refExists: (ref: string) => boolean
   readonly readWorktreeFile: (path: string) => string
   readonly existsPath: (path: string) => boolean
+  /** Everything git keeps on disk; equal snapshots mean nothing was written. Settles git's racy-index stat refresh first. */
+  readonly snapshot: () => Promise<string>
   readonly headSubject: () => string
   /** Paths HEAD's own commit touched, against its parent — not the whole tree. */
   readonly headTouchedPaths: () => ReadonlyArray<string>
@@ -87,7 +90,7 @@ export interface GitTier {
   readonly runScript: (
     script: string,
     commands?: ReadonlyMap<string, ScriptedCommand>,
-  ) => { readonly ok: boolean; readonly stderr: string }
+  ) => { readonly ok: boolean; readonly status: number; readonly output: string }
   readonly dispose: () => void
 }
 
@@ -201,6 +204,22 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       },
       readWorktreeFile: (path) => readFileSync(join(root, path), "utf8"),
       existsPath: (path) => existsSync(join(root, path)),
+      snapshot: async () => {
+        // A tracked file's mtime in the same second as the index makes the next
+        // `git status` rewrite the index — git's own racy-git refresh, not a write
+        // of ours. Let the clock pass it before taking the baseline.
+        gitExec("status", "--porcelain")
+        await new Promise((r) => setTimeout(r, 1100))
+        gitExec("status", "--porcelain")
+        const gitDir = join(root, ".git")
+        const files = readdirSync(gitDir, { recursive: true, withFileTypes: true })
+          .filter((entry) => entry.isFile())
+          .map((entry) => join(entry.parentPath, entry.name))
+          .filter((path) => !path.includes(`${sep}gtd-cache${sep}`))
+          .sort()
+          .map((path) => `${path}:${statSync(path).size}:${statSync(path).mtimeMs}`)
+        return JSON.stringify({ files, status: gitExec("status", "--porcelain", "-uall") })
+      },
       headSubject: () => gitExec("log", "-1", "--pretty=%s"),
       headTouchedPaths: () =>
         gitExec("show", "--name-only", "--pretty=format:", "HEAD")
@@ -208,11 +227,26 @@ const makeLiveTier = (initialCommit = true): GitTier => {
           .filter((line) => line.length > 0),
     },
     runScript: (script) => {
-      const result = spawnSync("sh", ["-c", script], { cwd: root, encoding: "utf8" })
-      return { ok: result.status === 0, stderr: result.stderr }
+      // One stream, as a driver's terminal shows it.
+      const result = spawnSync("sh", ["-c", `exec 2>&1\n${script}`], {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${gtdShimDir()}:${process.env["PATH"] ?? ""}` },
+      })
+      return { ok: result.status === 0, status: result.status ?? 1, output: result.stdout }
     },
     dispose: () => rmSync(root, { recursive: true, force: true }),
   }
+}
+
+/** A dir whose `gtd` runs this build's bundle, so a script's bare `gtd` is the code under test. */
+let shimDir: string | undefined
+const gtdShimDir = (): string => {
+  if (shimDir !== undefined) return shimDir
+  shimDir = mkdtempSync(join(tmpdir(), "gtd-tier-shim-"))
+  const bundle = join(import.meta.dirname, "../../dist/gtd.bundle.mjs")
+  writeFileSync(join(shimDir, "gtd"), `#!/bin/sh\nexec node "${bundle}" "$@"\n`, { mode: 0o755 })
+  return shimDir
 }
 
 const IN_MEM_ROOT = "/repo"
@@ -275,6 +309,7 @@ const makeInMemTier = (initialCommit = true): GitTier => {
         return content
       },
       existsPath: (path) => repo.hasPath(path),
+      snapshot: async () => repo.snapshot(),
       headSubject: () => repo.lastCommitSubject() ?? "",
       headTouchedPaths: () => {
         const paths = new Set([...repo.pathsAtRef("HEAD~1"), ...repo.pathsAtRef("HEAD")])
@@ -284,10 +319,9 @@ const makeInMemTier = (initialCommit = true): GitTier => {
       },
     },
     runScript: (script, commands = new Map()) => {
-      const flow = applyFlowScript(repo, commands, script)
-      if (flow !== undefined) return { ok: flow.ok, stderr: flow.stderr }
-      const applied = applyEmittedScript(repo, commands, script)
-      return { ok: applied.ok, stderr: applied.error ?? "" }
+      const { ok, status, output, error } = applyEmittedScript(repo, commands, script)
+      if (error?.startsWith("unrecognized script block:") === true) throw new Error(error)
+      return { ok, status, output }
     },
     dispose: () => {},
   }
@@ -370,6 +404,36 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
 
   afterEach(() => {
     t.dispose()
+  })
+
+  it("no reader writes to the repository", async () => {
+    t.seed.commit("feat: second", { "second.txt": "two" })
+    t.seed.writeFile("dirty.txt", "dirty")
+    const before = await t.observe.snapshot()
+    await runGit(t, (g) =>
+      Effect.all([
+        g.lastCommitSubject(),
+        g.lastCommitMessage(),
+        g.hasCommits(),
+        g.resolveRef("HEAD"),
+        g.readRefOption("refs/gtd/none"),
+        g.isAncestor("HEAD~1", "HEAD"),
+        g.mergeBase("HEAD~1", "HEAD"),
+        g.defaultBranch(),
+        g.topLevel(),
+        g.gitDir(),
+        g.gitCommonDir(),
+        g.commitHistory(),
+        g.subjectHistory(10, 0),
+        g.readFileAtRef("HEAD", "second.txt"),
+        g.changedPaths(),
+        g.changedPaths("HEAD~1"),
+      ]),
+    )
+    expect(await t.observe.snapshot()).toBe(before)
+    // The negative control: a snapshot that saw nothing would pass the above vacuously.
+    await runGit(t, (g) => g.updateRef("refs/gtd/marker", t.observe.resolveRef("HEAD")))
+    expect(await t.observe.snapshot()).not.toBe(before)
   })
 
   describe("resolveRef", () => {
@@ -1040,7 +1104,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
  */
 const run = (t: GitTier, script: string): void => {
   const result = t.runScript(script)
-  if (!result.ok) throw new Error(`script failed on ${t.name}: ${result.stderr}`)
+  if (!result.ok) throw new Error(`script failed on ${t.name}: ${result.output}`)
 }
 
 export const runGitScriptContract = (makeTier: () => GitTier): void => {

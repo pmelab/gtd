@@ -22,3 +22,7 @@ Given(
     world.scriptedCommands.set(command, { kind: "rewrite", file, content: normalized })
   },
 )
+
+Given("the binary {string} is not on PATH", (world: GtdWorld, binary: string) => {
+  world.scriptedCommands.set(binary, { kind: "missing" })
+})

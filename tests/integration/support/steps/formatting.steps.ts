@@ -53,7 +53,8 @@ Given("prettier is available in the test project", (world: GtdWorld) => {
 })
 
 Given("{string} is staged", (world: GtdWorld, path: string) => {
-  execFileSync("git", ["add", path], { cwd: world.repoDir, stdio: "pipe" })
+  if (world.repo !== undefined) world.repo.stage(path)
+  else execFileSync("git", ["add", path], { cwd: world.repoDir, stdio: "pipe" })
 })
 
 When("I commit with message {string}", (world: GtdWorld, message: string) => {

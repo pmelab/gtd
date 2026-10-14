@@ -15,64 +15,13 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   project plugs one in.
 
   Both halves run wherever the gate runs: `gtd validate`, and the `gtd land`
-  capture gate that refuses to commit an invalid steering file. The bulk of
-  this feature runs `@live` (real subprocess execution over real bash); five
-  scenarios are ALSO covered `@inmem` (tagged "(scripted)") over the world's
-  own scripted fake-shell double (`tests/integration/support/steps/steering.steps.ts`),
-  since real bash is unreachable against an in-memory worktree — added, not
-  converted, so a spawn-mechanism difference still has something to fail
-  against.
-
-  @live
-  Scenario: gtd validate reports a custom mode's validate command as findings and exits non-zero
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "start a decision record" })
-        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      }
-
-      export const config = {
-        modes: {
-          adr: {
-            validate: `status=0
-      grep -q '^## Status' $GTD_FILE || {
-        echo "$GTD_FILE: missing a '## Status' section"
-        status=1
-      }
-      grep -q '^## Decision' $GTD_FILE || {
-        echo "$GTD_FILE: missing a '## Decision' section"
-        status=1
-      }
-      exit $status
-      `,
-          },
-        },
-      }
-      """
-    And a file ".gtd/docs/adr.md" with:
-      """
-      # ADR 1: use gtd
-
-      ## Status
-
-      Accepted.
-      """
-    And gtd lands "gtd(human): idle → drafting"
-    When I run gtd with args "validate"
-    Then it fails
-    And stderr contains ".gtd/docs/adr.md is not valid"
-    And stderr contains ".gtd/docs/adr.md: missing a '## Decision' section"
-    And stderr does not contain "missing a '## Status' section"
+  capture gate that refuses to commit an invalid steering file. A mode's
+  commands are scripted (`the shell command … exits …`): what they do is the
+  project's business, and the in-memory shell is held to real `sh` by its
+  own contract tests.
 
   @inmem
-  Scenario: gtd validate reports a custom mode's validate command as findings and exits non-zero (scripted)
-    # The @inmem twin of the scenario above: real bash is unreachable against an
-    # in-memory worktree, so the validate command is a scripted double keyed by
-    # its rendered command string (see tests/integration/support/steps/steering.steps.ts).
+  Scenario: gtd validate reports a custom mode's validate command as findings and exits non-zero
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -106,41 +55,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains ".gtd/docs/adr.md: missing a '## Decision' section"
     And stderr contains "does not pass"
 
-  @live
-  Scenario: gtd validate exits 0 when the custom mode's validate command is happy
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "start a decision record" })
-        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      }
-
-      export const config = {
-        modes: {
-          adr: {
-            validate: "grep -q '^## Decision' $GTD_FILE",
-          },
-        },
-      }
-      """
-    And a file ".gtd/docs/adr.md" with:
-      """
-      # ADR 1: use gtd
-
-      ## Decision
-
-      Adopt it.
-      """
-    And gtd lands "gtd(human): idle → drafting"
-    When I run gtd with args "validate"
-    Then it succeeds
-    And stdout contains ".gtd/docs/adr.md: valid"
-
   @inmem
-  Scenario: gtd validate exits 0 when the custom mode's validate command is happy (scripted)
+  Scenario: gtd validate exits 0 when the custom mode's validate command is happy
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -176,42 +92,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
 
-  @live
-  Scenario: the mode's format command rewrites the file in place before validation
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "start a decision record" })
-        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      }
-
-      export const config = {
-        modes: {
-          adr: {
-            format: "sed 's/^status: draft$/status: accepted/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE",
-            validate: "grep -q '^status: accepted$' $GTD_FILE",
-          },
-        },
-      }
-      """
-      # Validation therefore passes only because formatting ran FIRST, in place.
-    And a file ".gtd/docs/adr.md" with:
-      """
-      # ADR 1: use gtd
-
-      status: draft
-      """
-    And gtd lands "gtd(human): idle → drafting"
-    When I run gtd with args "validate"
-    Then it succeeds
-    And stdout contains ".gtd/docs/adr.md: valid"
-    And the git status contains ".gtd/docs/adr.md"
-
   @inmem
-  Scenario: the mode's format command rewrites the file in place before validation (scripted)
+  Scenario: the mode's format command rewrites the file in place before validation
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -254,54 +136,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And ".gtd/docs/adr.md" contains "status: accepted"
     And the git status contains ".gtd/docs/adr.md"
 
-  @live
-  Scenario: gtd land no longer runs the mode's validate command — an invalid custom-mode steering file lands regardless
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "start a decision record" })
-        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      }
-
-      export const config = {
-        modes: {
-          adr: {
-            validate: `grep -q '^## Decision' $GTD_FILE || {
-        echo "$GTD_FILE: an ADR needs a '## Decision' section"
-        exit 1
-      }
-      `,
-          },
-        },
-      }
-      """
-    And a file ".gtd/docs/adr.md" with:
-      """
-      # ADR 1: use gtd
-      """
-    And gtd lands "gtd(human): idle → drafting"
-    And a file ".gtd/docs/adr.md" with:
-      """
-      # ADR 1: use gtd
-
-      ## Stauts
-
-      Accepted.
-      """
-    # Package 2, Requirement A: the landing script no longer carries the
-    # mode's own validate command — only the HEAD assertion and the commit —
-    # so a step whose steering file would fail that command still lands.
-    # Catching it is a driver contract now (`gtd validate`/`gtd next --json`'s
-    # own `validate` field, run ahead of `gtd land`), not a gtd guarantee.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): drafting → idle"
-
   @inmem
-  Scenario: gtd land no longer runs the mode's validate command — an invalid custom-mode steering file lands regardless (scripted)
+  Scenario: gtd land no longer runs the mode's validate command — an invalid custom-mode steering file lands regardless
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -346,7 +182,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And the last commit subject is "gtd(agent): drafting → idle"
 
-  @live
+  @inmem
   Scenario: a valid custom-mode steering file passes the gate and the turn is captured
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -383,47 +219,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And the last commit subject is "gtd(agent): drafting → idle"
 
-  @live
-  Scenario: gtd land no longer runs the mode's format command at all — a broken formatter can't block the commit any more
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "start a decision record" })
-        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      }
-
-      export const config = {
-        modes: {
-          adr: {
-            format: `echo "adr-fmt: cannot parse $GTD_FILE" >&2
-      exit 3
-      `,
-            validate: "true",
-          },
-        },
-      }
-      """
-    And a file ".gtd/docs/adr.md" with:
-      """
-      # ADR 1: use gtd
-      """
-    And gtd lands "gtd(human): idle → drafting"
-    And a file ".gtd/docs/adr.md" with:
-      """
-      # ADR 1: use gtd (edited)
-      """
-    # Package 2, Requirement A: `format:`/`validate:` are gone from the
-    # emitted script entirely, so a broken formatter has nothing left to run
-    # ahead of the commit — the step lands.
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): drafting → idle"
-
   @inmem
-  Scenario: gtd land no longer runs the mode's format command at all — a broken formatter can't block the commit any more (scripted)
+  Scenario: gtd land no longer runs the mode's format command at all — a broken formatter can't block the commit any more
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -463,7 +260,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it succeeds
     And the last commit subject is "gtd(agent): drafting → idle"
 
-  @live
+  @inmem
   Scenario: a modes: entry named after a built-in overrides only the half it declares
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -478,14 +275,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export const config = {
         modes: {
           qa: {
-            validate: `grep -q '^## Open Questions' $GTD_FILE || {
-        echo "$GTD_FILE: my house rule — every plan lists its open questions"
-        exit 1
-      }
-      `,
+            validate: "house-rule-check $GTD_FILE",
           },
         },
       }
+      """
+    And the shell command "house-rule-check .gtd/TODO.md" exits 1 with:
+      """
+      .gtd/TODO.md: my house rule — every plan lists its open questions
       """
       # gtd's own open-questions parser accepts this file (no "## Open
       # Questions" section at all is trivially valid to it) — the workflow's
@@ -500,7 +297,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "my house rule"
 
-  @live
+  @inmem
   Scenario: declaring only a format: for a built-in mode KEEPS gtd's own validation
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -515,10 +312,13 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export const config = {
         modes: {
           qa: {
-            format: "sed -i.bak 's/[[:space:]]*$//' $GTD_FILE && rm -f $GTD_FILE.bak",
+            format: "strip-trailing-space $GTD_FILE",
           },
         },
       }
+      """
+    And the shell command "strip-trailing-space $GTD_FILE" exits 0 with:
+      """
       """
       # The mode declares a formatter and no validator, so gtd's open-questions
       # parser still runs — and still rejects an `### ` question heading with
@@ -538,7 +338,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "has no question text"
 
-  @live
+  @inmem
   Scenario: a top-level modes: key plugs a formatter into a workflow without re-declaring its modes
     # The top-level `modes:` layer sits BESIDE `workflow:` — the workflow's
     # `grilling` state declares `file: TODO.md` + `mode: qa` but no `modes:`
@@ -557,10 +357,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export const config = {
         modes: {
           qa: {
-            format: "sed -E 's/([^ ]) +/\\1 /g' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE",
+            format: "collapse-spaces $GTD_FILE",
           },
         },
       }
+      """
+    And the shell command "collapse-spaces $GTD_FILE" rewrites "$GTD_FILE" to:
+      """
+      Build a thing. Plan: add src/thing.ts.
       """
     And a file ".gtd/TODO.md" with:
       """
@@ -572,7 +376,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stdout contains ".gtd/TODO.md: valid"
     And ".gtd/TODO.md" contains "Build a thing. Plan: add src/thing.ts."
 
-  @live
+  @inmem
   Scenario: a custom mode declaring only format: formats the file and has nothing to validate
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -587,10 +391,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export const config = {
         modes: {
           adr: {
-            format: "sed 's/draft/DRAFT/' $GTD_FILE > $GTD_FILE.tmp && mv $GTD_FILE.tmp $GTD_FILE",
+            format: "upcase-draft $GTD_FILE",
           },
         },
       }
+      """
+    And the shell command "upcase-draft $GTD_FILE" rewrites "$GTD_FILE" to:
+      """
+      status: DRAFT
       """
     And a file ".gtd/docs/adr.md" with:
       """
@@ -602,7 +410,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stdout contains ".gtd/docs/adr.md: valid"
     And ".gtd/docs/adr.md" contains "status: DRAFT"
 
-  @live
+  @inmem
   Scenario: a format-only custom mode at a first-write beat now emits a script (the guard plus the format command), not "nothing to validate"
     # Package 2, Requirement A/B combined: before this package, an absent
     # steering file short-circuited to "nothing to validate" in TS-land — a
@@ -706,46 +514,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "not answered"
     And the last commit subject is "gtd(agent): drafting → answering"
 
-  @live
-  Scenario: a seeded validate: command's bare "gtd" resolves to the build under test
-    # SteeringFormats.ts's seededValidateCommand renders as the literal
-    # `gtd check <mode> '<file>'` — resolving `gtd` BY NAME off $PATH rather
-    # than by absolute path, trading PATH independence for readability. This
-    # proves the @live tier's PATH shim (world.ts's pathShimDir, wired up by
-    # hooks.ts's Before/After) makes that bare `gtd` resolve to THIS build
-    # under test, never a stray globally-installed gtd.
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "start a decision record" })
-        await agent("drafting", "Write the ADR.", { file: ".gtd/docs/adr.md", mode: "adr" })
-      }
-
-      export const config = {
-        modes: {
-          adr: {
-            validate: `v=$(gtd version)
-      echo "path-shim: $v"
-      exit 1
-      `,
-          },
-        },
-      }
-      """
-    And a file ".gtd/docs/adr.md" with:
-      """
-      # ADR 1: use gtd
-      """
-    And gtd lands "gtd(human): idle → drafting"
-    When I run gtd with args "validate"
-    Then it fails
-    And stderr contains "path-shim:"
-    And stderr contains the gtd version under test
-
-  @live
+  @inmem
   Scenario: a validate: that shells out to `gtd check qa` returns each finding as an opaque message with the column riding inside the text, not a structured position
     # A shell command's findings can never carry gtd's own line/column
     # fields — SteeringMode.ts's findingsFrom wraps each stdout line as a bare
@@ -795,12 +564,11 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
   # canonical sample, re-validate it with `gtd check <mode>`, and fail loudly
   # BEFORE the real steering file's own findings are ever reported. Coverage
   # is the two built-in modes only (`qa`/`review`) — the fixture pairs one of
-  # them with a deliberately hostile one-liner `format:`, never a synthetic
-  # mode, and never a real formatter binary.
+  # them with a deliberately hostile `format:`, never a synthetic mode.
 
-  @live
+  @inmem
   Scenario: a built-in mode paired with a format: that breaks its own validator is caught before any real file exists
-    # The hostile one-liner mangles the required "# Review: <hash>" header
+    # The hostile formatter mangles the required "# Review: <hash>" header
     # line — REVIEW_FORMAT's parser requires it verbatim as the document's
     # first heading, so the round-trip's re-validation finds the reformatted
     # sample invalid. No `.gtd/REVIEW.md` is ever written in this scenario —
@@ -819,10 +587,14 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       export const config = {
         modes: {
           review: {
-            format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' $GTD_FILE && rm -f $GTD_FILE.bak",
+            format: "break-review-header $GTD_FILE",
           },
         },
       }
+      """
+    And the shell command "break-review-header $GTD_FILE" rewrites "$GTD_FILE" to:
+      """
+      # Not a review header
       """
     And a file "NOTES.md" with:
       """
@@ -834,13 +606,13 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "mode \"review\""
     And stderr contains "CONFIGURATION BUG"
     And stderr contains "Do NOT edit the steering file"
-    And stderr contains "sed -i.bak"
+    And stderr contains "break-review-header"
     # No file findings alongside it — the round-trip aborts the script before
     # the real file's own format:/validate: commands ever run.
     And stderr does not contain "Chunk"
     And stderr does not contain "REVIEW.md has no"
 
-  @live
+  @inmem
   Scenario: the same repo with the formatter removed exits 0 — no contradiction to find
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -860,7 +632,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     When I run gtd with args "validate"
     Then it succeeds
 
-  @live
+  @inmem
   Scenario: a mode carrying only a user validate: command prints that the contradiction check was skipped, loudly
     # Coverage is the two built-in modes only, so a genuine user `validate:`
     # override has no in-process parser to round-trip a sample through — the

@@ -1,4 +1,4 @@
-@live
+@inmem
 Feature: Emitted required/optional scripts print their own outcome lines
 
   A `gtd land`/`gtd abandon`/`gtd restore` invocation no longer performs its
@@ -7,7 +7,7 @@ Feature: Emitted required/optional scripts print their own outcome lines
   re-prints the write commands' wording itself either: the emitted `required`
   script prints its own human-facing outcome line (`src/emit/OutcomeScript.ts`'s
   `printf` statements), so ANY driver — this suite, a real driver, or a human
-  pasting `required` into a terminal — sees the same feedback. `@live` only:
+  pasting `required` into a terminal — sees the same feedback. `@inmem` only:
   the in-memory tier
   never runs an emitted script's outcome block (it recognizes the block as
   inert and prints nothing — see `src/testkit/EmittedScriptRecognizer.ts`'s

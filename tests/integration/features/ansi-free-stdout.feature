@@ -15,15 +15,7 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
   exercise, so "with a tty and without" is satisfied unconditionally rather
   than by two different terminal simulations — allocating a genuine pty would
   be disproportionate infrastructure for a property gtd's own code has zero
-  conditional branching on. The identical scenario below is simply run on
-  BOTH execution tiers (`hooks.ts` requires every scenario to carry exactly
-  one of `@live`/`@inmem`, so "runs in both" means two copies, one per tag,
-  not one untagged scenario): `@live` spawns the real bundled binary through a
-  pipe (never a tty), `@inmem` never spawns a process at all
-  (`makeCapturingCliIo` captures stdout in-process) — between the two, no
-  invocation here ever has a controlling terminal, which is exactly what "gtd
-  never branches on tty-ness" predicts: the assertion holds the same way
-  regardless.
+  conditional branching on.
 
   Background:
     Given a test project
@@ -39,47 +31,7 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
       """
 
   @inmem
-  Scenario: no escape sequence appears in gtd's own stdout for a message, a prompt, a script and a land (in-memory tier)
-    When I run gtd next
-    Then it succeeds
-    And stdout contains no ANSI escape sequence
-
-    Given a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → working"
-    When I run gtd with args "next"
-    Then it succeeds
-    And stdout contains no ANSI escape sequence
-
-    # checking: a script rest (a `run` step with a shell string) — `gtd
-    # next` prints the script text itself. The tree is already clean (NOTE.md
-    # landed above); `working` allows an empty turn, so this clean landing
-    # completes it, and the clean landing at "checking" below ends the flow.
-    And gtd lands "gtd(agent): working → checking"
-    When I run gtd with args "next"
-    Then it succeeds
-    And stdout contains no ANSI escape sequence
-
-    # `gtd land --json=script` still carries the required/optional
-    # outcome-carrying script as a field — the one place ANSI source text
-    # could ever have appeared in gtd's own stdout, and no longer does at all
-    # now that outcome statements carry no colour codes.
-    When I run gtd land with "--json=script"
-    Then it succeeds
-    And stdout contains no ANSI escape sequence
-
-    # Landing the clean checking rest ends the flow and commits back to
-    # idle. Plain `gtd land`'s own stdout is one prose sentence now, with no
-    # script and no ANSI source text at all — this leg proves the prose
-    # itself stays escape-free.
-    When I run gtd land
-    Then it succeeds
-    And stdout contains no ANSI escape sequence
-
-  @live
-  Scenario: no escape sequence appears in gtd's own stdout for a message, a prompt, a script and a land (live tier)
+  Scenario: no escape sequence appears in gtd's own stdout for a message, a prompt, a script and a land
     When I run gtd next
     Then it succeeds
     And stdout contains no ANSI escape sequence

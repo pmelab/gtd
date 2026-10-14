@@ -176,7 +176,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
     And the git log does not contain "build.quality"
 
-  @live
+  @inmem
   Scenario: lenses are trimmed and reviewed one turn each, and a lens's finding routes to build.fix.quality.fixing
     Given a test project
     And the workflow gtd install scaffolds

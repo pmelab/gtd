@@ -171,6 +171,8 @@ const makeInMemoryConfigDiscovery = (
 export type ScriptedCommand =
   | { readonly kind: "exit"; readonly status: number; readonly output: string }
   | { readonly kind: "rewrite"; readonly file: string; readonly content: string }
+  /** Keyed by the binary's name: it is not on `$PATH`. */
+  | { readonly kind: "missing" }
 
 export interface TestWorldOptions {
   readonly env?: Readonly<Record<string, string | undefined>>

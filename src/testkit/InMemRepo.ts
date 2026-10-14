@@ -298,6 +298,21 @@ export class InMemRepo {
       .sort()
   }
 
+  /** Everything git would keep on disk, serialized — two snapshots compare equal exactly when nothing was written. */
+  snapshot(): string {
+    const sorted = (m: Map<string, string>) =>
+      [...m.entries()].sort(([a], [b]) => a.localeCompare(b))
+    return JSON.stringify({
+      head: this.head,
+      branch: this.currentBranch,
+      commits: [...this.commits.keys()].sort(),
+      branches: sorted(this.branches),
+      refs: sorted(this.refs),
+      index: sorted(this.index),
+      worktree: sorted(this.worktree),
+    })
+  }
+
   /** Every ref name under `prefix` (`refs/…`), sorted — `git for-each-ref <prefix>`. */
   refNamesUnder(prefix: string): ReadonlyArray<string> {
     return [...this.refs.keys()].filter((ref) => ref.startsWith(prefix)).sort()
@@ -306,6 +321,13 @@ export class InMemRepo {
   /** Whether `path` is in the index — what `git diff <commit> -- <path>` compares against the worktree. */
   isTracked(path: string): boolean {
     return this.index.has(path)
+  }
+
+  /** `git add <path>` — the index takes `path` as the worktree has it, or drops it. */
+  stage(path: string): void {
+    const content = this.worktree.get(path)
+    if (content === undefined) this.index.delete(path)
+    else this.index.set(path, content)
   }
 
   /** `git add -A` — the index becomes exactly the current worktree. */

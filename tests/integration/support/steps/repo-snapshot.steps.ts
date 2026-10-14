@@ -2,7 +2,7 @@ import { Given, Then, When } from "quickpickle"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
-// ── Repository-mutation proof (`@live` only — see world.ts's `RepoSnapshot`) ──
+// ── Repository-mutation proof (see world.ts's `RepoSnapshot`) ──
 
 Given("the git index has settled", async (world: GtdWorld) => {
   await world.settleGitIndex()

@@ -19,8 +19,8 @@ export interface FlowScriptResult {
   readonly ok: boolean
   /** Present exactly when `ok` is `false`. */
   readonly error?: string
-  /** What the script printed to stderr. */
-  readonly stderr: string
+  /** What the script printed to output. */
+  readonly output: string
 }
 
 const SHEBANG = "#!/usr/bin/env sh"
@@ -28,7 +28,7 @@ const SHEBANG = "#!/usr/bin/env sh"
 const words = (text: string): string[] =>
   [...text.matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1]!.replaceAll("'\\''", "'"))
 
-const ok = (stderr = ""): FlowScriptResult => ({ ok: true, stderr })
+const ok = (output = ""): FlowScriptResult => ({ ok: true, output })
 
 /** `rm -rf -- <paths>`. `InMemRepo.pathsUnder("")` is the whole tree, where a real `rm -- ''` removes nothing. */
 const removeAll = (repo: InMemRepo, paths: readonly string[]): void => {
@@ -53,7 +53,7 @@ const recognizeMove = (repo: InMemRepo, script: string): FlowScriptResult | unde
   const [from, to] = words(line)
   if (from === undefined || to === undefined || moveScript(from, to) !== script) return undefined
   const content = repo.readFile(from)
-  if (content === undefined) return { ok: false, error: `mv: ${from}: No such file`, stderr: "" }
+  if (content === undefined) return { ok: false, error: `mv: ${from}: No such file`, output: "" }
   repo.deleteFile(from)
   repo.writeFile(to, content)
   return ok()
@@ -69,7 +69,7 @@ const recognizeShow = (repo: InMemRepo, script: string): FlowScriptResult | unde
   if (showScript(ref, path, to) !== script) return undefined
   const content = repo.fileAtRef(ref, path)
   if (content === null)
-    return { ok: false, error: `git show: ${source} does not exist`, stderr: "" }
+    return { ok: false, error: `git show: ${source} does not exist`, output: "" }
   repo.writeFile(to, content)
   return ok()
 }
@@ -120,7 +120,7 @@ const recognizeRestore = (repo: InMemRepo, script: string): FlowScriptResult | u
   // `sh` exits with the last line's status: a final path left alone fails it.
   const statuses = lines.map((line) => applyRestoreLine(repo, line))
   if (statuses.at(-1) === false) {
-    return { ok: false, error: "the last path changed since the commit", stderr: "" }
+    return { ok: false, error: "the last path changed since the commit", output: "" }
   }
   return ok()
 }
@@ -169,27 +169,27 @@ const recognizeRevert = (repo: InMemRepo, script: string): FlowScriptResult | un
   return ok()
 }
 
-type PreambleOutcome = { readonly exit: boolean; readonly stderr: string }
+type PreambleOutcome = { readonly exit: boolean; readonly output: string }
 
 /** One preamble line — the closed vocabulary the bundled workflows write there. */
 const runPreambleLine = (repo: InMemRepo, line: string): PreambleOutcome => {
   const quoted = words(line)
-  if (line === "exit 0") return { exit: true, stderr: "" }
-  if (line.startsWith("mkdir -p ")) return { exit: false, stderr: "" }
+  if (line === "exit 0") return { exit: true, output: "" }
+  if (line.startsWith("mkdir -p ")) return { exit: false, output: "" }
   if (line.startsWith("rm -f ")) {
     for (const path of quoted) deleteIfPresent(repo, path)
-    return { exit: false, stderr: "" }
+    return { exit: false, output: "" }
   }
   if (line.startsWith("rm -rf -- ")) {
     removeAll(repo, quoted)
-    return { exit: false, stderr: "" }
+    return { exit: false, output: "" }
   }
   const printf = /^printf '%s\\n' '(?:[^']|'\\'')*' (>&2|> '(?:[^']|'\\'')*')$/.exec(line)
   if (printf !== null) {
     const [, text, file] = quoted
-    if (printf[1] === ">&2") return { exit: false, stderr: `${text}\n` }
+    if (printf[1] === ">&2") return { exit: false, output: `${text}\n` }
     repo.writeFile(file!, `${text}\n`)
-    return { exit: false, stderr: "" }
+    return { exit: false, output: "" }
   }
   throw new Error(`testkit: cannot run the preamble line \`${line}\` in memory`)
 }
@@ -256,6 +256,7 @@ const runCommand = (
     )
   }
   if (scripted.kind === "exit") return scripted
+  if (scripted.kind === "missing") return { status: 127, output: `sh: ${command}: not found\n` }
   repo.writeFile(scripted.file, scripted.content)
   return { status: 0, output: "" }
 }
@@ -271,25 +272,25 @@ const recognizeCheck = (
   if (checkScript(command, { report, stamp, sweep, sweepOnGreen, preamble }) !== script) {
     return undefined
   }
-  let stderr = ""
+  let printed = ""
   for (const line of preamble) {
     const outcome = runPreambleLine(repo, line)
-    stderr += outcome.stderr
-    if (outcome.exit) return ok(stderr)
+    printed += outcome.output
+    if (outcome.exit) return ok(printed)
   }
   removeAll(repo, sweep)
   const { status, output } = runCommand(repo, commands, command)
   if (status === 0) {
     deleteIfPresent(repo, report)
     removeAll(repo, sweepOnGreen)
-    return ok(stderr)
+    return ok(printed)
   }
   const body =
     output.length > 0
       ? output
       : `the test command failed with exit code ${status} and produced no output.`
   repo.writeFile(report, `${body}\n<!-- gtd check ${stamp} -->\n`)
-  return ok(stderr)
+  return ok(printed)
 }
 
 /**

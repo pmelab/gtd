@@ -405,19 +405,8 @@ Then("stdout contains no ANSI escape sequence", (world: GtdWorld) => {
   )
 })
 
-/**
- * Asserts on `world.lastScriptOutput`, distinct from `world.lastResult.stdout`
- * (gtd's own plain-text line). LIVE tier only: the in-memory tier's
- * `applyEmittedScript` treats an outcome block as inert and prints nothing,
- * so a scenario tagged `@inmem` asking this would silently prove nothing —
- * this fails loudly instead, naming the tier.
- */
+/** Asserts on `world.lastScriptOutput`, distinct from `world.lastResult.stdout` (gtd's own plain-text line). */
 Then("the emitted script printed {string}", (world: GtdWorld, text: string) => {
-  assert.strictEqual(
-    world.tier,
-    "live",
-    "the emitted script's own stdout is a @live-only observation — the in-memory tier never runs an outcome block, it only recognizes it as inert",
-  )
   assert.ok(
     world.lastScriptOutput.includes(text),
     `Expected the emitted script's output to contain "${text}". Got:\n${world.lastScriptOutput}`,
