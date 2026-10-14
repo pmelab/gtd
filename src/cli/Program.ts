@@ -1,6 +1,5 @@
 import { Effect, Option, Schema } from "effect"
 import {
-  CommandRunner,
   GtdUsageError,
   Narrator,
   GitService,
@@ -89,6 +88,20 @@ import {
 } from "../emit/index.js"
 import { CONFIG_SCAFFOLD, renderBriefing } from "../install/index.js"
 import { ToolCommands, type SelfGtd } from "./ToolCommands.js"
+import {
+  SelectorUsageError,
+  writeSelection,
+  type ArtifactOut,
+  type CommandRequirements,
+  type JsonMode,
+} from "./Output.js"
+export {
+  SelectorUsageError,
+  type ArtifactOut,
+  type CommandRequirements,
+  type JsonMode,
+} from "./Output.js"
+import { runHistoryFetchCommand, runHistoryListCommand, runHistoryShowCommand } from "./History.js"
 
 /**
  * `Edge.ts`'s `Rest` is module-private (`.gtd/packages/05-step-core.md`
@@ -97,35 +110,6 @@ import { ToolCommands, type SelfGtd } from "./ToolCommands.js"
  * importing the name.
  */
 type Rest = Effect.Effect.Success<typeof currentRest>
-
-/**
- * A command-level failure that should exit like a CLI usage error (2), not a
- * generic runtime failure (1): an unknown `--json=<path>` selector, or a
- * `gtd judge answer` verdict that fails to decode — malformed JSON on stdin,
- * or one naming a question id the pending judgment never asked. Both are
- * caller-input errors per `docs/cli.md`'s exit-code table, not a refusal
- * about the resolved rest's own state.
- */
-export class SelectorUsageError extends Error {}
-
-/** The `--json=<path>` select branch, shared by all three emitting commands so none drift on the unknown-selector message. `absent` writes nothing and lets the caller's success path continue. */
-const writeSelection = (
-  out: ArtifactOut,
-  fields: unknown,
-  path: string,
-): Effect.Effect<void, Error> =>
-  Effect.gen(function* () {
-    const selection = selectPath(fields, path)
-    if (selection.kind === "value") {
-      out.write(`${selection.text}\n`)
-    } else if (selection.kind === "unknown") {
-      return yield* Effect.fail(
-        new SelectorUsageError(
-          `gtd: unknown --json selector "${selection.path}" — see \`gtd --help\``,
-        ),
-      )
-    }
-  })
 
 export type Command =
   | { readonly kind: "lsp" }
@@ -174,21 +158,15 @@ export type Command =
   | { readonly kind: "base" }
   | { readonly kind: "judge" }
   | { readonly kind: "judgeAnswer" }
+  | { readonly kind: "historyList" }
+  | { readonly kind: "historyShow"; readonly ref: string }
+  | { readonly kind: "historyFetch"; readonly remote: string }
   | {
       readonly kind: "judgeRun"
       readonly provider?: "fixed" | "jev" | "llm"
       readonly answers?: string
       readonly model?: string
     }
-
-/**
- * `--json`'s three shapes: absent, bare (the whole document), or `--json=<path>`
- * (one reduced value). See `src/wire/Select.ts` for how `select` is later resolved.
- */
-export type JsonMode =
-  | { readonly kind: "off" }
-  | { readonly kind: "document" }
-  | { readonly kind: "select"; readonly path: string }
 
 /**
  * What a command kind needs before it may run. `pure`/`removed` never reach
@@ -198,31 +176,6 @@ export type JsonMode =
  * from.
  */
 export type Needs = "pure" | "removed" | "none" | "fs" | "state"
-
-/**
- * The all-or-nothing stdout buffer every `run*Command` handler writes
- * through instead of `io.stdout` directly. `flush()` is called exactly once,
- * by `runCli`, after the command's Effect succeeds; on any failure `flush()`
- * is never reached, so the buffer is simply discarded and nothing reaches
- * `io.stdout`. `ui` is the one handler that calls `flush()` itself,
- * ahead of blocking on `Effect.never` — since it blocks forever, `runCli`'s
- * own flush-on-success would otherwise never fire and its output would never
- * reach stdout.
- */
-export interface ArtifactOut {
-  readonly write: (chunk: string) => void
-  readonly flush: () => void
-}
-
-export type CommandRequirements =
-  | GitService
-  | ConfigService
-  | ConfigDiscovery
-  | Workspace
-  | Host
-  | Narrator
-  | CommandRunner
-  | ToolCommands
 
 const selfGtd = (): SelfGtd => {
   const script = process.argv[1]
@@ -1289,6 +1242,12 @@ const dispatchVoidCommand = (
       return runJudgeAnswerCommand(json, out)
     case "judgeRun":
       return runJudgeRunCommand(command, out)
+    case "historyList":
+      return runHistoryListCommand(json, out)
+    case "historyShow":
+      return runHistoryShowCommand(command.ref, json, out)
+    case "historyFetch":
+      return runHistoryFetchCommand(command.remote, out)
   }
 }
 

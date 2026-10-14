@@ -173,12 +173,28 @@ Commands:
                    GTD_JUDGE_MODEL, then the file's model. Needs no
                    repository. jev and llm exit 1 when they cannot answer
                    every question, with nothing on stdout
+  history list     List the finished processes kept behind refs/gtd/history/*,
+                   newest first: entry, branch, tip, date and subject per line.
+                   --json prints one array of { ref, entry, branch, tip, date,
+                   subject }. Writes nothing and never replays; with no refs it
+                   hints at `gtd history fetch | sh` and still exits 0
+  history show <ref>
+                   Replay one kept process under today's config and print its
+                   steps and judge verdicts. <ref> is a full ref, an entry hash
+                   (or unique prefix) or a branch name. Refuses (exit 1) when a
+                   config file differs from its content at the ref's tip. A
+                   version mismatch only warns on stderr. --json prints the
+                   trail as one document; writes nothing
+  history fetch [remote]
+                   Print a script that fetches every refs/gtd/history/* from
+                   <remote> (default origin) and reports how many arrived — run
+                   it with `gtd history fetch | sh`. Never runs git itself
   version          Print version and exit
   help             Print this help and exit
 
 Options:
-  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors only) output
-                   structured JSON. Bare --json prints the whole document;
+  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history
+                   list/gtd history show only) output structured JSON. Bare --json prints the whole document;
                    --json=<path> (a dotted key path into that document, e.g.
                    kind, content, session.id) prints just that value: a
                    scalar raw and unquoted, a boolean as true/false, a list
@@ -290,11 +306,12 @@ driving a loop is a driver's job, not a bundled command (see
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository.
 The state commands (`land`, `--workflow`, `door`, `doors`, `abandon`, `restore`,
-`next`, `status`, `validate`, `summary`, `ui`, `judge`, `judge answer`) must run
-from the **repository root** — gtd derives the workflow, pending changes, and
-process history relative to cwd, so they refuse with a clear error from a
-subdirectory; `lsp`, `check`, and `uncheck` are standalone and run from anywhere
-(see each command's own help entry).
+`next`, `status`, `validate`, `summary`, `ui`, `judge`, `judge answer`,
+`history list`, `history show`, `history fetch`) must run from the **repository
+root** — gtd derives the workflow, pending changes, and process history relative
+to cwd, so they refuse with a clear error from a subdirectory; `lsp`, `check`,
+and `uncheck` are standalone and run from anywhere (see each command's own help
+entry).
 
 `install` is described on its own above: it installs knowledge into the calling
 agent's context, and at a repository root no `gtd.config.ts` governs yet, the

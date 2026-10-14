@@ -4,6 +4,11 @@ import type { GitOperations } from "./Git.js"
 /** Per-worktree (`refs/worktree/gtd/*`) so linked worktrees sharing one `.git` don't clobber each other's retained history. */
 export const HISTORY_REF = "refs/worktree/gtd/history"
 
+/** One ref per finished process, kept past the branch's deletion; distinct from the per-worktree `HISTORY_REF`. */
+export const PROCESS_HISTORY_PREFIX = "refs/gtd/history/"
+
+export const processHistoryRef = (hash: string): string => `${PROCESS_HISTORY_PREFIX}${hash}`
+
 export const readRetainedHistory = (
   git: GitOperations,
 ): Effect.Effect<Option.Option<string>, Error> => git.readRefOption(HISTORY_REF)

@@ -188,3 +188,12 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with args "uncheck review REVIEW.md"
     Then it fails
     And stderr contains "too many arguments"
+
+  @inmem
+  Scenario: bare gtd history is a usage error naming its subcommands
+    Given a test project
+    When I run gtd with args "history"
+    Then the exit code is 2
+    And stderr contains "list"
+    And stderr contains "show"
+    And stderr contains "fetch"

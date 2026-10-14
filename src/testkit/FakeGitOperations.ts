@@ -16,10 +16,14 @@ const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations =>
     return subject !== null ? Effect.succeed(subject) : Effect.fail(new Error("No commits"))
   },
 
-  lastCommitMessage: () => {
-    const message = repo.lastCommitMessage()
+  lastCommitMessage: (ref?: string) => {
+    const message = repo.lastCommitMessage(ref)
     return message !== null ? Effect.succeed(message) : Effect.fail(new Error("No commits"))
   },
+
+  currentBranch: () => Effect.succeed(Option.some(repo.branchName())),
+
+  listRefs: (prefix: string) => Effect.succeed(repo.listRefs(prefix)),
 
   resolveRef: (ref: string) => {
     const hash = repo.resolveRef(ref)

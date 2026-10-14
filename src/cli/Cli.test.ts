@@ -926,6 +926,60 @@ describe("parseArgv — doors", () => {
   })
 })
 
+describe("parseArgv — gtd history", () => {
+  const parse = (...args: string[]) => parseArgv(["node", "gtd.js", ...args])
+  const usage = (plan: CliPlan): string => (plan.kind === "usage" ? plan.message : "")
+
+  it("history list / show <ref> / fetch parse to their commands", () => {
+    expect(parse("history", "list")).toMatchObject({
+      kind: "command",
+      command: { kind: "historyList" },
+    })
+    expect(parse("history", "show", "feat/x")).toMatchObject({
+      kind: "command",
+      command: { kind: "historyShow", ref: "feat/x" },
+    })
+    expect(parse("history", "fetch")).toMatchObject({
+      kind: "command",
+      command: { kind: "historyFetch", remote: "origin" },
+    })
+    expect(parse("history", "fetch", "upstream")).toMatchObject({
+      command: { kind: "historyFetch", remote: "upstream" },
+    })
+  })
+
+  it("bare history and an unknown subcommand are usage errors naming list, show, fetch", () => {
+    for (const args of [["history"], ["history", "nope"]]) {
+      const message = usage(parse(...args))
+      expect(message).toContain("list")
+      expect(message).toContain("show")
+      expect(message).toContain("fetch")
+    }
+  })
+
+  it("show without a ref, and extra arguments, are usage errors", () => {
+    expect(usage(parse("history", "show"))).toContain("missing ref")
+    expect(usage(parse("history", "show", "a", "b"))).toContain("too many arguments")
+    expect(usage(parse("history", "list", "x"))).toContain("too many arguments")
+    expect(usage(parse("history", "fetch", "a", "b"))).toContain("too many arguments")
+  })
+
+  it("--json is accepted for list and show, rejected for fetch", () => {
+    expect(parse("history", "list", "--json")).toMatchObject({ json: { kind: "document" } })
+    expect(parse("history", "show", "x", "--json=ended")).toMatchObject({
+      json: { kind: "select", path: "ended" },
+    })
+    expect(parse("history", "fetch", "--json").kind).toBe("usage")
+  })
+
+  it("help lists the three history rows", () => {
+    const help = renderHelp()
+    expect(help).toMatch(/^ {2}history list\b/m)
+    expect(help).toContain("history show <ref>")
+    expect(help).toContain("history fetch [remote]")
+  })
+})
+
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
     expect(standaloneKinds()).toEqual(["lsp", "check", "uncheck", "install", "loop", "judgeRun"])
@@ -950,6 +1004,9 @@ describe("standaloneKinds / needsOf", () => {
       "judgeAnswer",
       "door",
       "doors",
+      "historyList",
+      "historyShow",
+      "historyFetch",
     ] as const) {
       expect(needsOf(kind)).toBe("state")
     }

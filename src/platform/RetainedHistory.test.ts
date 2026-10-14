@@ -4,6 +4,8 @@ import { strictGitOperations as stubGit } from "../testkit/index.js"
 import {
   clearRetainedHistory,
   HISTORY_REF,
+  PROCESS_HISTORY_PREFIX,
+  processHistoryRef,
   readRetainedHistory,
   restorability,
 } from "./RetainedHistory.js"
@@ -61,5 +63,17 @@ describe("clearRetainedHistory", () => {
     const git = stubGit({ deleteRef })
     await run(clearRetainedHistory(git))
     expect(deleteRef).toHaveBeenCalledWith(HISTORY_REF)
+  })
+})
+
+describe("processHistoryRef", () => {
+  it("is refs/gtd/history/<hash>, under PROCESS_HISTORY_PREFIX", () => {
+    expect(PROCESS_HISTORY_PREFIX).toBe("refs/gtd/history/")
+    expect(processHistoryRef("abc123")).toBe("refs/gtd/history/abc123")
+  })
+
+  it("never equals the per-worktree HISTORY_REF", () => {
+    expect(processHistoryRef("abc123")).not.toBe(HISTORY_REF)
+    expect(HISTORY_REF.startsWith(PROCESS_HISTORY_PREFIX)).toBe(false)
   })
 })

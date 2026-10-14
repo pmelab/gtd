@@ -143,7 +143,7 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   // quoted argument.
   const conditionLine = conditionStatement(block)
 
-  if (block.startsWith("git add -A &&\n")) {
+  if (block.startsWith("git add -A || exit 1\n")) {
     const [message] = extractQuotedTokens(conditionLine)
     if (message !== undefined && commitAll(message) === block) {
       repo.commitAllWithPrefix(message)

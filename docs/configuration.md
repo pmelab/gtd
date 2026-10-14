@@ -148,8 +148,9 @@ The step name is the `<to>` in the commit subject the landing writes,
 `Gtd-Step: <name>#<n>` trailer (`<n>` counts how often that name was reached in
 the episode). Other trailers a landing may carry: `Gtd-Judge:` (one per answered
 judge question), `Gtd-Var:` (a process setting), `Gtd-Cost:` (a
-`gtd land --cost`), `Gtd-Review-Base:` (a workflow's fixed diff base), and
-`Gtd-Config:` (see [Config purity](#config-purity)). Every commit gtd writes
+`gtd land --cost`), `Gtd-Review-Base:` (a workflow's fixed diff base),
+`Gtd-Branch:` and `Gtd-Version:` (only on the landing that finishes a process),
+and `Gtd-Config:` (see [Config purity](#config-purity)). Every commit gtd writes
 also carries `Gtd-Format:` (see [History format](#history-format)).
 
 ### Step options

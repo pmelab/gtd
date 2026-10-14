@@ -1,10 +1,11 @@
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import {
   Narrator,
   GitService,
   Host,
   Workspace,
   type GitOperations,
+  type HostOps,
   type WorkspaceOps,
 } from "../platform/index.js"
 import {
@@ -42,6 +43,9 @@ import {
 import type { ScopeAccess } from "../flows/index.js"
 import { steeringFormatFor } from "../steering/index.js"
 import { judgeJson, UNATTRIBUTED_MODEL, type ModelCost, type StepAccess } from "../wire/index.js"
+import { GTD_VERSION } from "../install/index.js"
+import { processHistoryRef } from "../platform/index.js"
+import { isAbsolute, relative, resolve, sep } from "node:path"
 import { accessRefusal, type Landing, type RepoSnapshot } from "../step/index.js"
 
 export { UNATTRIBUTED_MODEL }
@@ -405,41 +409,58 @@ export const currentRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = 
   },
 )
 
-/** The process HEAD closes or sits inside — `gtd summary`'s run. */
-export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = Effect.gen(
-  function* () {
-    const git = yield* GitService
-    const def = (yield* (yield* ConfigService).load).workflow
-    // Cheap: just HEAD's own subject, to decide which of the two reads below
-    // this run needs — never the commits before it. Its hash is also this
-    // run's ONE resolution of literal HEAD: every further read below is
-    // pinned to it, rather than re-resolving a `head` that could move.
-    const headEntry = (yield* git.subjectHistory(1, 0))[0]
-    if (headEntry === undefined) {
+// `tip` is resolved to a hash once: every read below is pinned to it, so a
+// moving HEAD cannot split one run across two commits.
+const runAtTip = (
+  git: GitOperations,
+  def: WorkflowDefinition,
+  tip: { readonly hash: string; readonly subject: string } | undefined,
+): Effect.Effect<ProcessRun, Error> =>
+  Effect.gen(function* () {
+    if (tip === undefined) {
       // No commits at all — `historyUpTo` folds an empty repository to an
       // empty run on its own; there is no hash yet to pin anything to.
       const history = yield* historyUpTo(git, def, undefined)
       return yield* runOf(history, locateEpisode(def, history))
     }
-    const closes = parseCommitMessage(headEntry.subject).parsed?.to === def.initial
+    const closes = parseCommitMessage(tip.subject).parsed?.to === def.initial
     if (!closes) {
-      const history = yield* historyUpTo(git, def, headEntry.hash)
+      const history = yield* historyUpTo(git, def, tip.hash)
       return yield* runOf(history, locateEpisode(def, history))
     }
-    // HEAD itself closes the process: its own subject would otherwise read as
-    // a boundary to `findBoundaryBase` (landing the initial state), stopping
+    // The tip itself closes the process: its own subject would otherwise read
+    // as a boundary to `findBoundaryBase` (landing the initial state), stopping
     // the page one commit too soon. Search for the PRIOR episode's boundary
-    // from HEAD's parent instead, then read the closing commit separately —
+    // from its parent instead, then read the closing commit separately —
     // `commitHistory` falls back to the whole history when that parent ref
-    // doesn't resolve (HEAD is the repository's root commit).
-    const parentRef = `${headEntry.hash}~1`
+    // doesn't resolve (the tip is the repository's root commit).
+    const parentRef = `${tip.hash}~1`
     const before = yield* historyUpTo(git, def, parentRef)
     const location = locateEpisode(def, before)
-    let closing = yield* git.commitHistory(parentRef, headEntry.hash)
-    if (closing.length === 0) closing = yield* git.commitHistory(undefined, headEntry.hash)
-    return yield* runOf([...before, ...closing], { ...location }, headEntry.hash)
+    let closing = yield* git.commitHistory(parentRef, tip.hash)
+    if (closing.length === 0) closing = yield* git.commitHistory(undefined, tip.hash)
+    return yield* runOf([...before, ...closing], { ...location }, tip.hash)
+  })
+
+/** The process HEAD closes or sits inside — `gtd summary`'s run. */
+export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = Effect.gen(
+  function* () {
+    const git = yield* GitService
+    const def = (yield* (yield* ConfigService).load).workflow
+    // Cheap: just HEAD's own subject, never the commits before it.
+    return yield* runAtTip(git, def, (yield* git.subjectHistory(1, 0))[0])
   },
 )
+
+/** The process whose finishing commit is `tip` — reads from `tip`'s own ancestry, so it works when no branch reaches it. */
+export const closedRunAt = (tip: string): Effect.Effect<ProcessRun, Error, ConfigRequirements> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const def = (yield* (yield* ConfigService).load).workflow
+    const hash = yield* git.resolveRef(tip)
+    const subject = yield* git.lastCommitSubject(hash)
+    return yield* runAtTip(git, def, { hash, subject })
+  })
 
 // ── Trees ───────────────────────────────────────────────────────────────────
 
@@ -852,17 +873,14 @@ const costByModel = (entries: readonly CostEntry[]): ModelCost[] => {
 
 export type RestRequirements = ConfigRequirements
 
-/** Resolve the rest at `ref`, or at HEAD when `ref` is `undefined`. */
-export const restAt = (
-  ref: string | undefined,
+const setupFor = (
+  config: ConfigOperations,
+  run: ProcessRun,
+  workspace: WorkspaceOps,
+  host: HostOps,
   startOverrides: Readonly<Record<string, string>> = {},
-): Effect.Effect<Rest, Error, RestRequirements> =>
+) =>
   Effect.gen(function* () {
-    const git = yield* GitService
-    const config = yield* (yield* ConfigService).load
-    const workspace = yield* Workspace
-    const host = yield* Host
-    const run = yield* computeProcessRun(git, config.workflow, ref)
     const resolved = yield* workflowOf(config, run)
     const def = resolved.def
     const { vars, env } = settingsFor(resolved, run.pinnedVars, host.env, startOverrides)
@@ -904,6 +922,27 @@ export const restAt = (
       episode,
       pendingWorktree: () => (pendingMemo ??= workspace.worktreeSync()),
     }
+    return { resolved, def, vars, env, setup }
+  })
+
+/** Resolve the rest at `ref`, or at HEAD when `ref` is `undefined`. */
+export const restAt = (
+  ref: string | undefined,
+  startOverrides: Readonly<Record<string, string>> = {},
+): Effect.Effect<Rest, Error, RestRequirements> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const config = yield* (yield* ConfigService).load
+    const workspace = yield* Workspace
+    const host = yield* Host
+    const run = yield* computeProcessRun(git, config.workflow, ref)
+    const { resolved, def, vars, env, setup } = yield* setupFor(
+      config,
+      run,
+      workspace,
+      host,
+      startOverrides,
+    )
     // No `pending` tree: `restAt` resolves the LANDED process only, never a
     // pending working-tree edit (that's `decideLanding`'s own `replayFor`
     // call, below, deciding what landing right now WOULD do). `gtd lsp` caches
@@ -1121,15 +1160,26 @@ const initialStepRefusal = (
       }
     : undefined
 
-const landingTo = (rest: Rest, to: StateName): Landing => {
-  if (rest.changes.length === 0 && rest.stepDef.kind === "script" && to === rest.state) {
-    return { kind: "noop", settled: true }
-  }
+const closingTrailers = (branch: Option.Option<string>) => ({
+  version: GTD_VERSION,
+  ...(Option.isSome(branch) ? { branch: branch.value } : {}),
+})
+
+const isSettledNoop = (rest: Rest, to: StateName): boolean =>
+  rest.changes.length === 0 && rest.stepDef.kind === "script" && to === rest.state
+
+const landingTo = (rest: Rest, to: StateName, branch: Option.Option<string>): Landing => {
+  if (isSettledNoop(rest, to)) return { kind: "noop", settled: true }
   // The landing that leaves the flow's first step starts the process: it
   // pins the process settings every later invocation reads back.
-  const starts = noProcessUnderway(rest) && to !== rest.def.initial
+  const underway = !noProcessUnderway(rest)
+  const starts = !underway && to !== rest.def.initial
   const refused = starts ? multilineRefusal(rest.vars) : undefined
   if (refused !== undefined) return refused
+  // Landing on the first step while a process is underway ends it (flow
+  // return and `restart()` alike); the script then points the history ref at
+  // that very commit.
+  const finishes = underway && to === rest.def.initial
   return {
     kind: "commit",
     to,
@@ -1139,7 +1189,9 @@ const landingTo = (rest: Rest, to: StateName): Landing => {
       to,
       step: rest.step.id,
       ...(starts ? { vars: rest.vars, config: rest.config } : {}),
+      ...(finishes ? closingTrailers(branch) : {}),
     },
+    ...(finishes ? { keepHistory: processHistoryRef(rest.run.startHash) } : {}),
   }
 }
 
@@ -1151,6 +1203,7 @@ const landingTo = (rest: Rest, to: StateName): Landing => {
 const decideLanding = (
   rest: Rest,
   verdicts: readonly JudgeVerdict[] | undefined,
+  branch: Option.Option<string>,
 ): Effect.Effect<Landing, Error> =>
   Effect.gen(function* () {
     const early = cleanLanding(rest)
@@ -1171,12 +1224,12 @@ const decideLanding = (
     )
     const to = yield* landingTarget(outcome, rest)
     if (typeof to !== "string") return to
-    return landingTo(rest, to)
+    return landingTo(rest, to, branch)
   })
 
 /** Where landing the pending turn would leave the process, or `undefined` when it would land nothing. */
 export const previewLanding = (rest: Rest): Effect.Effect<StateName | undefined> =>
-  decideLanding(rest, undefined).pipe(
+  decideLanding(rest, undefined, Option.none()).pipe(
     Effect.map((landing) => (landing.kind === "commit" ? landing.to : undefined)),
     Effect.catchAll(() => Effect.succeed(undefined)),
   )
@@ -1187,7 +1240,8 @@ export const snapshotFromRest = (
   verdicts?: readonly JudgeVerdict[],
 ): Effect.Effect<RepoSnapshot, Error, Workspace | GitService> =>
   Effect.gen(function* () {
-    const landing = yield* decideLanding(rest, verdicts)
+    const branch = yield* (yield* GitService).currentBranch()
+    const landing = yield* decideLanding(rest, verdicts, branch)
     return {
       stepDef: rest.stepDef,
       state: rest.state,
@@ -1222,4 +1276,128 @@ export const summaryFor = (
       processCostByModel: costByModel(run.costEntries),
       ...settingsFor(resolved, run.pinnedVars, host.env),
     })
+  })
+
+export interface HistoryStep {
+  readonly hash: string
+  readonly subject: string
+  readonly actor: string
+  readonly from: StateName | undefined
+  readonly to: StateName
+  readonly verdicts: readonly JudgeVerdict[]
+}
+
+export interface HistoryTrail {
+  readonly tip: string
+  readonly steps: readonly HistoryStep[]
+  readonly ended: "return" | "restart"
+  readonly version: {
+    readonly recorded: string | undefined
+    readonly running: string
+  }
+  /** Set when recorded !== running (a missing recorded version counts as different). */
+  readonly versionWarning?: string
+}
+
+/** Repository-relative paths of the config files today's config and the process's own record name; one outside the repository cannot be read at a ref, so it is left out. */
+const inRepoConfigPaths = (
+  root: string,
+  files: readonly string[],
+  recorded: ConfigFingerprint,
+): readonly string[] => {
+  const paths = new Set<string>(Object.keys(recorded))
+  for (const file of files) paths.add(relative(root, resolve(root, file)).split(sep).join("/"))
+  return [...paths].filter((p) => p !== "" && !p.startsWith("..") && !isAbsolute(p)).sort()
+}
+
+const configRefusal = (tip: string, paths: readonly string[]): Error =>
+  new Error(
+    `gtd history: refused — config differs at ${tip.slice(0, 7)}: ${paths.join(", ")}. ` +
+      `A history ref replays under today's config, so it is unreadable after the config changes`,
+  )
+
+const differingConfigPaths = (
+  git: GitService["Type"],
+  workspace: Workspace["Type"],
+  root: string,
+  config: { readonly workflowFiles: readonly string[] },
+  run: ProcessRun,
+  hash: string,
+) =>
+  Effect.gen(function* () {
+    const differing: string[] = []
+    for (const path of inRepoConfigPaths(
+      root,
+      config.workflowFiles,
+      run.pinnedConfig?.files ?? {},
+    )) {
+      const atTip = yield* Effect.orElseSucceed(git.readFileAtRef(hash, path), () => undefined)
+      if (atTip !== workspace.readSync(path)) differing.push(path)
+    }
+    return differing
+  })
+
+const notClosedError = (
+  hash: string,
+  outcome: Exclude<Awaited<ReturnType<typeof replayFor>>, { kind: "ended" }>,
+): Error =>
+  outcome.kind === "rest"
+    ? new Error(`gtd history: ${hash.slice(0, 7)} does not close a process under today's config`)
+    : (replayError(outcome) ?? new Error("gtd history: replay failed"))
+
+const historySteps = (run: ProcessRun): readonly HistoryStep[] => {
+  const messages = new Map(run.episode.commits.map((c) => [c.hash, c.message]))
+  return run.trace.map((entry): HistoryStep => {
+    const message = parseCommitMessage(messages.get(entry.hash) ?? "")
+    return {
+      hash: entry.hash,
+      subject: (messages.get(entry.hash) ?? "").split("\n")[0] ?? "",
+      actor: entry.actor,
+      from: message.parsed?.from,
+      to: entry.state,
+      verdicts: message.judge,
+    }
+  })
+}
+
+const versionWarningFor = (recorded: string | undefined): string | undefined =>
+  recorded === GTD_VERSION
+    ? undefined
+    : `gtd: warning: this history was recorded by ${recorded === undefined ? "an unknown gtd version" : `gtd ${recorded}`} and is replayed by gtd ${GTD_VERSION} — a workflow imported from @pmelab/gtd/workflows may have changed since`
+
+/**
+ * Replays the closed run at `tip` under today's config. The workflow is not
+ * fingerprinted for a version change: one imported from `@pmelab/gtd/workflows`
+ * moves with every upgrade, and the version warning is the only signal.
+ */
+export const historyTrail = (tip: string): Effect.Effect<HistoryTrail, Error, RestRequirements> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const config = yield* (yield* ConfigService).load
+    const workspace = yield* Workspace
+    const host = yield* Host
+    const hash = yield* git.resolveRef(tip)
+    const run = yield* closedRunAt(hash)
+
+    const differing = yield* differingConfigPaths(git, workspace, host.root, config, run, hash)
+    if (differing.length > 0) return yield* Effect.fail(configRefusal(hash, differing))
+
+    const { setup } = yield* setupFor(config, run, workspace, host)
+    yield* workspace.episodeTrees(
+      run.episode.base,
+      run.episode.commits.map((c) => c.hash),
+    )
+    const outcome = yield* Effect.promise(() => replayFor(setup))
+    if (outcome.kind !== "ended") return yield* Effect.fail(notClosedError(hash, outcome))
+
+    const steps = historySteps(run)
+    const recorded = parseCommitMessage(yield* git.lastCommitMessage(hash)).version
+    const versionWarning = versionWarningFor(recorded)
+    return {
+      tip: hash,
+      steps,
+      ended: outcome.via,
+      version: { recorded, running: GTD_VERSION },
+      ...(versionWarning !== undefined ? { versionWarning } : {}),
+    }
   })

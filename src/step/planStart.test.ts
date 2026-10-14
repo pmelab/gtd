@@ -108,7 +108,8 @@ describe("planStart", () => {
       const plan = await start(repo, "idle", "human", { ...REVIEW, vars: {} })
       if (plan.kind !== "start") throw new Error(`expected start, got ${JSON.stringify(plan)}`)
       const write = plan.steps.find((s) => s.kind === "gitWrite")
-      if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
+      if (write?.kind !== "gitWrite" || write.write.kind !== "commitAll")
+        throw new Error("expected a gitWrite step")
       expect(write.write.message).toContain(`Gtd-Review-Base: ${fork}`)
     })
 
@@ -124,7 +125,8 @@ describe("planStart", () => {
       const plan = await start(repo, "idle", "human", { ...REVIEW, vars: { base: "other" } })
       if (plan.kind !== "start") throw new Error(`expected start, got ${JSON.stringify(plan)}`)
       const write = plan.steps.find((s) => s.kind === "gitWrite")
-      if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
+      if (write?.kind !== "gitWrite" || write.write.kind !== "commitAll")
+        throw new Error("expected a gitWrite step")
       expect(write.write.message).toContain(`Gtd-Review-Base: ${fork}`)
     })
 
@@ -189,7 +191,8 @@ describe("planStart", () => {
     })
     if (plan.kind !== "start") throw new Error(`expected start, got ${plan.kind}`)
     const write = plan.steps.find((s) => s.kind === "gitWrite")
-    if (write?.kind !== "gitWrite") throw new Error("expected a gitWrite step")
+    if (write?.kind !== "gitWrite" || write.write.kind !== "commitAll")
+      throw new Error("expected a gitWrite step")
     expect(write.write.message).toBe(
       "gtd(human): work\n\nGtd-Workflow: working\nGtd-Var: base=main\nGtd-Format: 1",
     )

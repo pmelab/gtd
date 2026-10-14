@@ -544,6 +544,30 @@ unknown key. `gtd.config.ts` is the only repository config: gtd 23 removed the
 home directory — fails every command until you delete it. See
 [Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
 
+## Process history
+
+When a process finishes, the landing that closes it also keeps the whole run
+behind a ref, `refs/gtd/history/<entry>`, so a squash or a deleted branch
+doesn't lose it. `/gtd ship` changes nothing about this: the turns are already
+kept before it squashes.
+
+```sh
+gtd history list                 # one line per kept process
+gtd history show <ref>           # replay its steps and judge verdicts
+gtd history fetch | sh           # pull every kept ref from origin
+```
+
+`gtd history fetch` only prints a fetch script; pipe it into `sh` to run it.
+Refs are not pushed or fetched by default. To share them:
+
+```sh
+git push origin 'refs/gtd/history/*'
+git config --add remote.origin.fetch 'refs/gtd/history/*:refs/gtd/history/*'
+```
+
+The second line makes every plain `git fetch` include them. It has no leading
+`+`, so a conflicting local ref fails instead of being overwritten.
+
 ## Entrypoints
 
 gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
@@ -565,8 +589,8 @@ install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
 
 The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
 `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `version`,
-`help`, and the tools `ui`, `lsp`, `loop` and `judge` (`judge answer`,
-`judge run`) — are listed in the
+`help`, `history list`, `history show`, `history fetch`, and the tools `ui`,
+`lsp`, `loop` and `judge` (`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
 
 ## License

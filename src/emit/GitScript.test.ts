@@ -9,6 +9,7 @@ import {
   commitAsIs,
   deleteRef,
   discardPending,
+  fetchHistoryRefs,
   hardResetTo,
   mixedResetTo,
   pathspec,
@@ -255,6 +256,32 @@ describe("ScriptSurface.render", () => {
     ])
     expect(script).toContain("building")
     expect(script).toContain("done")
+    expect(runBashCheckSyntax(script)).toBe(0)
+  })
+})
+
+describe("ScriptSurface.render — updateRef", () => {
+  const steps: readonly LandStep[] = [
+    { kind: "gitWrite", write: { kind: "commitAll", message: "gtd(human): building → done" } },
+    { kind: "gitWrite", write: { kind: "updateRef", ref: "refs/gtd/history/abc", target: "HEAD" } },
+  ]
+
+  it("renders git update-ref after the commit, under set -eu", () => {
+    const script = ScriptSurface.render(steps)
+    expect(script.startsWith("set -eu")).toBe(true)
+    expect(script).toContain("git update-ref 'refs/gtd/history/abc' 'HEAD'")
+    expect(script.indexOf("git commit")).toBeLessThan(script.indexOf("git update-ref"))
+    expect(runBashCheckSyntax(script)).toBe(0)
+  })
+})
+
+describe("fetchHistoryRefs", () => {
+  it("quotes the remote and uses a non-forcing history refspec", () => {
+    const script = fetchHistoryRefs("o'rigin")
+    expect(script).toContain("'o'\\''rigin'")
+    expect(script).toContain("refs/gtd/history/*:refs/gtd/history/*")
+    expect(script).not.toContain("+refs/")
+    expect(script).toContain("history refs arrived")
     expect(runBashCheckSyntax(script)).toBe(0)
   })
 })

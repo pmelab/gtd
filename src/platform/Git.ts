@@ -4,14 +4,22 @@ import { Host } from "./Host.js"
 
 export interface GitReaderOperations {
   readonly lastCommitSubject: (ref?: string) => Effect.Effect<string, Error>
+  /** Full commit message (subject + body) of `ref` (default HEAD) — keeps the body, unlike `lastCommitSubject`. */
+  readonly lastCommitMessage: (ref?: string) => Effect.Effect<string, Error>
+  /** The checked-out branch's name; `Option.none` on a detached HEAD (never fails). */
+  readonly currentBranch: () => Effect.Effect<Option.Option<string>, Error>
   /**
-   * Full commit message (subject + body) of HEAD — keeps the body, unlike
-   * `lastCommitSubject`. No current caller: it read back a `Gtd-History:`
-   * trailer for the now-removed squash finale's `restorability` check; kept
-   * deliberately rather than deleted, as a plain, reusable git primitive a
-   * future edge concern may need again.
+   * Refs under `prefix`, newest tip committer date first (`date` is ISO 8601
+   * strict); `[]` when none.
    */
-  readonly lastCommitMessage: () => Effect.Effect<string, Error>
+  readonly listRefs: (prefix: string) => Effect.Effect<
+    ReadonlyArray<{
+      readonly ref: string
+      readonly hash: string
+      readonly date: string
+    }>,
+    Error
+  >
   readonly hasCommits: () => Effect.Effect<boolean, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
   /** The ref's hash if it resolves, `Option.none` if it doesn't exist (never fails). Used to read the retained-history ref. */
@@ -331,10 +339,40 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
 
   return {
     lastCommitSubject: (ref = "HEAD") =>
-      exec("git", "log", "-1", "--pretty=%s", ref).pipe(Effect.map((s) => s.trim())),
+      exec("git", "log", "-1", "--pretty=%s", "--end-of-options", ref).pipe(
+        Effect.map((s) => s.trim()),
+      ),
 
-    lastCommitMessage: () =>
-      exec("git", "log", "-1", "--pretty=%B").pipe(Effect.map((s) => s.trim())),
+    lastCommitMessage: (ref = "HEAD") =>
+      exec("git", "log", "-1", "--pretty=%B", "--end-of-options", ref).pipe(
+        Effect.map((s) => s.trim()),
+      ),
+
+    currentBranch: () =>
+      exec("git", "symbolic-ref", "--quiet", "--short", "HEAD").pipe(
+        Effect.map((s) => s.trim()),
+        Effect.map((name) => Option.some(name)),
+        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+      ),
+
+    listRefs: (prefix: string) =>
+      exec(
+        "git",
+        "for-each-ref",
+        "--sort=-committerdate",
+        "--format=%(refname)%09%(objectname)%09%(committerdate:iso-strict)",
+        prefix,
+      ).pipe(
+        Effect.map((out) =>
+          out
+            .split("\n")
+            .filter((line) => line.length > 0)
+            .map((line) => {
+              const [ref = "", hash = "", date = ""] = line.split("\t")
+              return { ref, hash, date }
+            }),
+        ),
+      ),
 
     hasCommits: () =>
       exec("git", "rev-parse", "--verify", "HEAD").pipe(
@@ -382,7 +420,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       }),
 
     resolveRef: (ref: string) =>
-      exec("git", "rev-parse", "--verify", ref).pipe(
+      exec("git", "rev-parse", "--verify", "--end-of-options", ref).pipe(
         Effect.map((s) => s.trim()),
         Effect.flatMap((hash) => resolvedRefOrCorrupted(ref, hash)),
       ),

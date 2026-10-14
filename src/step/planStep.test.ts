@@ -92,7 +92,8 @@ describe("planStep — commit", () => {
     })
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
     const write = outcome.steps.find((step) => step.kind === "gitWrite")
-    if (write?.kind !== "gitWrite") throw new Error("expected a git write")
+    if (write?.kind !== "gitWrite" || write.write.kind !== "commitAll")
+      throw new Error("expected a git write")
     const trailers = write.write.message.split("\n").slice(2)
     expect(trailers[0]).toBe("Gtd-Step: a#1")
     expect(trailers[1]).toBe("Gtd-Cost: 1.5 m")
@@ -100,5 +101,32 @@ describe("planStep — commit", () => {
     expect(trailers[3]).toBe('Gtd-Judge: {"id":"q2","answer":"x","p":0.4}')
     expect(trailers[4]).toBe("Gtd-Format: 1")
     expect(trailers).toHaveLength(5)
+  })
+})
+
+describe("planStep — keepHistory", () => {
+  it("writes the history ref right after the commit, before the outcome", () => {
+    const s = snapshot({
+      state: "building",
+      stepDef: {},
+      landing: { ...commitTo("building", "done"), keepHistory: "refs/gtd/history/abc" },
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    expect(outcome.steps.map((step) => step.kind)).toEqual(["gitWrite", "gitWrite", "outcome"])
+    expect(outcome.steps[0]).toMatchObject({ write: { kind: "commitAll" } })
+    expect(outcome.steps[1]).toEqual({
+      kind: "gitWrite",
+      write: { kind: "updateRef", ref: "refs/gtd/history/abc", target: "HEAD" },
+    })
+  })
+
+  it("without keepHistory no updateRef is emitted", () => {
+    const s = snapshot({ state: "building", stepDef: {}, landing: commitTo("building", "done") })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    expect(
+      outcome.steps.some((step) => step.kind === "gitWrite" && step.write.kind === "updateRef"),
+    ).toBe(false)
   })
 })

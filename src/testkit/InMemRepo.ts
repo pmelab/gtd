@@ -9,6 +9,8 @@ interface Commit {
   message: string
   files: Map<string, string> // full tree snapshot (path → UTF-8 content)
   parent: string | null
+  /** Creation order — the twin's stand-in for a committer date. */
+  seq: number
 }
 
 function sha1(input: string): string {
@@ -35,6 +37,7 @@ export class InMemRepo {
   private currentBranch: string = "main"
   private worktree: Map<string, string> = new Map()
   private index: Map<string, string> = new Map()
+  private nextSeq = 1
 
   private getCommit(hash: string): Commit | null {
     return this.commits.get(hash) ?? null
@@ -137,10 +140,27 @@ export class InMemRepo {
     return c.message.split("\n")[0] ?? null
   }
 
-  lastCommitMessage(): string | null {
-    const c = this.headCommit()
-    if (!c) return null
-    return c.message
+  lastCommitMessage(ref?: string): string | null {
+    const hash = ref === undefined ? this.head : this.resolveRef(ref)
+    const c = hash === null ? null : this.getCommit(hash)
+    return c === null ? null : c.message
+  }
+
+  branchName(): string {
+    return this.currentBranch
+  }
+
+  /** Refs under `prefix`, newest tip first; the commit sequence number stands in for the committer date. */
+  listRefs(prefix: string): Array<{ ref: string; hash: string; date: string }> {
+    return [...this.refs.entries()]
+      .filter(([ref]) => ref.startsWith(prefix))
+      .map(([ref, hash]) => ({ ref, hash, seq: this.getCommit(hash)?.seq ?? 0 }))
+      .sort((a, b) => b.seq - a.seq)
+      .map(({ ref, hash, seq }) => ({
+        ref,
+        hash,
+        date: new Date(seq * 1000).toISOString().replace(/\.\d{3}Z$/, "Z"),
+      }))
   }
 
   /**
@@ -287,7 +307,7 @@ export class InMemRepo {
     const tree = new Map(this.index)
     const parent = this.head
     const hash = makeHash(message, parent, tree)
-    const commit: Commit = { hash, message, files: new Map(tree), parent }
+    const commit: Commit = { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ }
     this.commits.set(hash, commit)
     this.head = hash
     this.branches.set(this.currentBranch, hash)
@@ -307,7 +327,7 @@ export class InMemRepo {
     const parent = this.head
     const hash = makeHash(message, parent, tree)
 
-    const commit: Commit = { hash, message, files: new Map(tree), parent }
+    const commit: Commit = { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ }
     this.commits.set(hash, commit)
     this.head = hash
     this.branches.set(this.currentBranch, hash)

@@ -92,6 +92,38 @@ describe("the commit-message codec", () => {
     expect(read('deadbeefdeadbeef "a\\u001b.ts"')).toEqual({})
   })
 
+  it("round-trips Gtd-Branch and Gtd-Version, after Gtd-Judge and before Gtd-Format", () => {
+    const message = formatCommitMessage({
+      actor: "agent",
+      to: "idle",
+      judge: [{ id: "q1", answer: true, p: 0.9 }],
+      branch: "feat/x",
+      version: "1.2.3",
+    })
+    const lines = message.split("\n")
+    const at = (prefix: string) => lines.findIndex((l) => l.startsWith(prefix))
+    expect(at("Gtd-Judge:")).toBeLessThan(at("Gtd-Branch:"))
+    expect(at("Gtd-Branch:")).toBeLessThan(at("Gtd-Version:"))
+    expect(at("Gtd-Version:")).toBeLessThan(at("Gtd-Format:"))
+    const parsed = parseCommitMessage(message)
+    expect(parsed.branch).toBe("feat/x")
+    expect(parsed.version).toBe("1.2.3")
+  })
+
+  it("omits Gtd-Branch and Gtd-Version when unset, and reads them as undefined", () => {
+    const message = formatCommitMessage({ actor: "agent", to: "idle" })
+    expect(message).not.toContain("Gtd-Branch")
+    expect(message).not.toContain("Gtd-Version")
+    const parsed = parseCommitMessage(message)
+    expect(parsed.branch).toBeUndefined()
+    expect(parsed.version).toBeUndefined()
+  })
+
+  it("keeps Gtd-Format at 1 when branch and version are written", () => {
+    const message = formatCommitMessage({ actor: "a", to: "b", branch: "m", version: "1" })
+    expect(message.endsWith("Gtd-Format: 1")).toBe(true)
+  })
+
   it("writes Gtd-Format last on every message, even one with no other trailer", () => {
     const message = formatCommitMessage({ actor: "agent", to: "building" })
     expect(message).toBe("gtd(agent): building\n\nGtd-Format: 1")

@@ -189,7 +189,8 @@ human. _Avoid_: unanswered thread
 **Squash**: Not an engine concept — gtd never rewrites history. A process ends
 with ordinary commits, keeping every turn; a squash (or an amend, or a PR body)
 is something a human or a driver may still do afterward, outside gtd, using
-`gtd summary`'s prompt to write the message.
+`gtd summary`'s prompt to write the message. The turns survive it: see
+[process history](#process-history).
 
 **Memory scope**: The span of a process over which one agent conversation
 persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`
@@ -208,8 +209,13 @@ resting step names, falling back to the process start.
 
 **Retained history**: A rewound process's turn-by-turn commits, kept behind a
 ref so `gtd restore` can bring them back — written only when `gtd abandon`
-rewinds an in-flight process. `gtd land` never moves HEAD, so it never writes
-this ref.
+rewinds an in-flight process. _Avoid_ for a finished process: see
+[process history](#process-history).
+
+**Process history**: A finished process's turns, kept at
+`refs/gtd/history/<entry>` by the landing that ends it. Read with `gtd history`;
+distinct from [retained history](#retained-history), which `gtd restore`
+consumes.
 
 **Process setting**: A flat string value flow code reads as `vars` and may
 branch on — the workflow's `defaults` (a factory option, for the shipped
