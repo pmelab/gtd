@@ -1,20 +1,25 @@
-import { chmodSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import { join } from "node:path"
-import { Given, When } from "quickpickle"
+import assert from "node:assert"
+import { Given, Then, When } from "quickpickle"
 import type { GtdWorld } from "../world.js"
 
-// `@live` only — the pipe between gtd invocations is the thing under test.
+// A pipeline of gtd invocations: real `sh` live, in-process in memory.
 When("I run in the shell:", async (world: GtdWorld, command: string) => {
   await world.runShell(String(command))
 })
 
-// A local stand-in for TypeSafe: every request gets this status and body, and
-// the spawned gtd is pointed at it through `JEV_BASE_URL` — no real network.
+// A stand-in for TypeSafe: every request gets this status and body. Live, a
+// local server the spawned gtd reaches through `JEV_BASE_URL`; in memory,
+// the judge's fetch itself — no network either way.
 Given(
   "a judge stub server answering {int} with:",
   async (world: GtdWorld, status: number, body: string) => {
+    if (world.repo !== undefined) {
+      world.judgeFetch = async () =>
+        new Response(String(body), { status, headers: { "Content-Type": "application/json" } })
+      return
+    }
     const server = createServer((req, res) => {
       req.resume()
       req.on("end", () => {
@@ -29,11 +34,21 @@ Given(
   },
 )
 
-// Writes the docstring as an executable into the `@live` PATH shim dir, so the
-// scenario text shows the whole fake `claude`.
-Given("an executable {string} on PATH with:", (world: GtdWorld, name: string, body: string) => {
-  if (world.pathShimDir === undefined) throw new Error("no PATH shim dir: this step is @live only")
-  const file = join(world.pathShimDir, name)
-  writeFileSync(file, `#!/bin/sh\n${String(body)}\n`)
-  chmodSync(file, 0o755)
+Given("claude answers with:", (world: GtdWorld, stdout: string) => {
+  world.scriptedClaude = { code: 0, stdout: `${String(stdout)}\n`, stderr: "" }
+})
+
+Given(
+  "claude fails with exit {int} and stderr {string}",
+  (world: GtdWorld, code: number, stderr: string) => {
+    world.scriptedClaude = { code, stdout: "", stderr: `${stderr}\n` }
+  },
+)
+
+Then("claude was run with {string}", (world: GtdWorld, args: string) => {
+  const runs = world.claudeCalls.map((argv) => argv.join(" "))
+  assert.ok(
+    runs.some((run) => run.includes(args)),
+    `Expected a claude run with "${args}". Got:\n${runs.join("\n")}`,
+  )
 })

@@ -28,6 +28,7 @@ import { PassThrough } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
 import { runCli } from "../../../src/cli/index.js"
 import { runJudge } from "../../../src/judges/index.js"
+import { inMemoryJudgeIo, type ScriptedClaude } from "./judge-io.js"
 import { EXIT_OK } from "../../../src/wire/index.js"
 import {
   makeCapturingCliIo,
@@ -293,6 +294,14 @@ export class GtdWorld extends QuickPickleWorld {
    * scenario never reads a stale prior command's output.
    */
   lastScriptOutput: string = ""
+  /** Files outside the repository in memory, by absolute path — user-level config. */
+  userFiles = new Map<string, string>()
+  /** The judge's network in memory: what a stubbed server would answer. */
+  judgeFetch: typeof fetch | undefined = undefined
+  /** The in-memory `claude`: absent from PATH until a scenario scripts it. */
+  scriptedClaude: ScriptedClaude | undefined = undefined
+  /** Every in-memory `claude` call's argv, oldest first. */
+  claudeCalls: string[][] = []
   savedCommitCount: number | undefined = undefined
   /** Named JSON fields captured from a prior `--json` output — lets a scenario prove two turns' values for the same field are the same or different without knowing the exact value in advance. */
   recordedJsonFields: Record<string, string | undefined> = {}
@@ -632,12 +641,16 @@ export class GtdWorld extends QuickPickleWorld {
    * never leak into a later scenario.
    */
   private async runGtdInMemWithStdin(stdin: string, ...args: string[]): Promise<void> {
+    await this.withStdin(stdin, () => this.runGtdInMem(...args))
+  }
+
+  private async withStdin<T>(stdin: string, run: () => Promise<T>): Promise<T> {
     const saved = Object.getOwnPropertyDescriptor(process, "stdin")
     const fake = new PassThrough()
     Object.defineProperty(process, "stdin", { value: fake, configurable: true })
     fake.end(stdin)
     try {
-      await this.runGtdInMem(...args)
+      return await run()
     } finally {
       if (saved) Object.defineProperty(process, "stdin", saved)
     }
@@ -668,6 +681,7 @@ export class GtdWorld extends QuickPickleWorld {
 
   /** `@live` only — runs `command` under `sh -c` in the repo, so a scenario can spell out a real pipe between gtd invocations. */
   async runShell(command: string, timeout = 30_000): Promise<void> {
+    if (this.repo !== undefined) return this.runPipelineInMem(command)
     try {
       const { stdout, stderr } = await execFile("sh", ["-c", command], {
         cwd: this.repoDir,
@@ -1681,10 +1695,51 @@ export class GtdWorld extends QuickPickleWorld {
     this.lastResult = await this.gtdInMem(...args)
   }
 
+  /**
+   * A `gtd … | gtd … | sh` pipeline in memory: each gtd reads the previous
+   * stdout as its stdin, and a closing `sh` runs the last one's script on the
+   * in-memory shell. Like `sh` without `pipefail`, the last command's status
+   * is the pipeline's.
+   */
+  private async runPipelineInMem(command: string): Promise<void> {
+    let stdin = ""
+    let stderr = ""
+    let last = { exitCode: 0, stdout: "", stderr: "" }
+    for (const segment of command.trim().split(/\s*\|\s*/)) {
+      last = await this.runSegmentInMem(segment, stdin)
+      stdin = last.stdout
+      stderr += last.stderr
+    }
+    this.lastResult = { exitCode: last.exitCode, stdout: last.stdout, stderr }
+  }
+
+  private async runSegmentInMem(
+    segment: string,
+    stdin: string,
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    if (segment === "sh") {
+      const run = await this.runEmittedScript(stdin)
+      return { exitCode: run.exitCode, stdout: run.output, stderr: "" }
+    }
+    if (!segment.startsWith("gtd ")) {
+      throw new Error(`cannot run \`${segment}\` in memory — only gtd and sh`)
+    }
+    const args = segment.slice("gtd ".length).split(/\s+/)
+    return this.withStdin(stdin, () => this.gtdInMem(...args))
+  }
+
   /** One in-process gtd run against the in-memory repository, leaving `lastResult` alone. */
   async gtdInMem(...args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     // `gtd judge run` is the one tool command `@inmem` scenarios run for real.
-    const { io, result } = makeCapturingCliIo(this.repo!, this.envVars, { judge: runJudge })
+    const judgeIo = inMemoryJudgeIo(this.repoDir, this.repo!, {
+      userFiles: this.userFiles,
+      fetch: this.judgeFetch,
+      claude: this.scriptedClaude,
+      calls: this.claudeCalls,
+    })
+    const { io, result } = makeCapturingCliIo(this.repo!, this.envVars, {
+      judge: (request) => runJudge({ ...request, io: judgeIo }),
+    })
     await Effect.runPromise(runCli(["node", "gtd.js", ...args], io))
     return result()
   }

@@ -1,9 +1,11 @@
 import { splitLabels } from "../criteria.js"
+import { liveJudgeIo, type JudgeIo } from "./io.js"
 import type { Answerer, Question, Verdict } from "../types.js"
 
 export interface JevOptions {
   readonly env: Readonly<Record<string, string | undefined>>
   readonly retryDelayMs?: number
+  readonly io?: JudgeIo
 }
 
 const DEFAULT_URL = "https://api.typesafe.ai/v1/systemone"
@@ -106,16 +108,24 @@ export const toVerdicts = (questions: readonly Question[], response: unknown): V
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-const post = async (url: string, key: string, body: string, delayMs: number): Promise<string> => {
+const post = async (
+  io: JudgeIo,
+  url: string,
+  key: string,
+  body: string,
+  delayMs: number,
+): Promise<string> => {
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body,
-      signal: AbortSignal.timeout(180_000),
-    }).catch((e: unknown) =>
-      fail(`jev request failed: ${e instanceof Error ? e.message : String(e)}`),
-    )
+    const res = await io
+      .fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body,
+        signal: AbortSignal.timeout(180_000),
+      })
+      .catch((e: unknown) =>
+        fail(`jev request failed: ${e instanceof Error ? e.message : String(e)}`),
+      )
     const text = await res.text()
     if (res.status === 200) return text
     if ((res.status === 429 || res.status === 529) && attempt < RETRIES) {
@@ -135,11 +145,11 @@ const parse = (text: string): unknown => {
 }
 
 export const jev =
-  ({ env, retryDelayMs = 2000 }: JevOptions): Answerer =>
+  ({ env, retryDelayMs = 2000, io = liveJudgeIo }: JevOptions): Answerer =>
   async (questions, state) => {
     const key = env["TYPESAFE_API_KEY"]
     if (key === undefined || key === "") return fail("--provider jev needs TYPESAFE_API_KEY")
     const url = env["JEV_BASE_URL"] || DEFAULT_URL
-    const text = await post(url, key, JSON.stringify(toRequest(questions, state)), retryDelayMs)
+    const text = await post(io, url, key, JSON.stringify(toRequest(questions, state)), retryDelayMs)
     return toVerdicts(questions, parse(text))
   }

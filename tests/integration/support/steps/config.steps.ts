@@ -61,7 +61,8 @@ Given(
     const normalized = content.endsWith("\n") ? content : content + "\n"
     if (world.tier === "inmem") {
       world.repo!.writeFile(rel, normalized)
-      world.repo!.commitAllWithPrefix(`chore: add ${rel}`)
+      world.repo!.stage(rel)
+      world.repo!.commitAsIs(`chore: add ${rel}`)
     } else {
       const full = join(world.repoDir, rel)
       mkdirSync(join(full, ".."), { recursive: true })

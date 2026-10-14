@@ -6,25 +6,33 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
 
-// Points the loop's user-level config home at a fresh directory, so the
-// machine running the suite never leaks its own ~/.config/gtd/loop.json.
+// Points the user-level config home at a fresh directory, so the machine
+// running the suite never leaks its own ~/.config/gtd/*.json — in memory, a
+// path no real file sits under.
 const configHome = (world: GtdWorld): string =>
-  (world.envVars["XDG_CONFIG_HOME"] ??= mkdtempSync(join(tmpdir(), "gtd-loop-config-")))
+  (world.envVars["XDG_CONFIG_HOME"] ??=
+    world.repo !== undefined ? "/inmem-config" : mkdtempSync(join(tmpdir(), "gtd-loop-config-")))
+
+const writeUserFile = (world: GtdWorld, name: string, content: string): void => {
+  const dir = join(configHome(world), "gtd")
+  if (world.repo !== undefined) {
+    world.userFiles.set(join(dir, name), content)
+    return
+  }
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, name), content)
+}
 
 Given("an empty user-level loop config", (world: GtdWorld) => {
   configHome(world)
 })
 
 Given("a user-level loop config with:", (world: GtdWorld, json: string) => {
-  const dir = join(configHome(world), "gtd")
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "loop.json"), String(json))
+  writeUserFile(world, "loop.json", String(json))
 })
 
 Given("a user-level judge config with:", (world: GtdWorld, json: string) => {
-  const dir = join(configHome(world), "gtd")
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, "judge.json"), String(json))
+  writeUserFile(world, "judge.json", String(json))
 })
 
 const assertIsolated = (world: GtdWorld): void =>

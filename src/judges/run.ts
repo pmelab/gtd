@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { liveJudgeIo, type JudgeIo } from "./providers/io.js"
 import { fixed } from "./providers/fixed.js"
 import { jev } from "./providers/jev.js"
 import { llm } from "./providers/llm.js"
@@ -19,6 +19,7 @@ export interface RunJudgeInput {
   readonly answers?: string | undefined
   readonly env: Readonly<Record<string, string | undefined>>
   readonly input: string
+  readonly io?: JudgeIo
 }
 
 const fail = (message: string): never => {
@@ -46,9 +47,9 @@ const userConfigPath = (env: RunJudgeInput["env"]): string | undefined => {
   return home ? `${home}/.config/gtd/judge.json` : undefined
 }
 
-const readText = async (path: string): Promise<string | undefined> => {
+const readText = async (io: JudgeIo, path: string): Promise<string | undefined> => {
   try {
-    return await readFile(path, "utf8")
+    return await io.readFile(path)
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined
     return fail(`cannot read ${path}: ${e instanceof Error ? e.message : String(e)}`)
@@ -78,9 +79,12 @@ const decodeUserConfig = (path: string, text: string): Configured => {
   return { provider: provider as Provider | undefined, model }
 }
 
-const readUserConfig = async (env: RunJudgeInput["env"]): Promise<Configured | undefined> => {
+const readUserConfig = async (
+  io: JudgeIo,
+  env: RunJudgeInput["env"],
+): Promise<Configured | undefined> => {
   const path = userConfigPath(env)
-  const text = path === undefined ? undefined : await readText(path)
+  const text = path === undefined ? undefined : await readText(io, path)
   return path === undefined || text === undefined ? undefined : decodeUserConfig(path, text)
 }
 
@@ -106,16 +110,16 @@ const selectJudge = (
 
 /** The only place auto selection lives; it never falls back across providers. */
 const answererFor = async (opts: RunJudgeInput): Promise<Answerer> => {
-  const { answers, env, cwd } = opts
-  const { provider, model } = selectJudge(opts, await readUserConfig(env))
-  if (provider === "fixed") return fixed({ answersPath: answers, env })
+  const { answers, env, cwd, io = liveJudgeIo } = opts
+  const { provider, model } = selectJudge(opts, await readUserConfig(io, env))
+  if (provider === "fixed") return fixed({ answersPath: answers, env, io })
   // A configured model asks for the llm, so it outranks a configured jev key.
   if (
     provider === "jev" ||
     (provider === undefined && model === undefined && env["TYPESAFE_API_KEY"])
   )
-    return jev({ env })
-  return llm({ env, cwd, model })
+    return jev({ env, io })
+  return llm({ env, cwd, model, io })
 }
 
 export const runJudge = async (opts: RunJudgeInput): Promise<string> => {

@@ -38,7 +38,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       [{"id":"q1","answer":true,"p":0.9},{"id":"q2","answer":true,"p":0.8},{"id":"unasked","answer":"x","p":1}]
       """
 
-  @live
+  @inmem
   Scenario: judge | judge run | judge answer round-trips and lands the Gtd-Judge: trailer
     When I run gtd land
     Then it succeeds
@@ -50,7 +50,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     And the last commit subject is "gtd(judge): review → confident"
     And the last commit body contains "Gtd-Judge:"
 
-  @live
+  @inmem
   Scenario: an answers file covering one of two questions lands the conservative branch
     Given a file "answers.json" with:
       """
@@ -65,7 +65,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Then it succeeds
     And the last commit subject is "gtd(judge): review → conservative"
 
-  @live
+  @inmem
   Scenario: GTD_JUDGE_ANSWERS answers when no --answers is given
     Given an environment variable "GTD_JUDGE_ANSWERS" set to "[{\"id\":\"q1\",\"answer\":true,\"p\":0.9},{\"id\":\"q2\",\"answer\":true,\"p\":0.8}]"
     When I run gtd land
@@ -106,7 +106,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     And stderr contains "q1"
 
   # The `jev` provider, against a local stub server (no real network).
-  @live
+  @inmem
   Scenario: jev | judge answer round-trips a noul at 0.1 as "no" and lands the conservative branch
     Given an environment variable "TYPESAFE_API_KEY" set to "k"
     And a judge stub server answering 200 with:
@@ -122,7 +122,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Then it succeeds
     And the last commit subject is "gtd(judge): review → conservative"
 
-  @live
+  @inmem
   Scenario: jev | two noul answers above 0.5 land the confident branch
     Given an environment variable "TYPESAFE_API_KEY" set to "k"
     And a judge stub server answering 200 with:
@@ -193,7 +193,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     And stdout is empty
     And stderr contains "q2"
 
-  @live
+  @inmem
   Scenario: jev | choice and score answers round-trip through judge answer and route
     Given a gtd config file at "gtd.config.ts" with:
       """
@@ -230,13 +230,12 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Then it succeeds
     And the last commit subject is "gtd(judge): review → matched"
 
-  # The `llm` provider, against a fake `claude` on PATH (no real model).
-  @live
+  # The `llm` provider, against a scripted `claude` (no real model).
+  @inmem
   Scenario: llm | judge answer round-trips and lands the confident branch
-    Given an executable "claude" on PATH with:
+    Given claude answers with:
       """
-      cat >/dev/null
-      echo '{"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}'
+      {"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}
       """
     When I run gtd land
     Then it succeeds
@@ -247,13 +246,12 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Then it succeeds
     And the last commit subject is "gtd(judge): review → confident"
 
-  @live
+  @inmem
   Scenario: no --provider with an empty TYPESAFE_API_KEY answers through claude
     Given an environment variable "TYPESAFE_API_KEY" set to ""
-    And an executable "claude" on PATH with:
+    And claude answers with:
       """
-      cat >/dev/null
-      echo '{"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}'
+      {"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}
       """
     When I run gtd land
     Then it succeeds
@@ -264,17 +262,16 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Then it succeeds
     And the last commit subject is "gtd(judge): review → confident"
 
-  @live
+  @inmem
   Scenario: no --provider with TYPESAFE_API_KEY set answers through jev, not claude
     Given an environment variable "TYPESAFE_API_KEY" set to "k"
     And a judge stub server answering 200 with:
       """
       {"answers":{"q1":{"type":"noul","noul":0.9},"q2":{"type":"noul","noul":0.1}}}
       """
-    And an executable "claude" on PATH with:
+    And claude answers with:
       """
-      cat >/dev/null
-      echo '{"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}'
+      {"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}
       """
     When I run gtd land
     Then it succeeds
@@ -285,17 +282,12 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Then it succeeds
     And the last commit subject is "gtd(judge): review → conservative"
 
-  @live
+  @inmem
   Scenario: --model reaches claude's argv
     Given an environment variable "TYPESAFE_API_KEY" set to ""
-    And an executable "claude" on PATH with:
+    And claude answers with:
       """
-      cat >/dev/null
-      case "$*" in
-        *"--model sonnet"*) a=yes ;;
-        *) a=no ;;
-      esac
-      echo '{"type":"result","is_error":false,"structured_output":{"q1":{"answer":"'$a'","p":0.9},"q2":{"answer":"'$a'","p":0.8}}}'
+      {"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}
       """
     When I run gtd land
     Then it succeeds
@@ -305,15 +297,11 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): review → confident"
+    And claude was run with "--model sonnet"
 
-  @live
+  @inmem
   Scenario: a failing claude exits 1 with empty stdout
-    Given an executable "claude" on PATH with:
-      """
-      cat >/dev/null
-      echo "no login" >&2
-      exit 1
-      """
+    Given claude fails with exit 1 and stderr "no login"
     When I run gtd land
     Then it succeeds
     When I run in the shell:
