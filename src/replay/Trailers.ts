@@ -72,6 +72,9 @@ export interface CommitMessage {
   readonly config: Readonly<Record<string, string>>
   readonly reviewBase: string | undefined
   readonly cost: readonly CostEntry[]
+  /** Written only on a process's finishing landing. */
+  readonly branch: string | undefined
+  readonly version: string | undefined
   readonly format: number
 }
 
@@ -116,6 +119,8 @@ interface Trailers {
   step: StepId | undefined
   workflow: string | undefined
   reviewBase: string | undefined
+  branch: string | undefined
+  version: string | undefined
   readonly judge: JudgeVerdict[]
   readonly vars: Record<string, string>
   readonly config: Record<string, string>
@@ -146,6 +151,12 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Review-Base": (value, into) => {
     into.reviewBase ??= value.split(/\s/)[0]
   },
+  "Gtd-Branch": (value, into) => {
+    if (value !== "") into.branch ??= value
+  },
+  "Gtd-Version": (value, into) => {
+    if (value !== "") into.version ??= value
+  },
   "Gtd-Format": (value, into) => {
     if (FORMAT_RE.test(value)) into.format ??= Number(value)
   },
@@ -162,6 +173,8 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     step: undefined,
     workflow: undefined,
     reviewBase: undefined,
+    branch: undefined,
+    version: undefined,
     judge: [],
     vars: {},
     config: {},
@@ -187,6 +200,8 @@ export interface CommitSpec {
   readonly config?: Readonly<Record<string, string>>
   readonly cost?: { readonly cost: number; readonly model?: string }
   readonly judge?: readonly JudgeVerdict[]
+  readonly branch?: string
+  readonly version?: string
 }
 
 const sortedEntries = (record: Readonly<Record<string, string>> = {}): [string, string][] =>
@@ -207,6 +222,8 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     )
   }
   for (const verdict of spec.judge ?? []) lines.push(`Gtd-Judge: ${JSON.stringify(verdict)}`)
+  if (spec.branch !== undefined) lines.push(`Gtd-Branch: ${spec.branch}`)
+  if (spec.version !== undefined) lines.push(`Gtd-Version: ${spec.version}`)
   lines.push(`Gtd-Format: ${HISTORY_FORMAT}`)
   const subject = formatSubject(spec.actor, spec.to, spec.from)
   return `${subject}\n\n${lines.join("\n")}`

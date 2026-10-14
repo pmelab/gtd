@@ -19,4 +19,10 @@ export {
 export { Narrator, GtdError, GtdUsageError, renderFailure } from "./Commentary.js"
 export { CommandRunner } from "./CommandRunner.js"
 export { loopLogPath } from "./WorktreeState.js"
-export { HISTORY_REF, readRetainedHistory, restorability } from "./RetainedHistory.js"
+export {
+  HISTORY_REF,
+  processHistoryRef,
+  PROCESS_HISTORY_PREFIX,
+  readRetainedHistory,
+  restorability,
+} from "./RetainedHistory.js"

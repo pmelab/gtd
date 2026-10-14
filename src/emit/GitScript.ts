@@ -24,8 +24,9 @@ const commitAllowEmpty = (message: string): string => {
   ].join("\n")
 }
 
-/** `git add -A` then `commitAllowEmpty`, joined with `&&` so a failing `git add` never reaches the commit. */
-export const commitAll = (message: string): string => `git add -A &&\n${commitAllowEmpty(message)}`
+/** `git add -A || exit 1` (an `&&` left side would not abort under `set -e`) then `commitAllowEmpty`. */
+export const commitAll = (message: string): string =>
+  `git add -A || exit 1\n${commitAllowEmpty(message)}`
 
 /** No current caller — see `Git.ts`'s `GitWriterOperations.commitAsIs` for why it's kept anyway. */
 export const commitAsIs = (message: string): string => commitAllowEmpty(message)
@@ -51,6 +52,19 @@ export const updateRef = (ref: string, hash: string): string =>
 
 /** `git update-ref -d <ref>` — idempotent: deleting a missing ref is already a no-op in real git. */
 export const deleteRef = (ref: string): string => `git update-ref -d ${shellQuote(ref)}`
+
+/**
+ * No `+` on the refspec: a local ref the remote's tip does not descend from
+ * fails the fetch instead of being overwritten (a fast-forward still applies).
+ */
+export const fetchHistoryRefs = (remote: string): string =>
+  [
+    `set -eu`,
+    `before=$(git for-each-ref --format='x' 'refs/gtd/history/' | wc -l)`,
+    `git fetch ${shellQuote(remote)} 'refs/gtd/history/*:refs/gtd/history/*'`,
+    `after=$(git for-each-ref --format='x' 'refs/gtd/history/' | wc -l)`,
+    `printf '%s history refs arrived\\n' "$((after - before))"`,
+  ].join("\n")
 
 // ── ScriptSurface: LandStep[] → shell ────────────────────────────────────────
 //
@@ -84,6 +98,8 @@ const renderGitWrite = (write: GitWrite): string => {
   switch (write.kind) {
     case "commitAll":
       return commitAll(write.message)
+    case "updateRef":
+      return updateRef(write.ref, write.target)
   }
 }
 

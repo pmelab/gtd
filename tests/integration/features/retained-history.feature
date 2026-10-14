@@ -3,8 +3,8 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
 
   `gtd abandon` rewinds a process still underway, retaining the pre-abandon
   tip on `refs/worktree/gtd/history` (see `src/platform/RetainedHistory.ts`) before it
-  acts — its only writer; `gtd land` never moves HEAD, so it never touches
-  this ref. `gtd restore` is the way back: it hard-resets HEAD to the
+  acts — its only writer. (A finished process keeps a different ref,
+  `refs/gtd/history/*`, written by the landing script that finishes the process.) `gtd restore` is the way back: it hard-resets HEAD to the
   retained tip and clears the ref — purely `abandon`'s inverse.
 
   It is guarded by `restorability` so it never discards work it didn't

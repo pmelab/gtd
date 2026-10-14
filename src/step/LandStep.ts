@@ -6,7 +6,9 @@ import type { StateName } from "../workflow/index.js"
  * that module, which is what makes writing a live git call inside the core
  * impossible rather than merely discouraged.
  */
-export type GitWrite = { readonly kind: "commitAll"; readonly message: string }
+export type GitWrite =
+  | { readonly kind: "commitAll"; readonly message: string }
+  | { readonly kind: "updateRef"; readonly ref: string; readonly target: "HEAD" }
 
 /** A landed step's trailing report, rendered by `GitScript.ts` into a `printf` line. */
 export type Outcome =

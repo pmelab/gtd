@@ -1,9 +1,11 @@
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Option } from "effect"
 import { describe, expect, it } from "vitest"
 import { runCli } from "../cli/index.js"
 import {
   currentRest,
+  closedRunAt,
   currentRun,
+  historyTrail,
   noProcessUnderway,
   renderRest,
   restAt,
@@ -16,6 +18,8 @@ import {
   UNATTRIBUTED_MODEL,
   type RestRequirements,
 } from "./Edge.js"
+import { GTD_VERSION } from "../install/index.js"
+import { processHistoryRef } from "../platform/index.js"
 import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
 import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
 import {
@@ -1012,5 +1016,256 @@ describe("the pending working tree is read at most once per restAt, and never st
     // memo (rather than the per-`ReplaySetup` one) would have kept `calls()`
     // at 1 and `snap2` stuck on the first request's tree.
     expect(calls()).toBe(2)
+  })
+})
+
+describe("closedRunAt", () => {
+  it("is the run summaryRun reads when HEAD is the tip", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    const tip = await land(repo, { "c.txt": "c\n" })
+    expect(await provide(closedRunAt(tip), repo)).toEqual(await provide(summaryRun, repo))
+  })
+
+  it("resolves the closed run with HEAD elsewhere", async () => {
+    const repo = repoWith(LINEAR)
+    const building = await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    const tip = await land(repo, { "c.txt": "c\n" })
+    const closed = await provide(closedRunAt(tip), repo)
+    repo.writeFile("d.txt", "d\n")
+    repo.commitAllWithPrefix("chore: unrelated")
+    const later = await provide(closedRunAt(tip), repo)
+    expect(later).toEqual(closed)
+    expect(later.closingHash).toBe(tip)
+    expect(later.startHash).toBe(building)
+  })
+})
+
+describe("finishing landings keep history", () => {
+  const landingOf = async (repo: InMemRepo, git?: GitOperations) => {
+    const rest = await provide(currentRest, repo)
+    const eff = snapshotFromRest(rest)
+    const snapshot = await (git === undefined ? provide(eff, repo) : provideWithGit(eff, git, repo))
+    const landing = snapshot.landing
+    if (landing.kind !== "commit") throw new Error(`expected commit, got ${landing.kind}`)
+    return landing
+  }
+
+  it("flow return: keeps refs/gtd/history/<startHash>, records version and branch", async () => {
+    const repo = repoWith(LINEAR)
+    const building = await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    repo.writeFile("c.txt", "c\n")
+    const landing = await landingOf(repo)
+    expect(landing.to).toBe("idle")
+    expect(landing.keepHistory).toBe(processHistoryRef(building))
+    expect(landing.spec.version).toBe(GTD_VERSION)
+    expect(landing.spec.branch).toBe(repo.branchName())
+  })
+
+  it("restart() is a finish too", async () => {
+    const repo = repoWith(`import { agent, human, restart } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await agent("building", "build-prompt")
+  await restart()
+}
+`)
+    const building = await land(repo, { "a.txt": "a\n" })
+    repo.writeFile("b.txt", "b\n")
+    const landing = await landingOf(repo)
+    expect(landing.to).toBe("idle")
+    expect(landing.keepHistory).toBe(processHistoryRef(building))
+  })
+
+  it("starting landings and mid-process landings carry no keepHistory and no new trailers", async () => {
+    const repo = repoWith(LINEAR)
+    repo.writeFile("a.txt", "a\n")
+    const starting = await landingOf(repo)
+    expect(starting.to).toBe("building")
+    expect(starting.keepHistory).toBeUndefined()
+    expect(starting.spec.version).toBeUndefined()
+    expect(starting.spec.branch).toBeUndefined()
+    await land(repo, { "a.txt": "a\n" })
+    repo.writeFile("b.txt", "b\n")
+    const mid = await landingOf(repo)
+    expect(mid.to).toBe("checking")
+    expect(mid.keepHistory).toBeUndefined()
+    expect(mid.spec.version).toBeUndefined()
+    expect(mid.spec.branch).toBeUndefined()
+  })
+
+  it("detached HEAD keeps history but records no branch", async () => {
+    const repo = repoWith(LINEAR)
+    const building = await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    repo.writeFile("c.txt", "c\n")
+    const detached: GitOperations = {
+      ...fakeGitOperations(repo),
+      currentBranch: () => Effect.succeed(Option.none()),
+    }
+    const landing = await landingOf(repo, detached)
+    expect(landing.keepHistory).toBe(processHistoryRef(building))
+    expect(landing.spec.version).toBe(GTD_VERSION)
+    expect(landing.spec.branch).toBeUndefined()
+  })
+
+  it("a --workflow process's entry is its opening commit", async () => {
+    const repo = repoWith(`import { agent, human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await agent("building", "build-prompt")
+}
+
+export const side = async () => {
+  await agent("fixing", "fix-prompt")
+}
+`)
+    const opening = await enter(repo, "side")
+    repo.writeFile("a.txt", "a\n")
+    const landing = await landingOf(repo)
+    expect(landing.to).toBe("idle")
+    expect(landing.keepHistory).toBe(processHistoryRef(opening))
+  })
+
+  it("the landing script overwrites an existing ref with its own commit", async () => {
+    const repo = repoWith(LINEAR)
+    const building = await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    const ref = processHistoryRef(building)
+    repo.updateRef(ref, building)
+    const tip = await land(repo, { "c.txt": "c\n" })
+    expect(repo.resolveRef(ref)).toBe(tip)
+  })
+})
+
+describe("historyTrail", () => {
+  const finished = async (config = LINEAR) => {
+    const repo = repoWith(config)
+    const building = await land(repo, { "a.txt": "a\n" })
+    const checking = await land(repo, { "b.txt": "b\n" })
+    const tip = await land(repo, { "c.txt": "c\n" })
+    return { repo, building, checking, tip }
+  }
+
+  it("replays every commit of the closed run, with HEAD elsewhere", async () => {
+    const { repo, building, checking, tip } = await finished()
+    repo.writeFile("d.txt", "d\n")
+    repo.commitAllWithPrefix("chore: unrelated")
+    const trail = await provide(historyTrail(tip), repo)
+    expect(trail.tip).toBe(tip)
+    expect(trail.ended).toBe("return")
+    expect(trail.steps.map((s) => s.hash)).toEqual([building, checking, tip])
+    expect(trail.steps[2]).toMatchObject({
+      subject: "gtd(agent): checking → idle",
+      actor: "agent",
+      from: "checking",
+      to: "idle",
+      verdicts: [],
+    })
+    expect(trail.steps[0]).toMatchObject({ actor: "human", to: "building" })
+  })
+
+  it("a restart() ends the trail as restart", async () => {
+    const repo = repoWith(`import { agent, human, restart } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await agent("building", "build-prompt")
+  await restart()
+}
+`)
+    await land(repo, { "a.txt": "a\n" })
+    const tip = await land(repo, { "b.txt": "b\n" })
+    expect((await provide(historyTrail(tip), repo)).ended).toBe("restart")
+  })
+
+  it("carries each judge verdict on the commit that recorded it", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    const verdictCommit = commit(
+      repo,
+      {
+        actor: "agent",
+        from: "building",
+        to: "checking",
+        step: { name: "building", occurrence: 1 },
+        judge: [{ id: "q", answer: "yes", p: 0.9 }],
+      },
+      { "b.txt": "b\n" },
+    )
+    const tip = await land(repo, { "c.txt": "c\n" })
+    const trail = await provide(historyTrail(tip), repo)
+    expect(trail.steps.find((s) => s.hash === verdictCommit)?.verdicts).toEqual([
+      { id: "q", answer: "yes", p: 0.9 },
+    ])
+    expect(trail.steps.filter((s) => s.verdicts.length > 0)).toHaveLength(1)
+  })
+
+  it("records the version and warns about none while they match", async () => {
+    const { repo, tip } = await finished()
+    const trail = await provide(historyTrail(tip), repo)
+    expect(trail.version).toEqual({ recorded: GTD_VERSION, running: GTD_VERSION })
+    expect(trail.versionWarning).toBeUndefined()
+  })
+
+  const withTipMessage = (repo: InMemRepo, edit: (message: string) => string): GitOperations => {
+    const real = fakeGitOperations(repo)
+    return {
+      ...real,
+      lastCommitMessage: (ref) => Effect.map(real.lastCommitMessage(ref), edit),
+    }
+  }
+
+  it("warns, never refuses, when the recorded version differs", async () => {
+    const { repo, tip } = await finished()
+    const git = withTipMessage(repo, (m) =>
+      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
+    )
+    const trail = await Effect.runPromise(
+      historyTrail(tip).pipe(
+        Effect.provideService(GitService, git),
+        Effect.provide(testLayers(repo, {})),
+      ),
+    )
+    expect(trail.version.recorded).toBe("0.0.1")
+    expect(trail.versionWarning).toContain("0.0.1")
+    expect(trail.versionWarning).toContain(GTD_VERSION)
+  })
+
+  it("a missing recorded version counts as different", async () => {
+    const { repo, tip } = await finished()
+    const git = withTipMessage(repo, (m) => m.replace(/Gtd-Version: .*\n?/, ""))
+    const trail = await Effect.runPromise(
+      historyTrail(tip).pipe(
+        Effect.provideService(GitService, git),
+        Effect.provide(testLayers(repo, {})),
+      ),
+    )
+    expect(trail.version.recorded).toBeUndefined()
+    expect(trail.versionWarning).toContain(GTD_VERSION)
+  })
+
+  it("refuses naming the config file that differs at the tip", async () => {
+    const { repo, tip } = await finished()
+    repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
+    repo.commitAllWithPrefix("chore: edit config")
+    const exit = await provideExit(historyTrail(tip), repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(String(Exit.isFailure(exit) && exit.cause)).toContain("gtd.config.ts")
+  })
+
+  it("refuses naming a config file missing from the tip", async () => {
+    const { repo, tip } = await finished()
+    repo.writeFile("gtd.config.ts", `import "./extra.ts"\n${LINEAR}`)
+    repo.writeFile("extra.ts", "export {}\n")
+    repo.commitAllWithPrefix("chore: split config")
+    const exit = await provideExit(historyTrail(tip), repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(String(Exit.isFailure(exit) && exit.cause)).toContain("gtd.config.ts")
   })
 })

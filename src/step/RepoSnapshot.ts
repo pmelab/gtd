@@ -11,7 +11,13 @@ export type Landing =
   | { readonly kind: "noop"; readonly settled: boolean }
   /** An empty agent turn: recorded, but the process stays at the step. */
   | { readonly kind: "attempt"; readonly subject: string }
-  | { readonly kind: "commit"; readonly to: StateName; readonly spec: CommitSpec }
+  | {
+      readonly kind: "commit"
+      readonly to: StateName
+      readonly spec: CommitSpec
+      /** The full history ref a finishing landing points at its own commit. */
+      readonly keepHistory?: string
+    }
 
 /**
  * Everything `planStep` needs, already resolved

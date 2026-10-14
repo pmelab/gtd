@@ -1,6 +1,6 @@
 set -eu
 
-git add -A &&
+git add -A || exit 1
 if ! out=$(git commit --allow-empty -m 'gtd(agent): sample' 2>&1); then
   case "$out" in
     *"empty git commit"*) git commit --allow-empty --no-verify -m 'gtd(agent): sample' ;;

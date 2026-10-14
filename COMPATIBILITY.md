@@ -23,24 +23,26 @@ histories written by an older or newer gtd.
   field is removed or renamed. No read-back: gtd writes only the current
   `schema`, and a driver refuses one it does not read.
 - **History format** — what replay reads back out of git, in
-  [History format](docs/configuration.md#history-format). Versioned by the
-  `Gtd-Format` trailer on every commit gtd writes, bumped when an encoding
-  replay reads changes incompatibly. Read-back covers the current format and,
-  after a bump, at least the one before it; an unreadable format is refused with
-  exit `1`. A new trailer that replay does not need to read a history — one an
-  older gtd skips as unknown and a newer gtd treats as absent on older commits —
-  is additive and does not bump `Gtd-Format`. `Gtd-Config:` is one: it only
-  feeds a warning, never a step.
+  [History format](docs/configuration.md#history-format). The retained
+  `refs/gtd/history/<entry>` refs are part of it. Versioned by the `Gtd-Format`
+  trailer on every commit gtd writes, bumped when an encoding replay reads
+  changes incompatibly. Read-back covers the current format and, after a bump,
+  at least the one before it; an unreadable format is refused with exit `1`. A
+  new trailer that replay does not need to read a history — one an older gtd
+  skips as unknown and a newer gtd treats as absent on older commits — is
+  additive and does not bump `Gtd-Format`. `Gtd-Config:` is one: it only feeds a
+  warning, never a step.
 
 ## Follows package SemVer
 
 - **CLI commands and flags** — every command (`next`, `land`, `abandon`,
   `restore`, `validate`, `check`, `uncheck`, `install`, `summary`, `base`,
-  `door`, `doors`, `version`, `help`, `ui`, `lsp`, `loop`, `judge`,
-  `judge answer`, `judge run`), option and argument in
-  [CLI reference](docs/cli.md), the doors the bundled `fix` and `review` build
-  (`fix`, `review [base]`), and the `gtd doors --json` array (a bare array with
-  no `schema`).
+  `door`, `doors`, `history list`, `history show`, `history fetch`, `version`,
+  `help`, `ui`, `lsp`, `loop`, `judge`, `judge answer`, `judge run`), option and
+  argument in [CLI reference](docs/cli.md), the doors the bundled `fix` and
+  `review` build (`fix`, `review [base]`), and the `gtd doors --json` and
+  `gtd history list --json` arrays (bare arrays with no `schema`), and
+  `gtd history show --json` (no `schema`; not a driver document).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
   stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
   [Error envelope](docs/cli.md#error-envelope).

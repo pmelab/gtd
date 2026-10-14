@@ -13,4 +13,5 @@ export {
   previewLanding,
   snapshotFromRest,
   summaryFor,
+  historyTrail,
 } from "./Edge.js"

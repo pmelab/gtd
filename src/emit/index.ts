@@ -20,6 +20,7 @@ export {
   discardPending,
   updateRef,
   deleteRef,
+  fetchHistoryRefs,
   type RunnableScript,
   ScriptSurface,
 } from "./GitScript.js"

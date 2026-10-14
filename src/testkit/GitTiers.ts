@@ -26,6 +26,7 @@ import {
   hardResetTo,
   discardPending,
   updateRef,
+  fetchHistoryRefs,
   deleteRef,
 } from "../emit/index.js"
 import { InMemRepo } from "./InMemRepo.js"
@@ -88,6 +89,18 @@ const makeLiveTier = (initialCommit = true): GitTier => {
   // symlink to `/private/tmp` — `git` reports the resolved path).
   const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-git-tier-")))
   const gitExec = (...args: string[]) => gitExecIn(root, ...args)
+  // Distinct, increasing committer dates, so ref ordering by tip date is deterministic.
+  let tick = 0
+  const commitEnv = () => ({
+    ...process.env,
+    GIT_COMMITTER_DATE: new Date(Date.UTC(2024, 0, 1, 0, 0, ++tick)).toISOString(),
+  })
+  const gitCommit = (message: string, allowEmpty = false) =>
+    execFileSync("git", ["commit", ...(allowEmpty ? ["--allow-empty"] : []), "-m", message], {
+      cwd: root,
+      env: commitEnv(),
+      stdio: "pipe",
+    })
   gitExec("init")
   gitExec(`config user.email "test@test.com"`)
   gitExec(`config user.name "Test"`)
@@ -95,7 +108,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
   if (initialCommit) {
     writeFileSync(join(root, "readme.txt"), "hello")
     gitExec("add", "-A")
-    gitExec(`commit -m "init: first commit"`)
+    gitCommit("init: first commit")
   }
 
   const provide = <A>(eff: Effect.Effect<A, Error, GitService | Narrator>): Promise<A> =>
@@ -142,7 +155,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         // --allow-empty: a caller passing `files: {}` (no prior staged
         // change either) means a deliberate empty commit — the state-entry
         // shape many test seeders rely on.
-        gitExec(`commit --allow-empty -m "${message}"`)
+        gitCommit(message, true)
       },
       writeFile: (path, content) => {
         mkdirSync(dirname(join(root, path)), { recursive: true })
@@ -259,6 +272,8 @@ const runGitExit = <A>(
 export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new Set([
   "lastCommitSubject",
   "lastCommitMessage",
+  "currentBranch",
+  "listRefs",
   "hasCommits",
   "resolveRef",
   "readRefOption",
@@ -364,6 +379,73 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       t.seed.commit("feat: subject only")
       const message = await runGit(t, (g) => g.lastCommitMessage())
       expect(message).toBe("feat: subject only")
+    })
+  })
+
+  describe("lastCommitMessage with a ref", () => {
+    it("reads the given ref's full message, not HEAD's", async () => {
+      t.seed.commit("feat: first\n\nGtd-Branch: one")
+      t.seed.commit("feat: second", { "extra.txt": "extra" })
+      const message = await runGit(t, (g) => g.lastCommitMessage("HEAD~1"))
+      expect(message).toBe("feat: first\n\nGtd-Branch: one")
+    })
+  })
+
+  describe("currentBranch", () => {
+    it("is the checked-out branch's name", async () => {
+      const branch = await runGit(t, (g) => g.currentBranch())
+      expect(Option.isSome(branch)).toBe(true)
+    })
+
+    it.skipIf(!capabilities.onDiskContent)(
+      "is none on a detached HEAD, never a failure",
+      async () => {
+        gitExecIn(t.root, "checkout", "--detach", "HEAD")
+        const branch = await runGit(t, (g) => g.currentBranch())
+        expect(Option.isNone(branch)).toBe(true)
+      },
+    )
+  })
+
+  describe("listRefs", () => {
+    it("is [] when no ref lives under the prefix", async () => {
+      const refs = await runGit(t, (g) => g.listRefs("refs/gtd/history/"))
+      expect(refs).toEqual([])
+    })
+
+    it("lists {ref, hash, date} for refs under the prefix only, newest tip first", async () => {
+      const first = t.observe.resolveRef("HEAD")
+      t.seed.commit("feat: second", { "second.txt": "2" })
+      const second = t.observe.resolveRef("HEAD")
+      t.seed.updateRef("refs/gtd/history/old", first)
+      t.seed.updateRef("refs/gtd/history/new", second)
+      t.seed.updateRef("refs/gtd/other/elsewhere", second)
+      const refs = await runGit(t, (g) => g.listRefs("refs/gtd/history/"))
+      expect(refs.map((r) => [r.ref, r.hash])).toEqual([
+        ["refs/gtd/history/new", second],
+        ["refs/gtd/history/old", first],
+      ])
+      for (const r of refs) expect(r.date.length).toBeGreaterThan(0)
+    })
+
+    it("reports the date as ISO 8601 strict", async () => {
+      t.seed.updateRef("refs/gtd/history/x", t.observe.resolveRef("HEAD"))
+      const [entry] = await runGit(t, (g) => g.listRefs("refs/gtd/history/"))
+      expect(entry?.date).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/)
+    })
+  })
+
+  describe("history reachable only from a retained ref", () => {
+    it("commitHistory and readFileAtRef read it after HEAD moved off those commits", async () => {
+      t.seed.commit("feat: second", { "kept.txt": "kept" })
+      const tip = t.observe.resolveRef("HEAD")
+      t.seed.updateRef("refs/gtd/history/tip", tip)
+      t.seed.mixedReset("HEAD~1")
+      expect(t.observe.resolveRef("HEAD")).not.toBe(tip)
+      const history = await runGit(t, (g) => g.commitHistory(undefined, "refs/gtd/history/tip"))
+      expect(history.map((c) => c.message)).toEqual(["init: first commit", "feat: second"])
+      const content = await runGit(t, (g) => g.readFileAtRef("refs/gtd/history/tip", "kept.txt"))
+      expect(content).toBe("kept")
     })
   })
 
@@ -1036,6 +1118,12 @@ export const runGitScriptContract = (): void => {
       expect(t.observe.resolveRef("refs/gtd/marker")).toBe(head)
     })
 
+    it("updateRef with HEAD points the ref at the commit just made", () => {
+      execScript(t, commitAll("feat: just made"))
+      execScript(t, updateRef("refs/gtd/history/x", "HEAD"))
+      expect(t.observe.resolveRef("refs/gtd/history/x")).toBe(t.observe.resolveRef("HEAD"))
+    })
+
     it("deleteRef removes an existing ref, and tolerates deleting it again", () => {
       const head = t.observe.resolveRef("HEAD")
       execScript(t, updateRef("refs/gtd/marker", head))
@@ -1047,6 +1135,49 @@ export const runGitScriptContract = (): void => {
     it("deleteRef tolerates a ref that was never created", () => {
       expect(() => execScript(t, deleteRef("refs/gtd/never-created"))).not.toThrow()
       expect(t.observe.refExists("refs/gtd/never-created")).toBe(false)
+    })
+  })
+
+  describe("fetchHistoryRefs", () => {
+    it("pulls every refs/gtd/history/* from a bare remote and prints the count", () => {
+      const bare = realpathSync(mkdtempSync(join(tmpdir(), "gtd-git-tier-bare-")))
+      try {
+        gitExecIn(bare, "init", "-q", "--bare")
+        gitExecIn(t.root, "remote", "add", "origin", bare)
+        const head = t.observe.resolveRef("HEAD")
+        gitExecIn(t.root, "push", "-q", "origin", `${head}:refs/gtd/history/one`)
+        gitExecIn(t.root, "push", "-q", "origin", `${head}:refs/gtd/history/two`)
+        gitExecIn(t.root, "push", "-q", "origin", `${head}:refs/gtd/other/skip`)
+        const out = execFileSync("bash", ["-c", fetchHistoryRefs("origin")], {
+          cwd: t.root,
+          encoding: "utf8",
+        })
+        expect(t.observe.refExists("refs/gtd/history/one")).toBe(true)
+        expect(t.observe.refExists("refs/gtd/history/two")).toBe(true)
+        expect(t.observe.refExists("refs/gtd/other/skip")).toBe(false)
+        expect(out.trim()).toBe("2 history refs arrived")
+      } finally {
+        rmSync(bare, { recursive: true, force: true })
+      }
+    })
+
+    it("fails loudly when a local history ref conflicts with the remote's", () => {
+      const bare = realpathSync(mkdtempSync(join(tmpdir(), "gtd-git-tier-bare-")))
+      try {
+        gitExecIn(bare, "init", "-q", "--bare")
+        gitExecIn(t.root, "remote", "add", "origin", bare)
+        const first = t.observe.resolveRef("HEAD")
+        t.seed.commit("feat: second", { "second.txt": "x" })
+        const second = t.observe.resolveRef("HEAD")
+        gitExecIn(t.root, "push", "-q", "origin", `${first}:refs/gtd/history/one`)
+        t.seed.updateRef("refs/gtd/history/one", second)
+        expect(() =>
+          execFileSync("bash", ["-c", fetchHistoryRefs("origin")], { cwd: t.root, stdio: "pipe" }),
+        ).toThrow()
+        expect(t.observe.resolveRef("refs/gtd/history/one")).toBe(second)
+      } finally {
+        rmSync(bare, { recursive: true, force: true })
+      }
     })
   })
 }

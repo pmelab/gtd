@@ -92,15 +92,17 @@ const FLAGS: readonly FlagRow[] = [
       kind === "land" ||
       kind === "judge" ||
       kind === "judgeAnswer" ||
-      kind === "doors",
+      kind === "doors" ||
+      kind === "historyList" ||
+      kind === "historyShow",
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors` — " +
+      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd history list`/`gtd history show` — " +
       "every other command prints plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "<path>",
     help: [
-      "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors only) output",
-      "structured JSON. Bare --json prints the whole document;",
+      "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history",
+      "list/gtd history show only) output structured JSON. Bare --json prints the whole document;",
       "--json=<path> (a dotted key path into that document, e.g.",
       "kind, content, session.id) prints just that value: a",
       "scalar raw and unquoted, a boolean as true/false, a list",
@@ -366,6 +368,8 @@ type Arity =
   | { readonly names: readonly [string, string] }
   // One required leading positional, then any number the command itself judges.
   | { readonly name: string; readonly variadic: string }
+  // At most one trailing positional.
+  | { readonly name: string; readonly optional: true }
 
 interface CommandRow {
   readonly token: string
@@ -661,6 +665,41 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "every question, with nothing on stdout",
     ],
   },
+  {
+    token: "history list",
+    kind: "historyList",
+    arity: "none",
+    details: [
+      "List the finished processes kept behind refs/gtd/history/*,",
+      "newest first: entry, branch, tip, date and subject per line.",
+      "--json prints one array of { ref, entry, branch, tip, date,",
+      "subject }. Writes nothing and never replays; with no refs it",
+      "hints at `gtd history fetch | sh` and still exits 0",
+    ],
+  },
+  {
+    token: "history show",
+    kind: "historyShow",
+    arity: { name: "ref" },
+    details: [
+      "Replay one kept process under today's config and print its",
+      "steps and judge verdicts. <ref> is a full ref, an entry hash",
+      "(or unique prefix) or a branch name. Refuses (exit 1) when a",
+      "config file differs from its content at the ref's tip. A",
+      "version mismatch only warns on stderr. --json prints the",
+      "trail as one document; writes nothing",
+    ],
+  },
+  {
+    token: "history fetch",
+    kind: "historyFetch",
+    arity: { name: "remote", optional: true },
+    details: [
+      "Print a script that fetches every refs/gtd/history/* from",
+      "<remote> (default origin) and reports how many arrived — run",
+      "it with `gtd history fetch | sh`. Never runs git itself",
+    ],
+  },
 ]
 
 const commandByToken = (token: string): CommandRow | undefined =>
@@ -708,7 +747,9 @@ export const renderHelp = (): string => {
           ? `${row.token} <${row.arity.names[0]}> <${row.arity.names[1]}>`
           : "variadic" in row.arity
             ? `${row.token} <${row.arity.name}> [${row.arity.variadic}...]`
-            : `${row.token} <${row.arity.name}>`
+            : "optional" in row.arity
+              ? `${row.token} [${row.arity.name}]`
+              : `${row.token} <${row.arity.name}>`
     return renderBlock(header, row.details)
   })
   const commands = [
@@ -883,6 +924,11 @@ const arityError = (cmd: string, rest: readonly string[], arity: Arity): string 
       : undefined
   }
   if ("names" in arity) return pairArityError(cmd, rest, arity.names)
+  if ("optional" in arity) {
+    return rest.length > 1
+      ? `gtd ${cmd}: too many arguments — expected at most one ${arity.name}, got: ${rest.join(", ")}`
+      : undefined
+  }
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
   if (!("variadic" in arity) && rest.length > 1) {
     return `gtd ${cmd}: too many arguments — expected one ${arity.name}, got: ${rest.join(", ")}`
@@ -950,7 +996,18 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   if (first === "version") return { kind: "output", stdout: `${GTD_VERSION}\n` }
   if (first === "help") return { kind: "output", stdout: renderHelp() }
 
-  const row = first === undefined ? undefined : commandByToken(first)
+  const isHistory = first === "history"
+  const row =
+    first === undefined
+      ? undefined
+      : commandByToken(isHistory ? `history ${positionals[1] ?? ""}` : first)
+
+  if (isHistory && row === undefined) {
+    return usagePlan(
+      "gtd history: expected a subcommand — list, show <ref> or fetch [remote]",
+      jsonSeen,
+    )
+  }
 
   // `gtd judge answer` — the CLI's one two-level verb. The NORMAL path is
   // "answer" arriving as `positionals[1]`, a second token after "judge" —
@@ -1005,7 +1062,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   // From here, `kind` is a genuine `Command["kind"]`. `judgeAnswer` consumes
   // TWO leading positionals ("judge" and "answer"), everything else one.
   const restPositionals =
-    first === undefined ? positionals : positionals.slice(judgeAnswer || judgeRun ? 2 : 1)
+    first === undefined
+      ? positionals
+      : positionals.slice(judgeAnswer || judgeRun || isHistory ? 2 : 1)
 
   if (kind === "start" && first === undefined) {
     if (restPositionals.length > 0) {
@@ -1019,7 +1078,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     // `first === undefined`, which the `if` branch above already handled.
     const bareCheck =
       kind === "check" && restPositionals.length === 0 && present.has("--open-threads")
-    const arityMsg = bareCheck ? undefined : arityError(first!, restPositionals, row!.arity)
+    const arityMsg = bareCheck
+      ? undefined
+      : arityError(isHistory ? row!.token : first!, restPositionals, row!.arity)
     if (arityMsg !== undefined) return usagePlan(arityMsg, jsonSeen)
   }
 
@@ -1147,6 +1208,24 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
+  if (kind === "historyShow") {
+    return {
+      kind: "command",
+      command: { kind: "historyShow", ref: restPositionals[0]! },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "historyFetch") {
+    return {
+      kind: "command",
+      command: { kind: "historyFetch", remote: restPositionals[0] ?? "origin" },
+      json,
+      verbose,
+    }
+  }
+
   if (kind === "uncheck") {
     return {
       kind: "command",
@@ -1170,7 +1249,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "summary"
       | "base"
       | "judge"
-      | "judgeAnswer",
+      | "judgeAnswer"
+      | "historyList",
   }
   return { kind: "command", command, json, verbose }
 }

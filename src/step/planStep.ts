@@ -83,6 +83,14 @@ export const planStep = (
     steps: [
       ...uncheckStep(snapshot),
       { kind: "gitWrite", write: { kind: "commitAll", message } },
+      ...(landing.keepHistory !== undefined
+        ? [
+            {
+              kind: "gitWrite",
+              write: { kind: "updateRef", ref: landing.keepHistory, target: "HEAD" },
+            } as const,
+          ]
+        : []),
       outcome,
     ],
   }
