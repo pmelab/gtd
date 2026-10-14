@@ -198,11 +198,19 @@ const viaNode =
       for (const one of [value ?? []].flat()) headers.append(name, one)
     }
     const hasBody = req.method !== "GET" && req.method !== "HEAD"
-    const request = new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
-      method: req.method ?? "GET",
-      headers,
-      ...(hasBody ? { body: Readable.toWeb(req) as ReadableStream, duplex: "half" } : {}),
-    } as RequestInit)
+    let request: Request
+    try {
+      // A fixed origin: the client's Host header is not trusted to parse.
+      request = new Request(new URL(req.url ?? "/", "http://localhost"), {
+        method: req.method ?? "GET",
+        headers,
+        ...(hasBody ? { body: Readable.toWeb(req) as ReadableStream, duplex: "half" } : {}),
+      } as RequestInit)
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
     void handler(request, (callback) => res.once("finish", callback)).then(
       async (response) => {
         res.writeHead(response.status, Object.fromEntries(response.headers))

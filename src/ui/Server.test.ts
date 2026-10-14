@@ -608,6 +608,40 @@ describe("UiListener.Live", () => {
     }
   })
 
+  it("answers a request whose Host header is no valid URL authority, and keeps serving", async () => {
+    const service = await Effect.runPromise(
+      Effect.gen(function* () {
+        return yield* UiListener
+      }).pipe(Effect.provide(UiListener.Live)),
+    )
+    const bound = await Effect.runPromise(
+      service.listen({
+        host: "127.0.0.1",
+        port: 0,
+        handler: (request) => Promise.resolve(new Response(new URL(request.url).pathname)),
+      }),
+    )
+    const raw = (head: string) =>
+      new Promise<string>((resolve, reject) => {
+        const socket = net.connect(bound.port, "127.0.0.1", () =>
+          socket.end(`${head}\r\nConnection: close\r\n\r\n`),
+        )
+        let reply = ""
+        socket.on("data", (chunk) => (reply += chunk))
+        socket.on("end", () => resolve(reply))
+        socket.on("error", reject)
+      })
+    try {
+      expect(await raw("GET /state HTTP/1.1\r\nHost: [")).toMatch(
+        /^HTTP\/1\.1 200[\s\S]*\r\n\/state\r\n/,
+      )
+      expect(await raw("GET http://[ HTTP/1.1\r\nHost: x")).toMatch(/^HTTP\/1\.1 400/)
+      expect(await raw("GET /again HTTP/1.1\r\nHost: x")).toMatch(/\r\n\/again\r\n/)
+    } finally {
+      bound.close()
+    }
+  })
+
   it("refuses with a UiError naming EADDRINUSE when the port is already bound", async () => {
     const occupied = net.createServer()
     await new Promise<void>((resolve) => occupied.listen(0, "127.0.0.1", resolve))
