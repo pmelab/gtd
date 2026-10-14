@@ -266,10 +266,14 @@ const memoized = (transform: Transform): Transform => {
 
 let jitiModule: JitiModule | undefined
 let transform: Transform | undefined
-const jiti = (
-  shipped: ShippedModules,
-  local: Readonly<Record<string, unknown>> = {},
-): JitiInstance => {
+/** Relative specifiers a module imports, served from somewhere other than the disk. */
+interface LocalModules {
+  /** The path a specifier names, or nothing when it names no module. */
+  readonly resolve: (specifier: string) => string | undefined
+  readonly load: (path: string) => unknown
+}
+
+const jiti = (shipped: ShippedModules, local?: LocalModules): JitiInstance => {
   const require = createRequire(import.meta.url)
   jitiModule ??= require("jiti") as JitiModule
   // jiti's own Babel transform, which its package exports don't name.
@@ -277,12 +281,15 @@ const jiti = (
     require(join(dirname(require.resolve("jiti/package.json")), "dist", "babel.cjs")) as Transform,
   )
   return jitiModule.createJiti(import.meta.url, {
-    // Read when a module is required, so local modules registered after
-    // creation still resolve.
+    // Consulted when a module is required, so a local module is evaluated
+    // only once an import actually runs.
     virtualModules: new Proxy(shipped.modules, {
-      has: (modules, id) => id in local || id in modules,
-      get: (modules, id) =>
-        typeof id === "string" && id in local ? local[id] : modules[id as string],
+      has: (modules, id) =>
+        id in modules || (typeof id === "string" && local?.resolve(id) !== undefined),
+      get: (modules, id) => {
+        const path = typeof id === "string" ? local?.resolve(id) : undefined
+        return path === undefined ? modules[id as string] : local!.load(path)
+      },
     }),
     alias: shipped.missing,
     // No transpile cache on disk, and a fresh module every load — nothing a
@@ -643,10 +650,6 @@ const evaluateFromDisk = (
   return { exports, files: Object.keys(cache) }
 }
 
-// A relative module specifier in an import, a dynamic import or a require.
-const LOCAL_SPECIFIER =
-  /(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)(["'])(\.\.?\/[^"']+)\2/g
-
 // How jiti finds a TypeScript module behind a specifier: as written, its
 // `.js` spelling as `.ts`, with `.ts` appended, or as a directory index.
 const moduleCandidates = (path: string): readonly string[] => [
@@ -659,36 +662,37 @@ const moduleCandidates = (path: string): readonly string[] => [
 
 /**
  * Evaluates the config with every local module it imports taken from `read`
- * instead of the disk: each is evaluated in turn and served under a virtual
- * id its importer's specifier is rewritten to. A specifier `read` cannot
- * serve is left alone, so it fails the way a missing file does.
+ * instead of the disk. jiti matches a virtual module on the specifier as
+ * written, so each module gets its own instance resolving against its own
+ * directory. A specifier `read` cannot serve falls through to the disk, and
+ * fails the way a missing file does.
  */
 const evaluateRead = (
   module: WorkflowModule,
   read: (path: string) => string | undefined,
   shipped: ShippedModules,
 ): { readonly exports: unknown; readonly files: readonly string[] } => {
-  const local: Record<string, unknown> = {}
-  const instance = jiti(shipped, local)
   const files = [module.filepath]
-  const rewrite = (filepath: string, source: string): string =>
-    source.replace(LOCAL_SPECIFIER, (match, head: string, quote: string, specifier: string) => {
-      const path = moduleCandidates(join(dirname(filepath), specifier)).find(
-        (candidate) => read(candidate) !== undefined,
-      )
-      if (path === undefined) return match
-      const id = `gtd-local:${path}`
-      if (!(id in local)) {
-        local[id] = {}
-        files.push(path)
-        local[id] = instance.evalModule(rewrite(path, read(path)!), { filename: path })
-      }
-      return `${head}${quote}${id}${quote}`
-    })
-  const exports = instance.evalModule(rewrite(module.filepath, module.source), {
-    filename: module.filepath,
-  })
-  return { exports, files }
+  const evaluated = new Map<string, unknown>()
+  const evaluate = (filepath: string, source: string): unknown =>
+    jiti(shipped, {
+      resolve: (specifier) =>
+        /^\.\.?\//.test(specifier)
+          ? moduleCandidates(join(dirname(filepath), specifier)).find(
+              (candidate) => read(candidate) !== undefined,
+            )
+          : undefined,
+      load: (path) => {
+        if (!evaluated.has(path)) {
+          // A placeholder first, so an import cycle ends here.
+          evaluated.set(path, {})
+          files.push(path)
+          evaluated.set(path, evaluate(path, read(path)!))
+        }
+        return evaluated.get(path)
+      },
+    }).evalModule(source, { filename: filepath })
+  return { exports: evaluate(module.filepath, module.source), files }
 }
 
 const isWorkflow = (value: unknown): boolean =>

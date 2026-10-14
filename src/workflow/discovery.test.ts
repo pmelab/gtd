@@ -121,6 +121,22 @@ for (const make of [live, inMemory]) {
       })
     })
 
+    it("leaves a specifier in a string alone, and loads a skipped require never", async () => {
+      t = make()
+      const loaded = await t.load({
+        "gtd.config.ts": config(
+          [
+            "const brief = \"look from './word.js'\"",
+            'if (brief === "") require("./optional.js")',
+          ].join("\n"),
+        ),
+        "word.ts": "export const word = 1\n",
+        "optional.ts": 'throw new Error("optional ran")\n',
+      })
+      expect(loaded.names).toEqual(["named"])
+      expect(Object.keys(loaded.fingerprint)).toEqual(["gtd.config.ts"])
+    })
+
     it("fails on an import that is not there, naming it", async () => {
       t = make()
       await expect(
