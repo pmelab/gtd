@@ -1,15 +1,18 @@
 import { After, Given, Then, When } from "quickpickle"
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { spawn } from "node:child_process"
+import { PassThrough } from "node:stream"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import assert from "node:assert"
+import { serveLspOver } from "../../../../src/lsp/index.js"
+import { inMemoryLspIo } from "../lsp-io.js"
 import type { GtdWorld } from "../world.js"
 
-// ── A minimal LSP client: enough of the stdio JSON-RPC framing protocol to
-// drive `gtd lsp` for e2e — not a general-purpose client. Kept self-contained
-// (module-local state keyed by world) rather than added to `GtdWorld` itself,
-// since only this feature ever needs a long-running child process; every
-// other scenario's `runGtd*` is one-shot exec.
+// ── A minimal LSP client: enough of the JSON-RPC framing protocol to drive
+// the server for e2e — not a general-purpose client. Live, it talks to a
+// spawned `gtd lsp` over stdio; in memory, to the same server run in-process
+// over a stream pair. Kept self-contained (module-local state keyed by world)
+// rather than added to `GtdWorld` itself.
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
 const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
@@ -23,7 +26,10 @@ interface JsonRpcResponse {
 }
 
 interface LspClient {
-  readonly proc: ChildProcessWithoutNullStreams
+  readonly send: (data: string) => void
+  readonly stop: () => void
+  /** `initialize`'s `processId`: the in-process server must not watch this process, or exit it. */
+  readonly processId: number | null
   buffer: Buffer
   nextId: number
   readonly pending: Map<number, (response: JsonRpcResponse) => void>
@@ -70,7 +76,7 @@ function popFrame(
 function handleServerRequest(client: LspClient, message: JsonRpcResponse): void {
   client.serverRequests.push(message)
   if (message.id === undefined) return
-  client.proc.stdin.write(frame({ jsonrpc: "2.0", id: message.id, result: { success: true } }))
+  client.send(frame({ jsonrpc: "2.0", id: message.id, result: { success: true } }))
 }
 
 /** Delivers a RESPONSE (no `method`) to one of our own pending requests' waiter, if still waiting. */
@@ -108,12 +114,12 @@ function request(client: LspClient, method: string, params: unknown): Promise<Js
       clearTimeout(timer)
       resolvePromise(response)
     })
-    client.proc.stdin.write(frame({ jsonrpc: "2.0", id, method, params }))
+    client.send(frame({ jsonrpc: "2.0", id, method, params }))
   })
 }
 
 function notify(client: LspClient, method: string, params: unknown): void {
-  client.proc.stdin.write(frame({ jsonrpc: "2.0", method, params }))
+  client.send(frame({ jsonrpc: "2.0", method, params }))
 }
 
 /** Waits for a server-initiated notification/request matching `method` + `predicate` to show up in `serverRequests` — `publishDiagnostics` is fired asynchronously off `didOpen`, with no response to await, so a check for it must poll rather than assume it has already arrived. */
@@ -141,33 +147,65 @@ function waitForServerRequest(
   })
 }
 
-Given("an LSP server started in the test project", (world: GtdWorld) => {
-  const proc = spawn(process.execPath, [GTD_BIN, "lsp"], {
-    cwd: world.repoDir,
-    stdio: ["pipe", "pipe", "pipe"],
-  })
+const connect = (
+  world: GtdWorld,
+  link: Pick<LspClient, "send" | "stop" | "processId">,
+  output: NodeJS.ReadableStream,
+): LspClient => {
   const client: LspClient = {
-    proc,
+    ...link,
     buffer: Buffer.alloc(0),
     nextId: 1,
     pending: new Map(),
     stderr: [],
     serverRequests: [],
   }
-  proc.stdout.on("data", (chunk: Buffer) => {
+  output.on("data", (chunk: Buffer) => {
     client.buffer = Buffer.concat([client.buffer, chunk])
     drain(client)
   })
+  clients.set(world, client)
+  return client
+}
+
+Given("an LSP server started in the test project", (world: GtdWorld) => {
+  if (world.repo !== undefined) {
+    const toServer = new PassThrough()
+    const fromServer = new PassThrough()
+    const io = inMemoryLspIo(world.repoDir, world.repo, (...args) => world.gtdInMem(...args))
+    const server = serveLspOver(io, toServer, fromServer)
+    connect(
+      world,
+      { send: (data) => toServer.write(data), stop: server.close, processId: null },
+      fromServer,
+    )
+    return
+  }
+  const proc = spawn(process.execPath, [GTD_BIN, "lsp"], {
+    cwd: world.repoDir,
+    stdio: ["pipe", "pipe", "pipe"],
+  })
+  const client = connect(
+    world,
+    {
+      send: (data) => proc.stdin.write(data),
+      stop: () => {
+        notify(client, "exit", null)
+        proc.kill()
+      },
+      processId: process.pid,
+    },
+    proc.stdout,
+  )
   proc.stderr.on("data", (chunk: Buffer) => {
     client.stderr.push(chunk.toString("utf-8"))
   })
-  clients.set(world, client)
 })
 
 When("the LSP client sends an initialize request", async (world: GtdWorld) => {
   const client = clients.get(world)!
   const response = await request(client, "initialize", {
-    processId: process.pid,
+    processId: client.processId,
     rootUri: pathToFileURL(world.repoDir).toString(),
     capabilities: {},
   })
@@ -586,6 +624,5 @@ After(async (world: GtdWorld) => {
   const client = clients.get(world)
   if (!client) return
   clients.delete(world)
-  notify(client, "exit", null)
-  client.proc.kill()
+  client.stop()
 })

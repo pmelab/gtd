@@ -5,6 +5,8 @@ import { Effect } from "effect"
 import {
   createConnection,
   ProposedFeatures,
+  StreamMessageReader,
+  StreamMessageWriter,
   TextDocuments,
   TextDocumentSyncKind,
   CodeActionKind,
@@ -541,32 +543,46 @@ export const parseCurrentRest = (stdout: string): CurrentRest => {
 }
 
 /**
- * The Node adapter: process state comes from spawning `gtd` (the same build
- * serving the LSP), the way any driver reads it. A rest only moves when HEAD
- * does, so one `gtd next --json` per root and HEAD serves every request in
- * between — the diagnostics and the outline of the same keystroke included.
+ * The git and gtd reads the server makes. `nodeLspIo` spawns them; an
+ * in-memory twin answers from a fake repository, and
+ * `tests/tooling/lsp-io.test.ts` holds the two to the same answers.
  */
-export const makeNodeLspEnv = (
-  gtd: readonly [string, ...string[]],
-  retryAfterMs = 5000,
-): LspEnv => {
+export interface LspIo {
+  readonly cwd: string
+  /** `dir`'s working-tree root, keeping `dir`'s own spelling; rejects outside a repository. */
+  readonly topLevel: (dir: string) => Promise<string>
+  /** HEAD's hash; rejects in a repository without commits. */
+  readonly head: (root: string) => Promise<string>
+  /** `gtd next --json`'s stdout at `root`; rejects with gtd's stderr on failure. */
+  readonly next: (root: string) => Promise<string>
+}
+
+/** Process state comes from spawning `gtd` — the same build serving the LSP — the way any driver reads it. */
+export const nodeLspIo = (gtd: readonly [string, ...string[]]): LspIo => ({
+  cwd: process.cwd(),
+  // `--show-cdup`, not `--show-toplevel`: the root keeps `dir`'s own spelling
+  // (no symlink resolution), so the URIs built from it match the editor's.
+  topLevel: async (dir) =>
+    resolvePath(dir, (await run("git", ["rev-parse", "--show-cdup"], dir)).trim()),
+  head: async (root) => (await run("git", ["rev-parse", "HEAD"], root)).trim(),
+  next: (root) => run(gtd[0], [...gtd.slice(1), "next", "--json"], root),
+})
+
+/**
+ * A rest only moves when HEAD does, so one `gtd next --json` per root and
+ * HEAD serves every request in between — the diagnostics and the outline of
+ * the same keystroke included.
+ */
+export const makeLspEnv = (io: LspIo, retryAfterMs = 5000): LspEnv => {
   const memo = new Map<
     string,
     { readonly head: string; readonly rest: Promise<CurrentRest>; failedAt?: number }
   >()
   return {
-    cwd: process.cwd(),
-
-    // `--show-cdup`, not `--show-toplevel`: the root keeps `dir`'s own spelling
-    // (no symlink resolution), so the URIs built from it match the editor's.
-    gitTopLevel: async (dir) =>
-      resolvePath(dir, (await run("git", ["rev-parse", "--show-cdup"], dir)).trim()),
-
+    cwd: io.cwd,
+    gitTopLevel: (dir) => io.topLevel(dir),
     currentRest: async (root) => {
-      const head = await run("git", ["rev-parse", "HEAD"], root).then(
-        (out) => out.trim(),
-        () => "no-head",
-      )
+      const head = await io.head(root).catch(() => "no-head")
       const cached = memo.get(root)
       // A failure is replayed for a while, not forever: most (no commits, a
       // broken gtd.config.ts) persist, so retrying per request would spawn gtd on
@@ -579,7 +595,7 @@ export const makeNodeLspEnv = (
       }
       const entry: { head: string; rest: Promise<CurrentRest>; failedAt?: number } = {
         head,
-        rest: run(gtd[0], [...gtd.slice(1), "next", "--json"], root).then(parseCurrentRest),
+        rest: io.next(root).then(parseCurrentRest),
       }
       memo.set(root, entry)
       entry.rest.catch(() => {
@@ -590,6 +606,36 @@ export const makeNodeLspEnv = (
   }
 }
 
+const serve = (io: LspIo, connection: Connection): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const documents = new TextDocuments(TextDocument)
+    const warn = (message: string): void => connection.console.warn(`gtd lsp: ${message}`)
+    bindSteeringServer(connection, documents, makeSteeringLanguageService(makeLspEnv(io), warn))
+    yield* Effect.async<void>((resume) => {
+      connection.onExit(() => resume(Effect.void))
+    })
+  })
+
+/**
+ * The server over a stream pair, inside this process. Wrapped as message
+ * reader and writer, so the stream ending never exits the process the way a
+ * stdio server's does; `close` ends the connection instead of an `exit`
+ * request, whose handler exits the process too.
+ */
+export const serveLspOver = (
+  io: LspIo,
+  input: NodeJS.ReadableStream,
+  output: NodeJS.WritableStream,
+): { readonly close: () => void } => {
+  const connection = createConnection(
+    ProposedFeatures.all,
+    new StreamMessageReader(input),
+    new StreamMessageWriter(output),
+  )
+  void Effect.runPromise(serve(io, connection))
+  return { close: () => connection.dispose() }
+}
+
 /**
  * Starts the `gtd lsp` server over stdio. The returned Effect resolves when
  * the client disconnects (`exit` notification), so the process exits cleanly
@@ -598,15 +644,9 @@ export const makeNodeLspEnv = (
 export const startLspServer = (options: {
   readonly gtd: readonly [string, ...string[]]
 }): Effect.Effect<void, Error> =>
-  Effect.gen(function* () {
-    const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout)
-    const documents = new TextDocuments(TextDocument)
-    const warn = (message: string): void => connection.console.warn(`gtd lsp: ${message}`)
-    const service = makeSteeringLanguageService(makeNodeLspEnv(options.gtd), warn)
-
-    bindSteeringServer(connection, documents, service)
-
-    yield* Effect.async<void>((resume) => {
-      connection.onExit(() => resume(Effect.void))
-    })
-  })
+  Effect.suspend(() =>
+    serve(
+      nodeLspIo(options.gtd),
+      createConnection(ProposedFeatures.all, process.stdin, process.stdout),
+    ),
+  )

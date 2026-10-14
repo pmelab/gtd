@@ -1678,14 +1678,15 @@ export class GtdWorld extends QuickPickleWorld {
 
   /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */
   async runGtdInMem(...args: string[]): Promise<void> {
-    const repo = this.repo!
+    this.lastResult = await this.gtdInMem(...args)
+  }
+
+  /** One in-process gtd run against the in-memory repository, leaving `lastResult` alone. */
+  async gtdInMem(...args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     // `gtd judge run` is the one tool command `@inmem` scenarios run for real.
-    const { io, result } = makeCapturingCliIo(repo, this.envVars, { judge: runJudge })
-
-    const argv = ["node", "gtd.js", ...args]
-
-    await Effect.runPromise(runCli(argv, io))
-    this.lastResult = result()
+    const { io, result } = makeCapturingCliIo(this.repo!, this.envVars, { judge: runJudge })
+    await Effect.runPromise(runCli(["node", "gtd.js", ...args], io))
+    return result()
   }
 
   // ── Observation helpers — branch on tier ──────────────────────────────────

@@ -18,7 +18,8 @@ import {
   bindSteeringServer,
   diagnosticsFor,
   formatForDocument,
-  makeNodeLspEnv,
+  makeLspEnv,
+  nodeLspIo,
   makeSteeringLanguageService,
   parseCurrentRest,
   resolveWorkspaceRoot,
@@ -1134,7 +1135,7 @@ describe("bindSteeringServer", () => {
   })
 })
 
-describe("makeNodeLspEnv", () => {
+describe("makeLspEnv over nodeLspIo", () => {
   let dir: string
   let bin: string
   let calls: string
@@ -1168,7 +1169,7 @@ describe("makeNodeLspEnv", () => {
   const callCount = (): number => readFileSync(calls, "utf8").trim().split("\n").length
 
   it("reads the rest off `gtd next --json`, and the git root off git", async () => {
-    const env = makeNodeLspEnv([join(bin, "gtd")])
+    const env = makeLspEnv(nodeLspIo([join(bin, "gtd")]))
     mkdirSync(join(dir, "sub"))
     expect(await env.gitTopLevel(join(dir, "sub"))).toBe(dir)
     // Through a symlink the root keeps the symlinked spelling, so URIs built
@@ -1185,7 +1186,7 @@ describe("makeNodeLspEnv", () => {
   })
 
   it("runs gtd once per HEAD: a repeat request is served from memory, a landing re-reads", async () => {
-    const env = makeNodeLspEnv([join(bin, "gtd")])
+    const env = makeLspEnv(nodeLspIo([join(bin, "gtd")]))
     await Promise.all([env.currentRest(dir), env.currentRest(dir)])
     await env.currentRest(dir)
     expect(callCount()).toBe(1)
@@ -1204,7 +1205,7 @@ describe("makeNodeLspEnv", () => {
     let now = 1_000
     vi.spyOn(Date, "now").mockImplementation(() => now)
     try {
-      const env = makeNodeLspEnv([join(bin, "gtd")], 5000)
+      const env = makeLspEnv(nodeLspIo([join(bin, "gtd")]), 5000)
       await expect(env.currentRest(dir)).rejects.toThrow("gtd: no commits")
 
       writeFileSync(join(bin, "gtd"), good)
