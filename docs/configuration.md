@@ -295,8 +295,8 @@ turn they check:
   changes differing from their content before them
 
 The script renderers (`checkScript`, `revertScript`, `restoreScript`,
-`removeScript`, `moveScript`, and `quote`) are exported for a workflow's own
-`run` steps.
+`removeScript`, `moveScript`, `showScript`, and `quote`) are exported for a
+workflow's own `run` steps.
 
 ### Reusing the shipped workflows
 
