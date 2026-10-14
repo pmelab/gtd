@@ -100,6 +100,8 @@ const parseRestoreLine = (line: string): RestoreLine | undefined => {
 /** Applies one line, returning its exit status as `sh` would see it. */
 const applyRestoreLine = (repo: InMemRepo, { commit, path, source }: RestoreLine): boolean => {
   if (!unchangedSince(repo, commit, path)) return false
+  // `git restore` rejects a source that names no commit, touching nothing.
+  if (source !== undefined && repo.resolveRef(source) === null) return false
   const content = source === undefined ? null : repo.fileAtRef(source, path)
   if (content !== null) repo.writeFile(path, content)
   else if (source === undefined || repo.isTracked(path)) deleteIfPresent(repo, path)

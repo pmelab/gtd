@@ -111,6 +111,19 @@ for (const makeTier of gitTiers) {
         expect(read("a.txt")).toBeUndefined()
       })
 
+      it("fails on a source that names no commit, touching nothing", () => {
+        const root = t.observe.resolveRef("HEAD")
+        t.seed.commit("feat: a", { "a.txt": "a1" })
+        const commit = t.observe.resolveRef("HEAD")
+        const missing = "0".repeat(40)
+        expect(run(restoreScript(commit, { restore: ["a.txt"], remove: [] }, missing)).ok).toBe(
+          false,
+        )
+        expect(read("a.txt")).toBe("a1")
+        // The default source of a root commit is its absent parent.
+        expect(run(restoreScript(root, { restore: ["absent.txt"], remove: [] })).ok).toBe(false)
+      })
+
       it("leaves a deleted path alone", () => {
         t.seed.commit("feat: base", { "a.txt": "a0" })
         t.seed.commit("feat: edit", { "a.txt": "a1" })
