@@ -40,6 +40,13 @@ const verdictQuestion = (note: ReviewNote): JudgeQuestion => ({
 
 type Tier = "critical" | "should" | "could"
 
+const SEVERITY_ANSWERS: Readonly<Record<string, readonly string[]>> = {
+  security: ["yes", "no"],
+  reversibility: ["one-way", "two-way"],
+  blastRadius: ["local", "module", "contract"],
+  newConcept: ["yes", "no"],
+}
+
 interface Severity {
   readonly tier: Tier
   readonly reason: string
@@ -48,8 +55,8 @@ interface Severity {
 }
 
 /**
- * Deferring is the risky direction: anything unanswered, cut or below `minP`
- * is `critical`, never `could`.
+ * Deferring is the risky direction: anything unanswered, unrecognised, cut or
+ * below `minP` is `critical`, never `could`.
  */
 export const severityOf = (note: ReviewNote, judgment: Judgment, minP: number): Severity => {
   const ans = (q: string) => judgment.answers[`${note.id}.${q}`]
@@ -59,8 +66,8 @@ export const severityOf = (note: ReviewNote, judgment: Judgment, minP: number): 
   if (note.forced) return { tier: "critical", reason: "critical: forced by `!`", rank: 2 }
   const unsure =
     judgment.truncated.includes(note.id) ||
-    ["security", "reversibility", "blastRadius", "newConcept"].some(
-      (q) => !((ans(q)?.p ?? NaN) >= minP),
+    Object.entries(SEVERITY_ANSWERS).some(
+      ([q, allowed]) => !allowed.includes(a(q) ?? "") || !((ans(q)?.p ?? NaN) >= minP),
     )
   if (unsure) return { tier: "critical", reason: "critical: judge unsure", rank: 2 }
   const critical = [

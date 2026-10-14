@@ -458,11 +458,12 @@ describe("severityOf", () => {
     expect(severityOf(note(), j(ans()), 0.7)).toMatchObject({ tier: "could", rank: 2 })
   })
 
-  it("unsure is critical: unanswered, cut, low p, blank floor", () => {
+  it("unsure is critical: unanswered, unrecognised, cut, low p, blank floor", () => {
     const a = ans()
     delete (a as Record<string, unknown>)["n.security"]
     for (const x of [
       severityOf(note(), j(a), 0.7),
+      severityOf(note(), j(ans({ security: "unsure" })), 0.7),
       severityOf(note(), j(ans(), ["n"]), 0.7),
       severityOf(note(), j(ans({}, 0.5)), 0.7),
       severityOf(note(), j(ans()), Infinity),
