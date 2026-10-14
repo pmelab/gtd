@@ -158,7 +158,7 @@ const makeInMemoryConfigDiscovery = (
           for (const dir of walkUp(levelRoot, levelHome)) {
             const filepath = join(dir, WORKFLOW_MODULE)
             const source = workspace.atPath(filepath)
-            if (source !== undefined) return { filepath, source }
+            if (source !== undefined) return { filepath, source, read: workspace.atPath }
           }
           return undefined
         },

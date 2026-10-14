@@ -12,7 +12,6 @@ import {
   ConfigDiscovery,
   ConfigService,
   changedConfigFiles,
-  configFingerprint,
   contentHash,
   multilineSetting,
   resolveVars,
@@ -972,7 +971,7 @@ export const restAt = (
           }))
         : []
     const memory = memoryOf(outcome.trace, run)
-    const configNow = configFingerprint(config.workflowFiles, host.root)
+    const configNow = config.fingerprint
     // Only the current rest warns, so a command must read it once — a second
     // read warns twice. An earlier ref (restore's tip) would warn about a
     // process the command is not acting on.

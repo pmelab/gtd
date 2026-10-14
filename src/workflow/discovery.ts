@@ -6,6 +6,11 @@ import { Context, Effect, Layer } from "effect"
 export interface WorkflowModule {
   readonly filepath: string
   readonly source: string
+  /**
+   * The modules the config imports, by absolute path, for a discovery with no
+   * disk behind it. Absent, they are read from disk like any module import.
+   */
+  readonly read?: (path: string) => string | undefined
 }
 
 /** A leftover rc file, and whether the user running gtd owns it — and so can delete it. */

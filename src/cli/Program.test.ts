@@ -28,6 +28,7 @@ import {
 } from "../emit/index.js"
 import { HISTORY_REF } from "../platform/index.js"
 import { CONFIG_SCAFFOLD } from "../install/index.js"
+import { contentHash } from "../workflow/index.js"
 
 const run = async (
   repo: InMemRepo,
@@ -102,7 +103,7 @@ export const defaults = { greeting: "hello" }
     expect(exitCode).toBe(0)
     expect(stdout).toContain(
       commitAll(
-        "gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello\nGtd-Format: 1",
+        `gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello\nGtd-Config: ${contentHash(WORKFLOW)} gtd.config.ts\nGtd-Format: 1`,
       ),
     )
     expect(repo.commitHistory()).toHaveLength(before)
