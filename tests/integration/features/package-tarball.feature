@@ -87,7 +87,6 @@ Feature: the packed package — gtd installed from its own tarball
       Build a calculator.
       """
     And an environment variable "GTD_TESTCOMMAND" set to "true"
-    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And an empty user-level loop config
     And a stub agent script that responds to prompts with:
       """

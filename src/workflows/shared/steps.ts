@@ -19,8 +19,8 @@ export const coder = (): string => env.coderModel ?? ""
 
 // ── Keeping the suite green ─────────────────────────────────────────────────
 
-export const fixCheck = (built?: t.BuildContext): Promise<void> =>
-  t.agentWithSkills("fix", t.buildFixPrompt(built), {
+export const fixCheck = (): Promise<void> =>
+  t.agentWithSkills("fix", t.buildFixPrompt(), {
     label: "Fixing the check",
     file: FEEDBACK,
     model: coder(),

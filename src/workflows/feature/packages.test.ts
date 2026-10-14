@@ -42,16 +42,16 @@ describe("declaredTests", () => {
 })
 
 describe("packages", () => {
-  it("builds every queued package in name order, one commit range each", async () => {
+  it("closes every queued package in name order, the plan with the last", async () => {
     const queue = [".gtd/packages/02-b.md", ".gtd/packages/01-a.md"]
-    let steps = 0
+    const closings: string[] = []
     installContext(
       fixtureContext(
         {},
         {
           step: (request: StepRequest) => {
-            steps++
-            if (request.kind !== "restart" && request.name === "closing") {
+            if (request.kind === "run" && request.name === "closing") {
+              closings.push(request.body)
               queue.splice(queue.indexOf([...queue].sort()[0]!), 1)
             }
             return Promise.resolve()
@@ -60,15 +60,15 @@ describe("packages", () => {
           popScope: () => undefined,
           glob: () => [...queue],
           changesSince: (): readonly Change[] => [],
-          head: () => `c${steps}`,
+          head: () => "c",
         },
       ),
     )
-    const plan = await packages()
-    expect(plan.ranges.map((r) => r.pkg)).toEqual([
-      ".gtd/packages/01-a.md",
-      ".gtd/packages/02-b.md",
-    ])
-    expect(plan.ranges[0]!.to).toBe(plan.ranges[1]!.from)
+    await packages()
+    expect(closings).toHaveLength(2)
+    expect(closings[0]).toContain("01-a.md")
+    expect(closings[0]).not.toContain("ARCHITECTURE")
+    expect(closings[1]).toContain("02-b.md")
+    expect(closings[1]).toContain(".gtd/ARCHITECTURE.md")
   })
 })

@@ -274,7 +274,8 @@ ${footnoteFoldIn}${codeThreadReplies()}
 - Every open point here is TECHNICAL — triage already resolved
   the product ones, one phase earlier. PERMISSIVE: answer it
   yourself unless you genuinely cannot defend a default; a wrong
-  technical call is still caught by the full run and the quality lap
+  technical call is still caught by each package's suite run and the
+  quality lap
 - The narrow exception: a simplification that drops something
   \`.gtd/REQUIREMENTS.md\` mentions is an open question, not a
   silent default
@@ -322,21 +323,20 @@ export const architectureDecomposePrompt = (): string =>
 ${stateFileRules}
 - The only state files this turn touches are the package files
   under \`.gtd/packages/\` — no other files for notes or output.
-  Never delete \`.gtd/ARCHITECTURE.md\`: the build tail's full run
-  still needs it, and package files may reference it
+  Never delete \`.gtd/ARCHITECTURE.md\`: package files may
+  reference it, and it is removed with the last package
 - Work from \`.gtd/ARCHITECTURE.md\` if you wrote it earlier this
   conversation, otherwise read it (the converged technical
   plan). It already lists the concerns, interfaces, e2e scenarios
   and unit tests — this turn groups them into packages. A
   \`## Merged Concerns\` heading there records merges, never a
   concern of its own: write no package file for it
-- A package is a consecutive run of \`## Unit Tests\` entries that go
-  green together on the fast suite, at most ~8 unit-test entries
-  each. Keep the merge rule: concerns whose footprints centre on the
-  same files stay in one package unless the later one only consumes
-  an interface the earlier one creates. Prefer fewer, larger
-  packages. Order them so each stays green on the fast suite —
-  interface-introducing packages first
+- A package is one concern's slice, and each must leave the full
+  suite green — every package boundary costs a full run, so write
+  as few as the concerns allow. Keep the merge rule: concerns whose
+  footprints centre on the same files stay in one package unless
+  the later one only consumes an interface the earlier one creates.
+  Order them interface-introducing packages first
 - Write the packages under \`.gtd/packages/\`, each carrying its
   requirement(s) — both, independently, if merged — its tasks, and
   each task's acceptance criteria as \`- [ ]\` checkboxes and
@@ -345,8 +345,9 @@ ${stateFileRules}
     the code, the wiring (CLI entry, workflow composition, config)
     and every \`## E2E Scenarios\` entry its concern covers, so the
     slice ends with its scenarios passing. A requirement no test
-    covers (docs, README, deletions, config) becomes a chore
-    package, or a task of one; chore packages declare no tests
+    covers (docs, README, deletions, config) is a task of the slice
+    it belongs to; only one no slice owns becomes a chore package,
+    which declares no tests
 - Every package with tests has a \`## Tests\` section, one line per
   declared test, copied from the architecture entries:
   \`- unit: \\\`<path>\\\`\` or \`- e2e: \\\`<path>\\\`\`. Chore packages have
@@ -468,21 +469,10 @@ turn, or land untouched to give it one more attempt at the same
 analysis.
 `
 
-/** What the tail's full-run fix needs of a `BuiltPlan` (structural: `packages.ts` imports this module). */
-export interface BuildContext {
-  readonly ranges: readonly { readonly pkg: string; readonly from: string; readonly to: string }[]
-}
-
-const buildContextPrompt = (built: BuildContext): string =>
-  `- Read \`.gtd/ARCHITECTURE.md\` — the plan every package was built from
-- Each package's commits, to bisect a break:
-${built.ranges.map((r) => `  git log --oneline ${r.from}..${r.to}  # ${r.pkg}`).join("\n")}
-`
-
-export const buildFixPrompt = (built?: BuildContext): string =>
+export const buildFixPrompt = (): string =>
   `${stateFileRules}
 ${fixFeedbackPrompt}
-${built === undefined ? "" : buildContextPrompt(built)}- Leave everything uncommitted — do not commit
+- Leave everything uncommitted — do not commit
 `
 
 export const finisherSystem = (): string =>

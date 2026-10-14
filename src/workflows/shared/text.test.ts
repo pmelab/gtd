@@ -182,37 +182,11 @@ describe("architectureAuthorPrompt", () => {
   })
 })
 
-describe("buildFixPrompt with build context", () => {
-  const built = {
-    ranges: [
-      { pkg: "00-scenarios", from: "aaa1111", to: "bbb2222" },
-      { pkg: "01-engine", from: "bbb2222", to: "ccc3333" },
-    ],
-  }
-
-  it("points at the architecture document", () => {
-    expect(renderText(() => buildFixPrompt(built))).toContain(".gtd/ARCHITECTURE.md")
-  })
-
-  it("lists one range line per package", () => {
-    const prompt = renderText(() => buildFixPrompt(built))
-    expect(prompt).toContain("git log --oneline aaa1111..bbb2222  # 00-scenarios")
-    expect(prompt).toContain("git log --oneline bbb2222..ccc3333  # 01-engine")
-  })
-
-  it("is today's prompt without a build context", () => {
+describe("buildFixPrompt", () => {
+  it("starts each bullet on its own line", () => {
     const prompt = renderText(() => buildFixPrompt())
-    expect(renderText(() => buildFixPrompt(undefined))).toBe(prompt)
     expect(prompt).toMatch(/\n- Leave everything uncommitted — do not commit\n$/)
     expect(prompt).toContain("writes its own\n- Leave")
-    expect(prompt).not.toContain("ARCHITECTURE")
-    expect(prompt).not.toContain("git log --oneline")
-  })
-
-  it("starts each bullet on its own line", () => {
-    const prompt = renderText(() => buildFixPrompt(built))
-    expect(prompt).toMatch(/^- Read `\.gtd\/ARCHITECTURE\.md`/m)
-    expect(prompt).toMatch(/^- Leave everything uncommitted/m)
   })
 })
 

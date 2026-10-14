@@ -20,7 +20,6 @@ export const defaults: Readonly<Record<string, string>> = {
 /** Environment settings. */
 export const envDefaults: Readonly<Record<string, string>> = {
   testCommand: "npm test",
-  fastTestCommand: "",
   plannerModel: "smart",
   coderModel: "base",
 }

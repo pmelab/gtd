@@ -8,11 +8,9 @@ import {
   fix as shippedFix,
 } from "@pmelab/gtd/workflows"
 
-const options = { fastTestCommand: "npm run test:fast" }
-
-export const feature = shippedFeature(options)
-export const review = shippedReview(options)
-export const fix = shippedFix(options)
+export const feature = shippedFeature()
+export const review = shippedReview()
+export const fix = shippedFix()
 export default feature
 
 export {

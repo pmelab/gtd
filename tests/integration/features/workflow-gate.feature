@@ -127,7 +127,6 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     And the shell command "true" exits 0 with:
       """
       """
-    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     Given a file "NOTE.md" with:
       """
       Build a thing.
@@ -160,7 +159,6 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     And the shell command "true" exits 0 with:
       """
       """
-    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     And a file "src/real.ts" with:
       """
       export const real = 1
@@ -202,7 +200,6 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     And the shell command "false" exits 1 with:
       """
       """
-    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     Given a file "NOTE.md" with:
       """
       Build a thing.

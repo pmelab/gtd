@@ -1,4 +1,3 @@
-import { dirname } from "node:path"
 import {
   answered,
   check,
@@ -6,8 +5,6 @@ import {
   human,
   judge,
   numeric,
-  quote,
-  read,
   vars,
   type JudgeQuestion,
 } from "../../flows/index.js"
@@ -15,35 +12,12 @@ import * as kit from "../../workflow-kit/index.js"
 import { describeEscalation, escalate, escalationExhausted, ESCALATION, FEEDBACK } from "./steps.js"
 import * as t from "./text.js"
 
-/** Written while `fastTestCommand` is unset; its presence rests the process at the check. */
-export const SETUP = ".gtd/SETUP.md"
-
-const SETUP_TEXT =
-  "The bundled workflow needs the `fastTestCommand` setting: the fast suite (everything but e2e).\nSet it as a workflow option in `gtd.config.ts` or as GTD_FASTTESTCOMMAND."
-
-/** Shell lines for a check's preamble: unset (blank after trim) setting writes `SETUP` and skips the suite. */
-export const fastSuiteGuard = (): string[] =>
-  (env.fastTestCommand ?? "").trim() === ""
-    ? [
-        `mkdir -p ${quote(dirname(SETUP))}`,
-        `printf '%s\\n' ${quote(SETUP_TEXT)} > ${quote(SETUP)}`,
-        `printf '%s\\n' ${quote(SETUP_TEXT)} >&2`,
-        "exit 0",
-      ]
-    : [`rm -f ${quote(SETUP)}`]
-
 /** Fix turns a run of red checks gets before it escalates. */
 export const FIX_CAP = 3
 
-const unconfigured = (): boolean => read(SETUP) !== undefined
-
 /** Run the suite as step `name`; resolves `true` when it passed. A failure is in `.gtd/FEEDBACK.md`. */
 export const baseline = (name: string, label = "Checking the baseline"): Promise<boolean> =>
-  kit.untilSettled(
-    () =>
-      check(name, env.testCommand ?? "", { report: FEEDBACK, label, preamble: fastSuiteGuard() }),
-    unconfigured,
-  )
+  check(name, env.testCommand ?? "", { report: FEEDBACK, label })
 
 export type { EscalationCount } from "../../workflow-kit/index.js"
 
@@ -103,22 +77,17 @@ export interface HealthOptions {
   readonly fixesSoFar?: number
   /** Escalation rounds shared with other callers in the same run of red checks. */
   readonly escalations?: kit.EscalationCount
-  /** `fast` runs `fastTestCommand` (default `full`: `testCommand`). */
-  readonly suite?: "full" | "fast"
   /** Paths removed on a green run. */
   readonly sweepOnGreen?: readonly string[]
 }
 
-const runSuite = (options: HealthOptions): Promise<boolean> => {
-  const fast = options.suite === "fast"
-  return check("health.check", (fast ? env.fastTestCommand : env.testCommand) ?? "", {
+const runSuite = (options: HealthOptions): Promise<boolean> =>
+  check("health.check", env.testCommand ?? "", {
     report: FEEDBACK,
     label: "Running checks",
     // Swept only on green: an unresolved analysis survives every retry.
     sweepOnGreen: [ESCALATION, ...(options.sweepOnGreen ?? [])],
-    ...(fast ? { preamble: fastSuiteGuard() } : {}),
   })
-}
 
 /**
  * Loop until the suite is green: check, and on red run `fix` — escalating
@@ -127,11 +96,7 @@ const runSuite = (options: HealthOptions): Promise<boolean> => {
  */
 export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): Promise<void> =>
   kit.healthy(fix, {
-    // Unconfigured: straight back to the check, no fix turn or count.
-    check:
-      options.suite === "fast"
-        ? () => kit.untilSettled(() => runSuite(options), unconfigured)
-        : () => runSuite(options),
+    check: () => runSuite(options),
     report: FEEDBACK,
     fixCap: FIX_CAP,
     fixesSoFar: options.fixesSoFar ?? 0,

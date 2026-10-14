@@ -44,12 +44,6 @@ the read side to its agent. `read` is not a security boundary unless your driver
 enforces it at the OS level. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#file-access).
 
-> **`fastTestCommand` is required, with no fallback to `testCommand`.** Set it
-> (everything but e2e) as a workflow option in `gtd.config.ts`
-> (`feature({ fastTestCommand: "npm run test:fast" })`) or as
-> `GTD_FASTTESTCOMMAND`; gtd stops at the start gate, writing `.gtd/SETUP.md`,
-> until it is.
-
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
 > is a TypeScript module, and every gtd command that looks at workflow state —
 > `gtd next`, `gtd lsp`, `gtd door` and `gtd doors` included, not just
@@ -406,15 +400,15 @@ noted in steps 3 and 4 below.
 
 3. **You wait.** The work is split into vertical slices and built one at a time,
    each one starting from the unit and e2e tests it declares (a build turn
-   missing one is refused), checked against the fast suite and fixed until it
-   passes before moving on. Scenario wording is not frozen: you sign the
-   scenarios off once, in the review's `## Scenarios` chunk, where any assertion
-   an existing scenario lost is marked `Weakened:`. After the last package a
-   full run (e2e included) has its own fix loop before the quality lap. Two
-   points along the process are judged rather than always asking you outright —
-   each stops and hands you a verdict to make (`gtd judge answer`, or land with
-   a clean tree to accept the conservative default, which never skips work;
-   `gtd judge run --provider fixed --answers <path>` — or the
+   missing one is refused), checked against the full suite (`testCommand`) and
+   fixed until it passes before moving on — so keep that suite fast; gtd has no
+   lighter one. Scenario wording is not frozen: you sign the scenarios off once,
+   in the review's `## Scenarios` chunk, where any assertion an existing
+   scenario lost is marked `Weakened:`. After the last package the quality lap
+   runs. Two points along the process are judged rather than always asking you
+   outright — each stops and hands you a verdict to make (`gtd judge answer`, or
+   land with a clean tree to accept the conservative default, which never skips
+   work; `gtd judge run --provider fixed --answers <path>` — or the
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
    between `gtd judge --json` and `gtd judge answer`;
    `gtd judge run --provider jev` asks TypeSafe's Jev instead, with the key in

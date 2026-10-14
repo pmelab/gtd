@@ -2,7 +2,6 @@ import { read, refuse, removeScript, run, scope, showScript, vars } from "../../
 import * as kit from "../../workflow-kit/index.js"
 import { escalation, FIX_CAP, healthy, type EscalationCount } from "./health.js"
 import {
-  ARCHITECTURE,
   awaitReview,
   fixCheck,
   fixQuality,
@@ -14,7 +13,6 @@ import {
   reviewQuality,
 } from "./steps.js"
 import * as t from "./text.js"
-import type { BuildContext } from "./text.js"
 
 /** The reviewer's own `.gtd/REVIEW.md`, kept beside the human's notes so `fix` can tell them apart. */
 export const REVIEW_ORIG = ".gtd/REVIEW.orig.md"
@@ -54,25 +52,24 @@ export const refusePendingHandOff = (): void => {
 
 /**
  * The build tail: fix (when entered red), keep green, the quality lap, then
- * `finish` — the human review, as the calling workflow runs it.
+ * `finish` — the human review, as the calling workflow runs it. `green`: the
+ * caller just left the full suite green (the package loop), so no run opens it.
  */
 export const tail = <T>(
   fixFirst: boolean,
   finish: (escalations: EscalationCount) => Promise<T>,
-  built?: BuildContext,
+  green = false,
 ): Promise<T> =>
   scope("build", async () => {
     const escalations: EscalationCount = { rounds: 0 }
-    const fix = () => fixCheck()
+    const fix = fixCheck
     const repair = async () => {
       await fix()
       await healthy(fix, { fixesSoFar: 1, escalations })
     }
     // fixFirst's own fix + healthy below already is the full run.
     if (fixFirst) await repair()
-    else {
-      await healthy(() => fixCheck(built), { escalations, sweepOnGreen: [ARCHITECTURE] })
-    }
+    else if (!green) await healthy(fix, { escalations })
     // The lap runs once a tail: after its findings are fixed, review follows.
     if ((await qualityLap()) === "findings") {
       if (await fixQualityFindings(escalations)) {
@@ -92,7 +89,7 @@ export const handOffReview = (base: string, escalations: EscalationCount): Promi
     file: REVIEW,
     reviewing,
     fixRisks,
-    keepGreen: () => healthy(() => fixCheck(), { escalations }),
+    keepGreen: () => healthy(fixCheck, { escalations }),
     awaitReview: (b) => awaitReview(b, t.handOffAwaitReviewMessage(b)),
     reviewMissing,
     close: closeReview,

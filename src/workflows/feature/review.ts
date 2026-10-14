@@ -21,7 +21,6 @@ import {
 } from "../shared/steps.js"
 import { closeReview, tail } from "../shared/tail.js"
 import * as t from "../shared/text.js"
-import type { BuiltPlan } from "./packages.js"
 import { answerReviewQuestions, collecting, deferNotes, fixNits } from "./steps.js"
 
 export type { ReviewOutcome } from "../../workflow-kit/index.js"
@@ -180,7 +179,7 @@ export const review = (
       return reviewing(b, carry)
     },
     fixRisks,
-    keepGreen: () => healthy(() => fixCheck(), { escalations }),
+    keepGreen: () => healthy(fixCheck, { escalations }),
     awaitReview: (b) => {
       const notes = deferred
       deferred = []
@@ -236,9 +235,9 @@ export const review = (
   })
 }
 
-/** The build tail: fix (when entered red), keep green, the quality lap, then human review since `base`. */
+/** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */
 export const buildTail = (
   fixFirst: boolean,
   base: string,
-  built?: BuiltPlan,
-): Promise<kit.ReviewOutcome> => tail(fixFirst, (escalations) => review(base, escalations), built)
+  green = false,
+): Promise<kit.ReviewOutcome> => tail(fixFirst, (escalations) => review(base, escalations), green)

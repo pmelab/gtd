@@ -55,8 +55,8 @@ export const planAndBuild = async (firstBase: string): Promise<void> => {
   for (;;) {
     await design(base)
     await architecture()
-    const built = await packages()
-    const outcome = await buildTail(false, base, built)
+    await packages()
+    const outcome = await buildTail(false, base, true)
     if (outcome.verdict === "signoff") return
     await reUnwind(outcome)
     base = outcome.base
