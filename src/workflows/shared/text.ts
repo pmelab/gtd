@@ -874,18 +874,19 @@ actionability, and never dismiss a real note or edit as approval.
 `
 
 const scenariosPrompt = (removed: readonly RemovedAssertions[]): string =>
-  `- When a \`.feature\` file changed since the base, the first chunk is
-  \`## Scenarios\`: one pointer per added or changed scenario, its note
-  saying in plain words what behaviour it now pins down — the human
-  signs off the scenarios here, nowhere else
+  `- When a scenario in a \`.feature\` file was added or changed since the
+  base, the first chunk is \`## Scenarios\`: one pointer per such
+  scenario, its note saying in plain words what behaviour it now pins
+  down — the human signs off the scenarios here, nowhere else
 ${
   removed.length === 0
     ? ""
     : `- These assertions of scenarios that existed at the base are gone:
-${removed.map(({ path, lines }) => lines.map((l) => `    ${path}: ${l}\n`).join("")).join("")}  Under \`## Scenarios\`, open the note of each scenario that lost one
-  with \`Weakened:\`, naming the lost line and whether
-  \`.gtd/REQUIREMENTS.md\` asked for it; a deleted file gets its note
-  in the chunk's explanation
+${removed.map(({ path, lines }) => lines.map((a) => `    ${path} — ${a.scenario} — ${a.line}\n`).join("")).join("")}  Open the note of each scenario that lost one with \`Weakened:\`,
+  naming the lost line and whether \`.gtd/REQUIREMENTS.md\` asked
+  for it. A scenario that no longer exists has no pointer of its own:
+  put its \`Weakened:\` note on a pointer of the chunk covering its
+  removal
 `
 }`
 

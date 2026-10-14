@@ -54,7 +54,7 @@ Feature: the review flags an existing scenario that lost an assertion
     And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     When I run gtd next
     Then it succeeds
-    And stdout contains "spec/widget.feature: Then it is shown"
+    And stdout contains "spec/widget.feature — Scenario: shown — Then it is shown"
     And stdout contains "`Weakened:`"
     And stdout does not contain "And it is blue"
 

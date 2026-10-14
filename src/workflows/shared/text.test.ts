@@ -451,10 +451,13 @@ describe("buildReviewReviewingPrompt scenarios", () => {
   it("names each removed assertion and asks for a Weakened: note", () => {
     const prompt = renderText(() =>
       buildReviewReviewingPrompt("base", undefined, [
-        { path: "e2e/a.feature", lines: ["Then it is shown"] },
+        {
+          path: "e2e/a.feature",
+          lines: [{ scenario: "Scenario: shown", line: "Then it is shown" }],
+        },
       ]),
     )
-    expect(prompt).toContain("e2e/a.feature: Then it is shown")
+    expect(prompt).toContain("e2e/a.feature — Scenario: shown — Then it is shown")
     expect(prompt).toContain("`Weakened:`")
   })
 
