@@ -47,7 +47,7 @@ Breaking — committed files, or files an older gtd must read, are affected:
   questions, options, chunks, hunks, ticks, threads or notes.
 - A writer (a tick, a note, a reply) produces text an older gtd cannot read.
 - Renaming or removing a marker: `## Open Questions`, `_your answer_`,
-  `# Review:`, `<!-- base: -->`, `Risk:`, `H:` / `A:`.
+  `# Review:`, `<!-- base: -->`, `Risk:`, a leading `! `, `H:` / `A:`.
 
 ## Format changes bump `Gtd-Format`
 

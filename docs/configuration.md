@@ -1066,6 +1066,7 @@ scope restricts reads. Build and fix scopes carry no entry.
 | `architecture`                                    | `.gtd/REQUIREMENTS.md`                     |
 | `architecture.decompose`                          | `.gtd/packages/**`, `.gtd/ARCHITECTURE.md` |
 | `build.review`                                    | `.gtd/REVIEW.md`                           |
+| `build.review.defer`                              | `.gtd/TODO.md`                             |
 | `build.review.fix.nits`, `build.review.fix.risks` | `{}` (reopened: fixes edit code)           |
 | `build.quality.<lens>`                            | `[]`                                       |
 
@@ -1231,6 +1232,13 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   Below it, the note counts as `edit` and goes to `build.review.collecting` and
   a replan. A note whose evidence was cut, or that got no verdict, also counts
   as `edit`. Blank makes every note `edit`. Triage answers are keyed `note-<n>`.
+- **`reviewSeverityMinP`** (`0.7`) — the confidence each severity judge answer
+  on a review note must clear. Every tiered note gets a `critical`, `should` or
+  `could` tier from four yes/no questions, keyed `note-<n>.<question>`:
+  `security`, `reversibility`, `blastRadius`, `newConcept`. An unclear, cut or
+  below-floor answer makes the note `critical`, never `could`. Blank makes every
+  tiered note `critical`. A leading `! ` (bang, space) on any human review note
+  forces `critical` and skips every judge question.
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.

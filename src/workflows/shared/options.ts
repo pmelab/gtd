@@ -15,6 +15,7 @@ export const ShippedOptions = Schema.Struct({
   judgeBudgetBytes: setting,
   judgeIdenticalMinP: setting,
   reviewNoteActionable: setting,
+  reviewSeverityMinP: setting,
   qualityReviews: setting,
   testCommand: setting,
   fastTestCommand: setting,

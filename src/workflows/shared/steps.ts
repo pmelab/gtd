@@ -112,6 +112,7 @@ export const fixRisks = (notes: readonly t.NoteInput[]): Promise<void> =>
 export const awaitReview = (
   base: string,
   message = t.buildReviewAwaitReviewMessage(base),
+  acceptClean = false,
 ): Promise<void> =>
   human("review.await-review", {
     message,
@@ -119,6 +120,7 @@ export const awaitReview = (
     file: REVIEW,
     mode: "review",
     base,
+    ...(acceptClean ? { acceptClean } : {}),
   })
 
 /** The round at commit `round` left no `.gtd/REVIEW.md`. */

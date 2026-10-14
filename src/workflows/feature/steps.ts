@@ -1,4 +1,4 @@
-import { human } from "../../flows/index.js"
+import { human, run } from "../../flows/index.js"
 import * as t from "../shared/text.js"
 import { ARCHITECTURE, coder, FEEDBACK, planner, REQUIREMENTS, REVIEW } from "../shared/steps.js"
 
@@ -89,4 +89,11 @@ export const collecting = (capture: string): Promise<void> =>
     model: planner(),
     system: t.reviewerSystem(),
     allowEmpty: true,
+  })
+
+/** `build.review.defer`: append `notes` to `.gtd/TODO.md` as one section; the step's landing is the commit. */
+export const deferNotes = (notes: readonly t.NoteInput[], round: string): Promise<void> =>
+  run("review.defer", t.deferNotesScript(notes, round), {
+    label: "Deferring could-notes to TODO.md",
+    file: ".gtd/TODO.md",
   })
