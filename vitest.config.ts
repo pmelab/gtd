@@ -16,7 +16,7 @@ isolateGitConfig()
 
 const featuresTagged = (tag: string): string[] =>
   globSync("tests/integration/features/**/*.feature").filter((path) =>
-    new RegExp(`${tag}\\b`).test(readFileSync(path, "utf8")),
+    new RegExp(`^\\s*${tag}\\b`, "m").test(readFileSync(path, "utf8")),
   )
 
 export default defineConfig({
