@@ -3,48 +3,32 @@ import * as http from "node:http"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import * as https from "node:https"
 import { isIP } from "node:net"
-import * as os from "node:os"
 import { dirname, join } from "node:path"
+import { Readable } from "node:stream"
 import { fileURLToPath } from "node:url"
-import { createHTTPHandler } from "@trpc/server/adapters/standalone"
+import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { FileSystem } from "@effect/platform"
 import { Context, Deferred, Effect, Layer, Runtime } from "effect"
 import generatedClientHtml from "./client.generated.html"
-import {
-  liveHeadSha,
-  liveRunInWorktree,
-  readLocalGtdVersionAt,
-  readStep,
-  type RunInWorktree,
-  type Step,
-  type StepRead,
-} from "./Beat.js"
+import { readStep, type BeatDeps, type Step, type StepRead } from "./Beat.js"
 import { pickBindHost } from "./Bind.js"
-import { UiError, UiShell, UiUsageError } from "./Ports.js"
+import {
+  UiError,
+  UiHost,
+  UiShell,
+  UiUsageError,
+  type RunInWorktree,
+  type UiHandler,
+} from "./Ports.js"
 import { withFileVar } from "./Quote.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript, inlineStyles } from "./scriptTag.mjs"
-import {
-  deleteServeRecord,
-  parseServeStatus,
-  publishServe,
-  readServeRecord,
-  type ServeMapping,
-  unpublishServe,
-  writeServeRecord,
-} from "./Serve.js"
+import { parseServeStatus, publishServe, type ServeMapping, unpublishServe } from "./Serve.js"
 import { probeTailscaleStatus, type TailscaleStatus } from "./Tailscale.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert, type CertPair } from "./Tls.js"
-import {
-  liveActorAt,
-  liveReadFile,
-  liveWriteFile,
-  writeNote,
-  writeValue,
-  type WriteDeps,
-} from "./Write.js"
+import { actorVia, writeNote, writeValue, type WriteDeps } from "./Write.js"
 
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
 const TRPC_PATH_PREFIX = "/trpc"
@@ -70,8 +54,6 @@ export interface UiCommandOptions {
   readonly dev: boolean
 }
 
-type RequestHandler = (req: IncomingMessage, res: ServerResponse) => void
-
 interface BoundServer {
   readonly port: number
   readonly close: () => void
@@ -86,7 +68,7 @@ interface BoundServer {
 export const resolveBindHost = (
   host: string | undefined,
   config: UiConfig | undefined,
-  pickHost: () => string | undefined = () => pickBindHost(os.networkInterfaces()),
+  pickHost: () => string | undefined,
 ): Effect.Effect<string, UiError> => {
   const resolved = host ?? config?.host ?? pickHost()
   return resolved === undefined
@@ -112,7 +94,7 @@ export const resolveCertPair = (
   bindHost: string,
   displayHost: string,
   tailscaleStatus: TailscaleStatus | undefined,
-): Effect.Effect<CertPair, UiError, UiShell | FileSystem.FileSystem> => {
+): Effect.Effect<CertPair, UiError, UiShell | UiHost | FileSystem.FileSystem> => {
   // The SAN must match whatever the browser actually dials: `displayHost`
   // (the tailnet hostname when the probe answered, otherwise identical to
   // `bindHost`) goes in as `DNS:`, and `bindHost` goes in as `IP:` only when
@@ -164,7 +146,7 @@ interface UiListenOptions {
   readonly tls?: CertPair
   readonly host: string
   readonly port: number
-  readonly handler: RequestHandler
+  readonly handler: UiHandler
 }
 
 /**
@@ -184,10 +166,11 @@ export class UiListener extends Context.Tag("UiListener")<
   static readonly Live = Layer.succeed(UiListener, {
     listen: ({ tls, host, port, handler }) =>
       Effect.async<BoundServer, UiError>((resume) => {
+        const serve = viaNode(handler)
         const server =
           tls !== undefined
-            ? https.createServer({ cert: tls.cert, key: tls.key }, handler)
-            : http.createServer(handler)
+            ? https.createServer({ cert: tls.cert, key: tls.key }, serve)
+            : http.createServer(serve)
         server.once("error", (err: NodeJS.ErrnoException) => {
           resume(
             Effect.fail(
@@ -205,6 +188,32 @@ export class UiListener extends Context.Tag("UiListener")<
       }),
   })
 }
+
+/** `handler` as a Node request listener; `afterResponse` callbacks run once the response has flushed. */
+const viaNode =
+  (handler: UiHandler) =>
+  (req: IncomingMessage, res: ServerResponse): void => {
+    const headers = new Headers()
+    for (const [name, value] of Object.entries(req.headers)) {
+      for (const one of [value ?? []].flat()) headers.append(name, one)
+    }
+    const hasBody = req.method !== "GET" && req.method !== "HEAD"
+    const request = new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
+      method: req.method ?? "GET",
+      headers,
+      ...(hasBody ? { body: Readable.toWeb(req) as ReadableStream, duplex: "half" } : {}),
+    } as RequestInit)
+    void handler(request, (callback) => res.once("finish", callback)).then(
+      async (response) => {
+        res.writeHead(response.status, Object.fromEntries(response.headers))
+        res.end(Buffer.from(await response.arrayBuffer()))
+      },
+      () => {
+        res.writeHead(500)
+        res.end()
+      },
+    )
+  }
 
 /**
  * The tailscale serve front door's fixed candidate list, walked in order:
@@ -352,14 +361,7 @@ export const resolveClientHtml = (
       )
     : Effect.succeed(generatedClientHtml)
 
-export type UiRequirements = UiShell | FileSystem.FileSystem | UiListener
-
-/** Every dependency `readStep` needs, wired to the real subprocess/filesystem reads — `gtd ui` never injects a fake here, unlike its own test suite. */
-const liveBeatDeps = {
-  run: liveRunInWorktree,
-  readLocalGtdVersion: readLocalGtdVersionAt,
-  headSha: liveHeadSha,
-}
+export type UiRequirements = UiShell | FileSystem.FileSystem | UiListener | UiHost
 
 /**
  * `undefined` when `ui.format` is unset — `writeDeps` must not even carry the
@@ -370,7 +372,7 @@ const liveBeatDeps = {
 export const buildFormatCommand = (
   format: string | undefined,
   worktreeRoot: string,
-  run: RunInWorktree = liveRunInWorktree,
+  run: RunInWorktree,
 ): WriteDeps["formatCommand"] => {
   if (format === undefined) return undefined
   return async (absPath: string) => {
@@ -427,26 +429,19 @@ const resolveHostsAndCert = (
 ): Effect.Effect<
   { readonly bindHost: string; readonly displayHost: string; readonly certPair: CertPair },
   UiError,
-  UiShell | FileSystem.FileSystem
+  UiShell | UiHost | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
-    const bindHost = yield* resolveBindHost(options.host, config)
+    const host = yield* UiHost
+    const bindHost = yield* resolveBindHost(options.host, config, () =>
+      pickBindHost(host.networkInterfaces()),
+    )
     const explicitHost = options.host ?? config?.host
     const tailscaleStatus = explicitHost !== undefined ? undefined : yield* probeTailscaleStatus()
     const displayHost = tailscaleStatus?.hostname ?? bindHost
     const certPair = yield* resolveCertPair(options, config, bindHost, displayHost, tailscaleStatus)
     return { bindHost, displayHost, certPair }
   })
-
-/** `process.kill(pid, 0)` sends no signal, just probes liveness — throws (ESRCH/EPERM) for a dead or unreachable pid. */
-const isPidAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
 
 /**
  * `ok: false` (the probe failed to run) is distinct from `ok: true, mapping:
@@ -489,17 +484,18 @@ const probeLiveServeMapping = (
  */
 const clearOrphanForPublish = (
   servePort: number,
-): Effect.Effect<"clear" | "occupied" | "unknowable", never, UiShell> =>
+): Effect.Effect<"clear" | "occupied" | "unknowable", never, UiShell | UiHost> =>
   Effect.gen(function* () {
-    const record = readServeRecord(servePort)
+    const host = yield* UiHost
+    const record = host.serveRecords.read(servePort)
     if (record === undefined) {
       const probe = yield* probeLiveServeMapping(servePort)
       if (!probe.ok) return "unknowable"
       return probe.mapping === undefined ? "clear" : "occupied"
     }
-    if (isPidAlive(record.pid) && record.pid !== process.pid) return "occupied"
+    if (host.isPidAlive(record.pid) && record.pid !== process.pid) return "occupied"
     yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-    deleteServeRecord(servePort)
+    host.serveRecords.delete(servePort)
     return "clear"
   })
 
@@ -528,8 +524,8 @@ const attemptServe = (
   servePort: number,
   worktree: string,
   uiListener: Context.Tag.Service<typeof UiListener>,
-  handler: RequestHandler,
-): Effect.Effect<ServeAttempt, never, UiShell> =>
+  handler: UiHandler,
+): Effect.Effect<ServeAttempt, never, UiShell | UiHost> =>
   Effect.gen(function* () {
     const tailscaleStatus = yield* probeTailscaleStatus()
     if (tailscaleStatus === undefined) {
@@ -577,7 +573,7 @@ const attemptServe = (
       } as const
     }
 
-    writeServeRecord(servePort, {
+    ;(yield* UiHost).serveRecords.write(servePort, {
       pid: process.pid,
       servePort,
       targetPort: bound.port,
@@ -600,16 +596,17 @@ const attemptServe = (
  * orphan check clear it, rather than stranding a live mapping behind a deleted
  * record. Never fails — `Effect.ensuring` requires it.
  */
-const teardownServe = (servePort: number): Effect.Effect<void, never, UiShell> =>
+const teardownServe = (servePort: number): Effect.Effect<void, never, UiShell | UiHost> =>
   Effect.gen(function* () {
-    const record = readServeRecord(servePort)
+    const host = yield* UiHost
+    const record = host.serveRecords.read(servePort)
     if (record === undefined) return
     const probe = yield* probeLiveServeMapping(servePort)
     if (!probe.ok) return
     if (probe.mapping !== undefined && probe.mapping.targetUrl === record.target) {
       yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
     }
-    deleteServeRecord(servePort)
+    host.serveRecords.delete(servePort)
   })
 
 /**
@@ -624,16 +621,16 @@ const resolveListener = (args: {
   readonly explicitHost: string | undefined
   readonly worktree: string
   readonly uiListener: Context.Tag.Service<typeof UiListener>
-  readonly handler: RequestHandler
+  readonly handler: UiHandler
   readonly out: UiOut
 }): Effect.Effect<
   {
     readonly bound: BoundServer
     readonly url: string
-    readonly teardown: Effect.Effect<void, never, UiShell>
+    readonly teardown: Effect.Effect<void, never, UiShell | UiHost>
   },
   UiError,
-  UiShell | FileSystem.FileSystem
+  UiShell | UiHost | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const { options, config, explicitPort, explicitHost, worktree, uiListener, handler, out } = args
@@ -641,7 +638,7 @@ const resolveListener = (args: {
     const directBind = (): Effect.Effect<
       { readonly bound: BoundServer; readonly url: string },
       UiError,
-      UiShell | FileSystem.FileSystem
+      UiShell | UiHost | FileSystem.FileSystem
     > =>
       Effect.gen(function* () {
         const { bindHost, displayHost, certPair } = yield* resolveHostsAndCert(options, config)
@@ -706,7 +703,13 @@ export const runUiCommand = (
   Effect.gen(function* () {
     // Read before resolving the bind host or the certificate, so a refusal
     // never invokes openssl (T1's own acceptance bullet).
-    const step = yield* Effect.promise(() => readStep({ path: root }, liveBeatDeps))
+    const host = yield* UiHost
+    const beatDeps: BeatDeps = {
+      run: host.run,
+      readLocalGtdVersion: host.readLocalGtdVersion,
+      headSha: host.headSha,
+    }
+    const step = yield* Effect.promise(() => readStep({ path: root }, beatDeps))
     if (step.status === "broken" || !isRenderable(step)) {
       return yield* Effect.fail(refusalFor(step))
     }
@@ -732,16 +735,16 @@ export const runUiCommand = (
     // reachable by anything on the tailnet.
     const clientHtml = yield* resolveClientHtml(options.dev, runner, fs)
 
-    const formatCommand = buildFormatCommand(config?.format, root)
+    const formatCommand = buildFormatCommand(config?.format, root, host.run)
     const writeDeps: WriteDeps = {
-      headSha: liveHeadSha,
-      actorAt: liveActorAt,
-      readFile: liveReadFile,
-      writeFile: liveWriteFile,
+      headSha: host.headSha,
+      actorAt: actorVia(host.run),
+      readFile: host.readFile,
+      writeFile: host.writeFile,
       ...(formatCommand !== undefined ? { formatCommand } : {}),
     }
-    const diffDeps: DiffDeps = { run: liveRunInWorktree }
-    const readDeps: ReadSteeringFileDeps = { headSha: liveHeadSha, readFile: liveReadFile }
+    const diffDeps: DiffDeps = { run: host.run }
+    const readDeps: ReadSteeringFileDeps = { headSha: host.headSha, readFile: host.readFile }
 
     // Resolved by `handOff` (scheduled on the HTTP response's `finish` event,
     // with a 2s fallback so a vanished client can't wedge the process) or by
@@ -770,7 +773,7 @@ export const runUiCommand = (
     // timer drives this — it rides the `step` query the client already
     // issues.
     const readServedStep = async (): Promise<StepRead> => {
-      const read = await readStep({ path: root }, liveBeatDeps)
+      const read = await readStep({ path: root }, beatDeps)
       const movedOn = read.status === "broken" || read.state !== servedState || !isRenderable(read)
       if (!movedOn) return read
       endServer()
@@ -789,50 +792,50 @@ export const runUiCommand = (
     // requests `step.file`) could reach.
     const isServedFile = (filePath: string): boolean => filePath === step.file
 
-    const trpcHandler = createHTTPHandler({
-      router: appRouter,
-      basePath: `${TRPC_PATH_PREFIX}/`,
-      createContext: ({ res }): RouterContext => ({
-        readStep: readServedStep,
-        writeNote: (request) =>
-          isServedFile(request.filePath)
-            ? writeNote({ ...request, worktreePath: root }, writeDeps)
-            : Promise.resolve({ ok: false, reason: "file-vanished" }),
-        writeValue: (request) =>
-          isServedFile(request.filePath)
-            ? writeValue({ ...request, worktreePath: root }, writeDeps)
-            : Promise.resolve({ ok: false, reason: "file-vanished" }),
-        resolveDiff: (path, line, endLine) => resolveDiff(root, path, line, endLine, diffDeps),
-        readSteeringFile: (request) =>
-          isServedFile(request.filePath)
-            ? readSteeringFile({ ...request, worktreePath: root }, readDeps)
-            : Promise.resolve({ ok: false, reason: "file-vanished" }),
-        handOff: () => {
-          let settled = false
-          const settle = (): void => {
-            if (settled) return
-            settled = true
-            clearTimeout(fallback)
-            endServer()
-          }
-          res.once("finish", settle)
-          // Cleared the instant `finish` settles first (the normal path) —
-          // the CLI's success path sets `process.exitCode` rather than
-          // calling `process.exit`, so an uncleared timer keeps the event
-          // loop alive for its own full duration regardless of `settled`,
-          // delaying every ordinary handoff by up to 2s for nothing.
-          const fallback = setTimeout(settle, 2_000)
-        },
-      }),
-    })
-
-    const handler: RequestHandler = (req, res) => {
-      if (req.url === TRPC_PATH_PREFIX || req.url?.startsWith(`${TRPC_PATH_PREFIX}/`)) {
-        trpcHandler(req, res)
-        return
+    const handler: UiHandler = (request, afterResponse) => {
+      const path = new URL(request.url).pathname
+      if (path !== TRPC_PATH_PREFIX && !path.startsWith(`${TRPC_PATH_PREFIX}/`)) {
+        return Promise.resolve(
+          new Response(clientHtml, { headers: { "content-type": "text/html; charset=utf-8" } }),
+        )
       }
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
-      res.end(clientHtml)
+      return fetchRequestHandler({
+        endpoint: TRPC_PATH_PREFIX,
+        req: request,
+        router: appRouter,
+        createContext: (): RouterContext => ({
+          readStep: readServedStep,
+          writeNote: (request) =>
+            isServedFile(request.filePath)
+              ? writeNote({ ...request, worktreePath: root }, writeDeps)
+              : Promise.resolve({ ok: false, reason: "file-vanished" }),
+          writeValue: (request) =>
+            isServedFile(request.filePath)
+              ? writeValue({ ...request, worktreePath: root }, writeDeps)
+              : Promise.resolve({ ok: false, reason: "file-vanished" }),
+          resolveDiff: (path, line, endLine) => resolveDiff(root, path, line, endLine, diffDeps),
+          readSteeringFile: (request) =>
+            isServedFile(request.filePath)
+              ? readSteeringFile({ ...request, worktreePath: root }, readDeps)
+              : Promise.resolve({ ok: false, reason: "file-vanished" }),
+          handOff: () => {
+            let settled = false
+            const settle = (): void => {
+              if (settled) return
+              settled = true
+              clearTimeout(fallback)
+              endServer()
+            }
+            afterResponse(settle)
+            // Cleared the instant the response settles first (the normal
+            // path) — the CLI's success path sets `process.exitCode` rather
+            // than calling `process.exit`, so an uncleared timer keeps the
+            // event loop alive for its own full duration regardless of
+            // `settled`, delaying every ordinary handoff by up to 2s.
+            const fallback = setTimeout(settle, 2_000)
+          },
+        }),
+      })
     }
 
     const { bound, url, teardown } = yield* resolveListener({

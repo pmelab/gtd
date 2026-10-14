@@ -3,7 +3,7 @@ import { readFile as readFileFs, mkdir, writeFile as writeFileFs } from "node:fs
 import { dirname } from "node:path"
 import type { SteeringAnchor } from "../steering/index.js"
 import { applySteeringEdits, steeringFormatOrFreeForm } from "../steering/index.js"
-import { liveRunInWorktree } from "./Beat.js"
+import type { ReadFileResult, RunInWorktree } from "./Ports.js"
 import { resolveWithinRoot } from "./SafePath.js"
 
 /**
@@ -88,10 +88,6 @@ export interface WriteValueRequest {
  * that only `liveReadFile` can see, so no call site can collapse both into one
  * falsy value. Only `absent` may create-on-write; `unreadable` always refuses.
  */
-export type ReadFileResult =
-  | { readonly kind: "content"; readonly content: string }
-  | { readonly kind: "absent" }
-  | { readonly kind: "unreadable" }
 
 /** Every side effect a write needs, injected so tests touch no real checkout. `actorAt`/`headSha` are called FRESH on every write — the rest gate is re-checked at write time, never cached. */
 export interface WriteDeps {
@@ -238,17 +234,19 @@ export const writeValue = (request: WriteValueRequest, deps: WriteDeps): Promise
   })
 }
 
-/** Live `actorAt`: spawns a fresh `gtd next --json` and reads its `actor`. `undefined` on any failure, which the gate treats as "not resting with a human". */
-export const liveActorAt = async (worktreePath: string): Promise<string | undefined> => {
-  const outcome = await liveRunInWorktree(worktreePath, "gtd next --json")
-  if (outcome.status !== 0) return undefined
-  try {
-    const parsed = JSON.parse(outcome.stdout) as { readonly actor?: unknown }
-    return typeof parsed.actor === "string" ? parsed.actor : undefined
-  } catch {
-    return undefined
+/** `actorAt` over `run`: spawns a fresh `gtd next --json` and reads its `actor`. `undefined` on any failure, which the gate treats as "not resting with a human". */
+export const actorVia =
+  (run: RunInWorktree) =>
+  async (worktreePath: string): Promise<string | undefined> => {
+    const outcome = await run(worktreePath, "gtd next --json")
+    if (outcome.status !== 0) return undefined
+    try {
+      const parsed = JSON.parse(outcome.stdout) as { readonly actor?: unknown }
+      return typeof parsed.actor === "string" ? parsed.actor : undefined
+    } catch {
+      return undefined
+    }
   }
-}
 
 /**
  * The only place that sees the real `errno`, so the only place that

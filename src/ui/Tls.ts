@@ -1,9 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
-import { UiError, UiShell } from "./Ports.js"
+import { UiError, UiHost, UiShell } from "./Ports.js"
 import { shellQuote } from "./Quote.js"
 
 /** A certificate and its matching private key, as PEM content — never file paths, so callers (the https server, tests) never re-read the filesystem. */
@@ -28,6 +26,45 @@ export interface SelfSignedCertRequest {
 }
 
 /**
+ * Runs `command(certPath, keyPath)` and reads both PEMs back, so nothing
+ * downstream re-reads the filesystem. The scratch dir holds a private key; the
+ * host removes it on every exit path.
+ */
+const issueInScratch = (
+  tool: string,
+  command: (certPath: string, keyPath: string) => string,
+): Effect.Effect<CertPair, UiError, UiShell | UiHost> =>
+  Effect.gen(function* () {
+    const runner = yield* UiShell
+    const host = yield* UiHost
+    return yield* host.scratch((dir, read) =>
+      runner.bash(command(join(dir, "cert.pem"), join(dir, "key.pem"))).pipe(
+        Effect.mapError(
+          (e) => new UiError(`gtd ui: could not run ${tool} to issue a certificate: ${e.message}`),
+        ),
+        Effect.flatMap((outcome) =>
+          outcome.status !== 0
+            ? Effect.fail(
+                new UiError(`gtd ui: ${tool} exited without issuing a certificate`, [
+                  `exit status: ${outcome.status ?? "signal"}`,
+                  ...outcome.output.trim().split("\n").filter(Boolean),
+                ]),
+              )
+            : Effect.try({
+                try: (): CertPair => ({ cert: read("cert.pem"), key: read("key.pem") }),
+                catch: (e) =>
+                  new UiError(
+                    `gtd ui: ${tool} reported success but its output could not be read: ${
+                      e instanceof Error ? e.message : String(e)
+                    }`,
+                  ),
+              }),
+        ),
+      ),
+    )
+  })
+
+/**
  * `node:crypto`'s `X509Certificate` parses certificates and cannot issue one,
  * so this shells out to `openssl`. 825 days is the longest validity iOS
  * accepts for a leaf certificate; the three `-addext` flags are each load-
@@ -37,15 +74,11 @@ export interface SelfSignedCertRequest {
  */
 export const generateSelfSignedCert = (
   request: SelfSignedCertRequest,
-): Effect.Effect<CertPair, UiError, UiShell> =>
-  Effect.gen(function* () {
-    const runner = yield* UiShell
-    const dir = mkdtempSync(join(tmpdir(), "gtd-tls-"))
-    const keyPath = join(dir, "key.pem")
-    const certPath = join(dir, "cert.pem")
-    const subjectAltName =
-      request.ip !== undefined ? `IP:${request.ip},DNS:${request.host}` : `DNS:${request.host}`
-    const command = [
+): Effect.Effect<CertPair, UiError, UiShell | UiHost> => {
+  const subjectAltName =
+    request.ip !== undefined ? `IP:${request.ip},DNS:${request.host}` : `DNS:${request.host}`
+  return issueInScratch("openssl", (certPath, keyPath) =>
+    [
       "openssl req -x509 -newkey rsa:2048 -nodes -days 825",
       `-keyout ${shellQuote(keyPath)}`,
       `-out ${shellQuote(certPath)}`,
@@ -58,93 +91,27 @@ export const generateSelfSignedCert = (
       `-addext ${shellQuote(`subjectAltName=${subjectAltName}`)}`,
       `-addext "extendedKeyUsage=serverAuth"`,
       `-addext "basicConstraints=critical,CA:FALSE"`,
-    ].join(" ")
-
-    return yield* runner.bash(command).pipe(
-      Effect.mapError(
-        (e) => new UiError(`gtd ui: could not run openssl to issue a certificate: ${e.message}`),
-      ),
-      Effect.flatMap((outcome) =>
-        outcome.status !== 0
-          ? Effect.fail(
-              new UiError("gtd ui: openssl exited without issuing a certificate", [
-                `exit status: ${outcome.status ?? "signal"}`,
-                ...outcome.output.trim().split("\n").filter(Boolean),
-              ]),
-            )
-          : Effect.try({
-              try: (): CertPair => ({
-                cert: readFileSync(certPath, "utf8"),
-                key: readFileSync(keyPath, "utf8"),
-              }),
-              catch: (e) =>
-                new UiError(
-                  `gtd ui: openssl reported success but its output could not be read: ${
-                    e instanceof Error ? e.message : String(e)
-                  }`,
-                ),
-            }),
-      ),
-      // The tmpdir holds the private key (mode 0700, but still on disk) —
-      // removed on EVERY exit path (a failed spawn, a non-zero exit, a
-      // read-back failure, or success), never only the success path a
-      // previous version left it on.
-      Effect.ensuring(Effect.sync(() => rmSync(dir, { recursive: true, force: true }))),
-    )
-  })
+    ].join(" "),
+  )
+}
 
 /**
  * Obtains a real Tailscale-issued certificate for `domain` via `tailscale
  * cert`, the only URL a real cert can ever match. `--cert-file -`/
  * `--key-file -` cannot be used for both PEMs at once (they'd interleave on
- * one stdout stream), so this writes to a temp dir — the same `mkdtempSync`
- * shape `generateSelfSignedCert` uses above — and reads both back as plain
- * strings so the result is a `CertPair` and nothing downstream re-reads the
- * filesystem. The temp dir (it holds a private key) is removed on every exit
- * path via `Effect.ensuring`, mirroring `generateSelfSignedCert`.
+ * one stdout stream), so this writes to a scratch dir, like `generateSelfSignedCert`.
  */
-export const obtainTailscaleCert = (domain: string): Effect.Effect<CertPair, UiError, UiShell> =>
-  Effect.gen(function* () {
-    const runner = yield* UiShell
-    const dir = mkdtempSync(join(tmpdir(), "gtd-tls-"))
-    const keyPath = join(dir, "key.pem")
-    const certPath = join(dir, "cert.pem")
-    const command = [
+export const obtainTailscaleCert = (
+  domain: string,
+): Effect.Effect<CertPair, UiError, UiShell | UiHost> =>
+  issueInScratch("tailscale cert", (certPath, keyPath) =>
+    [
       "tailscale cert",
       `--cert-file ${shellQuote(certPath)}`,
       `--key-file ${shellQuote(keyPath)}`,
       shellQuote(domain),
-    ].join(" ")
-
-    return yield* runner.bash(command).pipe(
-      Effect.mapError(
-        (e) =>
-          new UiError(`gtd ui: could not run tailscale cert to issue a certificate: ${e.message}`),
-      ),
-      Effect.flatMap((outcome) =>
-        outcome.status !== 0
-          ? Effect.fail(
-              new UiError("gtd ui: tailscale cert exited without issuing a certificate", [
-                `exit status: ${outcome.status ?? "signal"}`,
-                ...outcome.output.trim().split("\n").filter(Boolean),
-              ]),
-            )
-          : Effect.try({
-              try: (): CertPair => ({
-                cert: readFileSync(certPath, "utf8"),
-                key: readFileSync(keyPath, "utf8"),
-              }),
-              catch: (e) =>
-                new UiError(
-                  `gtd ui: tailscale cert reported success but its output could not be read: ${
-                    e instanceof Error ? e.message : String(e)
-                  }`,
-                ),
-            }),
-      ),
-      Effect.ensuring(Effect.sync(() => rmSync(dir, { recursive: true, force: true }))),
-    )
-  })
+    ].join(" "),
+  )
 
 /**
  * Loads a certificate/key pair a config already names, used as-is — this

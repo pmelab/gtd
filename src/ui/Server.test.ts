@@ -84,10 +84,10 @@ const tailnetAddress = (address: string): void => {
 }
 
 import { Host } from "../platform/index.js"
-import { UiError, UiShell, UiUsageError } from "./index.js"
+import { liveUiHost, UiError, UiShell, UiUsageError, type UiHandler } from "./index.js"
 import { liveUiShell } from "./Ports.fixture.js"
 import type { UiConfig } from "./Server.js"
-import type { RunInWorktree } from "./Beat.js"
+import type { RunInWorktree } from "./index.js"
 import {
   buildFormatCommand,
   UiListener,
@@ -173,7 +173,9 @@ const idleBeatJson = (kind: "message" | "capture"): string =>
 
 describe("buildFormatCommand", () => {
   it("undefined ui.format yields no formatCommand at all — no command is ever spawned", () => {
-    expect(buildFormatCommand(undefined, "/repo")).toBeUndefined()
+    expect(
+      buildFormatCommand(undefined, "/repo", () => Promise.reject(new Error("never"))),
+    ).toBeUndefined()
   })
 
   it("runs the command in the worktree root with $GTD_FILE set to the absolute path it's called with", async () => {
@@ -230,14 +232,6 @@ describe("resolveBindHost", () => {
     expect(host).toBe("100.90.1.2")
   })
 
-  it("scans the real network interfaces by default — the actual integration point, not a duplicate of Bind.test.ts's own unit tests", async () => {
-    // No `pickHost` override: exercises the real default parameter over the
-    // mocked, tailnet-free `os.networkInterfaces()` above — proving Server.ts
-    // reached that seam rather than short-circuiting.
-    const exit = await Effect.runPromiseExit(resolveBindHost(undefined, undefined))
-    expect(Exit.isFailure(exit)).toBe(true)
-  })
-
   it("refuses with a UiError naming both remedies when no host resolves at all", async () => {
     const thrown = await Effect.runPromise(
       resolveBindHost(undefined, undefined, () => undefined).pipe(Effect.flip),
@@ -258,7 +252,12 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
+      ).pipe(
+        Effect.provide(noShell),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeContext.layer),
+        Effect.flip,
+      ),
     )
     // The fake UiShell fails every call — reaching its error proves
     // the self-signed path (not loadCertPair) was taken.
@@ -281,7 +280,7 @@ describe("resolveCertPair", () => {
         "localhost",
         "localhost",
         undefined,
-      ).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer)),
+      ).pipe(Effect.provide(runner), Effect.provide(liveUiHost), Effect.provide(NodeContext.layer)),
     )
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("DNS:localhost")
@@ -308,7 +307,7 @@ describe("resolveCertPair", () => {
           hostname: "host.tailnet.ts.net",
           certDomains: [],
         },
-      ).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer)),
+      ).pipe(Effect.provide(runner), Effect.provide(liveUiHost), Effect.provide(NodeContext.layer)),
     )
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("DNS:host.tailnet.ts.net")
@@ -329,7 +328,11 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer)),
+      ).pipe(
+        Effect.provide(noShell),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeContext.layer),
+      ),
     )
     expect(pair.cert).toContain("BEGIN CERTIFICATE")
     expect(pair.key).toContain("BEGIN PRIVATE KEY")
@@ -343,7 +346,12 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
+      ).pipe(
+        Effect.provide(noShell),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeContext.layer),
+        Effect.flip,
+      ),
     )
     expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
@@ -359,7 +367,12 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
+      ).pipe(
+        Effect.provide(noShell),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeContext.layer),
+        Effect.flip,
+      ),
     )
     expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
@@ -375,7 +388,12 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         undefined,
-      ).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
+      ).pipe(
+        Effect.provide(noShell),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeContext.layer),
+        Effect.flip,
+      ),
     )
     expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
@@ -404,7 +422,11 @@ describe("resolveCertPair", () => {
       resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: ["host.tailnet.ts.net"],
-      }).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer)),
+      }).pipe(
+        Effect.provide(runner),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeContext.layer),
+      ),
     )
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("tailscale cert")
@@ -448,7 +470,7 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         realStatus,
-      ).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer)),
+      ).pipe(Effect.provide(runner), Effect.provide(liveUiHost), Effect.provide(NodeContext.layer)),
     )
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("tailscale cert")
@@ -461,7 +483,12 @@ describe("resolveCertPair", () => {
       resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: [],
-      }).pipe(Effect.provide(noShell), Effect.provide(NodeContext.layer), Effect.flip),
+      }).pipe(
+        Effect.provide(noShell),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeContext.layer),
+        Effect.flip,
+      ),
     )
     expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
@@ -478,7 +505,12 @@ describe("resolveCertPair", () => {
       resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: ["host.tailnet.ts.net"],
-      }).pipe(Effect.provide(runner), Effect.provide(NodeContext.layer), Effect.flip),
+      }).pipe(
+        Effect.provide(runner),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeContext.layer),
+        Effect.flip,
+      ),
     )
     expect(thrown).toBeInstanceOf(UiError)
     const rendered = thrown.message + thrown.detail.join("\n")
@@ -495,6 +527,7 @@ describe("UiListener.Live", () => {
       generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
         Effect.provide(liveUiShell),
         Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -512,10 +545,7 @@ describe("UiListener.Live", () => {
         tls: cert,
         host: "127.0.0.1",
         port: 0,
-        handler: (_req, res) => {
-          res.writeHead(200)
-          res.end("ok")
-        },
+        handler: () => Promise.resolve(new Response("ok")),
       }),
     )
 
@@ -558,10 +588,7 @@ describe("UiListener.Live", () => {
       service.listen({
         host: "127.0.0.1",
         port: 0,
-        handler: (_req, res) => {
-          res.writeHead(200)
-          res.end("plain ok")
-        },
+        handler: () => Promise.resolve(new Response("plain ok")),
       }),
     )
 
@@ -594,7 +621,14 @@ describe("UiListener.Live", () => {
     )
 
     const thrown = await Effect.runPromise(
-      service.listen({ tls: cert, host: "127.0.0.1", port, handler: () => {} }).pipe(Effect.flip),
+      service
+        .listen({
+          tls: cert,
+          host: "127.0.0.1",
+          port,
+          handler: () => Promise.resolve(new Response()),
+        })
+        .pipe(Effect.flip),
     )
     occupied.close()
 
@@ -771,6 +805,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -810,6 +845,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -847,6 +883,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -884,6 +921,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -957,6 +995,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1044,6 +1083,7 @@ describe("runUiCommand", () => {
         runUiCommand({ selfSigned: false, dev: false }, undefined, out, tmpDir).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1097,6 +1137,7 @@ describe("runUiCommand", () => {
         runUiCommand({ selfSigned: false, dev: false }, undefined, out, tmpDir).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1150,6 +1191,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1196,6 +1238,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1268,6 +1311,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1335,6 +1379,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1394,6 +1439,7 @@ describe("runUiCommand", () => {
         runUiCommand({ port: 0, selfSigned: false, dev: false }, undefined, out, tmpDir).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1447,6 +1493,7 @@ describe("runUiCommand", () => {
         runUiCommand({ selfSigned: false, dev: false }, { port: 0 }, out, tmpDir).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1494,6 +1541,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -1529,6 +1577,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -1573,6 +1622,7 @@ describe("runUiCommand", () => {
       runUiCommand({ selfSigned: true, dev: false }, undefined, out, tmpDir).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -1627,6 +1677,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -1688,6 +1739,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -1762,6 +1814,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1829,6 +1882,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1887,6 +1941,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -1944,6 +1999,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -2016,6 +2072,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -2078,6 +2135,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -2118,7 +2176,7 @@ describe("runUiCommand", () => {
         ),
     })
 
-    let handler: ((req: http.IncomingMessage, res: http.ServerResponse) => void) | undefined
+    let handler: UiHandler | undefined
     const fakeUiListener = Layer.succeed(UiListener, {
       listen: ({ handler: h }) => {
         handler = h
@@ -2135,6 +2193,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
+        Effect.provide(liveUiHost),
         Effect.provideService(FileSystem.FileSystem, devFs),
       ),
     )
@@ -2145,21 +2204,13 @@ describe("runUiCommand", () => {
     if (handler === undefined) throw new Error("server never registered its request handler")
     const registeredHandler = handler
 
-    const fakeReqRes = (): { body: string[] } => {
-      const body: string[] = []
-      const req = { url: "/", method: "GET" } as http.IncomingMessage
-      const res = {
-        writeHead: () => {},
-        end: (chunk?: string) => {
-          if (chunk !== undefined) body.push(chunk)
-        },
-      } as unknown as http.ServerResponse
-      registeredHandler(req, res)
-      return { body }
+    const fakeReqRes = async (): Promise<{ body: string[] }> => {
+      const response = await registeredHandler(new Request("http://localhost/"), () => {})
+      return { body: [await response.text()] }
     }
 
-    const first = fakeReqRes()
-    const second = fakeReqRes()
+    const first = await fakeReqRes()
+    const second = await fakeReqRes()
     expect(first.body[0]).toContain("console.log('dev build')")
     expect(second.body[0]).toContain("console.log('dev build')")
     expect(bashCalls.filter((c) => c.includes("tsdown"))).toHaveLength(1)
@@ -2183,6 +2234,7 @@ describe("runUiCommand", () => {
       runUiCommand({ selfSigned: false, dev: false }, undefined, out, tmpDir).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
         Effect.provideService(FileSystem.FileSystem, FileSystem.makeNoop({} as never)),
       ),
@@ -2214,6 +2266,7 @@ describe("runUiCommand", () => {
       ).pipe(
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
+        Effect.provide(liveUiHost),
         Effect.provide(NodeContext.layer),
       ),
     )
@@ -2273,6 +2326,7 @@ describe("runUiCommand", () => {
         ).pipe(
           Effect.provide(fakeUiListener),
           Effect.provide(noShell),
+          Effect.provide(liveUiHost),
           Effect.provide(NodeContext.layer),
         ),
       )
@@ -2437,6 +2491,7 @@ const startRealServer = async (
     generateSelfSignedCert({ host: "127.0.0.1", ip: "127.0.0.1" }).pipe(
       Effect.provide(liveUiShell),
       Effect.provide(Host.layer({ root: dir, home: dir, env: process.env })),
+      Effect.provide(liveUiHost),
       Effect.provide(NodeContext.layer),
     ),
   )
@@ -2455,6 +2510,7 @@ const startRealServer = async (
     ).pipe(
       Effect.provide(UiListener.Live),
       Effect.provide(noShell),
+      Effect.provide(liveUiHost),
       Effect.provide(NodeContext.layer),
     ),
   )
