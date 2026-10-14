@@ -98,10 +98,17 @@ Given("GTD_TESTCOMMAND is set to {string}", (world: GtdWorld, value: string) => 
 // $GTD_TESTCOMMAND when a scenario set it: it parameterizes the WORKFLOW
 // under test (the bundled template's `vars.testCommand`), not the driver;
 // likewise any `an environment variable` step (e.g. `GTD_FASTTESTCOMMAND`).
+// The git config isolation (vitest.config.ts) is harness, not a driver
+// dependency: without it the driver's commits read the developer's ~/.gitconfig.
+const gitConfigEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => key.startsWith("GIT_CONFIG_")),
+)
+
 function driverEnv(world: GtdWorld): Record<string, string> {
   return {
     PATH: `${world.pathShimDir}:${process.env["PATH"] ?? ""}`,
     HOME: process.env["HOME"] ?? "",
+    ...gitConfigEnv,
     ...(world.gtdTestCommandOverride !== undefined
       ? { GTD_TESTCOMMAND: world.gtdTestCommandOverride }
       : {}),

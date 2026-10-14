@@ -23,6 +23,9 @@ import { InMemRepo } from "../../../src/testkit/index.js"
 //   other leaked driver runtime state; scenarios that WANT one set it
 //   explicitly via world overrides in driver-doc.steps.ts.
 //
+// - except GIT_CONFIG_GLOBAL/GIT_CONFIG_NOSYSTEM: vitest.config.ts sets them
+//   to keep the developer's ~/.gitconfig (commit signing) out of the suite.
+//
 // Mutating process.env here keeps every child spawn and `{ ...process.env }`
 // spread (world.ts, driver-doc.steps.ts, project-setup.ts) hermetic from
 // one place. The vitest runner itself needs none of these vars. This runs once
@@ -31,8 +34,10 @@ import { InMemRepo } from "../../../src/testkit/index.js"
 // `fileParallelism` override) — but it IS a mutation of global process state,
 // so any future step definition adding its own `process.env` write here
 // would break that parallelism silently. Don't.
+const keptGitVars = new Set(["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM"])
 for (const key of Object.keys(process.env)) {
-  if (key.startsWith("GIT_") || key.startsWith("GTD_LOOP_")) delete process.env[key]
+  if ((key.startsWith("GIT_") && !keptGitVars.has(key)) || key.startsWith("GTD_LOOP_"))
+    delete process.env[key]
 }
 
 // A seeded steering-mode validate: command (`SteeringFormats.ts`'s

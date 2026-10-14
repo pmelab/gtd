@@ -5,11 +5,14 @@ import { storybookTest } from "@storybook/addon-vitest/vitest-plugin"
 import react from "@vitejs/plugin-react"
 import { rawMd } from "./tests/vitest.rawMd.js"
 import { ensureWebClient } from "./tests/vitest.ensureWebClient.js"
+import { isolateGitConfig } from "./tests/vitest.gitConfig.js"
 import { SETUP_FILES } from "./tests/integration/support/setup-files.js"
 
 // Reuses stryker.config.json's `mutate` array as the coverage `include` list
 // so the coverage scope can't drift from the mutation scope.
 const strykerConfig = JSON.parse(readFileSync("./stryker.config.json", "utf8"))
+
+isolateGitConfig()
 
 export default defineConfig({
   test: {
