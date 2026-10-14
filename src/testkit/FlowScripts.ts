@@ -257,9 +257,18 @@ const runCommand = (
   }
   if (scripted.kind === "exit") return scripted
   if (scripted.kind === "missing") return { status: 127, output: `sh: ${command}: not found\n` }
-  repo.writeFile(scripted.file, scripted.content)
+  repo.writeFile(scripted.file, rewritten(repo, scripted))
   return { status: 0, output: "" }
 }
+
+/** What a scripted rewrite leaves in its file. */
+export const rewritten = (
+  repo: InMemRepo,
+  command: Extract<ScriptedCommand, { readonly kind: "rewrite" }>,
+): string =>
+  command.append === true
+    ? `${repo.readFile(command.file) ?? ""}${command.content}`
+    : command.content
 
 const recognizeCheck = (
   repo: InMemRepo,

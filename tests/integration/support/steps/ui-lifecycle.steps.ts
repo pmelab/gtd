@@ -1,6 +1,5 @@
 import { Given, Then, When } from "quickpickle"
 import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
@@ -76,35 +75,19 @@ Then("the taken serve port is {int}", (world: GtdWorld, port: number) => {
 Then(
   "the foreign tailscale serve mapping on port {int} is untouched",
   (world: GtdWorld, port: number) => {
-    assert.ok(world.tailscaleStateDir !== undefined, "no fake tailscale state dir on this world")
-    const mappingPath = join(world.tailscaleStateDir!, `${port}.mapping`)
-    assert.ok(
-      existsSync(mappingPath),
-      `expected the foreign mapping at ${mappingPath} to still exist`,
-    )
+    assert.ok(world.serveMappingExists(port), `expected the foreign mapping on ${port} to remain`)
   },
 )
 
 Then(
   "no tailscale serve mapping or ownership record survives on port {int}",
   async (world: GtdWorld, servePort: number) => {
-    const { readServeRecord } = await import("../../../../src/ui/index.js")
-    // Read through the same sandboxed `$HOME` the spawned child's own
-    // teardown wrote/deleted against — `readServeRecord` resolves
-    // `~/.gtd/serve/` via node:os `homedir()`, which reads this process's
-    // own `$HOME`, not the child's.
-    const record = await world.withServeHome(() => readServeRecord(servePort))
     assert.strictEqual(
-      record,
+      await world.serveRecordOf(servePort),
       undefined,
-      `expected no ownership record left at $HOME/.gtd/serve/${servePort}.json`,
+      `expected no ownership record left for ${servePort}`,
     )
-    assert.ok(world.tailscaleStateDir !== undefined, "no fake tailscale state dir on this world")
-    const mappingPath = join(world.tailscaleStateDir!, `${servePort}.mapping`)
-    assert.ok(
-      !existsSync(mappingPath),
-      `expected the fake tailscale mapping at ${mappingPath} to be gone`,
-    )
+    assert.ok(!world.serveMappingExists(servePort), `expected no mapping left on ${servePort}`)
   },
 )
 
@@ -190,7 +173,7 @@ When(
 )
 
 Then("the file {string} contains {string}", (world: GtdWorld, path: string, text: string) => {
-  const content = readFileSync(join(world.repoDir, path), "utf8")
+  const content = world.readRepoFile(path)
   assert.ok(
     content.includes(text),
     `expected ${path} to contain ${JSON.stringify(text)}, got:\n${content}`,
@@ -200,9 +183,7 @@ Then("the file {string} contains {string}", (world: GtdWorld, path: string, text
 Then(
   "the file {string} does not contain {string}",
   (world: GtdWorld, path: string, text: string) => {
-    const content = existsSync(join(world.repoDir, path))
-      ? readFileSync(join(world.repoDir, path), "utf8")
-      : ""
+    const content = world.readRepoFile(path)
     assert.ok(!content.includes(text), `expected ${path} not to contain ${JSON.stringify(text)}`)
   },
 )

@@ -170,7 +170,13 @@ const makeInMemoryConfigDiscovery = (
 /** One scripted `bash` command's canned behavior, keyed by the RENDERED command string a scenario's `Given` step declares. */
 export type ScriptedCommand =
   | { readonly kind: "exit"; readonly status: number; readonly output: string }
-  | { readonly kind: "rewrite"; readonly file: string; readonly content: string }
+  | {
+      readonly kind: "rewrite"
+      readonly file: string
+      readonly content: string
+      /** Adds `content` to the file's end instead of replacing it. */
+      readonly append?: boolean
+    }
   /** Keyed by the binary's name: it is not on `$PATH`. */
   | { readonly kind: "missing" }
 

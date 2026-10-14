@@ -31,7 +31,7 @@ import {
   type SteeringFormat,
 } from "../steering/index.js"
 import { renderFormat } from "../wire/index.js"
-import { applyFlowScript } from "./FlowScripts.js"
+import { applyFlowScript, rewritten } from "./FlowScripts.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
 
@@ -563,7 +563,7 @@ const recognizeScriptedCommand = (
   const scripted = commands.get(block)
   if (scripted === undefined) return undefined
   if (scripted.kind === "rewrite") {
-    repo.writeFile(scripted.file, scripted.content)
+    repo.writeFile(scripted.file, rewritten(repo, scripted))
     return { kind: "applied" }
   }
   if (scripted.kind === "missing") {

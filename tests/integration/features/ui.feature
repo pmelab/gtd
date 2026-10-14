@@ -4,17 +4,16 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   THIS worktree — the invoking directory, there is no fleet and no configured
   list of roots to discover one from. It shares the repo-root and at-least-one-commit guard with every other
   state command. Before ever resolving a bind host or a certificate, it reads
-  the served worktree's own beat (a real `gtd next --json` subprocess spawn)
+  the served worktree's own beat (`gtd next --json`)
   and refuses — exit 2, no port ever bound — unless that beat rests with a
   HUMAN actor carrying a `file`: every other rest has no phone screen to show
   it on, regardless of its reported content kind. Idle is renderable too —
   the phone opens free-form on the idle rest's own `file` (`.gtd/TODO.md` in
   the bundled workflow), and the human's write is what eventually moves the
   state, not `gtd ui` itself. `mode` is NOT part of that axis — an absent or
-  unregistered mode renders free-form. That beat read needs a REAL
-  worktree underneath it, so every scenario below that gets past it (or
-  specifically proves a NON-renderable rest) is `@live`; only the two fast,
-  purely config/guard-level refusals stay `@inmem`.
+  unregistered mode renders free-form. Scenarios run the server in-process
+  against the in-memory worktree; refusing outside a repository needs a real
+  directory, and runs `@live`.
 
   @inmem
   Scenario: a repository with no commits refuses through the shared repo guard, not gtd ui's own refusal — inverted from when gtd serve skipped this guard entirely
@@ -34,7 +33,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # uses --self-signed --host so ONLY the render gate is under test, never the
   # host/cert resolution the scenarios further down exist to cover. ──────────
 
-  @live
+  @inmem
   Scenario: gtd ui binds on an idle worktree (the default rest of a fresh project), the phone sketches, hands off, and the sketch stays un-triaged until the next gtd run
     Given a test project
     And the workflow gtd install scaffolds
@@ -45,7 +44,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the git status contains ".gtd/TODO.md"
     And the commit count is unchanged
 
-  @live
+  @inmem
   Scenario: a clean message rest (non-idle), resting with a human but with no steering file, refuses on the actor axis
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -67,7 +66,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the exit code is 2
     And stderr contains "rests with you"
 
-  @live
+  @inmem
   Scenario: a dirty rest (kind capture), resting with a human but with no steering file, refuses on the steering-file axis — the content kind is never the axis
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -93,7 +92,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the exit code is 2
     And stderr contains "rests with you"
 
-  @live
+  @inmem
   Scenario: a script rest, resting with the check actor, refuses on the actor axis
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -123,7 +122,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the exit code is 2
     And stderr contains "check"
 
-  @live
+  @inmem
   Scenario: a stalled rest (a clean-tree agent attempt at a prompt state), resting with the agent actor, refuses on the actor axis
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -147,7 +146,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And stderr contains "agent"
 
 
-  @live
+  @inmem
   Scenario: a prompt rest resting with a human, whose mode resolves to no registered steering format, binds a port instead of refusing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -194,7 +193,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # bind, then a real HTTPS tRPC `done` call, then the process exits 0 on
   # its own. ─────────────────────────────────────────────────────────────
 
-  @live
+  @inmem
   Scenario: a human rest reporting kind message, carrying a file and a registered mode, binds a port and exits 0
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -234,7 +233,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # shape: `idle` (write NOTE.md to start) → `planning`, a human rest
   # carrying `file: ".gtd/TODO.md"` and no `mode` at all. ─────────────────────
 
-  @live
+  @inmem
   Scenario: a mode-less steering file renders as its own structure — headings, a list, and a fenced code block
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -275,7 +274,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # (`["Paragraph zero here.", ""]`), so paragraph 1 is that trailing blank
   # row past the last real block — the append target this scenario now
   # exercises.
-  @live
+  @inmem
   Scenario: writing to a mode-less steering file via setValue appends the bytes to disk
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -300,7 +299,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Then the file ".gtd/TODO.md" contains "Paragraph zero here."
     And the file ".gtd/TODO.md" contains "Appended paragraph."
 
-  @live
+  @inmem
   Scenario: writing against a stale token refuses instead of clobbering the file
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -326,7 +325,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the file ".gtd/TODO.md" contains "Paragraph zero here."
     And the file ".gtd/TODO.md" does not contain "Clobber attempt."
 
-  @live
+  @inmem
   Scenario: writing against a served path that is a directory refuses instead of truncating it
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -348,7 +347,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Then the write is refused with reason "file-vanished"
     And ".gtd/TODO.md" is still a directory
 
-  @live
+  @inmem
   Scenario: handing off a genuinely mode-less rest (no mode key at all) exits 0 with the edit on disk
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -373,7 +372,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Then the reported exit status is 0
     And the file ".gtd/TODO.md" contains "handed back"
 
-  @live
+  @inmem
   Scenario: ui.format rewrites a mode-less write, and a second write against the returned hash still succeeds
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -387,9 +386,13 @@ Feature: gtd ui — the phone/web client's HTTPS listener
 
       export const config = {
         ui: {
-          format: "printf \"FORMATTED\\n\" >> $GTD_FILE",
+          format: "append-formatted $GTD_FILE",
         },
       }
+      """
+    And the shell command "append-formatted $GTD_FILE" appends to "$GTD_FILE":
+      """
+      FORMATTED
       """
     And a file "NOTE.md" with:
       """
@@ -416,7 +419,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # text (`qa.ts#optionTextSpan`'s whole-paragraph span, package 06 Task 1).
   # ──────────────────────────────────────────────────────────────────────
 
-  @live
+  @inmem
   Scenario: a free-text answer typed long enough to wrap saves byte-for-byte through a spawned gtd ui, with no tail of the previous wrapped answer left behind
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
