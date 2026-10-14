@@ -72,10 +72,8 @@ export default defineConfig({
         // 120s, not 30s: package 02's driver rewrite reads each field as its
         // own `gtd next --json=<path>`/`gtd land --json=<path>` call rather
         // than one combined `--sh` read — the reference driver now spawns
-        // roughly 6x as many real subprocesses per beat. `driver-doc.steps.ts`'s
-        // own multi-beat scenarios (e.g. the fix-precheck escalation and the
-        // `--resume` fallback) run comfortably under 30s in isolation but
-        // crossed 60s under `npm test`'s concurrent turbo task load. Keep this
+        // roughly 6x as many real subprocesses per beat, and its multi-beat
+        // scenarios crossed 60s under `npm test`'s concurrent turbo task load. Keep this
         // and `driver-doc.steps.ts`'s own execFile timeout equal, and both
         // below `testTimeout`, so a slow step fails as a step, not a test.
         plugins: [

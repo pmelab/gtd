@@ -127,8 +127,8 @@ When("I run the driver from the docs", async (world: GtdWorld) => {
     // 120s, matching e2e-live's own `stepTimeout` (see vitest.config.ts):
     // the reference driver now issues one real subprocess per field read
     // (`gtd next --json=<path>`/`gtd land --json=<path>`) instead of one
-    // combined `--sh` read per beat, so a multi-beat scenario like the
-    // fix-precheck escalation below spawns several times as many processes.
+    // combined `--sh` read per beat, so a multi-beat scenario spawns several
+    // times as many processes.
     const { stdout, stderr } = await execFile(path, [], {
       cwd: world.repoDir,
       env: driverEnv(world),
@@ -166,30 +166,3 @@ Then("the log file does not contain {string}", (world: GtdWorld, text: string) =
     `Expected the log file ("${loopLogPath(world)}") not to contain "${text}". Got:\n${content}`,
   )
 })
-
-// Regex variants of the two assertions above — needed for the computed
-// session id (a real @live commit-derived value), which isn't a fixed
-// literal, and for a regex BACKREFERENCE proving the SAME id came back on a
-// resumed turn.
-Then("the log file matches {string}", (world: GtdWorld, pattern: string) => {
-  const path = join(world.repoDir, loopLogPath(world))
-  const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-  assert.ok(
-    new RegExp(pattern).test(content),
-    `Expected the log file ("${loopLogPath(world)}") to match /${pattern}/. Got:\n${content}`,
-  )
-})
-
-Then(
-  "the log file matches {string} {int} times",
-  (world: GtdWorld, pattern: string, count: number) => {
-    const path = join(world.repoDir, loopLogPath(world))
-    const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
-    const matches = content.match(new RegExp(pattern, "g")) ?? []
-    assert.strictEqual(
-      matches.length,
-      count,
-      `Expected the log file ("${loopLogPath(world)}") to match /${pattern}/ exactly ${count} times, found ${matches.length}. Got:\n${content}`,
-    )
-  },
-)
