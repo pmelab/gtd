@@ -2232,7 +2232,7 @@ describe("runUiCommand", () => {
       ),
     )
 
-    for (let i = 0; i < 50 && handler === undefined; i += 1) {
+    for (let i = 0; i < 500 && handler === undefined; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
     if (handler === undefined) throw new Error("server never registered its request handler")

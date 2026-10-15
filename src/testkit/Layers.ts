@@ -216,6 +216,21 @@ const missingToolCommands: ToolCommands["Type"] = {
 export const gitTestLayer = (repo: InMemRepo, root = "/repo"): Layer.Layer<GitService> =>
   Layer.succeed(GitService, fakeGitOperations(repo, root))
 
+/**
+ * The one sanctioned leak of the real `process.env` into the in-memory `Host`:
+ * the runner's `GTD_FLAG_*` state, so a flag-on `npm test` state exercises the
+ * flag in memory as it does live. A test asserting one flag side sets the flag
+ * itself; explicit env wins.
+ */
+export const ambientFlagEnv = (
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(env).filter(
+      (e): e is [string, string] => e[0].startsWith("GTD_FLAG_") && e[1] !== undefined,
+    ),
+  )
+
 /** Every layer `makeProgram` needs — `CommandRequirements`'s return type here IS the guarantee: a new port added there fails this function's typecheck instead of silently under-providing. */
 export function testLayers(
   repo: InMemRepo,
@@ -231,7 +246,12 @@ export function testLayers(
     // symlinks against): both sides of `assertRunningFromRepoRoot`'s
     // comparison collapse to `root` when given anything, exactly like the
     // fake's `root` "resolving" to itself before this port existed.
-    Host.layer({ root, home, env: opts.env ?? {}, realPath: () => Effect.succeed(root) }),
+    Host.layer({
+      root,
+      home,
+      env: { ...ambientFlagEnv(), ...opts.env },
+      realPath: () => Effect.succeed(root),
+    }),
     ConfigService.Live,
     makeInMemoryConfigDiscovery(repo, root),
     Narrator.layer(opts.narrate ?? (() => {}), opts.verbose ?? true),

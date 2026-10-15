@@ -66,17 +66,20 @@ decided by the tiers in [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ### Task graph and caching
 
-`npm test` runs through Turborepo (`turbo.json`), not a serial `&&` chain — each
-check is a task with its own `inputs`, so it's cached (skipped when its inputs
-are unchanged since the last green run) and run in parallel with the others. Two
-rules a future change must not break: adding a check means adding all three of a
-`package.json` script, a `turbo.json` task with an explicit `inputs` array, and
-that task's name to the `test` script's task list — a task missing any of the
-three fails `tests/tooling/turbo.test.ts`. And under-declared `inputs` cache a
-stale green: the canonical example is `docs/**` in `test:unit` and both e2e
-tasks' `inputs`, because `tests/integration/features/driver-doc.feature` runs
-`docs/driver.md` as executable code — omitting it would let a broken doc pass on
-a cached result.
+`npm test` is a runner that wraps `turbo run` once per release-flag state — all
+flags off, then each release flag alone on (`GTD_FLAG_<NAME>=1`; the in-memory
+tier picks it up from the ambient env, explicit test env wins), so each release
+flag adds a full vitest pass to every gate and CI. It is not a serial `&&` chain
+— each check is a task with its own `inputs`, so it's cached (skipped when its
+inputs are unchanged since the last green run) and run in parallel with the
+others. Two rules a future change must not break: adding a check means adding
+all three of a `package.json` script, a `turbo.json` task with an explicit
+`inputs` array, and that task's name in the runner's `TASKS` list — a task
+missing any of the three fails `tests/tooling/turbo.test.ts`. And under-declared
+`inputs` cache a stale green: the canonical example is `docs/**` in `test:unit`
+and both e2e tasks' `inputs`, because
+`tests/integration/features/driver-doc.feature` runs `docs/driver.md` as
+executable code — omitting it would let a broken doc pass on a cached result.
 
 ### Import rules
 

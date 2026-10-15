@@ -2,7 +2,8 @@ import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { ConfigDiscovery, LEGACY_RC_FILES, walkUp } from "../workflow/index.js"
 import { InMemRepo } from "./index.js"
-import { testLayers } from "./Layers.js"
+import { ambientFlagEnv, testLayers } from "./Layers.js"
+import { Host } from "../platform/index.js"
 
 // The in-memory `ConfigDiscovery` counterpart walks the SAME root→home chain
 // and looks for the SAME `LEGACY_RC_FILES` as `ConfigDiscovery.Live` — both
@@ -54,5 +55,37 @@ describe("the in-memory ConfigDiscovery counterpart", () => {
       await runDiscovery(repo, (d) => d.legacyRcFiles("/elsewhere/project", HOME))
     ).map((f) => f.path)
     expect(found).toEqual([`${HOME}/${LEGACY_RC_FILES[1]}`])
+  })
+})
+
+describe("ambient GTD_FLAG_* reaches the in-memory Host", () => {
+  const hostEnv = (ambient: Record<string, string>, env?: Record<string, string>) => {
+    const before = { ...process.env }
+    Object.assign(process.env, ambient)
+    return Effect.runPromise(
+      Effect.map(Host, (h) => h.env).pipe(
+        Effect.provide(testLayers(new InMemRepo(), env ? { env } : {})),
+        Effect.ensuring(
+          Effect.sync(() => {
+            for (const k of Object.keys(ambient)) {
+              if (before[k] === undefined) delete process.env[k]
+              else process.env[k] = before[k]
+            }
+          }),
+        ),
+      ),
+    )
+  }
+
+  it("carries the ambient flag, and explicit env wins", async () => {
+    expect((await hostEnv({ GTD_FLAG_ALPHA: "1" }))["GTD_FLAG_ALPHA"]).toBe("1")
+    const env = await hostEnv({ GTD_FLAG_ALPHA: "1" }, { GTD_FLAG_ALPHA: "0" })
+    expect(env["GTD_FLAG_ALPHA"]).toBe("0")
+  })
+
+  it("picks only GTD_FLAG_* keys", () => {
+    expect(ambientFlagEnv({ GTD_FLAG_X: "1", PATH: "/bin", GTD_FLAG_U: undefined })).toEqual({
+      GTD_FLAG_X: "1",
+    })
   })
 })
