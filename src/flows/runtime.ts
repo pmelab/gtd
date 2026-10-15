@@ -290,6 +290,9 @@ const toChanges = (list: readonly Change[]): Changes =>
     }),
   )
 
+/** Whether `path` matches `pattern` in the `glob()`/`changes()` dialect. */
+export const matches = (path: string, pattern: string): boolean => ctx().matches(path, pattern)
+
 /** What the last step changed, optionally only the paths matching a glob. */
 export const changes = (pattern?: string): Changes => {
   const context = ctx()

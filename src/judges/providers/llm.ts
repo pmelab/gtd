@@ -65,7 +65,11 @@ export const toPrompt = (
 ): string =>
   [
     "Answer every question below from the evidence alone. For each, give your answer and p, your confidence between 0 and 1 that the given answer is correct.",
-    ...Object.entries(state).map(([key, body]) => `<evidence key="${key}">\n${body}\n</evidence>`),
+    // Evidence can carry text the judged agent wrote; it must not close its own tag.
+    ...Object.entries(state).map(
+      ([key, body]) =>
+        `<evidence key="${key}">\n${body.replace(/<\/evidence/gi, "<\\/evidence")}\n</evidence>`,
+    ),
     ...questions.map(describe),
   ].join("\n\n")
 
