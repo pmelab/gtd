@@ -1693,6 +1693,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     historyList: { kind: "historyList" },
     historyShow: { kind: "historyShow", ref: "x" },
     historyFetch: { kind: "historyFetch", remote: "origin" },
+    strays: { kind: "strays", base: "HEAD", tip: "HEAD", globs: [] },
   }
 
   const stateKinds = (Object.keys(commandFor) as Command["kind"][]).filter(

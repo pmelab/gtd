@@ -49,6 +49,10 @@ Then("stdout is empty", (world: GtdWorld) => {
   )
 })
 
+Then("stdout is:", (world: GtdWorld, expected: string) => {
+  assert.strictEqual(world.lastResult.stdout, `${String(expected)}\n`)
+})
+
 Given("{string} is staged", (world: GtdWorld, path: string) => {
   if (world.repo !== undefined) world.repo.stage(path)
   else execFileSync("git", ["add", path], { cwd: world.repoDir, stdio: "pipe" })

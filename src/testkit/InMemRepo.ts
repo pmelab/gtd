@@ -270,6 +270,13 @@ export class InMemRepo {
     return diffTrees(baseTree, worktreeTree)
   }
 
+  diffPaths(base: string, tip: string): string[] {
+    for (const ref of [base, tip]) {
+      if (this.resolveRef(ref) === null) throw new Error(`Invalid ref: ${ref}`)
+    }
+    return diffTrees(this.treeAt(base), this.treeAt(tip)).map((e) => e.path)
+  }
+
   /** The worktree content of `path`, or `undefined` when absent. A LIVE read — never a snapshot. */
   readFile(path: string): string | undefined {
     return this.worktree.get(path)

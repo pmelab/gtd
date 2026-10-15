@@ -3,6 +3,8 @@ export const EXIT_OK = 0
 export const EXIT_RUNTIME_ERROR = 1
 /** gtd was invoked wrong — an unknown option/command, bad arity, a scope violation, a decode failure. */
 export const EXIT_USAGE_ERROR = 2
+/** `gtd strays` found touched paths outside the allowlist — that command's only, and it carries no other meaning. */
+export const EXIT_STRAYS_FOUND = 10
 export const EXIT_SIGINT = 130
 export const EXIT_SIGTERM = 143
 
@@ -11,6 +13,7 @@ export const EXIT_CODES: ReadonlySet<number> = new Set([
   EXIT_OK,
   EXIT_RUNTIME_ERROR,
   EXIT_USAGE_ERROR,
+  EXIT_STRAYS_FOUND,
   EXIT_SIGINT,
   EXIT_SIGTERM,
 ])

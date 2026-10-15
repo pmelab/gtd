@@ -76,6 +76,8 @@ const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations =>
     Effect.succeed(repo.subjectHistory(pageSize, skip, head)),
 
   changedPaths: (base?: string) => Effect.succeed(repo.changedPathsWorktree(base)),
+
+  diffPaths: (base: string, tip: string) => tryCatch(() => repo.diffPaths(base, tip)),
 })
 
 const failOn = (output: string | undefined): void => {

@@ -1,6 +1,12 @@
+import { execFileSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { NodeContext } from "@effect/platform-node"
 import { Cause, Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
-import { InvalidRefError, resolvedRefOrCorrupted } from "./Git.js"
+import { GitService, InvalidRefError, resolvedRefOrCorrupted } from "./Git.js"
+import { Host } from "./index.js"
 import { gitTiers, runGitServiceContract, runGitScriptContract } from "../testkit/index.js"
 
 /**
@@ -45,3 +51,39 @@ for (const makeTier of gitTiers) {
     runGitScriptContract(makeTier)
   })
 }
+
+describe("diffPaths [Live]", () => {
+  it("stays repo-root-relative with diff.relative=true and a subdirectory cwd", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-diffpaths-")))
+    try {
+      const git = (...args: string[]) =>
+        execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe" }).trim()
+      git("init")
+      git("config", "user.email", "test@test.com")
+      git("config", "user.name", "Test")
+      git("config", "commit.gpgsign", "false")
+      git("config", "diff.relative", "true")
+      mkdirSync(join(root, "sub"))
+      writeFileSync(join(root, "sub", "a.txt"), "a")
+      writeFileSync(join(root, "top.txt"), "t")
+      git("add", "-A")
+      git("commit", "-m", "one")
+      const base = git("rev-parse", "HEAD")
+      writeFileSync(join(root, "sub", "a.txt"), "b")
+      writeFileSync(join(root, "top.txt"), "u")
+      git("add", "-A")
+      git("commit", "-m", "two")
+      const tip = git("rev-parse", "HEAD")
+      const paths = await Effect.runPromise(
+        Effect.flatMap(GitService, (g) => g.diffPaths(base, tip)).pipe(
+          Effect.provide(GitService.Live),
+          Effect.provide(Host.layer({ root: join(root, "sub"), home: root, env: {} })),
+          Effect.provide(NodeContext.layer),
+        ),
+      )
+      expect([...paths].sort()).toEqual(["sub/a.txt", "top.txt"])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})

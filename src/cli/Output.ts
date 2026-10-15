@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { CommandRunner, GitService, Host, Narrator, Workspace } from "../platform/index.js"
-import { selectPath } from "../wire/index.js"
+import { selectPath, type EXIT_OK, type EXIT_STRAYS_FOUND } from "../wire/index.js"
 import { ConfigDiscovery, ConfigService } from "../workflow/index.js"
 import type { ToolCommands } from "./ToolCommands.js"
 
@@ -66,3 +66,5 @@ export type CommandRequirements =
   | Narrator
   | CommandRunner
   | ToolCommands
+
+export type SuccessExit = typeof EXIT_OK | typeof EXIT_STRAYS_FOUND

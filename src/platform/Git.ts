@@ -94,6 +94,14 @@ export interface GitReaderOperations {
   readonly changedPaths: (
     base?: string,
   ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
+  /**
+   * Paths whose content differs between the trees of `base` and `tip`: added,
+   * modified and deleted alike; a rename reports both paths (no rename
+   * detection). Repo-root-relative whatever the cwd or `diff.relative` config;
+   * never reads the index or the working tree. Fails when either side does
+   * not resolve.
+   */
+  readonly diffPaths: (base: string, tip: string) => Effect.Effect<ReadonlyArray<string>, Error>
 }
 
 export interface GitWriterOperations {
@@ -381,6 +389,20 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       ),
 
     readFileAtRef: (ref: string, path: string) => exec("git", "show", `${ref}:${path}`),
+
+    diffPaths: (base: string, tip: string) =>
+      exec(
+        "git",
+        "diff",
+        "--name-only",
+        "-z",
+        "--no-renames",
+        "--no-relative",
+        "--end-of-options",
+        base,
+        tip,
+        "--",
+      ).pipe(Effect.map(splitNul)),
 
     changedPaths: (base?: string) =>
       Effect.gen(function* () {

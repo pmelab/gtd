@@ -409,6 +409,7 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "subjectHistory",
   "readFileAtRef",
   "changedPaths",
+  "diffPaths",
   "commitAllWithPrefix",
   "softResetTo",
   "commitAsIs",
@@ -434,7 +435,7 @@ const PATHOLOGICAL_PATHS: ReadonlyArray<{ label: string; path: string }> = [
 ]
 
 /**
- * Exercise all 21 `GitOperations` methods identically against `makeTier()` —
+ * Exercise every `GitOperations` methods identically against `makeTier()` —
  * called once per tier by `src/platform/Git.test.ts`. A capability-gated group
  * (`t.capabilities.X`) is skipped, not faked, on a tier that can't support it.
  */
@@ -480,6 +481,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
         g.readFileAtRef("HEAD", "second.txt"),
         g.changedPaths(),
         g.changedPaths("HEAD~1"),
+        g.diffPaths("HEAD~1", "HEAD"),
       ]),
     )
     expect(await t.observe.snapshot()).toBe(before)
@@ -985,6 +987,70 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
     it("fails when the path does not exist at that ref", async () => {
       const result = await runGitExit(t, (g) => g.readFileAtRef("HEAD", "nonexistent.txt"))
       expect(Exit.isFailure(result)).toBe(true)
+    })
+  })
+
+  describe("diffPaths", () => {
+    const sorted = (paths: ReadonlyArray<string>) => [...paths].sort()
+
+    it("reports added, modified and deleted paths between two commits", async () => {
+      t.seed.commit("chore: seed", { "mod.txt": "one", "del.txt": "bye" })
+      const base = t.observe.resolveRef("HEAD")
+      t.seed.writeFile("mod.txt", "two")
+      t.seed.stageAll()
+      t.seed.commitDeletion("del.txt", "chore: delete")
+      t.seed.commit("feat: add", { "add.txt": "new", "mod.txt": "two" })
+      const tip = t.observe.resolveRef("HEAD")
+      const paths = await runGit(t, (g) => g.diffPaths(base, tip))
+      expect(sorted(paths)).toEqual(["add.txt", "del.txt", "mod.txt"])
+    })
+
+    it("reports both paths of a rename", async () => {
+      t.seed.commit("chore: seed", { "old.txt": "same content unique-marker\n" })
+      const base = t.observe.resolveRef("HEAD")
+      t.seed.deleteFile("old.txt")
+      t.seed.commit("refactor: rename", { "new.txt": "same content unique-marker\n" })
+      const tip = t.observe.resolveRef("HEAD")
+      expect(sorted(await runGit(t, (g) => g.diffPaths(base, tip)))).toEqual(["new.txt", "old.txt"])
+    })
+
+    it("omits a file changed then restored between the endpoints", async () => {
+      t.seed.commit("chore: seed", { "flip.txt": "one" })
+      const base = t.observe.resolveRef("HEAD")
+      t.seed.commit("chore: change", { "flip.txt": "two" })
+      t.seed.commit("chore: restore", { "flip.txt": "one" })
+      const tip = t.observe.resolveRef("HEAD")
+      expect(await runGit(t, (g) => g.diffPaths(base, tip))).toEqual([])
+    })
+
+    it("never reports staged, unstaged or untracked changes", async () => {
+      t.seed.commit("chore: seed", { "a.txt": "a", "b.txt": "b" })
+      const base = t.observe.resolveRef("HEAD")
+      t.seed.writeFile("a.txt", "staged")
+      t.seed.stageAll()
+      t.seed.writeFile("b.txt", "unstaged")
+      t.seed.writeFile("untracked.txt", "u")
+      expect(await runGit(t, (g) => g.diffPaths(base, "HEAD"))).toEqual([])
+    })
+
+    it("is [] for diffPaths(x, x)", async () => {
+      const head = t.observe.resolveRef("HEAD")
+      expect(await runGit(t, (g) => g.diffPaths(head, head))).toEqual([])
+    })
+
+    for (const { label, path } of PATHOLOGICAL_PATHS) {
+      it(`reports a path containing ${label}, verbatim`, async () => {
+        const base = t.observe.resolveRef("HEAD")
+        t.seed.commit("feat: pathological", { [path]: "content" })
+        expect(await runGit(t, (g) => g.diffPaths(base, "HEAD"))).toEqual([path])
+      })
+    }
+
+    it("fails when either side does not resolve", async () => {
+      const bad = await runGitExit(t, (g) => g.diffPaths("totally-invalid-ref-xyz", "HEAD"))
+      expect(Exit.isFailure(bad)).toBe(true)
+      const badTip = await runGitExit(t, (g) => g.diffPaths("HEAD", "totally-invalid-ref-xyz"))
+      expect(Exit.isFailure(badTip)).toBe(true)
     })
   })
 
