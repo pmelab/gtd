@@ -20,17 +20,16 @@ import { refactorFirst } from "./refactor.js"
 /** Naive-pass retries after a `reject`; the next `reject` rests at `seam.steer`. */
 const NAIVE_RETRIES = 2
 
-/**
- * `seamAllow` plus every file the tip adds. A change to an existing file
- * outside it is a stray even when the task needs it: the judge decides.
- */
-export const seamAllowlist = (tip: KeptTip): string[] => [
-  ...(vars.seamAllow ?? defaults.seamAllow!)
-    .split(",")
-    .map((glob) => glob.trim())
-    .filter((glob) => glob !== ""),
-  ...tip.changes.filter((c) => c.status === "added").map((c) => c.path),
-]
+/** A change to an existing file outside the allowlist is a stray even when the task needs it: the judge decides. */
+export const judgeSeam = (tip: KeptTip): Promise<DiffShapeResult> =>
+  judgeDiffShape("judge", {
+    changes: tip.changes,
+    allow: (vars.seamAllow ?? defaults.seamAllow!)
+      .split(",")
+      .map((glob) => glob.trim())
+      .filter((glob) => glob !== ""),
+    exempt: tip.changes.filter((c) => c.status === "added").map((c) => c.path),
+  })
 
 export const naivePass = (rejection?: t.SeamRejection): Promise<void> =>
   t.agentWithSkills("naive", t.naivePassPrompt(rejection), {
@@ -71,10 +70,7 @@ const decide = (): Promise<Decision> =>
     for (;;) {
       await naivePass(rejection)
       const tip = kept("naive")!
-      const shape = await judgeDiffShape("judge", {
-        changes: tip.changes,
-        allow: seamAllowlist(tip),
-      })
+      const shape = await judgeSeam(tip)
       if (shape.choice === "land") return { reference: tip.hash }
       if (shape.choice === "refactor-first") {
         await seamGate("approve", shape)

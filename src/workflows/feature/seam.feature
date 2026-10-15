@@ -8,6 +8,14 @@ Feature: the naive pass and seam judge replace architecture behind GTD_FLAG_NAIV
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
+    And the gtd config ends with:
+      """
+      export const config = {
+        skills: {
+          implement: ["my-tdd", "my-runbook"],
+        },
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And a file "src/calc.ts" with:
@@ -65,6 +73,20 @@ Feature: the naive pass and seam judge replace architecture behind GTD_FLAG_NAIV
       gtd(agent): seam.naive → seam.judge
       gtd(judge): seam.judge → implement.building
       """
+
+  Scenario: config skills for the implement scope reach the implement step
+    Given step "seam.naive" writes "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      export const subtract = (a: number, b: number) => a - b
+      """
+    And judge step "seam.judge" answers:
+      """
+      [{"id":"shape","answer":"land","p":0.9}]
+      """
+    When the process is driven
+    Then the process rests at "implement.building"
+    And the resting step's content contains "my-tdd, my-runbook"
 
   Scenario: the naive pass lands as a marker commit and its turn stays off the branch
     Given step "seam.naive" writes "src/calc.ts" with:
@@ -124,6 +146,25 @@ Feature: the naive pass and seam judge replace architecture behind GTD_FLAG_NAIV
       gtd(human): design.gate.answer → seam.naive
       gtd(agent): seam.naive → implement.building
       """
+
+  Scenario: a naive pass adding a glob-named file does not hide a modified sibling
+    Given step "seam.naive" writes "src/calc*.ts" with:
+      """
+      export const subtract = (a: number, b: number) => a - b
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      export const subtract = (a: number, b: number) => a - b
+      """
+    And judge step "seam.judge" answers:
+      """
+      [{"id":"shape","answer":"reject","p":0.9}]
+      """
+    When the process is driven
+    Then the process rests at "seam.steer"
+    And the resting step's content contains "src/calc.ts"
+    And the resting step's content does not contain "src/calc*.ts"
 
   Scenario: a refactor-first judgment rests at the approval gate, then refactors, then implements
     Given step "seam.naive" writes "src/calc.ts" with:

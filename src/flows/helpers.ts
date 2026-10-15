@@ -152,12 +152,14 @@ export interface DiffShapeOptions {
   readonly changes: readonly Change[]
   /** Globs in the `changes(pattern)` / `gtd strays` dialect. */
   readonly allow: readonly string[]
+  /** Exact paths never strays; compared by equality, so a `*` in one covers nothing else. */
+  readonly exempt?: readonly string[] | undefined
   readonly minP?: number | undefined
 }
 
 export interface DiffShapeResult {
   readonly choice: DiffShape
-  /** Sorted, equal to `gtd strays` for the same range and globs. */
+  /** Sorted, equal to `gtd strays` for the same range and globs, minus `exempt`. */
   readonly strays: readonly string[]
   /** Strays with a side that could not be read (sorted); `refactor-first` skipped the judge. */
   readonly unreadable: readonly string[]
@@ -198,7 +200,9 @@ export const judgeDiffShape = async (
   options: DiffShapeOptions,
 ): Promise<DiffShapeResult> => {
   const { changes: all, allow } = options
-  const isStray = (c: Change): boolean => !allow.some((pattern) => matches(c.path, pattern))
+  const exempt = options.exempt ?? []
+  const isStray = (c: Change): boolean =>
+    !exempt.includes(c.path) && !allow.some((pattern) => matches(c.path, pattern))
   const strayChanges: Change[] = all
     .filter(isStray)
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))

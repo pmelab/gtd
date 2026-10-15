@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { installContext, type Change, type KeptTip } from "../../flows/index.js"
+import {
+  installContext,
+  type Change,
+  type FlowContext,
+  type KeptTip,
+  type StepRequest,
+} from "../../flows/index.js"
+import { globMatches } from "../../wire/index.js"
 import { fixtureContext } from "../shared/text.fixture.js"
-import { naivePass, seamAllowlist } from "./seam.js"
+import { judgeSeam, naivePass } from "./seam.js"
 import { captureStep } from "../shared/text.fixture.js"
 
 afterEach(() => installContext(undefined))
@@ -19,25 +26,45 @@ const tip = (...changes: Change[]): KeptTip =>
     changes: Object.assign([...changes], { paths: [], get: () => undefined }),
   }) as KeptTip
 
-const allowlist = (kept: KeptTip, vars: Record<string, string> = {}): string[] => {
-  installContext(fixtureContext({ vars }))
-  return seamAllowlist(kept)
-}
+describe("judgeSeam", () => {
+  const judgeRequests = (kept: KeptTip, vars: Record<string, string> = {}) => {
+    const requests: StepRequest[] = []
+    installContext({
+      ...fixtureContext({ vars }),
+      matches: globMatches,
+      step: async (request: StepRequest) => {
+        requests.push(request)
+        return { answers: { shape: { answer: "land", p: 0.9 } }, truncated: [] }
+      },
+    } as unknown as FlowContext)
+    return judgeSeam(kept).then(() => requests)
+  }
 
-describe("seamAllowlist", () => {
-  it("is the default list plus every added path, never a modified one", () => {
-    const list = allowlist(tip(change("src/new.ts", "added"), change("src/old.ts", "modified")))
-    expect(list).toContain("**/*.test.*")
-    expect(list).toContain("src/new.ts")
-    expect(list).not.toContain("src/old.ts")
+  it.each([
+    ["src/foo*bar.ts", "src/foobar.ts"],
+    ["src/**", "src/deep/foobar.ts"],
+  ])("added %s does not cover modified %s", async (added, sibling) => {
+    const requests = await judgeRequests(tip(change(added, "added"), change(sibling, "modified")))
+    const request = requests[0]
+    if (request?.kind !== "judge") throw new Error("expected a judge step")
+    expect(JSON.parse(request.evidence.strays as string)).toEqual([sibling])
+    expect(JSON.parse(request.evidence.inAllowlist as string)).toContain(added)
   })
 
-  it("splits seamAllow on commas, trims entries and drops blanks", () => {
-    expect(allowlist(tip(), { seamAllow: " a/** , ,b.ts,, " })).toEqual(["a/**", "b.ts"])
+  it("splits seamAllow on commas, trims entries and drops blanks", async () => {
+    const requests = await judgeRequests(tip(change("src/x.ts", "modified")), {
+      seamAllow: " a/** , ,b.ts,, ",
+    })
+    const request = requests[0]
+    if (request?.kind !== "judge") throw new Error("expected a judge step")
+    expect(JSON.parse(request.evidence.allow as string)).toEqual(["a/**", "b.ts"])
   })
 
-  it("ignores a deleted path", () => {
-    expect(allowlist(tip(change("src/gone.ts", "deleted")), { seamAllow: "x" })).toEqual(["x"])
+  it("exempts only added paths: a deleted path stays a stray", async () => {
+    const requests = await judgeRequests(tip(change("src/gone.ts", "deleted")))
+    const request = requests[0]
+    if (request?.kind !== "judge") throw new Error("expected a judge step")
+    expect(JSON.parse(request.evidence.strays as string)).toEqual(["src/gone.ts"])
   })
 })
 

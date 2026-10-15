@@ -36,6 +36,12 @@ export class TestkitWorld extends QuickPickleWorld {
     this.gtdConfig = config
   }
 
+  extendConfig(tail: string): void {
+    this.assertNotCreated("a gtd config")
+    if (this.gtdConfig === undefined) throw new Error("no gtd config to extend")
+    this.gtdConfig += `\n${tail}`
+  }
+
   setEnv(name: string, value: string): void {
     this.assertNotCreated(`the environment variable ${name}`)
     this.env[name] = value
@@ -77,6 +83,10 @@ const args = (list: string): string[] => list.split(" ").filter((arg) => arg !==
 
 Given("a gtd config with:", (world: TestkitWorld, source: string) => {
   world.configure(withNewline(source))
+})
+
+Given("the gtd config ends with:", (world: TestkitWorld, source: string) => {
+  world.extendConfig(withNewline(source))
 })
 
 Given(
