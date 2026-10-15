@@ -590,8 +590,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.closing"
     And the file ".gtd/packages/01-doc-comment.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
@@ -715,8 +714,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.closing"
     And the file ".gtd/packages/01-doc-comment.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
@@ -993,8 +991,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.closing"
     And the file ".gtd/packages/01-widget.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""

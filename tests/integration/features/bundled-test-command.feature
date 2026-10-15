@@ -27,7 +27,6 @@ Feature: the bundled workflow's health check runs "testCommand"
       """
       default-wins
       """
-    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/FEEDBACK.md" contains "default-wins"
@@ -39,7 +38,6 @@ Feature: the bundled workflow's health check runs "testCommand"
       """
       env-wins
       """
-    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/FEEDBACK.md" contains "env-wins"
@@ -49,7 +47,6 @@ Feature: the bundled workflow's health check runs "testCommand"
     And the shell command "true" exits 0 with:
       """
       """
-    And an environment variable "GTD_FASTTESTCOMMAND" set to "true"
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/FEEDBACK.md" does not exist

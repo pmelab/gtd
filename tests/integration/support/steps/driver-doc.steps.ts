@@ -88,7 +88,7 @@ function toFailedResult(err: unknown): { exitCode: number; stdout: string; stder
 // `gtd` and `claude` resolve to this build's bundle and the stub) and HOME,
 // nothing else. That absence is itself the copy-paste-complete proof: no
 // $GTD_* var, no $NODE_*, no test-harness leak. The one exception is an
-// `an environment variable` step (e.g. `GTD_FASTTESTCOMMAND`): it
+// `an environment variable` step: it
 // parameterizes the WORKFLOW under test, not the driver.
 // The git config isolation (vitest.config.ts) is harness, not a driver
 // dependency: without it the driver's commits read the developer's ~/.gitconfig.

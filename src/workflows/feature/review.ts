@@ -10,7 +10,6 @@ import {
 import type { ReviewNote } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
 import { healthy, type EscalationCount } from "../shared/health.js"
-import { guarded, type FrozenScenarios } from "../shared/scenarios.js"
 import {
   awaitReview,
   fixCheck,
@@ -22,7 +21,6 @@ import {
 } from "../shared/steps.js"
 import { closeReview, tail } from "../shared/tail.js"
 import * as t from "../shared/text.js"
-import type { BuiltPlan } from "./packages.js"
 import { answerReviewQuestions, collecting, deferNotes, fixNits } from "./steps.js"
 
 export type { ReviewOutcome } from "../../workflow-kit/index.js"
@@ -167,7 +165,6 @@ const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".
 export const review = (
   base: string,
   escalations: EscalationCount = { rounds: 0 },
-  frozen?: FrozenScenarios,
 ): Promise<kit.ReviewOutcome> => {
   const severities = new Map<string, Severity>()
   // Armed by a defer-only round and spent at the very next gate; a fresh
@@ -181,8 +178,8 @@ export const review = (
       deferred = []
       return reviewing(b, carry)
     },
-    fixRisks: (risks) => guarded(frozen, () => fixRisks(risks), "review")(),
-    keepGreen: () => healthy(guarded(frozen, fixCheck, "review"), { escalations }),
+    fixRisks,
+    keepGreen: () => healthy(fixCheck, { escalations }),
     awaitReview: (b) => {
       const notes = deferred
       deferred = []
@@ -203,7 +200,7 @@ export const review = (
       return deferNotes(deferred, head())
     },
     answerQuestions: answerReviewQuestions,
-    fixNits: (notes) => guarded(frozen, () => fixNits(notes), "review")(),
+    fixNits,
     close: closeReview,
     captures: {
       edits: t.reviewEditsCapture,
@@ -238,10 +235,9 @@ export const review = (
   })
 }
 
-/** The build tail: fix (when entered red), keep green, the quality lap, then human review since `base`. */
+/** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */
 export const buildTail = (
   fixFirst: boolean,
   base: string,
-  built?: BuiltPlan,
-): Promise<kit.ReviewOutcome> =>
-  tail(fixFirst, (escalations, frozen) => review(base, escalations, frozen), built)
+  green = false,
+): Promise<kit.ReviewOutcome> => tail(fixFirst, (escalations) => review(base, escalations), green)

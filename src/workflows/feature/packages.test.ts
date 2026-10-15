@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { installContext, type Change, type StepRequest } from "../../flows/index.js"
-import { declaredTests, packages, SCENARIO_PACKAGE } from "./packages.js"
+import { declaredTests, packages } from "./packages.js"
 import { fixtureContext } from "../shared/text.fixture.js"
 
 afterEach(() => installContext(undefined))
@@ -41,51 +41,34 @@ describe("declaredTests", () => {
   })
 })
 
-describe("packages scenarios", () => {
-  it("holds only package 0's own paths, not what later packages add", async () => {
-    const queue = [SCENARIO_PACKAGE, ".gtd/packages/01-impl.md"]
-    const touches: { at: number; change: Change }[] = []
-    let steps = 0
-    const touch = (path: string, status: Change["status"]): void => {
-      touches.push({ at: steps, change: { path, status, before: undefined, after: "x" } })
-    }
-    const effects: Record<string, () => void> = {
-      building: () => {
-        if (queue[0] === SCENARIO_PACKAGE) {
-          touch("tests/e2e/a.feature", "added")
-          touch(".gtd/packages/00-e2e-scenarios.md", "modified")
-        } else {
-          touch("src/impl.ts", "added")
-          touch("tests/e2e/b.feature", "added")
-          touch("tests/e2e/a.feature", "modified")
-        }
-      },
-      closing: () => void queue.shift(),
-    }
+describe("packages", () => {
+  it("closes every queued package in name order, the plan with the last", async () => {
+    const queue = [".gtd/packages/02-b.md", ".gtd/packages/01-a.md"]
+    const closings: string[] = []
     installContext(
       fixtureContext(
         {},
         {
           step: (request: StepRequest) => {
-            steps++
-            if (request.kind !== "restart") effects[request.name]?.()
+            if (request.kind === "run" && request.name === "closing") {
+              closings.push(request.body)
+              queue.splice(queue.indexOf([...queue].sort()[0]!), 1)
+            }
             return Promise.resolve()
           },
           pushScope: () => undefined,
           popScope: () => undefined,
-          refuse: (message: string): never => {
-            throw new Error(message)
-          },
           glob: () => [...queue],
-          changesSince: (hash: string): readonly Change[] =>
-            touches.filter((t) => t.at >= Number(hash.slice(1))).map((t) => t.change),
-          head: () => `c${steps}`,
+          changesSince: (): readonly Change[] => [],
+          head: () => "c",
         },
       ),
     )
-    const plan = await packages()
-    expect(plan.ranges.map((r) => r.pkg)).toEqual([SCENARIO_PACKAGE, ".gtd/packages/01-impl.md"])
-    expect(plan.scenarios.added).toEqual(["tests/e2e/a.feature"])
-    expect(plan.scenarios.changed).toEqual([])
+    await packages()
+    expect(closings).toHaveLength(2)
+    expect(closings[0]).toContain("01-a.md")
+    expect(closings[0]).not.toContain("ARCHITECTURE")
+    expect(closings[1]).toContain("02-b.md")
+    expect(closings[1]).toContain(".gtd/ARCHITECTURE.md")
   })
 })

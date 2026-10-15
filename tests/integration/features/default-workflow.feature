@@ -168,10 +168,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Given the file ".gtd/packages/01-greeting.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.closing → build.health.check"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.correctness.reviewing"
+    And the last commit subject is "gtd(check): packages.item.closing → build.quality.correctness.reviewing"
 
     # A clean lens turn (correctness) — nothing found, so no .gtd/QUALITY.md.
     When I run gtd land
@@ -268,8 +265,7 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): packages.item.health.check → packages.item.fix.suite.fixing
       gtd(agent): packages.item.fix.suite.fixing → packages.item.health.check
       gtd(check): packages.item.health.check → packages.item.closing
-      gtd(check): packages.item.closing → build.health.check
-      gtd(check): build.health.check → build.quality.correctness.reviewing
+      gtd(check): packages.item.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.owasp-security.reviewing
       gtd(agent): build.quality.owasp-security.reviewing → build.quality.ponytail-review.reviewing
       gtd(agent): build.quality.ponytail-review.reviewing → build.quality.test-audit.reviewing
@@ -1295,10 +1291,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And the file ".gtd/SATISFIED.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.closing → build.health.check"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.correctness.reviewing"
+    And the last commit subject is "gtd(check): packages.item.closing → build.quality.correctness.reviewing"
 
   @inmem
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
@@ -1462,8 +1455,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
     And gtd lands "gtd(check): packages.item.health.check → packages.item.closing"
     And the file ".gtd/packages/01-b.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
     When I run gtd next
     Then it succeeds
     # The reviewing prompt names it.reviewBase — the previous review round's

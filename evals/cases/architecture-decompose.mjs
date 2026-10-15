@@ -1,7 +1,7 @@
 // `architecture.decompose`: the mechanical write-out from a converged
-// `.gtd/ARCHITECTURE.md` into test-driven package files (package 0 for the
-// e2e scenarios, then one per settled concern, each declaring its tests
-// under `## Tests`); `.gtd/ARCHITECTURE.md` itself must survive. No
+// `.gtd/ARCHITECTURE.md` into test-driven package files (one vertical slice
+// per settled concern, each declaring its unit and e2e tests under
+// `## Tests`); `.gtd/ARCHITECTURE.md` itself must survive. No
 // function field — this is data both a `node` process and a promptfoo
 // assert import, and a predicate here would put grading logic in the
 // fixture.
@@ -16,10 +16,8 @@
 // per `##` heading" turn happens to pass both — the fixture text and the
 // `challenge` in `evals/promptfooconfig.yaml` are what make the bundled
 // concern visibly tempting to re-split.
-// Both variants' architecture declares the same tests; e2e ones belong to
-// package 00, unit ones to any package's `## Tests`.
+// Both variants' architecture declares the same tests, each in some package's `## Tests`.
 const DECLARED_TESTS = {
-  scenarioPackage: ".gtd/packages/00-e2e-scenarios.md",
   e2e: ["tests/features/signup.feature"],
   unit: [
     "src/pricing/discount.test.ts",
@@ -51,14 +49,7 @@ export const isValidEmail = (email: string): boolean
 
 ## E2E Scenarios
 
-- e2e: tests/features/signup.feature
-
-\`\`\`gherkin
-Feature: Signup
-  Scenario: A malformed email is rejected
-    When I sign up with "not-an-email"
-    Then the signup is rejected
-\`\`\`
+- e2e: tests/features/signup.feature — signing up with a malformed email is rejected (covers Email validation)
 
 ## Unit Tests
 
@@ -86,14 +77,7 @@ export const isValidEmail = (email: string): boolean
 
 ## E2E Scenarios
 
-- e2e: tests/features/signup.feature
-
-\`\`\`gherkin
-Feature: Signup
-  Scenario: A malformed email is rejected
-    When I sign up with "not-an-email"
-    Then the signup is rejected
-\`\`\`
+- e2e: tests/features/signup.feature — signing up with a malformed email is rejected (covers Email validation)
 
 ## Unit Tests
 
@@ -124,7 +108,7 @@ merged: both center on \`src/email/validate.ts\`.
     clean: {
       gtdFiles: {
         exact: [],
-        matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 4 },
+        matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 3 },
       },
       otherFiles: "none",
       declaredTests: DECLARED_TESTS,
@@ -132,7 +116,7 @@ merged: both center on \`src/email/validate.ts\`.
     violation: {
       gtdFiles: {
         exact: [],
-        matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 4 },
+        matching: { pattern: "^\\.gtd/packages/\\d\\d-[a-z0-9-]+\\.md$", count: 3 },
       },
       otherFiles: "none",
       declaredTests: DECLARED_TESTS,

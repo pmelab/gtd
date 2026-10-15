@@ -18,7 +18,6 @@ export const ShippedOptions = Schema.Struct({
   reviewSeverityMinP: setting,
   qualityReviews: setting,
   testCommand: setting,
-  fastTestCommand: setting,
   plannerModel: setting,
   coderModel: setting,
 })

@@ -4,7 +4,7 @@ Feature: A package's declared tests gate its build
   A package file lists its tests under `## Tests`, one line each. The build
   turn is refused unless every declared test is in the package's diff — or,
   when the builder writes `.gtd/SATISFIED.md`, already in the tree. The
-  fast suite runs right after; `.gtd/ARCHITECTURE.md` survives decompose.
+  full suite runs right after; `.gtd/ARCHITECTURE.md` survives decompose.
 
   Background:
     Given a test project

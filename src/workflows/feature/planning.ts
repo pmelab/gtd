@@ -54,7 +54,7 @@ export const architecture = (): Promise<void> =>
     }
     if (changes(ARCHITECTURE).some((c) => c.status === "deleted")) {
       refuse(
-        "gtd land: decompose: keep .gtd/ARCHITECTURE.md — the build tail's full run needs it; it is removed only once that run is green",
+        "gtd land: decompose: keep .gtd/ARCHITECTURE.md — the packages are built from it; it is removed with the last package",
       )
     }
   })

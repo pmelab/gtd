@@ -114,6 +114,7 @@ export const captureStep = async (
         captured = request
         return Promise.resolve()
       },
+      changesSince: () => [],
     }),
   )
   try {

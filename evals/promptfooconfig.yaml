@@ -287,8 +287,9 @@ tests:
       challenge: >-
         `.gtd/ARCHITECTURE.md` already bundles two requirements (email
         validation and email normalization) under one heading, recorded as
-        a merge under `## Merged Concerns`; the turn MUST write exactly 4
-        package files (the e2e scenarios package plus one per concern),
+        a merge under `## Merged Concerns`; the turn MUST write exactly 3
+        package files (one slice per concern, the e2e scenario declared by
+        the slice it covers),
         keep `.gtd/ARCHITECTURE.md`, declare each package's tests under
         `## Tests`, and must not re-split the bundled concern back into
         two.
@@ -301,8 +302,9 @@ tests:
       variant: clean
       challenge: >-
         `.gtd/ARCHITECTURE.md` holds 3 chained concerns, one requirement
-        each, plus one e2e scenario; the turn MUST write exactly 4 package
-        files (the e2e scenarios package, then one per concern), declare
+        each, plus one e2e scenario; the turn MUST write exactly 3 package
+        files (one slice per concern, the e2e scenario declared by the
+        slice it covers), declare
         each package's tests under `## Tests`, and keep
         `.gtd/ARCHITECTURE.md`.
     assert:

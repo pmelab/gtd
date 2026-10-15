@@ -319,13 +319,13 @@ gtd's versioned API: they never change outside a major release, because a rename
 strands every process resting on the old name.
 
 Re-export `envDefaults` alongside `defaults`: a workflow that re-exports only
-`defaults` loses `testCommand`, `fastTestCommand`, `plannerModel` and
-`coderModel`. Re-export `skills` alongside `steering`: it is what makes the
-bundled workflow's scope names addressable by a `config.skills` entry in THIS
-config (see [Skills](#skills)) — dropping it from the re-export list, the way
-dropping any other named export does, silently empties it instead of keeping the
-bundled defaults, because the loader reads a missing export as `{}`, not as
-"inherit the bundled module's".
+`defaults` loses `testCommand`, `plannerModel` and `coderModel`. Re-export
+`skills` alongside `steering`: it is what makes the bundled workflow's scope
+names addressable by a `config.skills` entry in THIS config (see
+[Skills](#skills)) — dropping it from the re-export list, the way dropping any
+other named export does, silently empties it instead of keeping the bundled
+defaults, because the loader reads a missing export as `{}`, not as "inherit the
+bundled module's".
 
 **Import the phases; never `export *` them.** Every exported function of your
 file is a startable workflow, so `export * from "@pmelab/gtd/workflows"` would
@@ -1215,9 +1215,6 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 - **`testCommand`** (`npm test`) — the suite every health check and baseline
   gate runs. It is interpolated into a POSIX `sh` script, so keep it
   sh-compatible.
-- **`fastTestCommand`** (no default, required) — the fast suite: everything but
-  e2e. The package loop's health check runs it. While unset the workflow rests
-  at its entry check (see [`fastTestCommand`](#fasttestcommand)).
 - **`plannerModel`** (`smart`) / **`coderModel`** (`base`) — the `model` hints
   of the planning/reviewing steps and of the building/fixing steps.
 
@@ -1310,16 +1307,6 @@ file at the human gate never spends one. Both gates release straight into the
 caller's fix step (`build.fix` or `packages.item.fix.suite.fixing`), so the turn
 that consumes the document is the very next one. `.gtd/ESCALATION.md` is
 free-form prose with no mode of its own.
-
-## `fastTestCommand`
-
-Required environment setting for the bundled workflow: the fast suite (every
-test but e2e). Set it as a factory option in `gtd.config.ts`
-(`feature({ fastTestCommand: "npm run test:fast" })`) or as
-`GTD_FASTTESTCOMMAND`. There is no fallback to `testCommand`; a blank value
-counts as unset. While unset the workflow writes `.gtd/SETUP.md`, names the
-setting, and rests at its entry check, re-checking on every beat until it is
-filled. The package loop's health check runs the fast suite.
 
 ## Migrating from `.gtdrc`
 
