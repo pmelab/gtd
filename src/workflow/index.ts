@@ -13,7 +13,14 @@ export {
   walkUp,
 } from "./discovery.js"
 export { formatDiagnostic } from "./Diagnostic.js"
-export { resolveVars, multilineSetting, isSettingName, SETTING_NAME_RULE } from "./vars.js"
+export {
+  resolveVars,
+  resolveStartVars,
+  StartFlags,
+  multilineSetting,
+  isSettingName,
+  SETTING_NAME_RULE,
+} from "./vars.js"
 export { resolveScopeAccess, resolveScopeSkills } from "./skills.js"
 export { seededValidateCommand, isSeededValidateCommand } from "./SteeringFormats.js"
 export {

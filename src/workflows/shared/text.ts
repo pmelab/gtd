@@ -1,6 +1,7 @@
 import {
   agent,
   codeThreads,
+  displayPath,
   env,
   head,
   quote,
@@ -1017,3 +1018,88 @@ ${it.processCostByModel.map((m) => `- ${m.model}: ${m.cost}\n`).join("")}
 Print the closing message and stop — this writes nothing itself.
 `
 }
+
+// ── The seam phase (release flag `naive_pass`) ──────────────────────────────
+
+const listed = (paths: readonly string[], unreadable: readonly string[] = []): string =>
+  paths
+    .map(
+      (path) => `  - \`${displayPath(path)}\`${unreadable.includes(path) ? " (unreadable)" : ""}`,
+    )
+    .join("\n")
+
+export interface SeamRejection {
+  readonly strays: readonly string[]
+  readonly p: number
+}
+
+export const naivePassPrompt = (rejection?: SeamRejection): string =>
+  `${stateFileRules}
+- Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
+- Implement them the quickest way that works — the naive version. Do not
+  restructure, abstract or refactor around the change; a later step judges
+  the shape of your diff and a reviewer makes it fit
+- Add tests as you go, and leave \`.gtd/\` untouched
+- Leave everything uncommitted and finish your turn — do not commit
+${
+  rejection === undefined
+    ? ""
+    : `
+Your previous attempt was rejected: the judge answered \`reject\` (p=${rejection.p}),
+meaning the naive pass solved the task the wrong way — discard it and
+re-implement. It changed these files outside the expected set:
+${listed(rejection.strays)}
+Start over and choose a different approach; do not rebuild the same diff.
+`
+}`
+
+export const implementBuildingPrompt = (reference: string): string =>
+  `${stateFileRules}
+- Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
+- Implement them properly, fitting the codebase's seams and conventions
+- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
+  Read it for ideas; never apply, cherry-pick or check it out — write
+  the change fresh
+- Put the new behaviour behind a new release flag, following the
+  repository's flag conventions
+- Write the tests first, then the code that makes them pass
+- Leave \`.gtd/REQUIREMENTS.md\` in place and everything uncommitted, then
+  finish your turn
+`
+
+export const implementFixPrompt = (): string =>
+  `${stateFileRules}
+${fixFeedbackPrompt}
+- Leave everything uncommitted and finish your turn — do not commit
+`
+
+export const seamSteerMessage = (rejection: SeamRejection): string =>
+  `The naive pass was rejected three times and the retries are spent.
+The last attempt changed these files outside the expected set:
+${listed(rejection.strays)}
+
+Two ways forward (then run \`gtd land\`):
+- **Steer** — edit \`.gtd/REQUIREMENTS.md\` to redirect the change; the naive
+  pass runs again with a fresh retry budget
+- **Overrule** — land a clean tree to accept the last attempt's approach:
+  the implementation is built against it as reference, with no seam gate
+  and no refactor. Risk: this ships the seam the judge objected to,
+  unaddressed — the choice is recorded in history.
+
+An edit together with an approval counts as steer. Only
+\`.gtd/REQUIREMENTS.md\` is meant to change here: any other edit lands on the
+branch unjudged.
+`
+
+export const seamByHandMessage = (
+  strays: readonly string[],
+  unreadable: readonly string[],
+  reference: string,
+): string =>
+  `The judge could not read some of these files, so the diff was never
+fully judged and no refactor runs. Unreadable ones are marked:
+${listed(strays, unreadable)}
+
+See them with \`git show ${reference} -- <path>\` and review by hand. Land a
+clean tree to go on to the implementation, which runs next.
+`

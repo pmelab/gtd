@@ -1,4 +1,11 @@
+import { Context } from "effect"
+
 const PREFIX = "GTD_"
+
+/** The live release flags as `flag_<name>` settings, provided by the CLI; absent means no flags. */
+export class StartFlags extends Context.Reference<StartFlags>()("StartFlags", {
+  defaultValue: (): Readonly<Record<string, string>> => ({}),
+}) {}
 
 /**
  * One kind of setting, later wins: the workflow's own defaults, `--var`
@@ -20,6 +27,23 @@ export const resolveVars = (
     if (value !== undefined) merged[name] = value
   }
   return merged
+}
+
+/**
+ * `resolveVars` for a process being STARTED: `flags` land between the workflow
+ * defaults and `--var`, for already-declared names only. A running process never
+ * calls this — it replays its pinned record.
+ */
+export const resolveStartVars = (
+  workflowVars: Readonly<Record<string, string>>,
+  flags: Readonly<Record<string, string>>,
+  entryVars: Readonly<Record<string, string>>,
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string> => {
+  const declared = Object.fromEntries(
+    Object.entries(flags).filter(([name]) => Object.hasOwn(workflowVars, name)),
+  )
+  return resolveVars({ ...workflowVars, ...declared }, entryVars, env)
 }
 
 /** The first process setting whose value spans lines — a `Gtd-Var:` trailer cannot carry it. */

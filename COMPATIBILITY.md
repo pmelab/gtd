@@ -84,9 +84,9 @@ histories written by an older or newer gtd.
   with the human's notes beside the reviewer's own `.gtd/REVIEW.orig.md`, read
   as review notes (see [Steering formats](src/steering/FORMATS.md)).
 - **Settings** — the setting names the bundled workflows read (`testCommand`,
-  `reviewBase`, …), the `GTD_*` variables (not `GTD_FLAG_*`), and the judge
-  providers (`fixed`, `jev`, `llm`) with their variables and the user-level
-  `judge.json`.
+  `reviewBase`, …), the `GTD_*` variables (not `GTD_FLAG_*`, nor the `flag_*`
+  settings that pin them), and the judge providers (`fixed`, `jev`, `llm`) with
+  their variables and the user-level `judge.json`.
 
 ## No promise
 

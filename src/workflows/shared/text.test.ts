@@ -17,6 +17,11 @@ import {
   buildReviewCollectingPrompt,
   designGateAnswerMessage,
   designTriagePrompt,
+  implementBuildingPrompt,
+  implementFixPrompt,
+  naivePassPrompt,
+  seamByHandMessage,
+  seamSteerMessage,
   summaryPrompt,
   withSkills,
 } from "./text.js"
@@ -439,5 +444,59 @@ describe("buildReviewReviewingPrompt scenarios", () => {
     const prompt = renderText(() => buildReviewReviewingPrompt("base"))
     expect(prompt).toContain("## Scenarios")
     expect(prompt).not.toContain("Weakened:")
+  })
+})
+
+describe("the seam phase's texts", () => {
+  const rejection = { strays: ["src/flows/helpers.ts", "src/flows/runtime.ts"], p: 0.85 }
+
+  it("asks the first naive pass for the quickest working change, with no rejection", () => {
+    const prompt = renderText(() => naivePassPrompt())
+    expect(prompt).toContain(".gtd/REQUIREMENTS.md")
+    expect(prompt).not.toContain("rejected")
+  })
+
+  it("names the reject verdict, its p, every stray and the criterion on a retry", () => {
+    const prompt = renderText(() => naivePassPrompt(rejection))
+    expect(prompt).toContain("reject")
+    expect(prompt).toContain("0.85")
+    expect(prompt).toContain("`src/flows/helpers.ts`")
+    expect(prompt).toContain("`src/flows/runtime.ts`")
+    expect(prompt).toContain("solved the task the wrong way")
+  })
+
+  it("cites the reference as reading material only and asks for a new release flag", () => {
+    const prompt = renderText(() => implementBuildingPrompt("abc123"))
+    expect(prompt).toContain("git show abc123")
+    expect(prompt).toContain("never apply")
+    expect(prompt).toContain("release flag")
+  })
+
+  it("keeps a fix turn to the feedback file's rules", () => {
+    expect(renderText(() => implementFixPrompt())).toContain(".gtd/FEEDBACK.md")
+  })
+
+  it("names both steer answers and the overrule risk, and lists every stray", () => {
+    const message = renderText(() => seamSteerMessage(rejection))
+    expect(message).toContain("edit `.gtd/REQUIREMENTS.md`")
+    expect(message).toContain("clean")
+    expect(message).toContain("Overrule")
+    expect(message).toContain("unaddressed")
+    expect(message).toContain("src/flows/helpers.ts")
+  })
+
+  it("names every unreadable path for a by-hand landing", () => {
+    const message = renderText(() =>
+      seamByHandMessage(["vendor/a.bin", "src/flows/helpers.ts"], ["vendor/a.bin"], "abc123"),
+    )
+    expect(message).toContain("`vendor/a.bin` (unreadable)")
+    expect(message).toContain("`src/flows/helpers.ts`\n")
+    expect(message).toContain("git show abc123 --")
+  })
+
+  it("keeps a stray path with a newline on one line", () => {
+    const message = renderText(() => seamSteerMessage({ strays: ["a\nb.ts"], p: 0.9 }))
+    expect(message).toContain('`"a\\nb.ts"`')
+    expect(message).not.toContain("a\nb.ts")
   })
 })

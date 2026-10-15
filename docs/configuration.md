@@ -326,9 +326,11 @@ is how the bundled workflow is written.
   probability of at least `minP`
 - `numeric(value, fallback)` — a numeric var, or `fallback` when it is blank or
   not a number
-- `judgeDiffShape(name, { changes, allow, minP? })` — judges whether a change
-  set's strays (every path matching no `allow` glob, same dialect and same list
-  as `gtd strays`) are incidental. Resolves
+- `judgeDiffShape(name, { changes, allow, exempt?, minP? })` — judges whether a
+  change set's strays (every path matching no `allow` glob, same dialect and
+  same list as `gtd strays`, and not in `exempt`) are incidental. `exempt` is a
+  list of exact paths, compared by equality and never as globs, so an exempt
+  path holding `*` covers nothing else. Resolves
   `{ choice, strays, unreadable, judgment }`; see [Judges](#judges)
 - `wrote(path)` and `codeChanges()` — whether the last step wrote `path`, and
   its changes outside `.gtd/`
@@ -515,12 +517,12 @@ field carries the questions; `gtd judge answer` records a verdict as
 no verdict leaves every answer `undefined`, so write the flow so that
 `undefined` takes the conservative branch.
 
-`judgeDiffShape(name, { changes, allow, minP? })` is a ready-made judge for the
-shape of a diff, such as `kept(name).changes` or `changesSince(hash)`. It asks
-one `choice` question, `shape`, and resolves to `{ choice, strays, judgment }`:
-`strays` is the sorted list of changed paths no `allow` glob matches, and
-`judgment` is the whole `judge()` result (`judgment.truncated` included). The
-choice is one of:
+`judgeDiffShape(name, { changes, allow, exempt?, minP? })` is a ready-made judge
+for the shape of a diff, such as `kept(name).changes` or `changesSince(hash)`.
+It asks one `choice` question, `shape`, and resolves to
+`{ choice, strays, judgment }`: `strays` is the sorted list of changed paths no
+`allow` glob matches and no `exempt` path names, and `judgment` is the whole
+`judge()` result (`judgment.truncated` included). The choice is one of:
 
 - `land` — every stray is incidental (a needed import, a test fixture, a renamed
   call site)
@@ -595,10 +597,43 @@ no flag read in a person's edit at these rests.
 A blank or invalid `refactorFlagPattern` throws before the first step, naming
 the setting. A pattern that produces a zero-length match (a lookahead-only
 pattern such as `(?=GTD_FLAG_\w+)`) on a stray throws before the first step, and
-on text a turn introduces refuses the landing, naming the setting.
-`refactorFirst` is not part of the shipped `feature` flow; call it from your own
-workflow after `judgeDiffShape`, with a suite that is already green: the fix
-turns may touch only the strays, so they cannot repair a failure outside them.
+on text a turn introduces refuses the landing, naming the setting. The shipped
+`feature` flow runs `refactorFirst` only on the
+[naive-pass path](#the-naive-pass-path); call it from your own workflow after
+`judgeDiffShape`, with a suite that is already green: the fix turns may touch
+only the strays, so they cannot repair a failure outside them.
+
+### The naive-pass path
+
+`GTD_FLAG_NAIVE_PASS` selects it; it is off by default. Off, `feature` plans an
+architecture and package files as before. On, it replaces those two phases with,
+in order:
+
+1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly; the turn
+   is a [kept tip](#kept-tips), not landed on the branch.
+2. `seam.judge` — a judge rules on the shape of that diff (see
+   [Judges](#judges)): `land`, `refactor-first` or `reject`.
+3. `land` goes straight to `implement.*`. `refactor-first` rests at
+   `seam.approve`, an approval gate, then runs `refactor.*` (see
+   [`refactorFirst`](#refactorfirst)). Strays whose content cannot be read rest
+   at `seam.by-hand`; a clean `gtd land` continues. `reject` discards the pass
+   and runs `seam.naive` again, twice at most.
+4. `implement.*` — one build turn that reads the kept pass as material only,
+   then the health loop (`implement.health.*`, `implement.fix.suite.fixing`) and
+   `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
+   for a new release flag.
+
+A third `reject` rests at `seam.steer`. Two ways forward, then `gtd land`:
+
+- **Steer** — edit `.gtd/REQUIREMENTS.md`; `seam.naive` runs again with a fresh
+  retry budget. An edit together with an approval counts as steer.
+- **Overrule** — land a clean tree. The implementation is built against the last
+  attempt with no seam gate and no refactor. **Overrule ships the seam the judge
+  objected to**, unaddressed; the choice is recorded in history.
+
+The [`seamAllow`](#the-bundled-workflows-settings) setting is the judge's
+allowlist. The flag is recorded as `flag_naive_pass` when a process starts, so a
+process keeps the path it started on whatever the environment does later.
 
 ### Landing rules
 
@@ -1121,13 +1156,16 @@ The bundled workflow's addressable scope full names:
 `refactor.fix.suite`, `refactor.health`, `build`, `build.health`,
 `build.fix.quality`, `build.review`, `build.review.fix.nits`,
 `build.review.fix.risks`, and one `build.quality.<lens>` per `qualityReviews`
-entry.
+entry. `seam`, `implement`, `implement.fix.suite` and `implement.health` run
+only under the `naive_pass` release flag; they are addressable either way, so a
+config keyed on them keeps loading when the flag is off.
 
 A nested scope with no entry of its own inherits its parent's list, so a key on
 a parent reaches every scope beneath it that sets none. The group scopes
 `packages.item.fix`, `build.fix`, `build.review.fix`, `build.quality` and
-`refactor.fix` run no turn and carry no key. A custom workflow's own scopes are
-addressable through its own `skills` export (see
+`refactor.fix` and `implement.fix` run no turn and carry no key, nor do
+`seam.judge`, `seam.approve`, `seam.steer` and `seam.by-hand`. A custom
+workflow's own scopes are addressable through its own `skills` export (see
 [Reusing the shipped workflows](#reusing-the-shipped-workflows)); the export may
 be a function of the resolved vars, and must list every scope holding an agent
 step. The type can check an entry's VALUE (an array of strings) but never its
@@ -1135,10 +1173,12 @@ KEY, since scope names come from the workflow actually in play — there is no
 editor autocompletion of scope names here.
 
 A key that is not a scope running a turn is a load error, exit 1 — a group scope
-such as `build.fix`, or a step name rather than its scope. The message lists the
-known scope keys. Keying config on a scope's full name widens what renaming a
-scope breaks: it also orphans every `config.skills` entry naming it, which
-becomes an unknown key and exits 1.
+such as `build.fix`, or a step name rather than its scope. The `naive_pass`
+scopes (`seam`, `implement`, `implement.fix.suite`, `implement.health`) are
+always accepted, flag on or off. The message lists the known scope keys. Keying
+config on a scope's full name widens what renaming a scope breaks: it also
+orphans every `config.skills` entry naming it, which becomes an unknown key and
+exits 1.
 
 `qualityReviews` (a process setting, not a `skills` entry — see
 [Settings](#settings)) and the `build.quality.<lens>` keys are a pair:
@@ -1397,6 +1437,16 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   before the refactor starts, as does a pattern that matches the empty string.
   The default matches gtd's own `GTD_FLAG_<NAME>` naming; most repositories
   should set their own.
+- **`seamAllow`**
+  (`**/*.test.*, **/*.spec.*, **/*.feature, **/tests/**, **/test/**, **/__tests__/**, .gtd/**`)
+  — the paths the [naive pass](#the-naive-pass-path) may change without the
+  judge counting them as strays. Comma-separated globs, trimmed, blanks dropped;
+  no brace alternation (`{a,b}` splits at the comma). A file the pass newly adds
+  is allowed by its exact path, never as a glob: a new `src/a*.ts` does not
+  cover a modified `src/a.ts`.
+- **`flag_naive_pass`** (`0`) — `1` when `GTD_FLAG_NAIVE_PASS` is on, recorded
+  at process start. Not a factory option; `--var flag_naive_pass=1` is the only
+  override. A process keeps the path it started on.
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.

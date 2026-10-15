@@ -29,6 +29,10 @@ describe("the bundled workflow's skills export", () => {
         "refactor",
         "refactor.fix.suite",
         "refactor.health",
+        "seam",
+        "implement",
+        "implement.fix.suite",
+        "implement.health",
         "build.quality.correctness",
         "build.quality.owasp-security",
         "build.quality.ponytail-review",
@@ -39,8 +43,18 @@ describe("the bundled workflow's skills export", () => {
     )
   })
 
-  it("keys no group scope", () => {
-    for (const group of ["packages.item.fix", "build.fix", "build.review.fix", "build.quality"]) {
+  it("keys no group scope or non-agent step", () => {
+    for (const group of [
+      "packages.item.fix",
+      "build.fix",
+      "build.review.fix",
+      "build.quality",
+      "implement.fix",
+      "seam.judge",
+      "seam.approve",
+      "seam.steer",
+      "seam.by-hand",
+    ]) {
       expect(bundled).not.toHaveProperty(group)
     }
   })
@@ -63,6 +77,10 @@ describe("the bundled workflow's skills export", () => {
       refactor: ["ponytail"],
       "refactor.fix.suite": ["ponytail", "debugging-and-error-recovery"],
       "refactor.health": ["ponytail", "debugging-and-error-recovery"],
+      seam: ["incremental-implementation"],
+      implement: ["test-driven-development", "incremental-implementation"],
+      "implement.fix.suite": ["debugging-and-error-recovery"],
+      "implement.health": ["debugging-and-error-recovery"],
     })
   })
 

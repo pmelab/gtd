@@ -50,6 +50,49 @@ const naive = [
 ]
 
 describe("judgeDiffShape", () => {
+  describe("exempt", () => {
+    const changes = [
+      change("src/foo*bar.ts", "added", undefined, "new"),
+      change("src/foobar.ts", "modified", "a", "b"),
+    ]
+
+    it("never lets an exempt path glob over a modified sibling", async () => {
+      install({ shape: { answer: "land", p: 0.9 } })
+      const result = await judgeDiffShape("shape", {
+        changes,
+        allow: [],
+        exempt: ["src/foo*bar.ts"],
+      })
+      expect(result.strays).toEqual(["src/foobar.ts"])
+    })
+
+    it("lists exempt paths as in-allowlist evidence and keeps allow to the globs", async () => {
+      const requests = install({ shape: { answer: "land", p: 0.9 } })
+      await judgeDiffShape("shape", { changes, allow: ["docs/**"], exempt: ["src/foo*bar.ts"] })
+      const request = requests[0]
+      if (request?.kind !== "judge") throw new Error("expected a judge step")
+      expect(request.evidence.allow).toBe(JSON.stringify(["docs/**"], null, 2))
+      expect(request.evidence.inAllowlist).toBe(JSON.stringify(["src/foo*bar.ts"], null, 2))
+    })
+
+    it("lands with no judge step when every stray is exempt", async () => {
+      const requests = install("none")
+      const result = await judgeDiffShape("shape", {
+        changes: [changes[0]!],
+        allow: [],
+        exempt: ["src/foo*bar.ts"],
+      })
+      expect(result.choice).toBe("land")
+      expect(requests).toEqual([])
+    })
+
+    it("changes nothing when omitted", async () => {
+      install({ shape: { answer: "land", p: 0.9 } })
+      const result = await judgeDiffShape("shape", { changes, allow: [] })
+      expect(result.strays).toEqual(["src/foo*bar.ts", "src/foobar.ts"])
+    })
+  })
+
   it("answers land with no judge step when nothing strays", async () => {
     const requests = install("none")
     const result = await judgeDiffShape("shape", {

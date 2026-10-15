@@ -29,6 +29,12 @@ export const skills = (
   refactor: ["ponytail"],
   "refactor.fix.suite": ["ponytail", "debugging-and-error-recovery"],
   "refactor.health": ["ponytail", "debugging-and-error-recovery"],
+  // Declared whether or not `naive_pass` is on, so a config keyed on them keeps
+  // loading when the flag flips off.
+  seam: ["incremental-implementation"],
+  implement: ["test-driven-development", "incremental-implementation"],
+  "implement.fix.suite": ["debugging-and-error-recovery"],
+  "implement.health": ["debugging-and-error-recovery"],
   ...lensScopes(
     "build.quality",
     lensesOf(vars.qualityReviews ?? ""),

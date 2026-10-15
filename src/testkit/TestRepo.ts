@@ -70,6 +70,8 @@ export interface TestRepo {
   drive(actors?: Actors, options?: DriveOptions): Promise<BeatDocument>
   /** Oldest first. */
   subjects(): readonly string[]
+  /** Every commit's full message, subject and trailers, oldest first. */
+  messages(): readonly string[]
 }
 
 const REGISTRY = Symbol.for("@pmelab/gtd/testkit:modules")
@@ -272,6 +274,7 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
       throw new Error(`the process did not rest within ${maxBeats} beats`)
     },
     subjects: () => repo.commitHistory().map(({ message }) => message.split("\n")[0] ?? ""),
+    messages: () => repo.commitHistory().map(({ message }) => message),
   }
   return self
 }

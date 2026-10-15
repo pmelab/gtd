@@ -4,7 +4,8 @@ import {
   ConfigDiscovery,
   ConfigService,
   multilineSetting,
-  resolveVars,
+  resolveStartVars,
+  StartFlags,
   type ConfigFingerprint,
   type ResolvedWorkflow,
 } from "../workflow/index.js"
@@ -109,7 +110,7 @@ export const planStart = (
     if (overrideRefusal !== undefined) return overrideRefusal
 
     const baseOf = workflow.def.base
-    const vars = resolveVars(workflow.vars, varOverrides, (yield* Host).env)
+    const vars = resolveStartVars(workflow.vars, yield* StartFlags, varOverrides, (yield* Host).env)
     const multiline = multilineSetting(vars)
     if (multiline !== undefined) {
       return refusal(

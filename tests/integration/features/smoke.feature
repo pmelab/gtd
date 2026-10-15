@@ -14,6 +14,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> architecture.author -> architecture.decompose.decomposing -> packages.item.building -> packages.item.health.check
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "src/feature.ts" with:
       """
       export const feature = 1

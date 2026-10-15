@@ -22,7 +22,7 @@ import { GTD_VERSION } from "../install/index.js"
 import { keptRef, processHistoryRef } from "../platform/index.js"
 import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
 import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
-import { contentHash } from "../workflow/index.js"
+import { contentHash, StartFlags } from "../workflow/index.js"
 import {
   fakeGitOperations,
   InMemRepo,
@@ -778,6 +778,50 @@ export const defaults = { deployTarget: "npm test", reviewer: "nobody" }
   it("ignores a GTD_ env var naming no declared var", async () => {
     const rest = await provide(currentRest, seeded(), { GTD_BRANDNEW: "hello" })
     expect(Object.keys(rest.vars).sort()).toEqual(["deployTarget", "reviewer"])
+  })
+})
+
+describe("StartFlags", () => {
+  const FLAGGED = `import { agent, human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+}
+
+export const side = async () => {
+  await agent("working", "w")
+}
+
+export const defaults = { flag_naive_pass: "0", other: "x" }
+`
+  const withFlags = <A>(
+    eff: Effect.Effect<A, Error, RestRequirements>,
+    repo: InMemRepo,
+    flags: Record<string, string>,
+  ): Promise<A> =>
+    Effect.runPromise(
+      eff.pipe(Effect.provideService(StartFlags, flags), Effect.provide(testLayers(repo, {}))),
+    )
+
+  it("a starting process takes the declared flag from StartFlags, never an undeclared one", async () => {
+    const rest = await withFlags(currentRest, repoWith(FLAGGED), {
+      flag_naive_pass: "1",
+      flag_other: "1",
+    })
+    expect(rest.vars).toEqual({ flag_naive_pass: "1", other: "x" })
+  })
+
+  it("a running process missing the pin resolves the declared default, never the live flag", async () => {
+    const repo = repoWith(FLAGGED.replace('flag_naive_pass: "0", ', ""))
+    await enter(repo, "side")
+    // a process started before the flag existed: its opening commit lacks the pin
+    repo.writeFile("gtd.config.ts", FLAGGED)
+    const rest = await withFlags(currentRest, repo, { flag_naive_pass: "1" })
+    expect(rest.vars.flag_naive_pass).toBe("0")
+  })
+
+  it("with no StartFlags provided, resolves the declared default", async () => {
+    expect((await provide(currentRest, repoWith(FLAGGED))).vars.flag_naive_pass).toBe("0")
   })
 })
 
