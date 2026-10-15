@@ -107,6 +107,27 @@ describe("flipProblems", () => {
     expect(flipProblems(ONE_LINE, oneLiner, "alpha")).toEqual([])
   })
 
+  describe("with a non-BMP character in the entry", () => {
+    const EMOJI =
+      'export const FLAGS = [\n  { name: "alpha", owner: "Team 🚀", kind: "release" },\n]'
+
+    it("is empty for an oxfmt re-wrap with a trailing comma", () => {
+      const after =
+        'export const FLAGS = [\n  {\n    name: "alpha",\n    owner: "Team 🚀",\n    kind: "release",\n    defaultOn: true,\n  },\n]'
+      expect(flipProblems(EMOJI, after, "alpha")).toEqual([])
+    })
+
+    it("faults an out-of-scope edit to a field after the emoji", () => {
+      const before =
+        'export const FLAGS = [\n  { name: "alpha", owner: "Team 🚀", kind: " release", defaultOn: false },\n]'
+      const after =
+        'export const FLAGS = [\n  { name: "alpha", owner: "Team 🚀", kind: "release", defaultOn: true },\n]'
+      expect(flipProblems(before, after, "alpha")).toContain(
+        'entry "alpha" changed beyond defaultOn',
+      )
+    })
+  })
+
   it("faults a change to a second entry", () => {
     const after = ONE_LINE.replace(
       'kind: "release" },',

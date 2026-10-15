@@ -90,7 +90,9 @@ const canonical = (body: string): string => {
   const kept =
     hit === null ? body : body.slice(0, hit.index) + body.slice(hit.index + hit[0].length)
   const masked = mask(kept)
-  return [...kept]
+  // UTF-16 units, to match `masked` indexing; code points would drift after a surrogate pair
+  return kept
+    .split("")
     .filter(
       (c, i) =>
         masked[i] === FILL || !(/\s/.test(c) || (c === "," && /^\s*}/.test(masked.slice(i + 1)))),
