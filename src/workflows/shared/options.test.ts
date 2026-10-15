@@ -32,6 +32,14 @@ describe("the shipped workflow factories", () => {
     })
   })
 
+  it("default refactorFlagPattern to GTD_FLAG_ matches and let a factory override win", () => {
+    expect(defaults.refactorFlagPattern).toBe("\\bGTD_FLAG_\\w+")
+    expect(configure(feature({ refactorFlagPattern: "\\bFF_\\w+" }))).toMatchObject({
+      ok: true,
+      build: { defaults: { refactorFlagPattern: "\\bFF_\\w+" } },
+    })
+  })
+
   it("build the shipped settings unchanged with no options", () => {
     for (const factory of [feature, fix, review]) {
       expect(configure(factory)).toMatchObject({ ok: true, build: { defaults, envDefaults } })

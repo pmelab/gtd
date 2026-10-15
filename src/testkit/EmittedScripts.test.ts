@@ -275,6 +275,15 @@ for (const makeTier of gitTiers) {
       })
     })
 
+    it("a mkdir + printf write lands one line per token, whatever the token holds", () => {
+      const lines = String.raw`mkdir -p .gtd/packages
+printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd/packages/00-x.md'`
+      expect(run(lines).ok).toBe(true)
+      expect(read(".gtd/packages/00-x.md")).toBe(
+        "a\n\nit's\n100%\n-x\na\\b\n.gtd/packages/00-x.md\n",
+      )
+    })
+
     describe("commitAll", () => {
       it("a staging hook's edit lands in the commit", () => {
         t.seed.stagingHook("readme.txt", "hooked")

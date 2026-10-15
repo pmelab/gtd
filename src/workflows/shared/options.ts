@@ -16,6 +16,7 @@ export const ShippedOptions = Schema.Struct({
   judgeIdenticalMinP: setting,
   reviewNoteActionable: setting,
   reviewSeverityMinP: setting,
+  refactorFlagPattern: setting,
   qualityReviews: setting,
   testCommand: setting,
   plannerModel: setting,

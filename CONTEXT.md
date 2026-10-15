@@ -37,6 +37,11 @@ optionally `defaultOn: true`. **Rollout** sets `defaultOn: true` on one;
 **Cleanup** deletes a default-on one, keeping its flag-on path. The **flag
 registry** is the file declaring the flags, read as text.
 
+**Flag read**: A match of `refactorFlagPattern` in a changed file of the user's
+project. Not a [feature flag](#feature-flag): the pattern defaults to gtd's own
+naming but names whatever the repository gates with. The refactor may not add
+one.
+
 **Flow**: An async function that awaits [steps](#step) — plain code, branching
 over what the last step left in the tree. The workflow's one kind of logic.
 _Avoid_: machine, state table, graph

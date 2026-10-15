@@ -367,13 +367,13 @@ another workflow can import — its `defaults`, `envDefaults`, `summary` and
 `skills`, the three startable workflows as [factories](#workflow-factories)
 (`feature`, `review`, `fix`) and as plain flows (`ordinaryStart`, `reviewFlow`,
 `fixFlow`), the phases (`unwind`, `planAndBuild`, `design`, `architecture`,
-`packages`, `buildTail`, `handOffTail`, `handOffReview`, `fixReviewNotes`,
-`qualityLap`, `healthy`, `gate`, …) and every single step (`triage`, `build`,
-`fixCheck`, `reviewing`, `collecting`, …). A step's name is relative to the
-`scope()` it runs in — the bundled workflow's `scope("build", …)` around
-`healthy` is what makes `build.health.check` — and the full names are part of
-gtd's versioned API: they never change outside a major release, because a rename
-strands every process resting on the old name.
+`packages`, `refactorFirst`, `buildTail`, `handOffTail`, `handOffReview`,
+`fixReviewNotes`, `qualityLap`, `healthy`, `gate`, …) and every single step
+(`triage`, `build`, `fixCheck`, `reviewing`, `collecting`, …). A step's name is
+relative to the `scope()` it runs in — the bundled workflow's
+`scope("build", …)` around `healthy` is what makes `build.health.check` — and
+the full names are part of gtd's versioned API: they never change outside a
+major release, because a rename strands every process resting on the old name.
 
 Re-export `envDefaults` alongside `defaults`: a workflow that re-exports only
 `defaults` loses `testCommand`, `plannerModel` and `coderModel`. Re-export
@@ -536,6 +536,44 @@ step; a refactor cannot make such a stray readable, so route a non-empty
 `judgeShapeMinP` var the workflow declares, or `0.7` when it declares none. The
 judge sees the strays, the allowlist, the paths inside it (paths only) and each
 stray's content before and after.
+
+### `refactorFirst`
+
+`refactorFirst(shape, { reference? })` turns a `judgeDiffShape` result into a
+behaviour-neutral refactor of exactly its `strays`, and resolves `true` once the
+refactor has closed. It resolves `false`, running no step, unless `shape.choice`
+is `refactor-first` and `shape.unreadable` is empty — a stray whose content
+cannot be read goes to a human instead. `reference` is the naive pass's kept tip
+(`kept(name)?.hash`; blank counts as none): the building prompt names
+`git show <reference> -- <strays>` as reading material only and forbids applying
+it; omitted, it carries no reference line.
+
+It runs inside the scope `refactor`, whose write access is the strays plus
+`.gtd/**`, in these steps: `refactor.deriving` (writes `.gtd/REFACTOR.md`, a
+file a person can read and edit), `refactor.building`, the shared health loop
+(`refactor.health.check`, `refactor.health.judge`, `refactor.health.describe`,
+`refactor.health.stop`, `refactor.health.exhausted`) with
+`refactor.fix.suite.fixing`, and `refactor.closing`, which removes only the
+package file. A red suite goes to the fix loop, never to a refusal.
+
+The package file's `## Scope (read-only)` list is for reading: the guards use
+the strays as fixed when the package was derived, so editing the list widens or
+narrows nothing. After the building turn and after every fix turn, `gtd land`
+refuses the turn when:
+
+- it changed a path outside `.gtd/` that is not exactly one of the strays (a fix
+  turn is judged on its own changes, so a person's edit at an escalation stop
+  does not block it; no globs: a stray `src/*.ts` does not admit `src/a.ts`), or
+- it raised the number of reads of any one flag, or added a flag, across the
+  changed files outside `.gtd/`. A flag is a match of the `refactorFlagPattern`
+  setting; moving a read passes, and so does a swap that leaves every per-name
+  count flat. A changed file whose before or after cannot be read refuses.
+
+A blank or invalid `refactorFlagPattern` throws before the first step, naming
+the setting. `refactorFirst` is not part of the shipped `feature` flow; call it
+from your own workflow after `judgeDiffShape`, with a suite that is already
+green: the fix turns may touch only the strays, so they cannot repair a failure
+outside them.
 
 ### Landing rules
 
@@ -1051,16 +1089,17 @@ export const config = defineConfig({
 The bundled workflow's addressable scope full names:
 
 `design`, `architecture`, `architecture.decompose`, `packages.item`,
-`packages.item.fix.suite`, `packages.item.health`, `build`, `build.health`,
+`packages.item.fix.suite`, `packages.item.health`, `refactor`,
+`refactor.fix.suite`, `refactor.health`, `build`, `build.health`,
 `build.fix.quality`, `build.review`, `build.review.fix.nits`,
 `build.review.fix.risks`, and one `build.quality.<lens>` per `qualityReviews`
 entry.
 
 A nested scope with no entry of its own inherits its parent's list, so a key on
 a parent reaches every scope beneath it that sets none. The group scopes
-`packages.item.fix`, `build.fix`, `build.review.fix` and `build.quality` run no
-turn and carry no key. A custom workflow's own scopes are addressable through
-its own `skills` export (see
+`packages.item.fix`, `build.fix`, `build.review.fix`, `build.quality` and
+`refactor.fix` run no turn and carry no key. A custom workflow's own scopes are
+addressable through its own `skills` export (see
 [Reusing the shipped workflows](#reusing-the-shipped-workflows)); the export may
 be a function of the resolved vars, and must list every scope holding an agent
 step. The type can check an entry's VALUE (an array of strings) but never its
@@ -1140,7 +1179,9 @@ Precedence: `config.access` entry, then a `scope()` option, then the workflow's
 #### Bundled defaults
 
 Only planning and review scopes are restricted, and only on writes; no bundled
-scope restricts reads. Build and fix scopes carry no entry.
+scope restricts reads. Build and fix scopes carry no entry, except `refactor`:
+`refactorFirst` restricts its writes to the strays and `.gtd/**` itself, and a
+`config.access.refactor` entry replaces that wholesale.
 
 | Scope                                             | `write`                                    |
 | ------------------------------------------------- | ------------------------------------------ |
@@ -1322,6 +1363,12 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   below-floor answer makes the note `critical`, never `could`. Blank makes every
   tiered note `critical`. A leading `! ` (bang, space) on any human review note
   forces `critical` and skips every judge question.
+- **`refactorFlagPattern`** (`\bGTD_FLAG_\w+`) — the regular expression whose
+  matches `refactorFirst` counts as flag reads (see
+  [`refactorFirst`](#refactorfirst)). Blank or an invalid expression fails
+  before the refactor starts, as does a pattern that matches the empty string.
+  The default matches gtd's own `GTD_FLAG_<NAME>` naming; most repositories
+  should set their own.
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.

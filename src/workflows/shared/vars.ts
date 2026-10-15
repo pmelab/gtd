@@ -11,6 +11,7 @@ export const defaults: Readonly<Record<string, string>> = {
   judgeIdenticalMinP: "0.7",
   reviewNoteActionable: "0.7",
   reviewSeverityMinP: "0.7",
+  refactorFlagPattern: "\\bGTD_FLAG_\\w+",
   // Decides the turn count: one `build.quality.<lens>` scope per entry, each
   // keyed in `./skills.ts`.
   qualityReviews:
