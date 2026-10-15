@@ -422,6 +422,41 @@ ${fixFeedbackPrompt}
 - Leave everything uncommitted and finish your turn — do not commit
 `
 
+const refactorRules = (strays: readonly string[], pattern: string): string =>
+  `- Behaviour-neutral: the suite's outcome must not change
+- Change only these paths, nothing else — a test file only when it is
+  one of them:
+${strays.map((path) => `  - \`${path}\``).join("\n")}
+- Introduce no new flag read and add no second read of an existing one:
+  every match of \`${pattern}\` may move, never increase in number`
+
+export const refactorBuildingPrompt = (
+  pkg: string,
+  strays: readonly string[],
+  pattern: string,
+  reference?: string,
+): string =>
+  `${stateFileRules}
+- The package to implement is \`${pkg}\`; never delete it
+${refactorRules(strays, pattern)}
+${
+  reference === undefined
+    ? ""
+    : `- Reference only: \`git show ${reference} -- ${strays.map(quote).join(" ")}\` shows an
+  earlier attempt at this change. Read it for ideas; never apply,
+  cherry-pick or check it out — write a fresh refactor
+`
+}- Leave everything uncommitted and finish your turn — do not commit
+`
+
+export const refactorFixPrompt = (strays: readonly string[], pattern: string): string =>
+  `${stateFileRules}
+${fixFeedbackPrompt}
+${refactorRules(strays, pattern)}
+- Never do another package's work, even when it would green the suite
+- Leave everything uncommitted and finish your turn — do not commit
+`
+
 export const healthJudgeMessage = (): string =>
   `The check is still red, and this isn't the first round —
 \`.gtd/FEEDBACK.md\` holds this round's output, and the previous round's

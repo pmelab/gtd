@@ -26,6 +26,9 @@ describe("the bundled workflow's skills export", () => {
         "build.review.fix.nits",
         "build.review.fix.risks",
         "notes",
+        "refactor",
+        "refactor.fix.suite",
+        "refactor.health",
         "build.quality.correctness",
         "build.quality.owasp-security",
         "build.quality.ponytail-review",
@@ -57,6 +60,9 @@ describe("the bundled workflow's skills export", () => {
       "build.review.fix.nits": ["incremental-implementation", "code-simplification"],
       "build.review.fix.risks": ["debugging-and-error-recovery", "incremental-implementation"],
       notes: ["incremental-implementation", "code-simplification"],
+      refactor: ["ponytail"],
+      "refactor.fix.suite": ["ponytail", "debugging-and-error-recovery"],
+      "refactor.health": ["ponytail", "debugging-and-error-recovery"],
     })
   })
 

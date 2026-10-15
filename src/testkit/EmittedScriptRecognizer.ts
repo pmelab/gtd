@@ -667,6 +667,26 @@ const recognizeDeferNotes = (repo: InMemRepo, block: string): BlockOutcome | und
   return { kind: "applied" }
 }
 
+/** `mkdir -p <dir>` then `printf '%s\n' <quoted lines> > <path>`: a flow's one-file write. Re-rendered from what was extracted, so any other shape stays unrecognized. */
+const recognizeWriteLines = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
+  const [mkdir, printf, ...rest] = block.split("\n")
+  if (
+    rest.length > 0 ||
+    !mkdir?.startsWith("mkdir -p ") ||
+    !printf?.startsWith("printf '%s\\n' ")
+  ) {
+    return undefined
+  }
+  const tokens = extractQuotedTokens(printf.slice("printf '%s\\n' ".length))
+  const path = tokens.pop()
+  if (path === undefined || !path.includes("/")) return undefined
+  const dir = path.slice(0, path.lastIndexOf("/"))
+  const rendered = `mkdir -p ${dir}\nprintf '%s\\n' ${tokens.map(shellQuote).join(" ")} > ${shellQuote(path)}`
+  if (rendered !== block) return undefined
+  repo.writeFile(path, `${tokens.join("\n")}\n`)
+  return { kind: "applied" }
+}
+
 /** Every recognizer `applyEmittedScript` tries, first match wins — `recognizeScriptedCommand` stays last since it's the exact-hit fallback for anything the rest don't claim. */
 const recognizersFor = (
   repo: InMemRepo,
@@ -679,6 +699,7 @@ const recognizersFor = (
   (block) => recognizeBinaryGuard(commands, block),
   (block) => recognizeGitBuilders(repo, block),
   (block) => recognizeDeferNotes(repo, block),
+  (block) => recognizeWriteLines(repo, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
   (block) => recognizePresentationSubshell(repo, commands, block),
   (block) => recognizeModeContradictionSkipNotice(block),
