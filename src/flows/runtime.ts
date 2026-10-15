@@ -78,9 +78,9 @@ export interface Judgment {
 export interface Change {
   readonly path: string
   readonly status: "added" | "modified" | "deleted"
-  /** The content before the step, `undefined` when the step added the path. */
+  /** The content before the step, `undefined` when the step added the path or it could not be read. */
   readonly before: string | undefined
-  /** The content the step left, `undefined` when the step deleted the path. */
+  /** The content the step left, `undefined` when the step deleted the path or it could not be read. */
   readonly after: string | undefined
 }
 

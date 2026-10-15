@@ -224,7 +224,8 @@ landed step left — never the live working tree:
 - `changes(glob?)` — what the last step changed, optionally only the paths
   matching a glob: one `{ path, status, before, after }` per path, where
   `status` is `"added"`, `"modified"` or `"deleted"` and `before`/`after` are
-  the content on either side (`undefined` on the side where the path is absent).
+  the content on either side (`undefined` on the side where the path is absent,
+  or whose content could not be read, such as a submodule or an oversized file).
   The list also has `paths` and `get(path)`. A landing that changed nothing
   yields an empty list
 - `changesSince(hash, glob?)` — the same shape as `changes()`, but over every
@@ -324,8 +325,8 @@ is how the bundled workflow is written.
   not a number
 - `judgeDiffShape(name, { changes, allow, minP? })` — judges whether a change
   set's strays (every path matching no `allow` glob, same dialect and same list
-  as `gtd strays`) are incidental. Resolves `{ choice, strays, judgment }`; see
-  [Judges](#judges)
+  as `gtd strays`) are incidental. Resolves
+  `{ choice, strays, unreadable, judgment }`; see [Judges](#judges)
 - `wrote(path)` and `codeChanges()` — whether the last step wrote `path`, and
   its changes outside `.gtd/`
 
@@ -527,7 +528,11 @@ choice is one of:
 
 With zero strays it resolves `land` without a judge step. A verdict below
 `minP`, no verdict, or an answer that is none of the three labels resolves
-`refactor-first`, and so does truncated evidence. `minP` defaults to the
+`refactor-first`, and so does truncated evidence. A stray whose content cannot
+be read (an `added` one without its after, a `modified` one missing either side,
+a `deleted` one without its before) resolves `refactor-first` too, with no judge
+step; a refactor cannot make such a stray readable, so route a non-empty
+`unreadable` to a human instead of looping. `minP` defaults to the
 `judgeShapeMinP` var the workflow declares, or `0.7` when it declares none. The
 judge sees the strays, the allowlist, the paths inside it (paths only) and each
 stray's content before and after.

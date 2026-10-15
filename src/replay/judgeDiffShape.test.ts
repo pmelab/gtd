@@ -6,8 +6,10 @@ import {
   type FlowContext,
   type JudgeAnswer,
   type StepRequest,
-} from "./index.js"
+} from "../flows/index.js"
+import { globMatches } from "../wire/index.js"
 
+// Lives in replay, which wires `matches: globMatches` (flows tests may not import wire).
 afterEach(() => installContext(undefined))
 
 const change = (
@@ -22,25 +24,13 @@ const change = (
   after,
 })
 
-// Agrees with the real matcher only on patterns without a leading `**/` or `?`.
-const globMatch = (path: string, pattern: string): boolean =>
-  new RegExp(
-    "^" +
-      pattern
-        .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-        .replace(/\*\*/g, "@@")
-        .replace(/\*/g, "[^/]*")
-        .replace(/@@/g, ".*") +
-      "$",
-  ).test(path)
-
 const install = (
   verdict: { shape?: JudgeAnswer | undefined; truncated?: string[] } | "none",
   vars: Record<string, string> = {},
 ) => {
   const requests: StepRequest[] = []
   installContext({
-    matches: globMatch,
+    matches: globMatches,
     vars,
     step: async (request: StepRequest) => {
       requests.push(request)
@@ -66,7 +56,7 @@ describe("judgeDiffShape", () => {
       changes: naive,
       allow: ["src/**", "z/**", "b/**"],
     })
-    expect(result).toEqual({ choice: "land", strays: [], judgment: undefined })
+    expect(result).toEqual({ choice: "land", strays: [], unreadable: [], judgment: undefined })
     expect(requests).toEqual([])
   })
 
@@ -177,5 +167,42 @@ describe("judgeDiffShape", () => {
     const result = await judgeDiffShape("s", { changes: naive, allow: [] })
     expect(result.choice).toBe("refactor-first")
     expect(result.judgment?.truncated).toEqual(["strayContent"])
+  })
+
+  it.each([
+    ["modified without before", change("m.ts", "modified", undefined, "a")],
+    ["modified without after", change("m.ts", "modified", "a", undefined)],
+    ["added without after", change("m.ts", "added", undefined, undefined)],
+    ["deleted without before", change("m.ts", "deleted", undefined, undefined)],
+  ])("takes refactor-first with no judge step for %s", async (_label, bad) => {
+    const requests = install({ shape: { answer: "land", p: 1 } })
+    const result = await judgeDiffShape("s", {
+      changes: [change("z.ts", "added", undefined, "z"), bad],
+      allow: [],
+    })
+    expect(result).toEqual({
+      choice: "refactor-first",
+      strays: ["m.ts", "z.ts"],
+      unreadable: ["m.ts"],
+      judgment: undefined,
+    })
+    expect(requests).toEqual([])
+  })
+
+  it("reads each lazy side once, so the readable check and the judged content agree", async () => {
+    let reads = 0
+    const lazy: Change = {
+      path: "l.ts",
+      status: "modified",
+      before: "b",
+      get after() {
+        reads++
+        return reads === 1 ? "a" : undefined
+      },
+    }
+    install({ shape: { answer: "land", p: 0.9 } })
+    const result = await judgeDiffShape("s", { changes: [lazy], allow: [] })
+    expect(reads).toBe(1)
+    expect(result.choice).toBe("land")
   })
 })

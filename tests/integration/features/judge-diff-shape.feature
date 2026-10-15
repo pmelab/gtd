@@ -305,3 +305,37 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
     And stdout contains "export const old = 1"
     And stdout contains "--- after"
     And stdout contains "export const old = 2"
+
+  @inmem
+  Scenario: a stray whose content cannot be read takes refactor-first with no judge step
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, judgeDiffShape } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("naive", "write the naive version")
+        const { choice, unreadable } = await judgeDiffShape("shape", {
+          changes: [{ path: "vendor/big.bin", status: "modified", before: undefined, after: "x" }],
+          allow: ["src/**"],
+        })
+        if (unreadable.length) await agent("human-look", "unreadable: " + unreadable.join(","))
+        else if (choice === "land") await agent("landing", "land the naive pass")
+        else await agent("refactoring", "refactor first")
+      }
+      """
+    And the working tree is committed as "chore: gtd config"
+    And a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → naive"
+    And a file "src/naive.ts" with:
+      """
+      export const naive = 1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): naive → human-look"
+    And the last commit body does not contain "Gtd-Judge:"

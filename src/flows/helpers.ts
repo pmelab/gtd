@@ -158,7 +158,9 @@ export interface DiffShapeResult {
   readonly choice: DiffShape
   /** Sorted, equal to `gtd strays` for the same range and globs. */
   readonly strays: readonly string[]
-  /** `undefined` when zero strays skipped the judge. */
+  /** Strays with a side that could not be read (sorted); `refactor-first` skipped the judge. */
+  readonly unreadable: readonly string[]
+  /** `undefined` when the judge was skipped: zero strays, or a non-empty `unreadable`. */
   readonly judgment: Judgment | undefined
 }
 
@@ -171,13 +173,17 @@ const SHAPE_CRITERIA = [
   "reject: the naive pass solved the task the wrong way; discard it and re-implement, no human; strays a refactor could absorb never count as reject.",
 ].join("\n")
 
+const readable = (c: Change): boolean =>
+  (c.status === "deleted" || c.after !== undefined) &&
+  (c.status === "added" || c.before !== undefined)
+
 const strayContent = (strays: readonly Change[]): string =>
   strays
     .map((c) =>
       [
         `=== ${c.path} (${c.status})`,
-        ...(c.status === "added" ? [] : ["--- before", c.before ?? ""]),
-        ...(c.status === "deleted" ? [] : ["--- after", c.after ?? ""]),
+        ...(c.status === "added" ? [] : ["--- before", c.before]),
+        ...(c.status === "deleted" ? [] : ["--- after", c.after]),
       ].join("\n"),
     )
     .join("\n")
@@ -192,11 +198,20 @@ export const judgeDiffShape = async (
 ): Promise<DiffShapeResult> => {
   const { changes: all, allow } = options
   const isStray = (c: Change): boolean => !allow.some((pattern) => matches(c.path, pattern))
-  const strayChanges = all
+  const strayChanges: Change[] = all
     .filter(isStray)
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    // Read each (possibly lazy) side once, so readable() and strayContent() agree.
+    .map(({ path, status, before, after }) => ({ path, status, before, after }))
   const strays = strayChanges.map((c) => c.path)
-  if (strays.length === 0) return { choice: "land", strays: [], judgment: undefined }
+  if (strays.length === 0)
+    return { choice: "land", strays: [], unreadable: [], judgment: undefined }
+  // A side the judge cannot read is evidence it never saw: never land on it. A
+  // refactor cannot make it readable, so a caller routes `unreadable` to a human.
+  const unreadable = strayChanges.filter((c) => !readable(c)).map((c) => c.path)
+  if (unreadable.length > 0) {
+    return { choice: "refactor-first", strays, unreadable, judgment: undefined }
+  }
 
   const minP =
     options.minP ??
@@ -233,5 +248,5 @@ export const judgeDiffShape = async (
     (SHAPES as readonly string[]).includes(answer.answer)
       ? (answer.answer as DiffShape)
       : "refactor-first"
-  return { choice, strays, judgment }
+  return { choice, strays, unreadable: [], judgment }
 }
