@@ -60,6 +60,12 @@ export interface CostEntry {
   readonly model: string | undefined
 }
 
+export interface Approval {
+  readonly step: StepId
+  readonly name: string
+  readonly email: string
+}
+
 export interface CommitMessage {
   readonly subject: string
   readonly parsed: ParsedSubject | undefined
@@ -77,6 +83,8 @@ export interface CommitMessage {
   readonly version: string | undefined
   /** The off-branch tip a keep step set aside; a non-hash value is skipped. */
   readonly kept: string | undefined
+  /** `Gtd-Approved`; a malformed or control-character value is skipped. */
+  readonly approved: Approval | undefined
   readonly format: number
 }
 
@@ -115,6 +123,17 @@ const decodePath = (raw: string): string | undefined => {
   const path = raw.startsWith('"') ? parseJson(raw) : raw
   return typeof path === "string" && path !== "" && !CONTROL_CHARACTER.test(path) ? path : undefined
 }
+const APPROVED_RE = /^(.+?#[1-9][0-9]*) (.+) <([^<>]+)>$/
+const decodeApproval = (raw: string): Approval | undefined => {
+  const match = APPROVED_RE.exec(raw)
+  if (match === null || CONTROL_CHARACTER.test(raw)) return undefined
+  const step = parseStepId(match[1]!)
+  return step === undefined ? undefined : { step, name: match[2]!, email: match[3]! }
+}
+/** Whether `approval` would read back from its own trailer — a name with a control character would not. */
+export const isRecordableApproval = (approval: Approval): boolean =>
+  decodeApproval(`${formatStepId(approval.step)} ${approval.name} <${approval.email}>`) !==
+  undefined
 const FORMAT_RE = /^[1-9][0-9]*$/
 const HASH_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 
@@ -125,6 +144,7 @@ interface Trailers {
   branch: string | undefined
   version: string | undefined
   kept: string | undefined
+  approved: Approval | undefined
   readonly judge: JudgeVerdict[]
   readonly vars: Record<string, string>
   readonly config: Record<string, string>
@@ -164,6 +184,9 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Kept": (value, into) => {
     if (HASH_RE.test(value)) into.kept ??= value
   },
+  "Gtd-Approved": (value, into) => {
+    into.approved ??= decodeApproval(value)
+  },
   "Gtd-Format": (value, into) => {
     if (FORMAT_RE.test(value)) into.format ??= Number(value)
   },
@@ -183,6 +206,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     branch: undefined,
     version: undefined,
     kept: undefined,
+    approved: undefined,
     judge: [],
     vars: {},
     config: {},
@@ -208,6 +232,8 @@ export interface CommitSpec {
   readonly config?: Readonly<Record<string, string>>
   readonly cost?: { readonly cost: number; readonly model?: string }
   readonly judge?: readonly JudgeVerdict[]
+  /** Written after `Gtd-Judge`, before `Gtd-Branch`. */
+  readonly approved?: Approval
   readonly branch?: string
   readonly version?: string
 }
@@ -230,6 +256,10 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     )
   }
   for (const verdict of spec.judge ?? []) lines.push(`Gtd-Judge: ${JSON.stringify(verdict)}`)
+  if (spec.approved !== undefined) {
+    const { step, name, email } = spec.approved
+    lines.push(`Gtd-Approved: ${formatStepId(step)} ${name} <${email}>`)
+  }
   if (spec.branch !== undefined) lines.push(`Gtd-Branch: ${spec.branch}`)
   if (spec.version !== undefined) lines.push(`Gtd-Version: ${spec.version}`)
   lines.push(`Gtd-Format: ${HISTORY_FORMAT}`)

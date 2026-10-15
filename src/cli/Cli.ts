@@ -705,11 +705,11 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     arity: { name: "ref" },
     details: [
       "Replay one kept process under today's config and print its",
-      "steps and judge verdicts. <ref> is a full ref, an entry hash",
-      "(or unique prefix) or a branch name. Refuses (exit 1) when a",
-      "config file differs from its content at the ref's tip. A",
-      "version mismatch only warns on stderr. --json prints the",
-      "trail as one document; writes nothing",
+      "steps, judge verdicts and approvals. <ref> is a full ref, an",
+      "entry hash (or unique prefix) or a branch name. Refuses",
+      "(exit 1) when a config file differs from its content at the",
+      "ref's tip. A version mismatch only warns on stderr. --json",
+      "prints the trail as one document; writes nothing",
     ],
   },
   {

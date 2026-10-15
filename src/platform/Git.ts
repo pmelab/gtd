@@ -103,7 +103,11 @@ export interface GitReaderOperations {
    * working tree. Fails when either side does not resolve.
    */
   readonly diffPaths: (base: string, tip: string) => Effect.Effect<ReadonlyArray<string>, Error>
+  /** `git var GIT_AUTHOR_IDENT`'s name and email; `None` when git has no identity. */
+  readonly authorIdent: () => Effect.Effect<Option.Option<AuthorIdent>, Error>
 }
+
+export type AuthorIdent = { readonly name: string; readonly email: string }
 
 export interface GitWriterOperations {
   /**
@@ -405,6 +409,17 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         tip,
         "--",
       ).pipe(Effect.map(splitNul)),
+
+    authorIdent: () =>
+      exec("git", "var", "GIT_AUTHOR_IDENT").pipe(
+        Effect.map((out) => {
+          const match = /^(.*?) <([^<>]*)> \d+ [+-]\d{4}$/.exec(out.trim())
+          return match === null || match[1] === "" || match[2] === ""
+            ? Option.none()
+            : Option.some({ name: match[1]!, email: match[2]! })
+        }),
+        Effect.catchAll(() => Effect.succeed(Option.none())),
+      ),
 
     changedPaths: (base?: string) =>
       Effect.gen(function* () {

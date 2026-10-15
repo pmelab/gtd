@@ -173,3 +173,82 @@ describe("Gtd-Kept", () => {
     expect(parsed.format).toBe(1)
   })
 })
+
+describe("Gtd-Approved", () => {
+  const approved = {
+    step: { name: "seam", occurrence: 2 },
+    name: "Ada Lovelace",
+    email: "ada@x.io",
+  }
+
+  it("is written between Gtd-Judge and Gtd-Branch and round-trips", () => {
+    const message = formatCommitMessage({
+      actor: "human",
+      to: "next",
+      from: "seam",
+      step: { name: "seam", occurrence: 2 },
+      judge: [{ id: "v", answer: "yes", p: 1 }],
+      branch: "feat",
+      approved,
+    })
+    const lines = message.split("\n")
+    const at = lines.indexOf("Gtd-Approved: seam#2 Ada Lovelace <ada@x.io>")
+    expect(at).toBeGreaterThan(-1)
+    expect(lines[at - 1]).toMatch(/^Gtd-Judge:/)
+    expect(lines[at + 1]).toBe("Gtd-Branch: feat")
+    expect(parseCommitMessage(message).approved).toEqual(approved)
+  })
+
+  it("parses a scoped step name", () => {
+    const parsed = parseCommitMessage(
+      "gtd(human): a → b\n\nGtd-Approved: pkg.seam#1 Test <test@test.com>",
+    )
+    expect(parsed.approved).toEqual({
+      step: { name: "pkg.seam", occurrence: 1 },
+      name: "Test",
+      email: "test@test.com",
+    })
+  })
+
+  it("parses a malformed value to undefined", () => {
+    for (const value of [
+      "seam Ada <a@x.io>",
+      "seam#0 Ada <a@x.io>",
+      "seam#1 Ada",
+      "seam#1 <a@x.io>",
+      "seam#1 Ada <>",
+      "",
+    ]) {
+      expect(parseCommitMessage(`gtd(human): a → b\n\nGtd-Approved: ${value}`).approved).toBe(
+        undefined,
+      )
+    }
+  })
+
+  it("parses a step name with a space", () => {
+    const parsed = parseCommitMessage(
+      "gtd(human): a → b\n\nGtd-Approved: seam gate#1 Ada L <a b@x.io>",
+    )
+    expect(parsed.approved).toEqual({
+      step: { name: "seam gate", occurrence: 1 },
+      name: "Ada L",
+      email: "a b@x.io",
+    })
+  })
+
+  it("parses a control-character value to undefined", () => {
+    const value = "seam#1 Ada\u001b[31m <a@x.io>"
+    expect(parseCommitMessage(`gtd(human): a → b\n\nGtd-Approved: ${value}`).approved).toBe(
+      undefined,
+    )
+    expect(
+      parseCommitMessage("gtd(human): a → b\n\nGtd-Approved: seam#1 Ada <a\u0007@x.io>").approved,
+    ).toBe(undefined)
+  })
+
+  it("reads undefined when absent", () => {
+    expect(parseCommitMessage(formatCommitMessage({ actor: "agent", to: "b" })).approved).toBe(
+      undefined,
+    )
+  })
+})

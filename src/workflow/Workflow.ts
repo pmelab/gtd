@@ -41,6 +41,7 @@ export interface StepDef {
   readonly allowEmpty?: boolean
   readonly keep?: boolean
   readonly acceptClean?: boolean
+  readonly approve?: boolean
   readonly skills?: readonly string[]
   readonly access?: StepAccess
 }

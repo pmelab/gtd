@@ -1,6 +1,6 @@
 import type { BeatKind, Demand, DemandSession } from "./Demand.js"
 import type { BeatStatus, NextMatch, StatusChange } from "./BeatStatus.js"
-import type { Actor, ModelCost, StateMode, StateName, StepAccess } from "./types.js"
+import type { Actor, ApprovalEntry, ModelCost, StateMode, StateName, StepAccess } from "./types.js"
 import { WIRE_SCHEMA } from "./constants.js"
 
 /** `gtd next --json`'s `next` key — `null` when landing would commit nothing. */
@@ -72,10 +72,11 @@ export interface BeatDocument {
   readonly judge: string | undefined
   readonly skills: readonly string[] | undefined
   readonly access: StepAccess | undefined
+  readonly approvals: readonly ApprovalEntry[]
 }
 
 /**
- * Flatten a `Demand` plus its `BeatStatus` into the single 24-key document
+ * Flatten a `Demand` plus its `BeatStatus` into the single 25-key document
  * `gtd next --json` emits — the ONLY place the two are joined. `cost`/
  * `costByModel` are omitted together, exactly when no cost was recorded
  * (`cost <= 0`).
@@ -108,6 +109,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     judge: status.judge,
     skills,
     access,
+    approvals: status.approvals,
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatFault } from "./Format.js"
+import { formatCommitMessage, formatFault, parseCommitMessage } from "./index.js"
 
 describe("the history format", () => {
   it("accepts a history entirely in the current format", () => {
@@ -16,5 +16,18 @@ describe("the history format", () => {
     expect(fault).toBe(
       "gtd: commit bbbbbbb is written in history format 2, but this gtd reads format 1 — run a gtd release that reads format 2 to continue this process",
     )
+  })
+})
+
+describe("Gtd-Approved and the history format", () => {
+  it("leaves Gtd-Format at 1 on a message carrying it", () => {
+    const message = formatCommitMessage({
+      actor: "human",
+      to: "b",
+      approved: { step: { name: "seam", occurrence: 1 }, name: "Test", email: "test@test.com" },
+    })
+    expect(message).toContain("Gtd-Approved: seam#1 Test <test@test.com>")
+    expect(message).toContain("Gtd-Format: 1")
+    expect(parseCommitMessage(message).format).toBe(1)
   })
 })

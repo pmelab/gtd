@@ -128,6 +128,11 @@ export const runHistoryShowCommand = (
     for (const step of trail.steps) {
       lines.push(`${seven(step.hash)} ${step.subject}`)
       for (const v of step.verdicts) lines.push(`  judge ${v.id} = ${v.answer} (p=${v.p})`)
+      if (step.approval !== undefined) {
+        lines.push(
+          `  approved ${step.approval.step} by ${step.approval.name} <${step.approval.email}>`,
+        )
+      }
     }
     lines.push(`ended (${trail.ended})`)
     out.write(`${lines.join("\n")}\n`)

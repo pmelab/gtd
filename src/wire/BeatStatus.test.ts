@@ -19,6 +19,7 @@ const baseInput = (overrides: Partial<RenderedDemandSource> = {}) => ({
   next: null,
   cost: 0,
   costByModel: [],
+  approvals: [],
 })
 
 describe("statusOf", () => {
@@ -47,6 +48,7 @@ describe("statusOf", () => {
       next: { target: "idle" },
       cost: 12,
       costByModel: [{ model: "opus", cost: 12 }],
+      approvals: [],
     })
     expect(status.workflow).toBe("feature")
     expect(status.idle).toBe(true)

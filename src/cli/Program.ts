@@ -1080,6 +1080,7 @@ const gatherBeatDocument = (
       next: yield* computeNextMatch(rest),
       cost: rest.cost.total,
       costByModel: rest.cost.byModel,
+      approvals: rest.run.approvals,
     })
     return beatDocument(demand, status)
   })

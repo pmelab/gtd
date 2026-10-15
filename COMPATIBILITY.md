@@ -33,7 +33,9 @@ histories written by an older or newer gtd.
   `Gtd-Config:` is one: it only feeds a warning, never a step. `Gtd-Kept:` is
   another: only a step with the `keep` option writes it, and an older gtd
   refuses that workflow at load through its unknown-option check, so nothing is
-  read wrongly. Replay reads the kept object it names to answer `kept()`, which
+  read wrongly. `Gtd-Approved:` is a third: only a `human` step with the
+  `approve` option writes it, and an older gtd refuses that workflow at load the
+  same way. Replay reads the kept object it names to answer `kept()`, which
   lives under `refs/gtd/kept/<entry>/<step>/<hash>` in the clone that landed it:
   a kept ref is local and its object is part of what replay needs there.
 
@@ -76,7 +78,8 @@ histories written by an older or newer gtd.
   [The `config` export](docs/configuration.md#the-config-export).
 - **Bundled workflow and step names** — `feature`, `fix`, `review`, and each
   step's full name, plus which steps a bundled workflow reaches and in what
-  order: changing either strands every process resting on it.
+  order: changing either strands every process resting on it. Adding `approve`
+  to an existing step strands every process that already passed it.
 - **The review hand-off** — what `review` leaves for `fix`: `.gtd/REVIEW.md`
   with the human's notes beside the reviewer's own `.gtd/REVIEW.orig.md`, read
   as review notes (see [Steering formats](src/steering/FORMATS.md)).

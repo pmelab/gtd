@@ -2,7 +2,9 @@ export { replay, type EpisodeCommit, type ReachedStep, type ReplayOutcome } from
 export { treeFromRecord, type TreeView } from "./Tree.js"
 export {
   formatCommitMessage,
+  formatStepId,
   formatSubject,
+  isRecordableApproval,
   parseCommitMessage,
   type CommitSpec,
   type JudgeVerdict,

@@ -151,9 +151,10 @@ judge question), `Gtd-Var:` (a process setting), `Gtd-Cost:` (a
 `gtd land --cost`), `Gtd-Review-Base:` (a workflow's fixed diff base),
 `Gtd-Branch:` and `Gtd-Version:` (only on the landing that finishes a process),
 `Gtd-Kept:` (only on the marker a `keep` step lands, see
-[Step options](#step-options)), and `Gtd-Config:` (see
-[Config purity](#config-purity)). Every commit gtd writes also carries
-`Gtd-Format:` (see [History format](#history-format)).
+[Step options](#step-options)), `Gtd-Approved:` (only on the landing that
+completes an `approve` gate: `<step>#<n> <git user.name> <<git user.email>>`),
+and `Gtd-Config:` (see [Config purity](#config-purity)). Every commit gtd writes
+also carries `Gtd-Format:` (see [History format](#history-format)).
 
 ### Step options
 
@@ -170,6 +171,7 @@ Every step takes an options object; all keys are optional.
 | `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).                                                                                                                   |
 | `keep`        | `agent`              | Cannot be combined with `allowEmpty`. Set the turn aside: it lands off the branch under `refs/gtd/kept/<entry>/<step>/<hash>` and the branch gets an empty marker commit (subject, `Gtd-Step:`, `Gtd-Kept: <hash>`) instead. See [Kept tips](#kept-tips). |
 | `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit.                                                                                                        |
+| `approve`     | `human`              | A sign-off gate; implies `acceptClean`. Only a **clean** `gtd land` completes it — any edit is refused, and git must have an author identity. That commit carries `Gtd-Approved: <step>#<n> <name> <<email>>`. See [`seamGate`](#judges).                 |
 | `base`        | all                  | The commit this step reviews changes since — what `gtd base` prints while the process rests here. Without it, the process's `start()`.                                                                                                                    |
 
 ### Kept tips
@@ -537,6 +539,17 @@ step; a refactor cannot make such a stray readable, so route a non-empty
 judge sees the strays, the allowlist, the paths inside it (paths only) and each
 stray's content before and after.
 
+`seamGate(name, shape)` takes a `judgeDiffShape` result and rests at an approval
+gate `name` — `human(name, { approve: true })` — only when `shape.choice` is
+`refactor-first`; `land` and `reject` reach no step, so nothing rests and
+nothing is committed. The gate's `message` is a seam report: every stray in
+order (an unreadable one suffixed ` (unreadable — not judged)`), then the
+instruction that a clean `gtd land` approves and `gtd abandon` stops. Approving
+is the only outcome, and the person cannot narrow the list of strays: a landing
+with any edit is refused and the gate stays. The approval commit is
+`gtd(human): <name> → <next>` with `Gtd-Approved:`; replay never asks again, and
+a second `refactor-first` rests at the same name as occurrence `#2`.
+
 ### `refactorFirst`
 
 `refactorFirst(shape, { reference? })` turns a `judgeDiffShape` result into a
@@ -596,7 +609,10 @@ What a `gtd land` does depends on the step and on whether the tree changed:
   something changes. Set `allowEmpty: true` on a step where "nothing to change"
   is a legitimate outcome.
 - **Human, nothing changed** — a no-op (nothing lands), unless the step sets
-  `acceptClean: true`, in which case the clean landing completes the gate.
+  `acceptClean: true`, in which case the clean landing completes the gate. An
+  `approve: true` gate (see [Step options](#step-options)) goes further: a clean
+  landing completes it and records the git author identity it ran under as the
+  approver, and a landing with any change is refused.
 - **Run, nothing changed** — the step completes. If replaying that landing
   brings the flow straight back to the same step, the landing is a **settled**
   no-op (`gtd land --json`'s `settled: true`): there is nothing more a driver

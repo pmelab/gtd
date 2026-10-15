@@ -410,6 +410,7 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "readFileAtRef",
   "changedPaths",
   "diffPaths",
+  "authorIdent",
   "commitAllWithPrefix",
   "softResetTo",
   "commitAsIs",
@@ -482,6 +483,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
         g.changedPaths(),
         g.changedPaths("HEAD~1"),
         g.diffPaths("HEAD~1", "HEAD"),
+        g.authorIdent(),
       ]),
     )
     expect(await t.observe.snapshot()).toBe(before)
@@ -1169,6 +1171,14 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
           { path: "REVIEW.md", status: "M" },
         ])
       })
+    })
+  })
+
+  describe("authorIdent", () => {
+    it("is the configured name and email", async () => {
+      expect(await runGit(t, (g) => g.authorIdent())).toEqual(
+        Option.some({ name: "Test", email: "test@test.com" }),
+      )
     })
   })
 

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { NodeContext } from "@effect/platform-node"
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Effect, Exit, Option } from "effect"
 import { describe, expect, it } from "vitest"
 import { GitService, InvalidRefError, resolvedRefOrCorrupted } from "./Git.js"
 import { Host } from "./index.js"
@@ -135,6 +135,30 @@ describe("diffPaths [Live]", () => {
         ),
       )
       expect([...paths]).toEqual(["sub"])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("authorIdent [Live]", () => {
+  it("is none when git has no author identity", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-ident-")))
+    try {
+      const git = (...args: string[]) =>
+        execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe" })
+      git("init")
+      git("config", "user.useConfigOnly", "true")
+      git("config", "user.name", "")
+      git("config", "user.email", "")
+      const ident = await Effect.runPromise(
+        Effect.flatMap(GitService, (g) => g.authorIdent()).pipe(
+          Effect.provide(GitService.Live),
+          Effect.provide(Host.layer({ root, home: root, env: {} })),
+          Effect.provide(NodeContext.layer),
+        ),
+      )
+      expect(Option.isNone(ident)).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -28,6 +28,7 @@ const documentFor = (kind: BeatKind, content: string, rest: Partial<RenderedDema
     next: { target: "idle" },
     cost: 0,
     costByModel: [],
+    approvals: [],
   })
   return beatDocument(demand, status)
 }

@@ -581,7 +581,7 @@ kept before it squashes.
 
 ```sh
 gtd history list                 # one line per kept process
-gtd history show <ref>           # replay its steps and judge verdicts
+gtd history show <ref>           # replay its steps, judge verdicts and approvals
 gtd history fetch | sh           # pull every kept ref from origin
 ```
 
@@ -600,6 +600,15 @@ A step declared with `keep: true` files its turn under `refs/gtd/kept/` instead
 of on the branch (see [Kept tips](docs/configuration.md#kept-tips)). Those refs
 are not process history: `gtd history` does not list them, and the
 `refs/gtd/history/*` refspecs above neither push nor fetch them.
+
+A workflow can rest at an approval gate (`human(name, { approve: true })`; the
+`seamGate` helper does this after a `refactor-first` diff-shape judgment). Only
+a clean `gtd land` approves it, and the commit records who in a
+`Gtd-Approved: <step>#<n> <name> <<email>>` trailer; a landing with any edit is
+refused, and `gtd abandon` is the only other way out. `gtd next --json` lists
+the process's approvals as `approvals` (`[]` when none), and `gtd history show`
+prints each as `approved <step>#<n> by <name> <<email>>`. See
+[Step options](docs/configuration.md#step-options).
 
 ## Entrypoints
 

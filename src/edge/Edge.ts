@@ -4,6 +4,7 @@ import {
   GitService,
   Host,
   Workspace,
+  type AuthorIdent,
   type GitOperations,
   type HostOps,
   type WorkspaceOps,
@@ -29,7 +30,9 @@ import {
 } from "../workflow/index.js"
 import {
   formatFault,
+  formatStepId,
   formatSubject,
+  isRecordableApproval,
   parseCommitMessage,
   replay,
   treeFromRecord,
@@ -41,7 +44,14 @@ import {
 } from "../replay/index.js"
 import type { ScopeAccess } from "../flows/index.js"
 import { steeringFormatFor } from "../steering/index.js"
-import { judgeJson, UNATTRIBUTED_MODEL, type ModelCost, type StepAccess } from "../wire/index.js"
+import {
+  judgeJson,
+  UNATTRIBUTED_MODEL,
+  type ApprovalEntry,
+  type ModelCost,
+  type StepAccess,
+} from "../wire/index.js"
+
 import { GTD_VERSION } from "../install/index.js"
 import { keptRef, processHistoryRef } from "../platform/index.js"
 import { isAbsolute, relative, resolve, sep } from "node:path"
@@ -141,6 +151,8 @@ export interface ProcessRun {
   readonly trace: readonly TraceEntry[]
   readonly costEntries: readonly CostEntry[]
   readonly judgeVerdicts: readonly JudgeVerdictEntry[]
+  /** Oldest first. */
+  readonly approvals: readonly ApprovalEntry[]
   /** The process settings recorded in the process's first commit (empty for a process started before pinning existed). */
   readonly pinnedVars: Record<string, string>
   /** Absent for a process started before recording existed. */
@@ -228,6 +240,21 @@ const pinnedConfigOf = (history: History): ProcessRun["pinnedConfig"] => {
   return undefined
 }
 
+const approvalEntryOf = (
+  hash: string,
+  message: ReturnType<typeof parseCommitMessage>,
+): readonly ApprovalEntry[] =>
+  message.approved === undefined
+    ? []
+    : [
+        {
+          step: formatStepId(message.approved.step),
+          name: message.approved.name,
+          email: message.approved.email,
+          commit: hash,
+        },
+      ]
+
 const buildRun = (
   history: History,
   location: EpisodeLocation,
@@ -247,6 +274,7 @@ const buildRun = (
     trace: processCommits.map((c, i) => traceEntryOf(c.hash, parsed[i]!)),
     costEntries: parsed.flatMap(costEntriesOf),
     judgeVerdicts: parsed.flatMap((m) => m.judge),
+    approvals: processCommits.flatMap((c, i) => approvalEntryOf(c.hash, parsed[i]!)),
     pinnedVars: { ...first?.vars },
     pinnedConfig: pinnedConfigOf(history.slice(Math.max(location.baseIndex, 0))),
     headTurn: headTurnOf(head),
@@ -729,7 +757,8 @@ const messageDef = (
   ...common,
   kind: "message",
   content: request.options.message ?? request.options.label ?? step.name,
-  ...optional("acceptClean", request.options.acceptClean),
+  ...optional("acceptClean", request.options.approve === true || request.options.acceptClean),
+  ...optional("approve", request.options.approve),
 })
 
 const stepDefOf = (step: ReachedStep): StepDef => {
@@ -1107,6 +1136,32 @@ export const restIsIdle = (rest: Rest): boolean =>
 
 const isHumanReviewGate = (def: StepDef): boolean => def.actor === "human" && def.mode === "review"
 
+// An approval covers exactly the judged diff, so any edit refuses it; the
+// approver is read only at such a rest, and must be a name a trailer can carry.
+const approvalRefusal = (rest: Rest, approver: Option.Option<AuthorIdent>): Landing | undefined => {
+  if (rest.stepDef.approve !== true) return undefined
+  const id = rest.step.id
+  if (rest.changes.length > 0) {
+    return {
+      kind: "refusal",
+      message: `gtd land: approval-gate: ${formatStepId(id)} approves exactly the judged diff — revert your edits and run \`gtd land\` on a clean tree to approve, or run \`gtd abandon\``,
+    }
+  }
+  if (Option.isNone(approver)) {
+    return {
+      kind: "refusal",
+      message: `gtd land: approval-gate: ${formatStepId(id)} records who approved it, but git has no author identity — set user.name and user.email`,
+    }
+  }
+  if (!isRecordableApproval({ step: id, ...approver.value })) {
+    return {
+      kind: "refusal",
+      message: `gtd land: approval-gate: ${formatStepId(id)} cannot record ${approver.value.name} <${approver.value.email}> as approver — the name or email has a control character`,
+    }
+  }
+  return undefined
+}
+
 /** The landing a clean tree decides before any replay, if it decides one. */
 const cleanLanding = (rest: Rest): Landing | undefined => {
   if (rest.changes.length > 0) return undefined
@@ -1182,7 +1237,15 @@ const keptTurn = (rest: Rest) =>
     ? { keepTurn: keptRef(rest.run.startHash, rest.state) }
     : {}
 
-const landingTo = (rest: Rest, to: StateName, branch: Option.Option<string>): Landing => {
+const approvedTrailer = (rest: Rest, approver: Option.Option<AuthorIdent>) =>
+  Option.isSome(approver) ? { approved: { step: rest.step.id, ...approver.value } } : {}
+
+const landingTo = (
+  rest: Rest,
+  to: StateName,
+  branch: Option.Option<string>,
+  approver: Option.Option<AuthorIdent>,
+): Landing => {
   if (isSettledNoop(rest, to)) return { kind: "noop", settled: true }
   // The landing that leaves the flow's first step starts the process: it
   // pins the process settings every later invocation reads back.
@@ -1202,6 +1265,7 @@ const landingTo = (rest: Rest, to: StateName, branch: Option.Option<string>): La
       from: rest.state,
       to,
       step: rest.step.id,
+      ...approvedTrailer(rest, approver),
       ...(starts ? { vars: rest.vars, config: rest.config } : {}),
       ...(finishes ? closingTrailers(branch) : {}),
     },
@@ -1219,8 +1283,11 @@ const decideLanding = (
   rest: Rest,
   verdicts: readonly JudgeVerdict[] | undefined,
   branch: Option.Option<string>,
+  approver: Option.Option<AuthorIdent>,
 ): Effect.Effect<Landing, Error> =>
   Effect.gen(function* () {
+    const unapproved = approvalRefusal(rest, approver)
+    if (unapproved !== undefined) return unapproved
     const early = cleanLanding(rest)
     if (early !== undefined) return early
     if (rest.stepDef.kind === "prompt" && rest.stepDef.access?.write != null) {
@@ -1239,12 +1306,12 @@ const decideLanding = (
     )
     const to = yield* landingTarget(outcome, rest)
     if (typeof to !== "string") return to
-    return landingTo(rest, to, branch)
+    return landingTo(rest, to, branch, approver)
   })
 
 /** Where landing the pending turn would leave the process, or `undefined` when it would land nothing. */
 export const previewLanding = (rest: Rest): Effect.Effect<StateName | undefined> =>
-  decideLanding(rest, undefined, Option.none()).pipe(
+  decideLanding(rest, undefined, Option.none(), Option.none()).pipe(
     Effect.map((landing) => (landing.kind === "commit" ? landing.to : undefined)),
     Effect.catchAll(() => Effect.succeed(undefined)),
   )
@@ -1255,8 +1322,10 @@ export const snapshotFromRest = (
   verdicts?: readonly JudgeVerdict[],
 ): Effect.Effect<RepoSnapshot, Error, Workspace | GitService> =>
   Effect.gen(function* () {
-    const branch = yield* (yield* GitService).currentBranch()
-    const landing = yield* decideLanding(rest, verdicts, branch)
+    const git = yield* GitService
+    const branch = yield* git.currentBranch()
+    const approver = rest.stepDef.approve === true ? yield* git.authorIdent() : Option.none()
+    const landing = yield* decideLanding(rest, verdicts, branch, approver)
     return {
       stepDef: rest.stepDef,
       state: rest.state,
@@ -1300,6 +1369,7 @@ export interface HistoryStep {
   readonly from: StateName | undefined
   readonly to: StateName
   readonly verdicts: readonly JudgeVerdict[]
+  readonly approval?: ApprovalEntry
 }
 
 export interface HistoryTrail {
@@ -1371,6 +1441,7 @@ const historySteps = (run: ProcessRun): readonly HistoryStep[] => {
       from: message.parsed?.from,
       to: entry.state,
       verdicts: message.judge,
+      ...optional("approval", approvalEntryOf(entry.hash, message)[0]),
     }
   })
 }

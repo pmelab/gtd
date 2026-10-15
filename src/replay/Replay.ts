@@ -236,7 +236,7 @@ const STEERING_OPTIONS = ["file", "mode", "label", "base"]
 // type check, so a misspelt key would otherwise be silently ignored.
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
   agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty", "keep"]),
-  human: new Set([...STEERING_OPTIONS, "message", "acceptClean"]),
+  human: new Set([...STEERING_OPTIONS, "message", "acceptClean", "approve"]),
   run: new Set(STEERING_OPTIONS),
   judge: new Set([...STEERING_OPTIONS, "message"]),
 }
@@ -489,6 +489,16 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     return error === undefined ? undefined : { kind: "failed", message: error }
   }
 
+  const missingApproval = (step: ReachedStep, commit: ParsedCommit, expected: string) => {
+    if (step.request.kind !== "human" || step.request.options.approve !== true) return undefined
+    const approved = commit.parsed.approved
+    if (approved !== undefined && formatStepId(approved.step) === expected) return undefined
+    return {
+      kind: "divergence" as const,
+      message: `gtd: commit ${short(commit.hash)} completes approval gate "${expected}" but records no Gtd-Approved for it — ${DIVERGED}`,
+    }
+  }
+
   const consumeCommit = (step: ReachedStep, commit: ParsedCommit): unknown => {
     const recorded = commit.parsed.step
     const expected = formatStepId(step.id)
@@ -500,6 +510,8 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         message: `gtd: commit ${short(commit.hash)} ${what}, but replay expected "${expected}" — ${DIVERGED}`,
       })
     }
+    const unapproved = missingApproval(step, commit, expected)
+    if (unapproved !== undefined) return finish(unapproved)
     cursor++
     advance(commit)
     if (commit.parsed.kept !== undefined) {

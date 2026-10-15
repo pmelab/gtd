@@ -10,6 +10,7 @@ import {
   type StatusChange,
   DEMAND_BRIEFING,
   renderBeatPlain,
+  type ApprovalEntry,
   type ModelCost,
   type RenderedDemandSource,
   WIRE_SCHEMA,
@@ -34,6 +35,7 @@ interface DocumentInput {
   readonly next?: NextMatch | null
   readonly cost?: number
   readonly costByModel?: readonly ModelCost[]
+  readonly approvals?: readonly ApprovalEntry[]
 }
 
 /** `demandOf`'s own input, isolated so `documentFor` stays a flat two-call body — `session`/`validate` are only spread in when the caller actually passed one, since `demandOf`'s `prompt` variant forbids an explicit `undefined`. */
@@ -61,6 +63,7 @@ const statusInput = (
   next: input.next ?? null,
   cost: input.cost ?? 0,
   costByModel: input.costByModel ?? [],
+  approvals: input.approvals ?? [],
 })
 
 /** Builds one full `BeatDocument` in one call, mirroring the pre-split `beatFields` call shape so every golden below reads the same as before this package. */
@@ -87,6 +90,7 @@ describe("beatDocument / renderBeatJson", () => {
       workflow: "feature",
       changes: [],
       next: null,
+      approvals: [],
     })
   })
 
@@ -267,7 +271,27 @@ describe("beatDocument / renderBeatJson", () => {
       "judge",
       "skills",
       "access",
+      "approvals",
     ])
+  })
+
+  it("emits approvals always, [] when none, at every kind", () => {
+    for (const kind of BEAT_KINDS) {
+      const parsed = JSON.parse(renderJsonLine({ kind })) as Record<string, unknown>
+      expect(parsed.approvals).toEqual([])
+    }
+  })
+
+  it("carries approvals verbatim, in the order given", () => {
+    const approvals = [
+      { step: "gate#1", name: "Ada", email: "ada@x.io", commit: "a".repeat(40) },
+      { step: "gate#2", name: "Bo", email: "bo@x.io", commit: "b".repeat(40) },
+    ]
+    const parsed = JSON.parse(renderJsonLine({ kind: "message", approvals })) as Record<
+      string,
+      unknown
+    >
+    expect(parsed.approvals).toEqual(approvals)
   })
 
   it("emits access at kind prompt, null per side when unrestricted", () => {
@@ -377,6 +401,7 @@ describe("golden bytes", () => {
         workflow: "feature",
         changes: [],
         next: null,
+        approvals: [],
       }) + "\n",
     )
   })
