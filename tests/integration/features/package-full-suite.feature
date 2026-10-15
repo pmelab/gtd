@@ -8,6 +8,7 @@ Feature: every package leaves the full suite green, so the quality lap follows t
   Background:
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch

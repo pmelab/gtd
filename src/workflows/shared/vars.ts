@@ -12,6 +12,10 @@ export const defaults: Readonly<Record<string, string>> = {
   reviewNoteActionable: "0.7",
   reviewSeverityMinP: "0.7",
   refactorFlagPattern: "\\bGTD_FLAG_\\w+",
+  seamAllow:
+    "**/*.test.*, **/*.spec.*, **/*.feature, **/tests/**, **/test/**, **/__tests__/**, .gtd/**",
+  // GTD_FLAG_NAIVE_PASS, recorded at process start; only "1" is on.
+  flag_naive_pass: "0",
   // Decides the turn count: one `build.quality.<lens>` scope per entry, each
   // keyed in `./skills.ts`.
   qualityReviews:

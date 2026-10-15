@@ -25,7 +25,7 @@ import {
 import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 import { Host } from "../platform/index.js"
 import { type CommandRequirements } from "./Cli.js"
-import { InMemRepo, testLayers } from "../testkit/index.js"
+import { InMemRepo, makeCapturingCliIo, testLayers } from "../testkit/index.js"
 import { CONFIG_SCAFFOLD } from "../install/index.js"
 
 const FLAG_NAMES = [
@@ -1238,6 +1238,54 @@ describe("runCli — a garbled GTD_FLAG_* value", () => {
     expect(captured().exitCode).toBe(1)
     expect(captured().stdout).toBe("")
     expect(captured().stderr).toContain("GTD_FLAG_BETA")
+  })
+})
+
+describe("runCli — StartFlags", () => {
+  const CONFIG = `import { agent, human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+}
+
+export const side = async () => {
+  await agent("working", "w")
+}
+
+export const defaults = { flag_naive_pass: "0" }
+`
+  const start = async (
+    flags?: CliIo["flags"],
+    env: Record<string, string> = {},
+  ): Promise<string> => {
+    const repo = new InMemRepo()
+    repo.writeFile("gtd.config.ts", CONFIG)
+    repo.seedCommit("chore: add workflow")
+    const { io, result } = makeCapturingCliIo(repo, env)
+    await Effect.runPromise(
+      runCli(["node", "gtd.js", "--workflow", "side"], { ...io, ...(flags ? { flags } : {}) }),
+    )
+    return result().stdout
+  }
+
+  it("pins flag_naive_pass=1 with the flag on", async () => {
+    expect(await start(undefined, { GTD_FLAG_NAIVE_PASS: "1" })).toContain("flag_naive_pass=1")
+  })
+
+  it("honours defaultOn with GTD_FLAG_* unset", async () => {
+    const out = await start(
+      [
+        {
+          name: "naive_pass",
+          owner: "pmelab",
+          expiry: "2099-01-01",
+          kind: "release",
+          defaultOn: true,
+        },
+      ],
+      { GTD_FLAG_NAIVE_PASS: "" },
+    )
+    expect(out).toContain("flag_naive_pass=1")
   })
 })
 

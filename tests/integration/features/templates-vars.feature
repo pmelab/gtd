@@ -171,6 +171,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
   Scenario: the bundled template resolves a coder-tier state's model from "env.coderModel"
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch

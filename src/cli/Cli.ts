@@ -10,13 +10,19 @@ import {
   Workspace,
   CommandRunner,
 } from "../platform/index.js"
-import { resolveFlags, type FlagDeclaration } from "../flags/index.js"
+import {
+  flagSettings,
+  flagSettingValue,
+  resolveFlags,
+  type FlagDeclaration,
+} from "../flags/index.js"
 import { GTD_VERSION } from "../install/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
   isSettingName,
   SETTING_NAME_RULE,
+  StartFlags,
 } from "../workflow/index.js"
 // The shared command types live in `Program.ts`, which imports nothing from
 // here, so this dependency stays one-directional.
@@ -282,6 +288,14 @@ const FLAGS: readonly FlagRow[] = [
           return Either.left(`gtd: --var ${name} specified more than once`)
         }
         seen.add(name)
+        if (name.startsWith("flag_")) {
+          const pinned = flagSettingValue(value)
+          if (pinned === undefined) {
+            return Either.left(`gtd: --var ${name} must be 1, 0, true or false`)
+          }
+          vars[name] = pinned
+          continue
+        }
         vars[name] = value
       }
       return Either.right(vars)
@@ -1451,12 +1465,15 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
   const out = bufferedArtifactOut(io)
   return Effect.flatMap(Host, ({ env }) =>
     Effect.try({
-      // Validate only: the result is discarded so a garbled value fails before any command runs.
       try: () => resolveFlags(env, io.flags),
       catch: (e) => new GtdError((e as Error).message),
     }),
   ).pipe(
-    Effect.flatMap(() => runCommand(plan.command, plan.json, out)),
+    Effect.flatMap((flags) =>
+      runCommand(plan.command, plan.json, out).pipe(
+        Effect.provideService(StartFlags, flagSettings(flags)),
+      ),
+    ),
     // `flush()` fires here, on success, BEFORE `io.exit` — the one point
     // where the whole buffered artifact is known-complete and safe to hand
     // to stdout (a failure discards the buffer instead — see

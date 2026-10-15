@@ -9,8 +9,19 @@ const { flagShipped } = options
 describe("the shipped workflow factories", () => {
   it("take exactly the settings the shipped workflows declare as options", () => {
     expect(Object.keys(ShippedOptions.fields).sort()).toEqual(
-      [...Object.keys(defaults), ...Object.keys(envDefaults)].sort(),
+      [...Object.keys(defaults), ...Object.keys(envDefaults)]
+        .filter((name) => name !== "flag_naive_pass")
+        .sort(),
     )
+  })
+
+  it("declare seamAllow and flag_naive_pass defaults; flag_naive_pass is no option", () => {
+    expect(defaults.flag_naive_pass).toBe("0")
+    expect(Object.keys(ShippedOptions.fields)).not.toContain("flag_naive_pass")
+    expect(configure(feature({ seamAllow: "docs/**" }))).toMatchObject({
+      ok: true,
+      build: { defaults: { seamAllow: "docs/**", flag_naive_pass: "0" } },
+    })
   })
 
   it("lay each option over the shipped setting of its own kind", () => {

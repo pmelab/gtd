@@ -180,6 +180,14 @@ Then("the resting step's content contains {string}", async (world: TestkitWorld,
   assert.ok(content.includes(text), content)
 })
 
+Then(
+  "the resting step's content does not contain {string}",
+  async (world: TestkitWorld, text: string) => {
+    const { content } = await world.repo().next()
+    assert.ok(!content.includes(text), content)
+  },
+)
+
 Then("the last commit subject is {string}", (world: TestkitWorld, subject: string) => {
   assert.strictEqual(world.repo().subjects().at(-1), subject)
 })

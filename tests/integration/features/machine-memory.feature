@@ -149,6 +149,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   Scenario: a nested child scope never reuses its caller's session — packages.item.fix.suite.fixing gets its own, not packages.item.building's
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a file "NOTE.md" with:
       """
@@ -203,6 +204,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   Scenario: a fresh memory key per entry — two different packages each get their own distinct session at packages.item.building
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -255,6 +257,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
   Scenario: two instances of one healthGate-shaped machine never share a session, even with byte-identical check output
     Given a test project
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a gtd config file at "gtd.config.ts" with:
       """
       import { start } from "@pmelab/gtd/flows"
@@ -484,6 +487,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # which are descendants of `build.review`. Two rounds of review over the
     # same feature are therefore always reviewed with fresh eyes.
     Given a test project
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a gtd config file at "gtd.config.ts" with:
       """
       import { start } from "@pmelab/gtd/flows"
@@ -608,6 +612,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # is anchored at THIS pass's own entry into the shared tail, never the
     # original build.fix turn from before the round-trip.
     Given a test project
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a gtd config file at "gtd.config.ts" with:
       """
       import { start } from "@pmelab/gtd/flows"
@@ -861,6 +866,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # rather than resuming design's own session. Decomposition is its own scope, so it starts a fresh session.
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -948,6 +954,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # there, never resuming any package's own `packages.item#...` session.
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a file "NOTE.md" with:
       """

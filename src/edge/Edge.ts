@@ -16,6 +16,8 @@ import {
   contentHash,
   multilineSetting,
   resolveVars,
+  resolveStartVars,
+  StartFlags,
   resolveScopeAccess,
   resolveScopeSkills,
   type ConfigFingerprint,
@@ -562,9 +564,11 @@ const settingsFor = (
   pinnedVars: Readonly<Record<string, string>>,
   hostEnv: Readonly<Record<string, string | undefined>>,
   startOverrides: Readonly<Record<string, string>> = {},
+  /** The live flags a STARTING process pins; a running one passes `{}` and replays its pins. */
+  startFlags: Readonly<Record<string, string>>,
 ): { readonly vars: Record<string, string>; readonly env: Record<string, string> } => ({
   vars: {
-    ...resolveVars(workflow.vars, startOverrides, hostEnv),
+    ...resolveStartVars(workflow.vars, startFlags, startOverrides, hostEnv),
     ...pinnedVars,
   },
   env: resolveVars(workflow.env, {}, hostEnv),
@@ -912,7 +916,14 @@ const setupFor = (
   Effect.gen(function* () {
     const resolved = yield* workflowOf(config, run)
     const def = resolved.def
-    const { vars, env } = settingsFor(resolved, run.pinnedVars, host.env, startOverrides)
+    const startFlags = run.trace.length === 0 ? yield* StartFlags : {}
+    const { vars, env } = settingsFor(
+      resolved,
+      run.pinnedVars,
+      host.env,
+      startOverrides,
+      startFlags,
+    )
     const skills = yield* resolveScopeSkills(def, vars)
     const access = yield* resolveScopeAccess(def, skills, vars)
     const budget = yield* Effect.try({
@@ -1067,7 +1078,7 @@ export const startRefusal = (
 > =>
   Effect.gen(function* () {
     const host = yield* Host
-    const { vars, env } = settingsFor(resolved, {}, host.env, startVars)
+    const { vars, env } = settingsFor(resolved, {}, host.env, startVars, yield* StartFlags)
     const skills = yield* resolveScopeSkills(resolved.def, vars)
     const access = yield* resolveScopeAccess(resolved.def, skills, vars)
     const workspace = rest.setup.workspace
@@ -1369,7 +1380,7 @@ export const summaryFor = (
         .map((entry) => ({ hash: entry.hash, state: entry.state })),
       processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
       processCostByModel: costByModel(run.costEntries),
-      ...settingsFor(resolved, run.pinnedVars, host.env),
+      ...settingsFor(resolved, run.pinnedVars, host.env, {}, {}),
     })
   })
 

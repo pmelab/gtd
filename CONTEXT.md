@@ -236,6 +236,19 @@ consumes.
 carrying `Gtd-Kept: <hash>` instead. Never listed by `gtd history`, never
 deleted by a landing. _Avoid_: beat tip, discarded tip.
 
+**Naive pass**: The `seam.naive` turn under `GTD_FLAG_NAIVE_PASS`: the
+requirements implemented directly, kept as a [kept tip](#kept-tip) and used as
+reading material, never applied.
+
+**Stray**: A path a naive pass changed that `seamAllow` does not match (a newly
+added file never counts).
+
+**Seam**: The change to existing code a task needs beyond its own new code, as
+the strays show it.
+
+**Seam judge**: The `seam.judge` step: rules `land`, `refactor-first` or
+`reject` on a naive pass's strays.
+
 **Process setting**: A flat string value flow code reads as `vars` and may
 branch on — the workflow's `defaults` (a factory option, for the shipped
 workflows), then the `--var` on `--workflow`, then `GTD_<NAME>`. Resolved once

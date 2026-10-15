@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { FLAGS, resolveFlags, type FlagDeclaration, type Flags } from "./index.js"
+import { FLAGS, flagSettings, resolveFlags, type FlagDeclaration, type Flags } from "./index.js"
 
 const registry = [
   { name: "alpha", owner: "pmelab", expiry: "2020-01-01", kind: "release" },
@@ -91,5 +91,18 @@ describe("FLAGS", () => {
       return name
     })
     expect(new Set(names).size).toBe(names.length)
+  })
+
+  it("leaves naive_pass off by default", () => {
+    expect(resolveFlags({}).naive_pass).toBe(false)
+  })
+})
+
+describe("flagSettings", () => {
+  it('maps every flag to "1" or "0" under flag_<name>', () => {
+    expect(flagSettings({ alpha: true, new_review: false })).toEqual({
+      flag_alpha: "1",
+      flag_new_review: "0",
+    })
   })
 })

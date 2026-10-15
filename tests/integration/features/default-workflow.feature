@@ -37,6 +37,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: an ordinary code change starts the process — triage, both gates stop even when question-free, one package built/fixed/reviewed, then a clean review sign-off lands directly into idle
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     # No steering file anywhere — a plain source edit is the whole start diff.
     And a file "src/greeter.ts" with:
       """
@@ -926,6 +927,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a ticked free-text slot with text is a valid answer at the technical gate; the placeholder alone is refused
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -1066,6 +1068,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a self-answered question in ## Answered Questions never stops the process at design.gate.answer
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -1103,6 +1106,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a hand-edited code change does not survive the unwind; its concern is folded into REQUIREMENTS.md instead
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "src/real.ts" with:
       """
       export const real = 1
@@ -1160,6 +1164,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: the handover — architecture.author works from REQUIREMENTS.md alone, a cold read with no assumption of a prior design conversation
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     # The prompt tells the author to work from REQUIREMENTS.md alone, even
     # though design's own turns sit right there in the history.
     And a file "NOTE.md" with:
@@ -1204,6 +1209,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a question must clear the three-part bar, or the planner decides it itself
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -1238,6 +1244,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a package whose work already landed closes out via .gtd/SATISFIED.md
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -1297,6 +1304,7 @@ Feature: The bundled unified workflow — one flow, end to end
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -1360,6 +1368,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # the previous review round's boundary, not the whole process. fileA landed
     # before that boundary; fileB after it, on the re-planned lap.
     Given a test project
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a gtd config file at "gtd.config.ts" with:
       """
       import { start } from "@pmelab/gtd/flows"
@@ -1499,6 +1508,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # it starts from instead of a fresh first call.
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -2338,6 +2348,7 @@ Feature: The bundled unified workflow — one flow, end to end
     # "packages.item"; build/build.review are "build"/"build.review".
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "start"
     And a file "NOTE.md" with:

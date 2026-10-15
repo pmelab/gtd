@@ -9,6 +9,7 @@ Feature: A package's declared tests gate its build
   Background:
     Given a test project
     And the workflow gtd install scaffolds
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "lib/existing.test.ts" with:
       """
       export const existingTest = 1

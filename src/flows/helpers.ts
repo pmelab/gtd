@@ -252,7 +252,7 @@ export const judgeDiffShape = async (
   return { choice, strays, unreadable: [], judgment }
 }
 
-const displayPath = (path: string): string =>
+export const displayPath = (path: string): string =>
   // eslint-disable-next-line no-control-regex -- the control range IS the point
   /[\x00-\x1f\x7f-\x9f]/.test(path) ? JSON.stringify(path) : path
 

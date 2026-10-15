@@ -17,6 +17,7 @@ export const ShippedOptions = Schema.Struct({
   reviewNoteActionable: setting,
   reviewSeverityMinP: setting,
   refactorFlagPattern: setting,
+  seamAllow: setting,
   qualityReviews: setting,
   testCommand: setting,
   plannerModel: setting,

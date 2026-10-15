@@ -595,10 +595,43 @@ no flag read in a person's edit at these rests.
 A blank or invalid `refactorFlagPattern` throws before the first step, naming
 the setting. A pattern that produces a zero-length match (a lookahead-only
 pattern such as `(?=GTD_FLAG_\w+)`) on a stray throws before the first step, and
-on text a turn introduces refuses the landing, naming the setting.
-`refactorFirst` is not part of the shipped `feature` flow; call it from your own
-workflow after `judgeDiffShape`, with a suite that is already green: the fix
-turns may touch only the strays, so they cannot repair a failure outside them.
+on text a turn introduces refuses the landing, naming the setting. The shipped
+`feature` flow runs `refactorFirst` only on the
+[naive-pass path](#the-naive-pass-path); call it from your own workflow after
+`judgeDiffShape`, with a suite that is already green: the fix turns may touch
+only the strays, so they cannot repair a failure outside them.
+
+### The naive-pass path
+
+`GTD_FLAG_NAIVE_PASS` selects it; it is off by default. Off, `feature` plans an
+architecture and package files as before. On, it replaces those two phases with,
+in order:
+
+1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly; the turn
+   is a [kept tip](#kept-tips), not landed on the branch.
+2. `seam.judge` — a judge rules on the shape of that diff (see
+   [Judges](#judges)): `land`, `refactor-first` or `reject`.
+3. `land` goes straight to `implement.*`. `refactor-first` rests at
+   `seam.approve`, an approval gate, then runs `refactor.*` (see
+   [`refactorFirst`](#refactorfirst)). Strays whose content cannot be read rest
+   at `seam.by-hand`; a clean `gtd land` continues. `reject` discards the pass
+   and runs `seam.naive` again, twice at most.
+4. `implement.*` — one build turn that reads the kept pass as material only,
+   then the health loop (`implement.health.*`, `implement.fix.suite.fixing`) and
+   `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
+   for a new release flag.
+
+A third `reject` rests at `seam.steer`. Two ways forward, then `gtd land`:
+
+- **Steer** — edit `.gtd/REQUIREMENTS.md`; `seam.naive` runs again with a fresh
+  retry budget. An edit together with an approval counts as steer.
+- **Overrule** — land a clean tree. The implementation is built against the last
+  attempt with no seam gate and no refactor. **Overrule ships the seam the judge
+  objected to**, unaddressed; the choice is recorded in history.
+
+The [`seamAllow`](#the-bundled-workflows-settings) setting is the judge's
+allowlist. The flag is recorded as `flag_naive_pass` when a process starts, so a
+process keeps the path it started on whatever the environment does later.
 
 ### Landing rules
 
@@ -1397,6 +1430,15 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   before the refactor starts, as does a pattern that matches the empty string.
   The default matches gtd's own `GTD_FLAG_<NAME>` naming; most repositories
   should set their own.
+- **`seamAllow`**
+  (`**/*.test.*, **/*.spec.*, **/*.feature, **/tests/**, **/test/**, **/__tests__/**, .gtd/**`)
+  — the paths the [naive pass](#the-naive-pass-path) may change without the
+  judge counting them as strays. Comma-separated globs, trimmed, blanks dropped;
+  no brace alternation (`{a,b}` splits at the comma). A file the pass newly adds
+  is always allowed.
+- **`flag_naive_pass`** (`0`) — `1` when `GTD_FLAG_NAIVE_PASS` is on, recorded
+  at process start. Not a factory option; `--var flag_naive_pass=1` is the only
+  override. A process keeps the path it started on.
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.

@@ -552,6 +552,14 @@ unknown key. `gtd.config.ts` is the only repository config: gtd 23 removed the
 home directory — fails every command until you delete it. See
 [Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
 
+**Naive pass (flag `GTD_FLAG_NAIVE_PASS=1`, off by default).** Instead of an
+architecture and package files, the agent first implements the requirements
+directly. A judge checks whether it changed anything outside the expected set
+(tests, steering files; see `seamAllow`). Incidental changes land; a needed seam
+change goes to you for approval and is refactored first; a wrong approach is
+retried twice, then rests for you to steer or overrule it. Details in
+[the naive-pass path](docs/configuration.md#the-naive-pass-path).
+
 ### Rolling out and cleaning up release flags
 
 Two more bundled workflows retire a release flag:
