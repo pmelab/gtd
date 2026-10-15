@@ -558,8 +558,9 @@ package file. A red suite goes to the fix loop, never to a refusal.
 
 The package file's `## Scope (read-only)` list is for reading: the guards use
 the strays as fixed when the package was derived, so editing the list widens or
-narrows nothing. After the building turn and after every fix turn, `gtd land`
-refuses the turn when:
+narrows nothing. After the building turn, after every fix turn and after the
+escalation describe turn (`refactor.health.describe`), `gtd land` refuses the
+turn when:
 
 - it changed a path outside `.gtd/` that is not exactly one of the strays (a fix
   turn is judged on its own changes, so a person's edit at an escalation stop
@@ -568,6 +569,12 @@ refuses the turn when:
   changed files outside `.gtd/`. A flag is a match of the `refactorFlagPattern`
   setting; moving a read passes, and so does a swap that leaves every per-name
   count flat. A changed file whose before or after cannot be read refuses.
+
+The human rests `refactor.health.stop` and `refactor.health.exhausted` are never
+guarded: a person's edit there is not refused. The flag count, though, spans
+every turn since the build: a flag read a person adds there refuses the next fix
+turn until it is removed, and that turn may not touch the file to remove it. Put
+no flag read in a person's edit at these rests.
 
 A blank or invalid `refactorFlagPattern` throws before the first step, naming
 the setting. A pattern that produces a zero-length match (a lookahead-only

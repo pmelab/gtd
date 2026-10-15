@@ -38,9 +38,9 @@ export const guarded =
     guard?.()
   }
 
-const guardedSteps = (guard?: Guard): kit.EscalationSteps => ({
+const guardedSteps = (guard?: Guard, describeGuard?: Guard): kit.EscalationSteps => ({
   limit: escalationSteps.limit,
-  describe: guarded(escalationSteps.describe, guard),
+  describe: guarded(guarded(escalationSteps.describe, guard), describeGuard),
   stop: guarded(escalationSteps.stop, guard),
   exhausted: guarded(escalationSteps.exhausted, guard),
 })
@@ -98,6 +98,8 @@ export interface HealthOptions {
   readonly sweepOnGreen?: readonly string[]
   /** Runs after every fix and escalation turn. */
   readonly guard?: Guard | undefined
+  /** Runs after the escalation's agent turn only; the human rests stay unguarded. */
+  readonly describeGuard?: Guard | undefined
 }
 
 const runSuite = (options: HealthOptions): Promise<boolean> =>
@@ -121,7 +123,7 @@ export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): 
     fixesSoFar: options.fixesSoFar ?? 0,
     sameFailure,
     escalations: options.escalations ?? { rounds: 0 },
-    escalation: guardedSteps(options.guard),
+    escalation: guardedSteps(options.guard, options.describeGuard),
   })
 
 /**

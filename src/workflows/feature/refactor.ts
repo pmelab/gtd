@@ -160,15 +160,18 @@ export const refactorFirst = async (
       { label: "Refactoring", model: coder(), system: t.builderSystem() },
     )
     guard()
-    await healthy(async () => {
-      await t.agentWithSkills("fix.suite.fixing", t.refactorFixPrompt(strays, pattern), {
-        label: "Fixing the check",
-        file: FEEDBACK,
-        model: coder(),
-        system: t.builderSystem(),
-      })
-      guard()
-    })
+    await healthy(
+      async () => {
+        await t.agentWithSkills("fix.suite.fixing", t.refactorFixPrompt(strays, pattern), {
+          label: "Fixing the check",
+          file: FEEDBACK,
+          model: coder(),
+          system: t.builderSystem(),
+        })
+        guard()
+      },
+      { describeGuard: guard },
+    )
     await run("closing", removeScript([REFACTOR_PACKAGE]), { label: "Closing out the refactor" })
     return true
   })

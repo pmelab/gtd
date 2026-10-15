@@ -249,3 +249,127 @@ Feature: refactorFirst derives a behaviour-neutral refactor package from a stray
     Then it fails
     And stderr contains "refactor-scope"
     And stderr contains "src/c.ts"
+
+  Scenario: an escalation describe turn adding a flag read is refused
+    Given gtd lands "gtd(human): idle → refactor.deriving"
+    And I run the emitted script and land
+    And a file "src/b.ts" with:
+      """
+      export const b = 2
+      """
+    And gtd lands "gtd(agent): refactor.building → refactor.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 1 failed
+      """
+    And gtd lands "gtd(check): refactor.health.check → refactor.fix.suite.fixing"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-1.md" with:
+      """
+      fixed attempt 1
+      """
+    And gtd lands "gtd(agent): refactor.fix.suite.fixing → refactor.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 2 failed
+      """
+    And gtd lands "gtd(check): refactor.health.check → refactor.health.judge"
+    And gtd lands "gtd(judge): refactor.health.judge → refactor.fix.suite.fixing"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-2.md" with:
+      """
+      fixed attempt 2
+      """
+    And gtd lands "gtd(agent): refactor.fix.suite.fixing → refactor.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 3 failed
+      """
+    And gtd lands "gtd(check): refactor.health.check → refactor.health.judge"
+    And gtd lands "gtd(judge): refactor.health.judge → refactor.fix.suite.fixing"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-3.md" with:
+      """
+      fixed attempt 3
+      """
+    And gtd lands "gtd(agent): refactor.fix.suite.fixing → refactor.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 4 failed
+      """
+    And gtd lands "gtd(check): refactor.health.check → refactor.health.judge"
+    And gtd lands "gtd(judge): refactor.health.judge → refactor.health.describe"
+    And a file ".gtd/ESCALATION.md" with:
+      """
+      The suite keeps failing.
+      """
+    And a file "src/b.ts" with:
+      """
+      export const b = process.env.GTD_FLAG_TWO
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "refactor-flags"
+    And stderr contains "GTD_FLAG_TWO"
+
+  Scenario: a person's edit outside the strays at the escalation rest lands
+    Given gtd lands "gtd(human): idle → refactor.deriving"
+    And I run the emitted script and land
+    And a file "src/b.ts" with:
+      """
+      export const b = 2
+      """
+    And gtd lands "gtd(agent): refactor.building → refactor.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 1 failed
+      """
+    And gtd lands "gtd(check): refactor.health.check → refactor.fix.suite.fixing"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-1.md" with:
+      """
+      fixed attempt 1
+      """
+    And gtd lands "gtd(agent): refactor.fix.suite.fixing → refactor.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 2 failed
+      """
+    And gtd lands "gtd(check): refactor.health.check → refactor.health.judge"
+    And gtd lands "gtd(judge): refactor.health.judge → refactor.fix.suite.fixing"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-2.md" with:
+      """
+      fixed attempt 2
+      """
+    And gtd lands "gtd(agent): refactor.fix.suite.fixing → refactor.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 3 failed
+      """
+    And gtd lands "gtd(check): refactor.health.check → refactor.health.judge"
+    And gtd lands "gtd(judge): refactor.health.judge → refactor.fix.suite.fixing"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And a file ".gtd/fix-3.md" with:
+      """
+      fixed attempt 3
+      """
+    And gtd lands "gtd(agent): refactor.fix.suite.fixing → refactor.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      attempt 4 failed
+      """
+    And gtd lands "gtd(check): refactor.health.check → refactor.health.judge"
+    And gtd lands "gtd(judge): refactor.health.judge → refactor.health.describe"
+    And a file ".gtd/ESCALATION.md" with:
+      """
+      The suite keeps failing.
+      """
+    And gtd lands "gtd(agent): refactor.health.describe → refactor.health.stop"
+    And a file "src/c.ts" with:
+      """
+      export const c = 2
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): refactor.health.stop → refactor.fix.suite.fixing"

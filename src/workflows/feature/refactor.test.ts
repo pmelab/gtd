@@ -169,46 +169,74 @@ interface Harness {
   readonly scopes: ScopeOptions[]
 }
 
-/** Runs `refactorFirst` against a recording context; `redFirst` makes the first health check red. */
+/** The phase a step name enters; `fix.suite.fixing` is an agent step. */
+const PHASE_AT: Record<string, string | undefined> = {
+  "fix.suite.fixing": "fix",
+  "health.describe": "describe",
+  "health.stop": "stop",
+  "health.exhausted": "stop",
+}
+
+/** Runs `refactorFirst` against a recording context; `reds` red checks come first. */
 const drive = async (
   given: DiffShapeResult,
   options: {
     readonly text?: TextContext
     readonly reference?: string
-    readonly redFirst?: boolean
     readonly build?: readonly Change[]
     readonly fix?: readonly Change[]
     /** The fix turn's own changes, when they differ from the cumulative `fix`. */
     readonly fixTurn?: readonly Change[]
+    /** Red checks before the first green one. */
+    readonly reds?: number
+    /** The escalation describe turn's own changes. */
+    readonly describe?: readonly Change[]
+    /** A person's own changes at the `health.stop` rest. */
+    readonly stop?: readonly Change[]
   } = {},
 ): Promise<Harness & { result: boolean | Error }> => {
   const steps: StepRequest[] = []
   const scopes: ScopeOptions[] = []
   let phase = "build"
   let checks = 0
+  const reached = new Set<string>()
+  const reds = options.reds ?? 0
   installContext(
     fixtureContext(options.text ?? { scope: "refactor" }, {
       step: (request: StepRequest) => {
         steps.push(request)
-        if (request.kind === "agent" && request.name === "fix.suite.fixing") phase = "fix"
-        if (request.kind === "run" && request.name === "health.check") {
+        const name = "name" in request ? request.name : ""
+        phase = PHASE_AT[name] ?? phase
+        reached.add(phase)
+        if (request.kind === "run" && name === "health.check") {
           checks++
           phase = "check"
         }
-        return Promise.resolve()
+        return Promise.resolve(
+          request.kind === "judge" ? { answers: {}, truncated: [] } : undefined,
+        )
       },
       refuse: (message) => {
         throw new Error(message)
       },
       pushScope: (scope) => void scopes.push(scope),
       popScope: () => undefined,
-      changesSince: () => (phase === "fix" ? (options.fix ?? []) : (options.build ?? [])),
+      // Cumulative like the live range: every turn reached so far, later phases included.
+      changesSince: () => [
+        ...(options.build ?? []),
+        ...(reached.has("fix") ? (options.fix ?? []) : []),
+        ...(reached.has("describe") ? (options.describe ?? []) : []),
+        ...(reached.has("stop") ? (options.stop ?? []) : []),
+      ],
       changes: () => {
-        if (phase === "build") return options.build ?? []
-        if (phase === "fix") return options.fixTurn ?? options.fix ?? []
-        return options.redFirst && checks === 1
-          ? [change(".gtd/FEEDBACK.md", undefined, "red", "added")]
-          : []
+        const turn: Record<string, readonly Change[] | undefined> = {
+          build: options.build,
+          fix: options.fixTurn ?? options.fix,
+          describe: options.describe,
+          stop: options.stop,
+        }
+        if (phase in turn) return turn[phase] ?? []
+        return checks <= reds ? [change(".gtd/FEEDBACK.md", undefined, "red", "added")] : []
       },
       matches: (path, pattern) => path === pattern,
       head: () => "c0ffee0",
@@ -318,14 +346,14 @@ describe("refactorFirst", () => {
   })
 
   it("refuses a fix turn outside the strays", async () => {
-    const h = await drive(shape(), { redFirst: true, fix: [change("lib/other.ts", "a", "b")] })
+    const h = await drive(shape(), { reds: 1, fix: [change("lib/other.ts", "a", "b")] })
     expect(names(h)).toContain("fix.suite.fixing")
     expect((h.result as Error).message).toContain("lib/other.ts")
   })
 
   it("refuses a fix turn adding a flag read", async () => {
     const h = await drive(shape(), {
-      redFirst: true,
+      reds: 1,
       fix: [change("src/a.ts", "x", "GTD_FLAG_NEW")],
     })
     expect(names(h)).toContain("fix.suite.fixing")
@@ -334,7 +362,7 @@ describe("refactorFirst", () => {
 
   it("judges a fix turn on its own changes: an earlier non-stray edit does not wedge it", async () => {
     const h = await drive(shape(), {
-      redFirst: true,
+      reds: 1,
       fix: [change("lib/human.ts", "a", "b")],
       fixTurn: [change("src/a.ts", "a", "b")],
     })
@@ -342,13 +370,13 @@ describe("refactorFirst", () => {
   })
 
   it("loads ponytail on the building and fix turns, and a config.skills entry replaces it", async () => {
-    const h = await drive(shape(), { redFirst: true })
+    const h = await drive(shape(), { reds: 1 })
     const agents = h.steps.filter((s) => s.kind === "agent")
     expect(agents.map((s) => s.name)).toEqual(["building", "fix.suite.fixing"])
     for (const a of agents) expect(a.kind === "agent" ? a.prompt : "").toContain("ponytail")
 
     const custom = await drive(shape(), {
-      redFirst: true,
+      reds: 1,
       text: {
         scope: "refactor",
         skills: { refactor: ["my-skill"], "refactor.fix.suite": ["my-fix"] },
@@ -386,5 +414,53 @@ describe("refactorFirst", () => {
     expect(ignored.result).toBe(true)
     const caught = await drive(shape(), { text, build: [change("src/a.ts", "", "FEATURE_N")] })
     expect((caught.result as Error).message).toContain("FEATURE_N")
+  })
+
+  describe("escalation", () => {
+    // Four reds put the run at `health.describe` (the kit owns the count).
+    const escalated = { reds: 4 }
+    // Live, the write access refuses a non-stray first; this pins the guard itself.
+    const exhausted = { reds: 12 }
+
+    it("reaches the describe turn", async () => {
+      const h = await drive(shape(), escalated)
+      expect(names(h)).toContain("health.describe")
+      expect(h.result).toBe(true)
+    })
+
+    it("refuses a describe turn outside the strays, naming the path", async () => {
+      const h = await drive(shape(), { ...escalated, describe: [change("lib/other.ts", "a", "b")] })
+      expect((h.result as Error).message).toContain("lib/other.ts")
+      expect(names(h)).not.toContain("health.stop")
+    })
+
+    it("refuses a describe turn adding a flag read, naming the flag", async () => {
+      const h = await drive(shape(), {
+        ...escalated,
+        describe: [change("src/a.ts", "x", "GTD_FLAG_NEW")],
+      })
+      expect((h.result as Error).message).toContain("GTD_FLAG_NEW")
+      expect(names(h)).not.toContain("health.stop")
+    })
+
+    it("never refuses a human edit at health.stop", async () => {
+      const h = await drive(shape(), { ...escalated, stop: [change("lib/human.ts", "a", "b")] })
+      expect(names(h)).toContain("health.stop")
+      expect(h.result).toBe(true)
+    })
+
+    it("never refuses a human edit at health.exhausted", async () => {
+      const h = await drive(shape(), { ...exhausted, stop: [change("lib/human.ts", "a", "b")] })
+      expect(names(h)).toContain("health.exhausted")
+      expect(h.result).toBe(true)
+    })
+
+    it("refuses the next fix turn for a flag read a person added at the rest", async () => {
+      const h = await drive(shape(), {
+        ...escalated,
+        stop: [change("lib/human.ts", "a", "a GTD_FLAG_NEW")],
+      })
+      expect((h.result as Error).message).toContain("GTD_FLAG_NEW")
+    })
   })
 })
