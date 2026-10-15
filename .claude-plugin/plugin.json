@@ -1,6 +1,6 @@
 {
   "name": "gtd",
-  "version": "27.3.0",
+  "version": "27.4.0",
   "description": "Drive the gtd loop inside Claude Code: agent turns run as subagents, gtd decides every beat",
   "author": {
     "name": "Philipp Melab"
