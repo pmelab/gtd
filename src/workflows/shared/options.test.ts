@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { configure } from "../../flows/index.js"
 import * as workflows from "../index.js"
+import * as options from "./options.js"
 
 const { defaults, envDefaults, feature, fix, review, ShippedOptions } = workflows
+const { flagShipped } = options
 
 describe("the shipped workflow factories", () => {
   it("take exactly the settings the shipped workflows declare as options", () => {
@@ -56,5 +58,25 @@ describe("the shipped workflow factories", () => {
     // @ts-expect-error — settings are strings
     const result = configure(fix({ judgeBudgetBytes: 65536 }))
     expect(result).toMatchObject({ ok: false, issues: [{ path: ["judgeBudgetBytes"] }] })
+  })
+
+  describe("flagShipped", () => {
+    const factory = flagShipped(async () => {})
+
+    it("declare flag and flagRegistry as process settings, so --var flag= is accepted", () => {
+      expect(configure(factory)).toMatchObject({
+        ok: true,
+        build: {
+          defaults: { ...defaults, flag: "", flagRegistry: "src/flags/index.ts" },
+          envDefaults,
+        },
+      })
+    })
+
+    it("fail the load on an unknown option", () => {
+      // @ts-expect-error — `flag` is a --var, not an option
+      const result = configure(factory({ flag: "x" }))
+      expect(result).toMatchObject({ ok: false, issues: [{ path: ["flag"] }] })
+    })
   })
 })

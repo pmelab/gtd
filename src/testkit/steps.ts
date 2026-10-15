@@ -150,6 +150,22 @@ Then(
   },
 )
 
+Then(
+  "starting workflow {string} with {string} is refused with {string}",
+  async (world: TestkitWorld, workflow: string, list: string, message: string) => {
+    await assert.rejects(world.repo().start(workflow, ...args(list)), (error: Error) =>
+      error.message.includes(message),
+    )
+  },
+)
+
+Then(
+  "driving the process is refused with {string}",
+  async (world: TestkitWorld, message: string) => {
+    await assert.rejects(world.drive(), (error: Error) => error.message.includes(message))
+  },
+)
+
 Then("the process rests at {string}", async (world: TestkitWorld, step: string) => {
   assert.strictEqual((await world.repo().next()).state, step)
 })
@@ -170,6 +186,11 @@ Then("the commit subjects end with:", (world: TestkitWorld, list: string) => {
 
 Then("{string} contains {string}", (world: TestkitWorld, path: string, text: string) => {
   assert.ok(world.repo().read(path)?.includes(text), `${path}: ${world.repo().read(path)}`)
+})
+
+Then("{string} does not contain {string}", (world: TestkitWorld, path: string, text: string) => {
+  const content = world.repo().read(path)
+  assert.ok(content !== undefined && !content.includes(text), `${path}: ${content}`)
 })
 
 Then("{string} does not exist", (world: TestkitWorld, path: string) => {

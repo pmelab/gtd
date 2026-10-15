@@ -11,6 +11,8 @@ import {
 export const feature = shippedFeature()
 export const review = shippedReview()
 export const fix = shippedFix()
+// rollout and cleanup stay out until a release ships them: the PATH gtd loads
+// this file against its own @pmelab/gtd/workflows, which lacks them before then.
 export default feature
 
 export {

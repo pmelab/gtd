@@ -6,7 +6,7 @@ Feature: testkit drives any workflow against the real engine
   Background:
     Given a gtd config with:
       """
-      import { agent, human, judge, read, run } from "@pmelab/gtd/flows"
+      import { agent, human, judge, read, refuse, run } from "@pmelab/gtd/flows"
 
       export const tiny = async () => {
         await agent("plan", "Write PLAN.md.")
@@ -17,6 +17,10 @@ Feature: testkit drives any workflow against the real engine
           evidence: { plan: read("PLAN.md") ?? "" },
         })
         await human(answers.ready?.answer === "yes" ? "ship" : "rework")
+      }
+
+      export const picky = async () => {
+        refuse("gtd: picky refuses every start")
       }
 
       export default tiny
@@ -58,6 +62,9 @@ Feature: testkit drives any workflow against the real engine
     Then the process rests at "repair"
     And the resting step's content contains "Make the suite pass."
     And the last commit subject is "gtd(check): check → repair"
+
+  Scenario: a start the workflow refuses is reported with its message
+    Then starting workflow "picky" with "--var mode=bad" is refused with "picky refuses every start"
 
   # Fails if run: proves the `workflows` project honours @skip.
   @skip

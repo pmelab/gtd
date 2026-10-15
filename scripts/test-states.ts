@@ -20,7 +20,8 @@ export const VITEST_TASKS = TASKS.filter((t) => t.startsWith("test:"))
 type Env = Readonly<Record<string, string | undefined>>
 
 export interface TestState {
-  readonly on: string | undefined
+  /** "defaults", or "<name> on" / "<name> off" for the one flag flipped from its default. */
+  readonly label: string
   readonly tasks: readonly string[]
   readonly env: Env
 }
@@ -28,15 +29,25 @@ export interface TestState {
 export type RunTasks = (tasks: readonly string[], env: Env) => number | null
 
 export function planStates(registry: readonly FlagDeclaration[], env: Env): readonly TestState[] {
-  // Off means unset, never "0": inherited flags must not leak into any state.
-  const base = Object.fromEntries(Object.entries(env).filter(([k]) => !/^GTD_FLAG_/.test(k)))
-  const states: TestState[] = [{ on: undefined, tasks: TASKS, env: base }]
-  for (const { name, kind } of registry) {
-    if (kind !== "release") continue
+  // Every release flag is pinned explicitly: a default-on flag's shipped path must be tested,
+  // and an inherited GTD_FLAG_* must never leak.
+  const inherited = Object.fromEntries(Object.entries(env).filter(([k]) => !/^GTD_FLAG_/.test(k)))
+  const releases = registry.filter((f) => f.kind === "release")
+  const pinned = (flipped?: string): Env => ({
+    ...inherited,
+    ...Object.fromEntries(
+      releases.map(({ name, defaultOn }) => {
+        const on = (defaultOn ?? false) !== (name === flipped)
+        return [`GTD_FLAG_${name.toUpperCase()}`, on ? "1" : "0"]
+      }),
+    ),
+  })
+  const states: TestState[] = [{ label: "defaults", tasks: TASKS, env: pinned() }]
+  for (const { name, defaultOn } of releases) {
     states.push({
-      on: name,
+      label: `${name} ${defaultOn ? "off" : "on"}`,
       tasks: VITEST_TASKS,
-      env: { ...base, [`GTD_FLAG_${name.toUpperCase()}`]: "1" },
+      env: pinned(name),
     })
   }
   return states
@@ -52,9 +63,7 @@ export function runStates(
   for (const state of states) {
     const ok = run(state.tasks, state.env) === 0
     if (!ok) failed = true
-    log(
-      `test-states: ${state.on === undefined ? "all off" : `${state.on} on`} — ${ok ? "pass" : "FAIL"}`,
-    )
+    log(`test-states: ${state.label} — ${ok ? "pass" : "FAIL"}`)
   }
   return failed ? 1 : 0
 }

@@ -32,6 +32,11 @@ per-scope skills and access. _Avoid_: `.gtdrc` (removed), rc config
 unknown `GTD_FLAG_*` is ignored; no-promise tier. Distinct from a process or
 environment setting.
 
+**Release flag**: A feature flag whose registry entry has `kind: "release"`,
+optionally `defaultOn: true`. **Rollout** sets `defaultOn: true` on one;
+**Cleanup** deletes a default-on one, keeping its flag-on path. The **flag
+registry** is the file declaring the flags, read as text.
+
 **Flow**: An async function that awaits [steps](#step) — plain code, branching
 over what the last step left in the tree. The workflow's one kind of logic.
 _Avoid_: machine, state table, graph
@@ -241,8 +246,15 @@ bundled workflow's data, not a key gtd interprets. Avoid: "Vars", "env var"
 ### Bundled workflow
 
 These terms belong to the workflows gtd ships, not to the engine: `feature` (the
-ordinary start), `review` (pure review since a base) and `fix` (repair a red
-baseline). Replace them and the terms go with them.
+ordinary start), `review` (pure review since a base), `fix` (repair a red
+baseline), `rollout` and `cleanup`. Replace them and the terms go with them.
+
+**Rollout**: The bundled workflow that turns one release flag default-on — an
+agent edits only its registry entry, no review. _Avoid_: beat (that is the
+driver's unit), flip beat
+
+**Cleanup**: The bundled workflow that removes one default-on release flag and
+its checks, keeping the flag-on path, then reviews. _Avoid_: beat, sweep
 
 **Unwind**: The step (`unwind`) that reverts the entry commit's diff — the
 change that started the process, whether a hand-edit to real code or a scratch

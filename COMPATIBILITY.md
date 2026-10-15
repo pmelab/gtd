@@ -61,7 +61,8 @@ histories written by an older or newer gtd.
   - `@pmelab/gtd/workflows`, also resolvable as `@pmelab/gtd/workflow` (see
     [Reusing the shipped workflows](docs/configuration.md#reusing-the-shipped-workflows))
   - `@pmelab/gtd/workflows/feature`, `@pmelab/gtd/workflows/review`,
-    `@pmelab/gtd/workflows/fix`
+    `@pmelab/gtd/workflows/fix`, `@pmelab/gtd/workflows/rollout`,
+    `@pmelab/gtd/workflows/cleanup`
   - `@pmelab/gtd/testkit`'s `testRepo`, `runsItsScript` and `InMemRepo`, with
     the `TestRepo` and `TestkitWorld` types and its optional peers `vitest` and
     `quickpickle`

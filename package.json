@@ -52,6 +52,16 @@
       "source": "./src/workflows/index.ts",
       "default": "./dist/workflows.mjs"
     },
+    "./workflows/rollout": {
+      "types": "./src/workflows/rollout/index.ts",
+      "source": "./src/workflows/rollout/index.ts",
+      "default": "./dist/workflows/rollout.mjs"
+    },
+    "./workflows/cleanup": {
+      "types": "./src/workflows/cleanup/index.ts",
+      "source": "./src/workflows/cleanup/index.ts",
+      "default": "./dist/workflows/cleanup.mjs"
+    },
     "./testkit": {
       "types": "./src/testkit/index.ts",
       "source": "./src/testkit/index.ts",
