@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 import { FLAGS } from "../../src/flags/index.js"
-import { lintFlags, shippedSources } from "../../scripts/lint-flags.ts"
+import { lintFlags, REGISTRY_PATH, shippedSources } from "../../scripts/lint-flags.ts"
 
 const flag = (name: string, expiry: string) => ({
   name,
@@ -16,7 +16,7 @@ describe("lintFlags expiry", () => {
   it("fails an expiry before today", () => {
     expect(lint("", [flag("old", "2026-05-31")])).toEqual({
       code: 1,
-      stderr: ["flag old (owner ann) expired on 2026-05-31"],
+      stderr: ["src/flags/index.ts: flag old (owner ann) expired on 2026-05-31"],
     })
   })
 
@@ -31,8 +31,8 @@ describe("lintFlags expiry", () => {
       "0001-01-01",
     )
     expect(r.stderr).toEqual([
-      'flag a (owner ann): expiry "2026-02-30" is not a YYYY-MM-DD date',
-      'flag b (owner ann): expiry "soon" is not a YYYY-MM-DD date',
+      'src/flags/index.ts: flag a (owner ann): expiry "2026-02-30" is not a YYYY-MM-DD date',
+      'src/flags/index.ts: flag b (owner ann): expiry "soon" is not a YYYY-MM-DD date',
     ])
   })
 })
@@ -48,7 +48,23 @@ describe("lintFlags references", () => {
 
   it("matches the upper-cased name exactly, as resolveFlags reads it", () => {
     expect(lint("GTD_FLAG_BETA").code).toBe(0)
-    expect(lint("GTD_FLAG_beta").code).toBe(1)
+    expect(lint("GTD_FLAG_beta")).toEqual({
+      code: 1,
+      stderr: ["src/a.ts:1: GTD_FLAG_beta names no registered flag"],
+    })
+  })
+
+  it("ignores names embedded in a longer identifier", () => {
+    expect(lint("OTHER_GTD_FLAG_GHOST XGTD_FLAG_Y 2GTD_FLAG_Z", [])).toEqual({
+      code: 0,
+      stderr: [],
+    })
+  })
+
+  it("counts $-, member- and quote-preceded names as references", () => {
+    for (const text of ["$GTD_FLAG_X", "process.env.GTD_FLAG_X"]) {
+      expect(lint(text, []).stderr).toEqual(["src/a.ts:1: GTD_FLAG_X names no registered flag"])
+    }
   })
 
   it("ignores the bare prefix and placeholders", () => {
@@ -62,7 +78,7 @@ describe("lintFlags references", () => {
       today: "2026-06-01",
     })
     expect(r.stderr).toEqual([
-      "flag old (owner ann) expired on 2020-01-01",
+      "src/flags/index.ts: flag old (owner ann) expired on 2020-01-01",
       "src/a.ts:1: GTD_FLAG_X names no registered flag",
       "src/a.ts:2: GTD_FLAG_Y names no registered flag",
     ])
@@ -96,7 +112,7 @@ describe("shippedSources", () => {
 
   it("lists shipped source only", () => {
     const paths = files.map((f) => f.path)
-    expect(paths).toContain("src/flags/index.ts")
+    expect(files.find((f) => f.path === REGISTRY_PATH)?.text).toMatch(/export const FLAGS\b/)
     expect(paths.filter((p) => /\.(test|fixture)\.tsx?$/.test(p))).toEqual([])
     expect(paths).toContain("src/web/App.tsx")
   })

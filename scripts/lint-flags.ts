@@ -19,6 +19,8 @@ export interface LintResult {
   readonly stderr: readonly string[]
 }
 
+export const REGISTRY_PATH = "src/flags/index.ts"
+
 const isRealDate = (s: string): boolean => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
   const t = new Date(`${s}T00:00:00Z`)
@@ -31,15 +33,17 @@ export const lintFlags = (argv: readonly string[], input: LintInput): LintResult
   const stderr: string[] = []
   for (const { name, owner, expiry } of input.registry) {
     if (!isRealDate(expiry)) {
-      stderr.push(`flag ${name} (owner ${owner}): expiry "${expiry}" is not a YYYY-MM-DD date`)
+      stderr.push(
+        `${REGISTRY_PATH}: flag ${name} (owner ${owner}): expiry "${expiry}" is not a YYYY-MM-DD date`,
+      )
     } else if (expiry < input.today) {
-      stderr.push(`flag ${name} (owner ${owner}) expired on ${expiry}`)
+      stderr.push(`${REGISTRY_PATH}: flag ${name} (owner ${owner}) expired on ${expiry}`)
     }
   }
   const known = new Set(input.registry.map((f) => f.name.toUpperCase()))
   for (const { path, text } of input.files) {
     text.split("\n").forEach((line, i) => {
-      for (const m of line.matchAll(/GTD_FLAG_([A-Za-z0-9_]+)/g)) {
+      for (const m of line.matchAll(/\bGTD_FLAG_(\w+)/g)) {
         if (!known.has(m[1]!)) {
           stderr.push(`${path}:${i + 1}: ${m[0]} names no registered flag`)
         }
