@@ -130,6 +130,37 @@ Feature: refactorFirst derives a behaviour-neutral refactor package from a stray
     And stderr contains "refactor-flags"
     And stderr contains "GTD_FLAG_TWO"
 
+  Scenario: a lookahead-only flag pattern is refused before the first step
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+      import { refactorFirst } from "@pmelab/gtd/workflows"
+
+      export { envDefaults } from "@pmelab/gtd/workflows"
+
+      export const defaults = { refactorFlagPattern: "(?=GTD_FLAG_\\w+)" }
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        const refactored = await refactorFirst({
+          choice: "refactor-first",
+          strays: ["src/a.ts", "src/b.ts"],
+          unreadable: [],
+          judgment: undefined,
+        })
+        await agent("next", refactored ? "refactor closed" : "no refactor derived")
+      }
+      """
+    And the working tree is committed as "chore: lookahead config"
+    And a file "NOTE.md" with:
+      """
+      Build another thing.
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "refactorFlagPattern"
+    And the last commit subject is "chore: lookahead config"
+
   Scenario: a build turn moving an existing flag read between strays lands
     Given gtd lands "gtd(human): idle → refactor.deriving"
     And I run the emitted script and land

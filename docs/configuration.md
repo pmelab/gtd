@@ -570,10 +570,12 @@ refuses the turn when:
   count flat. A changed file whose before or after cannot be read refuses.
 
 A blank or invalid `refactorFlagPattern` throws before the first step, naming
-the setting. `refactorFirst` is not part of the shipped `feature` flow; call it
-from your own workflow after `judgeDiffShape`, with a suite that is already
-green: the fix turns may touch only the strays, so they cannot repair a failure
-outside them.
+the setting. A pattern that produces a zero-length match (a lookahead-only
+pattern such as `(?=GTD_FLAG_\w+)`) on a stray throws before the first step, and
+on text a turn introduces refuses the landing, naming the setting.
+`refactorFirst` is not part of the shipped `feature` flow; call it from your own
+workflow after `judgeDiffShape`, with a suite that is already green: the fix
+turns may touch only the strays, so they cannot repair a failure outside them.
 
 ### Landing rules
 

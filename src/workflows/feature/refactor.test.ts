@@ -109,6 +109,43 @@ describe("requireNoNewFlags", () => {
     expect(withChanges(list, () => requireNoNewFlags(pattern, "h"))).toBeUndefined()
   })
 
+  describe("a pattern with a zero-length match", () => {
+    const lookahead = "(?=GTD_FLAG_\\w+)"
+
+    it("refuses a changed file holding a flag read, naming the setting and the path", () => {
+      const message = withChanges([change("src/a.ts", "x", "x GTD_FLAG_A")], () =>
+        requireNoNewFlags(lookahead, "h"),
+      )
+      expect(message).toContain("refactorFlagPattern")
+      expect(message).toContain("zero-length match")
+      expect(message).toContain("  - src/a.ts")
+    })
+
+    it("refuses a flag swap across two files that the default pattern passes", () => {
+      const list = [
+        change("src/a.ts", "GTD_FLAG_A", "GTD_FLAG_B"),
+        change("src/b.ts", "GTD_FLAG_B", "GTD_FLAG_A"),
+      ]
+      expect(withChanges(list, () => requireNoNewFlags(pattern, "h"))).toBeUndefined()
+      const message = withChanges(list, () => requireNoNewFlags(lookahead, "h"))
+      expect(message).toContain("  - src/a.ts")
+      expect(message).toContain("  - src/b.ts")
+    })
+
+    it("lists a path once when both sides match", () => {
+      const message = withChanges([change("src/a.ts", "GTD_FLAG_A", "GTD_FLAG_B")], () =>
+        requireNoNewFlags(lookahead, "h"),
+      )
+      expect(message?.match(/src\/a\.ts/g)).toHaveLength(1)
+    })
+
+    it("passes a file with no match on either side", () => {
+      expect(
+        withChanges([change("src/a.ts", "x", "y")], () => requireNoNewFlags(lookahead, "h")),
+      ).toBeUndefined()
+    })
+  })
+
   it("refuses an unreadable side of a modified file", () => {
     expect(
       withChanges([change("src/a.ts", undefined, "x")], () => requireNoNewFlags(pattern, "h")),
@@ -195,6 +232,20 @@ describe("refactorFirst", () => {
   ])("resolves false with no step for %s", async (_label, given) => {
     const h = await drive(given)
     expect(h.result).toBe(false)
+    expect(h.steps).toEqual([])
+  })
+
+  it("throws before any step when a stray holds a flag read the pattern matches zero-length", async () => {
+    const h = await drive(shape(), {
+      text: {
+        scope: "refactor",
+        read: (path) => (path === "src/a.ts" ? "GTD_FLAG_X" : ""),
+        vars: { refactorFlagPattern: "(?=GTD_FLAG_\\w+)" },
+      },
+    })
+    expect(h.result).toBeInstanceOf(Error)
+    expect((h.result as Error).message).toContain("refactorFlagPattern")
+    expect((h.result as Error).message).toContain("  - src/a.ts")
     expect(h.steps).toEqual([])
   })
 

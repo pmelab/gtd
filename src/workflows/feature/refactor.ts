@@ -3,6 +3,7 @@ import {
   changesSince,
   head,
   quote,
+  read,
   refuse,
   removeScript,
   run,
@@ -48,9 +49,19 @@ const flagExpression = (pattern: string): RegExp => {
   return expression
 }
 
-const countFlags = (text: string, expression: RegExp, into: Map<string, number>): void => {
-  for (const [name] of text.matchAll(expression)) into.set(name, (into.get(name) ?? 0) + 1)
+// A zero-length match is never counted: a lookahead-only pattern would count every read
+// under "" and let a flag swap pass. Checked on the strays up front and again at landing.
+const countFlags = (text: string, expression: RegExp, into: Map<string, number>): boolean => {
+  let zeroLength = false
+  for (const [name] of text.matchAll(expression)) {
+    if (name === "") zeroLength = true
+    else into.set(name, (into.get(name) ?? 0) + 1)
+  }
+  return zeroLength
 }
+
+const listPaths = (paths: readonly string[]): string =>
+  paths.map((path) => `  - ${path}`).join("\n")
 
 // Counts per name, so a read moved between files passes.
 export const requireNoNewFlags = (pattern: string, since: string): void => {
@@ -58,6 +69,7 @@ export const requireNoNewFlags = (pattern: string, since: string): void => {
   const before = new Map<string, number>()
   const after = new Map<string, number>()
   const unreadable: string[] = []
+  const zeroLength: string[] = []
   for (const { path, status, before: was, after: now } of changesSince(since)) {
     if (!isCode(path)) continue
     // A side absent by status is empty; one absent otherwise could not be read.
@@ -68,13 +80,14 @@ export const requireNoNewFlags = (pattern: string, since: string): void => {
       continue
     }
     countFlags(oldSide, expression, before)
-    countFlags(newSide, expression, after)
+    if (countFlags(newSide, expression, after)) zeroLength.push(path)
   }
-  if (unreadable.length > 0) {
+  if (unreadable.length > 0)
+    refuse(`gtd land: refactor-flags: cannot compare flag reads in:\n${listPaths(unreadable)}`)
+  if (zeroLength.length > 0)
     refuse(
-      `gtd land: refactor-flags: cannot compare flag reads in:\n${unreadable.map((path) => `  - ${path}`).join("\n")}`,
+      `gtd land: refactor-flags: refactorFlagPattern (${pattern}) produced a zero-length match in:\n${listPaths(zeroLength)}`,
     )
-  }
   const raised = [...after].filter(([name, count]) => count > (before.get(name) ?? 0))
   if (raised.length === 0) return
   refuse(
@@ -120,8 +133,13 @@ export const refactorFirst = async (
 ): Promise<boolean> => {
   if (shape.choice !== "refactor-first" || shape.unreadable.length > 0) return false
   const pattern = vars.refactorFlagPattern ?? defaults.refactorFlagPattern!
-  flagExpression(pattern)
+  const expression = flagExpression(pattern)
   const { strays } = shape
+  const zeroLength = strays.filter((path) => countFlags(read(path) ?? "", expression, new Map()))
+  if (zeroLength.length > 0)
+    throw new Error(
+      `gtd: refactorFlagPattern (${pattern}) produces a zero-length match in:\n${listPaths(zeroLength)}`,
+    )
   const reference = options.reference?.trim() ? options.reference : undefined
   return scope({ name: "refactor", access: { write: [...strays, ".gtd/**"] } }, async () => {
     await run("deriving", deriveScript(packageLines(strays, pattern, reference)), {
