@@ -23,6 +23,7 @@ import { Narrator, GitService, Host, type GitOperations } from "../platform/inde
 import {
   commitAll,
   commitAsIs,
+  commitClean,
   softResetTo,
   mixedResetTo,
   hardResetTo,
@@ -81,6 +82,8 @@ export interface GitTierSeed {
   readonly stagingHook: (path: string, content: string) => void
   /** Every commit `git commit` signs, or `git commit-tree -S` writes, fails; plain `git commit-tree` is unaffected. */
   readonly failingSigner: () => void
+  /** `commit.gpgSign=true` with a signer that succeeds; `git commit` and `commit-tree -S` both sign. */
+  readonly workingSigner: () => void
 }
 
 export interface GitTierObserve {
@@ -94,6 +97,8 @@ export interface GitTierObserve {
   readonly headSubject: () => string
   /** Paths HEAD's own commit touched, against its parent — not the whole tree. */
   readonly headTouchedPaths: () => ReadonlyArray<string>
+  /** True when HEAD's commit object carries a signature (`gpgsig` header). */
+  readonly headSigned: () => boolean
 }
 
 export interface GitTier {
@@ -233,6 +238,18 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         gitExec("config", "gpg.format", "openpgp")
         gitExec("config", "gpg.program", "false")
       },
+      workingSigner: () => {
+        const signer = join(root, ".git/gtd-test-signer.sh")
+        // git checks `[GNUPG:] SIG_CREATED ` on stderr (--status-fd=2) and takes stdout as the signature.
+        writeFileSync(
+          signer,
+          `#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '-----BEGIN PGP SIGNATURE-----' '' 'ZHVtbXk=' '-----END PGP SIGNATURE-----'\nprintf '\\n[GNUPG:] SIG_CREATED ' >&2\n`,
+          { mode: 0o755 },
+        )
+        gitExec("config", "commit.gpgsign", "true")
+        gitExec("config", "gpg.format", "openpgp")
+        gitExec("config", "gpg.program", signer)
+      },
     },
     observe: {
       resolveRef: (ref) => gitExec("rev-parse", ref),
@@ -268,6 +285,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         gitExec("show", "--name-only", "--pretty=format:", "HEAD")
           .split("\n")
           .filter((line) => line.length > 0),
+      headSigned: () => gitExec("cat-file", "commit", "HEAD").includes("\ngpgsig "),
     },
     runScript: (script) => {
       // One stream, as a driver's terminal shows it.
@@ -345,6 +363,9 @@ const makeInMemTier = (initialCommit = true): GitTier => {
       failingSigner: () => {
         repo.signingFails = true
       },
+      workingSigner: () => {
+        repo.signingEnabled = true
+      },
     },
     observe: {
       resolveRef: (ref) => {
@@ -369,6 +390,7 @@ const makeInMemTier = (initialCommit = true): GitTier => {
           .filter((p) => repo.fileAtRef("HEAD~1", p) !== repo.fileAtRef("HEAD", p))
           .sort()
       },
+      headSigned: () => repo.headSigned(),
     },
     runScript: (script, commands = new Map()) => {
       const { ok, status, output, error } = applyEmittedScript(repo, commands, script)
@@ -409,7 +431,9 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "subjectHistory",
   "readFileAtRef",
   "changedPaths",
+  "stagedPaths",
   "diffPaths",
+  "authorIdent",
   "commitAllWithPrefix",
   "softResetTo",
   "commitAsIs",
@@ -481,7 +505,9 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
         g.readFileAtRef("HEAD", "second.txt"),
         g.changedPaths(),
         g.changedPaths("HEAD~1"),
+        g.stagedPaths(),
         g.diffPaths("HEAD~1", "HEAD"),
+        g.authorIdent(),
       ]),
     )
     expect(await t.observe.snapshot()).toBe(before)
@@ -1071,6 +1097,14 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       expect(await runGit(t, (g) => g.changedPaths())).toEqual([])
     })
 
+    it("ignores an edit staged and then reverted in the worktree", async () => {
+      t.seed.commit("chore: seed", { "a.txt": "1" })
+      t.seed.writeFile("a.txt", "2")
+      t.seed.stageAll()
+      t.seed.writeFile("a.txt", "1")
+      expect(await runGit(t, (g) => g.changedPaths())).toEqual([])
+    })
+
     for (const { label, path } of PATHOLOGICAL_PATHS) {
       it(`reports an untracked path containing ${label}, verbatim`, async () => {
         t.seed.writeFile(path, "content")
@@ -1169,6 +1203,43 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
           { path: "REVIEW.md", status: "M" },
         ])
       })
+    })
+  })
+
+  describe("stagedPaths", () => {
+    it("returns [] when the index matches HEAD, whatever the worktree holds", async () => {
+      t.seed.commit("chore: seed", { "a.txt": "1" })
+      t.seed.writeFile("a.txt", "2")
+      t.seed.writeFile("u.txt", "u")
+      expect(await runGit(t, (g) => g.stagedPaths())).toEqual([])
+    })
+
+    it("reports an edit staged and then reverted in the worktree", async () => {
+      t.seed.commit("chore: seed", { "a.txt": "1" })
+      t.seed.writeFile("a.txt", "2")
+      t.seed.stageAll()
+      t.seed.writeFile("a.txt", "1")
+      expect(await runGit(t, (g) => g.stagedPaths())).toEqual([{ path: "a.txt", status: "M" }])
+    })
+
+    it("reports staged additions and deletions", async () => {
+      t.seed.commit("chore: seed", { "gone.txt": "g" })
+      t.seed.deleteFile("gone.txt")
+      t.seed.writeFile("new.txt", "n")
+      t.seed.stageAll()
+      const staged = await runGit(t, (g) => g.stagedPaths())
+      expect([...staged].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+        { path: "gone.txt", status: "D" },
+        { path: "new.txt", status: "A" },
+      ])
+    })
+  })
+
+  describe("authorIdent", () => {
+    it("is the configured name and email", async () => {
+      expect(await runGit(t, (g) => g.authorIdent())).toEqual(
+        Option.some({ name: "Test", email: "test@test.com" }),
+      )
     })
   })
 
@@ -1284,6 +1355,93 @@ export const runGitScriptContract = (makeTier: () => GitTier): void => {
       expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
       expect(t.observe.headSubject()).toBe("gtd: grilled")
     })
+  })
+
+  describe("commitClean", () => {
+    it("on a clean tree commits an empty commit with the message", () => {
+      const headBefore = t.observe.resolveRef("HEAD")
+      run(t, commitClean("gtd(human): gate → again"))
+      expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
+      expect(t.observe.headSubject()).toBe("gtd(human): gate → again")
+      expect(t.observe.headTouchedPaths()).toEqual([])
+    })
+
+    it("a staging hook never runs: nothing touched, nothing staged, file absent", () => {
+      const headBefore = t.observe.resolveRef("HEAD")
+      t.seed.stagingHook("hooked.txt", "hooked")
+      run(t, commitClean("gtd(human): gate → again"))
+      expect(t.observe.headTouchedPaths()).toEqual([])
+      expect(t.observe.resolveRef("HEAD^")).toBe(headBefore)
+      expect(t.observe.statusPorcelain().trim()).toBe("")
+      expect(t.observe.existsPath("hooked.txt")).toBe(false)
+    })
+
+    it("a rejecting hook is never consulted", () => {
+      t.seed.rejectingHook("rejected")
+      run(t, commitClean("gtd(human): gate → again"))
+      expect(t.observe.headSubject()).toBe("gtd(human): gate → again")
+    })
+
+    it("a working signer signs the approval", () => {
+      t.seed.workingSigner()
+      run(t, commitClean("gtd(human): gate → again"))
+      expect(t.observe.headSigned()).toBe(true)
+    })
+
+    it("no signing config: the approval does not try to sign", () => {
+      run(t, commitClean("gtd(human): gate → again"))
+      expect(t.observe.headSigned()).toBe(false)
+    })
+
+    it("a failing signer fails the approval: HEAD and status unchanged", () => {
+      t.seed.failingSigner()
+      const headBefore = t.observe.resolveRef("HEAD")
+      const result = t.runScript(commitClean("gtd(human): gate → again"))
+      expect(result.ok).toBe(false)
+      expect(result.status).toBe(1)
+      expect(result.output).toContain("failed to sign")
+      expect(t.observe.resolveRef("HEAD")).toBe(headBefore)
+      expect(t.observe.statusPorcelain().trim()).toBe("")
+    })
+
+    const refused = (name: string, dirty: () => void, pending: string): void => {
+      it(`${name}: fails, HEAD unchanged, edit still pending`, () => {
+        dirty()
+        const headBefore = t.observe.resolveRef("HEAD")
+        const result = t.runScript(commitClean("gtd(human): gate → again"))
+        expect(result.ok).toBe(false)
+        expect(result.output).toContain("changed since `gtd land`")
+        expect(t.observe.resolveRef("HEAD")).toBe(headBefore)
+        expect(t.observe.statusPorcelain()).toContain(pending)
+      })
+    }
+    refused(
+      "a modified tracked file",
+      () => {
+        t.seed.commit("feat: base", { "a.txt": "1" })
+        t.seed.writeFile("a.txt", "2")
+      },
+      "a.txt",
+    )
+    refused(
+      "a staged change",
+      () => {
+        t.seed.writeFile("s.txt", "s")
+        t.seed.stageAll()
+      },
+      "s.txt",
+    )
+    refused("an untracked file", () => t.seed.writeFile("u.txt", "u"), "u.txt")
+    refused(
+      "an edit staged then reverted in the worktree",
+      () => {
+        t.seed.commit("feat: base", { "a.txt": "1" })
+        t.seed.writeFile("a.txt", "2")
+        t.seed.stageAll()
+        t.seed.writeFile("a.txt", "1")
+      },
+      "a.txt",
+    )
   })
 
   describe("commitAsIs", () => {

@@ -1076,3 +1076,94 @@ describe("replay: access resolution", () => {
     expect(outcome.kind === "failed" && outcome.message).toContain('scope "a"')
   })
 })
+
+describe("human({ approve })", () => {
+  const gate: Flow = async () => {
+    await human("gate", { approve: true })
+    await human("after")
+  }
+  const sign = (step: string, occurrence: number) => ({
+    step: { name: step, occurrence },
+    name: "Test",
+    email: "test@test.com",
+  })
+  const approval = (approved?: ReturnType<typeof sign>): string =>
+    formatCommitMessage({
+      actor: "human",
+      from: "gate",
+      to: "after",
+      step: { name: "gate", occurrence: 1 },
+      ...(approved !== undefined ? { approved } : {}),
+    })
+
+  it("is accepted: no unknown-option failure, the gate is the rest", async () => {
+    const outcome = await replayOf(gate, new History())
+    expect(outcome.kind).toBe("rest")
+    if (outcome.kind === "rest") expect(outcome.rest.name).toBe("gate")
+  })
+
+  it("consumes a commit carrying a matching Gtd-Approved and continues past the gate", async () => {
+    const h = new History().raw(approval(sign("gate", 1)))
+    const outcome = await replayOf(gate, h)
+    expect(outcome.kind).toBe("rest")
+    if (outcome.kind === "rest") expect(outcome.rest.name).toBe("after")
+  })
+
+  it("diverges on a commit without Gtd-Approved", async () => {
+    const outcome = await replayOf(gate, new History().raw(approval()))
+    expect(outcome).toEqual({
+      kind: "divergence",
+      message: `gtd: commit ${hashOf(1).slice(0, 7)} completes approval gate "gate#1" but records no Gtd-Approved for it — the workflow changed under this process; run \`gtd abandon\` to start over`,
+    })
+  })
+
+  it("diverges on a Gtd-Approved naming another step, or another occurrence", async () => {
+    for (const other of [sign("elsewhere", 1), sign("gate", 2)]) {
+      const outcome = await replayOf(gate, new History().raw(approval(other)))
+      expect(outcome.kind).toBe("divergence")
+      expect(outcome.kind === "divergence" && outcome.message).toContain(
+        'completes approval gate "gate#1" but records no Gtd-Approved for it',
+      )
+    }
+  })
+
+  describe("refuses mode and file", () => {
+    const tail =
+      "in human() options — an approval records exactly the judged tree, and a steering file is rewritten on landing"
+    const outcomeOf = async (options: Record<string, unknown>) =>
+      replayOf(async () => {
+        await human("gate", options as never)
+      }, new History())
+
+    it.each([
+      [{ approve: true, mode: "review" }, "mode"],
+      [{ approve: true, file: ".gtd/REVIEW.md" }, "file"],
+      [{ approve: true, mode: "review", file: ".gtd/REVIEW.md" }, "mode, file"],
+    ])("fails on %j naming %s", async (options, keys) => {
+      expect(await outcomeOf(options)).toEqual({
+        kind: "failed",
+        message: `gtd: step "gate": approve cannot be combined with ${keys} ${tail}`,
+      })
+    })
+
+    it("replays approve with label or base, and approve: false with mode", async () => {
+      for (const options of [
+        { approve: true, label: "x" },
+        { approve: true, base: "start" },
+        { approve: false, mode: "review" },
+        { approve: true, mode: undefined },
+      ]) {
+        expect((await outcomeOf(options)).kind).toBe("rest")
+      }
+    })
+  })
+
+  it("does not demand Gtd-Approved at a plain human step", async () => {
+    const h = new History().land("human", "plain", 1, "after")
+    const outcome = await replayOf(async () => {
+      await human("plain")
+      await human("after")
+    }, h)
+    expect(outcome.kind).toBe("rest")
+  })
+})

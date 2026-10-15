@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   commitAll,
   commitAsIs,
+  commitClean,
   deleteRef,
   discardPending,
   hardResetTo,
@@ -662,5 +663,31 @@ describe("applyEmittedScript — keepTurn", () => {
     expect(result.error).toContain("unrecognized script block")
     expect(snapshot(repo)).toEqual(before)
     expect(repo.resolveRef(REF)).toBeNull()
+  })
+})
+
+describe("applyEmittedScript — commitClean", () => {
+  const MESSAGE = 'gtd(human): gate → again\n\nGtd-Approved: {"step":"gate#1"}'
+
+  it("applies the rendered block as an empty commit over HEAD", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("base.txt", "0")
+    repo.seedCommit("chore: first")
+    const result = applyEmittedScript(repo, NO_COMMANDS, commitClean(MESSAGE))
+    expect(result).toMatchObject({ ok: true })
+    expect(repo.lastCommitMessage()).toBe(MESSAGE)
+    expect(repo.statusPorcelain()).toBe("")
+  })
+
+  it("fails loudly on a one-character near-miss and applies nothing", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("base.txt", "0")
+    repo.seedCommit("chore: first")
+    const before = snapshot(repo)
+    const nearMiss = commitClean(MESSAGE).replace("update-ref -m", "update-ref -n")
+    const result = applyEmittedScript(repo, NO_COMMANDS, nearMiss)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("unrecognized script block")
+    expect(snapshot(repo)).toEqual(before)
   })
 })

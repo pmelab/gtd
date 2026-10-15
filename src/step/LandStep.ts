@@ -8,6 +8,7 @@ import type { StateName } from "../workflow/index.js"
  */
 export type GitWrite =
   | { readonly kind: "commitAll"; readonly message: string }
+  | { readonly kind: "commitClean"; readonly message: string }
   | { readonly kind: "updateRef"; readonly ref: string; readonly target: "HEAD" }
   | { readonly kind: "keepTurn"; readonly ref: string; readonly message: string }
 

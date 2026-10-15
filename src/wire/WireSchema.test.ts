@@ -86,6 +86,7 @@ const beat = (kind: BeatKind): string => {
     next: { target: "idle" },
     cost: 12,
     costByModel: [{ model: "opus", cost: 12 }],
+    approvals: [{ step: "gate#1", name: "Ada", email: "ada@x.io", commit: "a".repeat(40) }],
   })
   return renderBeatJson(beatDocument(demand, status))
 }
@@ -128,6 +129,15 @@ describe(`wire schema ${WIRE_SCHEMA}`, () => {
       expect(missing(JSON.parse(json), golden.get(file))).toEqual([])
     })
   }
+
+  it("approvals is an additive field: present on every beat, WIRE_SCHEMA unchanged", () => {
+    expect(WIRE_SCHEMA).toBe(1)
+    for (const kind of BEAT_KINDS) {
+      expect(JSON.parse(documents[`beat-${kind}.json`]!)).toHaveProperty("approvals", [
+        { step: "gate#1", name: "Ada", email: "ada@x.io", commit: "a".repeat(40) },
+      ])
+    }
+  })
 
   describe("the shape check", () => {
     const land = JSON.parse(documents["land.json"]!) as Record<string, unknown>

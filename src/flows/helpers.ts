@@ -2,6 +2,7 @@ import {
   changes,
   codeThreads,
   head,
+  human,
   judge,
   matches,
   openQuestions,
@@ -249,4 +250,31 @@ export const judgeDiffShape = async (
       ? (answer.answer as DiffShape)
       : "refactor-first"
   return { choice, strays, unreadable: [], judgment }
+}
+
+const displayPath = (path: string): string =>
+  // eslint-disable-next-line no-control-regex -- the control range IS the point
+  /[\x00-\x1f\x7f-\x9f]/.test(path) ? JSON.stringify(path) : path
+
+const seamReport = (shape: DiffShapeResult): string => {
+  const unreadable = new Set(shape.unreadable)
+  const strays = shape.strays.map(
+    (path) => `- ${displayPath(path)}${unreadable.has(path) ? " (unreadable — not judged)" : ""}`,
+  )
+  return [
+    "Seam report: the judge found the diff's shape needs a refactor first. These paths stray outside the allowlist:",
+    "",
+    ...strays,
+    "",
+    "Landing a clean tree with `gtd land` approves this diff exactly as judged; edits are refused. To stop instead, run `gtd abandon`.",
+  ].join("\n")
+}
+
+/**
+ * Rest at an approval gate `name` showing the seam report — only when
+ * `shape.choice` is `refactor-first`. `land` and `reject` reach no step.
+ */
+export const seamGate = async (name: string, shape: DiffShapeResult): Promise<void> => {
+  if (shape.choice !== "refactor-first") return
+  await human(name, { message: seamReport(shape), approve: true })
 }

@@ -39,6 +39,13 @@ export interface HumanOptions extends SteeringOptions {
    * Without this a clean landing is a no-op: the gate waits for a change.
    */
   readonly acceptClean?: boolean | undefined
+  /**
+   * A sign-off gate: only a clean landing completes it, and that commit
+   * carries `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}`.
+   * A dirty landing is refused. Implies `acceptClean`. Cannot be combined with
+   * `mode` or `file`: an approval records exactly the judged tree.
+   */
+  readonly approve?: boolean | undefined
 }
 
 export interface RunOptions extends SteeringOptions {}

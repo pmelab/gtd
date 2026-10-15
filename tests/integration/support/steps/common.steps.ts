@@ -285,6 +285,14 @@ When(
   },
 )
 
+When("I save the gtd land script without running it", async (world: GtdWorld) => {
+  await world.saveLandScript()
+})
+
+When("I run the saved script", async (world: GtdWorld) => {
+  await world.runSavedScript()
+})
+
 When("I run gtd land --json=script piped to sh", async (world: GtdWorld) => {
   await world.runGtdLandJsonScriptPiped()
 })

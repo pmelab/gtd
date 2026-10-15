@@ -15,6 +15,7 @@ export {
   type GitOperations,
   type GitReaderOperations,
   type GitWriterOperations,
+  type AuthorIdent,
 } from "./Git.js"
 export { Narrator, GtdError, GtdUsageError, renderFailure } from "./Commentary.js"
 export { CommandRunner } from "./CommandRunner.js"

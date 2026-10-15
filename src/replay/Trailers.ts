@@ -60,6 +60,12 @@ export interface CostEntry {
   readonly model: string | undefined
 }
 
+export interface Approval {
+  readonly step: StepId
+  readonly name: string
+  readonly email: string
+}
+
 export interface CommitMessage {
   readonly subject: string
   readonly parsed: ParsedSubject | undefined
@@ -77,6 +83,8 @@ export interface CommitMessage {
   readonly version: string | undefined
   /** The off-branch tip a keep step set aside; a non-hash value is skipped. */
   readonly kept: string | undefined
+  /** `Gtd-Approved`; a malformed or control-character value is skipped. */
+  readonly approved: Approval | undefined
   readonly format: number
 }
 
@@ -106,7 +114,7 @@ const CONFIG_RE = /^([0-9a-f]{16}) (.+)$/
 // JSON string. A control character is refused on read: history written by
 // someone else must never put escape sequences on a terminal.
 // eslint-disable-next-line no-control-regex -- the control range IS the point
-const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f]/
+const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f\u2028\u2029]/
 const encodePath = (path: string): string =>
   path.trim() !== path || path.startsWith('"') || CONTROL_CHARACTER.test(path)
     ? JSON.stringify(path)
@@ -114,6 +122,24 @@ const encodePath = (path: string): string =>
 const decodePath = (raw: string): string | undefined => {
   const path = raw.startsWith('"') ? parseJson(raw) : raw
   return typeof path === "string" && path !== "" && !CONTROL_CHARACTER.test(path) ? path : undefined
+}
+const decodeApproval = (raw: string): Approval | undefined => {
+  const parsed = parseJson(raw)
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined
+  const { step, name, email } = parsed as Record<string, unknown>
+  if (typeof step !== "string" || typeof name !== "string" || typeof email !== "string")
+    return undefined
+  if ([step, name, email].some((field) => CONTROL_CHARACTER.test(field))) return undefined
+  const id = parseStepId(step)
+  return id === undefined ? undefined : { step: id, name, email }
+}
+const encodeApproval = ({ step, name, email }: Approval): string =>
+  JSON.stringify({ step: formatStepId(step), name, email })
+// The land-time refusal relies on this: an approval that would not read back
+// unchanged must never be written.
+export const isRecordableApproval = (approval: Approval): boolean => {
+  const back = decodeApproval(encodeApproval(approval))
+  return back !== undefined && encodeApproval(back) === encodeApproval(approval)
 }
 const FORMAT_RE = /^[1-9][0-9]*$/
 const HASH_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
@@ -125,6 +151,7 @@ interface Trailers {
   branch: string | undefined
   version: string | undefined
   kept: string | undefined
+  approved: Approval | undefined
   readonly judge: JudgeVerdict[]
   readonly vars: Record<string, string>
   readonly config: Record<string, string>
@@ -164,6 +191,9 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Kept": (value, into) => {
     if (HASH_RE.test(value)) into.kept ??= value
   },
+  "Gtd-Approved": (value, into) => {
+    into.approved ??= decodeApproval(value)
+  },
   "Gtd-Format": (value, into) => {
     if (FORMAT_RE.test(value)) into.format ??= Number(value)
   },
@@ -183,6 +213,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     branch: undefined,
     version: undefined,
     kept: undefined,
+    approved: undefined,
     judge: [],
     vars: {},
     config: {},
@@ -208,6 +239,8 @@ export interface CommitSpec {
   readonly config?: Readonly<Record<string, string>>
   readonly cost?: { readonly cost: number; readonly model?: string }
   readonly judge?: readonly JudgeVerdict[]
+  /** Written after `Gtd-Judge`, before `Gtd-Branch`. */
+  readonly approved?: Approval
   readonly branch?: string
   readonly version?: string
 }
@@ -230,6 +263,9 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     )
   }
   for (const verdict of spec.judge ?? []) lines.push(`Gtd-Judge: ${JSON.stringify(verdict)}`)
+  if (spec.approved !== undefined) {
+    lines.push(`Gtd-Approved: ${encodeApproval(spec.approved)}`)
+  }
   if (spec.branch !== undefined) lines.push(`Gtd-Branch: ${spec.branch}`)
   if (spec.version !== undefined) lines.push(`Gtd-Version: ${spec.version}`)
   lines.push(`Gtd-Format: ${HISTORY_FORMAT}`)

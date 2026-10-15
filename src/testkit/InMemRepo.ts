@@ -1,5 +1,6 @@
-// Pure TypeScript, no Effect, no real filesystem/git.
+// No real filesystem/git.
 import { createHash } from "node:crypto"
+import { CHANGED_SINCE_LAND } from "../emit/index.js"
 
 /** Embedded in every value this fake reaches (see also `strictGitOperations`'s default message) so `scripts/assert-no-test-doubles.mjs` can catch a leak into the shipped bundle by string search. */
 export const TEST_DOUBLE_SENTINEL = "gtd:test-double:never-ship"
@@ -11,6 +12,7 @@ interface Commit {
   parent: string | null
   /** Creation order — the twin's stand-in for a committer date. */
   seq: number
+  readonly signed: boolean
 }
 
 function sha1(input: string): string {
@@ -270,6 +272,11 @@ export class InMemRepo {
     return diffTrees(baseTree, worktreeTree)
   }
 
+  /** The index vs HEAD — the port's `stagedPaths`. */
+  stagedPaths(): Array<{ path: string; status: string }> {
+    return diffTrees(this.treeAt(undefined), this.index)
+  }
+
   diffPaths(base: string, tip: string): string[] {
     for (const ref of [base, tip]) {
       if (this.resolveRef(ref) === null) throw new Error(`Invalid ref: ${ref}`)
@@ -346,6 +353,7 @@ export class InMemRepo {
   /** Seeded failure modes (see `GitTierSeed`): a pre-commit hook printing this and exiting 1, and a signer that cannot write. */
   hookRejection: string | undefined = undefined
   signingFails = false
+  signingEnabled = false
   /** Seeded: a pre-commit hook writing and staging this file. */
   hookStages: { readonly path: string; readonly content: string } | undefined = undefined
 
@@ -353,7 +361,14 @@ export class InMemRepo {
     const tree = new Map(this.index)
     const parent = this.head
     const hash = makeHash(message, parent, tree)
-    const commit: Commit = { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ }
+    const commit: Commit = {
+      hash,
+      message,
+      files: new Map(tree),
+      parent,
+      seq: this.nextSeq++,
+      signed: this.signingEnabled,
+    }
     this.commits.set(hash, commit)
     this.head = hash
     this.branches.set(this.currentBranch, hash)
@@ -378,6 +393,19 @@ export class InMemRepo {
     return undefined
   }
 
+  /** Twin of `GitScript.commitClean`: no hook runs, HEAD's tree is recorded; `undefined` on success, else the stderr text. */
+  commitClean(message: string): string | undefined {
+    if (this.head === null) return "fatal: Needed a single revision"
+    if (this.statusPorcelain().trim() !== "") return CHANGED_SINCE_LAND
+    if (this.signingFails) return "error: gpg failed to sign the data"
+    this.writeCommit(message)
+    return undefined
+  }
+
+  headSigned(): boolean {
+    return this.headCommit()?.signed === true
+  }
+
   /** Setup commit: stages everything, and throws if a failure is seeded, as the Live tier's hooks and signer would. */
   seedCommit(message: string): void {
     if (this.hookRejection !== undefined || this.hookStages !== undefined || this.signingFails) {
@@ -393,7 +421,14 @@ export class InMemRepo {
     const tree = new Map(this.index)
     const parent = this.head
     const hash = makeHash(message, parent, tree)
-    this.commits.set(hash, { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ })
+    this.commits.set(hash, {
+      hash,
+      message,
+      files: new Map(tree),
+      parent,
+      seq: this.nextSeq++,
+      signed: false,
+    })
     const ref = `${refPrefix}/${hash}`
     this.refs.set(ref, hash)
     this.index = new Map(this.headTree())

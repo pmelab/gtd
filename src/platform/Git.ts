@@ -95,6 +95,15 @@ export interface GitReaderOperations {
     base?: string,
   ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
   /**
+   * The index vs `HEAD`, as `{path, status}` pairs — what a commit would carry
+   * that `changedPaths` misses when the worktree reverted a staged edit. Empty
+   * before the first commit.
+   */
+  readonly stagedPaths: () => Effect.Effect<
+    ReadonlyArray<{ readonly path: string; readonly status: string }>,
+    Error
+  >
+  /**
    * Paths whose content differs between the trees of `base` and `tip`: added,
    * modified and deleted alike; a rename reports both paths (no rename
    * detection); a submodule pointer change reports the submodule path whatever
@@ -103,7 +112,11 @@ export interface GitReaderOperations {
    * working tree. Fails when either side does not resolve.
    */
   readonly diffPaths: (base: string, tip: string) => Effect.Effect<ReadonlyArray<string>, Error>
+  /** `git var GIT_AUTHOR_IDENT`'s name and email; `None` when git has no identity. */
+  readonly authorIdent: () => Effect.Effect<Option.Option<AuthorIdent>, Error>
 }
+
+export type AuthorIdent = { readonly name: string; readonly email: string }
 
 export interface GitWriterOperations {
   /**
@@ -406,6 +419,17 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         "--",
       ).pipe(Effect.map(splitNul)),
 
+    authorIdent: () =>
+      exec("git", "var", "GIT_AUTHOR_IDENT").pipe(
+        Effect.map((out) => {
+          const match = /^(.*?) <([^<>]*)> \d+ [+-]\d{4}$/.exec(out.trim())
+          return match === null || match[1] === "" || match[2] === ""
+            ? Option.none()
+            : Option.some({ name: match[1]!, email: match[2]! })
+        }),
+        Effect.catchAll(() => Effect.succeed(Option.none())),
+      ),
+
     changedPaths: (base?: string) =>
       Effect.gen(function* () {
         const ref = base ?? "HEAD"
@@ -442,6 +466,12 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         }
         return all
       }),
+
+    stagedPaths: () =>
+      exec("git", "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD").pipe(
+        Effect.catchAll(() => Effect.succeed("")),
+        Effect.map((out) => parseNameStatus(splitNul(out))),
+      ),
 
     resolveRef: (ref: string) =>
       exec("git", "rev-parse", "--verify", "--end-of-options", ref).pipe(

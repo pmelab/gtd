@@ -20,10 +20,21 @@ which no inspection can tell apart from a gate you have not read yet — so the
 driver treats its OPENING beat as yours regardless and lands it: you re-ran it
 while resting there, and that invocation IS the decision. Every later beat halts
 as usual, because a gate the driver produced mid-run is one you have not seen.
-Landing an opening beat at a gate without `acceptClean` is harmless — a benign
-no-op (see `gtd land`'s exit codes below) — and the gate then prints on the next
-beat. A mid-process restart simply resumes driving from whatever beat is
-actually next.
+An approval gate (`approve: true`, the one `seamGate` rests at after a
+`refactor-first` judgment) is the strictest case: its `message` is a seam report
+listing the strays the judge saw, and it asks you to land a clean tree with
+`gtd land` to approve, or `gtd abandon` to stop. Any edit makes the landing
+refuse with exit `1`, so the gate stays. An edit made after `gtd land` printed
+its script but before the script ran makes the script itself fail with nothing
+committed: revert the edit and land again. Re-running a driver that lands its
+opening beat approves the gate — read the report first; the commit records who
+approved it in a JSON `Gtd-Approved:` trailer. Git hooks do not run on the
+approval commit; `commit.gpgSign` still applies, so a failing signer refuses the
+approval. `gtd next --json`'s `approvals` lists them for the current process
+(`[]` when none): `{ step, name, email, commit }`, oldest first. Landing an
+opening beat at a gate without `acceptClean` is harmless — a benign no-op (see
+`gtd land`'s exit codes below) — and the gate then prints on the next beat. A
+mid-process restart simply resumes driving from whatever beat is actually next.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around the driver,
@@ -565,20 +576,20 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 24 keys (20 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 25 keys (21 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`/`skills`/`access`); a real
-driver reads 9 of the 24. The minimal driver below is the reference for exactly
+driver reads 9 of the 25. The minimal driver below is the reference for exactly
 which: `kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, `validate`, and `judge` —
-every `--json=<path>` selector its `case` arms touch. The remaining 15
+every `--json=<path>` selector its `case` arms touch. The remaining 16
 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`, `memory`, `file`,
-`mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`) are read
-only by a human looking at plain output, or by a driver author deciding what to
-log or preload — no `case` arm in THIS reference driver branches on them. This
-is a property of what a driver NEEDS, not a smaller wire: every key stays on
-every `gtd next --json` line, unconditionally, so `--json=<path>` keeps
-resolving the same way for a human poking at one field as for the reference
-driver reading nine of them in a loop.
+`mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`,
+`approvals`) are read only by a human looking at plain output, or by a driver
+author deciding what to log or preload — no `case` arm in THIS reference driver
+branches on them. This is a property of what a driver NEEDS, not a smaller wire:
+every key stays on every `gtd next --json` line, unconditionally, so
+`--json=<path>` keeps resolving the same way for a human poking at one field as
+for the reference driver reading nine of them in a loop.
 
 (`gtd land --json` is a separate command with its own eight-key document —
 `schema`/`script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a

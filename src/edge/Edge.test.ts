@@ -151,6 +151,7 @@ describe("currentRun", () => {
       trace: [],
       costEntries: [],
       judgeVerdicts: [],
+      approvals: [],
       pinnedVars: {},
       headTurn: undefined,
       closingHash: undefined,
@@ -1306,6 +1307,28 @@ export default async () => {
     expect(trail.steps.filter((s) => s.verdicts.length > 0)).toHaveLength(1)
   })
 
+  it("sets approval on the approval step only", async () => {
+    const repo = repoWith(`import { human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await human("gate", { message: "seam report", approve: true })
+  await human("after")
+}
+`)
+    await land(repo, { "src/a.ts": "a\n" })
+    const approval = await land(repo)
+    const tip = await land(repo, { "src/b.ts": "b\n" })
+    const trail = await provide(historyTrail(tip), repo)
+    expect(trail.steps.find((s) => s.hash === approval)?.approval).toEqual({
+      step: "gate#1",
+      name: "Test",
+      email: "test@test.com",
+      commit: approval,
+    })
+    expect(trail.steps.filter((s) => s.approval !== undefined)).toHaveLength(1)
+  })
+
   it("records the version and warns about none while they match", async () => {
     const { repo, tip } = await finished()
     const trail = await provide(historyTrail(tip), repo)
@@ -1367,5 +1390,142 @@ export default async () => {
     const exit = await provideExit(historyTrail(tip), repo)
     expect(Exit.isFailure(exit)).toBe(true)
     expect(String(Exit.isFailure(exit) && exit.cause)).toContain("gtd.config.ts")
+  })
+})
+
+describe("landing at an approve rest", () => {
+  const GATED = `import { human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await human("gate", { message: "seam report", approve: true })
+  await human("after")
+}
+`
+
+  const atGate = async (): Promise<InMemRepo> => {
+    const repo = repoWith(GATED)
+    await land(repo, { "src/a.ts": "a\n" })
+    return repo
+  }
+
+  const snapshotAt = async (repo: InMemRepo, git?: GitOperations) => {
+    const rest = await provide(currentRest, repo)
+    const effect = snapshotFromRest(rest)
+    return git === undefined ? await provide(effect, repo) : await provideWithGit(effect, git, repo)
+  }
+
+  it("rests at a message step carrying approve", async () => {
+    const rest = await provide(currentRest, await atGate())
+    expect(rest.state).toBe("gate")
+    expect(rest.stepDef).toMatchObject({ kind: "message", content: "seam report", approve: true })
+  })
+
+  it("refuses a dirty tree and commits nothing", async () => {
+    const repo = await atGate()
+    const head = headOf(repo)
+    repo.writeFile("src/edited.ts", "edit\n")
+    const { landing } = await snapshotAt(repo)
+    expect(landing).toEqual({
+      kind: "refusal",
+      message:
+        "gtd land: approval-gate: gate#1 approves exactly the judged diff — revert your edits and run `gtd land` on a clean tree to approve, or run `gtd abandon`",
+    })
+    expect(headOf(repo)).toBe(head)
+  })
+
+  const stageThenRevert = (repo: InMemRepo): void => {
+    repo.writeFile("src/a.ts", "edited\n")
+    repo.stageAll()
+    repo.writeFile("src/a.ts", "a\n")
+  }
+
+  it("refuses an edit staged and then reverted in the worktree", async () => {
+    const repo = await atGate()
+    stageThenRevert(repo)
+    expect((await snapshotAt(repo)).landing).toMatchObject({
+      kind: "refusal",
+      message: expect.stringContaining("approves exactly the judged diff"),
+    })
+  })
+
+  it("counts no index-only edit at a rest that approves nothing", async () => {
+    const repo = await atGate()
+    await land(repo)
+    stageThenRevert(repo)
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("after")
+    expect(rest.changes).toEqual([])
+    expect((await snapshotAt(repo)).landing).toEqual({ kind: "noop", settled: false })
+  })
+
+  it("refuses a clean tree when git has no author identity", async () => {
+    const repo = await atGate()
+    const git = { ...fakeGitOperations(repo), authorIdent: () => Effect.succeed(Option.none()) }
+    const { landing } = await snapshotAt(repo, git)
+    expect(landing).toEqual({
+      kind: "refusal",
+      message:
+        "gtd land: approval-gate: gate#1 records who approved it, but git has no author identity — set user.name and user.email",
+    })
+  })
+
+  it("refuses an identity a trailer cannot carry", async () => {
+    const repo = await atGate()
+    const git = {
+      ...fakeGitOperations(repo),
+      authorIdent: () => Effect.succeed(Option.some({ name: "Ada\u001b[31m", email: "a@x.io" })),
+    }
+    expect((await snapshotAt(repo, git)).landing).toEqual({
+      kind: "refusal",
+      message:
+        "gtd land: approval-gate: gate#1 cannot record Ada\u001b[31m <a@x.io> as approver — it would not read back unchanged from its Gtd-Approved trailer (a control character, for example)",
+    })
+  })
+
+  it("approve implies acceptClean even when acceptClean is false", async () => {
+    const repo = repoWith(GATED.replace("approve: true", "approve: true, acceptClean: false"))
+    await land(repo, { "src/a.ts": "a\n" })
+    expect((await snapshotAt(repo)).landing.kind).toBe("commit")
+  })
+
+  it("lands a clean tree as a commit carrying the approver", async () => {
+    const repo = await atGate()
+    const { landing } = await snapshotAt(repo)
+    if (landing.kind !== "commit") throw new Error(`expected commit, got ${landing.kind}`)
+    expect(landing.to).toBe("after")
+    expect(landing.spec.approved).toEqual({
+      step: { name: "gate", occurrence: 1 },
+      name: "Test",
+      email: "test@test.com",
+    })
+  })
+
+  it("reads the author identity only at an approve rest", async () => {
+    const repo = repoWith(GATED)
+    repo.writeFile("src/a.ts", "a\n")
+    const git = {
+      ...fakeGitOperations(repo),
+      authorIdent: () => Effect.die(new Error("authorIdent read at a plain rest")),
+    }
+    expect((await snapshotAt(repo, git)).landing.kind).toBe("commit")
+  })
+
+  it("collects each approval of the current process, oldest first", async () => {
+    const repo = await atGate()
+    expect((await provide(currentRun, repo)).approvals).toEqual([])
+    const approval = await land(repo)
+    expect((await provide(currentRun, repo)).approvals).toEqual([
+      { step: "gate#1", name: "Test", email: "test@test.com", commit: approval },
+    ])
+  })
+
+  it("resumes past the approval commit without asking again", async () => {
+    const repo = await atGate()
+    await land(repo)
+    expect(repo.lastCommitMessage()).toContain(
+      'Gtd-Approved: {"step":"gate#1","name":"Test","email":"test@test.com"}',
+    )
+    expect((await provide(currentRest, repo)).state).toBe("after")
   })
 })

@@ -340,6 +340,7 @@ export class GtdWorld extends QuickPickleWorld {
    * scenario never reads a stale prior command's output.
    */
   lastScriptOutput: string = ""
+  savedScript: string = ""
   /** The handler of the `gtd ui` running in memory, once it has bound. */
   uiHandler: UiHandler | undefined = undefined
   /** `~/.gtd/serve` in memory. */
@@ -475,6 +476,18 @@ export class GtdWorld extends QuickPickleWorld {
       stdout: reported.stdout,
       stderr: reported.stderr + run.output,
     }
+  }
+
+  /** Captures `gtd land --json=script` WITHOUT running it, so a scenario can change the tree before the script does. */
+  async saveLandScript(): Promise<void> {
+    await this.invokeGtd("land", "--json=script")
+    this.savedScript = this.lastResult.stdout
+  }
+
+  /** Combined script output lands in `stderr` (stdout is blanked), so a stderr assertion cannot tell the stream apart. */
+  async runSavedScript(): Promise<void> {
+    const run = await this.runEmittedScript(this.savedScript)
+    this.lastResult = { exitCode: run.exitCode, stdout: "", stderr: run.output }
   }
 
   private async invokeGtd(...args: string[]): Promise<void> {

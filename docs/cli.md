@@ -193,11 +193,11 @@ Commands:
                    hints at `gtd history fetch | sh` and still exits 0
   history show <ref>
                    Replay one kept process under today's config and print its
-                   steps and judge verdicts. <ref> is a full ref, an entry hash
-                   (or unique prefix) or a branch name. Refuses (exit 1) when a
-                   config file differs from its content at the ref's tip. A
-                   version mismatch only warns on stderr. --json prints the
-                   trail as one document; writes nothing
+                   steps, judge verdicts and approvals. <ref> is a full ref, an
+                   entry hash (or unique prefix) or a branch name. Refuses
+                   (exit 1) when a config file differs from its content at the
+                   ref's tip. A version mismatch only warns on stderr. --json
+                   prints the trail as one document; writes nothing
   history fetch [remote]
                    Print a script that fetches every refs/gtd/history/* from
                    <remote> (default origin) and reports how many arrived — run

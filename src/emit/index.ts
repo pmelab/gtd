@@ -15,6 +15,8 @@ export {
   shellQuote,
   commitAll,
   commitAsIs,
+  commitClean,
+  CHANGED_SINCE_LAND,
   softResetTo,
   mixedResetTo,
   hardResetTo,

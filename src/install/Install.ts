@@ -246,7 +246,8 @@ skills, \`skills\` (an array of the skill names, already trimmed and split —
 (\`{read, write}\`, each an array of globs or \`null\` for unrestricted). When set: \`model\`, \`memory\`,
 \`label\`, \`file\`, \`mode\`, \`edges\`, \`judge\` (the pending judgment's rendered
 document). When a cost has been recorded (a prior \`gtd land --cost=<n>\`):
-\`cost\`, \`costByModel\`.
+\`cost\`, \`costByModel\`. Always \`approvals\` (an array of
+\`{step, name, email, commit}\`, \`[]\` when none).
 
 \`gtd land\` fields, in fixed order: \`schema\`, \`script\` (the POSIX sh to run), \`settled\`
 (true for a no-op at a \`script\` rest — stop immediately, nothing more to

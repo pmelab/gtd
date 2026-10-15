@@ -30,6 +30,14 @@ export interface StepAccess {
   readonly write: readonly string[] | null
 }
 
+/** One approval commit of the process: `step` is the formatted `<name>#<n>`, `commit` the approving commit's hash. */
+export interface ApprovalEntry {
+  readonly step: string
+  readonly name: string
+  readonly email: string
+  readonly commit: string
+}
+
 export interface RenderedDemandSource {
   readonly state: StateName
   readonly actor: Actor
