@@ -20,6 +20,7 @@ export {
   hardResetTo,
   discardPending,
   updateRef,
+  keepTurn,
   deleteRef,
   fetchHistoryRefs,
   type RunnableScript,

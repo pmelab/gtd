@@ -1231,7 +1231,7 @@ describe("runCli — exit codes", () => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
     repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
-    repo.commitAllWithPrefix("gtd: init")
+    repo.seedCommit("gtd: init")
     const { io, captured } = capturingIo(() => testLayers(repo))
     await Effect.runPromise(runCli(["node", "gtd.js", "next", "--json=does.not.exist"], io))
     const { stdout, stderr, exitCode } = captured()
@@ -1316,7 +1316,7 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
     // produce zero calls, not merely an empty joined string.
     const repo = new InMemRepo()
     repo.writeFile("README.md", "x\n")
-    repo.commitAllWithPrefix("chore: init gtd workflow")
+    repo.seedCommit("chore: init gtd workflow")
     repo.writeFile(".gtd/TODO.md", "## Open Questions\n\n###\n\nno question text.\n")
     const stdoutCalls: string[] = []
     const io: CliIo = {
@@ -1396,7 +1396,7 @@ describe("runCli — flush normalizes the artifact's trailing newline", () => {
     const repo = new InMemRepo()
     repo.writeFile(".gitignore", "node_modules\n")
     repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
-    repo.commitAllWithPrefix("chore: initial commit")
+    repo.seedCommit("chore: initial commit")
     const { io, captured } = capturingIo(() => testLayers(repo))
     await Effect.runPromise(runCli(["node", "gtd.js", "land"], io))
     const { stdout } = captured()

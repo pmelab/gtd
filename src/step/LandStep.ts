@@ -9,6 +9,7 @@ import type { StateName } from "../workflow/index.js"
 export type GitWrite =
   | { readonly kind: "commitAll"; readonly message: string }
   | { readonly kind: "updateRef"; readonly ref: string; readonly target: "HEAD" }
+  | { readonly kind: "keepTurn"; readonly ref: string; readonly message: string }
 
 /** A landed step's trailing report, rendered by `GitScript.ts` into a `printf` line. */
 export type Outcome =

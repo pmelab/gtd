@@ -9,6 +9,7 @@ import {
   deleteRef,
   discardPending,
   hardResetTo,
+  keepTurn,
   mixedResetTo,
   shellQuote,
   softResetTo,
@@ -30,6 +31,7 @@ import {
   steeringFormatFor,
   type SteeringFormat,
 } from "../steering/index.js"
+import { refNameFault } from "../replay/index.js"
 import { renderFormat } from "../wire/index.js"
 import { applyFlowScript, rewritten } from "./FlowScripts.js"
 import type { InMemRepo } from "./InMemRepo.js"
@@ -140,6 +142,20 @@ const conditionStatement = (block: string): string => {
   return end === -1 ? block.slice(start) : block.slice(start, end)
 }
 
+/** `keepTurn`: an invalid ref name fails before anything moves, as `git update-ref` does. */
+const recognizeKeepTurn = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
+  const [message, refDir] = extractQuotedTokens(block)
+  const ref = refDir?.slice(0, -1)
+  if (message === undefined || ref === undefined || keepTurn(ref, message) !== block) {
+    return undefined
+  }
+  if (refNameFault(ref) !== undefined) {
+    return { kind: "failed", error: `fatal: invalid ref format: ${ref}`, status: 128 }
+  }
+  const failure = repo.keepTurn(ref, message)
+  return failure === undefined ? { kind: "applied" } : { kind: "failed", error: failure, status: 1 }
+}
+
 // fallow-ignore-next-line complexity
 const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   if (block === discardPending()) {
@@ -156,11 +172,15 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   // quoted argument.
   const conditionLine = conditionStatement(block)
 
+  if (block.startsWith("git add -A || exit 1\ngtd_sign_cfg=")) return recognizeKeepTurn(repo, block)
+
   if (block.startsWith("git add -A || exit 1\n")) {
     const [message] = extractQuotedTokens(conditionLine)
     if (message !== undefined && commitAll(message) === block) {
-      repo.commitAllWithPrefix(message)
-      return { kind: "applied" }
+      const failure = repo.commitAllWithPrefix(message)
+      return failure === undefined
+        ? { kind: "applied" }
+        : { kind: "failed", error: failure, status: 1 }
     }
     return undefined
   }
@@ -168,8 +188,10 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   if (block.startsWith("if ! out=$(git commit --allow-empty -m ")) {
     const [message] = extractQuotedTokens(conditionLine)
     if (message !== undefined && commitAsIs(message) === block) {
-      repo.commitAsIs(message)
-      return { kind: "applied" }
+      const failure = repo.commitAsIs(message)
+      return failure === undefined
+        ? { kind: "applied" }
+        : { kind: "failed", error: failure, status: 1 }
     }
     return undefined
   }

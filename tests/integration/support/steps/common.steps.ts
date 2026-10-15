@@ -18,7 +18,7 @@ Given("a test project", (world: GtdWorld) => {
     const repo = world.repo!
     repo.writeFile(".gitignore", "node_modules\n")
     repo.writeFile("README.md", "# test project\n")
-    repo.commitAllWithPrefix("chore: initial commit")
+    repo.seedCommit("chore: initial commit")
     // repoDir is unused for the inmem tier; set a sentinel to avoid undefined errors.
     world.repoDir = "/inmem"
   } else {
@@ -134,7 +134,7 @@ Given(
     const normalized = content.endsWith("\n") ? content : content + "\n"
     if (world.tier === "inmem") {
       world.repo!.writeFile(path, normalized)
-      world.repo!.commitAllWithPrefix(message)
+      world.repo!.seedCommit(message)
     } else {
       const full = join(world.repoDir, path)
       mkdirSync(join(full, ".."), { recursive: true })
@@ -150,7 +150,7 @@ Given(
 // `gtd init`, so the machine starts from a clean tree at the initial state.
 Given("the working tree is committed", (world: GtdWorld) => {
   if (world.tier === "inmem") {
-    world.repo!.commitAllWithPrefix("chore: commit working tree")
+    world.repo!.seedCommit("chore: commit working tree")
   } else {
     execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
     execFileSync("git", ["commit", "-q", "-m", "chore: commit working tree"], {
@@ -164,7 +164,7 @@ Given("the working tree is committed", (world: GtdWorld) => {
 // scenario — trailers included — to stand in for history another gtd wrote.
 Given("the working tree is committed with message:", (world: GtdWorld, message: string) => {
   if (world.tier === "inmem") {
-    world.repo!.commitAllWithPrefix(message)
+    world.repo!.seedCommit(message)
   } else {
     execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
     execFileSync("git", ["commit", "-q", "--cleanup=verbatim", "-F", "-"], {
@@ -183,7 +183,7 @@ Given(
   (world: GtdWorld, name: string, token: string, rawMessage: string) => {
     const message = rawMessage.split(token).join(resolveHash(world, name))
     if (world.tier === "inmem") {
-      world.repo!.commitAllWithPrefix(message)
+      world.repo!.seedCommit(message)
     } else {
       execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
       execFileSync("git", ["commit", "-q", "--allow-empty", "--cleanup=verbatim", "-F", "-"], {

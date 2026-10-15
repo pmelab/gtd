@@ -83,7 +83,7 @@ const inMemory = (): Tier => ({
   load: (files) => {
     const repo = new InMemRepo()
     for (const [path, content] of Object.entries(files)) repo.writeFile(path, content)
-    repo.commitAllWithPrefix("chore: init")
+    repo.seedCommit("chore: init")
     return loadWith(testLayers(repo))
   },
   dispose: () => {},

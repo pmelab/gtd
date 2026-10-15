@@ -5,6 +5,7 @@ import {
   deleteRef,
   discardPending,
   hardResetTo,
+  keepTurn,
   mixedResetTo,
   softResetTo,
   updateRef,
@@ -40,7 +41,7 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     twin.writeFile("a.txt", "1")
 
     const result = applyEmittedScript(repo, NO_COMMANDS, commitAll("gtd(agent): building"))
-    twin.commitAllWithPrefix("gtd(agent): building")
+    twin.seedCommit("gtd(agent): building")
 
     expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
@@ -84,15 +85,15 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
   it("softResetTo: moves HEAD only, leaving index and worktree untouched", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     const first = repo.resolveRef("HEAD")!
     repo.writeFile("b.txt", "2")
-    repo.commitAllWithPrefix("chore: second")
+    repo.seedCommit("chore: second")
     const twin = new InMemRepo()
     twin.writeFile("a.txt", "1")
-    twin.commitAllWithPrefix("chore: first")
+    twin.seedCommit("chore: first")
     twin.writeFile("b.txt", "2")
-    twin.commitAllWithPrefix("chore: second")
+    twin.seedCommit("chore: second")
 
     const result = applyEmittedScript(repo, NO_COMMANDS, softResetTo(first))
     twin.softResetTo(first)
@@ -105,15 +106,15 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
   it("mixedResetTo: moves HEAD and index, leaving the worktree untouched", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     const first = repo.resolveRef("HEAD")!
     repo.writeFile("b.txt", "2")
-    repo.commitAllWithPrefix("chore: second")
+    repo.seedCommit("chore: second")
     const twin = new InMemRepo()
     twin.writeFile("a.txt", "1")
-    twin.commitAllWithPrefix("chore: first")
+    twin.seedCommit("chore: first")
     twin.writeFile("b.txt", "2")
-    twin.commitAllWithPrefix("chore: second")
+    twin.seedCommit("chore: second")
 
     const result = applyEmittedScript(repo, NO_COMMANDS, mixedResetTo(first))
     twin.mixedResetTo(first)
@@ -125,15 +126,15 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
   it("hardResetTo: moves HEAD, index, AND worktree", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     const first = repo.resolveRef("HEAD")!
     repo.writeFile("b.txt", "2")
-    repo.commitAllWithPrefix("chore: second")
+    repo.seedCommit("chore: second")
     const twin = new InMemRepo()
     twin.writeFile("a.txt", "1")
-    twin.commitAllWithPrefix("chore: first")
+    twin.seedCommit("chore: first")
     twin.writeFile("b.txt", "2")
-    twin.commitAllWithPrefix("chore: second")
+    twin.seedCommit("chore: second")
 
     const result = applyEmittedScript(repo, NO_COMMANDS, hardResetTo(first))
     twin.hardResetTo(first)
@@ -146,12 +147,12 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
   it("discardPending: drops every pending change, tracked or untracked", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     repo.writeFile("a.txt", "changed")
     repo.writeFile("untracked.txt", "new")
     const twin = new InMemRepo()
     twin.writeFile("a.txt", "1")
-    twin.commitAllWithPrefix("chore: first")
+    twin.seedCommit("chore: first")
     twin.writeFile("a.txt", "changed")
     twin.writeFile("untracked.txt", "new")
 
@@ -167,11 +168,11 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
   it("updateRef: points a repo-local ref at a commit hash", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     const hash = repo.resolveRef("HEAD")!
     const twin = new InMemRepo()
     twin.writeFile("a.txt", "1")
-    twin.commitAllWithPrefix("chore: first")
+    twin.seedCommit("chore: first")
 
     const result = applyEmittedScript(repo, NO_COMMANDS, updateRef("refs/gtd/base", hash))
     twin.updateRef("refs/gtd/base", hash)
@@ -184,11 +185,11 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
   it("deleteRef: removes a repo-local ref (idempotently)", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     repo.updateRef("refs/gtd/base", repo.resolveRef("HEAD")!)
     const twin = new InMemRepo()
     twin.writeFile("a.txt", "1")
-    twin.commitAllWithPrefix("chore: first")
+    twin.seedCommit("chore: first")
     twin.updateRef("refs/gtd/base", twin.resolveRef("HEAD")!)
 
     const result = applyEmittedScript(repo, NO_COMMANDS, deleteRef("refs/gtd/base"))
@@ -405,7 +406,7 @@ describe("applyEmittedScript — a tripped precondition stops the script", () =>
   it("fails at the precondition and never applies a subsequent recognizable block", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     const actualHead = repo.resolveRef("HEAD")!
     const wrongHash = "0".repeat(40)
     expect(wrongHash).not.toBe(actualHead)
@@ -426,7 +427,7 @@ describe("applyEmittedScript — a tripped precondition stops the script", () =>
   it("a satisfied precondition is a no-op and lets the rest of the script run", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     const actualHead = repo.resolveRef("HEAD")!
 
     const script = [preconditionHeadEquals(actualHead), commitAll("gtd(agent): lands")].join("\n\n")
@@ -442,7 +443,7 @@ describe("applyEmittedScript — a realistic assembled multi-block script", () =
   it("parses set -eu and a satisfied precondition alongside real builder blocks", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     const first = repo.resolveRef("HEAD")!
 
     const script = [
@@ -464,11 +465,11 @@ describe("applyEmittedScript — a realistic src/emit/Emit.ts-assembled script",
   it("an assembled commitAll applies exactly like commitAllWithPrefix", () => {
     const repo = new InMemRepo()
     repo.writeFile("base.txt", "0")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     repo.writeFile("a.txt", "1")
     const twin = new InMemRepo()
     twin.writeFile("base.txt", "0")
-    twin.commitAllWithPrefix("chore: first")
+    twin.seedCommit("chore: first")
     twin.writeFile("a.txt", "1")
 
     const steps: readonly EmitStep[] = [
@@ -476,7 +477,7 @@ describe("applyEmittedScript — a realistic src/emit/Emit.ts-assembled script",
     ]
     const { required } = emitScripts(steps)
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
-    twin.commitAllWithPrefix("gtd(agent): building")
+    twin.seedCommit("gtd(agent): building")
 
     expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
@@ -485,7 +486,7 @@ describe("applyEmittedScript — a realistic src/emit/Emit.ts-assembled script",
   it("a squash's four gitWrite steps (retain, soft-reset, commit-as-is, discard) apply in order", () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "1")
-    repo.commitAllWithPrefix("gtd(agent): building")
+    repo.seedCommit("gtd(agent): building")
     const tip = repo.resolveRef("HEAD")!
     // Untracked, never staged — the index still matches the tip's own tree
     // exactly, mirroring the real flow where nothing `git add`s between the
@@ -537,11 +538,11 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
   it("a realistic assembled script — commitAll's gitWrite plus a trailing outcome step — applies exactly like commitAllWithPrefix, the outcome step contributing nothing", () => {
     const repo = new InMemRepo()
     repo.writeFile("base.txt", "0")
-    repo.commitAllWithPrefix("chore: first")
+    repo.seedCommit("chore: first")
     repo.writeFile("a.txt", "1")
     const twin = new InMemRepo()
     twin.writeFile("base.txt", "0")
-    twin.commitAllWithPrefix("chore: first")
+    twin.seedCommit("chore: first")
     twin.writeFile("a.txt", "1")
 
     const steps: readonly EmitStep[] = [
@@ -550,7 +551,7 @@ describe("applyEmittedScript — outcome blocks are inert (no git effect to miss
     ]
     const { required } = emitScripts(steps)
     const result = applyEmittedScript(repo, NO_COMMANDS, required)
-    twin.commitAllWithPrefix("gtd(agent): building")
+    twin.seedCommit("gtd(agent): building")
 
     expect(result).toMatchObject({ ok: true })
     expect(snapshot(repo)).toEqual(snapshot(twin))
@@ -634,5 +635,32 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
     const result = applyEmittedScript(repo, NO_COMMANDS, script)
     expect(result.ok).toBe(false)
     expect(result.error).toContain("totally-unrecognized-required-command")
+  })
+})
+
+describe("applyEmittedScript — keepTurn", () => {
+  const MESSAGE = "gtd(agent): a → b\n\nGtd-Step: a#1\nGtd-Format: 1"
+  const REF = "refs/gtd/kept/entry/a"
+
+  const seeded = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile("base.txt", "0")
+    repo.seedCommit("chore: first")
+    repo.writeFile("turn.txt", "1")
+    return repo
+  }
+
+  it("fails loudly on a near-miss and applies nothing", () => {
+    const repo = seeded()
+    const before = snapshot(repo)
+    const nearMiss = keepTurn(REF, MESSAGE).replace(
+      "git reset --hard HEAD",
+      "git reset --soft HEAD",
+    )
+    const result = applyEmittedScript(repo, NO_COMMANDS, nearMiss)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("unrecognized script block")
+    expect(snapshot(repo)).toEqual(before)
+    expect(repo.resolveRef(REF)).toBeNull()
   })
 })

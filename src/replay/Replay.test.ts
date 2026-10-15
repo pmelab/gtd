@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import fc from "fast-check"
 import {
   FLOWS_PROTOCOL,
@@ -8,6 +8,7 @@ import {
   codeThreads,
   human,
   judge,
+  kept,
   read,
   refuse,
   restart,
@@ -32,6 +33,7 @@ interface Commit {
   readonly hash: string
   readonly message: string
   readonly tree: TreeView
+  readonly kept?: { readonly hash: string; readonly tree: TreeView }
 }
 
 const hashOf = (n: number): string => n.toString(16).padStart(40, "0")
@@ -64,12 +66,19 @@ class History {
     return this
   }
 
-  raw(message: string, edit: Record<string, string | null> = {}): this {
+  raw(
+    message: string,
+    edit: Record<string, string | null> = {},
+    keptTip?: { hash: string; files: Record<string, string> },
+  ): this {
     this.apply(edit)
     this.commits.push({
       hash: hashOf(this.counter++),
       message,
       tree: treeFromRecord({ ...this.files }),
+      ...(keptTip !== undefined
+        ? { kept: { hash: keptTip.hash, tree: treeFromRecord(keptTip.files) } }
+        : {}),
     })
     return this
   }
@@ -597,6 +606,188 @@ describe("replay", () => {
     }
     const outcome = await replayOf(waiting, new History())
     expect(outcome.kind === "failed" && outcome.message).toContain("not a step")
+  })
+})
+
+describe("replay: keep", () => {
+  let seen: { read?: string | undefined; changes?: number }
+  beforeEach(() => {
+    seen = {}
+  })
+  const keepFlow =
+    (name = "naive"): Flow =>
+    async () => {
+      await human("idle")
+      await agent(name, "p", { keep: true })
+      seen.read = read("naive.txt")
+      seen.changes = changes().length
+      await human("after")
+    }
+
+  it("accepts keep as an agent option", async () => {
+    const h = new History().land("human", "idle", 1, "naive", {})
+    const outcome = await replayOf(keepFlow(), h)
+    expect(outcome.kind).toBe("rest")
+    expect(restName(outcome)).toBe("naive#1")
+  })
+
+  it("a pending turn completes the keep step but replay stays on the pre-turn tree", async () => {
+    const h = new History().land("human", "idle", 1, "naive", {})
+    const outcome = await replayOf(keepFlow(), h, { pending: { "naive.txt": "naive\n" } })
+    expect(restName(outcome)).toBe("after#1")
+    expect(outcome.kind === "rest" && outcome.landed?.name).toBe("naive")
+    expect(seen.read).toBeUndefined()
+    expect(seen.changes).toBe(0)
+  })
+
+  it("a marker commit answers its step and the next step is reached", async () => {
+    const marker = formatCommitMessage({
+      actor: "agent",
+      from: "naive",
+      to: "after",
+      step: { name: "naive", occurrence: 1 },
+    })
+    const h = new History()
+      .land("human", "idle", 1, "naive", {})
+      .raw(`${marker}\nGtd-Kept: ${hashOf(77)}`)
+    const outcome = await replayOf(keepFlow(), h)
+    expect(restName(outcome)).toBe("after#1")
+    expect(seen.read).toBeUndefined()
+    expect(seen.changes).toBe(0)
+  })
+
+  it("rejects keep together with allowEmpty", async () => {
+    const flow: Flow = async () => {
+      await human("idle")
+      await agent("naive", "p", { keep: true, allowEmpty: true })
+    }
+    const h = new History().land("human", "idle", 1, "naive", {})
+    const outcome = await replayOf(flow, h)
+    expect(outcome.kind === "failed" && outcome.message).toContain("allowEmpty")
+  })
+
+  it.each(["a b", "a..b", "a~b", "a.lock", "a:b", "a/b"])(
+    "fails naming the step when %j is not a valid ref component",
+    async (name) => {
+      const h = new History().land("human", "idle", 1, name, {})
+      const outcome = await replayOf(keepFlow(name), h)
+      expect(outcome.kind).toBe("failed")
+      expect(outcome.kind === "failed" && outcome.message).toContain(`step "${name}"`)
+    },
+  )
+
+  it("does not check the name of a step that does not keep", async () => {
+    const flow: Flow = async () => {
+      await human("idle")
+      await agent("a b", "p")
+    }
+    const h = new History().land("human", "idle", 1, "a b", {})
+    expect(restName(await replayOf(flow, h))).toBe("a b#1")
+  })
+})
+
+describe("replay: kept()", () => {
+  const markerFor = (name: string, to: string, occurrence = 1, tip = hashOf(77)): string =>
+    `${formatCommitMessage({
+      actor: "agent",
+      from: name,
+      to,
+      step: { name, occurrence },
+    })}\nGtd-Kept: ${tip}`
+
+  type Tip = ReturnType<typeof kept>
+  let seen: { before?: Tip; after?: Tip }
+  beforeEach(() => {
+    seen = {}
+  })
+  const flow =
+    (name = "naive"): Flow =>
+    async () => {
+      await human("idle")
+      seen.before = kept(name)
+      await agent("naive", "p", { keep: true })
+      seen.after = kept(name)
+      await human("after")
+    }
+
+  it("returns the newest consumed marker's hash and its diff against the marker's tree", async () => {
+    const h = new History()
+      .land("human", "idle", 1, "naive", { "base.txt": "b\n" })
+      .raw(
+        markerFor("naive", "after"),
+        {},
+        { hash: hashOf(77), files: { "base.txt": "b\n", "naive.ts": "export const n = 1\n" } },
+      )
+    const outcome = await replayOf(flow(), h)
+    expect(restName(outcome)).toBe("after#1")
+    expect(seen.after?.hash).toBe(hashOf(77))
+    expect(seen.after?.changes.map((c) => [c.path, c.status, c.after])).toEqual([
+      ["naive.ts", "added", "export const n = 1\n"],
+    ])
+  })
+
+  it("the newest of two passes wins", async () => {
+    const h = new History()
+      .land("human", "idle", 1, "naive", {})
+      .raw(markerFor("naive", "naive", 1, hashOf(70)), {}, { hash: hashOf(70), files: { a: "1" } })
+      .raw(markerFor("naive", "after", 2, hashOf(71)), {}, { hash: hashOf(71), files: { a: "2" } })
+    const twice: Flow = async () => {
+      await human("idle")
+      await agent("naive", "p", { keep: true })
+      await agent("naive", "p", { keep: true })
+      seen.after = kept("naive")
+      await human("after")
+    }
+    await replayOf(twice, h)
+    expect(seen.after?.hash).toBe(hashOf(71))
+    expect(seen.after?.changes.get("a")?.after).toBe("2")
+  })
+
+  it("is undefined for a step that never kept", async () => {
+    const h = new History().land("human", "idle", 1, "naive", {}).land("agent", "naive", 1, "after")
+    expect(restName(await replayOf(flow(), h))).toBe("after#1")
+    expect(seen.after).toBeUndefined()
+  })
+
+  it("is undefined when the marker's kept object is gone", async () => {
+    const h = new History().land("human", "idle", 1, "naive", {}).raw(markerFor("naive", "after"))
+    expect(restName(await replayOf(flow(), h))).toBe("after#1")
+    expect(seen.after).toBeUndefined()
+  })
+
+  it("resolves the name through scope() like agent()", async () => {
+    const scoped: Flow = async () => {
+      await human("idle")
+      await scope("build", async () => {
+        await agent("naive", "p", { keep: true })
+        seen.after = kept("naive")
+      })
+      seen.before = kept("naive")
+      await human("after")
+    }
+    const h = new History()
+      .land("human", "idle", 1, "build.naive", {})
+      .raw(markerFor("build.naive", "after"), {}, { hash: hashOf(77), files: { "x.ts": "x" } })
+    await replayOf(scoped, h)
+    expect(seen.after?.hash).toBe(hashOf(77))
+    expect(seen.before).toBeUndefined()
+  })
+
+  it('shows the pending tip with hash "" during the landing decision', async () => {
+    const h = new History().land("human", "idle", 1, "naive", {})
+    const outcome = await replayOf(flow(), h, { pending: { "naive.ts": "n\n" } })
+    expect(restName(outcome)).toBe("after#1")
+    expect(seen.after?.hash).toBe("")
+    expect(seen.after?.changes.map((c) => [c.path, c.status])).toEqual([["naive.ts", "added"]])
+  })
+
+  it("does not show a marker the flow has not consumed yet", async () => {
+    const h = new History()
+      .land("human", "idle", 1, "naive", {})
+      .raw(markerFor("naive", "after"), {}, { hash: hashOf(77), files: { "x.ts": "x" } })
+    await replayOf(flow(), h)
+    expect(seen.before).toBeUndefined()
+    expect(seen.after?.hash).toBe(hashOf(77))
   })
 })
 

@@ -39,6 +39,7 @@ export interface StepDef {
   readonly answerGate?: boolean
   readonly requireRevert?: boolean
   readonly allowEmpty?: boolean
+  readonly keep?: boolean
   readonly acceptClean?: boolean
   readonly skills?: readonly string[]
   readonly access?: StepAccess

@@ -77,6 +77,7 @@ export const fixtureContext = (
   glob: () => [],
   changes: () => [],
   changesSince: unavailable,
+  kept: () => undefined,
   matches: () => false,
   sections: () => [],
   sectionBodies: () => [],

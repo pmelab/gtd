@@ -17,6 +17,8 @@ export type Landing =
       readonly spec: CommitSpec
       /** The full history ref a finishing landing points at its own commit. */
       readonly keepHistory?: string
+      /** The kept ref this landing's turn goes to; the branch gets a marker commit instead. */
+      readonly keepTurn?: string
     }
 
 /**

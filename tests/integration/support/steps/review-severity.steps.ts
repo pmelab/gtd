@@ -42,7 +42,7 @@ const REVIEW_HEADER =
 const commitFile = (world: GtdWorld, path: string, content: string, message: string): void => {
   if (world.tier === "inmem") {
     world.repo!.writeFile(path, content)
-    world.repo!.commitAllWithPrefix(message)
+    world.repo!.seedCommit(message)
     return
   }
   const full = join(world.repoDir, path)

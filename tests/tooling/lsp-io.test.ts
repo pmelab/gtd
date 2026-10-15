@@ -62,7 +62,7 @@ const inMemory = (): Tier => {
   const root = "/inmem"
   const repo = new InMemRepo()
   for (const [path, content] of Object.entries(FILES)) repo.writeFile(path, content)
-  repo.commitAllWithPrefix("chore: initial commit")
+  repo.seedCommit("chore: initial commit")
   const gtd = async (...args: string[]) => {
     const { io, result } = makeCapturingCliIo(repo)
     await Effect.runPromise(runCli(["node", "gtd", ...args], io))
@@ -72,7 +72,7 @@ const inMemory = (): Tier => {
     root,
     io: inMemoryLspIo(root, repo, gtd),
     head: () => repo.resolveRef("HEAD")!,
-    commit: () => repo.commitAllWithPrefix("chore: second"),
+    commit: () => repo.seedCommit("chore: second"),
     dispose: () => {},
   }
 }

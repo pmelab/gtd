@@ -83,7 +83,7 @@ const makeInMemTier = (): WorkspaceTier => {
     writeWorking: (path, content) => repo.writeFile(path, content),
     commit: (path, content) => {
       repo.writeFile(path, content)
-      repo.commitAllWithPrefix(`commit ${path}`)
+      repo.seedCommit(`commit ${path}`)
     },
     provide: (eff) =>
       Effect.runPromise(eff.pipe(Effect.provide(Layer.succeed(Workspace, workspaceOps)))),

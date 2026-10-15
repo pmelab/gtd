@@ -30,6 +30,7 @@ import {
   updateRef,
   fetchHistoryRefs,
   deleteRef,
+  shellQuote,
 } from "../emit/index.js"
 import { applyEmittedScript } from "./EmittedScriptRecognizer.js"
 import { InMemRepo } from "./InMemRepo.js"
@@ -38,14 +39,32 @@ import { gitTestLayer, type ScriptedCommand } from "./Layers.js"
 export interface GitTierCapabilities {
   /** Assert file BYTES on disk, not just index/HEAD state (`hardResetTo`) — only the Live tier has a real working-tree file to read back. */
   readonly onDiskContent: boolean
-  /** Install a real `.git/hooks/pre-commit` and prove the `--no-verify` retry — only the Live tier has a hooks directory. */
-  readonly commitHooks: boolean
   /** `git worktree add` — sibling linked worktrees sharing one `.git`; the fake models a single worktree only. */
   readonly linkedWorktrees: boolean
   /** A cwd→home directory chain for config discovery — both tiers walk it through `Workspace`/`Host` now, so this is `true` for either. */
   readonly directoryChainConfig: boolean
   /** Fetch from another repository — only the Live tier has a remote to reach. */
   readonly remotes: boolean
+}
+
+// Quoted heredoc: `$`, `$(…)` and backticks in `output` reach stderr verbatim.
+const writeRejectingHook = (hooksDir: string, output: string): void => {
+  mkdirSync(hooksDir, { recursive: true })
+  writeFileSync(
+    join(hooksDir, "pre-commit"),
+    `#!/bin/sh\ncat >&2 <<'GTD_HOOK_EOF'\n${output}\nGTD_HOOK_EOF\nexit 1\n`,
+    { mode: 0o755 },
+  )
+}
+
+// `printf '%s'` keeps `content` byte-exact.
+const writeStagingHook = (hooksDir: string, path: string, content: string): void => {
+  mkdirSync(hooksDir, { recursive: true })
+  writeFileSync(
+    join(hooksDir, "pre-commit"),
+    `#!/bin/sh\nprintf '%s' ${shellQuote(content)} > ${shellQuote(path)} && git add ${shellQuote(path)}\nexit 0\n`,
+    { mode: 0o755 },
+  )
 }
 
 export interface GitTierSeed {
@@ -56,6 +75,12 @@ export interface GitTierSeed {
   readonly stageAll: () => void
   readonly updateRef: (ref: string, hash: string) => void
   readonly mixedReset: (ref: string) => void
+  /** Every hooked commit fails printing `output`; `--no-verify` skips it. */
+  readonly rejectingHook: (output: string) => void
+  /** Every hooked commit first writes `content` to `path` and stages it; `--no-verify` and `commit-tree` skip it. */
+  readonly stagingHook: (path: string, content: string) => void
+  /** Every commit `git commit` signs, or `git commit-tree -S` writes, fails; plain `git commit-tree` is unaffected. */
+  readonly failingSigner: () => void
 }
 
 export interface GitTierObserve {
@@ -157,7 +182,6 @@ const makeLiveTier = (initialCommit = true): GitTier => {
     root,
     capabilities: {
       onDiskContent: true,
-      commitHooks: true,
       linkedWorktrees: true,
       directoryChainConfig: true,
       remotes: true,
@@ -193,6 +217,22 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       stageAll: () => gitExec("add", "-A"),
       updateRef: (ref, hash) => gitExec("update-ref", ref, hash),
       mixedReset: (ref) => gitExec("reset", "--mixed", ref),
+      rejectingHook: (output) => {
+        const hooks = join(root, ".git/hooks")
+        gitExec("config", "core.hooksPath", hooks)
+        writeRejectingHook(hooks, output)
+      },
+      stagingHook: (path, content) => {
+        const hooks = join(root, ".git/hooks")
+        gitExec("config", "core.hooksPath", hooks)
+        writeStagingHook(hooks, path, content)
+      },
+      failingSigner: () => {
+        gitExec("config", "commit.gpgsign", "true")
+        // A global `gpg.format ssh` would otherwise sign and the case pass vacuously.
+        gitExec("config", "gpg.format", "openpgp")
+        gitExec("config", "gpg.program", "false")
+      },
     },
     observe: {
       resolveRef: (ref) => gitExec("rev-parse", ref),
@@ -258,7 +298,7 @@ const makeInMemTier = (initialCommit = true): GitTier => {
   const repo = new InMemRepo()
   if (initialCommit) {
     repo.writeFile("readme.txt", "hello")
-    repo.commitAllWithPrefix("init: first commit")
+    repo.seedCommit("init: first commit")
   }
   const gitLayer = gitTestLayer(repo, IN_MEM_ROOT)
 
@@ -275,7 +315,6 @@ const makeInMemTier = (initialCommit = true): GitTier => {
     root: IN_MEM_ROOT,
     capabilities: {
       onDiskContent: false,
-      commitHooks: false,
       linkedWorktrees: false,
       directoryChainConfig: true,
       remotes: false,
@@ -286,17 +325,26 @@ const makeInMemTier = (initialCommit = true): GitTier => {
     seed: {
       commit: (message, files = { "file.txt": message }) => {
         for (const [path, content] of Object.entries(files)) repo.writeFile(path, content)
-        repo.commitAllWithPrefix(message)
+        repo.seedCommit(message)
       },
       writeFile: (path, content) => repo.writeFile(path, content),
       deleteFile: (path) => repo.deleteFile(path),
       commitDeletion: (path, message) => {
         repo.deleteFile(path)
-        repo.commitAllWithPrefix(message)
+        repo.seedCommit(message)
       },
       stageAll: () => repo.stageAll(),
       updateRef: (ref, hash) => repo.updateRef(ref, hash),
       mixedReset: (ref) => repo.mixedResetTo(ref),
+      rejectingHook: (output) => {
+        repo.hookRejection = output
+      },
+      stagingHook: (path, content) => {
+        repo.hookStages = { path, content }
+      },
+      failingSigner: () => {
+        repo.signingFails = true
+      },
     },
     observe: {
       resolveRef: (ref) => {
@@ -727,23 +775,6 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       const history = await runGit(t, (g) => g.commitHistory())
       expect(history[history.length - 1]?.message).toBe("gtd: grilled")
     })
-
-    it.skipIf(!capabilities.commitHooks)(
-      "retries with --no-verify when a hook blocks the empty commit",
-      async () => {
-        const hookPath = join(t.root, ".git/hooks/pre-commit")
-        writeFileSync(
-          hookPath,
-          `#!/bin/sh\necho "lint-staged prevented an empty git commit." >&2\nexit 1\n`,
-        )
-        execSync(`chmod +x "${hookPath}"`)
-        const headBefore = t.observe.resolveRef("HEAD")
-        await runGit(t, (g) => g.commitAllWithPrefix("gtd: grilled"))
-        expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
-        const history = await runGit(t, (g) => g.commitHistory())
-        expect(history[history.length - 1]?.message).toBe("gtd: grilled")
-      },
-    )
   })
 
   describe("commitAsIs", () => {
@@ -765,6 +796,35 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       const headBefore = t.observe.resolveRef("HEAD")
       await runGit(t, (g) => g.commitAsIs("gtd: empty squash"))
       expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
+    })
+  })
+
+  describe.each([
+    ["commitAllWithPrefix", (g: GitOperations) => g.commitAllWithPrefix("gtd: building")],
+    ["commitAsIs", (g: GitOperations) => g.commitAsIs("gtd: building")],
+  ] as const)("%s seeded commit failures", (_name, commit) => {
+    it("retries with --no-verify when a hook blocks the empty commit", async () => {
+      t.seed.rejectingHook("lint-staged prevented an empty git commit.")
+      const headBefore = t.observe.resolveRef("HEAD")
+      await runGit(t, commit)
+      expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
+      const history = await runGit(t, (g) => g.commitHistory())
+      expect(history[history.length - 1]?.message).toBe("gtd: building")
+    })
+
+    it("fails on a hook rejection that is not the empty-commit one, leaving HEAD unchanged", async () => {
+      t.seed.rejectingHook("lint error")
+      const headBefore = t.observe.resolveRef("HEAD")
+      expect(Exit.isFailure(await runGitExit(t, commit))).toBe(true)
+      expect(t.observe.resolveRef("HEAD")).toBe(headBefore)
+    })
+
+    it("fails both attempts when the signer cannot write, leaving HEAD unchanged", async () => {
+      t.seed.rejectingHook("rejected: empty git commit")
+      t.seed.failingSigner()
+      const headBefore = t.observe.resolveRef("HEAD")
+      expect(Exit.isFailure(await runGitExit(t, commit))).toBe(true)
+      expect(t.observe.resolveRef("HEAD")).toBe(headBefore)
     })
   })
 
@@ -822,6 +882,25 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
     it("readRefOption is None for a ref that doesn't exist — never a failure", async () => {
       const resolved = await runGit(t, (g) => g.readRefOption("refs/gtd/nonexistent"))
       expect(resolved._tag).toBe("None")
+    })
+
+    it("readRefOption of <hash>^{commit} is Some for an existing commit", async () => {
+      const head = t.observe.resolveRef("HEAD")
+      const resolved = await runGit(t, (g) => g.readRefOption(`${head}^{commit}`))
+      expect(resolved._tag).toBe("Some")
+      if (resolved._tag === "Some") expect(resolved.value).toBe(head)
+    })
+
+    it("readRefOption of <hash>^{commit} is None for a 40-hex hash with no object", async () => {
+      const missing = "0123456789abcdef0123456789abcdef01234567"
+      const resolved = await runGit(t, (g) => g.readRefOption(`${missing}^{commit}`))
+      expect(resolved._tag).toBe("None")
+    })
+
+    it("readRefOption of a bare 40-hex hash with no object is Some", async () => {
+      const missing = "0123456789abcdef0123456789abcdef01234567"
+      const resolved = await runGit(t, (g) => g.readRefOption(missing))
+      expect(resolved._tag).toBe("Some")
     })
 
     it("deleteRef removes a ref idempotently (deleting twice is a no-op)", async () => {

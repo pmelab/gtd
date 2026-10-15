@@ -4,6 +4,7 @@ import {
   FlowsProtocolError,
   head,
   installContext,
+  kept,
   protocolMismatch,
   type FlowContext,
 } from "./runtime.js"
@@ -50,5 +51,37 @@ describe("the flows protocol handshake", () => {
     expect(() => head()).toThrow(
       new Error("gtd: a workflow step or helper was called outside a gtd replay"),
     )
+  })
+})
+
+describe("kept()", () => {
+  const change = { path: "a.ts", status: "added", before: undefined, after: "a" } as const
+  const withKept = (tip: unknown) =>
+    installContext({
+      kept: (name: string) => (name === "naive" ? tip : undefined),
+    } as unknown as FlowContext)
+
+  it("returns undefined as given", () => {
+    withKept(undefined)
+    expect(kept("naive")).toBeUndefined()
+  })
+
+  it("wraps a tip's changes with paths and get", () => {
+    withKept({ hash: "abc", changes: [change] })
+    const tip = kept("naive")
+    expect(tip?.hash).toBe("abc")
+    expect(tip?.changes.paths).toEqual(["a.ts"])
+    expect(tip?.changes.get("a.ts")?.after).toBe("a")
+    expect(tip?.changes.get("b.ts")).toBeUndefined()
+    expect(tip?.changes).toHaveLength(1)
+    expect(kept("other")).toBeUndefined()
+  })
+
+  it("throws the upgrade message on a context without kept, protocol still 1", () => {
+    installContext(context)
+    expect(() => kept("naive")).toThrow(
+      "gtd: kept() needs a newer gtd — upgrade the gtd that runs it",
+    )
+    expect(FLOWS_PROTOCOL).toBe(1)
   })
 })

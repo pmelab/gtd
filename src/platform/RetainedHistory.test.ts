@@ -4,6 +4,7 @@ import { strictGitOperations as stubGit } from "../testkit/index.js"
 import {
   clearRetainedHistory,
   HISTORY_REF,
+  keptRef,
   PROCESS_HISTORY_PREFIX,
   processHistoryRef,
   readRetainedHistory,
@@ -75,5 +76,13 @@ describe("processHistoryRef", () => {
   it("never equals the per-worktree HISTORY_REF", () => {
     expect(processHistoryRef("abc123")).not.toBe(HISTORY_REF)
     expect(HISTORY_REF.startsWith(PROCESS_HISTORY_PREFIX)).toBe(false)
+  })
+})
+
+describe("keptRef", () => {
+  it("keys a kept tip by entry and step, outside the finished-process namespace", () => {
+    const entry = "a".repeat(40)
+    expect(keptRef(entry, "build.naive")).toBe(`refs/gtd/kept/${entry}/build.naive`)
+    expect(keptRef(entry, "build.naive").startsWith(PROCESS_HISTORY_PREFIX)).toBe(false)
   })
 })

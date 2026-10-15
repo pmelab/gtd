@@ -17,7 +17,7 @@ const commitAllowEmpty = (message: string): string => {
   return [
     `if ! out=$(git commit --allow-empty -m ${m} 2>&1); then`,
     `  case "$out" in`,
-    `    *"empty git commit"*) git commit --allow-empty --no-verify -m ${m} ;;`,
+    `    *"empty git commit"*) git commit --allow-empty --no-verify -m ${m} || exit 1 ;;`,
     `    *) printf '%s\\n' "$out" >&2; exit 1 ;;`,
     `  esac`,
     `fi`,
@@ -46,6 +46,37 @@ export const hardResetTo = (ref: string): string => `git reset --hard ${shellQuo
  * `GitWriterOperations.discardPending` for why it's kept anyway.
  */
 export const discardPending = (): string => `git add -A && git reset --hard HEAD`
+
+/**
+ * POSIX sh (runs under dash). The marker is a `commit-tree` over HEAD's own
+ * tree, so no hook runs on it and its tree is the pre-turn tree by
+ * construction; `commit-tree` ignores `commit.gpgSign`, hence the explicit
+ * `-S`, read (and failing closed) before any object or ref is written; the
+ * index is already staged by then, so an early exit leaves the turn staged.
+ * The kept ref is deleted only after `reset -q` succeeds: it is then the
+ * turn's only handle.
+ * The branch moves before the final hard reset, so if that reset fails the
+ * marker has landed and the turn is still in the working tree (kept ref
+ * present); every other failure leaves the branch untouched.
+ */
+export const keepTurn = (refPrefix: string, message: string): string => {
+  const keptRef = `${shellQuote(`${refPrefix}/`)}"$gtd_kept"`
+  return [
+    `git add -A || exit 1`,
+    `gtd_sign_cfg=$(git config --type=bool --default=false commit.gpgSign) || exit 1`,
+    `if [ "$gtd_sign_cfg" = true ]; then gtd_sign=-S; else gtd_sign=--no-gpg-sign; fi`,
+    `gtd_head=$(git rev-parse --verify HEAD) || exit 1`,
+    `gtd_tree=$(git write-tree) || exit 1`,
+    `gtd_kept=$(git commit-tree "$gtd_tree" -p "$gtd_head" -m ${shellQuote(message)}) || exit 1`,
+    `git update-ref ${keptRef} "$gtd_kept" || exit 1`,
+    `gtd_marker=$(printf '%s\\nGtd-Kept: %s' ${shellQuote(message)} "$gtd_kept")`,
+    `if ! gtd_tip=$(git commit-tree "$gtd_sign" "$gtd_head^{tree}" -p "$gtd_head" -m "$gtd_marker") || ! git update-ref HEAD "$gtd_tip" "$gtd_head"; then`,
+    `  git reset -q && git update-ref -d ${keptRef}`,
+    `  exit 1`,
+    `fi`,
+    `git reset --hard HEAD`,
+  ].join("\n")
+}
 
 export const updateRef = (ref: string, hash: string): string =>
   `git update-ref ${shellQuote(ref)} ${shellQuote(hash)}`
@@ -100,6 +131,8 @@ const renderGitWrite = (write: GitWrite): string => {
       return commitAll(write.message)
     case "updateRef":
       return updateRef(write.ref, write.target)
+    case "keepTurn":
+      return keepTurn(write.ref, write.message)
   }
 }
 

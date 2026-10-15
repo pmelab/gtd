@@ -36,7 +36,7 @@ const finishedProcess = async (repo: InMemRepo, file: string) => {
 const repoWithConfig = (): InMemRepo => {
   const repo = new InMemRepo()
   repo.writeFile("gtd.config.ts", CONFIG)
-  repo.commitAllWithPrefix("chore: add workflow")
+  repo.seedCommit("chore: add workflow")
   return repo
 }
 
@@ -90,7 +90,7 @@ describe("historyEntries", () => {
     const repo = repoWithConfig()
     const { entry: hash } = await finishedProcess(repo, "a.txt")
     repo.writeFile("x.txt", "x\n")
-    repo.commitAllWithPrefix("chore: bare tip")
+    repo.seedCommit("chore: bare tip")
     repo.updateRef(`refs/gtd/history/${hash}`, "HEAD")
     expect((await entries(repo))[0]?.branch).toBeNull()
   })

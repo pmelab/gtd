@@ -10,6 +10,25 @@ Given("an executable pre-commit hook with:", (world: GtdWorld, content: string) 
   writeFileSync(dest, content.endsWith("\n") ? content : content + "\n", { mode: 0o755 })
 })
 
+// inmem only: the live tier's seed (`rejectingHook`) also has to override a global `core.hooksPath`.
+Given(
+  "a pre-commit hook rejecting every commit with {string}",
+  (world: GtdWorld, output: string) => {
+    world.repo!.hookRejection = output
+  },
+)
+
+Given(
+  "a pre-commit hook that writes {string} to {string} and stages it",
+  (world: GtdWorld, content: string, path: string) => {
+    world.repo!.hookStages = { path, content }
+  },
+)
+
+Given("a commit signer that fails", (world: GtdWorld) => {
+  world.repo!.signingFails = true
+})
+
 When("I run gtd with args {string}", async (world: GtdWorld, args: string) => {
   await world.runGtd(...args.split(" "))
 })

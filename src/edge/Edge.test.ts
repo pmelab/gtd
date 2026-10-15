@@ -19,7 +19,7 @@ import {
   type RestRequirements,
 } from "./Edge.js"
 import { GTD_VERSION } from "../install/index.js"
-import { processHistoryRef } from "../platform/index.js"
+import { keptRef, processHistoryRef } from "../platform/index.js"
 import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
 import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
 import { contentHash } from "../workflow/index.js"
@@ -78,7 +78,7 @@ const headOf = (repo: InMemRepo): string => repo.resolveRef("HEAD")!
 const repoWith = (config: string, files: Files = {}): InMemRepo => {
   const repo = new InMemRepo()
   write(repo, { "gtd.config.ts": config, ...files })
-  repo.commitAllWithPrefix("chore: add workflow")
+  repo.seedCommit("chore: add workflow")
   return repo
 }
 
@@ -112,7 +112,7 @@ const enter = async (repo: InMemRepo, workflow: string, ...vars: string[]): Prom
 /** Commits an exact message — for trailers no landing writes on its own. */
 const commit = (repo: InMemRepo, spec: CommitSpec, files: Files = {}): string => {
   write(repo, files)
-  repo.commitAllWithPrefix(formatCommitMessage(spec))
+  repo.seedCommit(formatCommitMessage(spec))
   return headOf(repo)
 }
 
@@ -179,7 +179,7 @@ describe("currentRun", () => {
     const repo = repoWith(LINEAR)
     await land(repo, { "a.txt": "a\n" })
     repo.writeFile("b.txt", "b\n")
-    repo.commitAllWithPrefix("feat: unrelated")
+    repo.seedCommit("feat: unrelated")
     const run = await provide(currentRun, repo)
     expect(run.trace).toEqual([])
     expect(run.startParentHash).toBe(headOf(repo))
@@ -296,7 +296,7 @@ export const again = async () => {
       { "a.txt": "a\n" },
     )
     repo.writeFile("b.txt", "b\n")
-    repo.commitAllWithPrefix(
+    repo.seedCommit(
       [
         "gtd(agent): building → checking",
         "",
@@ -316,7 +316,7 @@ export const again = async () => {
     const repo = repoWith(LINEAR)
     const base = headOf(repo)
     repo.writeFile("later.txt", "later\n")
-    repo.commitAllWithPrefix("feat: later")
+    repo.seedCommit("feat: later")
     const before = headOf(repo)
     await enter(repo, "review", `base=${base}`)
     const run = await provide(currentRun, repo)
@@ -398,13 +398,13 @@ describe("history reads stay bounded by the episode, not the repository", () => 
   const repoWithHistory = (count: number): InMemRepo => {
     const repo = new InMemRepo()
     repo.writeFile("seed.txt", "0")
-    repo.commitAllWithPrefix("chore: seed 0")
+    repo.seedCommit("chore: seed 0")
     for (let i = 1; i < count; i++) {
       repo.writeFile("seed.txt", String(i))
-      repo.commitAllWithPrefix(`chore: seed ${i}`)
+      repo.seedCommit(`chore: seed ${i}`)
     }
     write(repo, { "gtd.config.ts": LINEAR })
-    repo.commitAllWithPrefix("chore: add workflow")
+    repo.seedCommit("chore: add workflow")
     return repo
   }
 
@@ -529,7 +529,7 @@ describe("summaryRun", () => {
     await land(repo, { "b.txt": "b\n" })
     await land(repo, { "c.txt": "c\n" })
     repo.writeFile("d.txt", "d\n")
-    repo.commitAllWithPrefix("chore: unrelated")
+    repo.seedCommit("chore: unrelated")
     const summary = await provide(summaryRun, repo)
     expect(summary.closingHash).toBeUndefined()
     expect(summary.trace).toEqual([])
@@ -638,7 +638,7 @@ export const base = (workflow, vars) => (workflow === "review" ? (vars.base ?? "
     const repo = repoWith(LOOP)
     const base = headOf(repo)
     repo.writeFile("later.txt", "later\n")
-    repo.commitAllWithPrefix("feat: later")
+    repo.seedCommit("feat: later")
     await enter(repo, "review", `base=${base}`)
     expect(reviewBaseFor(await provide(currentRest, repo))).toBe(base)
   })
@@ -850,7 +850,7 @@ describe("stalledAt", () => {
     const repo = repoWith(LINEAR)
     await enter(repo, "side")
     await land(repo, { "fix.txt": "x\n" })
-    repo.commitAllWithPrefix("gtd(agent): tidying")
+    repo.seedCommit("gtd(agent): tidying")
     const rest = await provide(currentRest, repo)
     expect(rest.state).toBe("tidying")
     expect(stalledAt(rest)).toBe(false)
@@ -1038,7 +1038,7 @@ describe("closedRunAt", () => {
     const tip = await land(repo, { "c.txt": "c\n" })
     const closed = await provide(closedRunAt(tip), repo)
     repo.writeFile("d.txt", "d\n")
-    repo.commitAllWithPrefix("chore: unrelated")
+    repo.seedCommit("chore: unrelated")
     const later = await provide(closedRunAt(tip), repo)
     expect(later).toEqual(closed)
     expect(later.closingHash).toBe(tip)
@@ -1146,6 +1146,103 @@ export const side = async () => {
   })
 })
 
+describe("keep steps", () => {
+  const KEEP = `import { agent, human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await agent("building", "build-prompt", { keep: true })
+  await agent("checking", "check-prompt")
+}
+`
+
+  const snapshotOf = async (repo: InMemRepo) =>
+    (await provide(snapshotFromRest(await provide(currentRest, repo)), repo)).landing
+
+  it("landing at a keep step carries keepTurn under refs/gtd/kept/<startHash>/<step>", async () => {
+    const repo = repoWith(KEEP)
+    const building = await land(repo, { "a.txt": "a\n" })
+    repo.writeFile("naive.txt", "naive\n")
+    const landing = await snapshotOf(repo)
+    if (landing.kind !== "commit") throw new Error(`expected commit, got ${landing.kind}`)
+    expect(landing.to).toBe("checking")
+    expect(landing.keepTurn).toBe(keptRef(building, "building"))
+    expect(landing.keepTurn).toBe(`refs/gtd/kept/${building}/building`)
+  })
+
+  it("a landing at a step that does not keep carries no keepTurn", async () => {
+    const repo = repoWith(KEEP)
+    repo.writeFile("a.txt", "a\n")
+    const landing = await snapshotOf(repo)
+    if (landing.kind !== "commit") throw new Error(`expected commit, got ${landing.kind}`)
+    expect(landing.keepTurn).toBeUndefined()
+  })
+
+  it("a clean tree at a keep step is still an attempt, never a keep", async () => {
+    const repo = repoWith(KEEP)
+    await land(repo, { "a.txt": "a\n" })
+    const landing = await snapshotOf(repo)
+    expect(landing.kind).toBe("attempt")
+  })
+
+  it("a marker at HEAD is not a stall: the process rests at the step after the keep", async () => {
+    const repo = repoWith(KEEP)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "naive.txt": "naive\n" })
+    expect(repo.readFile("naive.txt")).toBeUndefined()
+    expect(repo.lastCommitMessage()).toMatch(/\nGtd-Kept: [0-9a-f]{40}$/)
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("checking")
+    expect(stalledAt(rest)).toBe(false)
+  })
+})
+
+describe("kept episode commits", () => {
+  const KEEP = `import { agent, human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await agent("building", "build-prompt", { keep: true })
+  await agent("checking", "check-prompt")
+}
+`
+
+  const keptRepo = async () => {
+    const repo = repoWith(KEEP)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "naive.txt": "naive\n" })
+    return repo
+  }
+
+  it("builds kept: { hash, tree } for a marker whose kept object exists", async () => {
+    const repo = await keptRepo()
+    const rest = await provide(currentRest, repo)
+    const marker = rest.setup.episode.at(-1)!
+    const hash = /Gtd-Kept: ([0-9a-f]{40})/.exec(repo.lastCommitMessage()!)![1]!
+    expect(marker.kept?.hash).toBe(hash)
+    expect(marker.kept?.tree.read("naive.txt")).toBe("naive\n")
+    expect(marker.tree.read("naive.txt")).toBeUndefined()
+  })
+
+  it("builds no kept for a marker whose kept object is missing", async () => {
+    const repo = await keptRepo()
+    const message = repo
+      .lastCommitMessage()!
+      .replace(/Gtd-Kept: [0-9a-f]{40}/, `Gtd-Kept: ${"ab".repeat(20)}`)
+    repo.hardResetTo("HEAD~1")
+    repo.commitAsIs(message)
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("checking")
+    expect(rest.setup.episode.at(-1)!.kept).toBeUndefined()
+  })
+
+  it("builds no kept for a commit without the trailer", async () => {
+    const repo = await keptRepo()
+    const rest = await provide(currentRest, repo)
+    expect(rest.setup.episode.slice(0, -1).every((c) => c.kept === undefined)).toBe(true)
+  })
+})
+
 describe("historyTrail", () => {
   const finished = async (config = LINEAR) => {
     const repo = repoWith(config)
@@ -1158,7 +1255,7 @@ describe("historyTrail", () => {
   it("replays every commit of the closed run, with HEAD elsewhere", async () => {
     const { repo, building, checking, tip } = await finished()
     repo.writeFile("d.txt", "d\n")
-    repo.commitAllWithPrefix("chore: unrelated")
+    repo.seedCommit("chore: unrelated")
     const trail = await provide(historyTrail(tip), repo)
     expect(trail.tip).toBe(tip)
     expect(trail.ended).toBe("return")
@@ -1256,7 +1353,7 @@ export default async () => {
   it("refuses naming the config file that differs at the tip", async () => {
     const { repo, tip } = await finished()
     repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
-    repo.commitAllWithPrefix("chore: edit config")
+    repo.seedCommit("chore: edit config")
     const exit = await provideExit(historyTrail(tip), repo)
     expect(Exit.isFailure(exit)).toBe(true)
     expect(String(Exit.isFailure(exit) && exit.cause)).toContain("gtd.config.ts")
@@ -1266,7 +1363,7 @@ export default async () => {
     const { repo, tip } = await finished()
     repo.writeFile("gtd.config.ts", `import "./extra.ts"\n${LINEAR}`)
     repo.writeFile("extra.ts", "export {}\n")
-    repo.commitAllWithPrefix("chore: split config")
+    repo.seedCommit("chore: split config")
     const exit = await provideExit(historyTrail(tip), repo)
     expect(Exit.isFailure(exit)).toBe(true)
     expect(String(Exit.isFailure(exit) && exit.cause)).toContain("gtd.config.ts")

@@ -169,7 +169,7 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     typeof workflow === "string" ? workflow : moduleSource(id, workflow),
   )
   for (const [path, content] of Object.entries(options.files ?? {})) repo.writeFile(path, content)
-  repo.commitAllWithPrefix("chore: initial commit")
+  repo.seedCommit("chore: initial commit")
 
   // The module is registered only while gtd runs, so nothing outlives the
   // call that loads it and no test can reach another's module.
@@ -245,7 +245,7 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     read: (path) => repo.readFile(path),
     write: (path, content) => repo.writeFile(path, content),
     remove: (path) => repo.deleteFile(path),
-    commit: (message) => repo.commitAllWithPrefix(message),
+    commit: (message) => repo.seedCommit(message),
     show: (ref, path) => repo.fileAtRef(ref, path) ?? undefined,
     runScript: (script) => {
       const flow = applyFlowScript(repo, new Map(), script)

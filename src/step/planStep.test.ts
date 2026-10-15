@@ -130,3 +130,56 @@ describe("planStep — keepHistory", () => {
     ).toBe(false)
   })
 })
+
+describe("planStep — keepTurn", () => {
+  const kept = "refs/gtd/kept/abc/building"
+
+  it("emits keepTurn in place of commitAll, carrying the step's own commit message", () => {
+    const s = snapshot({
+      state: "building",
+      stepDef: { actor: "agent", kind: "prompt" },
+      actor: "agent",
+      changes: [{ status: "A", path: "naive.txt" }],
+      landing: { ...commitTo("building", "checking", "agent"), keepTurn: kept },
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    expect(outcome.steps.map((step) => step.kind)).toEqual(["gitWrite", "outcome"])
+    expect(outcome.steps[0]).toEqual({
+      kind: "gitWrite",
+      write: {
+        kind: "keepTurn",
+        ref: kept,
+        message: "gtd(agent): building → checking\n\nGtd-Step: building#1\nGtd-Format: 1",
+      },
+    })
+  })
+
+  it("a finishing keep landing points the history ref after the marker", () => {
+    const s = snapshot({
+      state: "building",
+      stepDef: { actor: "agent", kind: "prompt" },
+      actor: "agent",
+      landing: {
+        ...commitTo("building", "idle", "agent"),
+        keepTurn: kept,
+        keepHistory: "refs/gtd/history/abc",
+      },
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    expect(outcome.steps.map((step) => step.kind)).toEqual(["gitWrite", "gitWrite", "outcome"])
+    expect(outcome.steps[0]).toMatchObject({ write: { kind: "keepTurn" } })
+    expect(outcome.steps[1]).toEqual({
+      kind: "gitWrite",
+      write: { kind: "updateRef", ref: "refs/gtd/history/abc", target: "HEAD" },
+    })
+  })
+
+  it("without keepTurn the landing stays a commitAll", () => {
+    const s = snapshot({ state: "building", stepDef: {}, landing: commitTo("building", "done") })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    expect(outcome.steps[0]).toMatchObject({ write: { kind: "commitAll" } })
+  })
+})
