@@ -11,7 +11,6 @@ export interface FlagDeclaration {
   readonly kind: FlagKind
 }
 
-// fallow-ignore-next-line unused-export
 export const FLAGS = [] as const satisfies readonly FlagDeclaration[]
 
 /** A misspelt name is a compile error. */

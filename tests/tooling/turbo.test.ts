@@ -55,6 +55,11 @@ describe("turbo.json / package.json invariants", () => {
     expect(turbo.tasks["test:unit"].inputs).toContain("dev/**")
   })
 
+  it("lists scripts/** as an input to lint:boundaries", () => {
+    // depcruise reaches scripts/lint-flags.ts via tests/tooling/lint-flags.test.ts
+    expect(turbo.tasks["lint:boundaries"].inputs).toContain("scripts/**")
+  })
+
   it("lists evals/** as an input to typecheck, lint, analyze, and test:unit", () => {
     // tests/tooling/eval-baseline.test.ts imports evals/compare-baseline.mjs,
     // and tsconfig.json's allowJs+include pulls that .mjs into `tsc --noEmit`

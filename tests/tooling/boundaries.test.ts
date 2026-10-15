@@ -70,10 +70,10 @@ function buildFixture(): string {
 
 const DEPCRUISE_BIN = join(REPO_ROOT, "node_modules", ".bin", "depcruise")
 
-function cruise(fixtureDir: string, configPath: string) {
+function cruise(fixtureDir: string, configPath: string, roots: string[] = ["src"]) {
   const raw = execFileSync(
     DEPCRUISE_BIN,
-    ["src", "--config", configPath, "--output-type", "json"],
+    [...roots, "--config", configPath, "--output-type", "json"],
     { cwd: fixtureDir, encoding: "utf8" },
   )
   const report = JSON.parse(raw) as {
@@ -331,14 +331,14 @@ describe("unit map: src/loop/ imports only contracts", () => {
 })
 
 describe("spec 20: the unit map", () => {
-  const cruiseFiles = (files: Record<string, string>) => {
+  const cruiseFiles = (files: Record<string, string>, roots?: string[]) => {
     const dir = mkdtempSync(join(tmpdir(), "boundaries-spec20-"))
     writeFileSync(join(dir, "tsconfig.json"), FIXTURE_TSCONFIG)
     for (const [path, content] of Object.entries(files)) {
       mkdirSync(join(dir, path, ".."), { recursive: true })
       writeFileSync(join(dir, path), content)
     }
-    return cruise(dir, join(REPO_ROOT, ".dependency-cruiser.mjs")).map(
+    return cruise(dir, join(REPO_ROOT, ".dependency-cruiser.mjs"), roots).map(
       (v) => `${v.rules.join(",")}: ${v.from} -> ${v.to}`,
     )
   }
@@ -427,5 +427,19 @@ describe("spec 20: the unit map", () => {
         "src/cli/Other.ts": barrel,
       }),
     ).toEqual(["flags-only-at-composition-points: src/cli/Other.ts -> src/flags/index.ts"])
+  })
+
+  it("exempts scripts/lint-flags.ts only, not the rest of scripts/, from the flags rule", () => {
+    const imp = `import { flags } from "../src/flags/index.js"\nexport const x = flags\n`
+    expect(
+      cruiseFiles(
+        {
+          "src/flags/index.ts": `export const flags = 1\n`,
+          "scripts/lint-flags.ts": imp,
+          "scripts/other.ts": imp,
+        },
+        ["src", "scripts"],
+      ),
+    ).toEqual(["flags-only-at-composition-points: scripts/other.ts -> src/flags/index.ts"])
   })
 })

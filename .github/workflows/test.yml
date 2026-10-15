@@ -22,6 +22,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # CI-only on purpose: expiry depends on the date, so loop gates (npm test)
+      # must not go red when a flag expires.
+      - name: Lint feature flag lifecycle
+        run: npx jiti scripts/lint-flags.ts
+
       # The unit map's rules live in .dependency-cruiser.mjs; this is the
       # picture of what they currently allow.
       - name: Generate the dependency graph
