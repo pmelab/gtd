@@ -6,6 +6,7 @@
 import {
   commitAll,
   commitAsIs,
+  commitClean,
   deleteRef,
   discardPending,
   hardResetTo,
@@ -178,6 +179,21 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
     const [message] = extractQuotedTokens(conditionLine)
     if (message !== undefined && commitAll(message) === block) {
       const failure = repo.commitAllWithPrefix(message)
+      return failure === undefined
+        ? { kind: "applied" }
+        : { kind: "failed", error: failure, status: 1 }
+    }
+    return undefined
+  }
+
+  if (
+    block.startsWith(
+      'if [ -n "$(git status --porcelain --untracked-files=all --ignore-submodules=none)" ]; then\n',
+    )
+  ) {
+    const [message] = extractQuotedTokens(block.slice(block.indexOf("\nfi\n")))
+    if (message !== undefined && commitClean(message) === block) {
+      const failure = repo.commitClean(message)
       return failure === undefined
         ? { kind: "applied" }
         : { kind: "failed", error: failure, status: 1 }

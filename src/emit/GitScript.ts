@@ -24,9 +24,25 @@ const commitAllowEmpty = (message: string): string => {
   ].join("\n")
 }
 
+export const CHANGED_SINCE_LAND =
+  "gtd: the working tree changed since `gtd land` — revert the edits and run `gtd land` again to approve"
+
 /** `git add -A || exit 1` (an `&&` left side would not abort under `set -e`) then `commitAllowEmpty`. */
 export const commitAll = (message: string): string =>
   `git add -A || exit 1\n${commitAllowEmpty(message)}`
+
+/**
+ * An approval records exactly the judged tree, so it stages nothing and fails
+ * (nothing committed) when anything changed since \`gtd land\`.
+ */
+export const commitClean = (message: string): string =>
+  [
+    `if [ -n "$(git status --porcelain --untracked-files=all --ignore-submodules=none)" ]; then`,
+    `  printf '%s\\n' ${shellQuote(CHANGED_SINCE_LAND)} >&2`,
+    `  exit 1`,
+    `fi`,
+    commitAllowEmpty(message),
+  ].join("\n")
 
 /** No current caller — see `Git.ts`'s `GitWriterOperations.commitAsIs` for why it's kept anyway. */
 export const commitAsIs = (message: string): string => commitAllowEmpty(message)
@@ -129,6 +145,8 @@ const renderGitWrite = (write: GitWrite): string => {
   switch (write.kind) {
     case "commitAll":
       return commitAll(write.message)
+    case "commitClean":
+      return commitClean(write.message)
     case "updateRef":
       return updateRef(write.ref, write.target)
     case "keepTurn":

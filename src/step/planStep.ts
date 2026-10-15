@@ -87,7 +87,9 @@ export const planStep = (
         write:
           landing.keepTurn !== undefined
             ? { kind: "keepTurn", ref: landing.keepTurn, message }
-            : { kind: "commitAll", message },
+            : landing.spec.approved !== undefined
+              ? { kind: "commitClean", message }
+              : { kind: "commitAll", message },
       },
       ...(landing.keepHistory !== undefined
         ? [

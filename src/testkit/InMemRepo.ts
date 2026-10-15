@@ -1,5 +1,6 @@
-// Pure TypeScript, no Effect, no real filesystem/git.
+// No real filesystem/git.
 import { createHash } from "node:crypto"
+import { CHANGED_SINCE_LAND } from "../emit/index.js"
 
 /** Embedded in every value this fake reaches (see also `strictGitOperations`'s default message) so `scripts/assert-no-test-doubles.mjs` can catch a leak into the shipped bundle by string search. */
 export const TEST_DOUBLE_SENTINEL = "gtd:test-double:never-ship"
@@ -270,6 +271,11 @@ export class InMemRepo {
     return diffTrees(baseTree, worktreeTree)
   }
 
+  /** The index vs HEAD — the port's `stagedPaths`. */
+  stagedPaths(): Array<{ path: string; status: string }> {
+    return diffTrees(this.treeAt(undefined), this.index)
+  }
+
   diffPaths(base: string, tip: string): string[] {
     for (const ref of [base, tip]) {
       if (this.resolveRef(ref) === null) throw new Error(`Invalid ref: ${ref}`)
@@ -376,6 +382,12 @@ export class InMemRepo {
     }
     this.writeCommit(message)
     return undefined
+  }
+
+  /** Twin of `GitScript.commitClean`: stages nothing; `undefined` on success, else the stderr text. */
+  commitClean(message: string): string | undefined {
+    if (this.statusPorcelain().trim() !== "") return CHANGED_SINCE_LAND
+    return this.commitAsIs(message)
   }
 
   /** Setup commit: stages everything, and throws if a failure is seeded, as the Live tier's hooks and signer would. */

@@ -7,6 +7,7 @@ import fc from "fast-check"
 import {
   commitAll,
   commitAsIs,
+  commitClean,
   deleteRef,
   discardPending,
   fetchHistoryRefs,
@@ -70,6 +71,7 @@ const runWithFakeGit = (script: string, binDir: string): { status: number | null
 const allBuilders: ReadonlyArray<[string, string]> = [
   ["commitAll", commitAll("gtd(agent): working")],
   ["commitAsIs", commitAsIs("gtd(agent): working")],
+  ["commitClean", commitClean("gtd(human): gate → again")],
   ["softResetTo", softResetTo("HEAD~1")],
   ["mixedResetTo", mixedResetTo("HEAD~1")],
   ["hardResetTo", hardResetTo("HEAD~1")],
@@ -101,6 +103,15 @@ describe("commitAsIs", () => {
     expect(script).not.toContain("git add -A")
     expect(script).toContain("git commit --allow-empty -m 'gtd(agent): working'")
     expect(script).toContain("--no-verify")
+  })
+})
+
+describe("commitClean", () => {
+  it("a dirty tree exits 1 before any commit", () => {
+    const { binDir, counterFile } = withFakeGit(`echo " M a.txt"`)
+    const result = runWithFakeGit(commitClean("msg"), binDir)
+    expect(result.status).toBe(1)
+    expect(execFileSync("cat", [counterFile], { encoding: "utf8" }).trim()).toBe("1")
   })
 })
 

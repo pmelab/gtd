@@ -249,6 +249,14 @@ const unknownOptions = (step: ReachedStep): string | undefined => {
   return `gtd: step "${step.name}": unknown key(s) ${unknown.join(", ")} in ${step.kind}() options`
 }
 
+const approveConflict = (step: ReachedStep): string | undefined => {
+  const request = step.request
+  if (request.kind !== "human" || request.options.approve !== true) return undefined
+  const keys = (["mode", "file"] as const).filter((key) => request.options[key] !== undefined)
+  if (keys.length === 0) return undefined
+  return `gtd: step "${step.name}": approve cannot be combined with ${keys.join(", ")} in human() options — an approval records exactly the judged tree, and a steering file is rewritten on landing`
+}
+
 export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   const commits: readonly ParsedCommit[] = input.episode.commits.map((c) => ({
     ...c,
@@ -485,7 +493,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         message: `gtd: commit ${short(expected.hash)} names "${expected.name}" as the next step, but replay reached "${step.name}" — ${DIVERGED}`,
       }
     }
-    const error = unknownOptions(step) ?? checkIdentity(step)
+    const error = unknownOptions(step) ?? approveConflict(step) ?? checkIdentity(step)
     return error === undefined ? undefined : { kind: "failed", message: error }
   }
 

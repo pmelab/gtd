@@ -26,7 +26,9 @@ describe("Gtd-Approved and the history format", () => {
       to: "b",
       approved: { step: { name: "seam", occurrence: 1 }, name: "Test", email: "test@test.com" },
     })
-    expect(message).toContain("Gtd-Approved: seam#1 Test <test@test.com>")
+    expect(message).toContain(
+      'Gtd-Approved: {"step":"seam#1","name":"Test","email":"test@test.com"}',
+    )
     expect(message).toContain("Gtd-Format: 1")
     expect(parseCommitMessage(message).format).toBe(1)
   })

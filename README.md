@@ -604,11 +604,13 @@ are not process history: `gtd history` does not list them, and the
 A workflow can rest at an approval gate (`human(name, { approve: true })`; the
 `seamGate` helper does this after a `refactor-first` diff-shape judgment). Only
 a clean `gtd land` approves it, and the commit records who in a
-`Gtd-Approved: <step>#<n> <name> <<email>>` trailer; a landing with any edit is
-refused, and `gtd abandon` is the only other way out. `gtd next --json` lists
-the process's approvals as `approvals` (`[]` when none), and `gtd history show`
-prints each as `approved <step>#<n> by <name> <<email>>`. See
-[Step options](docs/configuration.md#step-options).
+`Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}` trailer;
+a landing with any edit is refused (as is a script run after the tree changed —
+revert and land again), and `gtd abandon` is the only other way out. `approve`
+cannot be combined with `mode` or `file` (refused when replay reaches the step).
+`gtd next --json` lists the process's approvals as `approvals` (`[]` when none),
+and `gtd history show` prints each as `approved <step>#<n> by <name> <<email>>`.
+See [Step options](docs/configuration.md#step-options).
 
 ## Entrypoints
 

@@ -962,6 +962,17 @@ const setupFor = (
     return { resolved, def, vars, env, setup }
   })
 
+// Only an approval gate counts an index-only edit (one staged, then reverted
+// in the worktree): its approval must cover exactly the judged diff. Every
+// other rest keeps the worktree's view, so a net-zero turn stays an attempt.
+const pendingChanges = (git: GitOperations, withIndex: boolean) =>
+  Effect.gen(function* () {
+    const worktree = yield* git.changedPaths()
+    if (!withIndex) return worktree
+    const seen = new Set(worktree.map((e) => e.path))
+    return [...worktree, ...(yield* git.stagedPaths()).filter((e) => !seen.has(e.path))]
+  })
+
 /** Resolve the rest at `ref`, or at HEAD when `ref` is `undefined`. */
 export const restAt = (
   ref: string | undefined,
@@ -1003,7 +1014,7 @@ export const restAt = (
     }
     const changes =
       ref === undefined
-        ? (yield* git.changedPaths()).map((e) => ({
+        ? (yield* pendingChanges(git, stepDef.approve === true)).map((e) => ({
             status: normalizeStatus(e.status),
             path: e.path,
           }))
@@ -1156,7 +1167,7 @@ const approvalRefusal = (rest: Rest, approver: Option.Option<AuthorIdent>): Land
   if (!isRecordableApproval({ step: id, ...approver.value })) {
     return {
       kind: "refusal",
-      message: `gtd land: approval-gate: ${formatStepId(id)} cannot record ${approver.value.name} <${approver.value.email}> as approver — the name or email has a control character`,
+      message: `gtd land: approval-gate: ${formatStepId(id)} cannot record ${approver.value.name} <${approver.value.email}> as approver — it would not read back unchanged from its Gtd-Approved trailer (a control character, for example)`,
     }
   }
   return undefined

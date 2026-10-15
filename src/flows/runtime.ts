@@ -41,8 +41,9 @@ export interface HumanOptions extends SteeringOptions {
   readonly acceptClean?: boolean | undefined
   /**
    * A sign-off gate: only a clean landing completes it, and that commit
-   * carries `Gtd-Approved: <step>#<n> <name> <<email>>`. A dirty landing is
-   * refused. Implies `acceptClean`.
+   * carries `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}`.
+   * A dirty landing is refused. Implies `acceptClean`. Cannot be combined with
+   * `mode` or `file`: an approval records exactly the judged tree.
    */
   readonly approve?: boolean | undefined
 }

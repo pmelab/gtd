@@ -1127,6 +1127,37 @@ describe("human({ approve })", () => {
     }
   })
 
+  describe("refuses mode and file", () => {
+    const tail =
+      "in human() options — an approval records exactly the judged tree, and a steering file is rewritten on landing"
+    const outcomeOf = async (options: Record<string, unknown>) =>
+      replayOf(async () => {
+        await human("gate", options as never)
+      }, new History())
+
+    it.each([
+      [{ approve: true, mode: "review" }, "mode"],
+      [{ approve: true, file: ".gtd/REVIEW.md" }, "file"],
+      [{ approve: true, mode: "review", file: ".gtd/REVIEW.md" }, "mode, file"],
+    ])("fails on %j naming %s", async (options, keys) => {
+      expect(await outcomeOf(options)).toEqual({
+        kind: "failed",
+        message: `gtd: step "gate": approve cannot be combined with ${keys} ${tail}`,
+      })
+    })
+
+    it("replays approve with label or base, and approve: false with mode", async () => {
+      for (const options of [
+        { approve: true, label: "x" },
+        { approve: true, base: "start" },
+        { approve: false, mode: "review" },
+        { approve: true, mode: undefined },
+      ]) {
+        expect((await outcomeOf(options)).kind).toBe("rest")
+      }
+    })
+  })
+
   it("does not demand Gtd-Approved at a plain human step", async () => {
     const h = new History().land("human", "plain", 1, "after")
     const outcome = await replayOf(async () => {

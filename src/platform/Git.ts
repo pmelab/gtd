@@ -95,6 +95,15 @@ export interface GitReaderOperations {
     base?: string,
   ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
   /**
+   * The index vs `HEAD`, as `{path, status}` pairs — what a commit would carry
+   * that `changedPaths` misses when the worktree reverted a staged edit. Empty
+   * before the first commit.
+   */
+  readonly stagedPaths: () => Effect.Effect<
+    ReadonlyArray<{ readonly path: string; readonly status: string }>,
+    Error
+  >
+  /**
    * Paths whose content differs between the trees of `base` and `tip`: added,
    * modified and deleted alike; a rename reports both paths (no rename
    * detection); a submodule pointer change reports the submodule path whatever
@@ -457,6 +466,12 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         }
         return all
       }),
+
+    stagedPaths: () =>
+      exec("git", "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD").pipe(
+        Effect.catchAll(() => Effect.succeed("")),
+        Effect.map((out) => parseNameStatus(splitNul(out))),
+      ),
 
     resolveRef: (ref: string) =>
       exec("git", "rev-parse", "--verify", "--end-of-options", ref).pipe(

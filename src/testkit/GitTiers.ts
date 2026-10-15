@@ -23,6 +23,7 @@ import { Narrator, GitService, Host, type GitOperations } from "../platform/inde
 import {
   commitAll,
   commitAsIs,
+  commitClean,
   softResetTo,
   mixedResetTo,
   hardResetTo,
@@ -409,6 +410,7 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "subjectHistory",
   "readFileAtRef",
   "changedPaths",
+  "stagedPaths",
   "diffPaths",
   "authorIdent",
   "commitAllWithPrefix",
@@ -482,6 +484,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
         g.readFileAtRef("HEAD", "second.txt"),
         g.changedPaths(),
         g.changedPaths("HEAD~1"),
+        g.stagedPaths(),
         g.diffPaths("HEAD~1", "HEAD"),
         g.authorIdent(),
       ]),
@@ -1073,6 +1076,14 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       expect(await runGit(t, (g) => g.changedPaths())).toEqual([])
     })
 
+    it("ignores an edit staged and then reverted in the worktree", async () => {
+      t.seed.commit("chore: seed", { "a.txt": "1" })
+      t.seed.writeFile("a.txt", "2")
+      t.seed.stageAll()
+      t.seed.writeFile("a.txt", "1")
+      expect(await runGit(t, (g) => g.changedPaths())).toEqual([])
+    })
+
     for (const { label, path } of PATHOLOGICAL_PATHS) {
       it(`reports an untracked path containing ${label}, verbatim`, async () => {
         t.seed.writeFile(path, "content")
@@ -1171,6 +1182,35 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
           { path: "REVIEW.md", status: "M" },
         ])
       })
+    })
+  })
+
+  describe("stagedPaths", () => {
+    it("returns [] when the index matches HEAD, whatever the worktree holds", async () => {
+      t.seed.commit("chore: seed", { "a.txt": "1" })
+      t.seed.writeFile("a.txt", "2")
+      t.seed.writeFile("u.txt", "u")
+      expect(await runGit(t, (g) => g.stagedPaths())).toEqual([])
+    })
+
+    it("reports an edit staged and then reverted in the worktree", async () => {
+      t.seed.commit("chore: seed", { "a.txt": "1" })
+      t.seed.writeFile("a.txt", "2")
+      t.seed.stageAll()
+      t.seed.writeFile("a.txt", "1")
+      expect(await runGit(t, (g) => g.stagedPaths())).toEqual([{ path: "a.txt", status: "M" }])
+    })
+
+    it("reports staged additions and deletions", async () => {
+      t.seed.commit("chore: seed", { "gone.txt": "g" })
+      t.seed.deleteFile("gone.txt")
+      t.seed.writeFile("new.txt", "n")
+      t.seed.stageAll()
+      const staged = await runGit(t, (g) => g.stagedPaths())
+      expect([...staged].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+        { path: "gone.txt", status: "D" },
+        { path: "new.txt", status: "A" },
+      ])
     })
   })
 
@@ -1294,6 +1334,55 @@ export const runGitScriptContract = (makeTier: () => GitTier): void => {
       expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
       expect(t.observe.headSubject()).toBe("gtd: grilled")
     })
+  })
+
+  describe("commitClean", () => {
+    it("on a clean tree commits an empty commit with the message", () => {
+      const headBefore = t.observe.resolveRef("HEAD")
+      run(t, commitClean("gtd(human): gate → again"))
+      expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
+      expect(t.observe.headSubject()).toBe("gtd(human): gate → again")
+      expect(t.observe.headTouchedPaths()).toEqual([])
+    })
+
+    const refused = (name: string, dirty: () => void, pending: string): void => {
+      it(`${name}: fails, HEAD unchanged, edit still pending`, () => {
+        dirty()
+        const headBefore = t.observe.resolveRef("HEAD")
+        const result = t.runScript(commitClean("gtd(human): gate → again"))
+        expect(result.ok).toBe(false)
+        expect(result.output).toContain("changed since `gtd land`")
+        expect(t.observe.resolveRef("HEAD")).toBe(headBefore)
+        expect(t.observe.statusPorcelain()).toContain(pending)
+      })
+    }
+    refused(
+      "a modified tracked file",
+      () => {
+        t.seed.commit("feat: base", { "a.txt": "1" })
+        t.seed.writeFile("a.txt", "2")
+      },
+      "a.txt",
+    )
+    refused(
+      "a staged change",
+      () => {
+        t.seed.writeFile("s.txt", "s")
+        t.seed.stageAll()
+      },
+      "s.txt",
+    )
+    refused("an untracked file", () => t.seed.writeFile("u.txt", "u"), "u.txt")
+    refused(
+      "an edit staged then reverted in the worktree",
+      () => {
+        t.seed.commit("feat: base", { "a.txt": "1" })
+        t.seed.writeFile("a.txt", "2")
+        t.seed.stageAll()
+        t.seed.writeFile("a.txt", "1")
+      },
+      "a.txt",
+    )
   })
 
   describe("commitAsIs", () => {

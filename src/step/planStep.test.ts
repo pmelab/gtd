@@ -131,6 +131,38 @@ describe("planStep — keepHistory", () => {
   })
 })
 
+describe("planStep — approval landing", () => {
+  const approved = { step: { name: "gate", occurrence: 1 }, name: "Ada", email: "ada@x.io" }
+
+  it("commits with commitClean when the landing records an approval", () => {
+    const base = commitTo("gate", "again")
+    const s = snapshot({
+      state: "gate",
+      stepDef: {},
+      landing: { ...base, spec: { ...base.spec, approved } },
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    expect(outcome.steps[0]).toMatchObject({ write: { kind: "commitClean" } })
+  })
+
+  it("a finishing approval still points the history ref after the commitClean write", () => {
+    const base = commitTo("gate", "idle")
+    const s = snapshot({
+      state: "gate",
+      stepDef: {},
+      landing: { ...base, spec: { ...base.spec, approved }, keepHistory: "refs/gtd/history/abc" },
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    expect(outcome.steps.map((x) => (x.kind === "gitWrite" ? x.write.kind : x.kind))).toEqual([
+      "commitClean",
+      "updateRef",
+      "outcome",
+    ])
+  })
+})
+
 describe("planStep — keepTurn", () => {
   const kept = "refs/gtd/kept/abc/building"
 

@@ -77,6 +77,8 @@ const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations =>
 
   changedPaths: (base?: string) => Effect.succeed(repo.changedPathsWorktree(base)),
 
+  stagedPaths: () => Effect.succeed(repo.stagedPaths()),
+
   diffPaths: (base: string, tip: string) => tryCatch(() => repo.diffPaths(base, tip)),
 
   // The identity `GitTiers`' live tier configures; the fake commits as no one in particular.

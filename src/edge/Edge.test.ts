@@ -1434,6 +1434,31 @@ export default async () => {
     expect(headOf(repo)).toBe(head)
   })
 
+  const stageThenRevert = (repo: InMemRepo): void => {
+    repo.writeFile("src/a.ts", "edited\n")
+    repo.stageAll()
+    repo.writeFile("src/a.ts", "a\n")
+  }
+
+  it("refuses an edit staged and then reverted in the worktree", async () => {
+    const repo = await atGate()
+    stageThenRevert(repo)
+    expect((await snapshotAt(repo)).landing).toMatchObject({
+      kind: "refusal",
+      message: expect.stringContaining("approves exactly the judged diff"),
+    })
+  })
+
+  it("counts no index-only edit at a rest that approves nothing", async () => {
+    const repo = await atGate()
+    await land(repo)
+    stageThenRevert(repo)
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("after")
+    expect(rest.changes).toEqual([])
+    expect((await snapshotAt(repo)).landing).toEqual({ kind: "noop", settled: false })
+  })
+
   it("refuses a clean tree when git has no author identity", async () => {
     const repo = await atGate()
     const git = { ...fakeGitOperations(repo), authorIdent: () => Effect.succeed(Option.none()) }
@@ -1451,7 +1476,11 @@ export default async () => {
       ...fakeGitOperations(repo),
       authorIdent: () => Effect.succeed(Option.some({ name: "Ada\u001b[31m", email: "a@x.io" })),
     }
-    expect((await snapshotAt(repo, git)).landing.kind).toBe("refusal")
+    expect((await snapshotAt(repo, git)).landing).toEqual({
+      kind: "refusal",
+      message:
+        "gtd land: approval-gate: gate#1 cannot record Ada\u001b[31m <a@x.io> as approver — it would not read back unchanged from its Gtd-Approved trailer (a control character, for example)",
+    })
   })
 
   it("approve implies acceptClean even when acceptClean is false", async () => {
@@ -1494,7 +1523,9 @@ export default async () => {
   it("resumes past the approval commit without asking again", async () => {
     const repo = await atGate()
     await land(repo)
-    expect(repo.lastCommitMessage()).toContain("Gtd-Approved: gate#1 Test <test@test.com>")
+    expect(repo.lastCommitMessage()).toContain(
+      'Gtd-Approved: {"step":"gate#1","name":"Test","email":"test@test.com"}',
+    )
     expect((await provide(currentRest, repo)).state).toBe("after")
   })
 })

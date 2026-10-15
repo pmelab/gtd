@@ -24,14 +24,16 @@ An approval gate (`approve: true`, the one `seamGate` rests at after a
 `refactor-first` judgment) is the strictest case: its `message` is a seam report
 listing the strays the judge saw, and it asks you to land a clean tree with
 `gtd land` to approve, or `gtd abandon` to stop. Any edit makes the landing
-refuse with exit `1`, so the gate stays. Re-running a driver that lands its
+refuse with exit `1`, so the gate stays. An edit made after `gtd land` printed
+its script but before the script ran makes the script itself fail with nothing
+committed: revert the edit and land again. Re-running a driver that lands its
 opening beat approves the gate — read the report first; the commit records who
-approved it in a `Gtd-Approved:` trailer. `gtd next --json`'s `approvals` lists
-them for the current process (`[]` when none): `{ step, name, email, commit }`,
-oldest first. Landing an opening beat at a gate without `acceptClean` is
-harmless — a benign no-op (see `gtd land`'s exit codes below) — and the gate
-then prints on the next beat. A mid-process restart simply resumes driving from
-whatever beat is actually next.
+approved it in a JSON `Gtd-Approved:` trailer. `gtd next --json`'s `approvals`
+lists them for the current process (`[]` when none):
+`{ step, name, email, commit }`, oldest first. Landing an opening beat at a gate
+without `acceptClean` is harmless — a benign no-op (see `gtd land`'s exit codes
+below) — and the gate then prints on the next beat. A mid-process restart simply
+resumes driving from whatever beat is actually next.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around the driver,

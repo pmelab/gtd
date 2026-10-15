@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { formatCommitMessage, parseCommitMessage, parseSubject } from "./Trailers.js"
+import {
+  formatCommitMessage,
+  isRecordableApproval,
+  parseCommitMessage,
+  parseSubject,
+} from "./Trailers.js"
 
 describe("the commit-message codec", () => {
   it("round-trips a step commit's subject and trailers", () => {
@@ -180,8 +185,9 @@ describe("Gtd-Approved", () => {
     name: "Ada Lovelace",
     email: "ada@x.io",
   }
+  const line = (value: string) => `gtd(human): a → b\n\nGtd-Approved: ${value}`
 
-  it("is written between Gtd-Judge and Gtd-Branch and round-trips", () => {
+  it("is written as one JSON line between Gtd-Judge and Gtd-Branch and round-trips", () => {
     const message = formatCommitMessage({
       actor: "human",
       to: "next",
@@ -192,63 +198,87 @@ describe("Gtd-Approved", () => {
       approved,
     })
     const lines = message.split("\n")
-    const at = lines.indexOf("Gtd-Approved: seam#2 Ada Lovelace <ada@x.io>")
+    const at = lines.indexOf(
+      'Gtd-Approved: {"step":"seam#2","name":"Ada Lovelace","email":"ada@x.io"}',
+    )
     expect(at).toBeGreaterThan(-1)
     expect(lines[at - 1]).toMatch(/^Gtd-Judge:/)
     expect(lines[at + 1]).toBe("Gtd-Branch: feat")
     expect(parseCommitMessage(message).approved).toEqual(approved)
   })
 
-  it("parses a scoped step name", () => {
-    const parsed = parseCommitMessage(
-      "gtd(human): a → b\n\nGtd-Approved: pkg.seam#1 Test <test@test.com>",
-    )
-    expect(parsed.approved).toEqual({
-      step: { name: "pkg.seam", occurrence: 1 },
-      name: "Test",
-      email: "test@test.com",
-    })
+  it.each([
+    ["a plain step", "seam"],
+    ["a step with a space and hash", "phase#1 review"],
+    ["a step with angle brackets", "a <b> c"],
+    ["a scoped step", "pkg.seam"],
+    ["a quote/backslash approver name", "seam", 'Ada "A" \\ L'],
+  ])("round-trips %s", (_label, stepName, approver = "Ada") => {
+    const a = { step: { name: stepName, occurrence: 3 }, name: approver, email: "a@x.io" }
+    expect(
+      parseCommitMessage(formatCommitMessage({ actor: "human", to: "b", approved: a })).approved,
+    ).toEqual(a)
   })
 
-  it("parses a malformed value to undefined", () => {
+  it("reads undefined for the old shape, non-objects and bad fields", () => {
     for (const value of [
-      "seam Ada <a@x.io>",
-      "seam#0 Ada <a@x.io>",
-      "seam#1 Ada",
-      "seam#1 <a@x.io>",
-      "seam#1 Ada <>",
+      "seam#1 Ada <a@x.io>",
       "",
+      "[]",
+      '"x"',
+      "null",
+      '{"step":"seam#1","name":"Ada"}',
+      '{"step":"seam#1","name":"Ada","email":1}',
+      '{"step":"seam","name":"Ada","email":"a@x.io"}',
+      '{"step":"seam#0","name":"Ada","email":"a@x.io"}',
     ]) {
-      expect(parseCommitMessage(`gtd(human): a → b\n\nGtd-Approved: ${value}`).approved).toBe(
-        undefined,
-      )
+      expect(parseCommitMessage(line(value)).approved).toBe(undefined)
     }
   })
 
-  it("parses a step name with a space", () => {
-    const parsed = parseCommitMessage(
-      "gtd(human): a → b\n\nGtd-Approved: seam gate#1 Ada L <a b@x.io>",
-    )
-    expect(parsed.approved).toEqual({
-      step: { name: "seam gate", occurrence: 1 },
-      name: "Ada L",
-      email: "a b@x.io",
-    })
-  })
-
-  it("parses a control-character value to undefined", () => {
-    const value = "seam#1 Ada\u001b[31m <a@x.io>"
-    expect(parseCommitMessage(`gtd(human): a → b\n\nGtd-Approved: ${value}`).approved).toBe(
-      undefined,
-    )
-    expect(
-      parseCommitMessage("gtd(human): a → b\n\nGtd-Approved: seam#1 Ada <a\u0007@x.io>").approved,
-    ).toBe(undefined)
+  it("reads undefined for a control character in any field", () => {
+    for (const json of [
+      '{"step":"se\\u001bam#1","name":"Ada","email":"a@x.io"}',
+      '{"step":"seam#1","name":"Ada\\u0007","email":"a@x.io"}',
+      '{"step":"seam#1","name":"Ada","email":"a\\u0085@x.io"}',
+    ]) {
+      expect(parseCommitMessage(line(json)).approved).toBe(undefined)
+    }
   })
 
   it("reads undefined when absent", () => {
     expect(parseCommitMessage(formatCommitMessage({ actor: "agent", to: "b" })).approved).toBe(
       undefined,
     )
+  })
+})
+
+describe("isRecordableApproval", () => {
+  const of = (name: string, email: string, occurrence = 1) => ({
+    step: { name: "gate", occurrence },
+    name,
+    email,
+  })
+
+  it("accepts ordinary, quoted, backslashed and angle-bracketed identities", () => {
+    for (const name of ["Ada", 'A "B"', "A\\B", "A <B>"]) {
+      expect(isRecordableApproval(of(name, "a@x.io"))).toBe(true)
+    }
+    expect(isRecordableApproval(of("Ada", "a<b>@x.io"))).toBe(true)
+  })
+
+  it("refuses a C1 control character in name or email", () => {
+    expect(isRecordableApproval(of("Ada\u0085", "a@x.io"))).toBe(false)
+    expect(isRecordableApproval(of("Ada", "a\u0085@x.io"))).toBe(false)
+  })
+
+  it("refuses a JS line terminator that would split the trailer on read", () => {
+    const name = "x\u2028Gtd-Branch: forged\u2028"
+    expect(isRecordableApproval(of(name, "a@x.io"))).toBe(false)
+    expect(isRecordableApproval(of("Ada", "a\u2029@x.io"))).toBe(false)
+  })
+
+  it("refuses an occurrence that does not read back", () => {
+    expect(isRecordableApproval(of("Ada", "a@x.io", 0))).toBe(false)
   })
 })

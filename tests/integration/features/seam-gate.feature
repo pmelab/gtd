@@ -98,9 +98,32 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): gate → again"
-    And the last commit body contains "Gtd-Approved: gate#1 Test <test@test.com>"
+    And the last commit body contains 'Gtd-Approved: {"step":"gate#1","name":"Test","email":"test@test.com"}'
     And the last commit body does not contain "Signed-off-by:"
     And the last commit body contains "Gtd-Format: 1"
+
+  @inmem
+  Scenario: a tree edited between gtd land and its script fails the script and the gate stays
+    Given gtd lands "gtd(human): idle → shape"
+    And gtd lands "gtd(judge): shape → gate" judging:
+      """
+      [{"id":"shape","answer":"refactor-first","p":0.9}]
+      """
+    And I record the commit count
+    When I save the gtd land script without running it
+    And a file "src/edit.ts" with:
+      """
+      export const edit = 1
+      """
+    And I run the saved script
+    Then it fails
+    And stderr contains "the working tree changed since `gtd land`"
+    And the commit count is unchanged
+    When I run gtd next with "--json=state"
+    Then stdout is:
+      """
+      gate
+      """
 
   @inmem
   Scenario: a dirty land is refused and the gate stays
@@ -126,6 +149,32 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
       """
 
   @inmem
+  Scenario: an edit staged and then reverted is refused by gtd land, not by the script
+    Given a file "src/edit.ts" with:
+      """
+      export const edit = 1
+      """
+    And gtd lands "gtd(human): idle → shape"
+    And gtd lands "gtd(judge): shape → gate" judging:
+      """
+      [{"id":"shape","answer":"refactor-first","p":0.9}]
+      """
+    And a file "src/edit.ts" with:
+      """
+      export const edit = 2
+      """
+    And "src/edit.ts" is staged
+    And a file "src/edit.ts" with:
+      """
+      export const edit = 1
+      """
+    And I record the commit count
+    When I run gtd land
+    Then it fails
+    And stderr contains "approval-gate: gate#1 approves exactly the judged diff"
+    And the commit count is unchanged
+
+  @inmem
   Scenario: after approval the process rests past the gate and a second refactor-first rests as #2
     Given gtd lands "gtd(human): idle → shape"
     And gtd lands "gtd(judge): shape → gate" judging:
@@ -143,8 +192,36 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): gate → after"
-    And the last commit body contains "Gtd-Approved: gate#2 Test <test@test.com>"
+    And the last commit body contains 'Gtd-Approved: {"step":"gate#2","name":"Test","email":"test@test.com"}'
     And the process rests at "after"
+
+  @inmem
+  Scenario: approving a gate whose name contains a step-id separator lands clean and reads back
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await human("phase#1 review", { message: "sign off", approve: true })
+        await agent("after", "carry on")
+      }
+      """
+    And the working tree is committed as "chore: gtd config"
+    And a file "NOTE.md" with:
+      """
+      Build another thing.
+      """
+    And gtd lands "gtd(human): idle → phase#1 review"
+    When I run gtd land
+    Then it succeeds
+    And the last commit body contains '"step":"phase#1 review#1"'
+    And the process rests at "after"
+    When I run gtd next with "--json=approvals.0.step"
+    Then stdout is:
+      """
+      phase#1 review#1
+      """
 
   @inmem
   Scenario: gtd next lists the approval only after the gate is approved
@@ -201,3 +278,17 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
       """
       gate#1
       """
+
+  @inmem
+  Scenario: approve combined with mode and file is refused naming the step and both
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("gate", { approve: true, mode: "review", file: ".gtd/REVIEW.md" })
+      }
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains 'step "gate": approve cannot be combined with mode, file in human() options'
