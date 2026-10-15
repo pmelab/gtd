@@ -407,6 +407,15 @@ export default {
       to: { dependencyTypes: ["core"] },
     },
 
+    {
+      name: "flags-only-at-composition-points",
+      comment:
+        "src/flags/ is value-imported only by src/main.ts, src/program.ts, src/cli/Cli.ts and itself; type-only imports and test support are exempt.",
+      severity: "error",
+      from: { pathNot: [...testSupport, "^src/flags/", ...compositionRoots, "^src/cli/Cli\\.ts$"] },
+      to: { path: "^src/flags/", dependencyTypesNot: ["type-only"] },
+    },
+
     // --- spec 21 ---
     {
       name: "composition-roots-load-tools-lazily",

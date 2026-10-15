@@ -412,4 +412,20 @@ describe("spec 20: the unit map", () => {
       "ui-tests-import-only-contracts-and-platform: src/ui/Server.test.ts -> src/cli/index.ts",
     ])
   })
+
+  it("lets only composition roots and Cli.ts value-import src/flags/", () => {
+    const barrel = `import { flags } from "../flags/index.js"\nexport const x = flags\n`
+    expect(
+      cruiseFiles({
+        "src/flags/index.ts": `export const flags = 1\nexport type Flags = number\n`,
+        "src/flags/extra.ts": `import { flags } from "./index.js"\nexport const extra = flags\n`,
+        "src/cli/Cli.ts": barrel,
+        "src/program.ts": `import { flags } from "./flags/index.js"\nexport const program = flags\n`,
+        "src/main.ts": `import { flags } from "./flags/index.js"\nexport const main = flags\n`,
+        "src/cli/Cli.test.ts": barrel,
+        "src/cli/Types.ts": `import type { Flags } from "../flags/index.js"\nexport type R = Flags\n`,
+        "src/cli/Other.ts": barrel,
+      }),
+    ).toEqual(["flags-only-at-composition-points: src/cli/Other.ts -> src/flags/index.ts"])
+  })
 })
