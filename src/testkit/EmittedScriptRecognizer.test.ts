@@ -5,6 +5,7 @@ import {
   deleteRef,
   discardPending,
   hardResetTo,
+  keepTurn,
   mixedResetTo,
   softResetTo,
   updateRef,
@@ -634,5 +635,32 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
     const result = applyEmittedScript(repo, NO_COMMANDS, script)
     expect(result.ok).toBe(false)
     expect(result.error).toContain("totally-unrecognized-required-command")
+  })
+})
+
+describe("applyEmittedScript — keepTurn", () => {
+  const MESSAGE = "gtd(agent): a → b\n\nGtd-Step: a#1\nGtd-Format: 1"
+  const REF = "refs/gtd/kept/entry/a"
+
+  const seeded = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile("base.txt", "0")
+    repo.commitAllWithPrefix("chore: first")
+    repo.writeFile("turn.txt", "1")
+    return repo
+  }
+
+  it("fails loudly on a near-miss and applies nothing", () => {
+    const repo = seeded()
+    const before = snapshot(repo)
+    const nearMiss = keepTurn(REF, MESSAGE).replace(
+      "git reset --hard HEAD",
+      "git reset --soft HEAD",
+    )
+    const result = applyEmittedScript(repo, NO_COMMANDS, nearMiss)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("unrecognized script block")
+    expect(snapshot(repo)).toEqual(before)
+    expect(repo.resolveRef(REF)).toBeNull()
   })
 })

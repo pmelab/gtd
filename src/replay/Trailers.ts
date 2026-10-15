@@ -75,6 +75,8 @@ export interface CommitMessage {
   /** Written only on a process's finishing landing. */
   readonly branch: string | undefined
   readonly version: string | undefined
+  /** The off-branch tip a keep step set aside; a non-hash value is skipped. */
+  readonly kept: string | undefined
   readonly format: number
 }
 
@@ -114,6 +116,7 @@ const decodePath = (raw: string): string | undefined => {
   return typeof path === "string" && path !== "" && !CONTROL_CHARACTER.test(path) ? path : undefined
 }
 const FORMAT_RE = /^[1-9][0-9]*$/
+const HASH_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 
 interface Trailers {
   step: StepId | undefined
@@ -121,6 +124,7 @@ interface Trailers {
   reviewBase: string | undefined
   branch: string | undefined
   version: string | undefined
+  kept: string | undefined
   readonly judge: JudgeVerdict[]
   readonly vars: Record<string, string>
   readonly config: Record<string, string>
@@ -157,6 +161,9 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Version": (value, into) => {
     if (value !== "") into.version ??= value
   },
+  "Gtd-Kept": (value, into) => {
+    if (HASH_RE.test(value)) into.kept ??= value
+  },
   "Gtd-Format": (value, into) => {
     if (FORMAT_RE.test(value)) into.format ??= Number(value)
   },
@@ -175,6 +182,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     reviewBase: undefined,
     branch: undefined,
     version: undefined,
+    kept: undefined,
     judge: [],
     vars: {},
     config: {},

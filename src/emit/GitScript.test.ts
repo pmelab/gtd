@@ -11,6 +11,7 @@ import {
   discardPending,
   fetchHistoryRefs,
   hardResetTo,
+  keepTurn,
   mixedResetTo,
   pathspec,
   ScriptSurface,
@@ -74,6 +75,7 @@ const allBuilders: ReadonlyArray<[string, string]> = [
   ["hardResetTo", hardResetTo("HEAD~1")],
   ["discardPending", discardPending()],
   ["updateRef", updateRef("refs/worktree/gtd/review-head", "abc123")],
+  ["keepTurn", keepTurn("refs/gtd/kept/abc/build.naive", "gtd(agent): it's done\n\nGtd-Format: 1")],
   ["deleteRef", deleteRef("refs/worktree/gtd/review-head")],
 ]
 

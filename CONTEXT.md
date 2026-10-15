@@ -221,6 +221,11 @@ rewinds an in-flight process. _Avoid_ for a finished process: see
 distinct from [retained history](#retained-history), which `gtd restore`
 consumes.
 
+**Kept tip**: A `keep: true` agent step's turn, set aside off the branch at
+`refs/gtd/kept/<entry>/<step>/<hash>`; the branch gets an empty marker commit
+carrying `Gtd-Kept: <hash>` instead. Never listed by `gtd history`, never
+deleted by a landing. _Avoid_: beat tip, discarded tip.
+
 **Process setting**: A flat string value flow code reads as `vars` and may
 branch on — the workflow's `defaults` (a factory option, for the shipped
 workflows), then the `--var` on `--workflow`, then `GTD_<NAME>`. Resolved once

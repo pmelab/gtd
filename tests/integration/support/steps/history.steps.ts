@@ -139,3 +139,99 @@ Given("the working tree is committed as {string}", (world: GtdWorld, message: st
     git(world, "commit", "-q", "--allow-empty", "-m", message)
   }
 })
+
+// A kept tip lives off the branch under refs/gtd/kept/<entry>/<step>/<hash>;
+// the last commit's Gtd-Kept names the pass, and marking it names it for the
+// plain commit-comparing steps below.
+const lastMessage = (world: GtdWorld): string =>
+  world.tier === "inmem"
+    ? (world.repo!.lastCommitMessage() ?? "")
+    : git(world, "log", "-1", "--format=%B")
+
+const assertKeptRef = (world: GtdWorld, ref: string, tip: string, name: string): void => {
+  if (world.tier !== "inmem") return void git(world, "branch", name, ref)
+  assert.strictEqual(world.repo!.resolveRef(ref), tip, `Expected ${ref} to exist`)
+  world.repo!.updateRef(name, tip)
+}
+
+Given(
+  "I mark the kept ref of {string} for step {string} as {string}",
+  (world: GtdWorld, entry: string, step: string, name: string) => {
+    const tip = /Gtd-Kept: ([0-9a-f]+)/.exec(lastMessage(world))?.[1]
+    assert.ok(tip, "Expected the last commit to carry Gtd-Kept")
+    assertKeptRef(world, `refs/gtd/kept/${hashOf(world, entry)}/${step}/${tip}`, tip, name)
+  },
+)
+
+const fileAt = (world: GtdWorld, name: string, path: string): string | undefined => {
+  if (world.tier === "inmem") return world.repo!.fileAtRef(name, path) ?? undefined
+  try {
+    return git(world, "show", `${name}:${path}`)
+  } catch {
+    return undefined
+  }
+}
+
+Then(
+  "{string} at {string} contains {string}",
+  (world: GtdWorld, path: string, name: string, text: string) => {
+    const content = fileAt(world, name, path)
+    assert.ok(content?.includes(text), `Expected "${path}" at "${name}" to contain "${text}".`)
+  },
+)
+
+Then("{string} is not in the tree of {string}", (world: GtdWorld, path: string, name: string) => {
+  assert.strictEqual(fileAt(world, name, path), undefined, `Expected "${name}" to lack "${path}".`)
+})
+
+Then("the parent of {string} is {string}", (world: GtdWorld, name: string, parent: string) => {
+  const hash = hashOf(world, name)
+  const actual =
+    world.tier === "inmem"
+      ? world.repo!.resolveRef(`${hash}^`)
+      : git(world, "rev-parse", `${hash}^`)
+  assert.strictEqual(
+    actual,
+    hashOf(world, parent),
+    `Expected the parent of "${name}" to be "${parent}".`,
+  )
+})
+
+Then(
+  "the last commit body contains {string} followed by the hash of {string}",
+  (world: GtdWorld, text: string, name: string) => {
+    const expected = `${text}${hashOf(world, name)}`
+    const body = world.lastCommitBody()
+    assert.ok(
+      body.includes(expected),
+      `Expected last commit body to contain "${expected}". Got:\n${body}`,
+    )
+  },
+)
+
+Then(
+  "no commit on the first-parent log since {string} touches {string}",
+  (world: GtdWorld, since: string, path: string) => {
+    const base = hashOf(world, since)
+    const touching =
+      world.tier === "inmem"
+        ? world
+            .repo!.commitHistory(base)
+            .filter((c) => c.touched.includes(path))
+            .map((c) => c.hash)
+        : git(world, "log", "--first-parent", "--format=%H", `${base}..HEAD`, "--", path)
+            .split("\n")
+            .filter((line) => line !== "")
+    assert.deepStrictEqual(touching, [], `Expected no commit since "${since}" to touch "${path}".`)
+  },
+)
+
+Then("no ref exists under {string}", (world: GtdWorld, prefix: string) => {
+  const refs =
+    world.tier === "inmem"
+      ? world.repo!.listRefs(prefix).map((r) => r.ref)
+      : git(world, "for-each-ref", "--format=%(refname)", prefix)
+          .split("\n")
+          .filter((line) => line !== "")
+  assert.deepStrictEqual(refs, [], `Expected no ref under ${prefix}.`)
+})

@@ -9,6 +9,9 @@ export const PROCESS_HISTORY_PREFIX = "refs/gtd/history/"
 
 export const processHistoryRef = (hash: string): string => `${PROCESS_HISTORY_PREFIX}${hash}`
 
+/** Directory of a step's turns set aside by `keep: true`, each at `<this>/<kept hash>`; own namespace, so history list/show/fetch never see it. */
+export const keptRef = (entry: string, step: string): string => `refs/gtd/kept/${entry}/${step}`
+
 export const readRetainedHistory = (
   git: GitOperations,
 ): Effect.Effect<Option.Option<string>, Error> => git.readRefOption(HISTORY_REF)

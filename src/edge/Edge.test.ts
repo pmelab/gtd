@@ -19,7 +19,7 @@ import {
   type RestRequirements,
 } from "./Edge.js"
 import { GTD_VERSION } from "../install/index.js"
-import { processHistoryRef } from "../platform/index.js"
+import { keptRef, processHistoryRef } from "../platform/index.js"
 import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
 import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
 import { contentHash } from "../workflow/index.js"
@@ -1143,6 +1143,103 @@ export const side = async () => {
     repo.updateRef(ref, building)
     const tip = await land(repo, { "c.txt": "c\n" })
     expect(repo.resolveRef(ref)).toBe(tip)
+  })
+})
+
+describe("keep steps", () => {
+  const KEEP = `import { agent, human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await agent("building", "build-prompt", { keep: true })
+  await agent("checking", "check-prompt")
+}
+`
+
+  const snapshotOf = async (repo: InMemRepo) =>
+    (await provide(snapshotFromRest(await provide(currentRest, repo)), repo)).landing
+
+  it("landing at a keep step carries keepTurn under refs/gtd/kept/<startHash>/<step>", async () => {
+    const repo = repoWith(KEEP)
+    const building = await land(repo, { "a.txt": "a\n" })
+    repo.writeFile("naive.txt", "naive\n")
+    const landing = await snapshotOf(repo)
+    if (landing.kind !== "commit") throw new Error(`expected commit, got ${landing.kind}`)
+    expect(landing.to).toBe("checking")
+    expect(landing.keepTurn).toBe(keptRef(building, "building"))
+    expect(landing.keepTurn).toBe(`refs/gtd/kept/${building}/building`)
+  })
+
+  it("a landing at a step that does not keep carries no keepTurn", async () => {
+    const repo = repoWith(KEEP)
+    repo.writeFile("a.txt", "a\n")
+    const landing = await snapshotOf(repo)
+    if (landing.kind !== "commit") throw new Error(`expected commit, got ${landing.kind}`)
+    expect(landing.keepTurn).toBeUndefined()
+  })
+
+  it("a clean tree at a keep step is still an attempt, never a keep", async () => {
+    const repo = repoWith(KEEP)
+    await land(repo, { "a.txt": "a\n" })
+    const landing = await snapshotOf(repo)
+    expect(landing.kind).toBe("attempt")
+  })
+
+  it("a marker at HEAD is not a stall: the process rests at the step after the keep", async () => {
+    const repo = repoWith(KEEP)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "naive.txt": "naive\n" })
+    expect(repo.readFile("naive.txt")).toBeUndefined()
+    expect(repo.lastCommitMessage()).toMatch(/\nGtd-Kept: [0-9a-f]{40}$/)
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("checking")
+    expect(stalledAt(rest)).toBe(false)
+  })
+})
+
+describe("kept episode commits", () => {
+  const KEEP = `import { agent, human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle")
+  await agent("building", "build-prompt", { keep: true })
+  await agent("checking", "check-prompt")
+}
+`
+
+  const keptRepo = async () => {
+    const repo = repoWith(KEEP)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "naive.txt": "naive\n" })
+    return repo
+  }
+
+  it("builds kept: { hash, tree } for a marker whose kept object exists", async () => {
+    const repo = await keptRepo()
+    const rest = await provide(currentRest, repo)
+    const marker = rest.setup.episode.at(-1)!
+    const hash = /Gtd-Kept: ([0-9a-f]{40})/.exec(repo.lastCommitMessage()!)![1]!
+    expect(marker.kept?.hash).toBe(hash)
+    expect(marker.kept?.tree.read("naive.txt")).toBe("naive\n")
+    expect(marker.tree.read("naive.txt")).toBeUndefined()
+  })
+
+  it("builds no kept for a marker whose kept object is missing", async () => {
+    const repo = await keptRepo()
+    const message = repo
+      .lastCommitMessage()!
+      .replace(/Gtd-Kept: [0-9a-f]{40}/, `Gtd-Kept: ${"ab".repeat(20)}`)
+    repo.hardResetTo("HEAD~1")
+    repo.commitAsIs(message)
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("checking")
+    expect(rest.setup.episode.at(-1)!.kept).toBeUndefined()
+  })
+
+  it("builds no kept for a commit without the trailer", async () => {
+    const repo = await keptRepo()
+    const rest = await provide(currentRest, repo)
+    expect(rest.setup.episode.slice(0, -1).every((c) => c.kept === undefined)).toBe(true)
   })
 })
 

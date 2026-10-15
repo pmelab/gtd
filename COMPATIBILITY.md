@@ -28,10 +28,14 @@ histories written by an older or newer gtd.
   trailer on every commit gtd writes, bumped when an encoding replay reads
   changes incompatibly. Read-back covers the current format and, after a bump,
   at least the one before it; an unreadable format is refused with exit `1`. A
-  new trailer that replay does not need to read a history — one an older gtd
-  skips as unknown and a newer gtd treats as absent on older commits — is
-  additive and does not bump `Gtd-Format`. `Gtd-Config:` is one: it only feeds a
-  warning, never a step.
+  new trailer is additive and does not bump `Gtd-Format` when an older gtd skips
+  it as unknown and a newer gtd treats it as absent on older commits.
+  `Gtd-Config:` is one: it only feeds a warning, never a step. `Gtd-Kept:` is
+  another: only a step with the `keep` option writes it, and an older gtd
+  refuses that workflow at load through its unknown-option check, so nothing is
+  read wrongly. Replay reads the kept object it names to answer `kept()`, which
+  lives under `refs/gtd/kept/<entry>/<step>/<hash>` in the clone that landed it:
+  a kept ref is local and its object is part of what replay needs there.
 
 ## Follows package SemVer
 
@@ -47,8 +51,9 @@ histories written by an older or newer gtd.
   stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
   [Error envelope](docs/cli.md#error-envelope).
 - **Entrypoint exports** — every subpath of the one package, each export's name,
-  type and behaviour, step functions' options included (see
-  [Entrypoints](README.md#entrypoints)):
+  type and behaviour, step functions' options included (`keep` among them, and
+  the `kept()` helper, which feature-detects an older engine rather than bumping
+  `FLOWS_PROTOCOL`; see [Entrypoints](README.md#entrypoints)):
   - `@pmelab/gtd/flows`, including its `FLOWS_PROTOCOL` number
   - `@pmelab/gtd/wire`
   - `@pmelab/gtd/steering`

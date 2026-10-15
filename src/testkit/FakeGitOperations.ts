@@ -40,6 +40,8 @@ const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations =>
   },
 
   readRefOption: (ref: string) => {
+    // Live `rev-parse --verify` echoes a bare 40-hex id even when no such object exists.
+    if (/^[0-9a-f]{40}$/.test(ref)) return Effect.succeed(Option.some(ref))
     const hash = repo.resolveRef(ref)
     return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())
   },

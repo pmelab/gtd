@@ -43,7 +43,7 @@ import type { ScopeAccess } from "../flows/index.js"
 import { steeringFormatFor } from "../steering/index.js"
 import { judgeJson, UNATTRIBUTED_MODEL, type ModelCost, type StepAccess } from "../wire/index.js"
 import { GTD_VERSION } from "../install/index.js"
-import { processHistoryRef } from "../platform/index.js"
+import { keptRef, processHistoryRef } from "../platform/index.js"
 import { isAbsolute, relative, resolve, sep } from "node:path"
 import { accessRefusal, type Landing, type RepoSnapshot } from "../step/index.js"
 
@@ -700,6 +700,7 @@ const promptDef = (
   ...optional("model", request.options.model),
   ...optional("system", request.options.system),
   ...optional("allowEmpty", request.options.allowEmpty),
+  ...optional("keep", request.options.keep),
   ...optional("skills", skills),
   ...optional("access", access),
 })
@@ -902,11 +903,19 @@ const setupFor = (
       run.episode.base === undefined
         ? { hash: EMPTY_TREE, tree: treeFromRecord({}) }
         : { hash: run.episode.base, tree: commitTree(workspace, run.episode.base) }
-    const episode: readonly EpisodeCommit[] = run.episode.commits.map((c) => ({
-      hash: c.hash,
-      message: c.message,
-      tree: commitTree(workspace, c.hash),
-    }))
+    const git = yield* GitService
+    const episode: EpisodeCommit[] = []
+    for (const c of run.episode.commits) {
+      const tip = parseCommitMessage(c.message).kept
+      // A plain `rev-parse --verify` of a missing 40-hex object succeeds; `^{commit}` does not.
+      const exists = tip !== undefined && Option.isSome(yield* git.readRefOption(`${tip}^{commit}`))
+      episode.push({
+        hash: c.hash,
+        message: c.message,
+        tree: commitTree(workspace, c.hash),
+        ...(exists ? { kept: { hash: tip, tree: commitTree(workspace, tip) } } : {}),
+      })
+    }
     let pendingMemo: ReadonlyMap<string, string | undefined> | undefined
     const setup: ReplaySetup = {
       def,
@@ -1167,6 +1176,12 @@ const closingTrailers = (branch: Option.Option<string>) => ({
 const isSettledNoop = (rest: Rest, to: StateName): boolean =>
   rest.changes.length === 0 && rest.stepDef.kind === "script" && to === rest.state
 
+// A clean tree has nothing to set aside (an allowEmpty keep step lands as an ordinary empty commit).
+const keptTurn = (rest: Rest) =>
+  rest.stepDef.keep === true && rest.changes.length > 0
+    ? { keepTurn: keptRef(rest.run.startHash, rest.state) }
+    : {}
+
 const landingTo = (rest: Rest, to: StateName, branch: Option.Option<string>): Landing => {
   if (isSettledNoop(rest, to)) return { kind: "noop", settled: true }
   // The landing that leaves the flow's first step starts the process: it
@@ -1191,6 +1206,7 @@ const landingTo = (rest: Rest, to: StateName, branch: Option.Option<string>): La
       ...(finishes ? closingTrailers(branch) : {}),
     },
     ...(finishes ? { keepHistory: processHistoryRef(rest.run.startHash) } : {}),
+    ...keptTurn(rest),
   }
 }
 

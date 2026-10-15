@@ -9,3 +9,4 @@ export {
 } from "./Trailers.js"
 export { accessShapeFault, foldAccess } from "./Access.js"
 export { formatFault } from "./Format.js"
+export { refNameFault } from "./RefName.js"

@@ -824,6 +824,25 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
       expect(resolved._tag).toBe("None")
     })
 
+    it("readRefOption of <hash>^{commit} is Some for an existing commit", async () => {
+      const head = t.observe.resolveRef("HEAD")
+      const resolved = await runGit(t, (g) => g.readRefOption(`${head}^{commit}`))
+      expect(resolved._tag).toBe("Some")
+      if (resolved._tag === "Some") expect(resolved.value).toBe(head)
+    })
+
+    it("readRefOption of <hash>^{commit} is None for a 40-hex hash with no object", async () => {
+      const missing = "0123456789abcdef0123456789abcdef01234567"
+      const resolved = await runGit(t, (g) => g.readRefOption(`${missing}^{commit}`))
+      expect(resolved._tag).toBe("None")
+    })
+
+    it("readRefOption of a bare 40-hex hash with no object is Some", async () => {
+      const missing = "0123456789abcdef0123456789abcdef01234567"
+      const resolved = await runGit(t, (g) => g.readRefOption(missing))
+      expect(resolved._tag).toBe("Some")
+    })
+
     it("deleteRef removes a ref idempotently (deleting twice is a no-op)", async () => {
       const head = t.observe.resolveRef("HEAD")
       await runGit(t, (g) => g.updateRef("refs/gtd/marker", head))

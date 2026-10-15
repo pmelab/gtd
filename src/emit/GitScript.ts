@@ -10,19 +10,20 @@ export const pathspec = (paths: ReadonlyArray<string>): string => paths.map(shel
  * Mirrors `Git.ts`'s retry: only re-tries without hooks on the specific
  * "empty git commit" rejection message, discriminated from the captured
  * output rather than the exit code, so a genuinely rejected commit (a lint
- * error, a commit-msg hook) still fails.
+ * error, a commit-msg hook) still fails. Takes an already-quoted argument so
+ * `keepTurn` can pass a shell variable.
  */
-const commitAllowEmpty = (message: string): string => {
-  const m = shellQuote(message)
-  return [
+const commitAllowEmptyQuoted = (m: string, onFailure = ""): string =>
+  [
     `if ! out=$(git commit --allow-empty -m ${m} 2>&1); then`,
     `  case "$out" in`,
     `    *"empty git commit"*) git commit --allow-empty --no-verify -m ${m} ;;`,
-    `    *) printf '%s\\n' "$out" >&2; exit 1 ;;`,
+    `    *) printf '%s\\n' "$out" >&2; ${onFailure}exit 1 ;;`,
     `  esac`,
     `fi`,
   ].join("\n")
-}
+
+const commitAllowEmpty = (message: string): string => commitAllowEmptyQuoted(shellQuote(message))
 
 /** `git add -A || exit 1` (an `&&` left side would not abort under `set -e`) then `commitAllowEmpty`. */
 export const commitAll = (message: string): string =>
@@ -46,6 +47,27 @@ export const hardResetTo = (ref: string): string => `git reset --hard ${shellQuo
  * `GitWriterOperations.discardPending` for why it's kept anyway.
  */
 export const discardPending = (): string => `git add -A && git reset --hard HEAD`
+
+/**
+ * POSIX sh (runs under dash). The kept ref is `<refPrefix>/<kept hash>`, one per
+ * pass, so a re-keep never leaves a marker's tip unreferenced. A failing
+ * update-ref aborts before the reset: branch and tree untouched. A rejected
+ * marker commit puts the turn back, as a failed `commitAll` leaves it, and
+ * deletes the kept ref — no marker names it, so nothing else ever would.
+ */
+export const keepTurn = (refPrefix: string, message: string): string =>
+  [
+    `git add -A || exit 1`,
+    `gtd_tree=$(git write-tree)`,
+    `gtd_kept=$(git commit-tree "$gtd_tree" -p HEAD -m ${shellQuote(message)})`,
+    `git update-ref ${shellQuote(`${refPrefix}/`)}"$gtd_kept" "$gtd_kept"`,
+    `git reset --hard HEAD`,
+    `gtd_marker=$(printf '%s\\nGtd-Kept: %s' ${shellQuote(message)} "$gtd_kept")`,
+    commitAllowEmptyQuoted(
+      `"$gtd_marker"`,
+      `git read-tree -u --reset "$gtd_kept"; git reset -q; git update-ref -d ${shellQuote(`${refPrefix}/`)}"$gtd_kept"; `,
+    ),
+  ].join("\n")
 
 export const updateRef = (ref: string, hash: string): string =>
   `git update-ref ${shellQuote(ref)} ${shellQuote(hash)}`
@@ -100,6 +122,8 @@ const renderGitWrite = (write: GitWrite): string => {
       return commitAll(write.message)
     case "updateRef":
       return updateRef(write.ref, write.target)
+    case "keepTurn":
+      return keepTurn(write.ref, write.message)
   }
 }
 

@@ -147,3 +147,29 @@ describe("the commit-message codec", () => {
     expect(parseSubject("gtd(agent): fix")).toEqual({ actor: "agent", to: "fix" })
   })
 })
+
+describe("Gtd-Kept", () => {
+  const hash = "0123456789abcdef0123456789abcdef01234567"
+
+  it("parses a 40-hex hash", () => {
+    expect(parseCommitMessage(`gtd(agent): a → b\n\nGtd-Step: a#1\nGtd-Kept: ${hash}`).kept).toBe(
+      hash,
+    )
+  })
+
+  it("parses a 64-hex (sha256) hash", () => {
+    const sha256 = hash.repeat(2).slice(0, 64)
+    expect(parseCommitMessage(`gtd(agent): a → b\n\nGtd-Kept: ${sha256}`).kept).toBe(sha256)
+  })
+
+  it("skips a non-hash value", () => {
+    expect(parseCommitMessage("gtd(agent): a → b\n\nGtd-Kept: not-a-hash").kept).toBeUndefined()
+    expect(parseCommitMessage(`gtd(agent): a → b\n\nGtd-Kept: ${hash}0`).kept).toBeUndefined()
+  })
+
+  it("reads undefined when absent, and leaves Gtd-Format at 1", () => {
+    const parsed = parseCommitMessage(formatCommitMessage({ actor: "agent", to: "b" }))
+    expect(parsed.kept).toBeUndefined()
+    expect(parsed.format).toBe(1)
+  })
+})

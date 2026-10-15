@@ -82,7 +82,13 @@ export const planStep = (
     subject,
     steps: [
       ...uncheckStep(snapshot),
-      { kind: "gitWrite", write: { kind: "commitAll", message } },
+      {
+        kind: "gitWrite",
+        write:
+          landing.keepTurn !== undefined
+            ? { kind: "keepTurn", ref: landing.keepTurn, message }
+            : { kind: "commitAll", message },
+      },
       ...(landing.keepHistory !== undefined
         ? [
             {

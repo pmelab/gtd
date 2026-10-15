@@ -1,3 +1,6 @@
+import { execSync } from "node:child_process"
+import { writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   abandonedOutcome,
@@ -11,6 +14,9 @@ import {
   withFileVar,
   type EmitStep,
 } from "../emit/index.js"
+import { Effect } from "effect"
+import { ScriptSurface } from "../emit/index.js"
+import { GitService } from "../platform/index.js"
 import { gitTiers, type GitTier, type ScriptedCommand } from "./index.js"
 
 // Every case runs through real `sh` — with this build's `gtd` on PATH — and
@@ -161,6 +167,81 @@ for (const makeTier of gitTiers) {
       )
       expect(run(script(`gtd uncheck '${review}'`)).ok).toBe(true)
       expect(read(review)).toContain("- [ ] ./src/calc.ts#1-1")
+    })
+
+    describe("keepTurn", () => {
+      const PREFIX = "refs/gtd/kept/entry/build.naive"
+      const hooksSupported = (() => {
+        const probe = makeTier()
+        probe.dispose()
+        return probe.capabilities.commitHooks
+      })()
+      const MESSAGE =
+        "gtd(agent): build.naive → build.next\n\nGtd-Step: build.naive#1\nGtd-Format: 1"
+      // As a landing renders it: under `set -eu`, which a failing update-ref relies on to stop.
+      const keepTurn = (ref: string, message: string) =>
+        ScriptSurface.render([{ kind: "gitWrite", write: { kind: "keepTurn", ref, message } }])
+      const git = <A>(f: (g: GitService["Type"]) => Effect.Effect<A, Error>) =>
+        t.provide(Effect.flatMap(GitService, f))
+      const keptTip = async () => {
+        const marker = await git((g) => g.lastCommitMessage())
+        return /Gtd-Kept: ([0-9a-f]+)/.exec(marker)?.[1] ?? ""
+      }
+
+      it("keeps the turn off the branch: HEAD's tree is the pre-turn tree, the marker carries the kept tip", async () => {
+        const before = t.observe.resolveRef("HEAD")
+        t.seed.writeFile("naive.txt", "naive\n")
+        expect(run(keepTurn(PREFIX, MESSAGE))).toMatchObject({ ok: true })
+
+        expect(read("naive.txt")).toBeUndefined()
+        expect(read("readme.txt")).toBe("hello")
+        expect(t.observe.statusPorcelain()).toBe("")
+        const kept = await keptTip()
+        expect(t.observe.resolveRef(`${PREFIX}/${kept}`)).toBe(kept)
+        expect(t.observe.resolveRef(`${kept}^`)).toBe(before)
+        expect(await git((g) => g.readFileAtRef(kept, "naive.txt"))).toBe("naive\n")
+        expect(t.observe.resolveRef("HEAD^")).toBe(before)
+        expect(t.observe.headTouchedPaths()).toEqual([])
+        const marker = await git((g) => g.lastCommitMessage())
+        expect(marker.trim()).toBe(`${MESSAGE}\nGtd-Kept: ${kept}`)
+      })
+
+      it("a re-keep files a second ref and leaves the first pass's", async () => {
+        t.seed.writeFile("naive.txt", "one\n")
+        expect(run(keepTurn(PREFIX, MESSAGE)).ok).toBe(true)
+        const first = await keptTip()
+        t.seed.writeFile("naive.txt", "two\n")
+        expect(run(keepTurn(PREFIX, MESSAGE)).ok).toBe(true)
+        const second = await keptTip()
+        expect(second).not.toBe(first)
+        expect(t.observe.refExists(`${PREFIX}/${first}`)).toBe(true)
+        expect(t.observe.refExists(`${PREFIX}/${second}`)).toBe(true)
+      })
+
+      it("an unwritable ref exits non-zero with HEAD and the working tree unchanged", () => {
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.writeFile("naive.txt", "naive\n")
+        const result = run(keepTurn("refs/gtd/kept/entry/bad..name", MESSAGE))
+        expect(result.ok).toBe(false)
+        expect(result.status).not.toBe(0)
+        expect(t.observe.resolveRef("HEAD")).toBe(head)
+        expect(read("naive.txt")).toBe("naive\n")
+      })
+
+      it.skipIf(!hooksSupported)(
+        "a rejected marker commit puts the turn back in the working tree and drops its kept ref",
+        async () => {
+          const head = t.observe.resolveRef("HEAD")
+          const hook = join(t.root, ".git/hooks/commit-msg")
+          writeFileSync(hook, "#!/bin/sh\necho rejected >&2\nexit 1\n")
+          execSync(`chmod +x "${hook}"`)
+          t.seed.writeFile("naive.txt", "naive\n")
+          expect(run(keepTurn(PREFIX, MESSAGE)).ok).toBe(false)
+          expect(t.observe.resolveRef("HEAD")).toBe(head)
+          expect(read("naive.txt")).toBe("naive\n")
+          expect(await git((g) => g.listRefs(`${PREFIX}/`))).toEqual([])
+        },
+      )
     })
   })
 }

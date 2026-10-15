@@ -150,24 +150,58 @@ the episode). Other trailers a landing may carry: `Gtd-Judge:` (one per answered
 judge question), `Gtd-Var:` (a process setting), `Gtd-Cost:` (a
 `gtd land --cost`), `Gtd-Review-Base:` (a workflow's fixed diff base),
 `Gtd-Branch:` and `Gtd-Version:` (only on the landing that finishes a process),
-and `Gtd-Config:` (see [Config purity](#config-purity)). Every commit gtd writes
-also carries `Gtd-Format:` (see [History format](#history-format)).
+`Gtd-Kept:` (only on the marker a `keep` step lands, see
+[Step options](#step-options)), and `Gtd-Config:` (see
+[Config purity](#config-purity)). Every commit gtd writes also carries
+`Gtd-Format:` (see [History format](#history-format)).
 
 ### Step options
 
 Every step takes an options object; all keys are optional.
 
-| Option        | Steps                | Meaning                                                                                                                                            |
-| ------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `label`       | all                  | Display name shown by `gtd next` and viewers.                                                                                                      |
-| `file`        | all                  | The step's steering file, a repository path under `.gtd/`.                                                                                         |
-| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, or a name declared in `config.modes`. An unknown name is a load error.                                   |
-| `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                         |
-| `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                 |
-| `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                          |
-| `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).            |
-| `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit. |
-| `base`        | all                  | The commit this step reviews changes since — what `gtd base` prints while the process rests here. Without it, the process's `start()`.             |
+| Option        | Steps                | Meaning                                                                                                                                                                                                                                                   |
+| ------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `label`       | all                  | Display name shown by `gtd next` and viewers.                                                                                                                                                                                                             |
+| `file`        | all                  | The step's steering file, a repository path under `.gtd/`.                                                                                                                                                                                                |
+| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, or a name declared in `config.modes`. An unknown name is a load error.                                                                                                                                          |
+| `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                                                                                                                                |
+| `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                                                                                                                        |
+| `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                                                                                                                                 |
+| `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).                                                                                                                   |
+| `keep`        | `agent`              | Cannot be combined with `allowEmpty`. Set the turn aside: it lands off the branch under `refs/gtd/kept/<entry>/<step>/<hash>` and the branch gets an empty marker commit (subject, `Gtd-Step:`, `Gtd-Kept: <hash>`) instead. See [Kept tips](#kept-tips). |
+| `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit.                                                                                                        |
+| `base`        | all                  | The commit this step reviews changes since — what `gtd base` prints while the process rests here. Without it, the process's `start()`.                                                                                                                    |
+
+### Kept tips
+
+An agent step with `keep: true` takes its turn off the branch. Landing it
+commits the turn as a commit **outside** the branch, parented on the commit the
+turn started from, and points `refs/gtd/kept/<entry>/<step>/<hash>` at it
+(`<entry>` is the process's first commit, or the commit it started from when the
+keep step is the flow's initial step; `<step>` the step's full name; `<hash>`
+the kept commit). The branch itself returns to where it was and gains one empty
+marker commit carrying the step's usual subject and `Gtd-Step:` plus
+`Gtd-Kept: <hash>`; the turn's files never appear in the branch's history, and a
+process that replays past the marker never reaches the keep step again.
+
+- The step's full name must pass `git check-ref-format` as a ref component and
+  must not contain `/`. `keep` cannot be combined with `allowEmpty`: a turn that
+  changes nothing has nothing to keep. Neither is checked at load: the process
+  fails, with a message naming the step, when it reaches the step — so a keep
+  step behind a branch not yet taken can fail after earlier steps have landed.
+- Every pass keeps its own ref, so keeping the same step again never drops the
+  earlier pass. A kept ref lives until you delete it: no landing deletes it, and
+  a finished process does not either.
+- `kept(name)` answers from the `Gtd-Kept:` object, which exists only in the
+  clone that landed the turn. Refs are never pushed or fetched. Deleting the ref
+  of a live process lets `git gc` drop the object, and a flow that routed on
+  `kept(name)` then replays a different path. Delete kept refs only once the
+  process is finished.
+- Read a kept tip back with `kept(name)` (see
+  [helpers](#branching-helpers-read-the-tree-the-last-step-left)), or inspect it
+  by hand with `git log <ref>`.
+- `gtd history` neither lists nor fetches kept refs, and `Gtd-Format` stays `1`:
+  `Gtd-Kept:` is additive.
 
 ### Branching: helpers read the tree the last step left
 
@@ -187,6 +221,13 @@ landed step left — never the live working tree:
 - `changesSince(hash, glob?)` — the same shape as `changes()`, but over every
   commit from `hash` to where replay stands. `hash` must be a commit this run
   read from `head()` or `start()`; any other hash fails the step
+- `kept(name)` — the latest kept tip of step `name` (scoped from here, like
+  `agent()`) in this episode, as `{ hash, changes }`: the kept commit and what
+  it changed against the commit it diverged from (same shape as `changes()`).
+  `undefined` when none; a `restart()` starts over with nothing kept. While the
+  keeping turn is still landing, `hash` is `""`: never branch on it. Needs a gtd
+  that knows `keep`, else it throws asking for an upgrade. See
+  [Kept tips](#kept-tips)
 - `sections(text)` — the top-level `## ` headings of markdown `text`
 - `sectionBodies(text)` — the same sections as `{ title, body }`, `body` being
   the section's own markdown, its heading line included

@@ -21,6 +21,7 @@ export { CommandRunner } from "./CommandRunner.js"
 export { loopLogPath } from "./WorktreeState.js"
 export {
   HISTORY_REF,
+  keptRef,
   processHistoryRef,
   PROCESS_HISTORY_PREFIX,
   readRetainedHistory,

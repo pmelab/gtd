@@ -24,6 +24,12 @@ export interface AgentOptions extends SteeringOptions {
    * is an attempt: recorded, but the process stays at the step (a stall).
    */
   readonly allowEmpty?: boolean | undefined
+  /**
+   * Set the turn aside: its tip goes to `refs/gtd/kept/<entry>/<step>/<hash>` and the
+   * branch stays where it was, a marker commit recording that the step ran.
+   * The step's full name must be usable as a git ref component.
+   */
+  readonly keep?: boolean | undefined
 }
 
 export interface HumanOptions extends SteeringOptions {
@@ -157,6 +163,10 @@ export interface FlowContext {
   readonly skillsFor: (localName: string) => readonly string[]
   /** The folded access the memory scope `localName` lands in resolves to; `file` is the step's own steering file. */
   readonly accessFor: (localName: string, file?: string) => AccessDef
+  /** Absent on an engine older than `kept`. */
+  readonly kept?: (
+    name: string,
+  ) => { readonly hash: string; readonly changes: readonly Change[] } | undefined
 }
 
 /**
@@ -300,6 +310,27 @@ export const changesSince = (hash: string, pattern?: string): Changes => {
   return toChanges(
     pattern === undefined ? all : all.filter((c) => context.matches(c.path, pattern)),
   )
+}
+
+export interface KeptTip {
+  /** The kept commit. `""` while the keeping turn is still pending (a landing decision): never branch on it, the landed replay sees the real hash. */
+  readonly hash: string
+  /** The kept tip against the commit it diverged from. */
+  readonly changes: Changes
+}
+
+/**
+ * The latest kept tip of step `name` (scoped from here, same as `agent()`) in
+ * this episode, or `undefined` when none.
+ */
+export const kept = (name: string): KeptTip | undefined => {
+  const context = ctx()
+  // FLOWS_PROTOCOL stays 1, so an older engine's context simply lacks `kept`.
+  if (typeof context.kept !== "function") {
+    throw new Error("gtd: kept() needs a newer gtd — upgrade the gtd that runs it")
+  }
+  const tip = context.kept(name)
+  return tip === undefined ? undefined : { hash: tip.hash, changes: toChanges(tip.changes) }
 }
 
 /** The commit the process stands on at this point of the flow. */

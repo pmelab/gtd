@@ -576,6 +576,11 @@ git config --add remote.origin.fetch 'refs/gtd/history/*:refs/gtd/history/*'
 The second line makes every plain `git fetch` include them. It has no leading
 `+`, so a conflicting local ref fails instead of being overwritten.
 
+A step declared with `keep: true` files its turn under `refs/gtd/kept/` instead
+of on the branch (see [Kept tips](docs/configuration.md#kept-tips)). Those refs
+are not process history: `gtd history` does not list them, and the
+`refs/gtd/history/*` refspecs above neither push nor fetch them.
+
 ## Entrypoints
 
 gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and

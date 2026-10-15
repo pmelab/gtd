@@ -111,6 +111,7 @@ export class InMemRepo {
 
   // fallow-ignore-next-line complexity
   resolveRef(ref: string): string | null {
+    if (ref.endsWith("^{commit}")) return this.resolveRef(ref.slice(0, -"^{commit}".length))
     if (/^[0-9a-f]{40}$/.test(ref)) {
       return this.commits.has(ref) ? ref : null
     }
@@ -344,6 +345,18 @@ export class InMemRepo {
     this.commits.set(hash, commit)
     this.head = hash
     this.branches.set(this.currentBranch, hash)
+  }
+
+  /** In-memory twin of `GitScript.keepTurn`. */
+  keepTurn(refPrefix: string, message: string): void {
+    this.stageAll()
+    const tree = new Map(this.index)
+    const parent = this.head
+    const hash = makeHash(message, parent, tree)
+    this.commits.set(hash, { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ })
+    this.refs.set(`${refPrefix}/${hash}`, hash)
+    this.resetHard()
+    this.commitAsIs(`${message}\nGtd-Kept: ${hash}`)
   }
 
   /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which drops the freshly-staged untracked paths too). */

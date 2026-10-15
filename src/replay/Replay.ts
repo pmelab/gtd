@@ -21,6 +21,7 @@ import {
 } from "../steering/index.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
 import { globMatches } from "../wire/index.js"
+import { refNameFault } from "./RefName.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
 import {
   formatStepId,
@@ -34,6 +35,8 @@ export interface EpisodeCommit {
   readonly hash: string
   readonly message: string
   readonly tree: TreeView
+  /** Present when the commit carries Gtd-Kept and that object still exists. */
+  readonly kept?: { readonly hash: string; readonly tree: TreeView }
 }
 
 /**
@@ -232,7 +235,7 @@ const STEERING_OPTIONS = ["file", "mode", "label", "base"]
 // The option keys each step accepts. A gtd.config.ts is evaluated without a
 // type check, so a misspelt key would otherwise be silently ignored.
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
-  agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty"]),
+  agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty", "keep"]),
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean"]),
   run: new Set(STEERING_OPTIONS),
   judge: new Set([...STEERING_OPTIONS, "message"]),
@@ -275,6 +278,11 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   const scopeCallIds: number[] = []
   let scopeCallCount = 0
   const trace: ReachedStep[] = []
+  // Newest consumed keep per scoped step name; `before` is the tree the kept turn diverged from.
+  const keptTips = new Map<
+    string,
+    { readonly hash: string; readonly before: TreeView; readonly after: TreeView }
+  >()
   let landed: ReachedStep | undefined
   let outcome: ReplayOutcome | undefined
   let signal: (() => void) | undefined
@@ -494,9 +502,30 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     }
     cursor++
     advance(commit)
+    if (commit.parsed.kept !== undefined) {
+      if (commit.kept === undefined) keptTips.delete(step.name)
+      else
+        keptTips.set(step.name, {
+          hash: commit.kept.hash,
+          before: commit.tree,
+          after: commit.kept.tree,
+        })
+    }
     const to = commit.parsed.parsed?.to
     if (to !== undefined) expectedNext = { name: to, hash: commit.hash }
     return replyFor(step.request, commit.parsed.judge)
+  }
+
+  const landPending = (step: ReachedStep, pending: NonNullable<typeof input.pending>): unknown => {
+    pendingUsed = true
+    landed = step
+    // A kept turn is set aside: replay stays on the pre-turn tree, as it will once the marker lands.
+    const keeping = step.request.kind === "agent" && step.request.options.keep === true
+    if (keeping) {
+      keptTips.set(step.name, { hash: "", before: position.tree, after: pending.tree })
+    }
+    advance({ hash: "", tree: keeping ? position.tree : pending.tree })
+    return replyFor(step.request, pending.verdicts ?? [])
   }
 
   const answer = (step: ReachedStep): unknown => {
@@ -506,10 +535,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     if (input.pending === undefined || pendingUsed) {
       return finish({ kind: "rest", rest: step, trace, landed })
     }
-    pendingUsed = true
-    landed = step
-    advance({ hash: "", tree: input.pending.tree })
-    return replyFor(step.request, input.pending.verdicts ?? [])
+    return landPending(step, input.pending)
   }
 
   // gtd.config.ts is loaded without a type check.
@@ -517,7 +543,20 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     if (request.kind === "run" && typeof request.body !== "string") {
       return `gtd: step "${scoped(request.name)}": a run() body is a shell script string — decide in flow code, then render the script (see checkScript and friends)`
     }
-    return request.kind === "agent" ? scopeAccessFault() : undefined
+    if (request.kind !== "agent") return undefined
+    const name = scoped(request.name)
+    if (request.options.keep === true) {
+      // A clean allowEmpty keep would land an ordinary commit with no Gtd-Kept: a silent skip.
+      if (request.options.allowEmpty === true) {
+        return `gtd: step "${name}": keep: true cannot be combined with allowEmpty — a turn that changes nothing has nothing to keep`
+      }
+      // "/" would let one step's ref directory collide with another step's ref (git refuses `a` and `a/b` together).
+      const refFault = name.includes("/") ? 'it contains "/"' : refNameFault(name)
+      if (refFault !== undefined) {
+        return `gtd: step "${name}": keep: true files the turn under a git ref named after the step, but ${refFault}`
+      }
+    }
+    return scopeAccessFault()
   }
 
   const handleStep = async (request: StepRequest): Promise<unknown> => {
@@ -611,6 +650,12 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
               .map((f) => f.message),
           }))
         }),
+    kept: (name) => {
+      const tip = keptTips.get(scoped(name))
+      return tip === undefined
+        ? undefined
+        : { hash: tip.hash, changes: changesBetween(tip.before, tip.after) }
+    },
     vars: input.vars,
     env: input.env,
     start: () => input.start,

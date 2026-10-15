@@ -9,6 +9,7 @@ import {
   deleteRef,
   discardPending,
   hardResetTo,
+  keepTurn,
   mixedResetTo,
   shellQuote,
   softResetTo,
@@ -30,6 +31,7 @@ import {
   steeringFormatFor,
   type SteeringFormat,
 } from "../steering/index.js"
+import { refNameFault } from "../replay/index.js"
 import { renderFormat } from "../wire/index.js"
 import { applyFlowScript, rewritten } from "./FlowScripts.js"
 import type { InMemRepo } from "./InMemRepo.js"
@@ -140,6 +142,20 @@ const conditionStatement = (block: string): string => {
   return end === -1 ? block.slice(start) : block.slice(start, end)
 }
 
+/** `keepTurn`: an invalid ref name fails before anything moves, as `git update-ref` does. */
+const recognizeKeepTurn = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
+  const [message, refDir] = extractQuotedTokens(block)
+  const ref = refDir?.slice(0, -1)
+  if (message === undefined || ref === undefined || keepTurn(ref, message) !== block) {
+    return undefined
+  }
+  if (refNameFault(ref) !== undefined) {
+    return { kind: "failed", error: `fatal: invalid ref format: ${ref}`, status: 128 }
+  }
+  repo.keepTurn(ref, message)
+  return { kind: "applied" }
+}
+
 // fallow-ignore-next-line complexity
 const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   if (block === discardPending()) {
@@ -155,6 +171,8 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   // trailer-carrying subject is) and its later lines are part of the same
   // quoted argument.
   const conditionLine = conditionStatement(block)
+
+  if (block.startsWith("git add -A || exit 1\ngtd_tree=")) return recognizeKeepTurn(repo, block)
 
   if (block.startsWith("git add -A || exit 1\n")) {
     const [message] = extractQuotedTokens(conditionLine)
