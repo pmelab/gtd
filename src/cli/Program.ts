@@ -42,6 +42,7 @@ import {
   type NextMatch,
   type StatusChange,
   selectPath,
+  EXIT_OK,
 } from "../wire/index.js"
 import {
   currentRest,
@@ -94,13 +95,16 @@ import {
   type ArtifactOut,
   type CommandRequirements,
   type JsonMode,
+  type SuccessExit,
 } from "./Output.js"
 export {
   SelectorUsageError,
   type ArtifactOut,
   type CommandRequirements,
   type JsonMode,
+  type SuccessExit,
 } from "./Output.js"
+import { runStraysCommand } from "./Strays.js"
 import { runHistoryFetchCommand, runHistoryListCommand, runHistoryShowCommand } from "./History.js"
 
 /**
@@ -161,6 +165,13 @@ export type Command =
   | { readonly kind: "historyList" }
   | { readonly kind: "historyShow"; readonly ref: string }
   | { readonly kind: "historyFetch"; readonly remote: string }
+  | {
+      readonly kind: "strays"
+      /** Each side of `<base>..<tip>`; an empty side is `HEAD`, as git reads it. */
+      readonly base: string
+      readonly tip: string
+      readonly globs: readonly string[]
+    }
   | {
       readonly kind: "judgeRun"
       readonly provider?: "fixed" | "jev" | "llm"
@@ -1149,6 +1160,7 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "install":
     case "loop":
     case "judgeRun":
+    case "strays":
       return "none"
     case "check":
     case "uncheck":
@@ -1166,18 +1178,27 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "install",
   "loop",
   "judgeRun",
+  "strays",
 ]
 
 /**
  * Dispatches to the named `run*Command` handler for every `Command.kind` —
  * the counterpart of `Cli.ts`'s `parseArgv`, which has already validated
- * every field a handler receives. A command choosing its own exit code is
- * unrepresentable: every branch returns `Effect<void>`, and `Cli.ts`'s
- * `runCli` supplies `EXIT_OK` once, after this Effect succeeds.
+ * every field a handler receives. Only `strays` chooses its exit code; every
+ * other branch returns `Effect<void>` and resolves to `EXIT_OK`.
  */
+const dispatchCommand = (
+  command: Command,
+  json: JsonMode,
+  out: ArtifactOut,
+): Effect.Effect<SuccessExit, Error, CommandRequirements> => {
+  if (command.kind === "strays") return runStraysCommand(command, json, out)
+  return Effect.as(dispatchVoidCommand(command, json, out), EXIT_OK)
+}
+
 // fallow-ignore-next-line complexity
 const dispatchVoidCommand = (
-  command: Command,
+  command: Exclude<Command, { kind: "strays" }>,
   json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> => {
@@ -1255,8 +1276,8 @@ export const runCommand = (
   command: Command,
   json: JsonMode,
   out: ArtifactOut,
-): Effect.Effect<void, Error, CommandRequirements> => {
-  const dispatch = dispatchVoidCommand(command, json, out)
+): Effect.Effect<SuccessExit, Error, CommandRequirements> => {
+  const dispatch = dispatchCommand(command, json, out)
   if (needsOf(command.kind) !== "state") return dispatch
   return Effect.gen(function* () {
     const git = yield* GitService
@@ -1278,6 +1299,6 @@ export const runCommand = (
     for (const warning of config.warnings) {
       yield* narrator.warn(`gtd: warning: ${formatDiagnostic(warning)}`)
     }
-    yield* dispatch
+    return yield* dispatch
   })
 }

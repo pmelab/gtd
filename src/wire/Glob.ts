@@ -23,7 +23,7 @@ const compile = (glob: string): RegExp => {
       i += 2
     }
   }
-  return new RegExp(`${pattern}$`)
+  return new RegExp(`${pattern}$`, "s")
 }
 
 export const globMatches = (path: string, glob: string): boolean => compile(glob).test(path)

@@ -29,7 +29,7 @@ import {
   type JsonMode,
 } from "./Program.js"
 import type { ToolCommands } from "./ToolCommands.js"
-import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
+import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 
 export type { Command, CommandRequirements } from "./Program.js"
 export { needsOf, standaloneKinds } from "./Program.js"
@@ -96,15 +96,16 @@ const FLAGS: readonly FlagRow[] = [
       kind === "judgeAnswer" ||
       kind === "doors" ||
       kind === "historyList" ||
-      kind === "historyShow",
+      kind === "historyShow" ||
+      kind === "strays",
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd history list`/`gtd history show` — " +
+      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd history list`/`gtd history show`/`gtd strays` — " +
       "every other command prints plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "<path>",
     help: [
       "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history",
-      "list/gtd history show only) output structured JSON. Bare --json prints the whole document;",
+      "list/gtd history show/gtd strays only) output structured JSON. Bare --json prints the whole document;",
       "--json=<path> (a dotted key path into that document, e.g.",
       "kind, content, session.id) prints just that value: a",
       "scalar raw and unquoted, a boolean as true/false, a list",
@@ -668,6 +669,25 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     ],
   },
   {
+    token: "strays",
+    kind: "strays",
+    arity: { name: "range", variadic: "glob" },
+    details: [
+      "List the files <range> (<base>..<tip>, an empty side is HEAD)",
+      "touched in its committed net diff that match none of the",
+      "globs. Anchored at the repo root: * stays within one path",
+      "segment, ** crosses them, everything else is literal — quote",
+      "globs in the shell. stdout: a sorted JSON array, [] when",
+      "clean; stderr: a summary, plus one stray: line per path with",
+      "--verbose. --json=<n> picks one entry, nothing past the end;",
+      "a symlink is a path like any other, never followed; a",
+      "submodule counts as its path, whatever diff.ignoreSubmodules",
+      "or .gitmodules ignore say. Runs in any git repository, no",
+      "process needed. Exits 10 when",
+      "strays were found, 1 on an unknown revision, 2 on a bad range",
+    ],
+  },
+  {
     token: "history list",
     kind: "historyList",
     arity: "none",
@@ -1228,6 +1248,28 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
+  if (kind === "strays") {
+    const [range, ...globs] = restPositionals as [string, ...string[]]
+    const at = range.indexOf("..")
+    if (at < 0 || range.includes("...") || range.indexOf("..", at + 1) >= 0) {
+      return usagePlan(
+        `gtd strays: <range> must be <base>..<tip> (an empty side is HEAD) — got '${range}'`,
+        jsonSeen,
+      )
+    }
+    return {
+      kind: "command",
+      command: {
+        kind: "strays",
+        base: range.slice(0, at) || "HEAD",
+        tip: range.slice(at + 2) || "HEAD",
+        globs,
+      },
+      json,
+      verbose,
+    }
+  }
+
   if (kind === "uncheck") {
     return {
       kind: "command",
@@ -1419,9 +1461,9 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
     // where the whole buffered artifact is known-complete and safe to hand
     // to stdout (a failure discards the buffer instead — see
     // `bufferedArtifactOut`).
-    Effect.map(() => {
+    Effect.map((code) => {
       out.flush()
-      io.exit(EXIT_OK)
+      io.exit(code)
     }),
     Effect.provide(io.layers(plan.verbose)),
     Effect.sandbox,

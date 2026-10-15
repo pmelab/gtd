@@ -981,9 +981,60 @@ describe("parseArgv — gtd history", () => {
   })
 })
 
+describe("parseArgv — gtd strays", () => {
+  const strays = (...args: string[]): CliPlan => parseArgv(["node", "gtd.js", "strays", ...args])
+
+  it("splits the range at '..' and carries the globs", () => {
+    const plan = strays("main..feature", "src/**", "*.md")
+    expect(plan).toMatchObject({
+      kind: "command",
+      command: { kind: "strays", base: "main", tip: "feature", globs: ["src/**", "*.md"] },
+    })
+  })
+
+  it("an empty side becomes HEAD; no globs is an empty list", () => {
+    expect(strays("main..")).toMatchObject({
+      command: { base: "main", tip: "HEAD", globs: [] },
+    })
+    expect(strays("..main")).toMatchObject({ command: { base: "HEAD", tip: "main" } })
+    expect(strays("..")).toMatchObject({ command: { base: "HEAD", tip: "HEAD" } })
+  })
+
+  it("a missing range, a range without '..', a '...' range and a second '..' are usage errors", () => {
+    for (const args of [[], ["main"], ["main...feature"], ["a..b..c"]]) {
+      expect(strays(...args).kind).toBe("usage")
+    }
+    const plan = strays("main")
+    if (plan.kind === "usage") expect(plan.message).toContain("<base>..<tip>")
+  })
+
+  it("--json is in scope: bare and selected", () => {
+    expect(strays("a..b", "--json")).toMatchObject({ kind: "command", json: { kind: "document" } })
+    expect(strays("a..b", "--json=0")).toMatchObject({
+      kind: "command",
+      json: { kind: "select", path: "0" },
+    })
+  })
+
+  it("--json's scope error and help name strays", () => {
+    const plan = parseArgv(["node", "gtd.js", "lsp", "--json"])
+    if (plan.kind === "usage") expect(plan.message).toContain("`gtd strays`")
+    expect(renderHelp()).toContain("strays <range> [glob...]")
+    expect(renderHelp()).toContain("gtd strays only")
+  })
+})
+
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "check", "uncheck", "install", "loop", "judgeRun"])
+    expect(standaloneKinds()).toEqual([
+      "lsp",
+      "check",
+      "uncheck",
+      "install",
+      "loop",
+      "judgeRun",
+      "strays",
+    ])
   })
 
   it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {
@@ -993,6 +1044,7 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("install")).toBe("none")
     expect(needsOf("loop")).toBe("none")
     expect(needsOf("judgeRun")).toBe("none")
+    expect(needsOf("strays")).toBe("none")
     for (const kind of [
       "land",
       "start",

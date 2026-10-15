@@ -552,6 +552,19 @@ unknown key. `gtd.config.ts` is the only repository config: gtd 23 removed the
 home directory — fails every command until you delete it. See
 [Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
 
+## Checking a range for stray files
+
+```sh
+gtd strays main..HEAD 'src/**' '*.md'   # files the range touched outside the globs
+```
+
+Prints a sorted JSON array of every file the range's committed diff touched that
+matches none of the globs, and exits `10` when there are any (`0` when none).
+stderr gets a summary; `--verbose` adds one `stray:` line per path. `--json=<n>`
+picks one entry (nothing when past the end). Symlinks count as paths and are
+never followed; a submodule counts as its path, whatever `diff.ignoreSubmodules`
+or `.gitmodules` `ignore` say. Works in any git repository, no process needed.
+
 ## Process history
 
 When a process finishes, the landing that closes it also keeps the whole run
@@ -602,9 +615,9 @@ install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
 
 The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
 `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `version`,
-`help`, `history list`, `history show`, `history fetch`, and the tools `ui`,
-`lsp`, `loop` and `judge` (`judge answer`, `judge run`) — are listed in the
-[CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
+`help`, `history list`, `history show`, `history fetch`, `strays`, and the tools
+`ui`, `lsp`, `loop` and `judge` (`judge answer`, `judge run`) — are listed in
+the [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
 
 ## License
 

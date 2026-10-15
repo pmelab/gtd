@@ -173,6 +173,19 @@ Commands:
                    GTD_JUDGE_MODEL, then the file's model. Needs no
                    repository. jev and llm exit 1 when they cannot answer
                    every question, with nothing on stdout
+  strays <range> [glob...]
+                   List the files <range> (<base>..<tip>, an empty side is HEAD)
+                   touched in its committed net diff that match none of the
+                   globs. Anchored at the repo root: * stays within one path
+                   segment, ** crosses them, everything else is literal — quote
+                   globs in the shell. stdout: a sorted JSON array, [] when
+                   clean; stderr: a summary, plus one stray: line per path with
+                   --verbose. --json=<n> picks one entry, nothing past the end;
+                   a symlink is a path like any other, never followed; a
+                   submodule counts as its path, whatever diff.ignoreSubmodules
+                   or .gitmodules ignore say. Runs in any git repository, no
+                   process needed. Exits 10 when
+                   strays were found, 1 on an unknown revision, 2 on a bad range
   history list     List the finished processes kept behind refs/gtd/history/*,
                    newest first: entry, branch, tip, date and subject per line.
                    --json prints one array of { ref, entry, branch, tip, date,
@@ -194,7 +207,7 @@ Commands:
 
 Options:
   --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history
-                   list/gtd history show only) output structured JSON. Bare --json prints the whole document;
+                   list/gtd history show/gtd strays only) output structured JSON. Bare --json prints the whole document;
                    --json=<path> (a dotted key path into that document, e.g.
                    kind, content, session.id) prints just that value: a
                    scalar raw and unquoted, a boolean as true/false, a list
@@ -262,23 +275,24 @@ unsupported, and its shape may change across releases with no warning.
 
 ### Exit codes
 
-Frozen at five numbers, five meanings: adding a code is a format break, shipped
-as a major release (not a `schema` bump). Whose turn is next lives in `kind`.
+Frozen: adding a code is a format break, shipped as a major release (not a
+`schema` bump). Whose turn is next lives in `kind`.
 
-| Code      | Meaning          |
-| --------- | ---------------- |
-| 0         | success          |
-| 1         | runtime error    |
-| 2         | usage error      |
-| 130 / 143 | SIGINT / SIGTERM |
+| Code      | Meaning                          |
+| --------- | -------------------------------- |
+| 0         | success                          |
+| 1         | runtime error                    |
+| 2         | usage error                      |
+| 10        | strays found (`gtd strays` only) |
+| 130 / 143 | SIGINT / SIGTERM                 |
 
 Stability tiers: see [COMPATIBILITY.md](../COMPATIBILITY.md).
 
 Every command follows this table uniformly, `next`/`land` included: `0` on
-success, `1` on refusal, `2` on usage error, `130`/`143` when gtd itself dies by
-that signal — a parent's `wait` sees a real signal death (`WIFSIGNALED`), not a
-chosen exit code that merely reuses the same number. No command's exit code
-carries a second meaning.
+success (`gtd strays` alone may exit `10`), `1` on refusal, `2` on usage error,
+`130`/`143` when gtd itself dies by that signal — a parent's `wait` sees a real
+signal death (`WIFSIGNALED`), not a chosen exit code that merely reuses the same
+number. No command's exit code carries a second meaning.
 
 A history written in a format this gtd does not read is a refusal like any
 other: exit `1`, with a message naming the found and supported formats (see
@@ -310,8 +324,8 @@ The state commands (`land`, `--workflow`, `door`, `doors`, `abandon`, `restore`,
 `history list`, `history show`, `history fetch`) must run from the **repository
 root** — gtd derives the workflow, pending changes, and process history relative
 to cwd, so they refuse with a clear error from a subdirectory; `lsp`, `check`,
-and `uncheck` are standalone and run from anywhere (see each command's own help
-entry).
+`uncheck` and `strays` are standalone and run from anywhere (see each command's
+own help entry).
 
 `install` is described on its own above: it installs knowledge into the calling
 agent's context, and at a repository root no `gtd.config.ts` governs yet, the
@@ -353,7 +367,8 @@ prompt/script alongside a message about why it stopped. `gtd ui` is the one
 exception worth knowing: it flushes its served-URL line immediately, before
 blocking on `Ctrl-C`, since a flush-on-success would never otherwise fire.
 
-Any invocation that carries `--json` (valid only for `gtd next`/`gtd land` —
+Any invocation that carries `--json` (valid only for
+`gtd next`/`gtd land`/`gtd strays` and the other commands whose help names it —
 every other command usage-errors on it) reports a failure as a machine-readable
 envelope on **stderr** — including the scope violation itself, so a driver that
 always adds `--json` still gets a parseable envelope on every failure, not only
