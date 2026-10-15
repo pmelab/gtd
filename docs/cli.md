@@ -181,8 +181,10 @@ Commands:
                    globs in the shell. stdout: a sorted JSON array, [] when
                    clean; stderr: a summary, plus one stray: line per path with
                    --verbose. --json=<n> picks one entry, nothing past the end;
-                   a symlink is a path like any other, never followed. Runs
-                   in any git repository, no process needed. Exits 10 when
+                   a symlink is a path like any other, never followed; a
+                   submodule counts as its path, whatever diff.ignoreSubmodules
+                   or .gitmodules ignore say. Runs in any git repository, no
+                   process needed. Exits 10 when
                    strays were found, 1 on an unknown revision, 2 on a bad range
   history list     List the finished processes kept behind refs/gtd/history/*,
                    newest first: entry, branch, tip, date and subject per line.

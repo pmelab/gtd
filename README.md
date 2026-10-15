@@ -562,7 +562,8 @@ Prints a sorted JSON array of every file the range's committed diff touched that
 matches none of the globs, and exits `10` when there are any (`0` when none).
 stderr gets a summary; `--verbose` adds one `stray:` line per path. `--json=<n>`
 picks one entry (nothing when past the end). Symlinks count as paths and are
-never followed. Works in any git repository, no process needed.
+never followed; a submodule counts as its path, whatever `diff.ignoreSubmodules`
+or `.gitmodules` `ignore` say. Works in any git repository, no process needed.
 
 ## Process history
 

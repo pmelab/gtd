@@ -97,9 +97,10 @@ export interface GitReaderOperations {
   /**
    * Paths whose content differs between the trees of `base` and `tip`: added,
    * modified and deleted alike; a rename reports both paths (no rename
-   * detection). Repo-root-relative whatever the cwd or `diff.relative` config;
-   * never reads the index or the working tree. Fails when either side does
-   * not resolve.
+   * detection); a submodule pointer change reports the submodule path whatever
+   * `diff.ignoreSubmodules` or `.gitmodules` `ignore` say. Repo-root-relative
+   * whatever the cwd or `diff.relative` config; never reads the index or the
+   * working tree. Fails when either side does not resolve.
    */
   readonly diffPaths: (base: string, tip: string) => Effect.Effect<ReadonlyArray<string>, Error>
 }
@@ -398,6 +399,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         "-z",
         "--no-renames",
         "--no-relative",
+        "--ignore-submodules=none",
         "--end-of-options",
         base,
         tip,
