@@ -55,6 +55,34 @@ describe("resolveFlags", () => {
   })
 })
 
+describe("resolveFlags defaultOn", () => {
+  const on = [
+    { name: "beta", owner: "pmelab", expiry: "2099-01-01", kind: "release", defaultOn: true },
+  ] as const satisfies readonly FlagDeclaration[]
+
+  it.each([undefined, ""])("reads unset or empty (%j) as on", (value) => {
+    expect(resolveFlags({ GTD_FLAG_BETA: value }, on).beta).toBe(true)
+  })
+
+  it.each(["0", "false", "FALSE"])("%s still forces a default-on flag off", (value) => {
+    expect(resolveFlags({ GTD_FLAG_BETA: value }, on).beta).toBe(false)
+  })
+
+  it.each(["1", "true"])("%s forces a default-on flag on", (value) => {
+    expect(resolveFlags({ GTD_FLAG_BETA: value }, on).beta).toBe(true)
+  })
+
+  it("still throws for a garbled value", () => {
+    expect(() => resolveFlags({ GTD_FLAG_BETA: "ture" }, on)).toThrow(
+      /^GTD_FLAG_BETA must be 1, 0, true or false$/,
+    )
+  })
+
+  it("reads an entry without defaultOn as off when unset", () => {
+    expect(resolveFlags({}, [...on, ...registry]).alpha).toBe(false)
+  })
+})
+
 describe("FLAGS", () => {
   it("declares settable, unique variable names", () => {
     // Vacuous while FLAGS is empty; guards the first declared flag.

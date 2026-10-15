@@ -43,6 +43,21 @@ describe("the entrypoint docs", () => {
   }
 })
 
+describe("rollout and cleanup", () => {
+  const factories = {
+    "./workflows": ["rollout", "cleanup"],
+    "./workflows/rollout": ["default"],
+    "./workflows/cleanup": ["default"],
+  } as const
+  for (const [subpath, names] of Object.entries(factories)) {
+    it(`${subpath} exports ${names.join(" and ")} as functions`, async () => {
+      const target = pkg.exports[subpath as keyof typeof pkg.exports] as { source: string }
+      const mod = (await import(join(root, target.source))) as Record<string, unknown>
+      for (const name of names) expect(typeof mod[name]).toBe("function")
+    })
+  }
+})
+
 describe("this repository's config", () => {
   it("is gtd.config.ts alone — no removed rc file", () => {
     for (const name of LEGACY_RC_FILES) expect(existsSync(join(root, name))).toBe(false)

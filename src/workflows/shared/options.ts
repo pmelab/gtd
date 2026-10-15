@@ -48,3 +48,22 @@ export const shipped = (
       base,
     }),
   )
+
+export const FlagOptions = Schema.Struct({ ...ShippedOptions.fields, flagRegistry: setting })
+
+export type FlagOptions = Schema.Schema.Encoded<typeof FlagOptions>
+
+export const flagShipped = (flow: Flow): WorkflowFactory<FlagOptions> =>
+  defineWorkflow(
+    Schema.standardSchemaV1(FlagOptions, { onExcessProperty: "error", errors: "all" }),
+    (options) => {
+      const flagDefaults = { ...defaults, flag: "", flagRegistry: "src/flags/index.ts" }
+      return {
+        flow,
+        defaults: over(flagDefaults, options),
+        envDefaults: over(envDefaults, options),
+        doors: {},
+        base: undefined,
+      }
+    },
+  )

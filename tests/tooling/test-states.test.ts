@@ -21,10 +21,10 @@ const flag = (name: string, kind: FlagDeclaration["kind"] = "release"): FlagDecl
   kind,
 })
 
-const stateOf = (name: string | undefined): TestState => ({
-  on: name,
-  tasks: name ? [`test:${name}`] : TASKS,
-  env: name ? { [`GTD_FLAG_${name.toUpperCase()}`]: "1" } : {},
+const stateOf = (label: string): TestState => ({
+  label,
+  tasks: label === "defaults" ? TASKS : [`test:${label}`],
+  env: {},
 })
 
 const stub = (codes: readonly (number | null)[]) => {
@@ -39,35 +39,48 @@ const stub = (codes: readonly (number | null)[]) => {
   return { run, calls }
 }
 
+const flagVars = (s: TestState) =>
+  Object.fromEntries(Object.entries(s.env).filter(([k]) => k.startsWith("GTD_FLAG_")))
+
 describe("planStates", () => {
-  it("plans exactly one all-off state for an empty registry", () => {
+  it("plans exactly one defaults state for an empty registry", () => {
     const states = planStates([], {})
     expect(states).toHaveLength(1)
-    expect(states[0]!.on).toBeUndefined()
+    expect(states[0]!.label).toBe("defaults")
     expect(states[0]!.tasks).toEqual(TASKS)
   })
 
-  it("ignores ops and experiment flags", () => {
-    const states = planStates([flag("a", "ops"), flag("b", "experiment")], {})
+  it("ignores ops and experiment flags and leaves them unset", () => {
+    const states = planStates([flag("a", "ops"), flag("b", "experiment")], {
+      GTD_FLAG_A: "1",
+    })
     expect(states).toHaveLength(1)
+    expect(flagVars(states[0]!)).toEqual({})
   })
 
-  it("plans all-off then one flag-on state for one release flag", () => {
+  it("pins a default-off release flag to 0 in defaults and 1 in its own state", () => {
     const states = planStates([flag("alpha")], {})
-    expect(states).toHaveLength(2)
+    expect(states.map((s) => s.label)).toEqual(["defaults", "alpha on"])
     expect(states[0]!.tasks).toEqual(TASKS)
-    expect(states[1]!.on).toBe("alpha")
+    expect(flagVars(states[0]!)).toEqual({ GTD_FLAG_ALPHA: "0" })
     expect(states[1]!.tasks).toEqual(VITEST_TASKS)
-    expect(states[1]!.env["GTD_FLAG_ALPHA"]).toBe("1")
+    expect(flagVars(states[1]!)).toEqual({ GTD_FLAG_ALPHA: "1" })
   })
 
-  it("plans three states for two release flags, each setting only its own variable", () => {
-    const states = planStates([flag("alpha"), flag("beta")], {})
-    expect(states.map((s) => s.on)).toEqual([undefined, "alpha", "beta"])
-    const flagKeys = (s: TestState) => Object.keys(s.env).filter((k) => k.startsWith("GTD_FLAG_"))
-    expect(flagKeys(states[0]!)).toEqual([])
-    expect(flagKeys(states[1]!)).toEqual(["GTD_FLAG_ALPHA"])
-    expect(flagKeys(states[2]!)).toEqual(["GTD_FLAG_BETA"])
+  it("pins a default-on release flag to 1 in defaults and 0 in its off state", () => {
+    const states = planStates([{ ...flag("alpha"), defaultOn: true }], {})
+    expect(states.map((s) => s.label)).toEqual(["defaults", "alpha off"])
+    expect(flagVars(states[0]!)).toEqual({ GTD_FLAG_ALPHA: "1" })
+    expect(flagVars(states[1]!)).toEqual({ GTD_FLAG_ALPHA: "0" })
+    expect(states[1]!.tasks).toEqual(VITEST_TASKS)
+  })
+
+  it("flips one flag per state and pins the others at their defaults", () => {
+    const states = planStates([flag("alpha"), { ...flag("beta"), defaultOn: true }], {})
+    expect(states.map((s) => s.label)).toEqual(["defaults", "alpha on", "beta off"])
+    expect(flagVars(states[0]!)).toEqual({ GTD_FLAG_ALPHA: "0", GTD_FLAG_BETA: "1" })
+    expect(flagVars(states[1]!)).toEqual({ GTD_FLAG_ALPHA: "1", GTD_FLAG_BETA: "1" })
+    expect(flagVars(states[2]!)).toEqual({ GTD_FLAG_ALPHA: "0", GTD_FLAG_BETA: "0" })
   })
 
   it("strips every inherited GTD_FLAG_* and keeps other variables", () => {
@@ -77,19 +90,21 @@ describe("planStates", () => {
       expect(s.env["GTD_FLAG_OTHER"]).toBeUndefined()
       expect(s.env["PATH"]).toBe("/bin")
     }
-    expect(states[0]!.env["GTD_FLAG_ALPHA"]).toBeUndefined()
-    expect(states[2]!.env["GTD_FLAG_ALPHA"]).toBeUndefined()
+    expect(states[0]!.env["GTD_FLAG_ALPHA"]).toBe("0")
+    expect(states[2]!.env["GTD_FLAG_ALPHA"]).toBe("0")
     expect(states[1]!.env["GTD_FLAG_ALPHA"]).toBe("1")
   })
 })
 
 describe("planStates and resolveFlags agree on the variable name", () => {
-  it("each state resolves exactly its own flag on", () => {
-    const registry = [flag("alpha"), flag("kebab-Case")] as const
+  it("each state's label matches what resolveFlags reads from its env", () => {
+    const registry = [flag("alpha"), { ...flag("kebab-Case"), defaultOn: true }] as const
     for (const state of planStates(registry, {})) {
-      for (const { name } of registry) {
-        expect(resolveFlags(state.env, registry)[name]).toBe(state.on === name)
-      }
+      const resolved = resolveFlags(state.env, registry)
+      const flipped = registry.filter((f) => resolved[f.name] !== (f.defaultOn ?? false))
+      const expected = flipped.map((f) => `${f.name} ${resolved[f.name] ? "on" : "off"}`)
+      expect(expected.length === 0 ? "defaults" : expected[0]).toBe(state.label)
+      expect(flipped.length).toBeLessThanOrEqual(1)
     }
   })
 })
@@ -129,31 +144,31 @@ describe("runStates", () => {
   it("returns a single state's code verbatim and logs nothing", () => {
     const { run } = stub([3])
     const lines: string[] = []
-    expect(runStates([stateOf(undefined)], run, (l) => lines.push(l))).toBe(3)
+    expect(runStates([stateOf("defaults")], run, (l) => lines.push(l))).toBe(3)
     expect(lines).toEqual([])
   })
 
   it("logs one pass line per state and returns 0", () => {
     const { run } = stub([0, 0])
     const lines: string[] = []
-    const code = runStates([stateOf(undefined), stateOf("alpha")], run, (l) => lines.push(l))
+    const code = runStates([stateOf("defaults"), stateOf("alpha on")], run, (l) => lines.push(l))
     expect(code).toBe(0)
-    expect(lines).toEqual(["test-states: all off — pass", "test-states: alpha on — pass"])
+    expect(lines).toEqual(["test-states: defaults — pass", "test-states: alpha on — pass"])
   })
 
   it("runs the flag-on state after a red all-off and returns 1", () => {
     const { run, calls } = stub([1, 0])
     const lines: string[] = []
-    const code = runStates([stateOf(undefined), stateOf("alpha")], run, (l) => lines.push(l))
+    const code = runStates([stateOf("defaults"), stateOf("alpha on")], run, (l) => lines.push(l))
     expect(calls).toHaveLength(2)
-    expect(lines[0]).toBe("test-states: all off — FAIL")
+    expect(lines[0]).toBe("test-states: defaults — FAIL")
     expect(lines[1]).toBe("test-states: alpha on — pass")
     expect(code).toBe(1)
   })
 
   it("runs all three states in order when the middle one is red", () => {
     const { run, calls } = stub([0, 2, 0])
-    const states = [stateOf(undefined), stateOf("alpha"), stateOf("beta")]
+    const states = [stateOf("defaults"), stateOf("alpha on"), stateOf("beta on")]
     expect(runStates(states, run, () => {})).toBe(1)
     expect(calls.map((c) => c.env)).toEqual(states.map((s) => s.env))
     expect(calls.map((c) => c.tasks)).toEqual(states.map((s) => s.tasks))
@@ -162,7 +177,7 @@ describe("runStates", () => {
   it("counts a signal-killed (null) state as FAIL", () => {
     const { run } = stub([0, null])
     const lines: string[] = []
-    const code = runStates([stateOf(undefined), stateOf("alpha")], run, (l) => lines.push(l))
+    const code = runStates([stateOf("defaults"), stateOf("alpha on")], run, (l) => lines.push(l))
     expect(lines[1]).toBe("test-states: alpha on — FAIL")
     expect(code).toBe(1)
   })

@@ -1400,8 +1400,9 @@ A feature flag is an environment variable, `GTD_FLAG_<NAME>`, one per feature
 flag: `GTD_FLAG_FOO` for a feature flag `foo`. gtd documents the mechanism, not
 a list of feature flags.
 
-- `1`, `true`, `0` and `false` are accepted, case-insensitively; unset or empty
-  is off.
+- `1`, `true`, `0` and `false` are accepted, case-insensitively. Unset or empty
+  is off, unless the flag is on by default — then it is on, and `0` or `false`
+  is the kill switch that turns it off.
 - A garbled value for a known feature flag exits `1` with a stderr line naming
   the variable.
 - A `GTD_FLAG_*` variable naming no known feature flag is ignored.
@@ -1409,6 +1410,53 @@ a list of feature flags.
   one mid-process applies to the rest of that process.
 - Feature flags are in the [No promise](../COMPATIBILITY.md#no-promise) tier:
   any feature flag may appear, flip or vanish in any release.
+
+### Rolling out and cleaning up a release flag
+
+Two bundled workflows move a release flag through its life. Export them from
+`gtd.config.ts` (`export { rollout, cleanup } from "@pmelab/gtd/workflows"`) and
+start each by name:
+
+```bash
+gtd --workflow rollout --var flag=<name>
+gtd --workflow cleanup --var flag=<name>
+```
+
+- `flag` is the flag's name in the registry; it is required.
+- `flagRegistry` is a factory option
+  (`rollout({ flagRegistry: "src/flags.ts" })`), default `src/flags/index.ts`:
+  the file declaring the flags, read as text: each flag is a flat object literal
+  such as
+  `{ name: "beta", owner: "me", expiry: "2027-01-01", kind: "release", defaultOn: true }`
+  (`defaultOn` optional). Comments and string contents are not entries.
+- **Rollout** takes a non-default-on release flag and has an agent set
+  `defaultOn: true` on its entry, and nothing else. The suite must stay green.
+  There is no review: it ends once the suite passes. These limits also bind a
+  human's fix at `rollout.suite.blocked`: it may touch only the flag's registry
+  entry (`.gtd/FEEDBACK.md` aside), or the landing is refused.
+- **Cleanup** takes a default-on release flag, deletes its entry and every
+  `GTD_FLAG_<NAME>` check from `src/` (only `.ts`/`.tsx` files there are
+  scanned), keeping the flag-on path, then runs the review. A review note ends
+  the process; `gtd door fix` works it off. Those checks re-run after every
+  later agent turn (fixes, escalation, quality lenses, the review's own turns)
+  and a human's escalation landing, over the `src/` files that turn changed —
+  but not after the human's review sign-off.
+
+Refusals, each exiting non-zero with the text on stderr:
+
+| Text                                                                | When                                                             |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `gtd: <workflow> needs --var flag=<name>`                           | no `flag` var                                                    |
+| `gtd: <workflow>: no flag "<name>" in <registry>`                   | name not in the registry                                         |
+| `gtd: <workflow>: flag "<name>" is <kind>, not release`             | not a release flag                                               |
+| `gtd: rollout: flag "<name>" is already default-on`                 | rollout of a default-on flag                                     |
+| `gtd: cleanup: flag "<name>" is not default-on — roll it out first` | cleanup of a flag still default-off                              |
+| `gtd land: rollout-only: <paths> changed — rollout may only set …`  | rollout (agent or human fix) touched a file besides the registry |
+| `gtd land: rollout-only: other edits in <registry>: <faults>`       | rollout (agent or human fix) edited beyond that one field        |
+| `gtd land: cleanup: <registry> still declares flag "<name>"`        | cleanup left or restored the registry entry                      |
+| `gtd land: cleanup: <paths> still names GTD_FLAG_<NAME>`            | cleanup left or reintroduced an env-var check under `src/`       |
+
+New step names in both workflows are public API.
 
 ## Migrating from `.gtdrc`
 

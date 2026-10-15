@@ -28,13 +28,30 @@ const escalationSteps: kit.EscalationSteps = {
   exhausted: escalationExhausted,
 }
 
+/** Runs after an agent or human turn; refuses it by throwing (`refuse`). */
+export type Guard = () => void
+
+export const guarded =
+  <A extends unknown[]>(turn: (...a: A) => Promise<void>, guard?: Guard) =>
+  async (...a: A): Promise<void> => {
+    await turn(...a)
+    guard?.()
+  }
+
+const guardedSteps = (guard?: Guard): kit.EscalationSteps => ({
+  limit: escalationSteps.limit,
+  describe: guarded(escalationSteps.describe, guard),
+  stop: guarded(escalationSteps.stop, guard),
+  exhausted: guarded(escalationSteps.exhausted, guard),
+})
+
 /**
  * Hand a red suite that repeated attempts could not fix to a person: an
  * agent writes `.gtd/ESCALATION.md`, a human narrows it. From the third round
  * on, the human is told the budget is spent instead.
  */
-export const escalation = (count: kit.EscalationCount): Promise<void> =>
-  kit.escalation(count, escalationSteps)
+export const escalation = (count: kit.EscalationCount, guard?: Guard): Promise<void> =>
+  kit.escalation(count, guardedSteps(guard))
 
 /** "Is this red round the same failure as the last one?" — asked of two reports, or of nothing when one is empty. */
 export const retryQuestion = (comparable: boolean): JudgeQuestion =>
@@ -79,6 +96,8 @@ export interface HealthOptions {
   readonly escalations?: kit.EscalationCount
   /** Paths removed on a green run. */
   readonly sweepOnGreen?: readonly string[]
+  /** Runs after every fix and escalation turn. */
+  readonly guard?: Guard | undefined
 }
 
 const runSuite = (options: HealthOptions): Promise<boolean> =>
@@ -95,20 +114,24 @@ const runSuite = (options: HealthOptions): Promise<boolean> =>
  * identical to the previous round's.
  */
 export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): Promise<void> =>
-  kit.healthy(fix, {
+  kit.healthy(guarded(fix, options.guard), {
     check: () => runSuite(options),
     report: FEEDBACK,
     fixCap: FIX_CAP,
     fixesSoFar: options.fixesSoFar ?? 0,
     sameFailure,
     escalations: options.escalations ?? { rounds: 0 },
-    escalation: escalationSteps,
+    escalation: guardedSteps(options.guard),
   })
 
-/** Hold the process at `<name>.blocked` until the suite is green. */
-export const gate = (name: string, message: string): Promise<void> =>
+/**
+ * Hold the process at `<name>.blocked` until the suite is green. `guard` runs
+ * after each `blocked` landing only — never after a check, whose refusal would
+ * re-run the same script forever.
+ */
+export const gate = (name: string, message: string, guard?: Guard): Promise<void> =>
   kit.gate(
     name,
     () => baseline("check"),
-    () => human("blocked", { message, label: "Baseline is red", file: FEEDBACK }),
+    guarded(() => human("blocked", { message, label: "Baseline is red", file: FEEDBACK }), guard),
   )
