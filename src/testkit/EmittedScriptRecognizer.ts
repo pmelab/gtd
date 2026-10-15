@@ -172,7 +172,7 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   // quoted argument.
   const conditionLine = conditionStatement(block)
 
-  if (block.startsWith("git add -A || exit 1\ngtd_tree=")) return recognizeKeepTurn(repo, block)
+  if (block.startsWith("git add -A || exit 1\ngtd_sign_cfg=")) return recognizeKeepTurn(repo, block)
 
   if (block.startsWith("git add -A || exit 1\n")) {
     const [message] = extractQuotedTokens(conditionLine)

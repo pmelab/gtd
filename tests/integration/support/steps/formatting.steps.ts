@@ -18,6 +18,17 @@ Given(
   },
 )
 
+Given(
+  "a pre-commit hook that writes {string} to {string} and stages it",
+  (world: GtdWorld, content: string, path: string) => {
+    world.repo!.hookStages = { path, content }
+  },
+)
+
+Given("a commit signer that fails", (world: GtdWorld) => {
+  world.repo!.signingFails = true
+})
+
 When("I run gtd with args {string}", async (world: GtdWorld, args: string) => {
   await world.runGtd(...args.split(" "))
 })

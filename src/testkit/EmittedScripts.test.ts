@@ -225,54 +225,74 @@ for (const makeTier of gitTiers) {
         expect(read("naive.txt")).toBe("naive\n")
       })
 
-      it("a rejected marker commit puts the turn back in the working tree and drops its kept ref", async () => {
-        const head = t.observe.resolveRef("HEAD")
-        t.seed.rejectingHook("rejected")
+      it("a staging hook does not reach the marker: HEAD's tree stays the pre-turn tree", async () => {
+        const before = t.observe.resolveRef("HEAD")
+        t.seed.stagingHook("readme.txt", "hooked")
         t.seed.writeFile("naive.txt", "naive\n")
-        const status = t.observe.statusPorcelain()
-        expect(run(keepTurn(PREFIX, MESSAGE)).ok).toBe(false)
-        expect(t.observe.statusPorcelain()).toBe(status)
-        expect(t.observe.resolveRef("HEAD")).toBe(head)
-        expect(read("naive.txt")).toBe("naive\n")
-        expect(await git((g) => g.listRefs(`${PREFIX}/`))).toEqual([])
+        expect(run(keepTurn(PREFIX, MESSAGE))).toMatchObject({ ok: true })
+
+        expect(t.observe.headTouchedPaths()).toEqual([])
+        expect(t.observe.resolveRef("HEAD^")).toBe(before)
+        expect(read("readme.txt")).toBe("hello")
+        expect(t.observe.statusPorcelain()).toBe("")
+        const kept = await keptTip()
+        expect(t.observe.resolveRef(`${PREFIX}/${kept}`)).toBe(kept)
+        expect(t.observe.resolveRef(`${kept}^`)).toBe(before)
+        expect(await git((g) => g.readFileAtRef(kept, "readme.txt"))).toBe("hello")
+        expect(await git((g) => g.readFileAtRef(kept, "naive.txt"))).toBe("naive\n")
       })
 
-      it("a failing --no-verify retry puts the turn back and drops its kept ref", async () => {
+      for (const output of ["rejected", "lint error"]) {
+        it(`a rejecting hook ("${output}") does not stop the marker`, async () => {
+          const before = t.observe.resolveRef("HEAD")
+          t.seed.rejectingHook(output)
+          t.seed.writeFile("naive.txt", "naive\n")
+          expect(run(keepTurn(PREFIX, MESSAGE))).toMatchObject({ ok: true })
+
+          const kept = await keptTip()
+          expect(kept).not.toBe("")
+          expect(t.observe.resolveRef(`${PREFIX}/${kept}`)).toBe(kept)
+          expect(t.observe.resolveRef("HEAD^")).toBe(before)
+          expect(t.observe.headTouchedPaths()).toEqual([])
+          expect(t.observe.statusPorcelain()).toBe("")
+          expect(await git((g) => g.readFileAtRef(kept, "naive.txt"))).toBe("naive\n")
+        })
+      }
+
+      it("a failing signer alone puts the turn back in the working tree and drops its kept ref", async () => {
         const head = t.observe.resolveRef("HEAD")
-        t.seed.rejectingHook(RETRYABLE)
         t.seed.failingSigner()
         t.seed.writeFile("naive.txt", "naive\n")
         const status = t.observe.statusPorcelain()
         const result = run(keepTurn(PREFIX, MESSAGE))
         expect(result.ok).toBe(false)
-        expect(t.observe.statusPorcelain()).toBe(status)
         expect(result.status).toBe(1)
         expect(result.output).toContain("failed to sign")
+        expect(t.observe.statusPorcelain()).toBe(status)
         expect(t.observe.resolveRef("HEAD")).toBe(head)
         expect(read("naive.txt")).toBe("naive\n")
         expect(await git((g) => g.listRefs(`${PREFIX}/`))).toEqual([])
+      })
+    })
+
+    describe("commitAll", () => {
+      it("a staging hook's edit lands in the commit", () => {
+        t.seed.stagingHook("readme.txt", "hooked")
+        t.seed.writeFile("a.txt", "a\n")
+        expect(run(commitAll("gtd(agent): building")).ok).toBe(true)
+        expect(t.observe.headTouchedPaths().toSorted()).toEqual(["a.txt", "readme.txt"])
+        expect(read("readme.txt")).toBe("hooked")
       })
 
       it("hook output with shell metacharacters reaches stderr verbatim", () => {
         const output = "bad $HOME $(echo x) `id`"
         t.seed.rejectingHook(output)
-        t.seed.writeFile("naive.txt", "naive\n")
-        const result = run(keepTurn(PREFIX, MESSAGE))
+        t.seed.writeFile("a.txt", "a\n")
+        const result = run(commitAll("gtd(agent): building"))
         expect(result.ok).toBe(false)
         expect(result.output).toContain(output)
       })
 
-      it("a hook rejecting with 'empty git commit' is retried without hooks and the turn is kept", async () => {
-        t.seed.rejectingHook(RETRYABLE)
-        t.seed.writeFile("naive.txt", "naive\n")
-        expect(run(keepTurn(PREFIX, MESSAGE))).toMatchObject({ ok: true, status: 0 })
-        const kept = await keptTip()
-        expect(kept).not.toBe("")
-        expect(t.observe.refExists(`${PREFIX}/${kept}`)).toBe(true)
-      })
-    })
-
-    describe("commitAll", () => {
       it("fails with status 1 and HEAD unchanged when the commit cannot be written even without hooks", () => {
         const head = t.observe.resolveRef("HEAD")
         t.seed.rejectingHook(RETRYABLE)

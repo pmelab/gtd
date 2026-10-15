@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -62,7 +62,7 @@ const withFakeGit = (
 }
 
 const runWithFakeGit = (script: string, binDir: string): { status: number | null } =>
-  spawnSync("bash", ["-c", script], {
+  spawnSync("sh", ["-c", script], {
     env: { ...process.env, PATH: `${binDir}:${process.env["PATH"]}` },
     encoding: "utf8",
   })
@@ -285,5 +285,66 @@ describe("fetchHistoryRefs", () => {
     expect(script).not.toContain("+refs/")
     expect(script).toContain("history refs arrived")
     expect(runBashCheckSyntax(script)).toBe(0)
+  })
+})
+
+describe("keepTurn", () => {
+  const block = keepTurn("refs/gtd/kept/abc/build.naive", "gtd(agent): done")
+
+  it("a branch update refused by the guard exits 1, deleting the kept ref after reset -q", () => {
+    const binDir = mkdtempSync(join(tmpdir(), "gitscript-fakebin-"))
+    const log = join(binDir, "log")
+    writeFileSync(
+      join(binDir, "git"),
+      [
+        "#!/bin/sh",
+        `echo "$*" >> '${log}'`,
+        `case "$1" in`,
+        `  rev-parse) echo head0 ;;`,
+        `  write-tree) echo tree0 ;;`,
+        `  commit-tree) echo commit0 ;;`,
+        `  config) echo false ;;`,
+        `  update-ref) [ "$2" = HEAD ] && exit 1; exit 0 ;;`,
+        `  *) exit 0 ;;`,
+        `esac`,
+      ].join("\n"),
+      { mode: 0o755 },
+    )
+    const result = runWithFakeGit(`set -eu\n${block}`, binDir)
+    expect(result.status).toBe(1)
+    const calls = readFileSync(log, "utf8").trim().split("\n")
+    expect(calls).toContain("update-ref HEAD commit0 head0")
+    const resetAt = calls.indexOf("reset -q")
+    expect(resetAt).toBeGreaterThan(-1)
+    expect(calls.slice(resetAt + 1)).toEqual([
+      "update-ref -d refs/gtd/kept/abc/build.naive/commit0",
+    ])
+    expect(calls).not.toContain("reset --hard HEAD")
+  })
+
+  it("a failed reset -q exits 1 and keeps the kept ref", () => {
+    const binDir = mkdtempSync(join(tmpdir(), "gitscript-fakebin-"))
+    const log = join(binDir, "log")
+    writeFileSync(
+      join(binDir, "git"),
+      [
+        "#!/bin/sh",
+        `echo "$*" >> '${log}'`,
+        `case "$1" in`,
+        `  rev-parse) echo head0 ;;`,
+        `  write-tree) echo tree0 ;;`,
+        `  commit-tree) echo commit0 ;;`,
+        `  config) echo false ;;`,
+        `  update-ref) [ "$2" = HEAD ] && exit 1; exit 0 ;;`,
+        `  reset) exit 1 ;;`,
+        `  *) exit 0 ;;`,
+        `esac`,
+      ].join("\n"),
+      { mode: 0o755 },
+    )
+    const result = runWithFakeGit(`set -eu\n${block}`, binDir)
+    expect(result.status).toBe(1)
+    const calls = readFileSync(log, "utf8").trim().split("\n")
+    expect(calls).not.toContain("update-ref -d refs/gtd/kept/abc/build.naive/commit0")
   })
 })

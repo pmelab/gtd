@@ -339,6 +339,8 @@ export class InMemRepo {
   /** Seeded failure modes (see `GitTierSeed`): a pre-commit hook printing this and exiting 1, and a signer that cannot write. */
   hookRejection: string | undefined = undefined
   signingFails = false
+  /** Seeded: a pre-commit hook writing and staging this file. */
+  hookStages: { readonly path: string; readonly content: string } | undefined = undefined
 
   private writeCommit(message: string): void {
     const tree = new Map(this.index)
@@ -361,20 +363,24 @@ export class InMemRepo {
       return this.hookRejection
     }
     if (this.signingFails) return "error: gpg failed to sign the data"
+    if (this.hookStages !== undefined) {
+      this.worktree.set(this.hookStages.path, this.hookStages.content)
+      this.index.set(this.hookStages.path, this.hookStages.content)
+    }
     this.writeCommit(message)
     return undefined
   }
 
   /** Setup commit: stages everything, and throws if a failure is seeded, as the Live tier's hooks and signer would. */
   seedCommit(message: string): void {
-    if (this.hookRejection !== undefined || this.signingFails) {
+    if (this.hookRejection !== undefined || this.hookStages !== undefined || this.signingFails) {
       throw new Error("seedCommit after a seeded commit failure")
     }
     this.index = new Map(this.worktree)
     this.writeCommit(message)
   }
 
-  /** In-memory twin of `GitScript.keepTurn`. */
+  /** Twin of `GitScript.keepTurn`: no hook runs; `signingFails` fails the marker. */
   keepTurn(refPrefix: string, message: string): string | undefined {
     this.stageAll()
     const tree = new Map(this.index)
@@ -383,14 +389,15 @@ export class InMemRepo {
     this.commits.set(hash, { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ })
     const ref = `${refPrefix}/${hash}`
     this.refs.set(ref, hash)
-    this.resetHard()
-    const failure = this.commitAsIs(`${message}\nGtd-Kept: ${hash}`)
-    if (failure !== undefined) {
-      this.worktree = new Map(tree)
-      this.index = new Map(this.headTree())
+    this.index = new Map(this.headTree())
+    if (this.signingFails) {
       this.refs.delete(ref)
+      return "error: gpg failed to sign the data"
     }
-    return failure
+    this.writeCommit(`${message}\nGtd-Kept: ${hash}`)
+    this.index = new Map(tree)
+    this.resetHard()
+    return undefined
   }
 
   /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which drops the freshly-staged untracked paths too). */

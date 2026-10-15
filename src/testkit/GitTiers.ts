@@ -30,6 +30,7 @@ import {
   updateRef,
   fetchHistoryRefs,
   deleteRef,
+  shellQuote,
 } from "../emit/index.js"
 import { applyEmittedScript } from "./EmittedScriptRecognizer.js"
 import { InMemRepo } from "./InMemRepo.js"
@@ -56,6 +57,16 @@ const writeRejectingHook = (hooksDir: string, output: string): void => {
   )
 }
 
+// `printf '%s'` keeps `content` byte-exact.
+const writeStagingHook = (hooksDir: string, path: string, content: string): void => {
+  mkdirSync(hooksDir, { recursive: true })
+  writeFileSync(
+    join(hooksDir, "pre-commit"),
+    `#!/bin/sh\nprintf '%s' ${shellQuote(content)} > ${shellQuote(path)} && git add ${shellQuote(path)}\nexit 0\n`,
+    { mode: 0o755 },
+  )
+}
+
 export interface GitTierSeed {
   readonly commit: (message: string, files?: Record<string, string>) => void
   readonly writeFile: (path: string, content: string) => void
@@ -66,7 +77,9 @@ export interface GitTierSeed {
   readonly mixedReset: (ref: string) => void
   /** Every hooked commit fails printing `output`; `--no-verify` skips it. */
   readonly rejectingHook: (output: string) => void
-  /** Every commit `git commit` signs fails to write; `git commit-tree` is unaffected. */
+  /** Every hooked commit first writes `content` to `path` and stages it; `--no-verify` and `commit-tree` skip it. */
+  readonly stagingHook: (path: string, content: string) => void
+  /** Every commit `git commit` signs, or `git commit-tree -S` writes, fails; plain `git commit-tree` is unaffected. */
   readonly failingSigner: () => void
 }
 
@@ -209,6 +222,11 @@ const makeLiveTier = (initialCommit = true): GitTier => {
         gitExec("config", "core.hooksPath", hooks)
         writeRejectingHook(hooks, output)
       },
+      stagingHook: (path, content) => {
+        const hooks = join(root, ".git/hooks")
+        gitExec("config", "core.hooksPath", hooks)
+        writeStagingHook(hooks, path, content)
+      },
       failingSigner: () => {
         gitExec("config", "commit.gpgsign", "true")
         // A global `gpg.format ssh` would otherwise sign and the case pass vacuously.
@@ -320,6 +338,9 @@ const makeInMemTier = (initialCommit = true): GitTier => {
       mixedReset: (ref) => repo.mixedResetTo(ref),
       rejectingHook: (output) => {
         repo.hookRejection = output
+      },
+      stagingHook: (path, content) => {
+        repo.hookStages = { path, content }
       },
       failingSigner: () => {
         repo.signingFails = true

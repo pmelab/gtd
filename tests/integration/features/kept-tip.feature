@@ -126,20 +126,27 @@ Feature: kept tips — a keep step's turn is set aside off the branch
     Then stdout contains "nothing was kept for never-kept"
 
   @inmem
-  Scenario: a rejected marker commit puts the turn back and leaves no kept ref
-    Given a pre-commit hook rejecting every commit with "lint error"
+  Scenario: a staging hook does not reach the marker
+    Given a pre-commit hook that writes "hooked" to "NOTE.md" and stages it
     And a file "src/naive.ts" with:
       """
       export const naive = 1
       """
     When I run gtd land
-    Then it fails
-    And "src/naive.ts" contains "export const naive = 1"
-    And no ref exists under "refs/gtd/kept/"
+    Then it succeeds
+    And the last commit subject is "gtd(agent): naive → checking"
+    And "NOTE.md" at "HEAD" contains "Build a thing."
+    And the git status is clean
+    Given I mark the kept ref of "entry" for step "naive" as "kept"
+    Then "src/naive.ts" at "kept" contains "export const naive = 1"
+    And "NOTE.md" at "kept" contains "Build a thing."
+    When I run gtd next
+    Then stdout contains "check the result: src/naive.ts = export const naive = 1"
+    And stdout does not contain "NOTE.md ="
 
   @inmem
-  Scenario: a hook rejecting with "empty git commit" is retried and the turn is kept
-    Given a pre-commit hook rejecting every commit with "rejected: empty git commit"
+  Scenario: a rejecting hook does not stop the marker
+    Given a pre-commit hook rejecting every commit with "lint error"
     And a file "src/naive.ts" with:
       """
       export const naive = 1
@@ -148,5 +155,19 @@ Feature: kept tips — a keep step's turn is set aside off the branch
     Then it succeeds
     And the last commit subject is "gtd(agent): naive → checking"
     And "src/naive.ts" does not exist
+    And the git status is clean
     Given I mark the kept ref of "entry" for step "naive" as "kept"
-    Then "src/naive.ts" at "kept" contains "export const naive = 1"
+    Then the last commit body contains "Gtd-Kept: " followed by the hash of "kept"
+    And "src/naive.ts" at "kept" contains "export const naive = 1"
+
+  @inmem
+  Scenario: a failing commit signer leaves the turn in the working tree and no kept ref
+    Given a commit signer that fails
+    And a file "src/naive.ts" with:
+      """
+      export const naive = 1
+      """
+    When I run gtd land
+    Then it fails
+    And "src/naive.ts" contains "export const naive = 1"
+    And no ref exists under "refs/gtd/kept/"
