@@ -32,16 +32,22 @@ export const commitAll = (message: string): string =>
   `git add -A || exit 1\n${commitAllowEmpty(message)}`
 
 /**
- * An approval records exactly the judged tree, so it stages nothing and fails
- * (nothing committed) when anything changed since \`gtd land\`.
+ * An approval records exactly the judged tree: HEAD is pinned before the
+ * clean check and the commit is built over its tree with `commit-tree`, so no
+ * hook runs and none can add to it. A HEAD that moved fails the guarded
+ * `update-ref`. `commit-tree` ignores `commit.gpgSign`, so it is read here.
  */
 export const commitClean = (message: string): string =>
   [
+    `gtd_head=$(git rev-parse --verify HEAD) || exit 1`,
     `if [ -n "$(git status --porcelain --untracked-files=all --ignore-submodules=none)" ]; then`,
     `  printf '%s\\n' ${shellQuote(CHANGED_SINCE_LAND)} >&2`,
     `  exit 1`,
     `fi`,
-    commitAllowEmpty(message),
+    `gtd_sign_cfg=$(git config --type=bool --default=false commit.gpgSign) || exit 1`,
+    `if [ "$gtd_sign_cfg" = true ]; then gtd_sign=-S; else gtd_sign=--no-gpg-sign; fi`,
+    `gtd_tip=$(git commit-tree "$gtd_sign" "$gtd_head^{tree}" -p "$gtd_head" -m ${shellQuote(message)}) || exit 1`,
+    `git update-ref -m ${shellQuote(`commit: ${message}`)} HEAD "$gtd_tip" "$gtd_head" || exit 1`,
   ].join("\n")
 
 /** No current caller — see `Git.ts`'s `GitWriterOperations.commitAsIs` for why it's kept anyway. */
@@ -86,7 +92,7 @@ export const keepTurn = (refPrefix: string, message: string): string => {
     `gtd_kept=$(git commit-tree "$gtd_tree" -p "$gtd_head" -m ${shellQuote(message)}) || exit 1`,
     `git update-ref ${keptRef} "$gtd_kept" || exit 1`,
     `gtd_marker=$(printf '%s\\nGtd-Kept: %s' ${shellQuote(message)} "$gtd_kept")`,
-    `if ! gtd_tip=$(git commit-tree "$gtd_sign" "$gtd_head^{tree}" -p "$gtd_head" -m "$gtd_marker") || ! git update-ref HEAD "$gtd_tip" "$gtd_head"; then`,
+    `if ! gtd_tip=$(git commit-tree "$gtd_sign" "$gtd_head^{tree}" -p "$gtd_head" -m "$gtd_marker") || ! git update-ref -m ${shellQuote(`commit: ${message}`)} HEAD "$gtd_tip" "$gtd_head"; then`,
     `  git reset -q && git update-ref -d ${keptRef}`,
     `  exit 1`,
     `fi`,

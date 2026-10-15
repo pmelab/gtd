@@ -12,6 +12,7 @@ interface Commit {
   parent: string | null
   /** Creation order — the twin's stand-in for a committer date. */
   seq: number
+  readonly signed: boolean
 }
 
 function sha1(input: string): string {
@@ -352,6 +353,7 @@ export class InMemRepo {
   /** Seeded failure modes (see `GitTierSeed`): a pre-commit hook printing this and exiting 1, and a signer that cannot write. */
   hookRejection: string | undefined = undefined
   signingFails = false
+  signingEnabled = false
   /** Seeded: a pre-commit hook writing and staging this file. */
   hookStages: { readonly path: string; readonly content: string } | undefined = undefined
 
@@ -359,7 +361,14 @@ export class InMemRepo {
     const tree = new Map(this.index)
     const parent = this.head
     const hash = makeHash(message, parent, tree)
-    const commit: Commit = { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ }
+    const commit: Commit = {
+      hash,
+      message,
+      files: new Map(tree),
+      parent,
+      seq: this.nextSeq++,
+      signed: this.signingEnabled,
+    }
     this.commits.set(hash, commit)
     this.head = hash
     this.branches.set(this.currentBranch, hash)
@@ -384,10 +393,17 @@ export class InMemRepo {
     return undefined
   }
 
-  /** Twin of `GitScript.commitClean`: stages nothing; `undefined` on success, else the stderr text. */
+  /** Twin of `GitScript.commitClean`: no hook runs, HEAD's tree is recorded; `undefined` on success, else the stderr text. */
   commitClean(message: string): string | undefined {
+    if (this.head === null) return "fatal: Needed a single revision"
     if (this.statusPorcelain().trim() !== "") return CHANGED_SINCE_LAND
-    return this.commitAsIs(message)
+    if (this.signingFails) return "error: gpg failed to sign the data"
+    this.writeCommit(message)
+    return undefined
+  }
+
+  headSigned(): boolean {
+    return this.headCommit()?.signed === true
   }
 
   /** Setup commit: stages everything, and throws if a failure is seeded, as the Live tier's hooks and signer would. */
@@ -405,7 +421,14 @@ export class InMemRepo {
     const tree = new Map(this.index)
     const parent = this.head
     const hash = makeHash(message, parent, tree)
-    this.commits.set(hash, { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ })
+    this.commits.set(hash, {
+      hash,
+      message,
+      files: new Map(tree),
+      parent,
+      seq: this.nextSeq++,
+      signed: false,
+    })
     const ref = `${refPrefix}/${hash}`
     this.refs.set(ref, hash)
     this.index = new Map(this.headTree())

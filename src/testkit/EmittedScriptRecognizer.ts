@@ -186,12 +186,8 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
     return undefined
   }
 
-  if (
-    block.startsWith(
-      'if [ -n "$(git status --porcelain --untracked-files=all --ignore-submodules=none)" ]; then\n',
-    )
-  ) {
-    const [message] = extractQuotedTokens(block.slice(block.indexOf("\nfi\n")))
+  if (block.startsWith("gtd_head=$(git rev-parse --verify HEAD) || exit 1\nif [ -n ")) {
+    const [message] = extractQuotedTokens(block.slice(block.indexOf('"$gtd_head" -m ')))
     if (message !== undefined && commitClean(message) === block) {
       const failure = repo.commitClean(message)
       return failure === undefined

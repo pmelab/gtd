@@ -6,7 +6,7 @@ gtd_tree=$(git write-tree) || exit 1
 gtd_kept=$(git commit-tree "$gtd_tree" -p "$gtd_head" -m 'gtd(agent): sample') || exit 1
 git update-ref 'refs/gtd/kept/entry/step/'"$gtd_kept" "$gtd_kept" || exit 1
 gtd_marker=$(printf '%s\nGtd-Kept: %s' 'gtd(agent): sample' "$gtd_kept")
-if ! gtd_tip=$(git commit-tree "$gtd_sign" "$gtd_head^{tree}" -p "$gtd_head" -m "$gtd_marker") || ! git update-ref HEAD "$gtd_tip" "$gtd_head"; then
+if ! gtd_tip=$(git commit-tree "$gtd_sign" "$gtd_head^{tree}" -p "$gtd_head" -m "$gtd_marker") || ! git update-ref -m 'commit: gtd(agent): sample' HEAD "$gtd_tip" "$gtd_head"; then
   git reset -q && git update-ref -d 'refs/gtd/kept/entry/step/'"$gtd_kept"
   exit 1
 fi

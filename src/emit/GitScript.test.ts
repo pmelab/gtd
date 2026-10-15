@@ -107,11 +107,36 @@ describe("commitAsIs", () => {
 })
 
 describe("commitClean", () => {
+  const logGit = (body: string): { binDir: string; log: string } => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-log-git-"))
+    const log = join(dir, "log")
+    const gitPath = join(dir, "git")
+    writeFileSync(gitPath, `#!/bin/sh\necho "$*" >> '${log}'\n${body}\n`)
+    chmodSync(gitPath, 0o755)
+    return { binDir: dir, log }
+  }
+  const readLog = (log: string): string[] =>
+    execFileSync("cat", [log], { encoding: "utf8" }).trim().split("\n")
+  const cases = `case "$1" in
+  rev-parse) echo head0 ;;
+  status) ;;
+  config) echo \${GTD_CFG:-false} ;;
+  commit-tree) echo commit0 ;;
+esac`
+
   it("a dirty tree exits 1 before any commit", () => {
-    const { binDir, counterFile } = withFakeGit(`echo " M a.txt"`)
+    const { binDir, counterFile } = withFakeGit(`echo head0`, `echo " M a.txt"`)
     const result = runWithFakeGit(commitClean("msg"), binDir)
     expect(result.status).toBe(1)
-    expect(execFileSync("cat", [counterFile], { encoding: "utf8" }).trim()).toBe("1")
+    expect(execFileSync("cat", [counterFile], { encoding: "utf8" }).trim()).toBe("2")
+  })
+
+  it("a refused update-ref (HEAD moved) exits 1; the write is guarded by the pinned HEAD", () => {
+    const { binDir, log } = logGit(`${cases}\nif [ "$1" = update-ref ]; then exit 1; fi`)
+    const result = runWithFakeGit(commitClean("msg"), binDir)
+    expect(result.status).toBe(1)
+    const lines = readLog(log)
+    expect(lines[lines.length - 1]).toBe("update-ref -m commit: msg HEAD commit0 head0")
   })
 })
 
@@ -315,7 +340,7 @@ describe("keepTurn", () => {
         `  write-tree) echo tree0 ;;`,
         `  commit-tree) echo commit0 ;;`,
         `  config) echo false ;;`,
-        `  update-ref) [ "$2" = HEAD ] && exit 1; exit 0 ;;`,
+        `  update-ref) [ "$4" = HEAD ] && exit 1; exit 0 ;;`,
         `  *) exit 0 ;;`,
         `esac`,
       ].join("\n"),
@@ -324,7 +349,7 @@ describe("keepTurn", () => {
     const result = runWithFakeGit(`set -eu\n${block}`, binDir)
     expect(result.status).toBe(1)
     const calls = readFileSync(log, "utf8").trim().split("\n")
-    expect(calls).toContain("update-ref HEAD commit0 head0")
+    expect(calls).toContain("update-ref -m commit: gtd(agent): done HEAD commit0 head0")
     const resetAt = calls.indexOf("reset -q")
     expect(resetAt).toBeGreaterThan(-1)
     expect(calls.slice(resetAt + 1)).toEqual([
@@ -346,7 +371,7 @@ describe("keepTurn", () => {
         `  write-tree) echo tree0 ;;`,
         `  commit-tree) echo commit0 ;;`,
         `  config) echo false ;;`,
-        `  update-ref) [ "$2" = HEAD ] && exit 1; exit 0 ;;`,
+        `  update-ref) [ "$4" = HEAD ] && exit 1; exit 0 ;;`,
         `  reset) exit 1 ;;`,
         `  *) exit 0 ;;`,
         `esac`,

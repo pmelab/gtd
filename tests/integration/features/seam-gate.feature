@@ -103,6 +103,33 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
     And the last commit body contains "Gtd-Format: 1"
 
   @inmem
+  Scenario: a staging hook does not reach the approval
+    Given gtd lands "gtd(human): idle → shape"
+    And gtd lands "gtd(judge): shape → gate" judging:
+      """
+      [{"id":"shape","answer":"refactor-first","p":0.9}]
+      """
+    And a pre-commit hook that writes "hooked" to "NOTE.md" and stages it
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): gate → again"
+    And the last commit body contains "Gtd-Approved: "
+    And "NOTE.md" at "HEAD" contains "Build a thing."
+    And the git status is clean
+
+  @inmem
+  Scenario: a rejecting hook does not stop the approval
+    Given gtd lands "gtd(human): idle → shape"
+    And gtd lands "gtd(judge): shape → gate" judging:
+      """
+      [{"id":"shape","answer":"refactor-first","p":0.9}]
+      """
+    And a pre-commit hook rejecting every commit with "lint error"
+    When I run gtd land
+    Then it succeeds
+    And the last commit body contains "Gtd-Approved: "
+
+  @inmem
   Scenario: a tree edited between gtd land and its script fails the script and the gate stays
     Given gtd lands "gtd(human): idle → shape"
     And gtd lands "gtd(judge): shape → gate" judging:
