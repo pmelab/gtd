@@ -4,6 +4,7 @@ import { TASKS, VITEST_TASKS } from "../../scripts/test-states.ts"
 
 const turbo = JSON.parse(readFileSync(new URL("../../turbo.json", import.meta.url), "utf8"))
 const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"))
+const tsconfig = JSON.parse(readFileSync(new URL("../../tsconfig.json", import.meta.url), "utf8"))
 
 const taskKeys = Object.keys(turbo.tasks)
 const nonBuildTaskKeys = taskKeys.filter((key) => key !== "build")
@@ -28,6 +29,12 @@ describe("turbo.json / package.json invariants", () => {
         (VITEST_TASKS as readonly string[]).includes(key),
       )
     }
+  })
+
+  // scripts/*.ts is under tsc --noEmit, so a stale typecheck cache would hide breakage there.
+  it("typechecks scripts/ and keys the typecheck cache on it", () => {
+    expect(tsconfig.include).toContain("scripts")
+    expect(turbo.tasks.typecheck.inputs).toContain("scripts/**")
   })
 
   it("does not name itself as a turbo task (no recursion)", () => {

@@ -59,8 +59,20 @@ export function runStates(
   return failed ? 1 : 0
 }
 
-export const spawnTurbo: RunTasks = (tasks, env) => {
-  const result = spawnSync("turbo", ["run", ...tasks], {
+export const turboArgv = (tasks: readonly string[], args: readonly string[]): string[] => [
+  "run",
+  ...tasks,
+  ...args,
+]
+
+// args must be turbo options: a bare word would run as an extra task, and
+// --dry-run/--graph exit 0 without running anything.
+export const spawnTurbo = (
+  tasks: readonly string[],
+  env: Env,
+  args: readonly string[] = [],
+): number | null => {
+  const result = spawnSync("turbo", turboArgv(tasks, args), {
     stdio: "inherit",
     env: env as NodeJS.ProcessEnv,
   })

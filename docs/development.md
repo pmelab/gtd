@@ -5,6 +5,7 @@ npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
 npm run build        # tsdown → dist/gtd.bundle.mjs
 npm test             # the whole gate, via turbo — cached and parallel
+npm test -- --force  # bypass turbo's cache; turbo options after -- reach every turbo run
 npx turbo run test:unit         # one task, cached (add --force to bypass)
 npm run test:workflows          # each workflow's .feature files, in memory
 npx turbo run test:e2e:live     # builds first (turbo dependsOn), then @live

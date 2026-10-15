@@ -1,3 +1,6 @@
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { resolveFlags, type FlagDeclaration } from "../../src/flags/index.ts"
 import {
@@ -6,6 +9,7 @@ import {
   planStates,
   runStates,
   spawnTurbo,
+  turboArgv,
   type RunTasks,
   type TestState,
 } from "../../scripts/test-states.ts"
@@ -24,8 +28,10 @@ const stateOf = (name: string | undefined): TestState => ({
 })
 
 const stub = (codes: readonly (number | null)[]) => {
-  const calls: { tasks: readonly string[]; env: Readonly<Record<string, string | undefined>> }[] =
-    []
+  const calls: {
+    tasks: readonly string[]
+    env: Readonly<Record<string, string | undefined>>
+  }[] = []
   const run: RunTasks = (tasks, env) => {
     calls.push({ tasks, env })
     return codes[calls.length - 1]!
@@ -99,6 +105,23 @@ describe("spawnTurbo", () => {
       console.error = original
     }
     expect(String(errors[0])).toContain("cannot run turbo")
+  })
+})
+
+describe("spawnTurbo against a shim turbo", () => {
+  it("delivers forwarded args after the task names", () => {
+    const dir = mkdtempSync(join(tmpdir(), "turbo-shim-"))
+    const out = join(dir, "argv")
+    writeFileSync(join(dir, "turbo"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${out}"\n`)
+    chmodSync(join(dir, "turbo"), 0o755)
+    expect(spawnTurbo(["a", "b"], { PATH: dir }, ["--force"])).toBe(0)
+    expect(readFileSync(out, "utf8").trim().split("\n")).toEqual(["run", "a", "b", "--force"])
+  })
+})
+
+describe("turboArgv", () => {
+  it("puts forwarded args after the task names", () => {
+    expect(turboArgv(["a", "b"], ["--force"])).toEqual(["run", "a", "b", "--force"])
   })
 })
 
