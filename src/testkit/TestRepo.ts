@@ -19,7 +19,7 @@ export interface TestRepoOptions {
   readonly workflow: WorkflowModule
   /** Committed alongside the config, before any process starts. */
   readonly files?: Readonly<Record<string, string>>
-  /** The environment gtd sees; the real `process.env` is never read. */
+  /** The environment gtd sees; the real `process.env` is never read, except ambient `GTD_FLAG_*` (explicit env wins). */
   readonly env?: Readonly<Record<string, string>>
 }
 

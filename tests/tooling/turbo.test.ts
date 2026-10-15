@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
+import { TASKS, VITEST_TASKS } from "../../scripts/test-states.ts"
 
 const turbo = JSON.parse(readFileSync(new URL("../../turbo.json", import.meta.url), "utf8"))
 const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"))
+const tsconfig = JSON.parse(readFileSync(new URL("../../tsconfig.json", import.meta.url), "utf8"))
 
 const taskKeys = Object.keys(turbo.tasks)
 const nonBuildTaskKeys = taskKeys.filter((key) => key !== "build")
@@ -14,11 +16,25 @@ describe("turbo.json / package.json invariants", () => {
     }
   })
 
-  it("names exactly the non-build tasks in the test script's turbo run", () => {
-    const match = pkg.scripts.test.match(/^turbo run (.+)$/)
-    expect(match, `"test" script must start with "turbo run": ${pkg.scripts.test}`).not.toBeNull()
-    const invoked = match![1].split(/\s+/)
-    expect(new Set(invoked)).toEqual(new Set(nonBuildTaskKeys))
+  it("runs the test script through the dual-state runner, whose TASKS are exactly the non-build tasks", () => {
+    expect(pkg.scripts.test).toBe("jiti scripts/test-states.main.ts")
+    expect(new Set(TASKS)).toEqual(new Set(nonBuildTaskKeys))
+    expect(TASKS.length).toBe(nonBuildTaskKeys.length)
+  })
+
+  it("declares GTD_FLAG_* env on each VITEST_TASKS entry and on no other task", () => {
+    for (const key of taskKeys) {
+      const declared = ((turbo.tasks[key].env ?? []) as string[]).includes("GTD_FLAG_*")
+      expect(declared, `task "${key}" GTD_FLAG_* env`).toBe(
+        (VITEST_TASKS as readonly string[]).includes(key),
+      )
+    }
+  })
+
+  // scripts/*.ts is under tsc --noEmit, so a stale typecheck cache would hide breakage there.
+  it("typechecks scripts/ and keys the typecheck cache on it", () => {
+    expect(tsconfig.include).toContain("scripts")
+    expect(turbo.tasks.typecheck.inputs).toContain("scripts/**")
   })
 
   it("does not name itself as a turbo task (no recursion)", () => {

@@ -106,7 +106,7 @@
     "postbuild": "node scripts/assert-no-test-doubles.mjs",
     "watch": "tsdown --watch",
     "bench:replay": "node scripts/bench-replay.mjs",
-    "test": "turbo run format:check typecheck lint lint:sh lint:boundaries test:unit test:workflows test:e2e:inmem test:e2e:live test:web analyze",
+    "test": "jiti scripts/test-states.main.ts",
     "test:unit": "vitest run --project unit",
     "test:workflows": "vitest run --project workflows",
     "test:watch": "vitest",

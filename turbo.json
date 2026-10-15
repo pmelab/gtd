@@ -47,7 +47,7 @@
       "outputs": []
     },
     "typecheck": {
-      "inputs": ["src/**", "tests/**", "evals/**", "*.ts"],
+      "inputs": ["src/**", "tests/**", "evals/**", "scripts/**", "*.ts"],
       "outputs": []
     },
     "analyze": {
@@ -68,6 +68,7 @@
       "outputs": []
     },
     "test:unit": {
+      "env": ["GTD_FLAG_*"],
       "dependsOn": ["build"],
       "inputs": [
         ".oxfmtrc.json",
@@ -101,11 +102,13 @@
       "outputs": []
     },
     "test:workflows": {
+      "env": ["GTD_FLAG_*"],
       "dependsOn": ["build"],
       "inputs": ["src/**", "tests/vitest.*.ts", "vitest.config.ts"],
       "outputs": []
     },
     "test:e2e:inmem": {
+      "env": ["GTD_FLAG_*"],
       "dependsOn": ["build"],
       "inputs": [
         "src/**",
@@ -117,6 +120,7 @@
       "outputs": []
     },
     "test:e2e:live": {
+      "env": ["GTD_FLAG_*"],
       "dependsOn": ["build"],
       "inputs": [
         "src/**",
@@ -128,6 +132,7 @@
       "outputs": []
     },
     "test:web": {
+      "env": ["GTD_FLAG_*"],
       "inputs": ["src/**", ".storybook/**", "vitest.config.ts", "!src/ui/client.generated.html"],
       "outputs": []
     }
