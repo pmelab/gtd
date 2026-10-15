@@ -17,7 +17,7 @@ const commitAllowEmptyQuoted = (m: string, onFailure = ""): string =>
   [
     `if ! out=$(git commit --allow-empty -m ${m} 2>&1); then`,
     `  case "$out" in`,
-    `    *"empty git commit"*) git commit --allow-empty --no-verify -m ${m} ;;`,
+    `    *"empty git commit"*) git commit --allow-empty --no-verify -m ${m} || { ${onFailure}exit 1; } ;;`,
     `    *) printf '%s\\n' "$out" >&2; ${onFailure}exit 1 ;;`,
     `  esac`,
     `fi`,
@@ -53,7 +53,8 @@ export const discardPending = (): string => `git add -A && git reset --hard HEAD
  * pass, so a re-keep never leaves a marker's tip unreferenced. A failing
  * update-ref aborts before the reset: branch and tree untouched. A rejected
  * marker commit puts the turn back, as a failed `commitAll` leaves it, and
- * deletes the kept ref — no marker names it, so nothing else ever would.
+ * deletes the kept ref — no marker names it, so nothing else ever would. The ref
+ * goes only after the restore succeeds (`&&`): until then it is the turn's only handle.
  */
 export const keepTurn = (refPrefix: string, message: string): string =>
   [
@@ -65,7 +66,7 @@ export const keepTurn = (refPrefix: string, message: string): string =>
     `gtd_marker=$(printf '%s\\nGtd-Kept: %s' ${shellQuote(message)} "$gtd_kept")`,
     commitAllowEmptyQuoted(
       `"$gtd_marker"`,
-      `git read-tree -u --reset "$gtd_kept"; git reset -q; git update-ref -d ${shellQuote(`${refPrefix}/`)}"$gtd_kept"; `,
+      `git read-tree -u --reset "$gtd_kept" && git reset -q && git update-ref -d ${shellQuote(`${refPrefix}/`)}"$gtd_kept"; `,
     ),
   ].join("\n")
 

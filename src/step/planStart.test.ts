@@ -27,7 +27,7 @@ export const base = (workflow, vars) => (workflow === "reviewcheck" ? (vars.base
 const repoAt = (): InMemRepo => {
   const repo = new InMemRepo()
   repo.writeFile("gtd.config.ts", WORKFLOW)
-  repo.commitAllWithPrefix("chore: add custom workflow")
+  repo.seedCommit("chore: add custom workflow")
   return repo
 }
 
@@ -104,7 +104,7 @@ describe("planStart", () => {
       const fork = repo.resolveRef("HEAD")!
       repo.updateRef("main", fork)
       repo.writeFile("a.txt", "a")
-      repo.commitAllWithPrefix("feat: ahead of main")
+      repo.seedCommit("feat: ahead of main")
       const plan = await start(repo, "idle", "human", { ...REVIEW, vars: {} })
       if (plan.kind !== "start") throw new Error(`expected start, got ${JSON.stringify(plan)}`)
       const write = plan.steps.find((s) => s.kind === "gitWrite")
@@ -117,11 +117,11 @@ describe("planStart", () => {
       const repo = repoAt()
       const fork = repo.resolveRef("HEAD")!
       repo.writeFile("other.txt", "o")
-      repo.commitAllWithPrefix("feat: other branch")
+      repo.seedCommit("feat: other branch")
       repo.updateRef("other", repo.resolveRef("HEAD")!)
       repo.hardResetTo(fork)
       repo.writeFile("mine.txt", "m")
-      repo.commitAllWithPrefix("feat: my branch")
+      repo.seedCommit("feat: my branch")
       const plan = await start(repo, "idle", "human", { ...REVIEW, vars: { base: "other" } })
       if (plan.kind !== "start") throw new Error(`expected start, got ${JSON.stringify(plan)}`)
       const write = plan.steps.find((s) => s.kind === "gitWrite")
@@ -143,7 +143,7 @@ describe("planStart", () => {
       repo.updateRef("old-root", repo.resolveRef("HEAD")!)
       repo.mixedResetTo("4b825dc642cb6eb9a060e54bf8d69288fbee4904")
       repo.writeFile("gtd.config.ts", WORKFLOW)
-      repo.commitAllWithPrefix("chore: a second root")
+      repo.seedCommit("chore: a second root")
       const plan = await start(repo, "idle", "human", { ...REVIEW, vars: { base: "old-root" } })
       expect(plan).toEqual({
         kind: "refusal",

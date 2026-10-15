@@ -1,11 +1,10 @@
-import { execSync } from "node:child_process"
-import { writeFileSync } from "node:fs"
-import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   abandonedOutcome,
   binaryGuard,
   combinedScript,
+  commitAll,
+  commitAsIs,
   emitScripts,
   failurePromptWrapper,
   fileExistsGuard,
@@ -169,13 +168,11 @@ for (const makeTier of gitTiers) {
       expect(read(review)).toContain("- [ ] ./src/calc.ts#1-1")
     })
 
+    // The hook output carries the marker the emitted case retries on.
+    const RETRYABLE = "rejected: empty git commit"
+
     describe("keepTurn", () => {
       const PREFIX = "refs/gtd/kept/entry/build.naive"
-      const hooksSupported = (() => {
-        const probe = makeTier()
-        probe.dispose()
-        return probe.capabilities.commitHooks
-      })()
       const MESSAGE =
         "gtd(agent): build.naive → build.next\n\nGtd-Step: build.naive#1\nGtd-Format: 1"
       // As a landing renders it: under `set -eu`, which a failing update-ref relies on to stop.
@@ -228,20 +225,104 @@ for (const makeTier of gitTiers) {
         expect(read("naive.txt")).toBe("naive\n")
       })
 
-      it.skipIf(!hooksSupported)(
-        "a rejected marker commit puts the turn back in the working tree and drops its kept ref",
-        async () => {
-          const head = t.observe.resolveRef("HEAD")
-          const hook = join(t.root, ".git/hooks/commit-msg")
-          writeFileSync(hook, "#!/bin/sh\necho rejected >&2\nexit 1\n")
-          execSync(`chmod +x "${hook}"`)
-          t.seed.writeFile("naive.txt", "naive\n")
-          expect(run(keepTurn(PREFIX, MESSAGE)).ok).toBe(false)
-          expect(t.observe.resolveRef("HEAD")).toBe(head)
-          expect(read("naive.txt")).toBe("naive\n")
-          expect(await git((g) => g.listRefs(`${PREFIX}/`))).toEqual([])
-        },
-      )
+      it("a rejected marker commit puts the turn back in the working tree and drops its kept ref", async () => {
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.rejectingHook("rejected")
+        t.seed.writeFile("naive.txt", "naive\n")
+        const status = t.observe.statusPorcelain()
+        expect(run(keepTurn(PREFIX, MESSAGE)).ok).toBe(false)
+        expect(t.observe.statusPorcelain()).toBe(status)
+        expect(t.observe.resolveRef("HEAD")).toBe(head)
+        expect(read("naive.txt")).toBe("naive\n")
+        expect(await git((g) => g.listRefs(`${PREFIX}/`))).toEqual([])
+      })
+
+      it("a failing --no-verify retry puts the turn back and drops its kept ref", async () => {
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.rejectingHook(RETRYABLE)
+        t.seed.failingSigner()
+        t.seed.writeFile("naive.txt", "naive\n")
+        const status = t.observe.statusPorcelain()
+        const result = run(keepTurn(PREFIX, MESSAGE))
+        expect(result.ok).toBe(false)
+        expect(t.observe.statusPorcelain()).toBe(status)
+        expect(result.status).toBe(1)
+        expect(result.output).toContain("failed to sign")
+        expect(t.observe.resolveRef("HEAD")).toBe(head)
+        expect(read("naive.txt")).toBe("naive\n")
+        expect(await git((g) => g.listRefs(`${PREFIX}/`))).toEqual([])
+      })
+
+      it("hook output with shell metacharacters reaches stderr verbatim", () => {
+        const output = "bad $HOME $(echo x) `id`"
+        t.seed.rejectingHook(output)
+        t.seed.writeFile("naive.txt", "naive\n")
+        const result = run(keepTurn(PREFIX, MESSAGE))
+        expect(result.ok).toBe(false)
+        expect(result.output).toContain(output)
+      })
+
+      it("a hook rejecting with 'empty git commit' is retried without hooks and the turn is kept", async () => {
+        t.seed.rejectingHook(RETRYABLE)
+        t.seed.writeFile("naive.txt", "naive\n")
+        expect(run(keepTurn(PREFIX, MESSAGE))).toMatchObject({ ok: true, status: 0 })
+        const kept = await keptTip()
+        expect(kept).not.toBe("")
+        expect(t.observe.refExists(`${PREFIX}/${kept}`)).toBe(true)
+      })
+    })
+
+    describe("commitAll", () => {
+      it("fails with status 1 and HEAD unchanged when the commit cannot be written even without hooks", () => {
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.rejectingHook(RETRYABLE)
+        t.seed.failingSigner()
+        t.seed.writeFile("a.txt", "a\n")
+        const result = run(commitAll("gtd(agent): building"))
+        expect(result.ok).toBe(false)
+        expect(result.status).toBe(1)
+        expect(result.output).toContain("failed to sign")
+        expect(t.observe.resolveRef("HEAD")).toBe(head)
+      })
+
+      it("fails with status 1 when only the signer fails, no hook having triggered the retry", () => {
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.failingSigner()
+        t.seed.writeFile("a.txt", "a\n")
+        const result = run(commitAll("gtd(agent): building"))
+        expect(result.ok).toBe(false)
+        expect(result.status).toBe(1)
+        expect(result.output).toContain("failed to sign")
+        expect(t.observe.resolveRef("HEAD")).toBe(head)
+      })
+    })
+
+    describe("commitAsIs", () => {
+      it("a non-retryable hook rejection fails with status 1 and leaves HEAD and the index unchanged", () => {
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.writeFile("a.txt", "a\n")
+        t.seed.stageAll()
+        t.seed.rejectingHook("rejected")
+        const staged = t.observe.statusPorcelain()
+        const result = run(commitAsIs("gtd(agent): as-is"))
+        expect(result.ok).toBe(false)
+        expect(result.status).toBe(1)
+        expect(result.output).toContain("rejected")
+        expect(t.observe.resolveRef("HEAD")).toBe(head)
+        expect(t.observe.statusPorcelain()).toBe(staged)
+      })
+
+      it("a failing signer with no hook fails with status 1 and leaves HEAD unchanged", () => {
+        const head = t.observe.resolveRef("HEAD")
+        t.seed.writeFile("a.txt", "a\n")
+        t.seed.stageAll()
+        t.seed.failingSigner()
+        const result = run(commitAsIs("gtd(agent): as-is"))
+        expect(result.ok).toBe(false)
+        expect(result.status).toBe(1)
+        expect(result.output).toContain("failed to sign")
+        expect(t.observe.resolveRef("HEAD")).toBe(head)
+      })
     })
   })
 }

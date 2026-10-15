@@ -191,7 +191,12 @@ process that replays past the marker never reaches the keep step again.
   step behind a branch not yet taken can fail after earlier steps have landed.
 - Every pass keeps its own ref, so keeping the same step again never drops the
   earlier pass. A kept ref lives until you delete it: no landing deletes it, and
-  a finished process does not either.
+  a finished process does not either. The one exception: if the marker commit
+  fails for any reason other than a hook's "empty git commit" rejection that the
+  `--no-verify` retry recovers (a hook rejecting it, a signer failing), the
+  landing exits 1, the turn is left in the working tree, and no kept ref
+  remains, unless restoring the turn itself fails, in which case the kept ref
+  stays.
 - `kept(name)` answers from the `Gtd-Kept:` object, which exists only in the
   clone that landed the turn. Refs are never pushed or fetched. Deleting the ref
   of a live process lets `git gc` drop the object, and a flow that routed on

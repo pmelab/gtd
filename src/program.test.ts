@@ -34,7 +34,7 @@ const tools = liveToolCommands.pipe(
 it("gtd next loads no ui, lsp, judge or loop module", async () => {
   const repo = new InMemRepo()
   repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
-  repo.commitAllWithPrefix("chore: init")
+  repo.seedCommit("chore: init")
   const live = await Effect.runPromise(Effect.provide(ToolCommands, tools))
   const { io, result } = makeCapturingCliIo(repo, {}, live)
 

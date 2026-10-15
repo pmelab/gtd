@@ -8,7 +8,7 @@ git reset --hard HEAD
 gtd_marker=$(printf '%s\nGtd-Kept: %s' 'gtd(agent): sample' "$gtd_kept")
 if ! out=$(git commit --allow-empty -m "$gtd_marker" 2>&1); then
   case "$out" in
-    *"empty git commit"*) git commit --allow-empty --no-verify -m "$gtd_marker" ;;
-    *) printf '%s\n' "$out" >&2; git read-tree -u --reset "$gtd_kept"; git reset -q; git update-ref -d 'refs/gtd/kept/entry/step/'"$gtd_kept"; exit 1 ;;
+    *"empty git commit"*) git commit --allow-empty --no-verify -m "$gtd_marker" || { git read-tree -u --reset "$gtd_kept" && git reset -q && git update-ref -d 'refs/gtd/kept/entry/step/'"$gtd_kept"; exit 1; } ;;
+    *) printf '%s\n' "$out" >&2; git read-tree -u --reset "$gtd_kept" && git reset -q && git update-ref -d 'refs/gtd/kept/entry/step/'"$gtd_kept"; exit 1 ;;
   esac
 fi

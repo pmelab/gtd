@@ -336,8 +336,11 @@ export class InMemRepo {
     this.index = new Map(this.worktree)
   }
 
-  /** Commit whatever is currently staged (the index) verbatim, with no implicit staging first — mirrors `git commit --allow-empty -m <message>` after a soft reset. */
-  commitAsIs(message: string): void {
+  /** Seeded failure modes (see `GitTierSeed`): a pre-commit hook printing this and exiting 1, and a signer that cannot write. */
+  hookRejection: string | undefined = undefined
+  signingFails = false
+
+  private writeCommit(message: string): void {
     const tree = new Map(this.index)
     const parent = this.head
     const hash = makeHash(message, parent, tree)
@@ -347,16 +350,47 @@ export class InMemRepo {
     this.branches.set(this.currentBranch, hash)
   }
 
+  /**
+   * Twin of the emitted `git commit --allow-empty` if/case retry: a hook
+   * rejection printing "empty git commit" retries without hooks, any other
+   * rejection fails; a failing signer fails either attempt. Commits whatever is
+   * staged verbatim, like `git commit` after a soft reset.
+   */
+  commitAsIs(message: string): string | undefined {
+    if (this.hookRejection !== undefined && !this.hookRejection.includes("empty git commit")) {
+      return this.hookRejection
+    }
+    if (this.signingFails) return "error: gpg failed to sign the data"
+    this.writeCommit(message)
+    return undefined
+  }
+
+  /** Setup commit: stages everything, and throws if a failure is seeded, as the Live tier's hooks and signer would. */
+  seedCommit(message: string): void {
+    if (this.hookRejection !== undefined || this.signingFails) {
+      throw new Error("seedCommit after a seeded commit failure")
+    }
+    this.index = new Map(this.worktree)
+    this.writeCommit(message)
+  }
+
   /** In-memory twin of `GitScript.keepTurn`. */
-  keepTurn(refPrefix: string, message: string): void {
+  keepTurn(refPrefix: string, message: string): string | undefined {
     this.stageAll()
     const tree = new Map(this.index)
     const parent = this.head
     const hash = makeHash(message, parent, tree)
     this.commits.set(hash, { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ })
-    this.refs.set(`${refPrefix}/${hash}`, hash)
+    const ref = `${refPrefix}/${hash}`
+    this.refs.set(ref, hash)
     this.resetHard()
-    this.commitAsIs(`${message}\nGtd-Kept: ${hash}`)
+    const failure = this.commitAsIs(`${message}\nGtd-Kept: ${hash}`)
+    if (failure !== undefined) {
+      this.worktree = new Map(tree)
+      this.index = new Map(this.headTree())
+      this.refs.delete(ref)
+    }
+    return failure
   }
 
   /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which drops the freshly-staged untracked paths too). */
@@ -365,18 +399,9 @@ export class InMemRepo {
     this.resetHard()
   }
 
-  commitAllWithPrefix(prefix: string): void {
+  commitAllWithPrefix(prefix: string): string | undefined {
     this.index = new Map(this.worktree)
-
-    const tree = new Map(this.index)
-    const message = prefix
-    const parent = this.head
-    const hash = makeHash(message, parent, tree)
-
-    const commit: Commit = { hash, message, files: new Map(tree), parent, seq: this.nextSeq++ }
-    this.commits.set(hash, commit)
-    this.head = hash
-    this.branches.set(this.currentBranch, hash)
+    return this.commitAsIs(prefix)
   }
 
   // Git's empty-tree object SHA: used as squash base when there's no parent commit.

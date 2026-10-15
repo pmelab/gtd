@@ -133,7 +133,7 @@ When("I run gtd with args {string} piped to sh", async (world: GtdWorld, args: s
 // Empty when the tree is already clean: the step is a named marker commit.
 Given("the working tree is committed as {string}", (world: GtdWorld, message: string) => {
   if (world.tier === "inmem") {
-    world.repo!.commitAllWithPrefix(message)
+    world.repo!.seedCommit(message)
   } else {
     git(world, "add", "-A")
     git(world, "commit", "-q", "--allow-empty", "-m", message)

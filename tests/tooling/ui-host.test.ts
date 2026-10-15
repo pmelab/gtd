@@ -67,7 +67,7 @@ const inMemory = (): Tier => {
   const root = "/repo"
   const repo = new InMemRepo()
   for (const [path, content] of Object.entries(FILES)) repo.writeFile(path, content)
-  repo.commitAllWithPrefix("chore: initial commit")
+  repo.seedCommit("chore: initial commit")
   const gtd = async (...args: string[]) => {
     const { io, result } = makeCapturingCliIo(repo)
     await Effect.runPromise(runCli(["node", "gtd", ...args], io))

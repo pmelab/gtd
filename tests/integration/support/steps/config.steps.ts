@@ -82,7 +82,7 @@ const scaffoldUnifiedWorkflow = (world: GtdWorld): void => {
   const files = { "gtd.config.ts": CONFIG_SCAFFOLD }
   if (world.tier === "inmem") {
     for (const [path, content] of Object.entries(files)) world.repo!.writeFile(path, content)
-    world.repo!.commitAllWithPrefix("chore: init gtd workflow")
+    world.repo!.seedCommit("chore: init gtd workflow")
   } else {
     for (const [path, content] of Object.entries(files)) {
       writeFileSync(join(world.repoDir, path), content)
@@ -105,7 +105,7 @@ Given("the file {string} ends with:", (world: GtdWorld, path: string, content: s
     const before = world.repo!.readFile(path)
     if (before === undefined) throw new Error(`${path} does not exist`)
     world.repo!.writeFile(path, before + tail)
-    world.repo!.commitAllWithPrefix(`chore: extend ${path}`)
+    world.repo!.seedCommit(`chore: extend ${path}`)
   } else {
     const full = join(world.repoDir, path)
     writeFileSync(full, readFileSync(full, "utf8") + tail)

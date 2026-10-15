@@ -78,10 +78,14 @@ const makeGitReaderOps = (repo: InMemRepo, root: string): GitReaderOperations =>
   changedPaths: (base?: string) => Effect.succeed(repo.changedPathsWorktree(base)),
 })
 
+const failOn = (output: string | undefined): void => {
+  if (output !== undefined) throw new Error(output)
+}
+
 const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => ({
-  commitAllWithPrefix: (prefix: string) => tryCatch(() => repo.commitAllWithPrefix(prefix)),
+  commitAllWithPrefix: (prefix: string) => tryCatch(() => failOn(repo.commitAllWithPrefix(prefix))),
   softResetTo: (ref: string) => tryCatch(() => repo.softResetTo(ref)),
-  commitAsIs: (message: string) => tryCatch(() => repo.commitAsIs(message)),
+  commitAsIs: (message: string) => tryCatch(() => failOn(repo.commitAsIs(message))),
   discardPending: () => tryCatch(() => repo.discardPending()),
   updateRef: (ref: string, hash: string) => tryCatch(() => repo.updateRef(ref, hash)),
   deleteRef: (ref: string) => tryCatch(() => repo.deleteRef(ref)),

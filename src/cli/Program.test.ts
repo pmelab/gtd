@@ -60,7 +60,7 @@ const seed = (source: string, extra: Record<string, string> = {}): InMemRepo => 
   const repo = new InMemRepo()
   repo.writeFile("gtd.config.ts", source)
   for (const [path, content] of Object.entries(extra)) repo.writeFile(path, content)
-  repo.commitAllWithPrefix("chore: add custom workflow")
+  repo.seedCommit("chore: add custom workflow")
   return repo
 }
 
@@ -69,7 +69,7 @@ const seedBundled = (): InMemRepo => {
   const repo = new InMemRepo()
   repo.writeFile("README.md", "# test project\n")
   repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
-  repo.commitAllWithPrefix("chore: init")
+  repo.seedCommit("chore: init")
   return repo
 }
 
@@ -199,7 +199,7 @@ describe("gtd --workflow <name> — the shipped workflows", () => {
     const repo = seedBundled()
     const base = repo.commitHistory().at(-1)!.hash
     repo.writeFile("scratch.txt", "more work\n")
-    repo.commitAllWithPrefix("chore: more work")
+    repo.seedCommit("chore: more work")
     const before = repo.commitHistory().length
     const { stdout, exitCode } = await run(
       repo,
@@ -288,7 +288,7 @@ describe("gtd next --json — log path emission", () => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
     repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
-    repo.commitAllWithPrefix("gtd: init")
+    repo.seedCommit("gtd: init")
     return repo
   }
 
@@ -703,7 +703,7 @@ describe("gtd next — refuses when history diverges from what replay reaches", 
   const diverged = async (): Promise<InMemRepo> => {
     const repo = await atWorking()
     repo.writeFile("WORK.md", "done\n")
-    repo.commitAllWithPrefix("gtd(agent): elsewhere → review\n\nGtd-Step: elsewhere#1")
+    repo.seedCommit("gtd(agent): elsewhere → review\n\nGtd-Step: elsewhere#1")
     return repo
   }
 
@@ -752,9 +752,7 @@ describe("a history written in a format this gtd does not read", () => {
     const repo = seed(IDLE_THEN_WORKING)
     await landTurn(repo, { "NOTE.md": "a note\n" })
     repo.writeFile("WORK.md", "done\n")
-    repo.commitAllWithPrefix(
-      "gtd(agent): elsewhere → review\n\nGtd-Step: elsewhere#1\nGtd-Format: 2",
-    )
+    repo.seedCommit("gtd(agent): elsewhere → review\n\nGtd-Step: elsewhere#1\nGtd-Format: 2")
     return repo
   }
 
@@ -779,7 +777,7 @@ describe("a history written in a format this gtd does not read", () => {
   it("refuses even when a foreign subject hides the commit from the episode", async () => {
     const repo = seed(IDLE_THEN_WORKING)
     repo.writeFile("NOTE.md", "a note\n")
-    repo.commitAllWithPrefix("gtd2[human] idle -> working\n\nGtd-Format: 2")
+    repo.seedCommit("gtd2[human] idle -> working\n\nGtd-Format: 2")
     for (const command of ["next", "abandon"]) {
       const { exitCode, stderr } = await run(repo, command)
       expect(exitCode).toBe(1)
@@ -790,7 +788,7 @@ describe("a history written in a format this gtd does not read", () => {
   it("a commit gtd never wrote is not read for a format, even quoting the trailer", async () => {
     const repo = seed(IDLE_THEN_WORKING)
     repo.writeFile("NOTE.md", "a note\n")
-    repo.commitAllWithPrefix("feat: x\n\nGtd-Format: 2")
+    repo.seedCommit("feat: x\n\nGtd-Format: 2")
     expect((await run(repo, "next")).exitCode).toBe(0)
   })
 
@@ -798,7 +796,7 @@ describe("a history written in a format this gtd does not read", () => {
     const repo = seed(IDLE_THEN_WORKING)
     const base = repo.resolveRef("HEAD")!
     repo.writeFile("NOTE.md", "a note\n")
-    repo.commitAllWithPrefix("gtd(human): idle → working\n\nGtd-Step: idle#1\nGtd-Format: 2")
+    repo.seedCommit("gtd(human): idle → working\n\nGtd-Step: idle#1\nGtd-Format: 2")
     repo.updateRef(HISTORY_REF, repo.resolveRef("HEAD")!)
     repo.hardResetTo(base)
     const { exitCode, stderr } = await run(repo, "restore")
@@ -1949,7 +1947,7 @@ describe("gtd next/land --json=<path> — the select branch", () => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
     repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
-    repo.commitAllWithPrefix("gtd: init")
+    repo.seedCommit("gtd: init")
     return repo
   }
 

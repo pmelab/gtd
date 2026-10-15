@@ -152,8 +152,8 @@ const recognizeKeepTurn = (repo: InMemRepo, block: string): BlockOutcome | undef
   if (refNameFault(ref) !== undefined) {
     return { kind: "failed", error: `fatal: invalid ref format: ${ref}`, status: 128 }
   }
-  repo.keepTurn(ref, message)
-  return { kind: "applied" }
+  const failure = repo.keepTurn(ref, message)
+  return failure === undefined ? { kind: "applied" } : { kind: "failed", error: failure, status: 1 }
 }
 
 // fallow-ignore-next-line complexity
@@ -177,8 +177,10 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   if (block.startsWith("git add -A || exit 1\n")) {
     const [message] = extractQuotedTokens(conditionLine)
     if (message !== undefined && commitAll(message) === block) {
-      repo.commitAllWithPrefix(message)
-      return { kind: "applied" }
+      const failure = repo.commitAllWithPrefix(message)
+      return failure === undefined
+        ? { kind: "applied" }
+        : { kind: "failed", error: failure, status: 1 }
     }
     return undefined
   }
@@ -186,8 +188,10 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   if (block.startsWith("if ! out=$(git commit --allow-empty -m ")) {
     const [message] = extractQuotedTokens(conditionLine)
     if (message !== undefined && commitAsIs(message) === block) {
-      repo.commitAsIs(message)
-      return { kind: "applied" }
+      const failure = repo.commitAsIs(message)
+      return failure === undefined
+        ? { kind: "applied" }
+        : { kind: "failed", error: failure, status: 1 }
     }
     return undefined
   }

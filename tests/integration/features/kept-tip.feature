@@ -124,3 +124,29 @@ Feature: kept tips — a keep step's turn is set aside off the branch
     Then it succeeds
     When I run gtd next
     Then stdout contains "nothing was kept for never-kept"
+
+  @inmem
+  Scenario: a rejected marker commit puts the turn back and leaves no kept ref
+    Given a pre-commit hook rejecting every commit with "lint error"
+    And a file "src/naive.ts" with:
+      """
+      export const naive = 1
+      """
+    When I run gtd land
+    Then it fails
+    And "src/naive.ts" contains "export const naive = 1"
+    And no ref exists under "refs/gtd/kept/"
+
+  @inmem
+  Scenario: a hook rejecting with "empty git commit" is retried and the turn is kept
+    Given a pre-commit hook rejecting every commit with "rejected: empty git commit"
+    And a file "src/naive.ts" with:
+      """
+      export const naive = 1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): naive → checking"
+    And "src/naive.ts" does not exist
+    Given I mark the kept ref of "entry" for step "naive" as "kept"
+    Then "src/naive.ts" at "kept" contains "export const naive = 1"
