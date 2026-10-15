@@ -78,9 +78,9 @@ export interface Judgment {
 export interface Change {
   readonly path: string
   readonly status: "added" | "modified" | "deleted"
-  /** The content before the step, `undefined` when the step added the path. */
+  /** The content before the step, `undefined` when the step added the path or it could not be read. */
   readonly before: string | undefined
-  /** The content the step left, `undefined` when the step deleted the path. */
+  /** The content the step left, `undefined` when the step deleted the path or it could not be read. */
   readonly after: string | undefined
 }
 
@@ -289,6 +289,9 @@ const toChanges = (list: readonly Change[]): Changes =>
       get: (path: string) => list.find((c) => c.path === path),
     }),
   )
+
+/** Whether `path` matches `pattern` in the `glob()`/`changes()` dialect. */
+export const matches = (path: string, pattern: string): boolean => ctx().matches(path, pattern)
 
 /** What the last step changed, optionally only the paths matching a glob. */
 export const changes = (pattern?: string): Changes => {

@@ -224,7 +224,8 @@ landed step left — never the live working tree:
 - `changes(glob?)` — what the last step changed, optionally only the paths
   matching a glob: one `{ path, status, before, after }` per path, where
   `status` is `"added"`, `"modified"` or `"deleted"` and `before`/`after` are
-  the content on either side (`undefined` on the side where the path is absent).
+  the content on either side (`undefined` on the side where the path is absent,
+  or whose content could not be read, such as a submodule or an oversized file).
   The list also has `paths` and `get(path)`. A landing that changed nothing
   yields an empty list
 - `changesSince(hash, glob?)` — the same shape as `changes()`, but over every
@@ -237,6 +238,8 @@ landed step left — never the live working tree:
   keeping turn is still landing, `hash` is `""`: never branch on it. Needs a gtd
   that knows `keep`, else it throws asking for an upgrade. See
   [Kept tips](#kept-tips)
+- `matches(path, pattern)` — whether `path` matches `pattern` in the same glob
+  dialect as `glob()` and `changes(glob)`
 - `sections(text)` — the top-level `## ` headings of markdown `text`
 - `sectionBodies(text)` — the same sections as `{ title, body }`, `body` being
   the section's own markdown, its heading line included
@@ -320,6 +323,10 @@ is how the bundled workflow is written.
   probability of at least `minP`
 - `numeric(value, fallback)` — a numeric var, or `fallback` when it is blank or
   not a number
+- `judgeDiffShape(name, { changes, allow, minP? })` — judges whether a change
+  set's strays (every path matching no `allow` glob, same dialect and same list
+  as `gtd strays`) are incidental. Resolves
+  `{ choice, strays, unreadable, judgment }`; see [Judges](#judges)
 - `wrote(path)` and `codeChanges()` — whether the last step wrote `path`, and
   its changes outside `.gtd/`
 
@@ -504,6 +511,31 @@ field carries the questions; `gtd judge answer` records a verdict as
 `Gtd-Judge:` trailers (see [the CLI reference](./cli.md#commands)). Landing with
 no verdict leaves every answer `undefined`, so write the flow so that
 `undefined` takes the conservative branch.
+
+`judgeDiffShape(name, { changes, allow, minP? })` is a ready-made judge for the
+shape of a diff, such as `kept(name).changes` or `changesSince(hash)`. It asks
+one `choice` question, `shape`, and resolves to `{ choice, strays, judgment }`:
+`strays` is the sorted list of changed paths no `allow` glob matches, and
+`judgment` is the whole `judge()` result (`judgment.truncated` included). The
+choice is one of:
+
+- `land` — every stray is incidental (a needed import, a test fixture, a renamed
+  call site)
+- `refactor-first` — the strays are a seam change the task needs; land them
+  first as a behaviour-neutral refactor
+- `reject` — the naive pass solved the task the wrong way; discard it and
+  re-implement, no human. Strays a refactor could absorb never count as `reject`
+
+With zero strays it resolves `land` without a judge step. A verdict below
+`minP`, no verdict, or an answer that is none of the three labels resolves
+`refactor-first`, and so does truncated evidence. A stray whose content cannot
+be read (an `added` one without its after, a `modified` one missing either side,
+a `deleted` one without its before) resolves `refactor-first` too, with no judge
+step; a refactor cannot make such a stray readable, so route a non-empty
+`unreadable` to a human instead of looping. `minP` defaults to the
+`judgeShapeMinP` var the workflow declares, or `0.7` when it declares none. The
+judge sees the strays, the allowlist, the paths inside it (paths only) and each
+stray's content before and after.
 
 ### Landing rules
 
