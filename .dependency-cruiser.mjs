@@ -45,7 +45,7 @@ const compositionRootTests = compositionRoots.map((root) =>
 // tests too.
 const units = {
   contracts: "^src/(flows|wire|steering)/",
-  core: "^src/(cli|edge|emit|install|platform|replay|step|workflow)/",
+  core: "^src/(cli|edge|emit|flags|install|platform|replay|step|workflow)/",
   kit: "^src/workflow-kit/",
   workflows: "^src/workflows/",
   drivers: "^(src/loop|claude)/",

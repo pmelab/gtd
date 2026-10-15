@@ -1167,7 +1167,9 @@ first commit:
    environment setting is a usage error (exit 2).
 3. **`GTD_<UPPERCASE-name>` environment variables** — matched case-insensitively
    against the names layer 1 declares: `GTD_QUALITYREVIEWS` overrides
-   `qualityReviews`. A `GTD_*` variable matching no declared name is ignored.
+   `qualityReviews`. A `GTD_*` variable matching no declared name is ignored. A
+   setting named `flag_*` (any case) takes no `GTD_<NAME>` override:
+   `GTD_FLAG_*` belongs to [feature flags](#feature-flags).
 
 Every later `gtd` call reads the recorded values and never the live layers, so
 **editing `gtd.config.ts` or exporting `GTD_<NAME>` for a process setting
@@ -1178,12 +1180,14 @@ process start, naming the setting.
 
 **Environment settings** are resolved on every call, never recorded, from two
 layers, later wins: the workflow's `envDefaults` and `GTD_<UPPERCASE-name>`
-environment variables for any name it declares. A process started on a laptop
-and continued in CI uses CI's test command.
+environment variables for any name it declares, except a `flag_*` name, which
+takes no override, as above. A process started on a laptop and continued in CI
+uses CI's test command.
 
 Every setting value is a string. A `--var` value is always a single-line string
-as given on the command line. gtd itself blesses no setting names —
-`testCommand` is the bundled workflow's data like any other.
+as given on the command line. gtd itself blesses no setting names, except that a
+`flag_*` name takes no env override — `testCommand` is the bundled workflow's
+data like any other.
 
 ```ts
 // gtd.config.ts — overriding the bundled workflow's testCommand
@@ -1307,6 +1311,22 @@ file at the human gate never spends one. Both gates release straight into the
 caller's fix step (`build.fix` or `packages.item.fix.suite.fixing`), so the turn
 that consumes the document is the very next one. `.gtd/ESCALATION.md` is
 free-form prose with no mode of its own.
+
+## Feature flags
+
+A feature flag is an environment variable, `GTD_FLAG_<NAME>`, one per feature
+flag: `GTD_FLAG_FOO` for a feature flag `foo`. gtd documents the mechanism, not
+a list of feature flags.
+
+- `1`, `true`, `0` and `false` are accepted, case-insensitively; unset or empty
+  is off.
+- A garbled value for a known feature flag exits `1` with a stderr line naming
+  the variable.
+- A `GTD_FLAG_*` variable naming no known feature flag is ignored.
+- Feature flags are read live on every call, unlike a process setting: changing
+  one mid-process applies to the rest of that process.
+- Feature flags are in the [No promise](../COMPATIBILITY.md#no-promise) tier:
+  any feature flag may appear, flip or vanish in any release.
 
 ## Migrating from `.gtdrc`
 

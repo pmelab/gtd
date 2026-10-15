@@ -28,6 +28,8 @@ Or run without installing (prefix every `gtd` below with `npx`) — see
 for the settings most projects tune. A process setting's value is committed to
 Git history; keep secrets in an environment setting (see
 [Settings](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#settings)).
+`GTD_FLAG_<NAME>` variables toggle experimental features — see
+[Feature flags](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#feature-flags).
 
 Also install all three skill sources the bundled workflow names in its prompts —
 none is optional. See

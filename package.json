@@ -69,6 +69,7 @@
     "src/cli/",
     "src/edge/",
     "src/emit/",
+    "src/flags/",
     "src/install/",
     "src/platform/",
     "src/replay/",

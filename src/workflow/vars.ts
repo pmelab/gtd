@@ -13,7 +13,10 @@ export const resolveVars = (
 ): Record<string, string> => {
   const merged = { ...workflowVars, ...entryVars }
   for (const name of Object.keys(merged)) {
-    const value = env[PREFIX + name.toUpperCase()]
+    const key = PREFIX + name.toUpperCase()
+    // GTD_FLAG_* belongs to feature flags; a flag_* setting loses its env override.
+    if (key.startsWith("GTD_FLAG_")) continue
+    const value = env[key]
     if (value !== undefined) merged[name] = value
   }
   return merged

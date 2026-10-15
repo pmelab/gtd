@@ -75,13 +75,17 @@ histories written by an older or newer gtd.
   with the human's notes beside the reviewer's own `.gtd/REVIEW.orig.md`, read
   as review notes (see [Steering formats](src/steering/FORMATS.md)).
 - **Settings** — the setting names the bundled workflows read (`testCommand`,
-  `reviewBase`, …), the `GTD_*` variables, and the judge providers (`fixed`,
-  `jev`, `llm`) with their variables and the user-level `judge.json`.
+  `reviewBase`, …), the `GTD_*` variables (not `GTD_FLAG_*`), and the judge
+  providers (`fixed`, `jev`, `llm`) with their variables and the user-level
+  `judge.json`.
 
 ## No promise
 
 Anything not listed above, e.g.:
 
+- **Feature flags** — the `GTD_FLAG_*` variables; any feature flag may appear,
+  flip or vanish in any release (see
+  [Feature flags](docs/configuration.md#feature-flags)).
 - **Prompts** — the text of every `prompt` beat and of `gtd install`.
 - **Plain output** — `gtd next` without `--json`, help layout, every message,
   narration and remediation line. See
