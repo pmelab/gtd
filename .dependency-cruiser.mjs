@@ -410,9 +410,17 @@ export default {
     {
       name: "flags-only-at-composition-points",
       comment:
-        "src/flags/ is value-imported only by src/main.ts, src/program.ts, src/cli/Cli.ts and itself; type-only imports and test support are exempt.",
+        "src/flags/ is value-imported only by src/main.ts, src/program.ts, src/cli/Cli.ts, the CI lint scripts/lint-flags.ts and itself; type-only imports and test support are exempt.",
       severity: "error",
-      from: { pathNot: [...testSupport, "^src/flags/", ...compositionRoots, "^src/cli/Cli\\.ts$"] },
+      from: {
+        pathNot: [
+          ...testSupport,
+          "^src/flags/",
+          ...compositionRoots,
+          "^src/cli/Cli\\.ts$",
+          "^scripts/lint-flags\\.ts$",
+        ],
+      },
       to: { path: "^src/flags/", dependencyTypesNot: ["type-only"] },
     },
 
