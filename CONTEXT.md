@@ -28,6 +28,10 @@ workflow config, rc file
 `defineConfig` — the repository settings a workflow does not own: modes, `ui`,
 per-scope skills and access. _Avoid_: `.gtdrc` (removed), rc config
 
+**Feature flag**: An env-only boolean, `GTD_FLAG_<NAME>`, a flag gtd knows; an
+unknown `GTD_FLAG_*` is ignored; no-promise tier. Distinct from a process or
+environment setting.
+
 **Flow**: An async function that awaits [steps](#step) — plain code, branching
 over what the last step left in the tree. The workflow's one kind of logic.
 _Avoid_: machine, state table, graph

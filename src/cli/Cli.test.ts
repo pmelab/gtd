@@ -23,6 +23,7 @@ import {
   ToolCommands,
 } from "./index.js"
 import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
+import { Host } from "../platform/index.js"
 import { type CommandRequirements } from "./Cli.js"
 import { InMemRepo, testLayers } from "../testkit/index.js"
 import { CONFIG_SCAFFOLD } from "../install/index.js"
@@ -1161,6 +1162,30 @@ describe("runCli — layers() is never invoked for output/usage plans", () => {
     const { io, captured } = capturingIo(throwingLayers)
     await Effect.runPromise(runCli(["node", "gtd.js", "bogus"], io))
     expect(captured().layersBuilt).toBe(0)
+  })
+})
+
+describe("runCli — a garbled GTD_FLAG_* value", () => {
+  it("exits 1 naming the variable", async () => {
+    const { io, captured } = capturingIo(
+      () =>
+        Layer.succeed(Host, {
+          root: "/",
+          home: "/",
+          scratchDir: "/",
+          realPath: (p: string) => Effect.succeed(p),
+          env: { GTD_FLAG_BETA: "ture" },
+        }) as unknown as Layer.Layer<CommandRequirements>,
+    )
+    await Effect.runPromise(
+      runCli(["node", "gtd.js", "next"], {
+        ...io,
+        flags: [{ name: "beta", owner: "pmelab", expiry: "2099-01-01", kind: "ops" }],
+      }),
+    )
+    expect(captured().exitCode).toBe(1)
+    expect(captured().stdout).toBe("")
+    expect(captured().stderr).toContain("GTD_FLAG_BETA")
   })
 })
 

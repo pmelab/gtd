@@ -1,6 +1,7 @@
 import { NodeContext } from "@effect/platform-node"
 import { Cause, Effect, Either, Layer } from "effect"
 import {
+  GtdError,
   GtdUsageError,
   Narrator,
   renderFailure,
@@ -9,6 +10,7 @@ import {
   Workspace,
   CommandRunner,
 } from "../platform/index.js"
+import { resolveFlags, type FlagDeclaration } from "../flags/index.js"
 import { GTD_VERSION } from "../install/index.js"
 import {
   ConfigDiscovery,
@@ -1270,6 +1272,8 @@ export interface CliIo {
    * writer when `false`.
    */
   readonly layers: (verbose: boolean) => Layer.Layer<CommandRequirements>
+  /** Test seam: the shipped registry is empty, so a garbled-value test cannot reach the failure path without injecting one. Drop it when the first real flag ships. */
+  readonly flags?: readonly FlagDeclaration[]
 }
 
 // The one write-to-stderr primitive nodeCliIo uses for both `stderr` (errors)
@@ -1403,7 +1407,14 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
   }
 
   const out = bufferedArtifactOut(io)
-  return runCommand(plan.command, plan.json, out).pipe(
+  return Effect.flatMap(Host, ({ env }) =>
+    Effect.try({
+      // Validate only: the result is discarded so a garbled value fails before any command runs.
+      try: () => resolveFlags(env, io.flags),
+      catch: (e) => new GtdError((e as Error).message),
+    }),
+  ).pipe(
+    Effect.flatMap(() => runCommand(plan.command, plan.json, out)),
     // `flush()` fires here, on success, BEFORE `io.exit` — the one point
     // where the whole buffered artifact is known-complete and safe to hand
     // to stdout (a failure discards the buffer instead — see
