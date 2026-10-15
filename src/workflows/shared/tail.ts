@@ -1,6 +1,13 @@
 import { read, refuse, removeScript, run, scope, showScript, vars } from "../../flows/index.js"
 import * as kit from "../../workflow-kit/index.js"
-import { escalation, FIX_CAP, healthy, type EscalationCount } from "./health.js"
+import {
+  escalation,
+  FIX_CAP,
+  guarded,
+  healthy,
+  type EscalationCount,
+  type Guard,
+} from "./health.js"
 import {
   awaitReview,
   fixCheck,
@@ -22,16 +29,16 @@ export const REVIEW_ORIG = ".gtd/REVIEW.orig.md"
  * finding to `.gtd/QUALITY.md`. Resolves `"findings"` when that file
  * has any.
  */
-export const qualityLap = (): Promise<"clean" | "findings"> =>
-  kit.qualityLap(kit.lensesOf(vars.qualityReviews ?? ""), reviewQuality, QUALITY)
+export const qualityLap = (guard?: Guard): Promise<"clean" | "findings"> =>
+  kit.qualityLap(kit.lensesOf(vars.qualityReviews ?? ""), guarded(reviewQuality, guard), QUALITY)
 
 /** Resolves `true` once `.gtd/QUALITY.md` is resolved, `false` when the fix cap escalated instead. */
-export const fixQualityFindings = (escalations: EscalationCount): Promise<boolean> =>
+export const fixQualityFindings = (escalations: EscalationCount, guard?: Guard): Promise<boolean> =>
   kit.fixFindings({
-    fix: fixQuality,
+    fix: guarded(fixQuality, guard),
     findings: QUALITY,
     cap: FIX_CAP,
-    escalate: () => escalation(escalations),
+    escalate: () => escalation(escalations, guard),
   })
 
 /** `.gtd/REVIEW.md` removed at the end of a round at commit `round`. */
@@ -59,21 +66,22 @@ export const tail = <T>(
   fixFirst: boolean,
   finish: (escalations: EscalationCount) => Promise<T>,
   green = false,
+  guard?: Guard,
 ): Promise<T> =>
   scope("build", async () => {
     const escalations: EscalationCount = { rounds: 0 }
     const fix = fixCheck
     const repair = async () => {
-      await fix()
-      await healthy(fix, { fixesSoFar: 1, escalations })
+      await guarded(fix, guard)()
+      await healthy(fix, { fixesSoFar: 1, escalations, guard })
     }
     // fixFirst's own fix + healthy below already is the full run.
     if (fixFirst) await repair()
-    else if (!green) await healthy(fix, { escalations })
+    else if (!green) await healthy(fix, { escalations, guard })
     // The lap runs once a tail: after its findings are fixed, review follows.
-    if ((await qualityLap()) === "findings") {
-      if (await fixQualityFindings(escalations)) {
-        await healthy(fix, { escalations })
+    if ((await qualityLap(guard)) === "findings") {
+      if (await fixQualityFindings(escalations, guard)) {
+        await healthy(fix, { escalations, guard })
       } else await repair()
     }
     return finish(escalations)
@@ -84,12 +92,16 @@ export const tail = <T>(
  * `.gtd/REVIEW.md`; a note leaves it, with the reviewer's own version as
  * `REVIEW_ORIG`, for the next `fix` to read — never a re-plan.
  */
-export const handOffReview = (base: string, escalations: EscalationCount): Promise<void> =>
+export const handOffReview = (
+  base: string,
+  escalations: EscalationCount,
+  guard?: Guard,
+): Promise<void> =>
   kit.reviewToHandOff(base, {
     file: REVIEW,
-    reviewing,
-    fixRisks,
-    keepGreen: () => healthy(fixCheck, { escalations }),
+    reviewing: guarded(reviewing, guard),
+    fixRisks: guarded(fixRisks, guard),
+    keepGreen: () => healthy(fixCheck, { escalations, guard }),
     awaitReview: (b) => awaitReview(b, t.handOffAwaitReviewMessage(b)),
     reviewMissing,
     close: closeReview,
@@ -107,5 +119,5 @@ export const handOffReview = (base: string, escalations: EscalationCount): Promi
   })
 
 /** The tail the review and fix workflows run: ends at the hand-off review since `base`. */
-export const handOffTail = (fixFirst: boolean, base: string): Promise<void> =>
-  tail(fixFirst, (escalations) => handOffReview(base, escalations))
+export const handOffTail = (fixFirst: boolean, base: string, guard?: Guard): Promise<void> =>
+  tail(fixFirst, (escalations) => handOffReview(base, escalations, guard), false, guard)

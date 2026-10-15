@@ -50,6 +50,32 @@ describe("registryEntry", () => {
   it("is undefined for an unknown name", () => {
     expect(registryEntry(ONE_LINE, "delta")).toBeUndefined()
   })
+
+  it("ignores a kind inside a block comment ahead of the real one", () => {
+    const text = 'export const FLAGS = [{ name: "alpha", /* kind: "ops" */ kind: "release" }]'
+    expect(registryEntry(text, "alpha")?.kind).toBe("release")
+  })
+
+  it("reads no kind from one with no closing quote", () => {
+    const text = 'export const FLAGS = [{ name: "alpha", kind: "release-candidate" }]'
+    expect(registryEntry(text, "alpha")?.kind).toBe("")
+  })
+
+  it("reads the kind right after a comment with no space between", () => {
+    const text = 'export const FLAGS = [{ name: "alpha", /*x*/kind: "release" }]'
+    expect(registryEntry(text, "alpha")?.kind).toBe("release")
+  })
+
+  it("ignores a kind inside a line comment on a prior line", () => {
+    const text =
+      'export const FLAGS = [{\n  name: "alpha",\n  // kind: "ops"\n  kind: "release",\n}]'
+    expect(registryEntry(text, "alpha")?.kind).toBe("release")
+  })
+
+  it("ignores a kind inside a string ahead of the real one", () => {
+    const text = `export const FLAGS = [{ name: "alpha", owner: "kind: 'ops'", kind: "release" }]`
+    expect(registryEntry(text, "alpha")?.kind).toBe("release")
+  })
 })
 
 describe("flipProblems", () => {
@@ -141,6 +167,29 @@ describe("flipProblems", () => {
     const doc = '/** e.g. { name: "alpha", kind: "ops" } */\n'
     const after = ONE_LINE.replace('kind: "release" },', 'kind: "release", defaultOn: true },')
     expect(flipProblems(doc + ONE_LINE, doc + after, "alpha")).toEqual([])
+  })
+})
+
+describe("flipProblems trailing commas", () => {
+  const flip = (s: string) => s.replace('kind: "release" }', 'kind: "release", defaultOn: true }')
+
+  it("faults a comma-brace dropped inside a string", () => {
+    const before = ONE_LINE.replace('owner: "a"', 'owner: "team,}blue"')
+    const after = flip(before).replace('"team,}blue"', '"team}blue"')
+    expect(flipProblems(before, after, "alpha")).toContain('entry "alpha" changed beyond defaultOn')
+  })
+
+  it("faults a comma-brace dropped inside a comment", () => {
+    const before = ONE_LINE.replace('kind: "release" }', 'kind: "release", /* a,} */ }')
+    const after = flip(before).replace("/* a,} */", "/* a} */")
+    expect(flipProblems(before, after, "alpha")).toContain('entry "alpha" changed beyond defaultOn')
+  })
+
+  it("passes a real trailing comma added or removed", () => {
+    const comma = flip(ONE_LINE).replace("defaultOn: true }", "defaultOn: true, }")
+    expect(flipProblems(ONE_LINE, comma, "alpha")).toEqual([])
+    const before = ONE_LINE.replace('kind: "release" }', 'kind: "release", }')
+    expect(flipProblems(before, flip(ONE_LINE), "alpha")).toEqual([])
   })
 })
 

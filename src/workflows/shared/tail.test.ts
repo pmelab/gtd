@@ -5,6 +5,7 @@ import {
   type CodeThreadInfo,
   type StepRequest,
 } from "../../flows/index.js"
+import type { Guard } from "./health.js"
 import { handOffReview, REVIEW_ORIG } from "./tail.js"
 import { fixtureContext } from "./text.fixture.js"
 
@@ -30,7 +31,11 @@ const reviewDoc = (note: string): string =>
  */
 const handOff = async (
   after: string | "deleted" | "unwritten",
-  extra: { paths?: readonly string[]; codeThreads?: readonly CodeThreadInfo[] } = {},
+  extra: {
+    paths?: readonly string[]
+    codeThreads?: readonly CodeThreadInfo[]
+    guard?: Guard
+  } = {},
 ) => {
   const log: string[] = []
   const scripts = new Map<string, string>()
@@ -87,7 +92,7 @@ const handOff = async (
       },
     ),
   )
-  const refusal = await handOffReview("base", { rounds: 0 }).then(
+  const refusal = await handOffReview("base", { rounds: 0 }, extra.guard).then(
     () => undefined,
     (e: unknown) => (e as Error).message,
   )
@@ -161,5 +166,34 @@ describe("the hand-off review", () => {
     const run = await handOff("deleted")
     expect(run.refusal).toMatch(/was deleted — restore it, or leave a note to hand to fix/)
     expect(run.log).toEqual(["review.reviewing", "review.await-review"])
+  })
+
+  describe("guard", () => {
+    it("runs after the reviewing turn and never after the human's await-review landing", async () => {
+      const seen: string[] = []
+      const run = await handOff(reviewDoc("new add function"), {
+        guard: () => seen.push("guard"),
+      })
+      expect(run.log).toEqual(["review.reviewing", "review.await-review", "review.closing"])
+      expect(seen).toEqual(["guard"])
+    })
+
+    it("a refusal after reviewing stops the round before the human gate", async () => {
+      const run = await handOff(reviewDoc("new add function"), {
+        guard: () => {
+          throw new Error("guarded: nope")
+        },
+      })
+      expect(run.refusal).toBe("guarded: nope")
+      expect(run.log).toEqual(["review.reviewing"])
+    })
+
+    it("does not run after review-missing", async () => {
+      let calls = 0
+      const run = await handOff("unwritten", { guard: () => void calls++ })
+      expect(run.log).toContain("review.review-missing")
+      // the fixture aborts the second reviewing turn: only the first was guarded
+      expect(calls).toBe(1)
+    })
   })
 })

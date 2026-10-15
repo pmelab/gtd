@@ -2,7 +2,7 @@ Feature: cleanup removes a default-on release flag and keeps its flag-on path
 
   `gtd --workflow cleanup --var flag=<name>` has an agent delete the registry
   entry and the off path; checks refuse a surviving entry or env-var reference,
-  then the shared health loop and review run. A review note ends the process.
+  then the shared health loop and review run; the same checks re-run after every later agent turn. A review note ends the process.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -103,6 +103,170 @@ Feature: cleanup removes a default-on release flag and keeps its flag-on path
     When gtd starts workflow "cleanup" with "--var flag=live"
     And the process is driven
     Then the process rests at "build.review.reviewing"
+
+  @inmem
+  Scenario: a fix after a red suite that restores the registry entry is refused
+    Given step "cleanup.removing" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
+      ] as const
+      """
+    And step "cleanup.removing" writes "src/calc.ts" with:
+      """
+      export const on = true
+      """
+    When gtd starts workflow "cleanup" with "--var flag=live"
+    And the process is driven
+    Then the process rests at "build.health.check"
+
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      1 failing
+      """
+    When gtd lands
+    Then the process rests at "build.fix"
+
+    Given step "build.fix" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    Then driving the process is refused with "still declares flag \"live\""
+
+  @inmem
+  Scenario: a fix after a red suite that re-adds the env var to a shipped source is refused
+    Given step "cleanup.removing" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
+      ] as const
+      """
+    And step "cleanup.removing" writes "src/calc.ts" with:
+      """
+      export const on = true
+      """
+    When gtd starts workflow "cleanup" with "--var flag=live"
+    And the process is driven
+    Then the process rests at "build.health.check"
+
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      1 failing
+      """
+    When gtd lands
+    Then the process rests at "build.fix"
+
+    Given step "build.fix" writes "src/calc.ts" with:
+      """
+      export const on = process.env.GTD_FLAG_LIVE !== "0"
+      """
+    Then driving the process is refused with "src/calc.ts:1 still names GTD_FLAG_LIVE"
+
+  @inmem
+  Scenario: a fix after a red suite that edits another file only reaches the review
+    Given step "cleanup.removing" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
+      ] as const
+      """
+    And step "cleanup.removing" writes "src/calc.ts" with:
+      """
+      export const on = true
+      """
+    When gtd starts workflow "cleanup" with "--var flag=live"
+    And the process is driven
+    Then the process rests at "build.health.check"
+
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      1 failing
+      """
+    When gtd lands
+    Then the process rests at "build.fix"
+
+    Given step "build.fix" writes "src/other.ts" with:
+      """
+      export const other = 1
+      """
+    And step "build.health.check" changes nothing
+    When the process is driven
+    Then the process rests at "build.review.reviewing"
+
+  @inmem
+  Scenario: a risk-fix turn after the review that restores the registry entry is refused
+    Given step "cleanup.removing" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
+      ] as const
+      """
+    And step "cleanup.removing" writes "src/calc.ts" with:
+      """
+      export const on = true
+      """
+    And step "build.health.check" changes nothing
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      - [ ] ./src/calc.ts#1-1
+        Risk: leaks
+      """
+    And step "build.review.fix.risks.fixing" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    When gtd starts workflow "cleanup" with "--var flag=live"
+    Then driving the process is refused with "still declares flag \"live\""
+
+  @inmem
+  Scenario: the human's review sign-off may restore the registry entry
+    Given step "cleanup.removing" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
+      ] as const
+      """
+    And step "cleanup.removing" writes "src/calc.ts" with:
+      """
+      export const on = true
+      """
+    And step "build.health.check" changes nothing
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      - [ ] ./src/calc.ts#1-1
+        fine
+      """
+    When gtd starts workflow "cleanup" with "--var flag=live"
+    And the process is driven
+    Then the process rests at "build.review.await-review"
+
+    Given a file "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    When gtd lands
+    Then the process rests at "build.health.check"
 
   Scenario: a review note ends the process leaving the review for fix
     Given step "cleanup.removing" writes "src/flags/index.ts" with:

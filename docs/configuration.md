@@ -1399,25 +1399,30 @@ gtd --workflow cleanup --var flag=<name>
   (`defaultOn` optional). Comments and string contents are not entries.
 - **Rollout** takes a non-default-on release flag and has an agent set
   `defaultOn: true` on its entry, and nothing else. The suite must stay green.
-  There is no review: it ends once the suite passes.
+  There is no review: it ends once the suite passes. These limits also bind a
+  human's fix at `rollout.suite.blocked`: it may touch only the flag's registry
+  entry (`.gtd/FEEDBACK.md` aside), or the landing is refused.
 - **Cleanup** takes a default-on release flag, deletes its entry and every
   `GTD_FLAG_<NAME>` check from `src/` (only `.ts`/`.tsx` files there are
   scanned), keeping the flag-on path, then runs the review. A review note ends
-  the process; `gtd door fix` works it off.
+  the process; `gtd door fix` works it off. Those checks re-run after every
+  later agent turn (fixes, escalation, quality lenses, the review's own turns)
+  and a human's escalation landing, over the `src/` files that turn changed —
+  but not after the human's review sign-off.
 
 Refusals, each exiting non-zero with the text on stderr:
 
-| Text                                                                | When                                        |
-| ------------------------------------------------------------------- | ------------------------------------------- |
-| `gtd: <workflow> needs --var flag=<name>`                           | no `flag` var                               |
-| `gtd: <workflow>: no flag "<name>" in <registry>`                   | name not in the registry                    |
-| `gtd: <workflow>: flag "<name>" is <kind>, not release`             | not a release flag                          |
-| `gtd: rollout: flag "<name>" is already default-on`                 | rollout of a default-on flag                |
-| `gtd: cleanup: flag "<name>" is not default-on — roll it out first` | cleanup of a flag still default-off         |
-| `gtd land: rollout-only: <paths> changed — rollout may only set …`  | rollout touched a file besides the registry |
-| `gtd land: rollout-only: other edits in <registry>: <faults>`       | rollout did not flip exactly that one field |
-| `gtd land: cleanup: <registry> still declares flag "<name>"`        | cleanup left the registry entry             |
-| `gtd land: cleanup: <paths> still names GTD_FLAG_<NAME>`            | cleanup left an env-var check under `src/`  |
+| Text                                                                | When                                                             |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `gtd: <workflow> needs --var flag=<name>`                           | no `flag` var                                                    |
+| `gtd: <workflow>: no flag "<name>" in <registry>`                   | name not in the registry                                         |
+| `gtd: <workflow>: flag "<name>" is <kind>, not release`             | not a release flag                                               |
+| `gtd: rollout: flag "<name>" is already default-on`                 | rollout of a default-on flag                                     |
+| `gtd: cleanup: flag "<name>" is not default-on — roll it out first` | cleanup of a flag still default-off                              |
+| `gtd land: rollout-only: <paths> changed — rollout may only set …`  | rollout (agent or human fix) touched a file besides the registry |
+| `gtd land: rollout-only: other edits in <registry>: <faults>`       | rollout (agent or human fix) edited beyond that one field        |
+| `gtd land: cleanup: <registry> still declares flag "<name>"`        | cleanup left or restored the registry entry                      |
+| `gtd land: cleanup: <paths> still names GTD_FLAG_<NAME>`            | cleanup left or reintroduced an env-var check under `src/`       |
 
 New step names in both workflows are public API.
 

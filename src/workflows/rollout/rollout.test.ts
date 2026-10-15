@@ -35,6 +35,17 @@ describe("the rollout workflow", () => {
     expect(repo.subjects().at(-1)).toBe("gtd(check): rollout.suite.check → idle")
   })
 
+  it("lands a flip when the tree was already dirty at the start", async () => {
+    const repo = repoWith()
+    repo.write("src/other.ts", "dirty\n")
+    await repo.start("rollout", "--var", "flag=alpha")
+    const rest = await repo.drive({
+      "rollout.flipping": (_, r) => r.write("src/flags/index.ts", FLIPPED),
+      "rollout.suite.check": () => undefined,
+    })
+    expect(rest.state).toBe("idle")
+  })
+
   it("refuses a turn that also changes a source file, naming it", async () => {
     const repo = repoWith()
     await repo.start("rollout", "--var", "flag=alpha")
@@ -100,5 +111,57 @@ describe("the rollout workflow", () => {
       "rollout.suite.check": (_, r) => r.write(".gtd/FEEDBACK.md", "1 failing\n"),
     })
     expect(rest).toMatchObject({ state: "rollout.suite.blocked", actor: "human" })
+  })
+
+  describe("the human's fix at rollout.suite.blocked", () => {
+    const blocked = async () => {
+      const repo = repoWith()
+      await repo.start("rollout", "--var", "flag=alpha")
+      await repo.drive({
+        "rollout.flipping": (_, r) => r.write("src/flags/index.ts", FLIPPED),
+        "rollout.suite.check": (_, r) => r.write(".gtd/FEEDBACK.md", "1 failing\n"),
+      })
+      return repo
+    }
+
+    it("refuses a fix that edits a source file, naming it", async () => {
+      const repo = await blocked()
+      await expect(
+        repo.drive({ "rollout.suite.blocked": (_, r) => r.write("src/a.ts", "fixed\n") }),
+      ).rejects.toThrow(/rollout-only: src\/a\.ts changed/)
+    })
+
+    it("refuses a fix that edits a second registry entry", async () => {
+      const repo = await blocked()
+      await expect(
+        repo.drive({
+          "rollout.suite.blocked": (_, r) =>
+            r.write("src/flags/index.ts", FLIPPED.replace('owner: "b"', 'owner: "z"')),
+        }),
+      ).rejects.toThrow("rollout-only: other edits in src/flags/index.ts")
+    })
+
+    it("refuses a fix that rewrites the flipped entry back to defaultOn: false", async () => {
+      const repo = await blocked()
+      await expect(
+        repo.drive({ "rollout.suite.blocked": (_, r) => r.write("src/flags/index.ts", REGISTRY) }),
+      ).rejects.toThrow('"alpha" is not set to defaultOn: true')
+    })
+
+    it("lands a fix that re-wraps the flag's entry and ends with no review", async () => {
+      const repo = await blocked()
+      const rest = await repo.drive({
+        "rollout.suite.blocked": (_, r) =>
+          r.write(
+            "src/flags/index.ts",
+            FLIPPED.replace(
+              '{ name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release", defaultOn: true }',
+              '{\n    name: "alpha",\n    owner: "a",\n    expiry: "2027-01-01",\n    kind: "release",\n    defaultOn: true,\n  }',
+            ),
+          ),
+        "rollout.suite.check": () => undefined,
+      })
+      expect(rest.state).toBe("idle")
+    })
   })
 })

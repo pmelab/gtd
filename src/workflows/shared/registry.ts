@@ -8,7 +8,10 @@ export interface RegistryEntry {
   readonly defaultOn: boolean
 }
 
-// Same length as `text`, with string contents and comments filled with `_`, so
+// Filler for masked text: a non-word char, so `/*x*/kind` still has a `\b` before `kind`.
+const FILL = "\u0001"
+
+// Same length as `text`, with string contents and comments filled with FILL, so
 // a hit inside either (a JSDoc example, `owner: "defaultOn: true"`) is rejected.
 const commentLength = (rest: string): number => {
   const end = rest.startsWith("//") ? rest.indexOf("\n") : rest.indexOf("*/") + 2
@@ -30,11 +33,11 @@ const mask = (text: string): string => {
     const rest = text.slice(i)
     if (rest.startsWith("//") || rest.startsWith("/*")) {
       const len = commentLength(rest)
-      out += "_".repeat(len)
+      out += FILL.repeat(len)
       i += len
     } else if (c === '"' || c === "'" || c === "`") {
       const j = stringEnd(text, i, c)
-      out += c + "_".repeat(j - i - 1) + (j < text.length ? c : "")
+      out += c + FILL.repeat(j - i - 1) + (j < text.length ? c : "")
       i = j + 1
     } else {
       out += c
@@ -52,7 +55,7 @@ const entrySpan = (text: string, name: string) => {
   const re = new RegExp(`\\bname\\s*:\\s*(["'\`])${quoted}\\1`, "g")
   const masked = mask(text)
   for (const hit of text.matchAll(re)) {
-    if (masked[hit.index] === "_") continue
+    if (masked[hit.index] === FILL) continue
     const start = masked.lastIndexOf("{", hit.index)
     const close = masked.indexOf("}", hit.index)
     return start < 0 || close < 0 ? undefined : { start, end: close + 1 }
@@ -67,12 +70,16 @@ const defaultOnHit = (body: string) => DEFAULT_ON.exec(mask(body))
 
 const defaultOnValue = (body: string): string | undefined => defaultOnHit(body)?.[1]
 
+const KIND = /\bkind\s*:\s*["'`]/
+
 export const registryEntry = (text: string, name: string): RegistryEntry | undefined => {
   const span = entrySpan(text, name)
   if (span === undefined) return undefined
   const body = text.slice(span.start, span.end)
+  const hit = KIND.exec(mask(body))
+  const kind = hit === null ? null : /^(\w+)["'`]/.exec(body.slice(hit.index + hit[0].length))
   return {
-    kind: /\bkind\s*:\s*["'`](\w+)["'`]/.exec(body)?.[1] ?? "",
+    kind: kind?.[1] ?? "",
     defaultOn: defaultOnValue(body) === "true",
   }
 }
@@ -84,9 +91,11 @@ const canonical = (body: string): string => {
     hit === null ? body : body.slice(0, hit.index) + body.slice(hit.index + hit[0].length)
   const masked = mask(kept)
   return [...kept]
-    .filter((c, i) => masked[i] === "_" || !/\s/.test(c))
+    .filter(
+      (c, i) =>
+        masked[i] === FILL || !(/\s/.test(c) || (c === "," && /^\s*}/.test(masked.slice(i + 1)))),
+    )
     .join("")
-    .replace(/,}/g, "}")
 }
 
 /**

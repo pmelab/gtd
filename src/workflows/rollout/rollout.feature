@@ -132,3 +132,83 @@ Feature: rollout turns one release flag default-on and touches nothing else
     When gtd starts workflow "rollout" with "--var flag=alpha"
     And the process is driven
     Then the process rests at "rollout.suite.blocked"
+
+  @inmem
+  Scenario: a human fix at the blocked gate that also edits a source file is refused
+    Given step "rollout.flipping" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release", defaultOn: true },
+        { name: "beta", owner: "b", expiry: "2027-02-01", kind: "release" },
+        { name: "ops1", owner: "c", expiry: "2027-03-01", kind: "ops" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    And step "rollout.suite.check" writes ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing
+      """
+    When gtd starts workflow "rollout" with "--var flag=alpha"
+    And the process is driven
+    Then the process rests at "rollout.suite.blocked"
+    And step "rollout.suite.blocked" writes "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => b + a
+      """
+    Then driving the process is refused with "rollout-only: src/calc.ts changed"
+
+  @inmem
+  Scenario: a human fix at the blocked gate that edits a second registry entry is refused
+    Given step "rollout.flipping" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release", defaultOn: true },
+        { name: "beta", owner: "b", expiry: "2027-02-01", kind: "release" },
+        { name: "ops1", owner: "c", expiry: "2027-03-01", kind: "ops" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    And step "rollout.suite.check" writes ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing
+      """
+    When gtd starts workflow "rollout" with "--var flag=alpha"
+    And the process is driven
+    Then the process rests at "rollout.suite.blocked"
+    And step "rollout.suite.blocked" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release", defaultOn: true },
+        { name: "beta", owner: "zed", expiry: "2027-02-01", kind: "release" },
+        { name: "ops1", owner: "c", expiry: "2027-03-01", kind: "ops" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    Then driving the process is refused with "other edits in src/flags/index.ts"
+
+  @inmem
+  Scenario: a human fix touching only the feedback file lands and the process ends with no review
+    Given step "rollout.flipping" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release", defaultOn: true },
+        { name: "beta", owner: "b", expiry: "2027-02-01", kind: "release" },
+        { name: "ops1", owner: "c", expiry: "2027-03-01", kind: "ops" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    And step "rollout.suite.check" writes ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing
+      """
+    When gtd starts workflow "rollout" with "--var flag=alpha"
+    And the process is driven
+    Then the process rests at "rollout.suite.blocked"
+    And step "rollout.suite.blocked" writes ".gtd/FEEDBACK.md" with:
+      """
+      fixed by hand
+      """
+    And step "rollout.suite.check" from now on changes nothing
+    When the process is driven
+    Then the process rests at "idle"
+    And the last commit subject is "gtd(check): rollout.suite.check → idle"

@@ -98,6 +98,11 @@ Given("step {string} changes nothing", (world: TestkitWorld, step: string) => {
   world.act(step, () => undefined)
 })
 
+// Unlike `changes nothing`, this drops every action already queued for the step.
+Given("step {string} from now on changes nothing", (world: TestkitWorld, step: string) => {
+  world.actions.set(step, [() => undefined])
+})
+
 Given(
   "step {string} writes {string} with:",
   (world: TestkitWorld, step: string, path: string, content: string) => {
