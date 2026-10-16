@@ -71,3 +71,39 @@ if it is dropped. Gaps and weak spots:
   following `resolves off unset and on` test repeats the generic `resolveFlags`
   cases. Its only real job, binding the name `GTD_FLAG_JUDGE_SONNET`, is already
   covered by the on/off feature scenarios.
+
+## conventions
+
+Non-blocking. The docs edits name no `src/*.ts` module or internal symbol. The
+`docs/cli.md` help block is kept in step with `Cli.ts`. The README carries the
+flag. Each behaviour has an `@inmem` scenario. Findings against `AGENTS.md`:
+
+- `src/cli/Cli.ts:L1472`: the comment states the decision but not the reason.
+  Rule: "Put it at the code it constrains, and keep it to the decision and its
+  reason". The comment says "against the shipped registry (not io.flags)" but
+  never says why. The reason: typed against `FLAGS`, so deleting the registry
+  entry turns this read into a compile error that cleanup must resolve. That
+  reason is non-obvious and lives only in the deleted plan. Fix: e.g.
+  `// GTD_FLAG_JUDGE_SONNET: typed against FLAGS (not io.flags) so deleting the entry fails to compile here.`
+- `gtd.config.ts:L1`: the extended comment repeats the import list right below
+  it. Rule: "Everything else (restatement of the code, history, a 'what' with no
+  'why') gets deleted". The old version listed three workflows and was already
+  borderline. Adding two more makes it a pure list of the exports. Fix: drop the
+  enumeration and keep the two lines about `--workflow <name>` and the default
+  export.
+- `src/cli/Cli.test.ts:L1305-1313`: the test replaces the global `process.stdin`
+  through `Object.defineProperty`. Rule: "reach every external resource (... a
+  spawned program) through a port with a live and an in-memory implementation".
+  `gtd judge run` reads `process.stdin` directly (`Program.ts:L417`, which
+  predates this change), so stdin has no in-memory twin. The new test works
+  around that gap instead of using a port. It also leaks a global if run in
+  parallel. This agrees with ponytail-review: delete the block, since the
+  feature scenarios already cover the seam. Don't add more tests that patch
+  `process`.
+- `src/judges/run.test.ts` `runJudge defaultModel` (L155-250): every case writes
+  a real shell shim to `tmpdir()` and spawns it as `claude`, and `home()` writes
+  a real `judge.json`. Rule: same port/twin rule. The `judge-run.feature`
+  `claude answers with` step shows an in-memory claude twin exists. The file's
+  existing `shimDir` tests use the same pattern, so this is not new debt, but
+  the change adds five more real-process unit tests where the feature tier
+  already reaches the same paths in memory.
