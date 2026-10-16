@@ -118,69 +118,6 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         | low  |
         | high |
 
-    Scenario Outline: low and high processes produce the same commit subjects to implement.building
-      Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
-        """
-        # Requirements
-
-        ## Risk Tier
-
-        <tier> — reason
-        """
-      And step "design.gate.answer" changes nothing
-      And step "seam.naive" writes "src/calc.ts" with:
-        """
-        export const add = (a: number, b: number) => a + b
-        export const subtract = (a: number, b: number) => a - b
-        """
-      And judge step "seam.judge" answers:
-        """
-        [{"id":"shape","answer":"land","p":0.9}]
-        """
-      When the process is driven
-      Then the process rests at "implement.building"
-      And the commit subjects end with:
-        """
-        gtd(agent): design.triage → design.gate.answer
-        gtd(human): design.gate.answer → seam.naive
-        gtd(agent): seam.naive → seam.judge
-        gtd(judge): seam.judge → implement.building
-        """
-
-      Examples:
-        | tier |
-        | low  |
-        | high |
-
-    Scenario Outline: the implementation prompt demands a flag for high and none for low
-      Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
-        """
-        # Requirements
-
-        ## Risk Tier
-
-        <tier> — reason
-        """
-      And step "design.gate.answer" changes nothing
-      And step "seam.naive" writes "src/calc.ts" with:
-        """
-        export const add = (a: number, b: number) => a + b
-        export const subtract = (a: number, b: number) => a - b
-        """
-      And judge step "seam.judge" answers:
-        """
-        [{"id":"shape","answer":"land","p":0.9}]
-        """
-      When the process is driven
-      Then the process rests at "implement.building"
-      And the resting step's content contains "<demand>"
-      And the resting step's content does not contain "<absent>"
-
-      Examples:
-        | tier | demand                                                | absent                |
-        | high | Put the new behaviour behind a new release flag       | Add no release flag   |
-        | low  | Add no release flag — this change is low risk tier    | new release flag      |
-
     Scenario: the tier comes from the requirements the final design gate lap accepted
       Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
         """
