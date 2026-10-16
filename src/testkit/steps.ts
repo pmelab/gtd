@@ -207,6 +207,28 @@ Then("the commit subjects end with:", (world: TestkitWorld, list: string) => {
   assert.deepStrictEqual(world.repo().subjects().slice(-expected.length), expected)
 })
 
+const outputOf = async (world: TestkitWorld, list: string): Promise<string> => {
+  const result = await world.repo().gtd(...args(list))
+  assert.strictEqual(result.exitCode, 0, result.stderr)
+  return result.stdout
+}
+
+Then(
+  "the output of gtd {string} contains {string}",
+  async (world: TestkitWorld, list: string, text: string) => {
+    const out = await outputOf(world, list)
+    assert.ok(out.includes(text), out)
+  },
+)
+
+Then(
+  "the output of gtd {string} does not contain {string}",
+  async (world: TestkitWorld, list: string, text: string) => {
+    const out = await outputOf(world, list)
+    assert.ok(!out.includes(text), out)
+  },
+)
+
 Then("{string} contains {string}", (world: TestkitWorld, path: string, text: string) => {
   assert.ok(world.repo().read(path)?.includes(text), `${path}: ${world.repo().read(path)}`)
 })

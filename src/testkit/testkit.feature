@@ -47,6 +47,8 @@ Feature: testkit drives any workflow against the real engine
       gtd(judge): ready → ship
       """
     And "PLAN.md" contains "add two numbers"
+    And the output of gtd "next" contains "ship"
+    And the output of gtd "next" does not contain "rework"
 
   Scenario: a red check sends the process to repair, and an unscripted step is where it rests
     Given step "plan" writes "PLAN.md" with:
