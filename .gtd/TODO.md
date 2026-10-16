@@ -1,10 +1,6 @@
-## Deferred review notes (836985b)
-
-- note-3 — flaky.[^stdout] (could): Restore `expect(captured().stdout).toBe("")`
-  in the garbled-flag CLI test; dropping it weakens the test with no reason.
-
-## Deferred review notes (daed27f)
-
-- note-2 — output.[^weak] (could): Please strengthen this scenario: finish a
-  process that kept a tip, then assert `gtd history list` shows only the
-  finished process and never the kept ref.
+Implement pmelab/gtd#355: Dogfood: ship one real feature through the new
+workflow ## Goal Ship a small, genuinely composable feature in gtd itself (e.g.
+a provider swap in judge) through the full workflow: flag registry, dual-state
+tests, rollout, cleanup commit. ## Acceptance - Flag lands, rolls out, and is
+removed again in separate commits - Trailers for every gate present in history -
+Notes on friction filed as follow-up issues Depends on #354
