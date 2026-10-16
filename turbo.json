@@ -83,6 +83,7 @@
         "docs/**",
         "COMPATIBILITY.md",
         "README.md",
+        "SDLC.md",
         "evals/**",
         ".dependency-cruiser.mjs",
         "claude/**",

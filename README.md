@@ -577,6 +577,8 @@ Two more bundled workflows retire a release flag:
 `gtd --workflow cleanup --var flag=<name>` removes it afterwards. See
 [Feature flags](docs/configuration.md#rolling-out-and-cleaning-up-a-release-flag).
 
+The delivery model these workflows implement: [Delivery model](SDLC.md).
+
 ## Checking a range for stray files
 
 ```sh

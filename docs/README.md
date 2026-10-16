@@ -10,5 +10,7 @@
 - [Development](./development.md) — building and testing gtd itself
 - [Compatibility](../COMPATIBILITY.md) — which surfaces are stable, which follow
   package SemVer, which carry no promise
+- [Delivery model](../SDLC.md) — trunk-based delivery behind release flags, and
+  where the workflows put human gates
 - [Commit messages](./commits.md) — the squash-commit convention
   semantic-release and the PR check read
