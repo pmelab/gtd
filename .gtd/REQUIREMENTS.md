@@ -4,26 +4,6 @@ Source: pmelab/gtd#355 — dogfood one small, composable gtd feature through the
 whole release-flag lifecycle: flag registry entry, tests in both flag states,
 rollout, cleanup.
 
-## Open Questions
-
-### Does the flag also move the Claude Code mod's judge subagent to `sonnet`?
-
-The mod answers judge gates in-session with its own subagent, on
-`GTD_JUDGE_MODEL` or a hard-coded `haiku` — separate from `gtd judge run`'s
-`llm` default. The fork is whether a Claude Code user sees the swap.
-
-- [x] Only `gtd judge run --provider llm` changes; the mod stays on `haiku`
-  - smallest scope: one constant behind the flag, in gtd's own judge
-  - **the two paths that send "the same prompt" diverge in model while the flag
-    is on**; docs must say so
-- [ ] Both change: the mod reads the same flag and defaults to `sonnet` too
-  - one consistent default everywhere a judge runs on Claude
-  - the mod's hook resolves the flag from its env through the registry; adds mod
-    tests in both flag states
-  - **every Claude Code mod user's judge gates get slower and costlier on
-    rollout, not just CLI-driver users**
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. Default `llm` judge model `haiku` → `sonnet`, behind a new release flag (PRODUCT)
@@ -39,7 +19,12 @@ The mod answers judge gates in-session with its own subagent, on
 - The flag is resolved from the live env through the registry's resolver — never
   a raw `process.env` check. Judging is not replayed, so reading the live value
   there is allowed.
-- Scope of the mod's own judge subagent follows the open question above.
+- **Only `gtd judge run --provider llm` changes; the Claude Code mod's judge
+  subagent stays on `GTD_JUDGE_MODEL` or its hard-coded `haiku`** in both flag
+  states — no mod code or mod tests change.
+- **While the flag is on, the two paths that send the same judge prompt run on
+  different models** (`sonnet` via `gtd judge run`, `haiku` in the mod); the
+  docs say so next to the flag-dependent default.
 - **Every release flag adds a full vitest pass to every gate and to CI**; gate
   time grows until cleanup removes the flag.
 - `@inmem` cucumber scenarios cover both flag states; unit tests pin flag-on and
@@ -130,3 +115,8 @@ right after on this branch, so it is far past the flag's real life.
 
 No. It moves only the built-in fallback; `--model`, `GTD_JUDGE_MODEL` and
 `judge.json` keep their precedence, so no user who pinned a model sees a change.
+
+### Does the flag also move the Claude Code mod's judge subagent to `sonnet`?
+
+No. Only `gtd judge run --provider llm` changes; the mod stays on `haiku`, and
+the docs note that the two paths diverge in model while the flag is on.
