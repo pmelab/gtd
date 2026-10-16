@@ -16,7 +16,7 @@ flag cleanup (Greptile P2 on PR 375).
 - Done when: the scenario title appears exactly once in the file, and `npm test`
   stays green
 
-### 2. Drop the two parked deferred review notes — TECHNICAL
+### 2. Drop the two parked deferred review notes — TECHNICAL[^keep-notes]
 
 **The human's sketch deleted both `## Deferred review notes` sections from
 `.gtd/TODO.md`** (836985b note-3, restore the empty-stdout assertion in the
@@ -37,3 +37,8 @@ identical, so the choice changes nothing.
 ### Do the deleted deferred review notes get built anyway?
 
 No; the human removed them in the same sketch, which settles them as dropped.
+
+[^keep-notes]:
+    - H: The sketch replaced `.gtd/TODO.md` only to start this fix; deleting the
+      two deferred notes was not a decision. Keep both sections in
+      `.gtd/TODO.md` exactly as they were before this process — can you?
