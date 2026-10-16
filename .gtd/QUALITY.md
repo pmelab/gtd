@@ -107,3 +107,42 @@ flag. Each behaviour has an `@inmem` scenario. Findings against `AGENTS.md`:
   existing `shimDir` tests use the same pattern, so this is not new debt, but
   the change adds five more real-process unit tests where the feature tier
   already reaches the same paths in memory.
+
+## spec-challenge
+
+Blocking. One planned test conflicts with the rollout workflow, and this branch
+is about to run that workflow. The rollout as planned cannot land.
+
+- Decision (ARCHITECTURE "Unit Tests", package 01 task 1): pin `judge_sonnet` as
+  "no `defaultOn`; `resolveFlags({})` leaves it off". The tests built from it:
+  `src/flags/index.test.ts:L124-136` (an exact `toEqual` of the entry, plus
+  `resolveFlags({}).judge_sonnet` `false`) and `src/cli/Cli.test.ts:L1323`, the
+  `GTD_FLAG_JUDGE_SONNET: ""` case of `flag %j passes no defaultModel`. An empty
+  value falls back to `defaultOn`, so after rollout this case resolves on.
+- Invariant: the rollout workflow lets a rollout change exactly one thing, the
+  entry's `defaultOn: true`. Its guard refuses any other path, after the agent's
+  turn and also after a human's fix at `rollout.suite.blocked`. Tests pin this:
+  `src/workflows/rollout/rollout.feature` "a turn also changing a source file is
+  refused" and "a human fix at the blocked gate that also edits a source file is
+  refused". The suite gate then has to go green with only the registry edited.
+- Effect: once `gtd --workflow rollout --var flag=judge_sonnet` sets
+  `defaultOn: true`, all three tests go red in every test-states pass. They are
+  unit tests that pass their env explicitly, so the runner's ambient pin does
+  not reach them. The process stops at `rollout.suite.blocked`, and the only fix
+  (editing those tests) is a stray the guard refuses. Concern 3, run rollout
+  then cleanup on this branch, can't be carried out without the human going
+  around gtd.
+- Fix: keep only assertions that hold in both registry states. Use
+  `toMatchObject({ kind: "release" })`, as `risk_tier` does, or drop the shape
+  test (test-audit already flagged it). Pin on/off only with an explicit
+  `GTD_FLAG_JUDGE_SONNET` of `1`/`0`, never `{}` or `""`. The `@inmem` scenarios
+  already pin explicitly and survive rollout.
+- Also, non-blocking, same cause: the help text (`Cli.ts:L244-245`, `L677-678`),
+  `docs/cli.md`, README and `docs/driver.md` all say the default is "haiku
+  (sonnet under GTD_FLAG_JUDGE_SONNET=1)". After rollout that is false: the
+  default is sonnet with the variable unset, and rollout is not allowed to touch
+  those files. Cleanup's `GTD_FLAG_JUDGE_SONNET` literal scan will catch the two
+  help strings, but nothing makes cleanup revisit the docs or regenerate the
+  pinned `docs/cli.md` block. Release happens only after cleanup, so this never
+  ships. It does make the docs wrong between rollout and cleanup, so cleanup's
+  task should list the docs as well.
