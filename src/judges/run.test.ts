@@ -86,18 +86,34 @@ describe("runJudge with a user-level judge.json", () => {
     return dir
   }
 
-  it("layers per field: a flag provider with the file's model", async () => {
+  const argvShim = (): { dir: string; argv: () => string } => {
+    const out = join(mkdtempSync(join(tmpdir(), "gtd-run-argv-")), "argv")
     const dir = shimDir(
-      `echo '${JSON.stringify({ structured_output: { q: { answer: "yes", p: 0.8 } } })}'`,
+      `echo "$@" > ${out}; echo '${JSON.stringify({ structured_output: { q: { answer: "yes", p: 0.8 } } })}'`,
     )
-    expect(
-      await runJudge({
-        provider: "llm",
-        env: { PATH: `${dir}:/bin:/usr/bin`, XDG_CONFIG_HOME: home('{"model":"file"}') },
-        input: doc,
-        cwd,
-      }),
-    ).toBe('[{"id":"q","answer":"yes","p":0.8}]\n')
+    return { dir, argv: () => readFileSync(out, "utf8") }
+  }
+  const run = (extra: { model?: string; env: Record<string, string> }, dir: string) =>
+    runJudge({
+      provider: "llm",
+      model: extra.model,
+      env: { PATH: `${dir}:/bin:/usr/bin`, ...extra.env },
+      input: doc,
+      cwd,
+    })
+
+  it("layers per field: a flag provider with the file's model reaches claude's argv", async () => {
+    const { dir, argv } = argvShim()
+    await run({ env: { XDG_CONFIG_HOME: home('{"model":"file"}') } }, dir)
+    expect(argv()).toContain("--model file")
+  })
+  it("GTD_JUDGE_MODEL reaches claude's argv and beats the file's model", async () => {
+    const { dir, argv } = argvShim()
+    await run(
+      { env: { GTD_JUDGE_MODEL: "env-model", XDG_CONFIG_HOME: home('{"model":"file"}') } },
+      dir,
+    )
+    expect(argv()).toContain("--model env-model")
   })
   it("empty GTD_JUDGE_* values count as unset", async () => {
     expect(
@@ -149,91 +165,5 @@ describe("runJudge with a user-level judge.json", () => {
         cwd,
       }),
     ).rejects.toThrow(/judge\.json: unknown key "answers"/)
-  })
-})
-
-describe("runJudge defaultModel", () => {
-  const answer = JSON.stringify({ structured_output: { q: { answer: "yes", p: 0.8 } } })
-  const verdict = '[{"id":"q","answer":"yes","p":0.8}]\n'
-  const argvShim = (): { dir: string; argv: () => string } => {
-    const out = join(mkdtempSync(join(tmpdir(), "gtd-run-argv-")), "argv")
-    const dir = shimDir(`echo "$@" > ${out}; echo '${answer}'`)
-    return { dir, argv: () => readFileSync(out, "utf8") }
-  }
-  const home = (config: string): string => {
-    const dir = mkdtempSync(join(tmpdir(), "gtd-judge-home-"))
-    mkdirSync(join(dir, "gtd"))
-    writeFileSync(join(dir, "gtd", "judge.json"), config)
-    return dir
-  }
-
-  it("is the model when no layer sets one", async () => {
-    const { dir, argv } = argvShim()
-    expect(
-      await runJudge({
-        provider: undefined,
-        defaultModel: "sonnet",
-        env: { PATH: `${dir}:/bin:/usr/bin` },
-        input: doc,
-        cwd,
-      }),
-    ).toBe(verdict)
-    expect(argv()).toContain("--model sonnet")
-  })
-
-  it("loses to --model, GTD_JUDGE_MODEL and judge.json", async () => {
-    const flag = argvShim()
-    await runJudge({
-      provider: "llm",
-      model: "opus",
-      defaultModel: "sonnet",
-      env: { PATH: `${flag.dir}:/bin:/usr/bin` },
-      input: doc,
-      cwd,
-    })
-    expect(flag.argv()).toContain("--model opus")
-    const envv = argvShim()
-    await runJudge({
-      provider: "llm",
-      defaultModel: "sonnet",
-      env: { PATH: `${envv.dir}:/bin:/usr/bin`, GTD_JUDGE_MODEL: "env-model" },
-      input: doc,
-      cwd,
-    })
-    expect(envv.argv()).toContain("--model env-model")
-    const file = argvShim()
-    await runJudge({
-      provider: "llm",
-      defaultModel: "sonnet",
-      env: { PATH: `${file.dir}:/bin:/usr/bin`, XDG_CONFIG_HOME: home('{"model":"file"}') },
-      input: doc,
-      cwd,
-    })
-    expect(file.argv()).toContain("--model file")
-  })
-
-  it("does not stop jev auto-selection", async () => {
-    const marker = join(mkdtempSync(join(tmpdir(), "gtd-run-marker-")), "ran")
-    const dir = shimDir(`touch ${marker}; echo '${answer}'`)
-    await expect(
-      runJudge({
-        provider: undefined,
-        defaultModel: "sonnet",
-        env: {
-          PATH: `${dir}:/bin:/usr/bin`,
-          TYPESAFE_API_KEY: "k",
-          JEV_BASE_URL: "http://127.0.0.1:1/x",
-        },
-        input: doc,
-        cwd,
-      }),
-    ).rejects.toThrow(/gtd judge run: jev request failed/)
-    expect(existsSync(marker)).toBe(false)
-  })
-
-  it("does not trip the pairing check for provider fixed", async () => {
-    expect(
-      await runJudge({ provider: "fixed", defaultModel: "sonnet", env, input: doc, cwd }),
-    ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
   })
 })

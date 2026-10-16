@@ -119,9 +119,3 @@ describe("risk_tier", () => {
     expect(flagSettings(resolveFlags({})).flag_risk_tier).toBe("0")
   })
 })
-
-describe("judge_sonnet", () => {
-  it("is a release flag", () => {
-    expect(FLAGS.find((f) => f.name === "judge_sonnet")).toMatchObject({ kind: "release" })
-  })
-})

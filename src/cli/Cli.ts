@@ -241,8 +241,7 @@ const FLAGS: readonly FlagRow[] = [
     help: [
       "(gtd land, with --cost) tag that cost's model",
       "(gtd judge run, llm answerer) the claude model; omitted:",
-      "GTD_JUDGE_MODEL, then judge.json, then haiku (sonnet",
-      "under GTD_FLAG_JUDGE_SONNET=1)",
+      "GTD_JUDGE_MODEL, then judge.json, then sonnet",
     ],
   },
   {
@@ -674,8 +673,7 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "--answers <path> or GTD_JUDGE_ANSWERS; questions the file",
       "does not cover are left out. --provider jev asks TypeSafe",
       "(TYPESAFE_API_KEY). --provider llm asks the `claude` CLI",
-      "on PATH (Claude Code only), model haiku (sonnet under",
-      "GTD_FLAG_JUDGE_SONNET=1) unless --model.",
+      "on PATH (Claude Code only), model sonnet unless --model.",
       "No --provider: GTD_JUDGE_PROVIDER, then ~/.config/gtd/",
       "judge.json, else jev when TYPESAFE_API_KEY is set and no",
       "model is given, else llm; --model likewise falls back to",
@@ -1467,19 +1465,12 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
   const out = bufferedArtifactOut(io)
   return Effect.flatMap(Host, ({ env }) =>
     Effect.try({
-      try: () => ({
-        flags: resolveFlags(env, io.flags),
-        // GTD_FLAG_JUDGE_SONNET: typed against FLAGS (not io.flags) so deleting the entry fails to compile here.
-        command:
-          plan.command.kind === "judgeRun" && resolveFlags(env).judge_sonnet
-            ? { ...plan.command, defaultModel: "sonnet" }
-            : plan.command,
-      }),
+      try: () => resolveFlags(env, io.flags),
       catch: (e) => new GtdError((e as Error).message),
     }),
   ).pipe(
-    Effect.flatMap(({ flags, command }) =>
-      runCommand(command, plan.json, out).pipe(
+    Effect.flatMap((flags) =>
+      runCommand(plan.command, plan.json, out).pipe(
         Effect.provideService(StartFlags, flagSettings(flags)),
       ),
     ),

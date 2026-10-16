@@ -10,7 +10,7 @@ export interface LlmOptions {
   readonly io?: JudgeIo
 }
 
-const DEFAULT_MODEL = "haiku"
+const DEFAULT_MODEL = "sonnet"
 const TIMEOUT_MS = 180_000
 
 export const SYSTEM_PROMPT =
