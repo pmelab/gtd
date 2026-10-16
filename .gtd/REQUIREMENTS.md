@@ -11,7 +11,7 @@ rollout, cleanup.
 The issue only gives an example ("a provider swap in judge"). The pick sets how
 much code the flag guards, and what cleanup later has to delete.
 
-- [ ] Swap the default `llm` judge model from `haiku` to `sonnet`
+- [x] Swap the default `llm` judge model from `haiku` to `sonnet`
   - smallest possible change: flag-on swaps one constant; tests in both flag
     states are trivial
   - **judge calls get slower and more expensive for everyone on `llm` once
@@ -33,7 +33,7 @@ much code the flag guards, and what cleanup later has to delete.
 so no `seam.judge` or `Gtd-Mark: risk-tier` trailers will land. Flags are pinned
 at process start; turning them on means abandoning and restarting.
 
-- [ ] Keep going with both off
+- [x] Keep going with both off
   - no restart; "every gate" means the gates the default workflow runs today
   - **the acceptance line "trailers for every gate" is only partly met: seam and
     risk-tier gates go untested**
@@ -54,7 +54,7 @@ PR collapses them into one commit**, so the shape has to be decided up front.
   - each step gets its own release from semantic-release, so the flag actually
     ships default-off before it ships default-on
   - slowest; three review/merge cycles
-- [ ] One branch, three processes, merged with a merge commit or rebase (no
+- [x] One branch, three processes, merged with a merge commit or rebase (no
       squash)
   - one PR, one review; all three commits survive on `main`
   - **the flag never ships default-off in a release**, so rollout is only
@@ -71,7 +71,7 @@ whether filing issues is built work here or a human task at the end.
   - no extra package; nothing in the tree or in `.gtd/` tracks friction
   - **friction from this process is lost if nobody writes it down while it is
     fresh**
-- [ ] The agent files one `gh issue` per friction point it hit, as the last
+- [x] The agent files one `gh issue` per friction point it hit, as the last
       package of each of the three processes
   - friction is captured while fresh, labelled `track:dogfood`
   - adds a non-code package to each process; issues may be noisy or duplicate
