@@ -18,6 +18,7 @@ import { packages } from "./packages.js"
 import { architecture, design } from "./planning.js"
 import { buildTail, type ReviewOutcome } from "./review.js"
 import { seamBuild } from "./seam.js"
+import { recordRisk, riskTierOn } from "./tier.js"
 
 // The ordinary start. Any change to the tree starts a process: `idle` →
 // `unwind` reverts the sketch (its intent survives in history) → a
@@ -56,9 +57,10 @@ export const planAndBuild = async (firstBase: string): Promise<void> => {
   let base = firstBase
   for (;;) {
     await design(base)
+    const tier = riskTierOn() ? recordRisk() : undefined
     // GTD_FLAG_NAIVE_PASS: the record is pinned at the process start, so a mid-process flip never moves a process.
     if (vars.flag_naive_pass === "1") {
-      await seamBuild()
+      await seamBuild(tier)
     } else {
       await architecture()
       await packages()

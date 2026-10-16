@@ -44,7 +44,7 @@ import {
   type ReplayOutcome,
   type TreeView,
 } from "../replay/index.js"
-import type { ScopeAccess } from "../flows/index.js"
+import type { Mark, ScopeAccess } from "../flows/index.js"
 import { steeringFormatFor } from "../steering/index.js"
 import {
   judgeJson,
@@ -153,6 +153,8 @@ export interface ProcessRun {
   readonly trace: readonly TraceEntry[]
   readonly costEntries: readonly CostEntry[]
   readonly judgeVerdicts: readonly JudgeVerdictEntry[]
+  /** Every process commit's `Gtd-Mark`s, oldest first. */
+  readonly marks: readonly Mark[]
   /** Oldest first. */
   readonly approvals: readonly ApprovalEntry[]
   /** The process settings recorded in the process's first commit (empty for a process started before pinning existed). */
@@ -276,6 +278,7 @@ const buildRun = (
     trace: processCommits.map((c, i) => traceEntryOf(c.hash, parsed[i]!)),
     costEntries: parsed.flatMap(costEntriesOf),
     judgeVerdicts: parsed.flatMap((m) => m.judge),
+    marks: parsed.flatMap((m) => m.marks),
     approvals: processCommits.flatMap((c, i) => approvalEntryOf(c.hash, parsed[i]!)),
     pinnedVars: { ...first?.vars },
     pinnedConfig: pinnedConfigOf(history.slice(Math.max(location.baseIndex, 0))),
@@ -1267,6 +1270,7 @@ const landingTo = (
   to: StateName,
   branch: Option.Option<string>,
   approver: Option.Option<AuthorIdent>,
+  marks: readonly Mark[],
 ): Landing => {
   if (isSettledNoop(rest, to)) return { kind: "noop", settled: true }
   // The landing that leaves the flow's first step starts the process: it
@@ -1287,14 +1291,21 @@ const landingTo = (
       from: rest.state,
       to,
       step: rest.step.id,
+      ...(marks.length > 0 && { marks }),
       ...approvedTrailer(rest, approver),
-      ...(starts ? { vars: rest.vars, config: rest.config } : {}),
+      ...startTrailers(rest, starts),
       ...(finishes ? closingTrailers(branch) : {}),
     },
     ...(finishes ? { keepHistory: processHistoryRef(rest.run.startHash) } : {}),
     ...keptTurn(rest),
   }
 }
+
+const startTrailers = (rest: Rest, starts: boolean) =>
+  starts ? { vars: rest.vars, config: rest.config } : {}
+
+const outcomeMarks = (outcome: ReplayOutcome): readonly Mark[] =>
+  outcome.kind === "rest" || outcome.kind === "ended" ? outcome.marks : []
 
 /**
  * What landing the pending turn at `rest` does — a pure decision from a
@@ -1328,7 +1339,7 @@ const decideLanding = (
     )
     const to = yield* landingTarget(outcome, rest)
     if (typeof to !== "string") return to
-    return landingTo(rest, to, branch, approver)
+    return landingTo(rest, to, branch, approver, outcomeMarks(outcome))
   })
 
 /** Where landing the pending turn would leave the process, or `undefined` when it would land nothing. */
@@ -1380,6 +1391,7 @@ export const summaryFor = (
         .map((entry) => ({ hash: entry.hash, state: entry.state })),
       processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
       processCostByModel: costByModel(run.costEntries),
+      marks: run.marks,
       ...settingsFor(resolved, run.pinnedVars, host.env, {}, {}),
     })
   })

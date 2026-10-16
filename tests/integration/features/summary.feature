@@ -161,3 +161,42 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
     Then it fails
     And stdout is empty
     And stderr contains "gtd summary: refused"
+
+  @inmem
+  Scenario: gtd summary exposes every process mark, oldest first, to the workflow's summary
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, mark } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        mark("risk-tier", "high")
+        mark("production-signal", "error rate")
+        await agent("building", "build it")
+        mark("production-signal", "p95 latency")
+        await agent("checking", "check it")
+      }
+
+      export const summary = (it) => it.marks.map((m) => `${m.name}=${m.value}`).join(" | ")
+      """
+    And the working tree is committed as "chore: gtd config"
+    And a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → building"
+
+    Given a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): building → checking"
+
+    When I run gtd with args "summary"
+    Then it succeeds
+    And stdout contains "risk-tier=high | production-signal=error rate | production-signal=p95 latency"

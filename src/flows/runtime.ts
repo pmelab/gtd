@@ -170,6 +170,8 @@ export interface FlowContext {
   readonly skillsFor: (localName: string) => readonly string[]
   /** The folded access the memory scope `localName` lands in resolves to; `file` is the step's own steering file. */
   readonly accessFor: (localName: string, file?: string) => AccessDef
+  /** Absent on an engine older than `mark`; FLOWS_PROTOCOL stays 1. */
+  readonly mark?: (name: string, value: string) => void
   /** Absent on an engine older than `kept`. */
   readonly kept?: (
     name: string,
@@ -343,6 +345,38 @@ export const kept = (name: string): KeptTip | undefined => {
   return tip === undefined ? undefined : { hash: tip.hash, changes: toChanges(tip.changes) }
 }
 
+export interface Mark {
+  readonly name: string
+  readonly value: string
+}
+
+const MARK_NAME = /^[a-z][a-z0-9-]*$/
+const MARK_VALUE =
+  // eslint-disable-next-line no-control-regex -- the control range IS the point
+  /^[^\s\x00-\x1f\x7f-\x9f\u2028\u2029]([^\x00-\x1f\x7f-\x9f\u2028\u2029]*[^\s\x00-\x1f\x7f-\x9f\u2028\u2029])?$/
+
+/**
+ * Record a fact on the landing that leaves the current rest: one
+ * `Gtd-Mark: <name>=<value>` trailer per call, in call order. Throws on an
+ * invalid name or value (a newline would inject a trailer) and on an older engine.
+ * A settled no-op landing (a clean script step landing on itself) drops its marks.
+ */
+export const mark = (name: string, value: string): void => {
+  const context = ctx()
+  if (typeof context.mark !== "function") {
+    throw new Error("gtd: mark() needs a newer gtd — upgrade the gtd that runs it")
+  }
+  if (!MARK_NAME.test(name)) {
+    throw new Error(`gtd: mark(): name ${JSON.stringify(name)} must match ${MARK_NAME}`)
+  }
+  if (!MARK_VALUE.test(value)) {
+    throw new Error(
+      `gtd: mark(${name}): value must be one line, no control characters, no surrounding whitespace`,
+    )
+  }
+  context.mark(name, value)
+}
+
 /** The commit the process stands on at this point of the flow. */
 export const head = (): string => ctx().head()
 
@@ -445,6 +479,8 @@ export interface SummaryContext {
   readonly humanCommits: readonly { readonly hash: string; readonly state: string }[]
   readonly processCost: number
   readonly processCostByModel: readonly { readonly model: string; readonly cost: number }[]
+  /** Every `Gtd-Mark` of the process's commits, oldest first. */
+  readonly marks: readonly Mark[]
   readonly vars: Readonly<Record<string, string>>
   readonly env: Readonly<Record<string, string>>
 }

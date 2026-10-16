@@ -560,6 +560,15 @@ change goes to you for approval and is refactored first; a wrong approach is
 retried twice, then rests for you to steer or overrule it. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
+**Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default, needs
+`GTD_FLAG_NAIVE_PASS=1`).** Triage proposes a risk tier, `low` or `high`, and
+the production signals to watch after merge. Edit the first word under
+`## Risk Tier` at the design gate to change it; a missing or unreadable tier
+means `high`. Each lap lands a `Gtd-Mark: risk-tier=<low|high>` trailer and a
+`Gtd-Mark: production-signal=…` trailer per signal; `gtd summary` reads the last
+lap's only. Its "needs a human reviewer" line for `high` is advisory, not a
+gate.
+
 ### Rolling out and cleaning up release flags
 
 Two more bundled workflows retire a release flag:

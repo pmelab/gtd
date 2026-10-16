@@ -282,3 +282,57 @@ describe("isRecordableApproval", () => {
     expect(isRecordableApproval(of("Ada", "a@x.io", 0))).toBe(false)
   })
 })
+
+describe("Gtd-Mark", () => {
+  const body = (...lines: string[]) => `gtd(human): a → b\n\n${lines.join("\n")}`
+
+  it("round-trips in order, names repeating", () => {
+    const message = formatCommitMessage({
+      actor: "human",
+      from: "a",
+      to: "b",
+      marks: [
+        { name: "risk-tier", value: "high" },
+        { name: "production-signal", value: "error rate = 0" },
+        { name: "production-signal", value: "p95" },
+      ],
+    })
+    expect(parseCommitMessage(message).marks).toEqual([
+      { name: "risk-tier", value: "high" },
+      { name: "production-signal", value: "error rate = 0" },
+      { name: "production-signal", value: "p95" },
+    ])
+  })
+
+  it("is written after Gtd-Judge and before Gtd-Approved, with no Gtd-Format bump", () => {
+    const lines = formatCommitMessage({
+      actor: "human",
+      to: "b",
+      judge: [{ id: "v", answer: "x", p: 1 }],
+      marks: [{ name: "risk-tier", value: "high" }],
+      approved: { step: { name: "s", occurrence: 1 }, name: "Ada", email: "a@x.io" },
+    }).split("\n")
+    const at = lines.findIndex((l) => l.startsWith("Gtd-Mark:"))
+    expect(lines[at - 1]).toMatch(/^Gtd-Judge:/)
+    expect(lines[at + 1]).toMatch(/^Gtd-Approved:/)
+    expect(lines).toContain("Gtd-Format: 1")
+  })
+
+  it("writes nothing without marks", () => {
+    expect(formatCommitMessage({ actor: "human", to: "b" })).not.toContain("Gtd-Mark")
+    expect(parseCommitMessage("gtd(human): a → b").marks).toEqual([])
+  })
+
+  it("skips a malformed line, a missing =, an empty value or a control character", () => {
+    const parsed = parseCommitMessage(
+      body(
+        "Gtd-Mark: no-equals",
+        "Gtd-Mark: Bad_Name=x",
+        "Gtd-Mark: empty=",
+        "Gtd-Mark: ctl=a\u001bb",
+        "Gtd-Mark: ok=fine",
+      ),
+    )
+    expect(parsed.marks).toEqual([{ name: "ok", value: "fine" }])
+  })
+})

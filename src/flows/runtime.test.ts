@@ -5,6 +5,7 @@ import {
   head,
   installContext,
   kept,
+  mark,
   protocolMismatch,
   type FlowContext,
 } from "./runtime.js"
@@ -52,6 +53,47 @@ describe("the flows protocol handshake", () => {
       new Error("gtd: a workflow step or helper was called outside a gtd replay"),
     )
   })
+})
+
+describe("mark()", () => {
+  const withMark = () => {
+    const calls: [string, string][] = []
+    installContext({ mark: (n: string, v: string) => calls.push([n, v]) } as unknown as FlowContext)
+    return calls
+  }
+
+  it("forwards name and value to the context", () => {
+    const calls = withMark()
+    mark("risk-tier", "high")
+    mark("production-signal", "error rate")
+    expect(calls).toEqual([
+      ["risk-tier", "high"],
+      ["production-signal", "error rate"],
+    ])
+  })
+
+  it("throws the upgrade message on a context without mark, protocol still 1", () => {
+    installContext(context)
+    expect(() => mark("a", "b")).toThrow(
+      "gtd: mark() needs a newer gtd — upgrade the gtd that runs it",
+    )
+    expect(FLOWS_PROTOCOL).toBe(1)
+  })
+
+  it.each(["", "Risk", "1a", "a_b", "-a", "risk-tier\n"])("rejects the name %j", (name) => {
+    const calls = withMark()
+    expect(() => mark(name, "v")).toThrow(/mark\(\)/)
+    expect(calls).toEqual([])
+  })
+
+  it.each(["", " ", " x ", "x\t", "a\nGtd-Approved: {}", "a\rb", "a\u001bb", "a\u2028b", "high\n"])(
+    "rejects the value %j",
+    (value) => {
+      const calls = withMark()
+      expect(() => mark("risk-tier", value)).toThrow(/one line/)
+      expect(calls).toEqual([])
+    },
+  )
 })
 
 describe("kept()", () => {

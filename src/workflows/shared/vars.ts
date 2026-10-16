@@ -16,6 +16,8 @@ export const defaults: Readonly<Record<string, string>> = {
     "**/*.test.*, **/*.spec.*, **/*.feature, **/tests/**, **/test/**, **/__tests__/**, .gtd/**",
   // GTD_FLAG_NAIVE_PASS, recorded at process start; only "1" is on.
   flag_naive_pass: "0",
+  // GTD_FLAG_RISK_TIER, recorded at process start; only "1" is on. Acts only with flag_naive_pass.
+  flag_risk_tier: "0",
   // Decides the turn count: one `build.quality.<lens>` scope per entry, each
   // keyed in `./skills.ts`.
   qualityReviews:

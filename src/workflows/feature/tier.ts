@@ -1,0 +1,74 @@
+import { mark, read, vars } from "../../flows/index.js"
+import { REQUIREMENTS } from "../shared/steps.js"
+
+export type RiskTier = "low" | "high"
+
+/** GTD_FLAG_NAIVE_PASS, GTD_FLAG_RISK_TIER: both pinned at process start, so a mid-process flip never moves a process. */
+export const riskTierOn = (): boolean => vars.flag_naive_pass === "1" && vars.flag_risk_tier === "1"
+
+// An unclosed fence runs to end of file, so the tier reads `high` (fail-closed). A backtick
+// opener with a backtick in its info string still counts as a fence: deviates from CommonMark,
+// worst case is `high`.
+const markFenced = (text: string): readonly { line: string; fenced: boolean }[] => {
+  let fence: string | undefined // the opener run, e.g. "````"
+  return text.split(/\r?\n/).map((line) => {
+    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+    const fenced = fence !== undefined || run !== undefined
+    if (fence === undefined) fence = run
+    else if (
+      run !== undefined &&
+      run[0] === fence[0] &&
+      run.length >= fence.length &&
+      /^ {0,3}(`+|~+)[ \t]*$/.test(line)
+    )
+      fence = undefined
+    return { line, fenced }
+  })
+}
+
+const sectionLines = (
+  text: string | undefined,
+  title: string,
+): readonly { line: string; fenced: boolean }[] => {
+  if (text === undefined) return []
+  const heading = new RegExp(`^##[ \\t]+${title}[ \\t]*$`, "i")
+  const lines = markFenced(text)
+  const start = lines.findIndex((l) => !l.fenced && heading.test(l.line))
+  if (start < 0) return []
+  const rest = lines.slice(start + 1)
+  const end = rest.findIndex((l) => !l.fenced && /^#{1,2}[ \t]/.test(l.line))
+  return end < 0 ? rest : rest.slice(0, end)
+}
+
+/** Anything but a legible `low` is `high`: under-tiering is the risky direction. */
+export const readRiskTier = (requirements: string | undefined): RiskTier => {
+  const first = sectionLines(requirements, "Risk Tier").find(
+    (l) => !l.fenced && l.line.trim() !== "",
+  )?.line
+  const word = first?.trim().split(/\s+/)[0]?.replace(/[`*_]/g, "").toLowerCase()
+  return word === "low" ? "low" : "high"
+}
+
+// eslint-disable-next-line no-control-regex -- the control range IS the point
+const CONTROL = /[\x00-\x1f\x7f-\x9f\u2028\u2029]/g
+
+const tidy = (text: string): string => text.replace(/\s+/g, " ").replace(CONTROL, "").trim()
+
+export const productionSignals = (requirements: string | undefined): readonly string[] => {
+  const items: string[] = []
+  for (const { line, fenced } of sectionLines(requirements, "Production Signals")) {
+    if (fenced) continue
+    const top = /^[-*+][ \t]+(.*)$/.exec(line)
+    if (top !== null) items.push(top[1]!)
+  }
+  return items.map(tidy).filter((item) => item !== "")
+}
+
+/** The tier is always marked, first, so the last `risk-tier` mark opens the current lap's marks. */
+export const recordRisk = (): RiskTier => {
+  const requirements = read(REQUIREMENTS)
+  const tier = readRiskTier(requirements)
+  mark("risk-tier", tier)
+  for (const signal of productionSignals(requirements)) mark("production-signal", signal)
+  return tier
+}

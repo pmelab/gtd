@@ -35,9 +35,11 @@ histories written by an older or newer gtd.
   refuses that workflow at load through its unknown-option check, so nothing is
   read wrongly. `Gtd-Approved:` is a third: only a `human` step with the
   `approve` option writes it, and an older gtd refuses that workflow at load the
-  same way. Replay reads the kept object it names to answer `kept()`, which
-  lives under `refs/gtd/kept/<entry>/<step>/<hash>` in the clone that landed it:
-  a kept ref is local and its object is part of what replay needs there.
+  same way. `Gtd-Mark:` is a fourth: additive, no `Gtd-Format` bump, written
+  only by a workflow that calls `mark()`, and replay never reads it. Replay
+  reads the kept object it names to answer `kept()`, which lives under
+  `refs/gtd/kept/<entry>/<step>/<hash>` in the clone that landed it: a kept ref
+  is local and its object is part of what replay needs there.
 
 ## Follows package SemVer
 
@@ -54,8 +56,8 @@ histories written by an older or newer gtd.
   [Error envelope](docs/cli.md#error-envelope).
 - **Entrypoint exports** — every subpath of the one package, each export's name,
   type and behaviour, step functions' options included (`keep` among them, and
-  the `kept()` helper, which feature-detects an older engine rather than bumping
-  `FLOWS_PROTOCOL`; see [Entrypoints](README.md#entrypoints)):
+  the `kept()` and `mark()` helpers, which feature-detect an older engine rather
+  than bumping `FLOWS_PROTOCOL`; see [Entrypoints](README.md#entrypoints)):
   - `@pmelab/gtd/flows`, including its `FLOWS_PROTOCOL` number
   - `@pmelab/gtd/wire`
   - `@pmelab/gtd/steering`
