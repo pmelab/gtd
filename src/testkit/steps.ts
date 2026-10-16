@@ -70,7 +70,15 @@ export class TestkitWorld extends QuickPickleWorld {
         for (const action of actions) await action(beat, repo)
       }
     }
-    for (const [step, verdict] of this.verdicts) actors[step] = () => verdict
+    for (const [step, verdict] of this.verdicts) {
+      // A verdict would overwrite the queued actions, silently skipping their checks.
+      if (this.actions.has(step)) {
+        throw new Error(
+          `step "${step}" has a judge verdict and queued actions; the actions would never run`,
+        )
+      }
+      actors[step] = () => verdict
+    }
     await this.repo().drive(actors)
   }
 }
@@ -117,6 +125,19 @@ Given(
   "step {string} writes {string} with:",
   (world: TestkitWorld, step: string, path: string, content: string) => {
     world.act(step, (_, repo) => repo.write(path, withNewline(content)))
+  },
+)
+
+// A standing assertion like any queued action: it applies on every later visit
+// to the step until `from now on` clears the list.
+Given(
+  "step {string} is prompted with {string}",
+  (world: TestkitWorld, step: string, text: string) => {
+    world.act(step, (beat) => {
+      if (!beat.content.includes(text)) {
+        throw new Error(`step "${step}" was not prompted with "${text}":\n${beat.content}`)
+      }
+    })
   },
 )
 

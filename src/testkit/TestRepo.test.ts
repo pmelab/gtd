@@ -1,4 +1,16 @@
 import { describe, expect, it } from "vitest"
+import {
+  commitAll,
+  commitAsIs,
+  commitClean,
+  deleteRef,
+  discardPending,
+  hardResetTo,
+  keepTurn,
+  mixedResetTo,
+  softResetTo,
+  updateRef,
+} from "../emit/index.js"
 import { agent, human, moveScript, read, removeScript, run } from "../flows/index.js"
 import { runsItsScript, testRepo } from "./TestRepo.js"
 
@@ -93,7 +105,51 @@ describe("testRepo", () => {
 
   it("refuses to fake a script it cannot run", () => {
     const repo = testRepo({ workflow: { default: tiny } })
-    expect(() => repo.runScript("npm test\n")).toThrow(/cannot run `npm test` in memory/)
+    expect(() => repo.runScript("npm test\n")).toThrow(/cannot run script in memory[\s\S]*npm test/)
+  })
+
+  it("carries the recognizer's error when a git-free fallback fails", () => {
+    const repo = testRepo({ workflow: { default: tiny } })
+    expect(() => repo.runScript("printf 'x' > 'y'\n")).toThrow(
+      "testkit: cannot run script in memory — give the step an actor instead\nunrecognized script block: printf 'x' > 'y'",
+    )
+  })
+
+  it("names the block that failed, not an earlier line that ran", () => {
+    const repo = testRepo({ workflow: { default: tiny } })
+    let message = ""
+    try {
+      repo.runScript("mkdir -p d\nprintf '%s\\n' 'x' > 'd/a.txt'\n\nnpm test\n")
+    } catch (e) {
+      message = (e as Error).message
+    }
+    expect(message).toContain("unrecognized script block: npm test")
+    expect(message).not.toContain("printf")
+  })
+
+  it.each([
+    ["commitAll", commitAll("chore: sneaky")],
+    ["commitClean", commitClean("chore: sneaky")],
+    ["commitAsIs", commitAsIs("chore: sneaky")],
+    ["keepTurn", keepTurn("refs/x", "chore: sneaky")],
+    ["discardPending", discardPending()],
+    ["softResetTo", softResetTo("HEAD~1")],
+    ["mixedResetTo", mixedResetTo("HEAD~1")],
+    ["hardResetTo", hardResetTo("HEAD~1")],
+    ["updateRef", updateRef("refs/x", "HEAD")],
+    ["deleteRef", deleteRef("refs/x")],
+  ])("refuses a %s script instead of mutating git in memory", (_, script) => {
+    const repo = testRepo({ workflow: { default: tiny } })
+    repo.write("a.txt", "dirty\n")
+    const before = repo.subjects()
+    expect(() => repo.runScript(script)).toThrow(/unrecognized script block/)
+    expect(repo.subjects()).toEqual(before)
+  })
+
+  it("applies a write block `LINES` lacks through the git-free recognizers", () => {
+    const repo = testRepo({ workflow: { default: tiny } })
+    repo.runScript("mkdir -p d\nprintf '%s\\n' 'echo $(git rev-parse HEAD)' > 'd/a.txt'\n")
+    expect(repo.read("d/a.txt")).toBe("echo $(git rev-parse HEAD)\n")
   })
 
   it("reads a file as committed", () => {

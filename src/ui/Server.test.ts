@@ -806,9 +806,9 @@ describe("runUiCommand", () => {
     return { out: { write: (chunk: string) => written.push(chunk), flush: () => {} }, written }
   }
 
-  /** Polls up to 3s for the forked fiber to run past the blocking wait and print its two lines — a single fixed `setTimeout` (the earlier shape here) is flaky under a loaded machine (e.g. the full `npm test` running build/lint/etc concurrently), where the fiber's own first tick can take longer than a bare 20ms. 1s (50 attempts) was itself measured flaky under the same concurrent-`npm test` CPU starvation `startRealServer`'s own 15s poll below documents — widened to match that budget's own reasoning, not just its symptom. Mirrors `startRealServer`'s own poll below. The final wait's own outcome is checked ONE more time before giving up — the loop's own condition only runs BEFORE each wait, so a write landing in exactly that last 20ms window was previously never observed at all, only visible after the fact in the thrown error's own "(got N)", which then read as already-satisfied — a round of review caught this exact confusing report. */
+  /** Polls 15s (matching `startRealServer`) since the fiber's first tick starves under a loaded `npm test`; rechecks once after the last wait. */
   const waitForWrites = async (written: readonly string[], count: number): Promise<void> => {
-    for (let i = 0; i < 150; i += 1) {
+    for (let i = 0; i < 750; i += 1) {
       if (written.length >= count) return
       await new Promise((resolve) => setTimeout(resolve, 20))
     }

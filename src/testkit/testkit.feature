@@ -1,3 +1,4 @@
+@inmem
 Feature: testkit drives any workflow against the real engine
 
   A workflow the scenario writes itself, never a shipped one: scripted actors
@@ -64,6 +65,38 @@ Feature: testkit drives any workflow against the real engine
     Then the process rests at "repair"
     And the resting step's content contains "Make the suite pass."
     And the last commit subject is "gtd(check): check → repair"
+
+  Scenario: a step's beat content is asserted as a queued actor
+    Given step "plan" is prompted with "Write PLAN.md."
+    And step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
+    And step "check" changes nothing
+    And judge step "ready" answers:
+      """
+      [{ "id": "ready", "answer": true, "p": 0.9 }]
+      """
+    When gtd starts workflow "tiny"
+    And the process is driven
+    Then the process rests at "ship"
+    And "PLAN.md" contains "add two numbers"
+
+  Scenario: a judge step with queued actions refuses the drive
+    Given step "plan" changes nothing
+    And step "check" changes nothing
+    And step "ready" is prompted with "never seen"
+    And judge step "ready" answers:
+      """
+      [{ "id": "ready", "answer": true, "p": 0.9 }]
+      """
+    When gtd starts workflow "tiny"
+    Then driving the process is refused with "queued actions"
+
+  Scenario: a beat that lacks the expected text refuses the drive
+    Given step "plan" is prompted with "Write a poem"
+    When gtd starts workflow "tiny"
+    Then driving the process is refused with 'was not prompted with "Write a poem"'
 
   Scenario: a start the workflow refuses is reported with its message
     Then starting workflow "picky" with "--var mode=bad" is refused with "picky refuses every start"

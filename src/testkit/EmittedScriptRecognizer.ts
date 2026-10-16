@@ -703,13 +703,14 @@ const recognizeWriteLines = (repo: InMemRepo, block: string): BlockOutcome | und
 const recognizersFor = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
+  git: boolean,
 ): ReadonlyArray<(block: string) => BlockOutcome | undefined> => [
   (block) => recognizeSetFlags(block),
   (block) => recognizeDidNotRunComment(block),
   (block) => recognizePrecondition(repo, block),
   (block) => recognizeFileExistsGuard(repo, block),
   (block) => recognizeBinaryGuard(commands, block),
-  (block) => recognizeGitBuilders(repo, block),
+  (block) => (git ? recognizeGitBuilders(repo, block) : undefined),
   (block) => recognizeDeferNotes(repo, block),
   (block) => recognizeWriteLines(repo, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
@@ -746,6 +747,7 @@ export const applyEmittedScript = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
   script: string,
+  { git = true }: { readonly git?: boolean } = {},
 ): AppliedScriptResult => {
   const flow = applyFlowScript(repo, commands, script)
   if (flow !== undefined) {
@@ -753,15 +755,16 @@ export const applyEmittedScript = (
       ? { ok: true, status: 0, output: flow.output }
       : { ok: false, status: 1, output: flow.output, error: flow.error ?? "" }
   }
-  return script.startsWith("#!") ? unrecognized(script) : applyBlocks(repo, commands, script)
+  return script.startsWith("#!") ? unrecognized(script) : applyBlocks(repo, commands, script, git)
 }
 
 const applyBlocks = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
   script: string,
+  git: boolean,
 ): AppliedScriptResult => {
-  const recognizers = recognizersFor(repo, commands)
+  const recognizers = recognizersFor(repo, commands, git)
   let output = ""
   for (const block of splitBlocks(script)) {
     const outcome = recognizeBlock(recognizers, block)
