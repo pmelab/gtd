@@ -12,7 +12,7 @@ The mod answers judge gates in-session with its own subagent, on
 `GTD_JUDGE_MODEL` or a hard-coded `haiku` — separate from `gtd judge run`'s
 `llm` default. The fork is whether a Claude Code user sees the swap.
 
-- [ ] Only `gtd judge run --provider llm` changes; the mod stays on `haiku`
+- [x] Only `gtd judge run --provider llm` changes; the mod stays on `haiku`
   - smallest scope: one constant behind the flag, in gtd's own judge
   - **the two paths that send "the same prompt" diverge in model while the flag
     is on**; docs must say so
