@@ -166,8 +166,7 @@ Commands:
                    --answers <path> or GTD_JUDGE_ANSWERS; questions the file
                    does not cover are left out. --provider jev asks TypeSafe
                    (TYPESAFE_API_KEY). --provider llm asks the `claude` CLI
-                   on PATH (Claude Code only), model sonnet
-                   unless --model.
+                   on PATH (Claude Code only), model sonnet unless --model.
                    No --provider: GTD_JUDGE_PROVIDER, then ~/.config/gtd/
                    judge.json, else jev when TYPESAFE_API_KEY is set and no
                    model is given, else llm; --model likewise falls back to

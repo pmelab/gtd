@@ -119,7 +119,7 @@ const answererFor = async (opts: RunJudgeInput): Promise<Answerer> => {
     (provider === undefined && model === undefined && env["TYPESAFE_API_KEY"])
   )
     return jev({ env, io })
-  return llm({ env, cwd, model: model, io })
+  return llm({ env, cwd, model, io })
 }
 
 export const runJudge = async (opts: RunJudgeInput): Promise<string> => {

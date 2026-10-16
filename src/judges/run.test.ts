@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -86,18 +86,34 @@ describe("runJudge with a user-level judge.json", () => {
     return dir
   }
 
-  it("layers per field: a flag provider with the file's model", async () => {
+  const argvShim = (): { dir: string; argv: () => string } => {
+    const out = join(mkdtempSync(join(tmpdir(), "gtd-run-argv-")), "argv")
     const dir = shimDir(
-      `echo '${JSON.stringify({ structured_output: { q: { answer: "yes", p: 0.8 } } })}'`,
+      `echo "$@" > ${out}; echo '${JSON.stringify({ structured_output: { q: { answer: "yes", p: 0.8 } } })}'`,
     )
-    expect(
-      await runJudge({
-        provider: "llm",
-        env: { PATH: `${dir}:/bin:/usr/bin`, XDG_CONFIG_HOME: home('{"model":"file"}') },
-        input: doc,
-        cwd,
-      }),
-    ).toBe('[{"id":"q","answer":"yes","p":0.8}]\n')
+    return { dir, argv: () => readFileSync(out, "utf8") }
+  }
+  const run = (extra: { model?: string; env: Record<string, string> }, dir: string) =>
+    runJudge({
+      provider: "llm",
+      model: extra.model,
+      env: { PATH: `${dir}:/bin:/usr/bin`, ...extra.env },
+      input: doc,
+      cwd,
+    })
+
+  it("layers per field: a flag provider with the file's model reaches claude's argv", async () => {
+    const { dir, argv } = argvShim()
+    await run({ env: { XDG_CONFIG_HOME: home('{"model":"file"}') } }, dir)
+    expect(argv()).toContain("--model file")
+  })
+  it("GTD_JUDGE_MODEL reaches claude's argv and beats the file's model", async () => {
+    const { dir, argv } = argvShim()
+    await run(
+      { env: { GTD_JUDGE_MODEL: "env-model", XDG_CONFIG_HOME: home('{"model":"file"}') } },
+      dir,
+    )
+    expect(argv()).toContain("--model env-model")
   })
   it("empty GTD_JUDGE_* values count as unset", async () => {
     expect(
