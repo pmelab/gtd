@@ -80,13 +80,13 @@ describe("mark()", () => {
     expect(FLOWS_PROTOCOL).toBe(1)
   })
 
-  it.each(["", "Risk", "1a", "a_b", "-a"])("rejects the name %j", (name) => {
+  it.each(["", "Risk", "1a", "a_b", "-a", "risk-tier\n"])("rejects the name %j", (name) => {
     const calls = withMark()
     expect(() => mark(name, "v")).toThrow(/mark\(\)/)
     expect(calls).toEqual([])
   })
 
-  it.each(["", " ", " x ", "x\t", "a\nGtd-Approved: {}", "a\rb", "a\u001bb", "a\u2028b"])(
+  it.each(["", " ", " x ", "x\t", "a\nGtd-Approved: {}", "a\rb", "a\u001bb", "a\u2028b", "high\n"])(
     "rejects the value %j",
     (value) => {
       const calls = withMark()

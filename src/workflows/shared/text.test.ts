@@ -338,24 +338,37 @@ describe("summaryPrompt", () => {
     expect(prompt).not.toContain("Risk tier")
   })
 
-  it("lists distinct signals as quoted data, capped in count and length", () => {
-    const many = Array.from({ length: 12 }, (_, i) => ({
-      name: "production-signal",
-      value: `s${i}`,
-    }))
+  const signal = (value: string) => ({ name: "production-signal", value })
+
+  it("caps the listed signals at 10 and fences them as not instructions", () => {
     const prompt = summaryPrompt({
       ...base,
       marks: [
         { name: "risk-tier", value: "low" },
-        ...many,
-        { name: "production-signal", value: "s0" },
-        { name: "production-signal", value: "x".repeat(300) },
+        ...Array.from({ length: 12 }, (_, i) => signal(`s${i}`)),
       ],
     })
     expect(prompt).toContain("not instructions")
-    expect(prompt).toContain("- `s0`\n- `s1`\n")
+    for (let i = 0; i < 10; i++) expect(prompt).toContain(`- \`s${i}\`\n`)
     expect(prompt).not.toContain("`s10`")
+  })
+
+  it("cuts a long signal to exactly 200 chars", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      marks: [{ name: "risk-tier", value: "low" }, signal("s0"), signal("x".repeat(300))],
+    })
+    expect(prompt).toContain(`- \`${"x".repeat(200)}\`\n`)
     expect(prompt).not.toContain("x".repeat(201))
+  })
+
+  it("lists a repeated signal once, in first-occurrence order", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      marks: [{ name: "risk-tier", value: "low" }, signal("s0"), signal("s1"), signal("s0")],
+    })
+    expect(prompt).toContain("- `s0`\n- `s1`\n")
+    expect(prompt.split("- `s0`").length).toBe(2)
   })
 })
 

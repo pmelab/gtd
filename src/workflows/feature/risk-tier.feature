@@ -91,6 +91,7 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         | tier section                  |
         |                               |
         | ## Risk Tier\n\nmedium — hmm |
+        | ```\n## Risk Tier\n\nlow\n```\n |
 
     Scenario Outline: signals written at triage land as marks for either tier
       Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:

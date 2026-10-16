@@ -44,6 +44,50 @@ describe("readRiskTier", () => {
   })
 })
 
+describe("readRiskTier fences", () => {
+  it("ignores a backtick-fenced example above the real section", () => {
+    const text = "```\n## Risk Tier\n\nlow\n```\n\n## Risk Tier\n\nhigh\n"
+    expect(readRiskTier(text)).toBe("high")
+  })
+
+  it("reads a fenced example with no real section as high", () => {
+    expect(readRiskTier("```md\n## Risk Tier\n\nlow\n```\n")).toBe("high")
+  })
+
+  it("keeps the signals section open across a fence and skips fenced items", () => {
+    const signals = "## Production Signals\n- before\n```\n# x\n- fake\n```\n- after\n"
+    expect(productionSignals(signals)).toEqual(["before", "after"])
+  })
+
+  it("ignores a tilde-fenced example above the real section", () => {
+    const text = "~~~\n## Risk Tier\n\nlow\n~~~\n\n## Risk Tier\n\nhigh\n"
+    expect(readRiskTier(text)).toBe("high")
+  })
+
+  it("does not read a fence opener's info string as the tier", () => {
+    expect(readRiskTier("## Risk Tier\n\n```low\nhigh\n```\n")).toBe("high")
+    expect(readRiskTier("## Risk Tier\n\n~~~low\nlow\n~~~\n")).toBe("high")
+  })
+
+  it("fails closed on an unclosed fence before the real section", () => {
+    expect(readRiskTier("```\nstray\n\n## Risk Tier\n\nlow\n")).toBe("high")
+  })
+
+  it("does not close a 4-backtick fence with 3 backticks", () => {
+    const text = "````\n```\n## Risk Tier\n\nlow\n````\n"
+    expect(readRiskTier(text)).toBe("high")
+  })
+})
+
+describe("readRiskTier fence closers", () => {
+  it.each([
+    ["a tilde line does not close a backtick fence", "```\n~~~\n## Risk Tier\n\nlow\n```\n"],
+    ["a closer with an info string does not close", "```\n```js\n## Risk Tier\n\nlow\n```\n"],
+  ])("%s", (_, text) => {
+    expect(readRiskTier(text)).toBe("high")
+  })
+})
+
 describe("productionSignals", () => {
   it("lists top-level items only, skipping blanks and indented lines", () => {
     const text = `## Production Signals
@@ -64,6 +108,11 @@ describe("productionSignals", () => {
       "spaced out signal",
       "star item",
     ])
+  })
+
+  it("skips a fenced Production Signals example", () => {
+    const text = "```\n## Production Signals\n- fake\n```\n\n## Production Signals\n- real\n"
+    expect(productionSignals(text)).toEqual(["real"])
   })
 
   it("drops control characters", () => {
