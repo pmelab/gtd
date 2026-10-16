@@ -16,16 +16,20 @@ flag cleanup (Greptile P2 on PR 375).
 - Done when: the scenario title appears exactly once in the file, and `npm test`
   stays green
 
-### 2. Drop the two parked deferred review notes — TECHNICAL[^keep-notes]
+### 2. Leave the two parked deferred review notes untouched — TECHNICAL
 
-**The human's sketch deleted both `## Deferred review notes` sections from
-`.gtd/TODO.md`** (836985b note-3, restore the empty-stdout assertion in the
-garbled-flag CLI test; daed27f note-2, strengthen the `gtd history list`
-kept-tip scenario). Removing them is the human's decision: neither note is built
-here.
+**Both `## Deferred review notes` sections stay in `.gtd/TODO.md` exactly as
+they were before this process** (836985b note-3, restore the empty-stdout
+assertion in the garbled-flag CLI test; daed27f note-2, strengthen the
+`gtd history list` kept-tip scenario). The sketch replaced `.gtd/TODO.md` only
+to start this fix; it did not decide to drop them. `unwind` already restored
+both sections byte-for-byte.
 
+- **No package edits, rewrites, or deletes either section** — they stay parked
+  for a later process
 - **Neither note becomes work in this process**
-- `.gtd/TODO.md` ends without those sections, as the sketch left it
+- Done when: `.gtd/TODO.md` at the end is identical to
+  `git show ff365568:.gtd/TODO.md`
 
 ## Answered Questions
 
@@ -37,8 +41,3 @@ identical, so the choice changes nothing.
 ### Do the deleted deferred review notes get built anyway?
 
 No; the human removed them in the same sketch, which settles them as dropped.
-
-[^keep-notes]:
-    - H: The sketch replaced `.gtd/TODO.md` only to start this fix; deleting the
-      two deferred notes was not a decision. Keep both sections in
-      `.gtd/TODO.md` exactly as they were before this process — can you?
