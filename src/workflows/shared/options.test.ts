@@ -10,7 +10,7 @@ describe("the shipped workflow factories", () => {
   it("take exactly the settings the shipped workflows declare as options", () => {
     expect(Object.keys(ShippedOptions.fields).sort()).toEqual(
       [...Object.keys(defaults), ...Object.keys(envDefaults)]
-        .filter((name) => name !== "flag_naive_pass")
+        .filter((name) => name !== "flag_naive_pass" && name !== "flag_risk_tier")
         .sort(),
     )
   })
@@ -22,6 +22,11 @@ describe("the shipped workflow factories", () => {
       ok: true,
       build: { defaults: { seamAllow: "docs/**", flag_naive_pass: "0" } },
     })
+  })
+
+  it("declare flag_risk_tier off by default; it is no factory option", () => {
+    expect(defaults.flag_risk_tier).toBe("0")
+    expect(Object.keys(ShippedOptions.fields)).not.toContain("flag_risk_tier")
   })
 
   it("lay each option over the shipped setting of its own kind", () => {

@@ -10,6 +10,7 @@ import {
   type ScopeOptions,
   type StepRequest,
   type Flow,
+  type Mark,
 } from "../flows/index.js"
 import {
   headingSectionBodies,
@@ -114,12 +115,15 @@ export type ReplayOutcome =
       readonly trace: readonly ReachedStep[]
       /** The step the pending turn completed, when one was supplied. */
       readonly landed: ReachedStep | undefined
+      /** Marks the flow made after the pending turn's step resolved; [] without a pending turn. */
+      readonly marks: readonly Mark[]
     }
   | {
       readonly kind: "ended"
       readonly via: "return" | "restart"
       readonly trace: readonly ReachedStep[]
       readonly landed: ReachedStep | undefined
+      readonly marks: readonly Mark[]
     }
   | { readonly kind: "divergence"; readonly message: string }
   | { readonly kind: "refused"; readonly message: string }
@@ -292,6 +296,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     { readonly hash: string; readonly before: TreeView; readonly after: TreeView }
   >()
   let landed: ReachedStep | undefined
+  const marks: Mark[] = []
   let outcome: ReplayOutcome | undefined
   let signal: (() => void) | undefined
   const settled = new Promise<void>((resolve) => {
@@ -553,7 +558,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     const commit = commits[cursor]
     if (commit !== undefined) return consumeCommit(step, commit)
     if (input.pending === undefined || pendingUsed) {
-      return finish({ kind: "rest", rest: step, trace, landed })
+      return finish({ kind: "rest", rest: step, trace, landed, marks })
     }
     return landPending(step, input.pending)
   }
@@ -598,7 +603,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
           kind: "divergence",
           message: `gtd: the flow ended, but commit ${short(commits[cursor]!.hash)} continues the episode — ${DIVERGED}`,
         }
-      : { kind: "ended", via, trace, landed }
+      : { kind: "ended", via, trace, landed, marks }
 
   const changesSince = (hash: string): readonly Change[] => {
     const tree = treeAt(hash)
@@ -670,6 +675,9 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
               .map((f) => f.message),
           }))
         }),
+    mark: (name, value) => {
+      if (pendingUsed) marks.push({ name, value })
+    },
     kept: (name) => {
       const tip = keptTips.get(scoped(name))
       return tip === undefined

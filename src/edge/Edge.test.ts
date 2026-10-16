@@ -21,6 +21,7 @@ import {
 import { GTD_VERSION } from "../install/index.js"
 import { keptRef, processHistoryRef } from "../platform/index.js"
 import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
+import type { Mark } from "../flows/index.js"
 import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
 import { contentHash, StartFlags } from "../workflow/index.js"
 import {
@@ -534,6 +535,64 @@ describe("summaryRun", () => {
     const summary = await provide(summaryRun, repo)
     expect(summary.closingHash).toBeUndefined()
     expect(summary.trace).toEqual([])
+  })
+})
+
+describe("process marks", () => {
+  const SUMMARISED = `${LINEAR}
+export const summary = (it) => it.marks.map((m) => m.name + "=" + m.value).join("|")
+`
+  const opening = (marks: readonly Mark[]): CommitSpec => ({
+    actor: "human",
+    from: "idle",
+    to: "building",
+    step: { name: "idle", occurrence: 1 },
+    marks,
+  })
+
+  it("buildRun collects marks from the process's commits only, oldest first", async () => {
+    const repo = repoWith(SUMMARISED)
+    commit(
+      repo,
+      {
+        actor: "agent",
+        from: "checking",
+        to: "idle",
+        marks: [{ name: "risk-tier", value: "high" }],
+      },
+      { "old.txt": "o\n" },
+    )
+    commit(
+      repo,
+      opening([
+        { name: "production-signal", value: "one" },
+        { name: "production-signal", value: "two" },
+      ]),
+      { "a.txt": "a\n" },
+    )
+    commit(
+      repo,
+      {
+        actor: "agent",
+        from: "building",
+        to: "checking",
+        step: { name: "building", occurrence: 1 },
+        marks: [{ name: "production-signal", value: "three" }],
+      },
+      { "b.txt": "b\n" },
+    )
+    const run = await provide(currentRun, repo)
+    expect(run.marks).toEqual([
+      { name: "production-signal", value: "one" },
+      { name: "production-signal", value: "two" },
+      { name: "production-signal", value: "three" },
+    ])
+  })
+
+  it("is empty for a process whose commits carry no marks", async () => {
+    const repo = repoWith(SUMMARISED)
+    await land(repo, { "a.txt": "a\n" })
+    expect((await provide(currentRun, repo)).marks).toEqual([])
   })
 })
 
@@ -1571,5 +1630,57 @@ export default async () => {
       'Gtd-Approved: {"step":"gate#1","name":"Test","email":"test@test.com"}',
     )
     expect((await provide(currentRest, repo)).state).toBe("after")
+  })
+})
+
+describe("marks on a landing", () => {
+  const MARKING = `import { agent, human, mark } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "idle-message" })
+  mark("risk-tier", "high")
+  mark("production-signal", "error rate")
+  await agent("building", "build-prompt")
+  await agent("checking", "check-prompt")
+}
+`
+
+  const landingOf = async (repo: InMemRepo) => {
+    const rest = await provide(currentRest, repo)
+    const snapshot = await provide(snapshotFromRest(rest), repo)
+    const landing = snapshot.landing
+    if (landing.kind !== "commit") throw new Error(`expected commit, got ${landing.kind}`)
+    return landing
+  }
+
+  it("writes the outcome's marks, in order, into the landing's commit spec", async () => {
+    const repo = repoWith(MARKING)
+    repo.writeFile("TODO.md", "go\n")
+    const landing = await landingOf(repo)
+    expect(landing.spec.marks).toEqual([
+      { name: "risk-tier", value: "high" },
+      { name: "production-signal", value: "error rate" },
+    ])
+  })
+
+  it("writes the marks of a flow that ends right after marking", async () => {
+    const repo = repoWith(`import { human, mark } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "idle-message" })
+  mark("done", "yes")
+}
+`)
+    repo.writeFile("TODO.md", "go\n")
+    const landing = await landingOf(repo)
+    expect(landing.spec.marks).toEqual([{ name: "done", value: "yes" }])
+  })
+
+  it("leaves marks off a landing the flow marked nothing on", async () => {
+    const repo = repoWith(MARKING)
+    await land(repo, { "TODO.md": "go\n" })
+    repo.writeFile("a.txt", "a\n")
+    const landing = await landingOf(repo)
+    expect(landing.spec.marks).toBeUndefined()
   })
 })

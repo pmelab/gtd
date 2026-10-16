@@ -43,3 +43,11 @@ Then(
     assert.ok(message.includes(text), message)
   },
 )
+
+Then("no commit body contains {string}", (world: TestkitWorld, text: string) => {
+  const hit = world
+    .repo()
+    .messages()
+    .find((m) => m.includes(text))
+  assert.ok(hit === undefined, `a commit body contains "${text}":\n${hit}`)
+})

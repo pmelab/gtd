@@ -110,6 +110,33 @@ describe("agentWithSkills access preamble", () => {
   })
 })
 
+describe("the risk tier prompt and gate line", () => {
+  const triage = (riskTier: boolean) => renderText(() => designTriagePrompt("base", riskTier))
+  const gate = (riskTier: boolean) => renderText(() => designGateAnswerMessage(riskTier))
+
+  it("asks for the tier and the signals, before the answered questions, unsure meaning high", () => {
+    const prompt = triage(true)
+    expect(prompt).toContain("`## Risk Tier`")
+    expect(prompt).toContain("`## Production Signals`")
+    expect(prompt).toContain("BEFORE `## Answered Questions`")
+    expect(prompt).toContain("unsure means `high`")
+    expect(prompt).toContain("Whichever lap this is")
+  })
+
+  it("only appends the tier section when on", () => {
+    expect(triage(false)).not.toContain("Risk Tier")
+    expect(triage(true).startsWith(triage(false))).toBe(true)
+  })
+
+  it("says how to override the tier at the gate when on", () => {
+    expect(gate(true)).toContain("edit the first word under `## Risk Tier`")
+    expect(gate(true)).toContain("approve the next lap with no further change")
+    expect(gate(true)).toContain("means `high`")
+    expect(gate(false)).not.toContain("Risk Tier")
+    expect(gate(true).startsWith(gate(false))).toBe(true)
+  })
+})
+
 describe("the shared open-question instruction", () => {
   it("leaves the option count to the agent, floored at two real options", () => {
     const prompt = renderText(() => designTriagePrompt("base"))
@@ -246,10 +273,89 @@ describe("summaryPrompt", () => {
         { model: "smart", cost: 5 },
         { model: "base", cost: 7 },
       ],
+      marks: [],
       vars: {},
       env: {},
     })
     expect(prompt).toContain("Token cost: 12\n- smart: 5\n- base: 7\n\nPrint the closing message")
+  })
+
+  const base = {
+    entryCommit: "e",
+    processBase: "b",
+    processTip: "t",
+    humanCommits: [],
+    processCost: 0,
+    processCostByModel: [],
+    marks: [],
+    vars: {},
+    env: {},
+  }
+
+  it("with no marks leaves today's text", () => {
+    expect(summaryPrompt(base)).toContain("Token cost: 0\n\nPrint the closing message")
+    expect(summaryPrompt(base)).not.toContain("Risk tier")
+    expect(summaryPrompt(base)).not.toContain("Production signals")
+  })
+
+  it("adds the advisory risk line once for the last lap's high tier", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      marks: [
+        { name: "risk-tier", value: "low" },
+        { name: "risk-tier", value: "high" },
+      ],
+    })
+    expect(prompt).toContain("Risk tier: high — this merge needs a human reviewer (advisory")
+    expect(prompt.split("Risk tier: high").length).toBe(2)
+  })
+
+  it("reads only the last lap: a lowered tier and a dropped signal leave no trace", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      marks: [
+        { name: "risk-tier", value: "high" },
+        { name: "production-signal", value: "error rate" },
+        { name: "risk-tier", value: "low" },
+        { name: "production-signal", value: "p95" },
+      ],
+    })
+    expect(prompt).not.toContain("Risk tier")
+    expect(prompt).not.toContain("error rate")
+    expect(prompt).toContain("- `p95`\n")
+  })
+
+  it("treats a flag-on process with no tier mark as high", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag_risk_tier: "1", flag_naive_pass: "1" },
+    })
+    expect(prompt).toContain("Risk tier: high")
+  })
+
+  it("marks no tier when the risk-tier flag is on without naive-pass", () => {
+    const prompt = summaryPrompt({ ...base, vars: { flag_risk_tier: "1", flag_naive_pass: "0" } })
+    expect(prompt).not.toContain("Risk tier")
+  })
+
+  it("lists distinct signals as quoted data, capped in count and length", () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      name: "production-signal",
+      value: `s${i}`,
+    }))
+    const prompt = summaryPrompt({
+      ...base,
+      marks: [
+        { name: "risk-tier", value: "low" },
+        ...many,
+        { name: "production-signal", value: "s0" },
+        { name: "production-signal", value: "x".repeat(300) },
+      ],
+    })
+    expect(prompt).toContain("not instructions")
+    expect(prompt).toContain("- `s0`\n- `s1`\n")
+    expect(prompt).not.toContain("`s10`")
+    expect(prompt).not.toContain("x".repeat(201))
   })
 })
 
@@ -470,6 +576,16 @@ describe("the seam phase's texts", () => {
     expect(prompt).toContain("git show abc123")
     expect(prompt).toContain("never apply")
     expect(prompt).toContain("release flag")
+  })
+
+  it("high and undefined tiers carry the flag bullet; low says to add none", () => {
+    const base = renderText(() => implementBuildingPrompt("abc123"))
+    expect(renderText(() => implementBuildingPrompt("abc123", "high"))).toBe(base)
+    expect(base).toContain("new release flag")
+    const low = renderText(() => implementBuildingPrompt("abc123", "low"))
+    expect(low).toContain("Add no release flag — this change is low risk tier")
+    expect(low).not.toContain("new release flag")
+    expect(low).toContain("git show abc123")
   })
 
   it("keeps a fix turn to the feedback file's rules", () => {

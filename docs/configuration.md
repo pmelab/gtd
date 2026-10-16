@@ -150,10 +150,10 @@ the episode). Other trailers a landing may carry: `Gtd-Judge:` (one per answered
 judge question), `Gtd-Var:` (a process setting), `Gtd-Cost:` (a
 `gtd land --cost`), `Gtd-Review-Base:` (a workflow's fixed diff base),
 `Gtd-Branch:` and `Gtd-Version:` (only on the landing that finishes a process),
-`Gtd-Kept:` (only on the marker a `keep` step lands, see
-[Step options](#step-options)), `Gtd-Approved:` (only on the landing that
-completes an `approve` gate: one JSON object with the `step`, the git
-`user.name` and `user.email`), and `Gtd-Config:` (see
+`Gtd-Mark:` (`<name>=<value>`, one per `mark()` call), `Gtd-Kept:` (only on the
+marker a `keep` step lands, see [Step options](#step-options)), `Gtd-Approved:`
+(only on the landing that completes an `approve` gate: one JSON object with the
+`step`, the git `user.name` and `user.email`), and `Gtd-Config:` (see
 [Config purity](#config-purity)). Every commit gtd writes also carries
 `Gtd-Format:` (see [History format](#history-format)).
 
@@ -234,6 +234,12 @@ landed step left — never the live working tree:
 - `changesSince(hash, glob?)` — the same shape as `changes()`, but over every
   commit from `hash` to where replay stands. `hash` must be a commit this run
   read from `head()` or `start()`; any other hash fails the step
+- `mark(name, value)` — record a fact on the landing that leaves the current
+  rest: one `Gtd-Mark: <name>=<value>` trailer per call, in call order, names
+  may repeat. `name` matches `/^[a-z][a-z0-9-]*$/`; `value` is one non-empty
+  line with no control character — anything else throws and fails the replay.
+  Calls made while replaying history are ignored. Needs a gtd that knows `mark`,
+  else it throws asking for an upgrade
 - `kept(name)` — the latest kept tip of step `name` (scoped from here, like
   `agent()`) in this episode, as `{ hash, changes }`: the kept commit and what
   it changed against the commit it diverged from (same shape as `changes()`).
@@ -623,6 +629,14 @@ in order:
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
    for a new release flag.
 
+With `GTD_FLAG_RISK_TIER` also on, `design.triage` proposes a risk tier (`low`
+or `high`, with a one-line reason) under `## Risk Tier` and the signals to watch
+after merge under `## Production Signals` in `.gtd/REQUIREMENTS.md`. Edit the
+first word under `## Risk Tier` at `design.gate.answer` to change the tier; a
+missing or unreadable tier means `high`. The design gate's landing records
+`Gtd-Mark: risk-tier=<low|high>` and one `Gtd-Mark: production-signal=…` per
+signal; no step is added.
+
 A third `reject` rests at `seam.steer`. Two ways forward, then `gtd land`:
 
 - **Steer** — edit `.gtd/REQUIREMENTS.md`; `seam.naive` runs again with a fresh
@@ -882,9 +896,10 @@ exempt — it may do anything. Everything else follows
 ### Summary
 
 A `summary` export sets the prompt `gtd summary` prints: a function receiving
-`{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, vars, env }`
+`{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, marks, vars, env }`
 and returning a string. `humanCommits` lists every human-authored commit of the
-process as `{ hash, state }`. Without `summary`, `gtd summary` refuses.
+process as `{ hash, state }`; `marks` lists every `Gtd-Mark` of the process as
+`{ name, value }`, oldest first. Without `summary`, `gtd summary` refuses.
 
 Authoring a workflow with a coding agent? `skills/authoring/SKILL.md` is the
 agent-facing guide.
@@ -1447,6 +1462,11 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 - **`flag_naive_pass`** (`0`) — `1` when `GTD_FLAG_NAIVE_PASS` is on, recorded
   at process start. Not a factory option; `--var flag_naive_pass=1` is the only
   override. A process keeps the path it started on.
+- **`flag_risk_tier`** (`0`) — `1` when `GTD_FLAG_RISK_TIER` is on, recorded at
+  process start. Acts only together with `flag_naive_pass`. Not a factory
+  option; `--var flag_risk_tier=1` is the only override. Off, no tier is asked
+  for and no commit carries a `Gtd-Mark:`. See
+  [the naive-pass path](#the-naive-pass-path).
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.

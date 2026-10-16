@@ -106,3 +106,16 @@ describe("flagSettings", () => {
     })
   })
 })
+
+describe("risk_tier", () => {
+  it("is a release flag, off by default, resolved from GTD_FLAG_RISK_TIER", () => {
+    expect(FLAGS.find((f) => f.name === "risk_tier")).toMatchObject({ kind: "release" })
+    expect(resolveFlags({}).risk_tier).toBe(false)
+    expect(resolveFlags({ GTD_FLAG_RISK_TIER: "1" }).risk_tier).toBe(true)
+  })
+
+  it("is pinned as flag_risk_tier", () => {
+    expect(flagSettings(resolveFlags({ GTD_FLAG_RISK_TIER: "1" })).flag_risk_tier).toBe("1")
+    expect(flagSettings(resolveFlags({})).flag_risk_tier).toBe("0")
+  })
+})

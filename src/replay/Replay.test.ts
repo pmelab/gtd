@@ -9,6 +9,7 @@ import {
   human,
   judge,
   kept,
+  mark,
   read,
   refuse,
   restart,
@@ -387,6 +388,48 @@ describe("replay", () => {
     const outcome = await replayOf(fixLoop, h, { pending: { ".gtd/FEEDBACK.md": "red" } })
     expect(outcome.kind === "rest" && outcome.landed?.name).toBe("check")
     expect(restName(outcome)).toBe("fix#1")
+  })
+
+  it("collects marks made after the pending turn's step resolved, in call order", async () => {
+    const wf = async () => {
+      mark("before", "no-turn-yet")
+      await human("idle")
+      mark("risk-tier", "high")
+      mark("production-signal", "a")
+      mark("production-signal", "b")
+      await agent("next", "go")
+    }
+    const h = new History()
+    const outcome = await replayOf(wf, h, { pending: { "TODO.md": "go" } })
+    expect(outcome.kind === "rest" && outcome.marks).toEqual([
+      { name: "risk-tier", value: "high" },
+      { name: "production-signal", value: "a" },
+      { name: "production-signal", value: "b" },
+    ])
+  })
+
+  it("ignores marks made while replaying history, and has none without a pending turn", async () => {
+    const wf = async () => {
+      await human("idle")
+      mark("risk-tier", "high")
+      await agent("next", "go")
+      mark("late", "x")
+      await agent("last", "go")
+    }
+    const h = new History().land("human", "idle", 1, "next", { "TODO.md": "go" })
+    const resting = await replayOf(wf, h)
+    expect(resting.kind === "rest" && resting.marks).toEqual([])
+    const landing = await replayOf(wf, h, { pending: { "a.txt": "a" } })
+    expect(landing.kind === "rest" && landing.marks).toEqual([{ name: "late", value: "x" }])
+  })
+
+  it("carries marks on an ended outcome", async () => {
+    const wf = async () => {
+      await human("idle")
+      mark("done", "yes")
+    }
+    const outcome = await replayOf(wf, new History(), { pending: { "TODO.md": "go" } })
+    expect(outcome.kind === "ended" && outcome.marks).toEqual([{ name: "done", value: "yes" }])
   })
 
   it("reads helpers against the replay position, not the working tree", async () => {

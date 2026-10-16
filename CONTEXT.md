@@ -293,6 +293,19 @@ decision, raised by `architecture.author`.
 process (never rendered into its prompt) and grouping/classifying it into
 concerns.
 
+**Risk tier**: `low` or `high` — no middle tier — how much a wrong guess in a
+change costs. `design.triage` proposes it in `.gtd/REQUIREMENTS.md`'s
+`## Risk Tier` section, the human overrides it at `design.gate.answer`, and a
+missing or unreadable tier is `high`. Recorded as a
+`Gtd-Mark: risk-tier=<low|high>` trailer, only with `GTD_FLAG_RISK_TIER` and
+`GTD_FLAG_NAIVE_PASS` both on. _Avoid_: `critical`/`should`/`could`, severity
+(that is a review note's word).
+
+**Production signal**: One line under `## Production Signals` in
+`.gtd/REQUIREMENTS.md`: what to watch after merge to know the change works.
+Recorded as a `Gtd-Mark: production-signal=<line>` trailer; nothing checks that
+it exists.
+
 **Question gate**: The human answer gate (`design.gate.answer`/
 `architecture.gate.answer`) the process rests at only while its phase's steering
 file (`.gtd/REQUIREMENTS.md` or `.gtd/ARCHITECTURE.md`) has an unanswered open

@@ -16,6 +16,7 @@ import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { refactorFirst } from "./refactor.js"
+import type { RiskTier } from "./tier.js"
 
 /** Naive-pass retries after a `reject`; the next `reject` rests at `seam.steer`. */
 const NAIVE_RETRIES = 2
@@ -39,9 +40,9 @@ export const naivePass = (rejection?: t.SeamRejection): Promise<void> =>
     system: t.builderSystem(),
   })
 
-export const implement = (reference: string): Promise<void> =>
+export const implement = (reference: string, tier?: RiskTier): Promise<void> =>
   scope("implement", async () => {
-    await t.agentWithSkills("building", t.implementBuildingPrompt(reference), {
+    await t.agentWithSkills("building", t.implementBuildingPrompt(reference, tier), {
       label: "Implementing",
       model: coder(),
       system: t.builderSystem(),
@@ -94,7 +95,7 @@ const decide = (): Promise<Decision> =>
     }
   })
 
-export const seamBuild = async (): Promise<void> => {
+export const seamBuild = async (tier?: RiskTier): Promise<void> => {
   const { reference, shape } = await decide()
   if (shape !== undefined && !(await refactorFirst(shape, { reference }))) {
     // Unreadable strays were never judged, and no refactor runs: a person reads the diff.
@@ -106,5 +107,5 @@ export const seamBuild = async (): Promise<void> => {
       }),
     )
   }
-  await implement(reference)
+  await implement(reference, tier)
 }

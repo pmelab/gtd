@@ -3,6 +3,7 @@
 // written by gtd) is skipped, not fatal — a corrupt line must never make every
 // command unusable.
 
+import type { Mark } from "../flows/index.js"
 import { HISTORY_FORMAT } from "./Format.js"
 
 const TRANSITION_SEP = " → "
@@ -73,6 +74,8 @@ export interface CommitMessage {
   /** Written only on a process's opening commit. */
   readonly workflow: string | undefined
   readonly judge: readonly JudgeVerdict[]
+  /** `Gtd-Mark`, in order; a malformed or control-character line is skipped. */
+  readonly marks: readonly Mark[]
   readonly vars: Readonly<Record<string, string>>
   /** Written only on a process's first commit. */
   readonly config: Readonly<Record<string, string>>
@@ -141,6 +144,7 @@ export const isRecordableApproval = (approval: Approval): boolean => {
   const back = decodeApproval(encodeApproval(approval))
   return back !== undefined && encodeApproval(back) === encodeApproval(approval)
 }
+const MARK_RE = /^([a-z][a-z0-9-]*)=(.+)$/
 const FORMAT_RE = /^[1-9][0-9]*$/
 const HASH_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 
@@ -153,6 +157,7 @@ interface Trailers {
   kept: string | undefined
   approved: Approval | undefined
   readonly judge: JudgeVerdict[]
+  readonly marks: Mark[]
   readonly vars: Record<string, string>
   readonly config: Record<string, string>
   readonly cost: CostEntry[]
@@ -169,6 +174,11 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Judge": (value, into) => {
     const parsed = parseJson(value)
     if (isVerdict(parsed)) into.judge.push(parsed)
+  },
+  "Gtd-Mark": (value, into) => {
+    const kv = MARK_RE.exec(value)
+    if (kv !== null && !CONTROL_CHARACTER.test(value))
+      into.marks.push({ name: kv[1]!, value: kv[2]! })
   },
   "Gtd-Var": (value, into) => {
     const kv = VAR_RE.exec(value)
@@ -215,6 +225,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     kept: undefined,
     approved: undefined,
     judge: [],
+    marks: [],
     vars: {},
     config: {},
     cost: [],
@@ -239,7 +250,9 @@ export interface CommitSpec {
   readonly config?: Readonly<Record<string, string>>
   readonly cost?: { readonly cost: number; readonly model?: string }
   readonly judge?: readonly JudgeVerdict[]
-  /** Written after `Gtd-Judge`, before `Gtd-Branch`. */
+  /** Written after `Gtd-Judge`, before `Gtd-Approved`. */
+  readonly marks?: readonly Mark[]
+  /** Written after `Gtd-Mark`, before `Gtd-Branch`. */
   readonly approved?: Approval
   readonly branch?: string
   readonly version?: string
@@ -263,6 +276,7 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     )
   }
   for (const verdict of spec.judge ?? []) lines.push(`Gtd-Judge: ${JSON.stringify(verdict)}`)
+  for (const m of spec.marks ?? []) lines.push(`Gtd-Mark: ${m.name}=${m.value}`)
   if (spec.approved !== undefined) {
     lines.push(`Gtd-Approved: ${encodeApproval(spec.approved)}`)
   }

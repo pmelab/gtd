@@ -1,10 +1,11 @@
 import { human, run } from "../../flows/index.js"
 import * as t from "../shared/text.js"
+import { riskTierOn } from "./tier.js"
 import { ARCHITECTURE, coder, FEEDBACK, planner, REQUIREMENTS, REVIEW } from "../shared/steps.js"
 
 /** Turn the sketch since `base` into `.gtd/REQUIREMENTS.md`. */
 export const triage = (base: string): Promise<void> =>
-  t.agentWithSkills("triage", t.designTriagePrompt(base), {
+  t.agentWithSkills("triage", t.designTriagePrompt(base, riskTierOn()), {
     label: "Triaging the change",
     file: REQUIREMENTS,
     mode: "qa",
@@ -30,7 +31,7 @@ export const decompose = (): Promise<void> =>
 
 export const answerProductQuestions = (): Promise<void> =>
   human("gate.answer", {
-    message: t.designGateAnswerMessage(),
+    message: t.designGateAnswerMessage(riskTierOn()),
     label: "Awaiting your product answers",
     file: REQUIREMENTS,
     mode: "qa",
