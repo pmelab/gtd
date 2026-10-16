@@ -6,94 +6,48 @@ rollout, cleanup.
 
 ## Open Questions
 
-### Which feature ships behind the flag?
+### Does the flag also move the Claude Code mod's judge subagent to `sonnet`?
 
-The issue only gives an example ("a provider swap in judge"). The pick sets how
-much code the flag guards, and what cleanup later has to delete.
+The mod answers judge gates in-session with its own subagent, on
+`GTD_JUDGE_MODEL` or a hard-coded `haiku` — separate from `gtd judge run`'s
+`llm` default. The fork is whether a Claude Code user sees the swap.
 
-- [x] Swap the default `llm` judge model from `haiku` to `sonnet`
-  - smallest possible change: flag-on swaps one constant; tests in both flag
-    states are trivial
-  - **judge calls get slower and more expensive for everyone on `llm` once
-    rolled out**
-  - only lightly exercises the composability claim: no new seam, no new provider
-- [ ] Add a direct Anthropic API provider (`anthropic`), selectable only with
-      the flag on
-  - a real provider swap: calls the HTTP API through the existing fetch port, no
-    `claude` CLI spawn
-  - medium size: new provider module, live/in-memory contract cases, a new key
-    env var, docs for `--provider` / `GTD_JUDGE_PROVIDER` / `judge.json`
-  - **adds a new required secret (API key) for anyone who picks it**; cleanup
-    leaves a permanent new public provider name
-- [ ] _your answer_
-
-### Should this process run with the naive-pass and risk-tier gates on?
-
-**This process started with `flag_naive_pass=0` and `flag_risk_tier=0` pinned**,
-so no `seam.judge` or `Gtd-Mark: risk-tier` trailers will land. Flags are pinned
-at process start; turning them on means abandoning and restarting.
-
-- [x] Keep going with both off
-  - no restart; "every gate" means the gates the default workflow runs today
-  - **the acceptance line "trailers for every gate" is only partly met: seam and
-    risk-tier gates go untested**
-- [ ] Abandon, restart with `GTD_FLAG_NAIVE_PASS=1 GTD_FLAG_RISK_TIER=1`
-  - exercises every gate, including the two newest and least-used ones
-  - costs one restart of this triage
-  - **more friction expected, which is the point of dogfooding, but slows the
-    feature down**
-- [ ] _your answer_
-
-### How do land, rollout and cleanup reach `main`?
-
-Acceptance wants the three in separate commits. **A GitHub squash-merge of one
-PR collapses them into one commit**, so the shape has to be decided up front.
-
-- [ ] Three PRs, one per process (land, then rollout, then cleanup), each merged
-      before the next starts
-  - each step gets its own release from semantic-release, so the flag actually
-    ships default-off before it ships default-on
-  - slowest; three review/merge cycles
-- [x] One branch, three processes, merged with a merge commit or rebase (no
-      squash)
-  - one PR, one review; all three commits survive on `main`
-  - **the flag never ships default-off in a release**, so rollout is only
-    simulated
-  - breaks with the repo's usual squash-merge habit
-- [ ] _your answer_
-
-### Who files the friction follow-up issues, and when?
-
-Friction surfaces across all three processes, not just this one. The fork is
-whether filing issues is built work here or a human task at the end.
-
-- [ ] Human files them after cleanup lands; this process files nothing
-  - no extra package; nothing in the tree or in `.gtd/` tracks friction
-  - **friction from this process is lost if nobody writes it down while it is
-    fresh**
-- [x] The agent files one `gh issue` per friction point it hit, as the last
-      package of each of the three processes
-  - friction is captured while fresh, labelled `track:dogfood`
-  - adds a non-code package to each process; issues may be noisy or duplicate
+- [ ] Only `gtd judge run --provider llm` changes; the mod stays on `haiku`
+  - smallest scope: one constant behind the flag, in gtd's own judge
+  - **the two paths that send "the same prompt" diverge in model while the flag
+    is on**; docs must say so
+- [ ] Both change: the mod reads the same flag and defaults to `sonnet` too
+  - one consistent default everywhere a judge runs on Claude
+  - the mod's hook resolves the flag from its env through the registry; adds mod
+    tests in both flag states
+  - **every Claude Code mod user's judge gates get slower and costlier on
+    rollout, not just CLI-driver users**
 - [ ] _your answer_
 
 ## Concerns
 
-### 1. The feature, behind a new release flag (PRODUCT)
+### 1. Default `llm` judge model `haiku` → `sonnet`, behind a new release flag (PRODUCT)
 
-- Ship the feature picked above, gated by a new `GTD_FLAG_<NAME>` release flag
-  in the flag registry: `kind: "release"`, owner `pmelab`, an expiry date,
-  default off.
-- Flag off: behaviour identical to today. Flag on: the new behaviour.
-- The flag is read where the judge runs, from the live env, through the flag
-  registry's resolver — never a raw `process.env` check outside it.
-- **Every release flag adds a full vitest pass to every gate and to CI** — the
-  test runner flips each release flag alone. Expect gate time to grow until
-  cleanup removes it.
+- New registry entry `judge_sonnet` (`GTD_FLAG_JUDGE_SONNET`):
+  `kind: "release"`, owner `pmelab`, expiry `2027-01-15`, default off.
+- Flag off: the `llm` provider's built-in default stays `haiku`, identical to
+  today. Flag on: the built-in default is `sonnet`.
+- **The flag moves only the last-resort default**: `--model`, then
+  `GTD_JUDGE_MODEL`, then `judge.json` `model` still win over it in both states.
+- **Once rolled out, judge calls on `llm` get slower and costlier for every user
+  who has not pinned a model** — call this out in the docs.
+- The flag is resolved from the live env through the registry's resolver — never
+  a raw `process.env` check. Judging is not replayed, so reading the live value
+  there is allowed.
+- Scope of the mod's own judge subagent follows the open question above.
+- **Every release flag adds a full vitest pass to every gate and to CI**; gate
+  time grows until cleanup removes the flag.
 - `@inmem` cucumber scenarios cover both flag states; unit tests pin flag-on and
-  flag-off.
-- README and `docs/` describe the user-visible change and the flag name, per
-  CLAUDE.md.
+  flag-off defaults and that an explicit model beats the flag.
+- README, `docs/driver.md` (llm provider default, calibration-risk paragraph)
+  and the `gtd judge run` help text describe the flag-dependent default.
+  **`docs/cli.md`'s `## Commands` block is pinned to the rendered help**, so a
+  help-text change must regenerate it.
 
 ### 2. Make `rollout` and `cleanup` startable in this repo (TECHNICAL)
 
@@ -102,17 +56,31 @@ whether filing issues is built work here or a human task at the end.
   export them (registry path stays the default `src/flags/index.ts`).
 - Without this, the later rollout and cleanup processes cannot start.
 
-### 3. Rollout and cleanup run as their own later processes (PRODUCT)
+### 3. Rollout and cleanup run as their own later processes, on this branch (PRODUCT)
 
-- Not built in this process. After the flag lands:
-  `gtd --workflow rollout --var flag=<name>`, then
-  `gtd --workflow cleanup --var flag=<name>`.
-- Their merge shape follows the answer on how the three reach `main`.
+- Not built in this process. After the flag lands, on this same branch:
+  `gtd --workflow rollout --var flag=judge_sonnet`, then
+  `gtd --workflow cleanup --var flag=judge_sonnet`.
+- One PR, merged with a merge commit or rebase — **never squash**, or the three
+  commits collapse into one and the acceptance line fails.
+- **The flag never ships default-off in a release**; rollout is simulated, not
+  observed in the wild.
 
-### 4. Friction follow-ups (PRODUCT)
+### 4. Gate coverage: default workflow only (PRODUCT)
 
-- Filed per the answer above; label `track:dogfood`. They feed #356 (SDLC docs),
-  which this issue blocks.
+- This process keeps `flag_naive_pass=0` and `flag_risk_tier=0`.
+- **"Trailers for every gate" is only partly met: no `seam.judge` and no
+  `Gtd-Mark: risk-tier` trailers will land.** Record that gap as a friction
+  follow-up, not a silent omission.
+
+### 5. Friction follow-ups, filed by the agent (PRODUCT)
+
+- Last package of each of the three processes (this one, rollout, cleanup): one
+  `gh issue` per friction point hit during that process, labelled
+  `track:dogfood`, referencing #355.
+- Search open `track:dogfood` issues first and comment on a match instead of
+  filing a duplicate.
+- They feed #356 (SDLC docs), which this issue blocks.
 
 ## Answered Questions
 
@@ -127,3 +95,38 @@ the issue asks for one feature, and extra test work would blur the dogfood run.
 No. The shipped `rollout` and `cleanup` workflows exist to do exactly those
 steps as separate processes with their own commits; this process lands the
 flag-gated feature plus the config export they need.
+
+### Which feature ships behind the flag?
+
+Swap the default `llm` judge model from `haiku` to `sonnet` — the smallest
+change, with trivial tests in both flag states.
+
+### Should this process run with the naive-pass and risk-tier gates on?
+
+No. Keep going with both off; seam and risk-tier trailers stay untested this
+run.
+
+### How do land, rollout and cleanup reach `main`?
+
+One branch, three processes, one PR merged with a merge commit or rebase, never
+squash.
+
+### Who files the friction follow-up issues, and when?
+
+The agent, one `gh issue` per friction point, as the last package of each of the
+three processes, labelled `track:dogfood`.
+
+### What is the flag called?
+
+`judge_sonnet` (`GTD_FLAG_JUDGE_SONNET`): names the behaviour it turns on, and
+it lives only until cleanup.
+
+### When does the flag expire?
+
+`2027-01-15`, matching the two existing release flags; rollout and cleanup run
+right after on this branch, so it is far past the flag's real life.
+
+### Does the flag override an explicitly chosen model?
+
+No. It moves only the built-in fallback; `--model`, `GTD_JUDGE_MODEL` and
+`judge.json` keep their precedence, so no user who pinned a model sees a change.
