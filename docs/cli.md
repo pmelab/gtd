@@ -166,7 +166,7 @@ Commands:
                    --answers <path> or GTD_JUDGE_ANSWERS; questions the file
                    does not cover are left out. --provider jev asks TypeSafe
                    (TYPESAFE_API_KEY). --provider llm asks the `claude` CLI
-                   on PATH (Claude Code only), model haiku unless --model.
+                   on PATH (Claude Code only), model sonnet unless --model.
                    No --provider: GTD_JUDGE_PROVIDER, then ~/.config/gtd/
                    judge.json, else jev when TYPESAFE_API_KEY is set and no
                    model is given, else llm; --model likewise falls back to
@@ -238,7 +238,7 @@ Options:
   --cost=<n>       (gtd land only) record the invocation's token cost
   --model=<name>   (gtd land, with --cost) tag that cost's model
                    (gtd judge run, llm answerer) the claude model; omitted:
-                   GTD_JUDGE_MODEL, then judge.json, then haiku
+                   GTD_JUDGE_MODEL, then judge.json, then sonnet
   --workflow <name>
                    (with no command at all) start a brand new process on
                    the named workflow — authenticated as human

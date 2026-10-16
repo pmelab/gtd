@@ -293,7 +293,24 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Then it succeeds
     When I run in the shell:
       """
-      gtd judge --json | gtd judge run --model sonnet | gtd judge answer --json=script | sh
+      gtd judge --json | gtd judge run --model opus | gtd judge answer --json=script | sh
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): review → confident"
+    And claude was run with "--model opus"
+
+  @inmem
+  Scenario: sonnet is the llm default and the verdict round-trips
+    Given an environment variable "TYPESAFE_API_KEY" set to ""
+    And claude answers with:
+      """
+      {"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}
+      """
+    When I run gtd land
+    Then it succeeds
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run --provider llm | gtd judge answer --json=script | sh
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): review → confident"

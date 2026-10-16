@@ -376,10 +376,11 @@ falls back to the `gtd` on your `PATH`.
   `fixed` or `jev`, or when `TYPESAFE_API_KEY` (or `TYPESAFE_AI_KEY`) is set and
   `GTD_JUDGE_PROVIDER` is not `llm`. Otherwise a small subagent answers it with
   the same prompt gtd's `llm` provider sends, on `GTD_JUDGE_MODEL` (haiku by
-  default), with no `claude -p`. Only when neither produces a complete verdict
-  does Claude ask you — on the opening beat too, where nothing lands unanswered.
-  Your answers land as the verdict; continuing without answering lands it
-  unanswered, which routes the workflow its cautious way.
+  default, while `gtd judge run --provider llm` defaults to `sonnet` — the two
+  judge on different models), with no `claude -p`. Only when neither produces a
+  complete verdict does Claude ask you — on the opening beat too, where nothing
+  lands unanswered. Your answers land as the verdict; continuing without
+  answering lands it unanswered, which routes the workflow its cautious way.
 - Script and check beats append to the log `gtd next --json` names.
 - The mod checks the [`schema`](./cli.md#schema) of every document it reads and
   stops on one it does not read, naming which side to upgrade: the plugin when
@@ -850,7 +851,7 @@ prints why on stderr and writes nothing on stdout, so the judgment stays yours.
 
 `gtd judge run --provider llm` answers by running `claude -p` (the Claude Code
 CLI, on `PATH`), reusing its existing login — no key to configure. The model
-defaults to `haiku`; `--model <name>` overrides it. Failure follows the same
+defaults to `sonnet`; `--model <name>` overrides it. Failure follows the same
 contract: exit 1, why on stderr, nothing on stdout.
 
 With no `--provider`, `gtd judge run` picks `jev` when `TYPESAFE_API_KEY` is set
@@ -864,7 +865,7 @@ can pin the choice without editing the driver: a user-level
 **Calibration risk: the `llm` provider's `p` is self-reported by the model, not
 a measured probability.** Workflows gate on `p` floors (0.9 / 0.7), and a model
 that states `p` 0.95 on a wrong answer clears them. Because the reference driver
-answers gates with auto selection, every user of the paste has `haiku` (or jev)
+answers gates with auto selection, every user of the paste has `sonnet` or jev
 answering judge gates unattended out of the box; if a wrong verdict skipping a
 human gate is unacceptable, route judge gates to yourself instead.
 

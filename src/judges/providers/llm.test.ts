@@ -103,7 +103,7 @@ describe("llm answerer", () => {
     }
   }
 
-  it("defaults to haiku, sends the prompt on stdin, isolates the call, never --bare", async () => {
+  it("defaults to sonnet, sends the prompt on stdin, isolates the call, never --bare", async () => {
     const r = recording()
     const out = await llm({ env: { PATH: `${r.dir}:/bin:/usr/bin` }, cwd: tmpdir() })(ask, {
       note: "evidence",
@@ -112,7 +112,7 @@ describe("llm answerer", () => {
     const argv = r.argv()
     expect(argv.slice(argv.indexOf("--model"), argv.indexOf("--model") + 2)).toEqual([
       "--model",
-      "haiku",
+      "sonnet",
     ])
     expect(argv).toContain('{"disableAllHooks":true}')
     expect(argv).toContain("--no-session-persistence")

@@ -416,7 +416,7 @@ noted in steps 3 and 4 below.
    `gtd judge run --provider jev` asks TypeSafe's Jev instead, with the key in
    `TYPESAFE_API_KEY` and `JEV_BASE_URL` optionally overriding the endpoint;
    `gtd judge run --provider llm` asks the `claude` CLI on `PATH` (Claude Code
-   users only; model `haiku`, `--model <name>` overrides) and reuses its login.
+   users only; model `sonnet`; `--model <name>` overrides) and reuses its login.
    With no `--provider`, `gtd judge run` picks jev when `TYPESAFE_API_KEY` is
    set and non-empty and no `--model` is given, else llm — never falling back
    across them; the `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment
@@ -431,7 +431,8 @@ noted in steps 3 and 4 below.
 
    gtd itself never calls a judge: `gtd loop`, the Claude Code mod and the
    reference driver answer these through `gtd judge run` (auto selection: jev
-   when `TYPESAFE_API_KEY` is set, else `llm` via `claude`, default model haiku,
+   when `TYPESAFE_API_KEY` is set, else `llm` via `claude`, default model
+   sonnet, while the Claude Code mod's own judge subagent stays on `haiku` —
    `--model <name>` overrides); if that fails it shows you the message and
    stops. **The `llm` provider's `p` is self-reported by the model, not a
    measured probability, so a confidently wrong verdict can clear the 0.7 floor

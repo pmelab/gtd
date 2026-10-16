@@ -82,6 +82,6 @@ describe("this repository's config", () => {
       ),
     )
     expect(config.defaultWorkflow.name).toBe("feature")
-    expect(config.workflowNames).toEqual(["feature", "fix", "review"])
+    expect(config.workflowNames).toEqual(["cleanup", "feature", "fix", "review", "rollout"])
   })
 })
