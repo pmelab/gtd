@@ -119,6 +119,12 @@ describe("llm answerer", () => {
     expect(argv).not.toContain("--bare")
     expect(r.stdin()).toContain('<evidence key="note">')
   })
+  it("passes an explicit model to claude", async () => {
+    const r = recording()
+    await llm({ env: { PATH: `${r.dir}:/bin:/usr/bin` }, cwd: tmpdir(), model: "sonnet" })(ask, {})
+    const argv = r.argv()
+    expect(argv[argv.indexOf("--model") + 1]).toBe("sonnet")
+  })
   it("fails when claude is missing from PATH", async () => {
     await expect(
       llm({ env: { PATH: tmpdir() + "/nope" }, cwd: tmpdir() })(ask, {}),

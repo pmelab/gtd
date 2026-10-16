@@ -20,6 +20,7 @@ interface JudgeRequest {
   readonly provider: "fixed" | "jev" | "llm" | undefined
   readonly answers?: string | undefined
   readonly model?: string | undefined
+  readonly defaultModel?: string | undefined
   readonly cwd: string
   readonly env: Readonly<Record<string, string | undefined>>
   readonly input: string
