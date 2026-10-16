@@ -177,6 +177,7 @@ export type Command =
       readonly provider?: "fixed" | "jev" | "llm"
       readonly answers?: string
       readonly model?: string
+      readonly defaultModel?: string
     }
 
 /**
@@ -437,6 +438,7 @@ const runJudgeRunCommand = (
           provider: command.provider,
           answers: command.answers,
           model: command.model,
+          defaultModel: command.defaultModel,
           cwd: host.scratchDir,
           env: host.env,
           input,

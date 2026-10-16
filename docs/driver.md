@@ -376,7 +376,9 @@ falls back to the `gtd` on your `PATH`.
   `fixed` or `jev`, or when `TYPESAFE_API_KEY` (or `TYPESAFE_AI_KEY`) is set and
   `GTD_JUDGE_PROVIDER` is not `llm`. Otherwise a small subagent answers it with
   the same prompt gtd's `llm` provider sends, on `GTD_JUDGE_MODEL` (haiku by
-  default), with no `claude -p`. Only when neither produces a complete verdict
+  default, even while `GTD_FLAG_JUDGE_SONNET=1` moves
+  `gtd judge run --provider llm` to `sonnet` — the two then judge on different
+  models), with no `claude -p`. Only when neither produces a complete verdict
   does Claude ask you — on the opening beat too, where nothing lands unanswered.
   Your answers land as the verdict; continuing without answering lands it
   unanswered, which routes the workflow its cautious way.
@@ -850,8 +852,9 @@ prints why on stderr and writes nothing on stdout, so the judgment stays yours.
 
 `gtd judge run --provider llm` answers by running `claude -p` (the Claude Code
 CLI, on `PATH`), reusing its existing login — no key to configure. The model
-defaults to `haiku`; `--model <name>` overrides it. Failure follows the same
-contract: exit 1, why on stderr, nothing on stdout.
+defaults to `haiku`, or `sonnet` under `GTD_FLAG_JUDGE_SONNET=1` (slower and
+costlier for every call with no pinned model); `--model <name>` overrides it.
+Failure follows the same contract: exit 1, why on stderr, nothing on stdout.
 
 With no `--provider`, `gtd judge run` picks `jev` when `TYPESAFE_API_KEY` is set
 and non-empty — the keyed speed-up — and `llm` otherwise. It never falls back
@@ -864,9 +867,10 @@ can pin the choice without editing the driver: a user-level
 **Calibration risk: the `llm` provider's `p` is self-reported by the model, not
 a measured probability.** Workflows gate on `p` floors (0.9 / 0.7), and a model
 that states `p` 0.95 on a wrong answer clears them. Because the reference driver
-answers gates with auto selection, every user of the paste has `haiku` (or jev)
-answering judge gates unattended out of the box; if a wrong verdict skipping a
-human gate is unacceptable, route judge gates to yourself instead.
+answers gates with auto selection, every user of the paste has `haiku` (`sonnet`
+under `GTD_FLAG_JUDGE_SONNET=1`) or jev answering judge gates unattended out of
+the box; if a wrong verdict skipping a human gate is unacceptable, route judge
+gates to yourself instead.
 
 If your environment carries the key under `TYPESAFE_AI_KEY` (a name some setup
 flows use), map it yourself — e.g. `export TYPESAFE_API_KEY="$TYPESAFE_AI_KEY"`.

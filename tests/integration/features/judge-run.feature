@@ -283,6 +283,27 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     And the last commit subject is "gtd(judge): review → conservative"
 
   @inmem
+  Scenario: no --provider with TYPESAFE_API_KEY set answers through jev, not claude, with judge_sonnet on
+    Given an environment variable "GTD_FLAG_JUDGE_SONNET" set to "1"
+    And an environment variable "TYPESAFE_API_KEY" set to "k"
+    And a judge stub server answering 200 with:
+      """
+      {"answers":{"q1":{"type":"noul","noul":0.9},"q2":{"type":"noul","noul":0.1}}}
+      """
+    And claude answers with:
+      """
+      {"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}
+      """
+    When I run gtd land
+    Then it succeeds
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run | gtd judge answer --json=script | sh
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): review → conservative"
+
+  @inmem
   Scenario: --model reaches claude's argv
     Given an environment variable "TYPESAFE_API_KEY" set to ""
     And claude answers with:
@@ -293,7 +314,43 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Then it succeeds
     When I run in the shell:
       """
-      gtd judge --json | gtd judge run --model sonnet | gtd judge answer --json=script | sh
+      gtd judge --json | gtd judge run --model opus | gtd judge answer --json=script | sh
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): review → confident"
+    And claude was run with "--model opus"
+
+  @inmem
+  Scenario: judge_sonnet off keeps haiku as the llm default
+    Given an environment variable "GTD_FLAG_JUDGE_SONNET" set to "0"
+    And an environment variable "TYPESAFE_API_KEY" set to ""
+    And claude answers with:
+      """
+      {"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}
+      """
+    When I run gtd land
+    Then it succeeds
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run --provider llm | gtd judge answer --json=script | sh
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): review → confident"
+    And claude was run with "--model haiku"
+
+  @inmem
+  Scenario: judge_sonnet on makes sonnet the llm default and the verdict round-trips
+    Given an environment variable "GTD_FLAG_JUDGE_SONNET" set to "1"
+    And an environment variable "TYPESAFE_API_KEY" set to ""
+    And claude answers with:
+      """
+      {"type":"result","is_error":false,"structured_output":{"q1":{"answer":"yes","p":0.9},"q2":{"answer":"yes","p":0.8}}}
+      """
+    When I run gtd land
+    Then it succeeds
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run --provider llm | gtd judge answer --json=script | sh
       """
     Then it succeeds
     And the last commit subject is "gtd(judge): review → confident"

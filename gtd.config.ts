@@ -1,4 +1,3 @@
-// The workflows gtd runs here: gtd's shipped feature, review and fix.
 // Every exported function is startable with `gtd --workflow <name>`; the
 // default export is what a change in the tree starts.
 import type { GtdConfig } from "@pmelab/gtd/flows"
@@ -6,13 +5,15 @@ import {
   feature as shippedFeature,
   review as shippedReview,
   fix as shippedFix,
+  rollout as shippedRollout,
+  cleanup as shippedCleanup,
 } from "@pmelab/gtd/workflows"
 
 export const feature = shippedFeature()
 export const review = shippedReview()
 export const fix = shippedFix()
-// rollout and cleanup stay out until a release ships them: the PATH gtd loads
-// this file against its own @pmelab/gtd/workflows, which lacks them before then.
+export const rollout = shippedRollout()
+export const cleanup = shippedCleanup()
 export default feature
 
 export {
