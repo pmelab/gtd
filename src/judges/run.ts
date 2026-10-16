@@ -15,8 +15,6 @@ export interface RunJudgeInput {
   readonly provider: Provider | undefined
   /** The `--model` flag. */
   readonly model?: string | undefined
-  /** Last resort below every configured model; never selects a provider. */
-  readonly defaultModel?: string | undefined
   readonly cwd: string
   readonly answers?: string | undefined
   readonly env: Readonly<Record<string, string | undefined>>
@@ -121,7 +119,7 @@ const answererFor = async (opts: RunJudgeInput): Promise<Answerer> => {
     (provider === undefined && model === undefined && env["TYPESAFE_API_KEY"])
   )
     return jev({ env, io })
-  return llm({ env, cwd, model: model ?? opts.defaultModel, io })
+  return llm({ env, cwd, model: model, io })
 }
 
 export const runJudge = async (opts: RunJudgeInput): Promise<string> => {
