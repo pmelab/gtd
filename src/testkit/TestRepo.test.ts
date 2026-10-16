@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   commitAll,
+  combinedScript,
   commitAsIs,
   commitClean,
   deleteRef,
@@ -143,6 +144,27 @@ describe("testRepo", () => {
     repo.write("a.txt", "dirty\n")
     const before = repo.subjects()
     expect(() => repo.runScript(script)).toThrow(/unrecognized script block/)
+    expect(repo.subjects()).toEqual(before)
+  })
+
+  it.each([
+    ["commitAll", commitAll("chore: sneaky")],
+    ["commitClean", commitClean("chore: sneaky")],
+    ["commitAsIs", commitAsIs("chore: sneaky")],
+    ["keepTurn", keepTurn("refs/x", "chore: sneaky")],
+    ["discardPending", discardPending()],
+    ["softResetTo", softResetTo("HEAD~1")],
+    ["mixedResetTo", mixedResetTo("HEAD~1")],
+    ["hardResetTo", hardResetTo("HEAD~1")],
+    ["updateRef", updateRef("refs/x", "HEAD")],
+    ["deleteRef", deleteRef("refs/x")],
+  ])("refuses a wrapped %s script instead of mutating git in memory", (_, script) => {
+    const repo = testRepo({ workflow: { default: tiny } })
+    repo.write("a.txt", "dirty\n")
+    const before = repo.subjects()
+    expect(() => repo.runScript(combinedScript("set -eu", script))).toThrow(
+      /cannot run script in memory[\s\S]*unrecognized script block/,
+    )
     expect(repo.subjects()).toEqual(before)
   })
 
