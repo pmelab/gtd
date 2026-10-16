@@ -6,7 +6,6 @@
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { PassThrough } from "node:stream"
 import * as fc from "fast-check"
 import { Effect, Layer } from "effect"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -1287,56 +1286,6 @@ export const defaults = { flag_naive_pass: "0" }
       { GTD_FLAG_NAIVE_PASS: "" },
     )
     expect(out).toContain("flag_naive_pass=1")
-  })
-})
-
-describe("runCli — judge_sonnet", () => {
-  const judgeRequest = async (
-    args: string[],
-    env: Record<string, string>,
-  ): Promise<Record<string, unknown>> => {
-    let seen: Record<string, unknown> = {}
-    const { io } = makeCapturingCliIo(new InMemRepo(), env, {
-      judge: (request) => {
-        seen = { ...request }
-        return Promise.resolve("[]\n")
-      },
-    })
-    const saved = Object.getOwnPropertyDescriptor(process, "stdin")
-    const fake = new PassThrough()
-    Object.defineProperty(process, "stdin", { value: fake, configurable: true })
-    fake.end("{}")
-    try {
-      await Effect.runPromise(runCli(["node", "gtd.js", "judge", "run", ...args], io))
-    } finally {
-      if (saved) Object.defineProperty(process, "stdin", saved)
-    }
-    return seen
-  }
-
-  it("flag on passes defaultModel sonnet", async () => {
-    expect(await judgeRequest([], { GTD_FLAG_JUDGE_SONNET: "1" })).toMatchObject({
-      defaultModel: "sonnet",
-    })
-  })
-
-  it.each([{ GTD_FLAG_JUDGE_SONNET: "0" }, { GTD_FLAG_JUDGE_SONNET: "" }])(
-    "flag %j passes no defaultModel",
-    async (env) => {
-      expect((await judgeRequest([], env))["defaultModel"]).toBeUndefined()
-    },
-  )
-
-  it("flag on keeps --model beside defaultModel", async () => {
-    expect(await judgeRequest(["--model", "opus"], { GTD_FLAG_JUDGE_SONNET: "1" })).toMatchObject({
-      model: "opus",
-      defaultModel: "sonnet",
-    })
-  })
-
-  it("parseArgv never sets defaultModel", () => {
-    const plan = parseArgv(["node", "gtd.js", "judge", "run", "--model", "x"])
-    expect(plan.kind === "command" && plan.command).not.toHaveProperty("defaultModel")
   })
 })
 

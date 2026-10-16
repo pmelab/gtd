@@ -416,15 +416,14 @@ noted in steps 3 and 4 below.
    `gtd judge run --provider jev` asks TypeSafe's Jev instead, with the key in
    `TYPESAFE_API_KEY` and `JEV_BASE_URL` optionally overriding the endpoint;
    `gtd judge run --provider llm` asks the `claude` CLI on `PATH` (Claude Code
-   users only; model `haiku`, or `sonnet` under `GTD_FLAG_JUDGE_SONNET=1` —
-   slower and costlier for anyone with no pinned model; `--model <name>`
-   overrides) and reuses its login. With no `--provider`, `gtd judge run` picks
-   jev when `TYPESAFE_API_KEY` is set and non-empty and no `--model` is given,
-   else llm — never falling back across them; the `GTD_JUDGE_PROVIDER` /
-   `GTD_JUDGE_MODEL` environment variables and a user-level
-   `~/.config/gtd/judge.json` `{ provider, model }` choose the judge without
-   editing the driver (flags win over both, in that order); `--model` with
-   `--provider fixed`/`jev` is refused. jev and llm exit 1 with nothing on
+   users only; model `haiku`, or `sonnet` under `GTD_FLAG_JUDGE_SONNET=1`;
+   `--model <name>` overrides) and reuses its login. With no `--provider`,
+   `gtd judge run` picks jev when `TYPESAFE_API_KEY` is set and non-empty and no
+   `--model` is given, else llm — never falling back across them; the
+   `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment variables and a
+   user-level `~/.config/gtd/judge.json` `{ provider, model }` choose the judge
+   without editing the driver (flags win over both, in that order); `--model`
+   with `--provider fixed`/`jev` is refused. jev and llm exit 1 with nothing on
    stdout when they cannot answer every question):
    - Every red round after the first: was the failure identical, new, or
      progress?

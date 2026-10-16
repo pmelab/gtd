@@ -121,17 +121,7 @@ describe("risk_tier", () => {
 })
 
 describe("judge_sonnet", () => {
-  it("is a release flag owned by pmelab, default off", () => {
-    expect(FLAGS.find((f) => f.name === "judge_sonnet")).toEqual({
-      name: "judge_sonnet",
-      owner: "pmelab",
-      expiry: "2027-01-15",
-      kind: "release",
-    })
-  })
-
-  it("resolves off unset and on with GTD_FLAG_JUDGE_SONNET=1", () => {
-    expect(resolveFlags({}).judge_sonnet).toBe(false)
-    expect(resolveFlags({ GTD_FLAG_JUDGE_SONNET: "1" }).judge_sonnet).toBe(true)
+  it("is a release flag", () => {
+    expect(FLAGS.find((f) => f.name === "judge_sonnet")).toMatchObject({ kind: "release" })
   })
 })

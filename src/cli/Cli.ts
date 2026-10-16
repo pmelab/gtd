@@ -1469,7 +1469,7 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
     Effect.try({
       try: () => ({
         flags: resolveFlags(env, io.flags),
-        // GTD_FLAG_JUDGE_SONNET: read once, here, against the shipped registry (not io.flags).
+        // GTD_FLAG_JUDGE_SONNET: typed against FLAGS (not io.flags) so deleting the entry fails to compile here.
         command:
           plan.command.kind === "judgeRun" && resolveFlags(env).judge_sonnet
             ? { ...plan.command, defaultModel: "sonnet" }

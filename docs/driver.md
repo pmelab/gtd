@@ -868,9 +868,9 @@ can pin the choice without editing the driver: a user-level
 a measured probability.** Workflows gate on `p` floors (0.9 / 0.7), and a model
 that states `p` 0.95 on a wrong answer clears them. Because the reference driver
 answers gates with auto selection, every user of the paste has `haiku` (`sonnet`
-under `GTD_FLAG_JUDGE_SONNET=1`, at higher cost and latency) or jev answering
-judge gates unattended out of the box; if a wrong verdict skipping a human gate
-is unacceptable, route judge gates to yourself instead.
+under `GTD_FLAG_JUDGE_SONNET=1`) or jev answering judge gates unattended out of
+the box; if a wrong verdict skipping a human gate is unacceptable, route judge
+gates to yourself instead.
 
 If your environment carries the key under `TYPESAFE_AI_KEY` (a name some setup
 flows use), map it yourself — e.g. `export TYPESAFE_API_KEY="$TYPESAFE_AI_KEY"`.

@@ -1,4 +1,3 @@
-// The workflows gtd runs here: gtd's shipped feature, review, fix, rollout and cleanup.
 // Every exported function is startable with `gtd --workflow <name>`; the
 // default export is what a change in the tree starts.
 import type { GtdConfig } from "@pmelab/gtd/flows"

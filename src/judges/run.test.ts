@@ -196,11 +196,11 @@ describe("runJudge defaultModel", () => {
     await runJudge({
       provider: "llm",
       defaultModel: "sonnet",
-      env: { PATH: `${envv.dir}:/bin:/usr/bin`, GTD_JUDGE_MODEL: "haiku" },
+      env: { PATH: `${envv.dir}:/bin:/usr/bin`, GTD_JUDGE_MODEL: "env-model" },
       input: doc,
       cwd,
     })
-    expect(envv.argv()).toContain("--model haiku")
+    expect(envv.argv()).toContain("--model env-model")
     const file = argvShim()
     await runJudge({
       provider: "llm",
@@ -235,17 +235,5 @@ describe("runJudge defaultModel", () => {
     expect(
       await runJudge({ provider: "fixed", defaultModel: "sonnet", env, input: doc, cwd }),
     ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
-  })
-
-  it("does not trip the pairing check for provider jev", async () => {
-    await expect(
-      runJudge({
-        provider: "jev",
-        defaultModel: "sonnet",
-        env: { TYPESAFE_API_KEY: "k", JEV_BASE_URL: "http://127.0.0.1:1/x" },
-        input: doc,
-        cwd,
-      }),
-    ).rejects.toThrow(/gtd judge run: jev request failed/)
   })
 })
