@@ -33,3 +33,41 @@ tests that check the same thing in more than one place.
   mention becomes just "`sonnet` under `GTD_FLAG_JUDGE_SONNET=1`".
 
 net: -110 lines possible.
+
+## test-audit
+
+Non-blocking. The guards that matter hold: `run.test.ts`
+`does not stop jev auto-selection` and both `does not trip the pairing check`
+cases would each fail if `defaultModel` went into `selectJudge`/`checkPairing`
+instead of only the `llm(...)` call. `is the model when no layer sets one` fails
+if it is dropped. Gaps and weak spots:
+
+- Gap, CLI → provider: "never selects a provider" is proven only at `runJudge`.
+  Every new feature scenario sets `TYPESAFE_API_KEY` to `""`, and the
+  `Cli.test.ts` checks use `toMatchObject`, which allows extra keys. So if
+  `Cli.ts` set `model: "sonnet"` (alone, or next to `defaultModel`) when the
+  flag is on, no scenario would fail. In production that silently moves
+  jev-keyed users onto claude. Fix: add one `@inmem` scenario: flag `1`,
+  `TYPESAFE_API_KEY` `"k"`, a judge stub server answering 200, no `--provider`.
+  Assert the jev verdict lands and claude was never run. That one scenario
+  replaces the `runCli — judge_sonnet` block that ponytail-review wants deleted
+  (the block also monkeypatches `process.stdin` and pins the internal
+  `JudgeRequest` shape).
+- Weakened by the flag-flip pass: `judge-run.feature:L285`
+  `--model reaches claude's argv` passes `--model sonnet`. In the
+  `GTD_FLAG_JUDGE_SONNET=1` pass of `npm test`, the default is already sonnet,
+  so that scenario passes even if `--model` is ignored. Fix: change it to
+  `--model opus`. Then the new `judge_sonnet on yields to --model` scenario
+  (L357) duplicates it in both passes and can go.
+- A test value that matches the default: `run.test.ts:L199` and
+  `judge-run.feature:L341` use `GTD_JUDGE_MODEL=haiku`, which is `llm.ts`'s own
+  `DEFAULT_MODEL`. If the env layer and `defaultModel` were both ignored, the
+  result would still be haiku, so the test cannot fully show what its name
+  claims. Fix: use a value no default produces (e.g. `env-model`).
+- Copies the manifest: `flags/index.test.ts:L124` `toEqual` copies the whole
+  `FLAGS` entry, `expiry` included. Bumping the expiry, which changes no
+  behaviour, breaks it, and no credible regression is caught by it alone. Fix:
+  keep `toMatchObject({ kind: "release" })` as `risk_tier` does, or drop it. The
+  following `resolves off unset and on` test repeats the generic `resolveFlags`
+  cases. Its only real job, binding the name `GTD_FLAG_JUDGE_SONNET`, is already
+  covered by the on/off feature scenarios.
