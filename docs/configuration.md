@@ -778,8 +778,10 @@ since the episode began, each answering the step it names, until a step has no
 commit left — that step is the rest. Replaying the same history always reaches
 the same rest, which is why flow code has to be pure (below).
 
-An episode begins with an opening commit whose `Gtd-Workflow:` trailer names the
-workflow it replays. An episode ends when its flow returns or calls `restart()`.
+A `--workflow` episode begins with an opening commit whose `Gtd-Workflow:`
+trailer names the workflow it replays. A default episode, started from `idle`,
+has no opening commit and no `Gtd-Workflow:` trailer — its first commit is the
+first step's own. An episode ends when its flow returns or calls `restart()`.
 The next episode starts over at the `default` workflow's first step — for the
 bundled workflow, `idle`. Because entering that step is what marks an episode
 finished, **no started workflow may land on a step of that name** — gtd refuses

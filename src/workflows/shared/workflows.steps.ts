@@ -35,12 +35,13 @@ Then("the last commit body contains {string}", (world: TestkitWorld, text: strin
 Then(
   "the commit {string} has a body containing {string}",
   (world: TestkitWorld, subject: string, text: string) => {
-    const message = world
+    // Every commit with the subject, so a repeated step is not judged by its first match.
+    const matching = world
       .repo()
       .messages()
-      .find((m) => m.split("\n")[0] === subject)
-    assert.ok(message !== undefined, `no commit "${subject}"`)
-    assert.ok(message.includes(text), message)
+      .filter((m) => m.split("\n")[0] === subject)
+    assert.ok(matching.length > 0, `no commit "${subject}"`)
+    for (const message of matching) assert.ok(message.includes(text), message)
   },
 )
 

@@ -150,12 +150,23 @@ const LINES: ReadonlyArray<readonly [RegExp, (repo: InMemRepo, words: string[]) 
   ],
 ]
 
-const runLine = (repo: InMemRepo, line: string): void => {
-  const known = LINES.find(([pattern]) => pattern.test(line))
-  if (known === undefined) {
-    throw new Error(`testkit: cannot run \`${line}\` in memory — give the step an actor instead`)
+const knownLine = (line: string) => LINES.find(([pattern]) => pattern.test(line))
+
+const cannotRun = (error: string): Error =>
+  new Error(`testkit: cannot run script in memory — give the step an actor instead\n${error}`)
+
+// A script with a line `LINES` lacks goes to the contract-tested recognizers
+// whole, minus the git builders: they would apply a commit/reset/update-ref in
+// memory, so any git-mutating block is refused whatever its spelling.
+const runLines = (repo: InMemRepo, script: string): void => {
+  const lines = script.split("\n").map((line) => line.trim())
+  const known = lines.map(knownLine)
+  if (known.every(Boolean)) {
+    known.forEach((k, i) => k![1](repo, words(lines[i]!)))
+    return
   }
-  known[1](repo, words(line))
+  const applied = applyEmittedScript(repo, new Map(), script, { git: false })
+  if (!applied.ok) throw cannotRun(applied.error ?? "")
 }
 
 const failed = (what: string, result: CapturedCliResult): Error =>
@@ -251,7 +262,7 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     show: (ref, path) => repo.fileAtRef(ref, path) ?? undefined,
     runScript: (script) => {
       const flow = applyFlowScript(repo, new Map(), script)
-      if (flow === undefined) for (const line of script.split("\n")) runLine(repo, line.trim())
+      if (flow === undefined) runLines(repo, script)
       else if (!flow.ok) throw new Error(`testkit: ${flow.error ?? ""}`)
     },
     gtd,

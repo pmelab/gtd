@@ -563,7 +563,7 @@ const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | und
 const recognizeDidNotRunComment = (block: string): BlockOutcome | undefined =>
   block === DID_NOT_RUN_COMMENT ? { kind: "noop" } : undefined
 
-/** `combinedScript`'s optional half. ALWAYS reports `noop` whatever the inner result, mirroring bash's `( … ) || <warning>`, where the subshell's exit status is swallowed and must never fail the outer script. */
+/** `combinedScript`'s optional half. Reports `noop` whatever the inner result, mirroring bash's `( … ) || <warning>`. Exception: under `git: false` any unrecognized inner block fails the outer script (git or not), so the in-memory twin knowingly diverges from `sh` rather than run git unseen. */
 const PRESENTATION_FAILURE_TEXT = `${extractQuotedTokens(PRESENTATION_FAILURE_WARNING)[0]!.replace(/\\n$/, "")}\n`
 const PRESENTATION_SUBSHELL_PREFIX = `${PRESENTATION_ONLY_COMMENT}\n(\n`
 const PRESENTATION_SUBSHELL_SUFFIX = `\n) || ${PRESENTATION_FAILURE_WARNING}`
@@ -572,6 +572,7 @@ const recognizePresentationSubshell = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
   block: string,
+  git: boolean,
 ): BlockOutcome | undefined => {
   if (
     !block.startsWith(PRESENTATION_SUBSHELL_PREFIX) ||
@@ -583,8 +584,11 @@ const recognizePresentationSubshell = (
     PRESENTATION_SUBSHELL_PREFIX.length,
     block.length - PRESENTATION_SUBSHELL_SUFFIX.length,
   )
-  const result = applyEmittedScript(repo, commands, inner)
+  const result = applyEmittedScript(repo, commands, inner, { git })
   if (result.ok) return { kind: "noop", output: result.output }
+  if (!git && result.error?.startsWith(UNRECOGNIZED_PREFIX)) {
+    return { kind: "failed", error: `${result.output}${result.error}` }
+  }
   return { kind: "noop", output: `${result.output}${PRESENTATION_FAILURE_TEXT}` }
 }
 
@@ -703,17 +707,18 @@ const recognizeWriteLines = (repo: InMemRepo, block: string): BlockOutcome | und
 const recognizersFor = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
+  git: boolean,
 ): ReadonlyArray<(block: string) => BlockOutcome | undefined> => [
   (block) => recognizeSetFlags(block),
   (block) => recognizeDidNotRunComment(block),
   (block) => recognizePrecondition(repo, block),
   (block) => recognizeFileExistsGuard(repo, block),
   (block) => recognizeBinaryGuard(commands, block),
-  (block) => recognizeGitBuilders(repo, block),
+  (block) => (git ? recognizeGitBuilders(repo, block) : undefined),
   (block) => recognizeDeferNotes(repo, block),
   (block) => recognizeWriteLines(repo, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
-  (block) => recognizePresentationSubshell(repo, commands, block),
+  (block) => recognizePresentationSubshell(repo, commands, block, git),
   (block) => recognizeModeContradictionSkipNotice(block),
   (block) => recognizeModeContradictionCheck(repo, commands, block),
   (block) => recognizeGtdCheck(repo, block),
@@ -746,6 +751,7 @@ export const applyEmittedScript = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
   script: string,
+  { git = true }: { readonly git?: boolean } = {},
 ): AppliedScriptResult => {
   const flow = applyFlowScript(repo, commands, script)
   if (flow !== undefined) {
@@ -753,15 +759,16 @@ export const applyEmittedScript = (
       ? { ok: true, status: 0, output: flow.output }
       : { ok: false, status: 1, output: flow.output, error: flow.error ?? "" }
   }
-  return script.startsWith("#!") ? unrecognized(script) : applyBlocks(repo, commands, script)
+  return script.startsWith("#!") ? unrecognized(script) : applyBlocks(repo, commands, script, git)
 }
 
 const applyBlocks = (
   repo: InMemRepo,
   commands: ReadonlyMap<string, ScriptedCommand>,
   script: string,
+  git: boolean,
 ): AppliedScriptResult => {
-  const recognizers = recognizersFor(repo, commands)
+  const recognizers = recognizersFor(repo, commands, git)
   let output = ""
   for (const block of splitBlocks(script)) {
     const outcome = recognizeBlock(recognizers, block)
@@ -786,9 +793,11 @@ const failedAt = (
   }
 }
 
+const UNRECOGNIZED_PREFIX = "unrecognized script block: "
+
 const unrecognized = (block: string, output = ""): AppliedScriptResult => ({
   ok: false,
   status: 1,
   output,
-  error: `unrecognized script block: ${block.split("\n")[0]}`,
+  error: `${UNRECOGNIZED_PREFIX}${block.split("\n")[0]}`,
 })

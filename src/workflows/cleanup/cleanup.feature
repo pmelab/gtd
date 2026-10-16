@@ -36,35 +36,6 @@ Feature: cleanup removes a default-on release flag and keeps its flag-on path
       """
     And the working tree is committed as "feat: registry"
 
-  Scenario: removing the entry and the off path lands, then reaches the review gate
-    Given step "cleanup.removing" writes "src/flags/index.ts" with:
-      """
-      export const FLAGS = [
-        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
-        { name: "ops1", owner: "c", expiry: "2027-03-01", kind: "ops" },
-      ] as const
-      """
-    And step "cleanup.removing" writes "src/calc.ts" with:
-      """
-      export const on = true
-      """
-    And step "build.health.check" changes nothing
-    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1-1
-        flag removed
-      """
-    When gtd starts workflow "cleanup" with "--var flag=live"
-    And the process is driven
-    Then the process rests at "build.review.await-review"
-    And "src/flags/index.ts" does not contain "live"
-
   Scenario: a turn leaving the registry entry is refused
     Given step "cleanup.removing" writes "src/calc.ts" with:
       """

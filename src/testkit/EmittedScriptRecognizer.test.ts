@@ -630,6 +630,18 @@ describe("applyEmittedScript — Emit.ts's combinedScript (the whole stdout of a
     expect(repo.lastCommitMessage()).toBe("gtd(human): idle")
   })
 
+  it("fails an unrecognized optional block under git: false", () => {
+    const repo = new InMemRepo()
+    const result = applyEmittedScript(
+      repo,
+      NO_COMMANDS,
+      combinedScript("set -eu", "totally-unrecognized-command"),
+      { git: false },
+    )
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain("totally-unrecognized-command")
+  })
+
   it("still fails loudly on an unrecognized block outside the presentation-only subshell", () => {
     const repo = new InMemRepo()
     const script = `${combinedScript("totally-unrecognized-required-command", "")}`
@@ -689,5 +701,34 @@ describe("applyEmittedScript — commitClean", () => {
     expect(result.ok).toBe(false)
     expect(result.error).toContain("unrecognized script block")
     expect(snapshot(repo)).toEqual(before)
+  })
+})
+
+describe("applyEmittedScript — git: false reaches through the presentation subshell", () => {
+  it("refuses a git builder wrapped in combinedScript and changes nothing", () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "1")
+    const before = snapshot(repo)
+    const result = applyEmittedScript(
+      repo,
+      NO_COMMANDS,
+      combinedScript("set -eu", commitAll("chore: sneaky")),
+      { git: false },
+    )
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/unrecognized script block/)
+    expect(snapshot(repo)).toEqual(before)
+  })
+
+  it("still applies a non-git write-lines optional half", () => {
+    const repo = new InMemRepo()
+    const result = applyEmittedScript(
+      repo,
+      NO_COMMANDS,
+      combinedScript("set -eu", "mkdir -p d\nprintf '%s\\n' 'x' > 'd/a.txt'"),
+      { git: false },
+    )
+    expect(result).toMatchObject({ ok: true })
+    expect(repo.readFile("d/a.txt")).toBe("x\n")
   })
 })
