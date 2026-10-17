@@ -115,6 +115,14 @@ describe("the commit-message codec", () => {
     expect(parsed.version).toBe("1.2.3")
   })
 
+  it("drops a Gtd-Version carrying control bytes", () => {
+    const message = formatCommitMessage({ actor: "a", to: "b" }).replace(
+      "Gtd-Format: 1",
+      "Gtd-Version: 1.0\u001b]0;x\u0007\nGtd-Format: 1",
+    )
+    expect(parseCommitMessage(message).version).toBeUndefined()
+  })
+
   it("omits Gtd-Branch and Gtd-Version when unset, and reads them as undefined", () => {
     const message = formatCommitMessage({ actor: "agent", to: "idle" })
     expect(message).not.toContain("Gtd-Branch")

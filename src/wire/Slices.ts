@@ -2,8 +2,11 @@ import { WIRE_SCHEMA } from "./constants.js"
 
 export interface SliceEntry {
   readonly name: string
+  /** Full hash, exclusive: git's base..tip. */
   readonly base: string
+  /** Full hash, inclusive; HEAD's hash for the open slice. */
   readonly tip: string
+  /** false only for the last slice of an underway process. */
   readonly closed: boolean
 }
 

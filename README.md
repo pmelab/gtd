@@ -669,7 +669,7 @@ listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
 `gtd slices` lists the spans a flow's `slice()` calls mark. It refuses (exit 1)
 when no process is underway, or when today's config disagrees with history about
-the process.
+the process; a version mismatch only warns on stderr.
 
 ## License
 

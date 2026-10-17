@@ -52,6 +52,7 @@ import {
   UNATTRIBUTED_MODEL,
   type ApprovalEntry,
   type ModelCost,
+  type SliceEntry,
   type StepAccess,
 } from "../wire/index.js"
 
@@ -1070,23 +1071,18 @@ export const restAt = (
 
 export const currentRest: Effect.Effect<Rest, Error, RestRequirements> = restAt(undefined)
 
-export interface ProcessSlice {
-  readonly name: string
-  /** Full hash, exclusive: git's base..tip. */
-  readonly base: string
-  /** Full hash, inclusive; HEAD's hash for the open slice. */
-  readonly tip: string
-  /** false only for the last slice of an underway process. */
-  readonly closed: boolean
+export interface ProcessSlices {
+  readonly slices: readonly SliceEntry[]
+  readonly versionWarning?: string
 }
 
 /**
  * The slices of the process HEAD closes or sits inside, current episode only,
- * stack order. Reads like `historyTrail`, never `restAt`: nothing narrates,
- * warns or writes.
+ * stack order. Reads like `historyTrail`, never `restAt`: it narrates and
+ * writes nothing, and returns a version warning for a closed run.
  */
-export const processSlices: Effect.Effect<readonly ProcessSlice[], Error, RestRequirements> =
-  Effect.gen(function* () {
+export const processSlices: Effect.Effect<ProcessSlices, Error, RestRequirements> = Effect.gen(
+  function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
     const workspace = yield* Workspace
@@ -1095,41 +1091,34 @@ export const processSlices: Effect.Effect<readonly ProcessSlice[], Error, RestRe
     if (run.trace.length === 0) {
       return yield* Effect.fail(new Error("gtd slices: refused — no process is underway at HEAD"))
     }
-    if (run.closingHash !== undefined) {
-      const differing = yield* differingConfigPaths(
-        git,
-        workspace,
-        host.root,
-        config,
-        run,
-        run.closingHash,
-      )
-      if (differing.length > 0) {
-        return yield* Effect.fail(
-          configRefusal(
-            "gtd slices",
-            run.closingHash,
-            differing,
-            "HEAD's process replays under today's config; commit or revert the edit to list its slices",
-          ),
-        )
-      }
+    const closing = run.closingHash
+    let outcome: Awaited<ReturnType<typeof replayFor>>
+    let versionWarning: string | undefined
+    if (closing !== undefined) {
+      const replayed = yield* replayFinishedProcess(config, run, closing, {
+        command: "gtd slices",
+        configReason:
+          "HEAD's process replays under today's config; commit or revert the edit to list its slices",
+        notEnded: (o) => slicesDrift(run, o),
+      })
+      outcome = replayed.outcome
+      versionWarning = replayed.versionWarning
+    } else {
+      const { setup } = yield* setupFor(config, run, workspace, host)
+      outcome = yield* Effect.promise(() => replayFor(setup))
+      if (outcome.kind !== "rest") return yield* Effect.fail(slicesDrift(run, outcome))
     }
-    const { setup } = yield* setupFor(config, run, workspace, host)
-    const outcome = yield* Effect.promise(() => replayFor(setup))
-    if (
-      (outcome.kind !== "rest" && outcome.kind !== "ended") ||
-      (outcome.kind === "ended") !== (run.closingHash !== undefined)
-    ) {
-      return yield* Effect.fail(slicesDrift(run, outcome))
+    return {
+      slices: sliceRangesOf(outcome.slices, run).map(({ name, base, tip, open }) => ({
+        name,
+        base,
+        tip,
+        closed: closing !== undefined || !open,
+      })),
+      ...(versionWarning !== undefined ? { versionWarning } : {}),
     }
-    return sliceRangesOf(outcome.slices, run).map(({ name, base, tip, open }) => ({
-      name,
-      base,
-      tip,
-      closed: outcome.kind === "ended" || !open,
-    }))
-  })
+  },
+)
 
 /** Every `gtd slices` refusal reads `gtd slices: refused — <reason>`; replay's own `gtd: ` lead is dropped. */
 const slicesDrift = (run: ProcessRun, outcome: Awaited<ReturnType<typeof replayFor>>): Error => {
@@ -1573,32 +1562,52 @@ export const historyTrail = (tip: string): Effect.Effect<HistoryTrail, Error, Re
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const workspace = yield* Workspace
-    const host = yield* Host
     const hash = yield* git.resolveRef(tip)
     const subject = yield* git.lastCommitSubject(hash)
     const run = yield* runAtTip(git, config.workflow, { hash, subject })
-
-    const differing = yield* differingConfigPaths(git, workspace, host.root, config, run, hash)
-    if (differing.length > 0)
-      return yield* Effect.fail(configRefusal("gtd history", hash, differing))
-
-    const { setup } = yield* setupFor(config, run, workspace, host)
-    yield* workspace.episodeTrees(
-      run.episode.base,
-      run.episode.commits.map((c) => c.hash),
-    )
-    const outcome = yield* Effect.promise(() => replayFor(setup))
-    if (outcome.kind !== "ended") return yield* Effect.fail(notClosedError(hash, outcome))
-
-    const steps = historySteps(run)
-    const recorded = parseCommitMessage(yield* git.lastCommitMessage(hash)).version
-    const versionWarning = versionWarningFor(recorded)
+    const { outcome, recorded, versionWarning } = yield* replayFinishedProcess(config, run, hash, {
+      command: "gtd history",
+      notEnded: (o) => notClosedError(hash, o),
+    })
     return {
       tip: hash,
-      steps,
+      steps: historySteps(run),
       ended: outcome.via,
       version: { recorded, running: GTD_VERSION },
       ...(versionWarning !== undefined ? { versionWarning } : {}),
     }
+  })
+
+interface FinishedReplay {
+  readonly outcome: Extract<Awaited<ReturnType<typeof replayFor>>, { kind: "ended" }>
+  readonly recorded: string | undefined
+  readonly versionWarning?: string
+}
+
+/** Refuses on config drift before replaying, so a stale config never runs the flow. */
+const replayFinishedProcess = (
+  config: ConfigOperations,
+  run: ProcessRun,
+  hash: string,
+  how: {
+    readonly command: string
+    readonly configReason?: string
+    readonly notEnded: (
+      outcome: Exclude<Awaited<ReturnType<typeof replayFor>>, { kind: "ended" }>,
+    ) => Error
+  },
+): Effect.Effect<FinishedReplay, Error, RestRequirements> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const workspace = yield* Workspace
+    const host = yield* Host
+    const differing = yield* differingConfigPaths(git, workspace, host.root, config, run, hash)
+    if (differing.length > 0)
+      return yield* Effect.fail(configRefusal(how.command, hash, differing, how.configReason))
+    const { setup } = yield* setupFor(config, run, workspace, host)
+    const outcome = yield* Effect.promise(() => replayFor(setup))
+    if (outcome.kind !== "ended") return yield* Effect.fail(how.notEnded(outcome))
+    const recorded = parseCommitMessage(yield* git.lastCommitMessage(hash)).version
+    const versionWarning = versionWarningFor(recorded)
+    return { outcome, recorded, ...(versionWarning !== undefined ? { versionWarning } : {}) }
   })

@@ -14,6 +14,9 @@ export interface ParsedSubject {
   readonly from?: string
 }
 
+// Shown on stderr: only a version-shaped value, never control bytes.
+const VERSION_RE = /^[0-9A-Za-z.+-]+$/
+
 const SUBJECT_RE = /^gtd\(([^()]+)\): (.+)$/
 
 /** `from` equal to `to` (or absent) collapses to the bare `gtd(<actor>): <to>` form. */
@@ -196,7 +199,7 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
     if (value !== "") into.branch ??= value
   },
   "Gtd-Version": (value, into) => {
-    if (value !== "") into.version ??= value
+    if (VERSION_RE.test(value)) into.version ??= value
   },
   "Gtd-Kept": (value, into) => {
     if (HASH_RE.test(value)) into.kept ??= value

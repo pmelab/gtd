@@ -9,7 +9,7 @@ import type { GtdWorld } from "../world.js"
 // base..tip commits, oldest first, indented.
 Then("the slices are:", async (world: GtdWorld, doc: string) => {
   const repo = world.repo!
-  const slices = await Effect.runPromise(
+  const { slices } = await Effect.runPromise(
     processSlices.pipe(Effect.provide(testLayers(repo, { env: world.envVars }))),
   )
   const actual = slices

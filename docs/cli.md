@@ -154,7 +154,8 @@ Commands:
                    { schema: 1, slices: [{ name, base, tip, closed }] };
                    --json=<path> reads one value off it. Writes nothing: no
                    git, no state transition, no session identity. When HEAD
-                   closes a process, every slice is listed as closed. Refuses
+                   closes a process, every slice is listed as closed; a gtd
+                   version mismatch only warns on stderr. Refuses
                    (exit 1) when no process is underway, or when today's
                    config disagrees with history about the process: HEAD closes
                    it and its config files differ from the working tree, or the
@@ -417,8 +418,10 @@ carries none.
 
 ### Narration and remediation
 
-Stderr carries two things beyond the `gtd: ` message line above: NARRATION,
-gated by `--verbose`/`-v`, and REMEDIATION, unconditional.
+Stderr carries three things beyond the `gtd: ` message line above: NARRATION,
+gated by `--verbose`/`-v`, REMEDIATION, unconditional, and a WARNING, which
+`gtd slices` and `gtd history show` print when a finished process was recorded
+by another gtd version (with `--json` too, for `gtd slices`).
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
 command's dispatch already computes — which rest resolved, and which
@@ -440,6 +443,6 @@ in `format:`/`validate:` fails loudly, before it runs".)
 gtd is non-interactive: no readline, no `/dev/tty`, and no prompt call anywhere.
 If interaction is ever added, it goes to `/dev/tty`, never stderr, and never
 blocks — a question fails with a code when the tty cannot be opened rather than
-hanging. The reason is the section above: stderr already has two occupants,
-narration and remediation, and a question mixed into that stream would deadlock
-a driver that never reads stderr.
+hanging. The reason is the section above: stderr already has several occupants,
+narration, remediation and warnings, and a question mixed into that stream would
+deadlock a driver that never reads stderr.

@@ -38,6 +38,7 @@ Feature: gtd slices — list the slices of the process HEAD closes or sits insid
     And I mark the current commit as "head"
     When I run gtd with args "slices --json"
     Then it succeeds
+    And stderr does not contain "warning"
     And stdout is, with each <name> standing for the hash of that marked commit:
       """
       {"schema":1,"slices":[{"name":"build","base":"<boundary>","tip":"<head>","closed":true},{"name":"verify","base":"<head>","tip":"<head>","closed":false}]}
@@ -80,6 +81,66 @@ Feature: gtd slices — list the slices of the process HEAD closes or sits insid
     And I mark the current commit as "closing"
     When I run gtd with args "slices --json"
     Then it succeeds
+    And stderr does not contain "warning"
+    And stdout is, with each <name> standing for the hash of that marked commit:
+      """
+      {"schema":1,"slices":[{"name":"build","base":"<boundary>","tip":"<middle>","closed":true},{"name":"verify","base":"<middle>","tip":"<closing>","closed":true}]}
+      """
+
+  Scenario: a closing commit recorded by another gtd version warns on stderr, stdout unchanged
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, slice } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await slice("build", async () => {
+          await agent("building", "build it")
+        })
+        await slice("verify", async () => {
+          await agent("checking", "check it")
+        })
+      }
+      """
+    And the working tree is committed as "chore: gtd config"
+    And I mark the current commit as "boundary"
+    And a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And a file "a.txt" with:
+      """
+      a
+      """
+    And gtd lands "gtd(agent): building → checking"
+    And I mark the current commit as "middle"
+    And a file "b.txt" with:
+      """
+      b
+      """
+    And the working tree is committed with message:
+      """
+      gtd(agent): checking → idle
+
+      Gtd-Step: checking#1
+      Gtd-Version: 0.0.1
+      Gtd-Format: 1
+      """
+    And I mark the current commit as "closing"
+    When I run gtd with args "slices"
+    Then it succeeds
+    And stderr contains "recorded by gtd 0.0.1"
+    And stderr contains the gtd version under test
+    And stdout is, with each <name> standing for the hash of that marked commit:
+      """
+      build <boundary>..<middle>
+      verify <middle>..<closing>
+      """
+    When I run gtd with args "slices --json"
+    Then it succeeds
+    And stderr contains "recorded by gtd 0.0.1"
     And stdout is, with each <name> standing for the hash of that marked commit:
       """
       {"schema":1,"slices":[{"name":"build","base":"<boundary>","tip":"<middle>","closed":true},{"name":"verify","base":"<middle>","tip":"<closing>","closed":true}]}

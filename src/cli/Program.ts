@@ -668,7 +668,8 @@ const runSlicesCommand = (
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const slices = yield* processSlices
+    const { slices, versionWarning } = yield* processSlices
+    if (versionWarning !== undefined) yield* (yield* Narrator).warn(versionWarning)
     if (json.kind === "off") {
       out.write(slices.map((s) => `${s.name} ${s.base}..${s.tip}\n`).join(""))
       return
