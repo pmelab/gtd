@@ -662,6 +662,35 @@ describe("ConfigService", () => {
       expect((await getConfig()).doors.get("fix")?.workflow).toBe("fix3")
     })
 
+    it("a door clash warns once at doors.<name>, builders sorted", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `export { feature as default, fix as fix3, fix as fix4, fix as fix2 } from "@pmelab/gtd/workflows"\n`,
+      )
+      const cfg = await getConfig()
+      const clash = cfg.warnings.filter((w) => w.path[0] === "doors")
+      expect(clash).toEqual([
+        {
+          severity: "warning",
+          path: ["doors", "fix"],
+          origin: join(projectDir, "gtd.config.ts"),
+          message: `door "fix" is built by workflows "fix2", "fix3" and "fix4" and none is exported under that name — declare it in the "doors" export`,
+        },
+      ])
+    })
+
+    it("no clash warning when an export is named after the door, one workflow builds it, or doors declares it", async () => {
+      const both = `export { feature as default, fix as fix2, fix as fix3 } from "@pmelab/gtd/workflows"`
+      for (const body of [
+        `export { feature as default, fix as fix2, fix } from "@pmelab/gtd/workflows"\n`,
+        `export { feature as default, fix } from "@pmelab/gtd/workflows"\n`,
+        `${both}\nexport const doors = { fix: { workflow: "fix3" } }\n`,
+      ]) {
+        writeFileSync(join(projectDir, "gtd.config.ts"), body)
+        expect((await getConfig()).warnings.filter((w) => w.path[0] === "doors")).toEqual([])
+      }
+    })
+
     it("door ownership does not depend on export order", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),

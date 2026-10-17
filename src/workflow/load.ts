@@ -38,8 +38,6 @@ export interface ConfigOperations {
   readonly workflowNamed: (name: string) => ResolvedWorkflow | undefined
   /** Every door `gtd door` accepts. A door's `workflow` resolves through `workflowNamed`. */
   readonly doors: ReadonlyMap<string, Door>
-  /** Door names several workflows build with no owner and no `doors` entry, onto their builders. */
-  readonly doorClashes: ReadonlyMap<string, readonly string[]>
   /** `config.ui` (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: flows.UiSettings
   /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
@@ -172,7 +170,6 @@ export const load: Effect.Effect<
     defaultWorkflow,
     workflowNames: names,
     doors: loaded.doors,
-    doorClashes: loaded.doorClashes,
     workflowNamed: (name) => {
       const entry = loaded.catalogue.get(name)
       return entry === undefined ? undefined : resolve(name, entry)
@@ -230,7 +227,6 @@ interface Loaded {
   /** Every startable workflow. */
   readonly catalogue: ReadonlyMap<string, LoadedWorkflow>
   readonly doors: ReadonlyMap<string, Door>
-  readonly doorClashes: ReadonlyMap<string, readonly string[]>
   /** What an ordinary start runs; absent only alongside an error in `diagnostics`. */
   readonly default: (LoadedWorkflow & { readonly name: string }) | undefined
   readonly config: CompiledConfig
@@ -652,10 +648,20 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
     file,
     catalogue,
     doors: rejections.length > 0 ? derived.doors : checkDoors(derived.doors, catalogue),
-    doorClashes: derived.clashes,
     default: defaultWorkflow && { ...defaultWorkflow, name: defaultName },
     config: compileConfig(exports["config"], module.filepath),
-    diagnostics: nameRejections(rejections),
+    diagnostics: [
+      ...nameRejections(rejections),
+      ...[...derived.clashes].map(([name, builders]): Diagnostic => {
+        const names = [...builders].sort().map((b) => JSON.stringify(b))
+        return {
+          severity: "warning",
+          message: `door "${name}" is built by workflows ${names.slice(0, -1).join(", ")} and ${names.at(-1)} and none is exported under that name — declare it in the "doors" export`,
+          path: ["doors", name],
+          origin: file.origin,
+        }
+      }),
+    ],
   }
 }
 
