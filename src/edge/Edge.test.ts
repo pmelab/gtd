@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest"
 import { runCli } from "../cli/index.js"
 import {
   currentRest,
-  closedRunAt,
   currentRun,
   historyTrail,
   noProcessUnderway,
+  processSlices,
   renderRest,
   restAt,
   restIsIdle,
@@ -596,31 +596,168 @@ export const summary = (it) => it.marks.map((m) => m.name + "=" + m.value).join(
   })
 })
 
-describe("Rest.slices", () => {
-  const SLICED = `import { agent, human, slice } from "@pmelab/gtd/flows"
-
-export default async () => {
-  await human("idle", { message: "idle-message" })
-  await slice("build", async () => {
-    await agent("building", "build-prompt")
-  })
-  await slice("verify", async () => {
-    await agent("checking", "check-prompt")
-  })
+const withTipMessage = (repo: InMemRepo, edit: (message: string) => string): GitOperations => {
+  const real = fakeGitOperations(repo)
+  const head = repo.resolveRef("HEAD")
+  return {
+    ...real,
+    commitHistory: (base, tip) =>
+      Effect.map(real.commitHistory(base, tip), (commits) =>
+        commits.map((c) => (c.hash === head ? { ...c, message: edit(c.message) } : c)),
+      ),
+  }
 }
-`
 
-  it("folds the replay's spans over the run's base and its last commit", async () => {
-    const repo = repoWith(SLICED)
-    const boundary = headOf(repo)
+describe("processSlices", () => {
+  const failure = async (repo: InMemRepo): Promise<string> => {
+    const exit = await provideExit(processSlices, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+    return Exit.isFailure(exit) ? String(exit.cause) : ""
+  }
+
+  it("never reports an open slice for a closed run whose replay no longer ends", async () => {
+    const repo = repoWith(LINEAR)
     await land(repo, { "a.txt": "a\n" })
-    const checking = await land(repo, { "b.txt": "b\n" })
-    const rest = await provide(currentRest, repo)
-    expect(rest.state).toBe("checking")
-    expect(rest.slices).toEqual([
-      { name: "build", base: boundary, tip: checking, open: false },
-      { name: "verify", base: checking, tip: checking, open: true },
-    ])
+    await land(repo, { "b.txt": "b\n" })
+    await land(repo, { "c.txt": "c\n" })
+    repo.writeFile(
+      "gtd.config.ts",
+      LINEAR.replace(
+        'await agent("checking", "check-prompt")',
+        'await agent("checking", "check-prompt")\n  await human("idle", { message: "again" })\n  await agent("polishing", "polish-prompt")',
+      ),
+    )
+    // Stands for a flow change with no in-repo config edit (an upgraded
+    // out-of-repo import): every ref reads as the working tree, so the
+    // config-differs refusal stays quiet and only replay drift remains.
+    const git: GitOperations = {
+      ...fakeGitOperations(repo),
+      readFileAtRef: (_ref, path) => Effect.succeed(repo.readFile(path) ?? ""),
+    }
+    const exit = await Effect.runPromiseExit(
+      processSlices.pipe(
+        Effect.provideService(GitService, git),
+        Effect.provide(testLayers(repo, {})),
+      ),
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    const message = Exit.isFailure(exit) ? String(exit.cause) : ""
+    expect(message).toContain(
+      `gtd slices: refused — ${repo.resolveRef("HEAD")!.slice(0, 7)} closes a process that does not end under today's config`,
+    )
+  })
+
+  it("never reports a closed slice for an underway run whose replay now ends", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    repo.writeFile(
+      "gtd.config.ts",
+      LINEAR.replace('  await agent("checking", "check-prompt")\n', ""),
+    )
+    const message = await failure(repo)
+    expect(message).toContain("gtd slices: refused")
+    expect(message).toContain("the workflow changed under this process")
+    expect(message).toContain("gtd abandon")
+    expect(message).not.toContain("gtd slices: gtd:")
+  })
+
+  it("refuses with no process at HEAD, naming that HEAD neither closes nor sits inside one", async () => {
+    const repo = repoWith(LINEAR)
+    expect(await failure(repo)).toContain(
+      "gtd slices: refused — HEAD neither closes nor sits inside a process",
+    )
+  })
+
+  it("refuses a renamed step with replay's message, prefixed and without a gtd: lead", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    repo.writeFile("gtd.config.ts", LINEAR.replace('agent("building"', 'agent("constructing"'))
+    const message = await failure(repo)
+    expect(message).toContain("gtd slices: refused — ")
+    expect(message).not.toContain("HEAD neither closes nor sits inside a process")
+    expect(message).not.toContain("refused — gtd: ")
+    expect(message).not.toContain("gtd slices: gtd:")
+  })
+
+  it("refuses a finished process whose config file was edited since", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    await land(repo, { "c.txt": "c\n" })
+    repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
+    const message = await failure(repo)
+    expect(message).toContain(
+      `gtd slices: refused — config differs at ${repo.resolveRef("HEAD")!.slice(0, 7)}: gtd.config.ts. HEAD's process replays under today's config; revert or stash the edit to list its slices`,
+    )
+  })
+
+  const finishedProcess = async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    await land(repo, { "c.txt": "c\n" })
+    return repo
+  }
+  const slicesWith = (repo: InMemRepo, git: GitOperations) =>
+    Effect.runPromise(
+      processSlices.pipe(
+        Effect.provideService(GitService, git),
+        Effect.provide(testLayers(repo, {})),
+      ),
+    )
+
+  it("warns about a closed run recorded by another version, slices unchanged", async () => {
+    const repo = await finishedProcess()
+    const plain = await provide(processSlices, repo)
+    const git = withTipMessage(repo, (m) =>
+      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
+    )
+    const result = await slicesWith(repo, git)
+    expect(result.versionWarning).toContain("0.0.1")
+    expect(result.versionWarning).toContain(GTD_VERSION)
+    expect(result.slices).toEqual(plain.slices)
+  })
+
+  it("warns about an unknown version when the closing commit records none", async () => {
+    const repo = await finishedProcess()
+    const git = withTipMessage(repo, (m) => m.replace(/Gtd-Version: .*\n?/, ""))
+    expect((await slicesWith(repo, git)).versionWarning).toContain("an unknown gtd version")
+  })
+
+  it("does not warn for a closed run landed at the running version", async () => {
+    const repo = await finishedProcess()
+    expect((await provide(processSlices, repo)).versionWarning).toBeUndefined()
+  })
+
+  it("does not warn for an underway process", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    const git = withTipMessage(repo, (m) =>
+      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
+    )
+    expect((await slicesWith(repo, git)).versionWarning).toBeUndefined()
+  })
+
+  it("refuses on config drift before replay-ends drift", async () => {
+    const repo = await finishedProcess()
+    repo.writeFile(
+      "gtd.config.ts",
+      LINEAR.replace(
+        'await agent("checking", "check-prompt")',
+        'await agent("checking", "check-prompt")\n  await human("idle", { message: "again" })\n  await agent("polishing", "polish-prompt")',
+      ),
+    )
+    const message = await failure(repo)
+    expect(message).toContain("config differs at")
+    expect(message).not.toContain("does not end")
+  })
+
+  it("still lists an underway process's slices after the same config edit", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
+    expect((await provide(processSlices, repo)).slices).toHaveLength(1)
   })
 })
 
@@ -1154,30 +1291,6 @@ describe("the pending working tree is read at most once per restAt, and never st
   })
 })
 
-describe("closedRunAt", () => {
-  it("is the run summaryRun reads when HEAD is the tip", async () => {
-    const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    await land(repo, { "b.txt": "b\n" })
-    const tip = await land(repo, { "c.txt": "c\n" })
-    expect(await provide(closedRunAt(tip), repo)).toEqual(await provide(summaryRun, repo))
-  })
-
-  it("resolves the closed run with HEAD elsewhere", async () => {
-    const repo = repoWith(LINEAR)
-    const building = await land(repo, { "a.txt": "a\n" })
-    await land(repo, { "b.txt": "b\n" })
-    const tip = await land(repo, { "c.txt": "c\n" })
-    const closed = await provide(closedRunAt(tip), repo)
-    repo.writeFile("d.txt", "d\n")
-    repo.seedCommit("chore: unrelated")
-    const later = await provide(closedRunAt(tip), repo)
-    expect(later).toEqual(closed)
-    expect(later.closingHash).toBe(tip)
-    expect(later.startHash).toBe(building)
-  })
-})
-
 describe("finishing landings keep history", () => {
   const landingOf = async (repo: InMemRepo, git?: GitOperations) => {
     const rest = await provide(currentRest, repo)
@@ -1467,14 +1580,6 @@ export default async () => {
     expect(trail.versionWarning).toBeUndefined()
   })
 
-  const withTipMessage = (repo: InMemRepo, edit: (message: string) => string): GitOperations => {
-    const real = fakeGitOperations(repo)
-    return {
-      ...real,
-      lastCommitMessage: (ref) => Effect.map(real.lastCommitMessage(ref), edit),
-    }
-  }
-
   it("warns, never refuses, when the recorded version differs", async () => {
     const { repo, tip } = await finished()
     const git = withTipMessage(repo, (m) =>
@@ -1504,13 +1609,63 @@ export default async () => {
     expect(trail.versionWarning).toContain(GTD_VERSION)
   })
 
+  it("reads a recorded version carrying control bytes as unknown", async () => {
+    const { repo, tip } = await finished()
+    const raw = "1.0\u001b]0;x\u0007"
+    const git = withTipMessage(repo, (m) =>
+      m.replace(`Gtd-Version: ${GTD_VERSION}`, `Gtd-Version: ${raw}`),
+    )
+    const trail = await Effect.runPromise(
+      historyTrail(tip).pipe(
+        Effect.provideService(GitService, git),
+        Effect.provide(testLayers(repo, {})),
+      ),
+    )
+    expect(trail.version.recorded).toBeUndefined()
+    expect(trail.versionWarning).toContain("an unknown gtd version")
+    // eslint-disable-next-line no-control-regex
+    expect(trail.versionWarning).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/)
+  })
+
   it("refuses naming the config file that differs at the tip", async () => {
     const { repo, tip } = await finished()
     repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
     repo.seedCommit("chore: edit config")
     const exit = await provideExit(historyTrail(tip), repo)
     expect(Exit.isFailure(exit)).toBe(true)
-    expect(String(Exit.isFailure(exit) && exit.cause)).toContain("gtd.config.ts")
+    expect(String(Exit.isFailure(exit) && exit.cause)).toContain(
+      `gtd history: refused — config differs at ${tip.slice(0, 7)}: gtd.config.ts. A history ref replays under today's config, so it is unreadable after the config changes`,
+    )
+  })
+
+  it("refuses a resting tip with the exact message", async () => {
+    const repo = repoWith(LINEAR)
+    const tip = await land(repo, { "a.txt": "a\n" })
+    const exit = await provideExit(historyTrail(tip), repo)
+    expect(String(Exit.isFailure(exit) && exit.cause)).toContain(
+      `gtd history: ${tip.slice(0, 7)} does not close a process under today's config`,
+    )
+  })
+
+  it("reads the episode's trees exactly once", async () => {
+    const { repo, tip } = await finished()
+    let calls = 0
+    const trail = await Effect.runPromise(
+      Effect.gen(function* () {
+        const real = yield* Workspace
+        return yield* historyTrail(tip).pipe(
+          Effect.provideService(Workspace, {
+            ...real,
+            episodeTrees: (...args: Parameters<typeof real.episodeTrees>) => {
+              calls++
+              return real.episodeTrees(...args)
+            },
+          }),
+        )
+      }).pipe(Effect.provide(testLayers(repo, {}))),
+    )
+    expect(trail.steps).toHaveLength(3)
+    expect(calls).toBe(1)
   })
 
   it("refuses naming a config file missing from the tip", async () => {

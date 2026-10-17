@@ -517,6 +517,20 @@ Then("stdout contains the hash of {string}", (world: GtdWorld, name: string) => 
   )
 })
 
+Then(
+  "stdout is, with each <name> standing for the hash of that marked commit:",
+  (world: GtdWorld, doc: string) => {
+    const expected = doc.replace(/<([^<>\s]+)>/g, (_token, name: string) =>
+      resolveHash(world, name),
+    )
+    assert.strictEqual(
+      world.lastResult.stdout,
+      `${expected}\n`,
+      `Expected stdout to be:\n${expected}\nGot:\n${world.lastResult.stdout}`,
+    )
+  },
+)
+
 Then("stdout does not contain the hash of {string}", (world: GtdWorld, name: string) => {
   const hash = resolveHash(world, name)
   assert.ok(

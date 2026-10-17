@@ -112,6 +112,7 @@ describe("parseArgv — scope", () => {
       ["judge", "--json"],
       ["judge", "answer", "--json"],
       ["doors", "--json"],
+      ["slices", "--json"],
     ]) {
       const ok = parseArgv(["node", "gtd.js", ...args])
       expect(ok.kind).toBe("command")
@@ -927,6 +928,40 @@ describe("parseArgv — doors", () => {
   })
 })
 
+describe("parseArgv — slices", () => {
+  const parse = (...args: string[]): CliPlan => parseArgv(["node", "gtd.js", ...args])
+
+  it("`gtd slices` parses with every --json shape", () => {
+    expect(parse("slices")).toMatchObject({
+      kind: "command",
+      command: { kind: "slices" },
+      json: { kind: "off" },
+    })
+    expect(parse("slices", "--json")).toMatchObject({ json: { kind: "document" } })
+    expect(parse("slices", "--json=slices.0.name")).toMatchObject({
+      json: { kind: "select", path: "slices.0.name" },
+    })
+  })
+
+  it("`gtd slices` takes no argument", () => {
+    const plan = parse("slices", "extra")
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
+  })
+
+  it("help lists the command, and --json names it", () => {
+    const help = renderHelp()
+    expect(help).toMatch(/^ {2}slices\b/m)
+    expect(help).toContain("gtd slices")
+  })
+
+  it("--json's scope error names gtd slices", () => {
+    const plan = parse("lsp", "--json")
+    expect(plan.kind).toBe("usage")
+    if (plan.kind === "usage") expect(plan.message).toContain("`gtd slices`")
+  })
+})
+
 describe("parseArgv — gtd history", () => {
   const parse = (...args: string[]) => parseArgv(["node", "gtd.js", ...args])
   const usage = (plan: CliPlan): string => (plan.kind === "usage" ? plan.message : "")
@@ -1057,6 +1092,7 @@ describe("standaloneKinds / needsOf", () => {
       "judgeAnswer",
       "door",
       "doors",
+      "slices",
       "historyList",
       "historyShow",
       "historyFetch",
@@ -1136,9 +1172,9 @@ describe("renderHelp", () => {
       expect(match, file).not.toBeNull()
       return new Set([...match![1]!.matchAll(/`([a-z]+(?: [a-z]+)?)`/g)].map(([, name]) => name!))
     }
-    expect(listed("../../README.md", /The `gtd` bin's commands — ([\s\S]*?) — are listed/)).toEqual(
-      commands,
-    )
+    expect(
+      listed("../../README.md", /The `gtd` bin's commands — ([\s\S]*?) — are\s+listed/),
+    ).toEqual(commands)
     expect(listed("../../COMPATIBILITY.md", /every command \(([\s\S]*?)\), option/)).toEqual(
       commands,
     )

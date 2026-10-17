@@ -196,7 +196,9 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
     if (value !== "") into.branch ??= value
   },
   "Gtd-Version": (value, into) => {
-    if (value !== "") into.version ??= value
+    // Untrusted (fetched history): control bytes would reach the terminal; a rejected value reads as unknown.
+    // eslint-disable-next-line no-control-regex
+    if (value !== "" && !/[\u0000-\u001f\u007f-\u009f]/.test(value)) into.version ??= value
   },
   "Gtd-Kept": (value, into) => {
     if (HASH_RE.test(value)) into.kept ??= value

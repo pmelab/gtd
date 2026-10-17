@@ -148,6 +148,18 @@ Commands:
                    each. --json prints one JSON array of { name, workflow,
                    args: [{ name, optional }] } instead; --json=<path> reads one
                    value off it. Writes nothing
+  slices           List the slices of the process HEAD closes or sits inside,
+                   first slice first: one `name base..tip` line each (full
+                   hashes; plain output carries no promise). --json prints
+                   { schema: 1, slices: [{ name, base, tip, closed }] };
+                   --json=<path> reads one value off it. Writes nothing: no
+                   git, no state transition, no session identity. When HEAD
+                   closes a process, every slice is listed as closed; a gtd
+                   version mismatch only warns on stderr. Refuses (exit 1)
+                   when HEAD neither closes nor sits inside a process, or when
+                   today's config disagrees with history about the process:
+                   HEAD closes it and its config files differ from the working
+                   tree, or the replay diverged
   judge            Print the resolved rest's pending judgment — the prepared
                    state, its typed questions, and their criteria — the same
                    judge field `gtd next --json` already carries. Read-only:
@@ -206,7 +218,7 @@ Commands:
   help             Print this help and exit
 
 Options:
-  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history
+  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd slices/gtd history
                    list/gtd history show/gtd strays only) output structured JSON. Bare --json prints the whole document;
                    --json=<path> (a dotted key path into that document, e.g.
                    kind, content, session.id) prints just that value: a
@@ -319,13 +331,13 @@ driving a loop is a driver's job, not a bundled command (see
 **stderr**, not stdout: stdout stays byte-empty on every failure, a usage error
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository.
-The state commands (`land`, `--workflow`, `door`, `doors`, `abandon`, `restore`,
-`next`, `status`, `validate`, `summary`, `ui`, `judge`, `judge answer`,
-`history list`, `history show`, `history fetch`) must run from the **repository
-root** — gtd derives the workflow, pending changes, and process history relative
-to cwd, so they refuse with a clear error from a subdirectory; `lsp`, `check`,
-`uncheck` and `strays` are standalone and run from anywhere (see each command's
-own help entry).
+The state commands (`land`, `--workflow`, `door`, `doors`, `slices`, `abandon`,
+`restore`, `next`, `status`, `validate`, `summary`, `ui`, `judge`,
+`judge answer`, `history list`, `history show`, `history fetch`) must run from
+the **repository root** — gtd derives the workflow, pending changes, and process
+history relative to cwd, so they refuse with a clear error from a subdirectory;
+`lsp`, `check`, `uncheck` and `strays` are standalone and run from anywhere (see
+each command's own help entry).
 
 `install` is described on its own above: it installs knowledge into the calling
 agent's context, and at a repository root no `gtd.config.ts` governs yet, the
@@ -395,8 +407,9 @@ own `gtd:`/`gtd <cmd>:` prefix is never doubled.
 
 Every JSON document a driver reads carries a top-level integer `schema`,
 currently `1`: `gtd next --json` (every beat kind), `gtd land --json`,
-`gtd judge answer --json`, and `gtd judge --json` (also the string a beat
-carries in `judge`). `gtd doors --json` is a bare array and carries none.
+`gtd judge answer --json`, `gtd judge --json` (also the string a beat carries in
+`judge`), and `gtd slices --json`. `gtd doors --json` is a bare array and
+carries none.
 
 - `schema` is bumped only when a field is removed or renamed.
 - Adding a field never bumps it: a driver ignores keys it does not know.
@@ -405,8 +418,10 @@ carries in `judge`). `gtd doors --json` is a bare array and carries none.
 
 ### Narration and remediation
 
-Stderr carries two things beyond the `gtd: ` message line above: NARRATION,
-gated by `--verbose`/`-v`, and REMEDIATION, unconditional.
+Stderr carries three things beyond the `gtd: ` message line above: NARRATION,
+gated by `--verbose`/`-v`, REMEDIATION, unconditional, and a WARNING, which
+`gtd slices` and `gtd history show` print when a finished process was recorded
+by another gtd version (with `--json` too, for `gtd slices`).
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
 command's dispatch already computes — which rest resolved, and which
@@ -428,6 +443,6 @@ in `format:`/`validate:` fails loudly, before it runs".)
 gtd is non-interactive: no readline, no `/dev/tty`, and no prompt call anywhere.
 If interaction is ever added, it goes to `/dev/tty`, never stderr, and never
 blocks — a question fails with a code when the tty cannot be opened rather than
-hanging. The reason is the section above: stderr already has two occupants,
-narration and remediation, and a question mixed into that stream would deadlock
-a driver that never reads stderr.
+hanging. The reason is the section above: stderr already has several occupants,
+narration, remediation and warnings, and a question mixed into that stream would
+deadlock a driver that never reads stderr.

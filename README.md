@@ -662,10 +662,15 @@ install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
 `@pmelab/gtd/*` imports to its own copy.
 
 The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
-`check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `version`,
-`help`, `history list`, `history show`, `history fetch`, `strays`, and the tools
-`ui`, `lsp`, `loop` and `judge` (`judge answer`, `judge run`) — are listed in
-the [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
+`check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `slices`,
+`version`, `help`, `history list`, `history show`, `history fetch`, `strays`,
+and the tools `ui`, `lsp`, `loop`, `judge` (`judge answer`, `judge run`) — are
+listed in the
+[CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
+`gtd slices` lists the spans a flow's `slice()` calls mark. It refuses (exit 1)
+when HEAD neither closes nor sits inside a process, or when today's config
+disagrees with history about the process; a version mismatch only warns on
+stderr.
 
 ## License
 

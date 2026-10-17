@@ -126,6 +126,8 @@ export type ReplayOutcome =
       readonly trace: readonly ReachedStep[]
       readonly landed: ReachedStep | undefined
       readonly marks: readonly Mark[]
+      /** Spans of the episode that just ended; a restart() inside a slice leaves its leftAt undefined. */
+      readonly slices: readonly SliceSpan[]
     }
   | { readonly kind: "divergence"; readonly message: string }
   | { readonly kind: "refused"; readonly message: string }
@@ -613,7 +615,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
           kind: "divergence",
           message: `gtd: the flow ended, but commit ${short(commits[cursor]!.hash)} continues the episode — ${DIVERGED}`,
         }
-      : { kind: "ended", via, trace, landed, marks }
+      : { kind: "ended", via, trace, landed, marks, slices: slices.map((s) => ({ ...s })) }
 
   const changesSince = (hash: string): readonly Change[] => {
     const tree = treeAt(hash)

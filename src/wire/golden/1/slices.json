@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "slices": [
+    {
+      "name": "build",
+      "base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tip": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "closed": true
+    }
+  ]
+}

@@ -1677,6 +1677,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     start: { kind: "start", actor: "human", workflow: "feature", vars: {}, label: "" },
     door: { kind: "door", name: "fix", args: [] },
     doors: { kind: "doors" },
+    slices: { kind: "slices" },
     abandon: { kind: "abandon" },
     restore: { kind: "restore" },
     next: { kind: "next" },
@@ -1703,13 +1704,14 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the sixteen non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the seventeen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
         "base",
         "door",
         "doors",
+        "slices",
         "start",
         "land",
         "next",

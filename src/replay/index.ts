@@ -12,4 +12,4 @@ export {
 export { accessShapeFault, foldAccess } from "./Access.js"
 export { formatFault } from "./Format.js"
 export { refNameFault } from "./RefName.js"
-export { sliceRanges, type SliceRange } from "./Slices.js"
+export { sliceRanges } from "./Slices.js"
