@@ -439,6 +439,52 @@ Feature: gtd summary --slice — the closing-message prompt for one slice
     And stderr contains "no slice named \"nope\""
     And stderr contains "build, verify"
 
+  Scenario: an unknown slice name on a process recorded by another gtd version warns before it refuses
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, slice } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await slice("build", async () => {
+          await agent("building", "build it")
+        })
+        await slice("verify", async () => {
+          await agent("checking", "check it")
+        })
+      }
+
+      export const summary = (it) => `Range: ${it.processBase}..${it.processTip}`
+      """
+    And the working tree is committed as "chore: gtd config"
+    And a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And a file "a.txt" with:
+      """
+      a
+      """
+    And gtd lands "gtd(agent): building → checking"
+    And a file "b.txt" with:
+      """
+      b
+      """
+    And the working tree is committed with message:
+      """
+      gtd(agent): checking → idle
+
+      Gtd-Step: checking#1
+      Gtd-Version: 0.0.1
+      Gtd-Format: 1
+      """
+    When I run gtd with args "summary --slice nope"
+    Then the exit code is 1
+    And stdout is empty
+    And stderr matches "recorded by gtd 0.0.1(.|\n)*gtd summary: refused — no slice named \"nope\""
+
   Scenario: --slice on a fresh idle repo is refused
     Given a test project
     And the workflow gtd install scaffolds

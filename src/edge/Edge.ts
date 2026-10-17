@@ -906,6 +906,11 @@ const costByModel = (entries: readonly CostEntry[]): ModelCost[] => {
     .sort((a, b) => b.cost - a.cost || a.model.localeCompare(b.model))
 }
 
+const costTotals = (entries: readonly CostEntry[]): Rest["cost"] => ({
+  total: entries.reduce((sum, entry) => sum + entry.cost, 0),
+  byModel: costByModel(entries),
+})
+
 export type RestRequirements = ConfigRequirements
 
 const setupFor = (
@@ -1063,10 +1068,7 @@ export const restAt = (
       memory: memory.key,
       memoryResumed: memory.resumed,
       hints: hintsOf(stepDef),
-      cost: {
-        total: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
-        byModel: costByModel(run.costEntries),
-      },
+      cost: costTotals(run.costEntries),
       setup,
     }
   })
@@ -1096,6 +1098,7 @@ const slicesDivergence = (command: string, run: ProcessRun, outcome: ReplayOutco
  * `restAt`: it narrates and writes nothing.
  */
 const replayedSlices = (
+  config: ConfigOperations,
   run: ProcessRun,
   how: { readonly command: string; readonly configReason: string },
 ): Effect.Effect<
@@ -1108,7 +1111,6 @@ const replayedSlices = (
   RestRequirements
 > =>
   Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
     const workspace = yield* Workspace
     const host = yield* Host
     if (run.trace.length === 0) {
@@ -1149,7 +1151,7 @@ export const processSlices: Effect.Effect<ProcessSlices, Error, RestRequirements
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
     const run = yield* runAtHead(git, config.workflow)
-    const { ranges, closed, versionWarning } = yield* replayedSlices(run, {
+    const { ranges, closed, versionWarning } = yield* replayedSlices(config, run, {
       command: "gtd slices",
       configReason:
         "HEAD's process replays under today's config; revert or stash the edit to list its slices",
@@ -1165,40 +1167,6 @@ export const processSlices: Effect.Effect<ProcessSlices, Error, RestRequirements
     }
   },
 )
-
-/**
- * The named slice of `run`, from the same replay `gtd slices` runs. An unknown
- * name fails naming every valid slice in stack order; a version mismatch is
- * returned as `versionWarning`, never a failure.
- */
-export const summarySlice = (
-  run: ProcessRun,
-  name: string,
-): Effect.Effect<
-  { readonly slice: SummarySlice; readonly versionWarning?: string },
-  Error,
-  RestRequirements
-> =>
-  Effect.gen(function* () {
-    const { ranges, versionWarning } = yield* replayedSlices(run, {
-      command: "gtd summary",
-      configReason:
-        "HEAD's process replays under today's config; revert or stash the edit to summarize its slices",
-    })
-    const at = ranges.findIndex((r) => r.name === name)
-    if (at < 0) {
-      return yield* Effect.fail(
-        new Error(
-          `gtd summary: refused — no slice named "${name}"; the slices, in stack order: ${ranges.map((r) => r.name).join(", ")}`,
-        ),
-      )
-    }
-    const { base, tip } = ranges[at]!
-    return {
-      slice: { name, base, tip, index: at + 1, count: ranges.length },
-      ...(versionWarning !== undefined ? { versionWarning } : {}),
-    }
-  })
 
 /**
  * Whether `gtd --workflow <name>` can start a process here: the workflow must
@@ -1506,68 +1474,87 @@ export const snapshotFromRest = (
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 
-/**
- * The trace window and cost entries of `slice`, or `undefined` when it lies
- * outside the process: a guard against a `run`/`slice` pair from different
- * replays, which `summarySlice` never produces.
- */
+/** The trace window and cost entries of `slice`, or the whole run's when there is none. */
 const narrowToSlice = (
   run: ProcessRun,
   slice: SummarySlice | undefined,
-): Pick<ProcessRun, "trace" | "costEntries"> | undefined => {
+): Pick<ProcessRun, "trace" | "costEntries"> => {
   if (slice === undefined) return { trace: run.trace, costEntries: run.costEntries }
   // `base` is exclusive: -1 when it is the episode's start parent, before the first entry.
   const from =
     slice.base === run.startParentHash ? -1 : run.trace.findIndex((e) => e.hash === slice.base)
   const to = run.trace.findIndex((e) => e.hash === slice.tip)
-  if ((from < 0 && slice.base !== run.startParentHash) || to < 0) return undefined
   const trace = run.trace.slice(from + 1, to + 1)
   const hashes = new Set(trace.map((e) => e.hash))
   return { trace, costEntries: run.costEntries.filter((c) => hashes.has(c.hash)) }
 }
 
-/** Whether `run`'s workflow declares a `summary` template; checked before `--slice` pays for a replay. */
-export const hasSummary = (run: ProcessRun): Effect.Effect<boolean, Error, ConfigRequirements> =>
-  Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
-    return (yield* workflowOf(config, run)).def.summary !== undefined
-  })
+export interface SummaryResult {
+  readonly prompt: string | undefined
+  readonly versionWarning?: string
+  readonly refusal?: string
+}
 
 /**
- * `gtd summary`'s prompt for `run`, or `undefined` when the workflow has none or there is nothing to summarize.
- * `slice` narrows range, human commits and cost to its trace window; `entryCommit` and `marks` stay whole-process.
+ * `gtd summary`'s prompt for `run`, or `prompt: undefined` when the workflow has no
+ * `summary` template or (plain call) there is nothing to summarize. With `sliceName`
+ * it replays like `gtd slices` and narrows range, human commits and cost to that
+ * slice; `entryCommit` and `marks` stay whole-process. An unknown name is a
+ * `refusal`, a version mismatch a `versionWarning`; the edge never narrates.
  */
 export const summaryFor = (
   run: ProcessRun,
-  slice?: SummarySlice,
-): Effect.Effect<string | undefined, Error, RestRequirements> =>
+  sliceName?: string,
+): Effect.Effect<SummaryResult, Error, RestRequirements> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
     const host = yield* Host
     const resolved = yield* workflowOf(config, run)
     const summary = resolved.def.summary
-    if (summary === undefined || run.trace.length === 0) return undefined
-    const entryCommit = run.trace[0]!.hash
-    const narrowed = narrowToSlice(run, slice)
-    if (narrowed === undefined) {
-      return yield* Effect.fail(
-        new Error(`gtd summary: refused — slice "${slice!.name}" lies outside the process`),
-      )
+    if (summary === undefined) return { prompt: undefined }
+    let slice: SummarySlice | undefined
+    let versionWarning: string | undefined
+    if (sliceName === undefined) {
+      if (run.trace.length === 0) return { prompt: undefined }
+    } else {
+      const replayed = yield* replayedSlices(config, run, {
+        command: "gtd summary",
+        configReason:
+          "HEAD's process replays under today's config; revert or stash the edit to summarize its slices",
+      })
+      versionWarning = replayed.versionWarning
+      const { ranges } = replayed
+      const at = ranges.findIndex((r) => r.name === sliceName)
+      if (at < 0) {
+        return {
+          prompt: undefined,
+          refusal: `gtd summary: refused — no slice named "${sliceName}"; the slices, in stack order: ${ranges.map((r) => r.name).join(", ")}`,
+          ...(versionWarning !== undefined ? { versionWarning } : {}),
+        }
+      }
+      const { base, tip } = ranges[at]!
+      slice = { name: sliceName, base, tip, index: at + 1, count: ranges.length }
     }
-    const { trace, costEntries } = narrowed
-    return summary({
+    const entryCommit = run.trace[0]!.hash
+    const { trace, costEntries } = narrowToSlice(run, slice)
+    const { total, byModel } = costTotals(costEntries)
+    const prompt = summary({
       entryCommit,
       processBase: slice?.base ?? run.startParentHash,
       processTip: slice?.tip ?? run.trace[run.trace.length - 1]!.hash,
       humanCommits: trace
         .filter((entry) => entry.actor === "human" && entry.hash !== entryCommit)
         .map((entry) => ({ hash: entry.hash, state: entry.state })),
-      processCost: costEntries.reduce((sum, entry) => sum + entry.cost, 0),
-      processCostByModel: costByModel(costEntries),
+      processCost: total,
+      processCostByModel: byModel,
       marks: run.marks,
       ...settingsFor(resolved, run.pinnedVars, host.env, {}, {}),
       ...(slice !== undefined ? { slice } : {}),
     })
+    return {
+      prompt,
+      ...(versionWarning !== undefined ? { versionWarning } : {}),
+    }
   })
 
 export interface HistoryStep {

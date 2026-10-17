@@ -429,8 +429,9 @@ carries none.
 
 Stderr carries three things beyond the `gtd: ` message line above: NARRATION,
 gated by `--verbose`/`-v`, REMEDIATION, unconditional, and a WARNING, which
-`gtd slices` and `gtd history show` print when a finished process was recorded
-by another gtd version (with `--json` too, for `gtd slices`).
+`gtd slices`, `gtd summary --slice` and `gtd history show` print when a finished
+process was recorded by another gtd version (with `--json` too, for
+`gtd slices`).
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
 command's dispatch already computes — which rest resolved, and which

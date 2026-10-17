@@ -1881,6 +1881,23 @@ export const summary = (c) => \`\${c.slice ? c.slice.name + " " + c.slice.index 
     expect(stderr).toContain("recorded by gtd 0.0.1")
     expect(stdout).toContain("verify 2/2")
   })
+
+  it("an unknown name still prints the version warning, before the refusal", async () => {
+    const repo = seed(SLICED)
+    await landTurn(repo, { "NOTE.md": "a note\n" })
+    await landTurn(repo, { "WORK.md": "done\n" })
+    repo.writeFile("POLISH.md", "ok\n")
+    repo.seedCommit(
+      "gtd(agent): polishing → idle\n\nGtd-Step: polishing#1\nGtd-Version: 0.0.1\nGtd-Format: 1",
+    )
+    const { exitCode, stdout, stderr } = await run(repo, "summary", "--slice", "nope")
+    expect(exitCode).toBe(1)
+    expect(stdout).toBe("")
+    const warning = stderr.indexOf("recorded by gtd 0.0.1")
+    const refusal = stderr.indexOf('gtd summary: refused — no slice named "nope"')
+    expect(warning).toBeGreaterThanOrEqual(0)
+    expect(refusal).toBeGreaterThan(warning)
+  })
 })
 
 describe("gtd base — prints the review anchor hash", () => {
