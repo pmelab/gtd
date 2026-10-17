@@ -71,6 +71,23 @@ export type ContinueIo = {
   // the rest's own `gtd validate` script, run; ok when there is nothing to check
   validate(): Promise<{ ok: boolean; out: string }>
   judgment(): Promise<Judgment | undefined>
+  // a ship or hand-off running or queued: it writes the tree the driver would
+  busy?: JobName
+}
+
+export type JobName = "ship" | "handoff"
+
+export const JOB_NAME: Record<JobName, string> = { ship: "ship", handoff: "hand-off" }
+
+// Pure: a refused job leaves the run, and so `continue`, as it was.
+export function decideJob(run: Run, job: JobName): string | undefined {
+  if (run.isRunning) return "gtd is running a step: wait for it to rest."
+  if (run.pending) return "A continue is already waiting for this turn to end."
+  const kind = run.stop?.kind
+  if (job === "ship" && (kind === "gate" || kind === "stalled" || kind === "error")) {
+    return "gtd still waits on the person at this step: answer it with continue first."
+  }
+  return undefined
 }
 
 // What `continue` may do from here. `rest` undefined is the band's Continue,
@@ -82,6 +99,7 @@ export async function decideContinue(
   io: ContinueIo,
 ): Promise<Proceed> {
   if (run.isRunning) return { refuse: "gtd is already running a step." }
+  if (io.busy) return { refuse: `A ${JOB_NAME[io.busy]} is still running: wait for its report.` }
   const stop = run.stop
   if (!stop) return { refuse: "Nothing is waiting: gtd has no rest open. /gtd drives it." }
   if (stop.kind === "done") {

@@ -22,6 +22,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Lockfile is unchanged by install
+        run: git diff --exit-code package-lock.json
+
       # CI-only on purpose: expiry depends on the date, so loop gates (npm test)
       # must not go red when a flag expires.
       - name: Lint feature flag lifecycle

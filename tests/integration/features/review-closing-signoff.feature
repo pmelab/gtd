@@ -63,6 +63,86 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
     And the last commit subject is "gtd(check): build.review.closing → idle"
     And ".gtd/REVIEW.md" does not exist
 
+  Scenario: an untouched review at the gate signs off — the review workflow moves to closing
+    Given a test project
+    And the workflow gtd install scaffolds
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd starts workflow "review" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1
+      new add function
+      """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
+    When I run gtd next with "--json"
+    And I execute the printed check script
+    And I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.closing → idle"
+
+  Scenario: an untouched review at the gate signs off — the feature workflow moves to closing, not a no-op rest
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+      """
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd starts workflow "review" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1
+      new add function
+      """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
+
   Scenario: no `.gtd/REVIEW.md` at HEAD is not a sign-off — the round rests at the review-missing human gate
     # The flow detects it by the file's ABSENCE at the review commit, not by
     # the diff, so a broken round can never be mistaken for an approval of

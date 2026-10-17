@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import { cleanReply, costTrailers, READ_ONLY_GIT, ship } from "./ship"
+import { cleanReply, costTrailers, READ_ONLY_GIT, ship, THROWN } from "./ship"
 import type { Ran, ShipIo } from "./ship"
 
 const BASE = "b".repeat(40)
@@ -108,6 +108,70 @@ describe("ship", () => {
     expect(await ship(io, false)).toMatchObject({ ok: true })
     expect(ran()).toContain(`git config --local branch.feat/x.prSyncHead ${TIP}`)
     expect(ran().some((c) => c.startsWith("gh pr edit"))).toBe(false)
+  })
+
+  test("a failing git push reports failure naming the push", async () => {
+    const { io, ran } = repo({ ...feature, "git push --set-upstream origin feat/x": { code: 1 } }, [
+      "feat: add x",
+      "feat: add x\n\nbody",
+    ])
+    expect(await ship(io, false)).toMatchObject({
+      ok: false,
+      text: expect.stringMatching(/git push/),
+    })
+    expect(ran().some((c) => c.startsWith("gh pr create"))).toBe(false)
+  })
+
+  test("a failing gh pr create reports failure naming it", async () => {
+    const { io } = repo(
+      {
+        ...feature,
+        "gh pr create --head feat/x --base main --title feat: add x --body-file -": {
+          code: 1,
+          err: "denied",
+        },
+      },
+      ["feat: add x", "feat: add x\n\nbody"],
+    )
+    expect(await ship(io, false)).toMatchObject({
+      ok: false,
+      text: expect.stringMatching(/gh pr create/),
+    })
+  })
+
+  test("rewriting a thrown draft whose gh pr ready fails reports failure", async () => {
+    const pr = { number: 9, url: "u", state: "OPEN", body: `${THROWN}\nwaiting` }
+    const { io, ran } = repo(
+      {
+        ...feature,
+        "gtd summary": { code: 1 },
+        "gh pr view --json number,title,body,url,state": { out: JSON.stringify(pr) },
+        "gh pr ready 9": { code: 1, err: "nope" },
+      },
+      ["feat: add x\n\nwhy"],
+    )
+    expect(await ship(io, false)).toMatchObject({
+      ok: false,
+      text: expect.stringMatching(/gh pr ready/),
+    })
+    // nothing was rewritten, so the THROWN marker stays and a retry reaches ready again
+    expect(ran().some((c) => c.startsWith("gh pr edit"))).toBe(false)
+  })
+
+  test("rewriting a thrown draft whose gh pr edit fails says it is already ready", async () => {
+    const pr = { number: 9, url: "u", state: "OPEN", body: `${THROWN}\nwaiting` }
+    const { io } = repo(
+      {
+        ...feature,
+        "gtd summary": { code: 1 },
+        "gh pr view --json number,title,body,url,state": { out: JSON.stringify(pr) },
+        "gh pr edit 9 --title feat: add x --body-file -": { code: 1, err: "nope" },
+      },
+      ["feat: add x\n\nwhy"],
+    )
+    const shipped = await ship(io, false)
+    expect(shipped).toMatchObject({ ok: false, text: expect.stringMatching(/gh pr edit.*ready/) })
+    expect(shipped.text).not.toMatch(/unchanged/)
   })
 
   test("a dry run writes nothing", async () => {

@@ -324,18 +324,24 @@ Then, in any repository:
 /gtd Add a --json flag to the export command
 ```
 
-That starts a process from your requirements and drives it until it needs you.
-`/gtd fix` and `/gtd review [base]` take the two doors described below. At every
-human rest Claude itself takes over: it walks you through the open questions one
-at a time, answers your own questions about the plan or the diff, records what
-you decide in the steering file the way the step asks, and moves the process on
-only when you say so. While a step runs you can keep asking; requests for
-changes wait for the next rest. When the process finishes, Claude offers to
-squash it into one commit and open its pull request (or run `/gtd ship`). A
-process can change hands at any gate: ask Claude to hand it off (or run
-`/gtd throw @dev`) and it opens a draft pull request assigned to them, and
-`/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
-requirements can hand the architecture to someone else. See
+That starts a process from your requirements and drives it until it needs you. A
+long, multi-line requirements paste still starts a process; if Claude Code never
+expanded the paste, gtd says it could not read it, and you write the
+requirements to `.gtd/TODO.md` and run `/gtd`. `/gtd fix` and
+`/gtd review [base]` take the two doors described below. At every human rest
+Claude itself takes over: it walks you through the open questions one at a time,
+answers your own questions about the plan or the diff, records what you decide
+in the steering file the way the step asks, and moves the process on only when
+you say so; a review you leave untouched signs off. While a step runs you can
+keep asking; requests for changes wait for the next rest. When the process
+finishes, Claude offers to squash it into one commit and open its pull request
+(or run `/gtd ship`). A process can change hands at any gate: ask Claude to hand
+it off (or run `/gtd throw @dev`) and it opens a draft pull request assigned to
+them, and `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote
+the requirements can hand the architecture to someone else. Ship, hand-off and
+throw answer at once and run in the background, with progress on the status
+line; they report by waking Claude, a toast, a transcript line and a push
+notification, and a failed push or `gh` call reports as a failure. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own

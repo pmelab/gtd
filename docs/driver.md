@@ -286,7 +286,9 @@ falls back to the `gtd` on your `PATH`.
 
 - `/gtd <requirements>` starts a new process: the requirements become the
   steering file the idle rest names (`.gtd/TODO.md`), and the opening beat
-  captures them. It refuses while another process is underway.
+  captures them. It refuses while another process is underway. A long,
+  multi-line paste works too; if Claude Code did not expand it, the mod says it
+  could not read it: write the requirements to `.gtd/TODO.md` and run `/gtd`.
 - `/gtd` drives beats until the process rests on you, exactly as the minimal
   driver below does: the opening beat lands, a later gate stops. At idle with
   nothing pending it only tells you how to start.
@@ -305,7 +307,10 @@ falls back to the `gtd` on your `PATH`.
 - The model moves gtd only through tools the mod serves, never through `gtd`
   itself: `continue` (only after you said to; it refuses once gtd has left that
   rest, and runs the step's `gtd validate` first, sending any findings back
-  instead of landing), `note`, `handoff`, `ship` and `browser`.
+  instead of landing), `note`, `handoff`, `ship` and `browser`. A review gate
+  you leave untouched signs off, from every driver. `ship` and `handoff` refuse
+  while a step runs (`ship` also while gtd waits on you) and leave the rest
+  open, so `continue` still works.
 - While a step runs, the session's model may not edit files (Bash is not
   checked): ask questions and it answers read-only, or ask for a change and it
   is kept as a note for the next rest. At a question gate it may write only that
@@ -333,6 +338,12 @@ falls back to the `gtd` on your `PATH`.
   the default branch unless named).
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
   `/gtd ui` starts the browser view of the rest it waits at.
+- `/gtd throw`, `/gtd ship [-n]` and their tools (`handoff`, `ship`) answer at
+  once and run in the background, one at a time; progress shows on the status
+  line. When the job ends it reports by waking Claude, a toast, a transcript
+  line and a push notification. A failed `git push` or `gh` call reports as a
+  failure naming the step; a failure after the squash keeps the squash, and
+  `/gtd ship` again pushes the already-squashed branch.
 - `/gtd throw [@user]` hands the process to someone else. It needs a clean tree:
   proceed or stash a half-made answer first, and refuses when `origin` holds
   commits your branch lacks. It pushes the branch (moving the process to a new

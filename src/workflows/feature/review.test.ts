@@ -509,13 +509,19 @@ describe("severity routing", () => {
       notes: ["add — quote", "sub", "mul"],
       answers: { "note-1": verdict("edit"), ...sev("note-1", could) },
     })
-    expect(run.gates).toEqual([false, true])
+    expect(run.gates).toEqual([true, true])
     expect(run.gateMessages[1]).toContain("NOT acted on")
     expect(run.gateMessages[1]).toContain("note-1")
     expect(run.gateMessages[0]).not.toContain("NOT acted on")
   })
 
-  it("a later gate does not accept a clean land after a deferral round with a nit", async () => {
+  it("the first round's gate accepts a clean land", async () => {
+    const run = await drive({ notes: ["add", "sub", "mul"] })
+    expect(run.gates.length).toBeGreaterThan(0)
+    expect(run.gates.every((g) => g)).toBe(true)
+  })
+
+  it("a later gate still accepts a clean land after a deferral round with a nit", async () => {
     const run = await drive({
       notes: ["add — quote", "sub — typo", "mul"],
       answers: {
@@ -527,7 +533,7 @@ describe("severity routing", () => {
     })
     expect(run.log).toContain("review.defer")
     expect(run.log.at(-1)).toBe("review.await-review")
-    expect(run.gates).toEqual([false, false])
+    expect(run.gates).toEqual([true, true])
   })
 
   it("a question and a could note in one round: the gate's base is the answering commit", async () => {

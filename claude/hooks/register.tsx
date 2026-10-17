@@ -4,22 +4,27 @@ import type { EngineInterface, Register } from "claude-code"
 import type { Run, Stop } from "../types"
 import { accessDenial, mainDenial } from "./access"
 import type { AccessDef } from "./access"
-import { wakePrompt, wakes } from "./assist"
+import { jobPrompt, wakePrompt, wakes } from "./assist"
 import { afterReload, drive, isTrue } from "./drive"
 import type { Io, Opening, Turn, TurnEnd } from "./drive"
 import { doors, enter } from "./doors"
 import { subagentModel } from "./models"
+import { pastedCommand } from "./paste"
 import { personaSpec, resumable } from "./persona"
 import { JUDGE_SYSTEM, judgePrompt, judgeQuestions, judgeRunEnv, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
+import { jobs } from "./jobs"
 import { documents, readDocument } from "./schema"
 import { READ_ONLY_GIT, ship } from "./ship"
-import type { ShipIo } from "./ship"
-import { decideContinue, restId, TOOLS } from "./tools"
+import type { Shipped, ShipIo } from "./ship"
+import { decideContinue, decideJob, JOB_NAME, restId, TOOLS } from "./tools"
+import type { JobName } from "./tools"
 import {
   beatLine,
   headline,
+  jobHeadline,
+  jobPushText,
   pushText,
   restartLine,
   RELOAD_CUT_SCRIPT,
@@ -52,7 +57,6 @@ let stepStartedAt = Date.now()
 // Set before the first await of `start`, so two Continue presses arriving
 // together cannot both pass the isRunning check and start two drivers.
 let isDriving = false
-let isShipping = false
 // bumped by every stop, so a queued continue that was mid-check sees it
 let stopCount = 0
 // subagents answering into a file: what each may touch (see tool.call)
@@ -219,7 +223,7 @@ async function head($: $) {
 }
 
 async function start($: $, opening: Opening = {}) {
-  if (isDriving) return
+  if (isDriving || background.busy()) return
   isDriving = true
   closeUi()
   moveOn($)
@@ -371,45 +375,75 @@ async function browse($: $) {
 
 // A gate is news even when nobody watches the terminal: a push reaches the
 // phone over Remote Control, and the engine drops it while the person is here.
+const repoName = () => root.split("/").pop() ?? "gtd"
+
 async function push($: $, stop: Stop, url?: string) {
-  const repo = root.split("/").pop() ?? "gtd"
+  await notify($, pushText(stop, repoName(), url))
+}
+
+async function notify($: $, message: string) {
   try {
-    await $.tool.call({
-      tool: "PushNotification",
-      message: pushText(stop, repo, url),
-      status: "proactive",
-    })
+    await $.tool.call({ tool: "PushNotification", message, status: "proactive" })
   } catch {
     // no push channel: the dialog and the band still say it
   }
 }
 
-async function throwNow($: $, target: string | undefined) {
-  if ((await read($, run)).isRunning) return "Stop the loop first: /gtd stop."
-  closeUi()
-  moveOn($)
-  const b = await docs($).next()
-  $.ui.status("handing off…")
-  const rest = {
-    state: b.state,
-    label: b.label,
-    content: b.content,
-    isIdle: isTrue(b.idle),
-  }
-  const thrown = await throwTo(shipIo($), rest, target, new Date().toISOString()).catch(
-    (err: unknown) => ({ ok: false, text: String(err) }),
+const background = jobs()
+
+// A job asked from the model's tool call waits for that turn to end; one asked
+// from the command starts right after, off the hook, so the command answers in
+// budget. Either way the slot is claimed now, with the job's own effect.
+function startJob(
+  $: $,
+  job: JobName,
+  isInTurn: boolean,
+  work: () => Promise<Shipped>,
+  then?: (outcome: Shipped) => Promise<void>,
+) {
+  const answer = background.start(job, work, true, async (outcome) => {
+    if (then) await then(outcome)
+    $.ui.status(undefined)
+    for (const line of outcome.text.split("\n")) $.ui.log(line)
+    $.ui.toast(jobHeadline(job, outcome))
+    await notify($, jobPushText(job, outcome, repoName()))
+    const text = jobPrompt(job, outcome)
+    $.clock.after(0, () => void $.prompt.submit({ text }))
+  })
+  if (!isInTurn) $.clock.after(0, () => background.flush())
+  return answer
+}
+
+async function throwNow($: $, target: string | undefined, isInTurn: boolean) {
+  const refused = decideJob(await read($, run), "handoff")
+  if (refused) return refused
+  return startJob(
+    $,
+    "handoff",
+    isInTurn,
+    async () => {
+      closeUi()
+      moveOn($)
+      const b = await docs($).next()
+      $.ui.status("handing off…")
+      const rest = {
+        state: b.state,
+        label: b.label,
+        content: b.content,
+        isIdle: isTrue(b.idle),
+      }
+      return throwTo(shipIo($), rest, target, new Date().toISOString())
+    },
+    async (thrown) => {
+      if (!thrown.ok) return
+      await update($, run, (r) => ({
+        ...r,
+        url: undefined,
+        uiNote: undefined,
+        stop: { kind: "stopped" as const, text: thrown.text },
+      }))
+    },
   )
-  $.ui.status(undefined)
-  for (const line of thrown.text.split("\n")) $.ui.log(line)
-  if (thrown.ok) {
-    await update($, run, (r) => ({
-      ...r,
-      url: undefined,
-      uiNote: undefined,
-      stop: { kind: "stopped" as const, text: thrown.text },
-    }))
-  }
-  return thrown.text
 }
 
 async function enterNow($: $, door: string, args: string[]) {
@@ -499,8 +533,10 @@ async function delegate($: $, who: Delegate, prompt: string, model: string, deli
   if (!id) return undefined
   ours.add(id)
   delegates.set(id, { file, mayRun: who.mayRun })
-  const ended = await turnEnd(id)
-  delegates.delete(id)
+  const ended = await Promise.race([turnEnd(id), $.clock.sleep(TEN_MINUTES).then(() => undefined)])
+  // A timed-out agent may still be running: it keeps its tool limits (and its
+  // answer file) until its turn ends, where turn.complete drops them.
+  if (!ended) return undefined
   try {
     return ended.ok ? await $.fs.read(file) : undefined
   } catch {
@@ -544,25 +580,28 @@ function shipIo($: $): ShipIo {
     complete: (prompt) => writer($, prompt),
     log: (line) => {
       for (const l of line.split("\n")) $.ui.log(l)
+      if (background.busy()) $.ui.status(line.split("\n")[0]!)
     },
     today: () => new Date().toISOString().slice(0, 10),
   }
 }
 
-async function shipNow($: $, isDry: boolean) {
-  if (isShipping) return "A pull request is already being prepared."
-  isShipping = true
-  await dismiss($)
-  $.ui.status(isDry ? "previewing the pull request…" : "opening the pull request…")
-  const shipped = await ship(shipIo($), isDry).catch((err: unknown) => ({
-    ok: false,
-    text: String(err),
-  }))
-  isShipping = false
-  $.ui.status(undefined)
-  for (const line of shipped.text.split("\n")) $.ui.log(line)
-  $.ui.toast(shipped.ok ? "pull request ready" : "opening the pull request failed")
-  return shipped.text
+async function shipNow($: $, isDry: boolean, isInTurn: boolean) {
+  const refused = decideJob(await read($, run), "ship")
+  if (refused) return refused
+  return startJob(
+    $,
+    "ship",
+    isInTurn,
+    async () => {
+      $.ui.status(isDry ? "previewing the pull request…" : "opening the pull request…")
+      return ship(shipIo($), isDry)
+    },
+    async (shipped) => {
+      // a failed ship leaves the run as it was; a dry run changes nothing
+      if (shipped.ok && !isDry) await dismiss($)
+    },
+  )
 }
 
 // Turns a missing CLI or a wrong directory into an instruction, not a stack trace.
@@ -641,6 +680,7 @@ async function proceed(
   const go = await decideContinue(r, rest, verdicts, {
     current: () => currentRest($, r.stop?.state),
     validate: () => validateRest($),
+    busy: background.busy(),
     judgment: async () => {
       const doc = await gtd($, ["judge", "--json"]).catch(() => undefined)
       return doc === undefined ? undefined : readDocument<Judgment>("judge --json", doc)
@@ -772,7 +812,7 @@ async function command($: $, arg: string): Promise<string | undefined> {
     case "status":
       return gtd($, ["next"])
     case "throw":
-      return throwNow($, rest[0])
+      return throwNow($, rest[0], false)
     case "ui":
       return browse($)
     case "catch":
@@ -780,7 +820,7 @@ async function command($: $, arg: string): Promise<string | undefined> {
         ? catchNow($, rest[0])
         : "Name the pull request or branch: /gtd catch <number|branch>."
     case "ship":
-      return shipNow($, rest[0] === "-n" || rest[0] === "--dry-run")
+      return shipNow($, rest[0] === "-n" || rest[0] === "--dry-run", false)
     case "":
       return resume($)
     default:
@@ -791,6 +831,8 @@ async function command($: $, arg: string): Promise<string | undefined> {
 }
 
 async function resume($: $) {
+  const busy = background.busy()
+  if (busy) return `A ${JOB_NAME[busy]} is still running: wait for its report.`
   const b = await docs($).next()
   if (isTrue(b.idle)) {
     return `Nothing is in progress. Start a process with /gtd <requirements>, or sketch the change in ${b.file ?? ".gtd/TODO.md"} and run /gtd.`
@@ -912,10 +954,14 @@ export const register: Register = (on) => {
   }).catch(($, e, next) => ({ text: next.error.message }))
 
   on("turn.complete", ($, e, next) => {
-    if (!e.agentId) void launchPending($)
+    if (!e.agentId) {
+      background.flush()
+      void launchPending($)
+    }
     if (e.agentId && ours.has(e.agentId)) {
       const end: TurnEnd =
         e.reason === "answer" ? { ok: true } : { ok: false, why: `agent turn ended: ${e.reason}` }
+      delegates.delete(e.agentId)
       const resolve = waiting.get(e.agentId)
       waiting.delete(e.agentId)
       if (resolve) resolve(end)
@@ -943,7 +989,24 @@ export const register: Register = (on) => {
   // A subagent's hand-back arrives as a prompt to the main session, whose model
   // would then act on it. gtd reads the turn's result from git instead.
   on("prompt.submit", async ($, e, next) => {
-    if (!e.origin || e.origin.kind === "composer" || e.origin.kind === "bridge") return next(e)
+    if (!e.origin || e.origin.kind === "composer" || e.origin.kind === "bridge") {
+      const pasted = pastedCommand(e.text)
+      if (!pasted) return next(e)
+      // Off the hook: preflight may install gtd's runtime and outlast its budget.
+      const say = (text: string) => {
+        for (const line of text.split("\n")) $.ui.log(line)
+        $.ui.toast(text.split("\n")[0]!)
+      }
+      if ("lost" in pasted) say(pasted.lost)
+      else {
+        $.clock.after(0, () => {
+          void command($, pasted.arg)
+            .then((text) => text && say(text))
+            .catch((err) => say(err instanceof Error ? err.message : String(err)))
+        })
+      }
+      return { drop: "gtd took the command" }
+    }
     if ([...ours].some((id) => e.text.includes(`from="${id}"`))) {
       return { drop: DROPPED }
     }
@@ -957,10 +1020,10 @@ export const register: Register = (on) => {
     answer(await note($, String(e.text ?? "")), true),
   )
   on("tool.call", { tool: "mcp__gtd__handoff" }, async ($, e) =>
-    answer(await throwNow($, typeof e.to === "string" && e.to ? e.to : undefined), true),
+    answer(await throwNow($, typeof e.to === "string" && e.to ? e.to : undefined, true), true),
   )
   on("tool.call", { tool: "mcp__gtd__ship" }, async ($, e) =>
-    answer(await shipNow($, e.dryRun === true), true),
+    answer(await shipNow($, e.dryRun === true, true), true),
   )
   on("tool.call", { tool: "mcp__gtd__browser" }, async ($) => answer(await browse($), true))
 
