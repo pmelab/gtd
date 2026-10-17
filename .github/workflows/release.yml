@@ -33,7 +33,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # Node 22's bundled npm 10 prunes the lockfile differently from npm 11
+      - run: npm install -g npm@^11.21.0
       - run: npm install
+      - run: git diff --exit-code package-lock.json
       - name: Authenticate with npm via OIDC
         run: |
           OIDC_TOKEN=$(curl -sH "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \

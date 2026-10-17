@@ -43,11 +43,17 @@ export async function throwTo(
     if (assigned) return fail(assigned)
   }
   const to = handle ? `to @${handle}` : "to anyone"
-  await io.run(
+  const commented = await io.run(
     ["gh", "pr", "comment", String(pr.number), "--body-file", "-"],
     `Thrown ${to} at **${at}**. Catch it with \`/gtd catch ${on.branch}\`.\n`,
   )
-  return { ok: true, text: `Thrown ${to}: ${pr.url}` }
+  // The hand-off already happened: failing here would keep the run open locally
+  // while the pull request is someone else's.
+  const warning =
+    commented.code === 0
+      ? ""
+      : `\nWarning: gh pr comment failed; no catch hint was posted.\n${commented.err}`
+  return { ok: true, text: `Thrown ${to}: ${pr.url}${warning}` }
 }
 
 // The catcher checks out what origin holds, so a throw describing local HEAD
@@ -141,8 +147,11 @@ async function draft(
   // A pull request someone opened for review keeps its own description and
   // stays ready: only ship marks a draft ready again, and only a thrown one.
   if (pr.body?.includes(THROWN)) {
-    await io.run(["gh", "pr", "edit", String(pr.number), "--body-file", "-"], body)
-    await io.run(["gh", "pr", "ready", String(pr.number), "--undo"])
+    const edited = await io.run(["gh", "pr", "edit", String(pr.number), "--body-file", "-"], body)
+    if (edited.code !== 0) return `gh pr edit failed; the pull request is unchanged.\n${edited.err}`
+    const undone = await io.run(["gh", "pr", "ready", String(pr.number), "--undo"])
+    if (undone.code !== 0)
+      return `gh pr ready --undo failed; ${pr.url} is not a draft again.\n${undone.err}`
   }
   return pr
 }

@@ -167,8 +167,8 @@ export const review = (
   escalations: EscalationCount = { rounds: 0 },
 ): Promise<kit.ReviewOutcome> => {
   const severities = new Map<string, Severity>()
-  // Armed by a defer-only round and spent at the very next gate; a fresh
-  // review (`reviewing`) disarms it, so a later gate never accepts a clean land.
+  // Armed by a defer-only round to pick the next gate's message; a fresh
+  // review (`reviewing`) disarms it.
   let deferred: readonly t.NoteInput[] = []
   return kit.review(base, {
     file: REVIEW,
@@ -184,7 +184,7 @@ export const review = (
       const notes = deferred
       deferred = []
       return notes.length > 0
-        ? awaitReview(b, t.buildReviewAwaitAfterDeferMessage(b, notes), true)
+        ? awaitReview(b, t.buildReviewAwaitAfterDeferMessage(b, notes))
         : awaitReview(b)
     },
     reviewMissing,

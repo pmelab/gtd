@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest"
 
 import type { Run, Stop } from "../types"
-import { decideContinue, restId, TOOL, TOOLS } from "./tools"
+import { decideCommand, decideContinue, decideJob, restId, TOOL, TOOLS } from "./tools"
 import type { ContinueIo } from "./tools"
 
 const judgment = {
@@ -111,10 +111,85 @@ describe("continue", () => {
   })
 })
 
+describe("ship and hand-off", () => {
+  const stalled: Stop = { kind: "stalled", text: "stuck", state: "design.gate" }
+  const error: Stop = { kind: "error", text: "boom", state: "design.gate" }
+  const done: Stop = { kind: "done", text: "finished" }
+
+  test.each([
+    ["gate", gate],
+    ["stuck step", stalled],
+    ["failure", error],
+  ])("ship at a %s is refused without touching the run", async (_n, stop) => {
+    const run = at(stop)
+    const before = structuredClone(run)
+    expect(decideJob(run, "ship")).toEqual(expect.any(String))
+    expect(run).toEqual(before)
+  })
+
+  test.each(["ship", "handoff"] as const)("%s is refused while a continue is queued", (job) => {
+    expect(decideJob(at(gate, { pending: { rest: "abc:design.gate" } }), job)).toEqual(
+      expect.any(String),
+    )
+  })
+
+  test("continue is refused while a ship or hand-off runs or is queued", async () => {
+    const next = await decideContinue(at(gate), undefined, undefined, {
+      ...fake().io,
+      busy: "handoff",
+    })
+    expect(next.refuse).toMatch(/hand-off/)
+  })
+
+  test.each(["ship", "handoff"] as const)("%s is refused while a step runs", (job) => {
+    expect(decideJob(at(gate, { isRunning: true }), job)).toEqual(expect.any(String))
+  })
+
+  test("ship is allowed at a done stop and with no stop", () => {
+    expect(decideJob(at(done), "ship")).toBeUndefined()
+    expect(decideJob(at(undefined as unknown as Stop, { stop: undefined }), "ship")).toBeUndefined()
+  })
+
+  test("hand-off is allowed at a gate", () => {
+    expect(decideJob(at(gate), "handoff")).toBeUndefined()
+  })
+})
+
 test("a rest is its HEAD and state", () => {
   expect(restId("0123456789abcdef", "design.gate")).toBe("0123456789ab:design.gate")
 })
 
 test("every tool is served under the gtd plugin's name", () => {
   expect(TOOLS.map((t) => `mcp__gtd__${t.name}`).sort()).toEqual(Object.values(TOOL).sort())
+})
+
+describe("decideCommand", () => {
+  const refused = [
+    "catch 12",
+    "catch feature/x",
+    "fix",
+    "review main",
+    "review",
+    "add a --json flag",
+    "",
+    "bogus",
+    "stop now",
+    "ui",
+  ]
+  const allowed = ["status", "throw @dev", "throw", "ship", "ship -n"]
+
+  test.each(refused)("refuses %j while a ship runs", (arg) => {
+    expect(decideCommand(arg, "ship")).toBe("A ship is still running: wait for its report.")
+  })
+  test("names a running hand-off", () => {
+    expect(decideCommand("catch 12", "handoff")).toBe(
+      "A hand-off is still running: wait for its report.",
+    )
+  })
+  test.each(allowed)("lets %j through while busy", (arg) => {
+    expect(decideCommand(arg, "ship")).toBeUndefined()
+  })
+  test("lets everything through when idle", () => {
+    expect(decideCommand("catch 12", undefined)).toBeUndefined()
+  })
 })

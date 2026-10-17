@@ -38,8 +38,18 @@ const handOff = async (
   } = {},
 ) => {
   const log: string[] = []
+  const gates: boolean[] = []
   const scripts = new Map<string, string>()
   const files = new Map<string, string>()
+  const onReviewing = () => {
+    if (log.filter((n) => n === "review.reviewing").length > 1) throw new Error("re-review")
+    if (after !== "unwritten") files.set(REVIEW, reviewDoc("new add function"))
+  }
+  const onGate = (request: StepRequest) => {
+    if (request.kind === "human") gates.push(request.options.acceptClean === true)
+    if (after === "deleted") files.delete(REVIEW)
+    else if (after !== "unwritten") files.set(REVIEW, after)
+  }
   installContext(
     fixtureContext(
       { codeThreads: extra.codeThreads ?? [] },
@@ -48,14 +58,8 @@ const handOff = async (
           if (request.kind === "restart") return Promise.resolve()
           log.push(request.name)
           if (request.kind === "run") scripts.set(request.name, request.body)
-          if (request.name === "review.reviewing") {
-            if (log.filter((n) => n === "review.reviewing").length > 1) throw new Error("re-review")
-            if (after !== "unwritten") files.set(REVIEW, reviewDoc("new add function"))
-          }
-          if (request.name === "review.await-review") {
-            if (after === "deleted") files.delete(REVIEW)
-            else if (after !== "unwritten") files.set(REVIEW, after)
-          }
+          if (request.name === "review.reviewing") onReviewing()
+          if (request.name === "review.await-review") onGate(request)
           return Promise.resolve()
         },
         refuse: (message: string): never => {
@@ -96,13 +100,18 @@ const handOff = async (
     () => undefined,
     (e: unknown) => (e as Error).message,
   )
-  return { log, scripts, refusal }
+  return { log, scripts, refusal, gates }
 }
 
 describe("the hand-off review", () => {
   it("no note signs off and closes the review", async () => {
     const run = await handOff(reviewDoc("new add function"))
     expect(run.log).toEqual(["review.reviewing", "review.await-review", "review.closing"])
+  })
+
+  it("the review gate accepts a clean landing", async () => {
+    const run = await handOff(reviewDoc("new add function"))
+    expect(run.gates).toEqual([true])
   })
 
   it("a note ends the round with the review kept and the reviewer's version copied beside it", async () => {

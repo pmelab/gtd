@@ -2,6 +2,9 @@
 
 import type { Stop } from "../types"
 import type { Beat } from "./drive"
+import type { Shipped } from "./ship"
+import { JOB_NAME } from "./tools"
+import type { JobName } from "./tools"
 
 const step = (s: { label?: string; state?: string }) => s.label ?? s.state ?? "the next step"
 
@@ -53,3 +56,11 @@ export function pushText(stop: Stop, repo: string, url?: string) {
   if (stop.kind !== "gate") return at
   return url ? `${at}. Open: ${url}` : at
 }
+
+const capitalised = (s: string) => s[0]!.toUpperCase() + s.slice(1)
+
+export const jobHeadline = (job: JobName, outcome: Shipped) =>
+  `${outcome.ok ? "✔" : "✘"} ${capitalised(JOB_NAME[job])} ${outcome.ok ? "finished" : "failed"}`
+
+export const jobPushText = (job: JobName, outcome: Shipped, repo: string) =>
+  `${repo}: ${JOB_NAME[job]} ${outcome.ok ? "finished" : "failed"}. ${outcome.text}`.trim()

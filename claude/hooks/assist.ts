@@ -5,7 +5,9 @@
 
 import type { Stop } from "../types"
 import { RELOAD_CUT_SCRIPT } from "./wording"
-import { TOOL } from "./tools"
+import type { Shipped } from "./ship"
+import { JOB_NAME, TOOL } from "./tools"
+import type { JobName } from "./tools"
 
 export type Asked = {
   id: string
@@ -35,7 +37,13 @@ export function wakes(stop: Stop, branch: string | undefined): boolean {
 
 const step = (s: Stop) => s.label ?? s.state ?? "the current step"
 
-const fence = (text: string) => `~~~~text\n${text.trim()}\n~~~~`
+// The text can come from commit messages anyone on the branch wrote: the fence
+// is longer than any run of ~ inside it, so the text cannot close it early.
+const fence = (text: string) => {
+  const body = text.trim()
+  const bar = "~".repeat(Math.max(4, ...[...body.matchAll(/~+/g)].map((m) => m[0].length + 1)))
+  return `${bar}text\n${body}\n${bar}`
+}
 
 const RULES = `Ground rules:
 - gtd decides what happens next. Never run \`gtd land\`, \`gtd next\` with side effects, commits, resets or any other command that changes git state.
@@ -132,4 +140,29 @@ export function wakePrompt(w: Wake): string {
     : []
   const extras = `Only when the person asks: ${TOOL.handoff} hands the process to someone else, ${TOOL.browser} opens gtd's browser view of this step.`
   return [...body, ...notes, RULES, extras].join("\n\n")
+}
+
+// The wake after a background ship or hand-off ended: the model only relays it.
+export function jobPrompt(job: JobName, outcome: Shipped): string {
+  const name = JOB_NAME[job]
+  if (outcome.ok) {
+    return [
+      `The ${name} the person asked for finished. gtd's report:`,
+      fence(outcome.text),
+      "Relay the result to the person in a line or two, with any link in it. Do nothing else.",
+    ].join("\n\n")
+  }
+  const lines = [
+    `The ${name} the person asked for failed. gtd reports the failed step:`,
+    fence(outcome.text),
+  ]
+  if (job === "ship") {
+    lines.push(
+      `If the commits were already squashed, they stay squashed: running /gtd ship again pushes the already-squashed branch.`,
+    )
+  }
+  lines.push(
+    "Tell the person what failed in plain words and what to try. Do not retry it yourself.",
+  )
+  return lines.join("\n\n")
 }

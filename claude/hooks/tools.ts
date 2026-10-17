@@ -71,6 +71,37 @@ export type ContinueIo = {
   // the rest's own `gtd validate` script, run; ok when there is nothing to check
   validate(): Promise<{ ok: boolean; out: string }>
   judgment(): Promise<Judgment | undefined>
+  // a ship or hand-off running or queued: it writes the tree the driver would
+  busy?: JobName
+}
+
+export type JobName = "ship" | "handoff"
+
+export const JOB_NAME: Record<JobName, string> = { ship: "ship", handoff: "hand-off" }
+
+const busyText = (job: JobName) => `A ${JOB_NAME[job]} is still running: wait for its report.`
+
+// Only these leave the tree alone (ship and throw refuse for themselves); any
+// other verb, unknown ones included, may switch branch or write .gtd/. `stop`
+// is not here: `command` takes the bare word itself, and `stop <words>` is a
+// requirement. `ui` is not: its page writes steering files.
+const WHILE_BUSY = new Set(["status", "throw", "ship"])
+
+export function decideCommand(arg: string, busy: JobName | undefined): string | undefined {
+  if (!busy) return undefined
+  const verb = arg.trim().split(/\s+/)[0] ?? ""
+  return WHILE_BUSY.has(verb) ? undefined : busyText(busy)
+}
+
+// Pure: a refused job leaves the run, and so `continue`, as it was.
+export function decideJob(run: Run, job: JobName): string | undefined {
+  if (run.isRunning) return "gtd is running a step: wait for it to rest."
+  if (run.pending) return "A continue is already waiting for this turn to end."
+  const kind = run.stop?.kind
+  if (job === "ship" && (kind === "gate" || kind === "stalled" || kind === "error")) {
+    return "gtd still waits on the person at this step: answer it with continue first."
+  }
+  return undefined
 }
 
 // What `continue` may do from here. `rest` undefined is the band's Continue,
@@ -82,6 +113,7 @@ export async function decideContinue(
   io: ContinueIo,
 ): Promise<Proceed> {
   if (run.isRunning) return { refuse: "gtd is already running a step." }
+  if (io.busy) return { refuse: busyText(io.busy) }
   const stop = run.stop
   if (!stop) return { refuse: "Nothing is waiting: gtd has no rest open. /gtd drives it." }
   if (stop.kind === "done") {

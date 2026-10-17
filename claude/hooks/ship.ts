@@ -334,13 +334,18 @@ ${await git("diff", "--stat", `${mergeBase}..HEAD`)}`
   const head = await git("rev-parse", "HEAD")
   if (thrown) {
     const n = String(thrown.number)
+    // Ready first: a failure here leaves the THROWN marker, so a retry comes back.
+    const ready = await io.run(["gh", "pr", "ready", n])
+    if (ready.code !== 0)
+      return fail(`gh pr ready failed; ${thrown.url} is unchanged.\n${ready.err}`)
     const edited = await io.run(
       ["gh", "pr", "edit", n, "--title", title, "--body-file", "-"],
       body + "\n",
     )
     if (edited.code !== 0)
-      return fail(`gh pr edit failed; the pull request is unchanged.\n${edited.err}`)
-    await io.run(["gh", "pr", "ready", n])
+      return fail(
+        `gh pr edit failed; ${thrown.url} is marked ready but keeps its thrown title and description.\n${edited.err}`,
+      )
     await io.run(["git", "config", "--local", `branch.${branch}.prSyncHead`, head])
     return { ok: true, text: `Rewrote ${thrown.url} and marked it ready for review.` }
   }

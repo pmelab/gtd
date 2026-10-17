@@ -109,6 +109,81 @@ describe("throw", () => {
   })
 })
 
+describe("throw failures name their step", () => {
+  const view = "gh pr view gtd/x --json number,url,state,body,assignees"
+  const thrown = {
+    number: 9,
+    url: "u",
+    state: "OPEN",
+    body: `${THROWN}\nold`,
+    assignees: [],
+  }
+  const onBranch = { "git rev-parse --abbrev-ref HEAD": { out: "gtd/x\n" } }
+
+  test("a failing git push fails the throw", async () => {
+    const { io } = repo({
+      ...onBranch,
+      "git push --set-upstream origin gtd/x": { code: 1 },
+      "git rev-parse --verify --quiet origin/gtd/x": { code: 1 },
+    })
+    expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({
+      ok: false,
+      text: expect.stringMatching(/git push/),
+    })
+  })
+
+  test("a failing gh pr create fails the throw", async () => {
+    const { io } = repo({ ...onBranch, [view]: { code: 1 }, "gh pr create": { code: 0 } })
+    const failing: ShipIo = {
+      ...io,
+      run: async (argv, stdin) =>
+        argv.slice(0, 3).join(" ") === "gh pr create"
+          ? { code: 1, out: "", err: "denied" }
+          : io.run(argv, stdin),
+    }
+    expect(await throwTo(failing, rest, undefined, NOW)).toMatchObject({
+      ok: false,
+      text: expect.stringMatching(/gh pr create/),
+    })
+  })
+
+  test("a failing gh pr edit refreshing a thrown draft fails the throw", async () => {
+    const { io } = repo({
+      ...onBranch,
+      [view]: { out: JSON.stringify(thrown) },
+      "gh pr edit 9 --body-file -": { code: 1, err: "denied" },
+    })
+    expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({
+      ok: false,
+      text: expect.stringMatching(/gh pr edit/),
+    })
+  })
+
+  test("a failing gh pr ready --undo on a thrown draft fails the throw", async () => {
+    const { io } = repo({
+      ...onBranch,
+      [view]: { out: JSON.stringify(thrown) },
+      "gh pr ready 9 --undo": { code: 1, err: "denied" },
+    })
+    expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({
+      ok: false,
+      text: expect.stringMatching(/gh pr ready/),
+    })
+  })
+
+  test("a failing gh pr comment still completes the throw, with a warning", async () => {
+    const { io } = repo({
+      ...onBranch,
+      [view]: { out: JSON.stringify({ ...thrown, body: "mine" }) },
+      "gh pr comment 9 --body-file -": { code: 1, err: "denied" },
+    })
+    expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({
+      ok: true,
+      text: expect.stringMatching(/Thrown to anyone: u[\s\S]*gh pr comment failed/),
+    })
+  })
+})
+
 describe("catch", () => {
   test("checks the thrown branch out and takes it over", async () => {
     const { io, ran } = repo({
