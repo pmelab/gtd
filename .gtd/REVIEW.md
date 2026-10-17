@@ -36,6 +36,11 @@ so the CLI prints the warning first, then refuses.
       so config drift does not block it.
 - [ ] ./src/cli/Program.ts#329-349 — CLI collapses to: call `summaryFor`, warn,
       fail on `unknownSlice`, fail on missing prompt, write.
+
+Note: the `runSummaryCommand` JSDoc still lists only the two plain refusals. Add
+the `--slice` ones, short: unknown slice name (valid slices listed), config
+edited since a closed process, diverged replay.
+
 - [ ] ./src/edge/index.ts#12-18 — `hasSummary`, `summarySlice` unexported.
 
 ## Version warning on replay refusals
@@ -47,6 +52,10 @@ so the CLI prints the warning first, then refuses.
       line** — untested for those two commands, only via `summaryFor`.
 - [ ] ./docs/cli.md#430-434 — lists `gtd summary --slice` among the commands
       that print the version WARNING.
+
+Note: pin the new behaviour for `gtd slices` too — add one `@inmem` scenario
+where `gtd slices` refuses (edited config at a closing commit recorded by gtd
+0.0.1) and stderr carries both the refusal and the version warning.
 
 ## Small cleanups
 
@@ -62,6 +71,11 @@ so the CLI prints the warning first, then refuses.
       line `claude/hooks/ship.ts` regex-reads.
 
 ## Tests
+
+Note: concern 6 is missing from the diff — the
+`gtd lands {string} with {string}` step in
+`tests/integration/support/steps/history.steps.ts` still calls
+`args.split(" ")`. Change it to `args.trim().split(/\s+/)`.
 
 - [ ] ./src/edge/Edge.test.ts#765-830 — suite renamed to `summaryFor`; `render`
       takes a slice name; `sliceOf` helper removed.
