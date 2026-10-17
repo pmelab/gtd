@@ -109,3 +109,57 @@ refusal + slice list + warning together.
 Not a finding: the new `restAt` cost test partly overlaps `token-cost.feature`
 (`gtd next --json` breakdown) but uniquely pins highest-first order and guards
 the `costTotals` extraction; keep.
+
+## conventions
+
+Read: `AGENTS.md`, `CLAUDE.md` (root; it pulls in only `@AGENTS.md`),
+`CONTEXT.md` (the glossary `AGENTS.md` says to read before naming), and the
+user's global `CLAUDE.md`. No touched directory has its own `AGENTS.md` or
+`CLAUDE.md`. Checked: `docs/cli.md` names no `src/*.ts` module; the new scenario
+sits in an `@inmem` feature and shows its config and commit message in full; the
+test reaches `summaryFor` from inside its own boundary; no other documentation
+was added.
+
+**Should fix**
+
+1. **`refusal` field uses a glossary term with a different meaning**
+   (`src/edge/Edge.ts` `SummaryResult.refusal`, `locateSlice`'s `{ refusal }`
+   branch)
+   - **Rule:** AGENTS.md says "`CONTEXT.md` … the domain language this repo uses
+     … Read it before naming anything". CONTEXT.md defines "**Refusal**: A
+     landing rejected before anything is captured — a guard saying no, or the
+     flow calling `refuse()`".
+   - **Problem:** an unknown `--slice` name is a read-only CLI command rejecting
+     its argument, not a rejected landing. A typed field called `refusal` makes
+     the code's vocabulary disagree with the glossary. Divergence and
+     config-differs errors take the `Error` channel, but this one gets a field
+     named after a domain term it is not.
+   - **Fix:** rename it to something neutral, e.g. `unknownSlice` (or `error`).
+     Only the CLI and two tests read it.
+
+**Nice to have**
+
+2. **New and edited comments state "what" without "why"** (`src/edge/Edge.ts`
+   `narrowToSlice` JSDoc; `src/cli/Program.ts` `runSummaryCommand` JSDoc
+   addition)
+   - **Rule:** "Keep a comment … only where it explains an important decision or
+     genuinely unclear code … Everything else (restatement of the code … a
+     'what' with no 'why') gets deleted, not moved."
+   - **Problem:** the old `narrowToSlice` comment explained why a guard existed.
+     This change removed the guard and replaced the comment with "The trace
+     window and cost entries of `slice`, or the whole run's when there is none",
+     which only repeats the first line of the body. The new `runSummaryCommand`
+     sentence lists refusals that `summaryFor` and `replayedSlices` already
+     produce. If the list goes stale, nothing fails.
+   - **Fix:** delete the `narrowToSlice` JSDoc. Drop the added `--slice`
+     sentence. If one fact is worth keeping there, keep the decision "the edge
+     never narrates; the CLI prints `versionWarning` before any refusal" and
+     drop the list.
+
+3. **Test names use "drift" for an edited config** (`src/edge/Edge.test.ts`:
+   `…when the drifted config no longer exports a summary`,
+   `plain summaryFor still returns a prompt under a drifted config…`)
+   - **Rule:** CONTEXT.md, Divergence: "_Avoid_: drift, stale state, migration".
+   - **Problem:** these two new names use the word the glossary bans. Older
+     tests in the file use it too, but this change adds more.
+   - **Fix:** "an edited config" / "a config edited since the close".
