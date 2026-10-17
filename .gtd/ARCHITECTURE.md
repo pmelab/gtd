@@ -8,7 +8,7 @@
 so a test-file check built on `seamAllow` never fires in the shipped flow. The
 fork is where the test-file globs come from.
 
-- [ ] A fixed built-in list, `seamAllow`'s default test globs
+- [x] A fixed built-in list, `seamAllow`'s default test globs
   - `**/*.test.*`, `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**`,
     `**/__tests__/**`
   - no new setting, no new Stable surface
