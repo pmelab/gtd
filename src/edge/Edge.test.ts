@@ -598,9 +598,13 @@ export const summary = (it) => it.marks.map((m) => m.name + "=" + m.value).join(
 
 const withTipMessage = (repo: InMemRepo, edit: (message: string) => string): GitOperations => {
   const real = fakeGitOperations(repo)
+  const head = repo.resolveRef("HEAD")
   return {
     ...real,
-    lastCommitMessage: (ref) => Effect.map(real.lastCommitMessage(ref), edit),
+    commitHistory: (base, tip) =>
+      Effect.map(real.commitHistory(base, tip), (commits) =>
+        commits.map((c) => (c.hash === head ? { ...c, message: edit(c.message) } : c)),
+      ),
   }
 }
 
@@ -658,13 +662,20 @@ describe("processSlices", () => {
     expect(message).not.toContain("gtd slices: gtd:")
   })
 
+  it("refuses with no process at HEAD, naming that HEAD neither closes nor sits inside one", async () => {
+    const repo = repoWith(LINEAR)
+    expect(await failure(repo)).toContain(
+      "gtd slices: refused — HEAD neither closes nor sits inside a process",
+    )
+  })
+
   it("refuses a renamed step with replay's message, prefixed and without a gtd: lead", async () => {
     const repo = repoWith(LINEAR)
     await land(repo, { "a.txt": "a\n" })
     repo.writeFile("gtd.config.ts", LINEAR.replace('agent("building"', 'agent("constructing"'))
     const message = await failure(repo)
     expect(message).toContain("gtd slices: refused — ")
-    expect(message).not.toContain("no process is underway")
+    expect(message).not.toContain("HEAD neither closes nor sits inside a process")
     expect(message).not.toContain("refused — gtd: ")
     expect(message).not.toContain("gtd slices: gtd:")
   })
@@ -677,7 +688,7 @@ describe("processSlices", () => {
     repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
     const message = await failure(repo)
     expect(message).toContain(
-      `gtd slices: refused — config differs at ${repo.resolveRef("HEAD")!.slice(0, 7)}: gtd.config.ts. HEAD's process replays under today's config; commit or revert the edit to list its slices`,
+      `gtd slices: refused — config differs at ${repo.resolveRef("HEAD")!.slice(0, 7)}: gtd.config.ts. HEAD's process replays under today's config; revert or stash the edit to list its slices`,
     )
   })
 
@@ -1596,6 +1607,24 @@ export default async () => {
     )
     expect(trail.version.recorded).toBeUndefined()
     expect(trail.versionWarning).toContain(GTD_VERSION)
+  })
+
+  it("reads a recorded version carrying control bytes as unknown", async () => {
+    const { repo, tip } = await finished()
+    const raw = "1.0\u001b]0;x\u0007"
+    const git = withTipMessage(repo, (m) =>
+      m.replace(`Gtd-Version: ${GTD_VERSION}`, `Gtd-Version: ${raw}`),
+    )
+    const trail = await Effect.runPromise(
+      historyTrail(tip).pipe(
+        Effect.provideService(GitService, git),
+        Effect.provide(testLayers(repo, {})),
+      ),
+    )
+    expect(trail.version.recorded).toBeUndefined()
+    expect(trail.versionWarning).toContain("an unknown gtd version")
+    // eslint-disable-next-line no-control-regex
+    expect(trail.versionWarning).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/)
   })
 
   it("refuses naming the config file that differs at the tip", async () => {

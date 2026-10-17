@@ -155,11 +155,11 @@ Commands:
                    --json=<path> reads one value off it. Writes nothing: no
                    git, no state transition, no session identity. When HEAD
                    closes a process, every slice is listed as closed; a gtd
-                   version mismatch only warns on stderr. Refuses
-                   (exit 1) when no process is underway, or when today's
-                   config disagrees with history about the process: HEAD closes
-                   it and its config files differ from the working tree, or the
-                   replay drifted
+                   version mismatch only warns on stderr. Refuses (exit 1)
+                   when HEAD neither closes nor sits inside a process, or when
+                   today's config disagrees with history about the process:
+                   HEAD closes it and its config files differ from the working
+                   tree, or the replay diverged
   judge            Print the resolved rest's pending judgment — the prepared
                    state, its typed questions, and their criteria — the same
                    judge field `gtd next --json` already carries. Read-only:

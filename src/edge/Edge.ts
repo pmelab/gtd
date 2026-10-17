@@ -1089,24 +1089,26 @@ export const processSlices: Effect.Effect<ProcessSlices, Error, RestRequirements
     const host = yield* Host
     const run = yield* runAtHead(git, config.workflow)
     if (run.trace.length === 0) {
-      return yield* Effect.fail(new Error("gtd slices: refused — no process is underway at HEAD"))
+      return yield* Effect.fail(
+        new Error("gtd slices: refused — HEAD neither closes nor sits inside a process"),
+      )
     }
     const closing = run.closingHash
-    let outcome: Awaited<ReturnType<typeof replayFor>>
+    let outcome: ReplayOutcome
     let versionWarning: string | undefined
     if (closing !== undefined) {
       const replayed = yield* replayFinishedProcess(config, run, closing, {
         command: "gtd slices",
         configReason:
-          "HEAD's process replays under today's config; commit or revert the edit to list its slices",
-        notEnded: (o) => slicesDrift(run, o),
+          "HEAD's process replays under today's config; revert or stash the edit to list its slices",
+        notEnded: (o) => slicesDivergence(run, o),
       })
       outcome = replayed.outcome
       versionWarning = replayed.versionWarning
     } else {
       const { setup } = yield* setupFor(config, run, workspace, host)
       outcome = yield* Effect.promise(() => replayFor(setup))
-      if (outcome.kind !== "rest") return yield* Effect.fail(slicesDrift(run, outcome))
+      if (outcome.kind !== "rest") return yield* Effect.fail(slicesDivergence(run, outcome))
     }
     return {
       slices: sliceRangesOf(outcome.slices, run).map(({ name, base, tip, open }) => ({
@@ -1120,8 +1122,11 @@ export const processSlices: Effect.Effect<ProcessSlices, Error, RestRequirements
   },
 )
 
+type EndedOutcome = Extract<ReplayOutcome, { kind: "ended" }>
+type UnendedOutcome = Exclude<ReplayOutcome, { kind: "ended" }>
+
 /** Every `gtd slices` refusal reads `gtd slices: refused — <reason>`; replay's own `gtd: ` lead is dropped. */
-const slicesDrift = (run: ProcessRun, outcome: Awaited<ReturnType<typeof replayFor>>): Error => {
+const slicesDivergence = (run: ProcessRun, outcome: ReplayOutcome): Error => {
   const reason =
     outcome.kind === "rest" && run.closingHash !== undefined
       ? `${run.closingHash.slice(0, 7)} closes a process that does not end under today's config`
@@ -1282,7 +1287,7 @@ const multilineRefusal = (vars: Record<string, string>): Landing | undefined => 
 }
 
 const landingTarget = (
-  outcome: Awaited<ReturnType<typeof replayFor>>,
+  outcome: ReplayOutcome,
   rest: Rest,
 ): Effect.Effect<StateName | Landing, Error> => {
   if (outcome.kind === "refused")
@@ -1524,10 +1529,7 @@ const differingConfigPaths = (
     return differing
   })
 
-const notClosedError = (
-  hash: string,
-  outcome: Exclude<Awaited<ReturnType<typeof replayFor>>, { kind: "ended" }>,
-): Error =>
+const notClosedError = (hash: string, outcome: UnendedOutcome): Error =>
   outcome.kind === "rest"
     ? new Error(`gtd history: ${hash.slice(0, 7)} does not close a process under today's config`)
     : (replayError(outcome) ?? new Error("gtd history: replay failed"))
@@ -1579,7 +1581,7 @@ export const historyTrail = (tip: string): Effect.Effect<HistoryTrail, Error, Re
   })
 
 interface FinishedReplay {
-  readonly outcome: Extract<Awaited<ReturnType<typeof replayFor>>, { kind: "ended" }>
+  readonly outcome: EndedOutcome
   readonly recorded: string | undefined
   readonly versionWarning?: string
 }
@@ -1592,9 +1594,7 @@ const replayFinishedProcess = (
   how: {
     readonly command: string
     readonly configReason?: string
-    readonly notEnded: (
-      outcome: Exclude<Awaited<ReturnType<typeof replayFor>>, { kind: "ended" }>,
-    ) => Error
+    readonly notEnded: (outcome: UnendedOutcome) => Error
   },
 ): Effect.Effect<FinishedReplay, Error, RestRequirements> =>
   Effect.gen(function* () {
@@ -1607,7 +1607,9 @@ const replayFinishedProcess = (
     const { setup } = yield* setupFor(config, run, workspace, host)
     const outcome = yield* Effect.promise(() => replayFor(setup))
     if (outcome.kind !== "ended") return yield* Effect.fail(how.notEnded(outcome))
-    const recorded = parseCommitMessage(yield* git.lastCommitMessage(hash)).version
+    const recorded = parseCommitMessage(
+      run.episode.commits.find((c) => c.hash === hash)?.message ?? "",
+    ).version
     const versionWarning = versionWarningFor(recorded)
     return { outcome, recorded, ...(versionWarning !== undefined ? { versionWarning } : {}) }
   })

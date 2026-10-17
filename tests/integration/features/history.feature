@@ -160,7 +160,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
     And gtd lands "gtd(agent): building → idle"
     When I run in the shell:
       """
-      git log -1 --format=%B | sed 's/^Gtd-Version: .*/Gtd-Version: 0.0.1/' > "$(git rev-parse --git-dir)/gtd-msg"
+      git log -1 --format=%B | sed 's/^Gtd-Version: .*/Gtd-Version: 0.0.1 (dev)/' > "$(git rev-parse --git-dir)/gtd-msg"
       git commit -q --amend -F "$(git rev-parse --git-dir)/gtd-msg"
       git update-ref "refs/gtd/history/$(git rev-parse entry)" HEAD
       """
@@ -172,6 +172,12 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
     When I run gtd with args "history show main --json"
     Then it succeeds
     And stdout contains "\"versionWarning\""
+    When I run gtd with args "history show main --json=version.recorded"
+    Then it succeeds
+    And stdout is:
+      """
+      0.0.1 (dev)
+      """
 
   @live
   Scenario: on a fresh clone of a squashed, merged and deleted branch, fetch then show prints the original trail
