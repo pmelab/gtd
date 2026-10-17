@@ -6,7 +6,7 @@ import {
   type WorkflowDoors,
   type WorkflowFactory,
 } from "../../flows/index.js"
-import { defaults, envDefaults } from "./vars.js"
+import { defaultFlagRegistry, defaults, envDefaults } from "./vars.js"
 
 const setting = Schema.optionalWith(Schema.String, { exact: true })
 
@@ -59,7 +59,7 @@ export const flagShipped = (flow: Flow, doors: WorkflowDoors): WorkflowFactory<F
   defineWorkflow(
     Schema.standardSchemaV1(FlagOptions, { onExcessProperty: "error", errors: "all" }),
     (options) => {
-      const flagDefaults = { ...defaults, flag: "", flagRegistry: "src/flags/index.ts" }
+      const flagDefaults = { ...defaults, flag: "", flagRegistry: defaultFlagRegistry }
       return {
         flow,
         defaults: over(flagDefaults, options),

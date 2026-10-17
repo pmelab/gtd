@@ -1608,9 +1608,10 @@ process. A door with no argument is refused (see below).
   `Gtd-Mark: flag-mentions=<total>` and one
   `Gtd-Mark: flag-mention=<path>:<line>` per listed line (the first 50), and the
   closing message `gtd summary` prints carries the same lines, then "…and N
-  more:" with a `grep -rniE` command matching the same three forms. Fix that
-  prose by hand, or leave it for cleanup. These limits also bind a human's fix
-  at `rollout.suite.blocked`: it may touch only the flag's registry entry
+  more:" with a `git grep -niIE` command over tracked files, excluding the
+  registry and `.gtd/`, matching the same three forms. Fix that prose by hand,
+  or leave it for cleanup. These limits also bind a human's fix at
+  `rollout.suite.blocked`: it may touch only the flag's registry entry
   (`.gtd/FEEDBACK.md` aside), or the landing is refused.
 - **Cleanup** takes a default-on release flag, deletes its entry and every
   `GTD_FLAG_<NAME>` check from `src/` (only `.ts`/`.tsx` files there are

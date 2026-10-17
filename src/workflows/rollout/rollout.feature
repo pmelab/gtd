@@ -280,6 +280,86 @@ Feature: rollout turns one release flag default-on and touches nothing else
     And the output of gtd "summary" contains "src/calc.ts:1"
 
   @inmem
+  Scenario: gtd summary's grep hint excludes a factory flagRegistry
+    Given a file "config/flags.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "g", expiry: "2027-05-01", kind: "release" },
+      ] as const
+      """
+    And a file "NOTES.md" with:
+      """
+      alpha 1
+      alpha 2
+      alpha 3
+      alpha 4
+      alpha 5
+      alpha 6
+      alpha 7
+      alpha 8
+      alpha 9
+      alpha 10
+      alpha 11
+      alpha 12
+      alpha 13
+      alpha 14
+      alpha 15
+      alpha 16
+      alpha 17
+      alpha 18
+      alpha 19
+      alpha 20
+      alpha 21
+      alpha 22
+      alpha 23
+      alpha 24
+      alpha 25
+      alpha 26
+      alpha 27
+      alpha 28
+      alpha 29
+      alpha 30
+      alpha 31
+      alpha 32
+      alpha 33
+      alpha 34
+      alpha 35
+      alpha 36
+      alpha 37
+      alpha 38
+      alpha 39
+      alpha 40
+      alpha 41
+      alpha 42
+      alpha 43
+      alpha 44
+      alpha 45
+      alpha 46
+      alpha 47
+      alpha 48
+      alpha 49
+      alpha 50
+      alpha 51
+      alpha 52
+      alpha 53
+      alpha 54
+      alpha 55
+      """
+    And the working tree is committed as "docs: mention the flag"
+    And step "rollout.flipping" writes "config/flags.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "g", expiry: "2027-05-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    And step "rollout.suite.check" changes nothing
+    And step "rollout.mentions" runs its script
+    When gtd starts workflow "elsewhere" with "--var flag=alpha"
+    And the process is driven
+    Then the process rests at "idle"
+    And the output of gtd "summary" contains "':(top,exclude,literal)config/flags.ts'"
+
+  @inmem
   Scenario: a flag named nowhere outside the registry says so in gtd summary
     Given step "rollout.flipping" writes "src/flags/index.ts" with:
       """
