@@ -15,7 +15,7 @@ Step names are public API: drivers, `skills` config keys and `.feature` files
 key on them. The fork is whether the feature review keeps today's
 `build.review.*` names on the naive path.
 
-- [ ] Refactor tail nests under `refactor`: `refactor.build.review.*`,
+- [x] Refactor tail nests under `refactor`: `refactor.build.review.*`,
       `refactor.build.quality.<lens>`; the feature tail keeps `build.review.*`
   - feature review named the same on every path; default path untouched
   - asymmetric: only the refactor slice carries a prefix
@@ -31,7 +31,7 @@ key on them. The fork is whether the feature review keeps today's
 `seam.approve` leaves a `Gtd-Approved:` trailer today. A review sign-off ticks
 boxes in `.gtd/REVIEW.md` — an edit — which an `approve` gate refuses.
 
-- [ ] The refactor review's sign-off commit is the record, like the feature
+- [x] The refactor review's sign-off commit is the record, like the feature
       review's
   - no `Gtd-Approved:` trailer on the refactor-first path any more
   - SDLC.md gate table drops the `seam.approve` row, adds a "refactor review
@@ -49,7 +49,7 @@ Only `refactor-first` gets two slices. On `land` (and on overrule at
 `seam.steer`, or after `seam.by-hand`) there is one slice; `gtd slices` shows
 its name to drivers.
 
-- [ ] Wrap implement + review in `slice("feature")` on every naive-path verdict
+- [x] Wrap implement + review in `slice("feature")` on every naive-path verdict
   - naive path always shows a `feature` slice; drivers see one name for the
     feature work
   - default path keeps the implicit `main`
@@ -67,7 +67,7 @@ feedback re-runs `seam.naive` and `seam.judge`.
 - [ ] Yes — after `land`, feedback re-runs naive pass and judge, as today
   - a re-plan may turn up a seam and go `refactor-first` mid-process
   - one more agent turn and judge per feedback round
-- [ ] No — once judged, every feature feedback round is design → implement
+- [x] No — once judged, every feature feedback round is design → implement
   - same shape on every verdict; cheaper rounds
   - a seam the re-plan needs is built unjudged, unrefactored
 - [ ] _your answer_
