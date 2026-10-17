@@ -26,3 +26,34 @@ the same call. No new mocks.
      raise a `GtdError` whose `detail` holds the warning line, so it is kept
      apart from the message. Deferred note-1 (eda53bb) already reopens this
      comment, so the fix can go in with it.
+
+## ponytail-review
+
+What this change does: `gtd summary --slice` now goes through one call,
+`summaryFor(run, sliceName)`, which loads the config once, replays only for a
+named slice, and returns the prompt plus an optional version warning or
+unknown-slice refusal. Replay refusals for `gtd slices`, `gtd summary --slice`
+and `gtd history` now carry the version warning in their message. Load assumed:
+one person running a read-only CLI command; no scale concern.
+
+Traced: all `summaryFor` callers (only `runSummaryCommand`), `replayedSlices`
+callers (`processSlices`, `locateSlice`), `replayFinishedProcess` callers
+(`replayedSlices`, `historyTrail`). Every error `withWarning` rewraps is a plain
+`Error` (`configRefusal`, `slicesDivergence`, `notClosedError`/`replayError`),
+so rewrapping loses no type or exit code. Slice ranges come from `sliceRangesOf`
+over the same `run`, so the removed `narrowToSlice` guard is unreachable. New
+tests would fail with the guarded behaviour removed (warning on refusal, unknown
+slice keeps warning, no-summary returns no prompt).
+
+**Nice to have**
+
+1. **`SummaryResult` is exported but nothing imports it**
+   (`src/edge/Edge.ts:1491`)
+   - **What this is:** The result type of `summaryFor`.
+   - **Problem:** It is not re-exported from `src/edge/index.ts` and no other
+     module names it; `Program.ts` destructures the value without the type.
+   - **Fix:** Drop `export`. One word.
+   - **If we skip it:** A stray public-looking type that suggests a contract
+     nobody uses.
+
+Verdict: Ship. Lean: -1 word possible.
