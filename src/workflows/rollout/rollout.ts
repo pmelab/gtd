@@ -28,8 +28,9 @@ const MARKED_MENTIONS = 50
 // Lists, never edits: the human fixes the now-stale prose, or cleanup does. The
 // list rides in marks only: a state file left at idle would be published by
 // ship and read as a failed unwind by the next process.
-const listMentions = async (registry: string, name: string): Promise<void> => {
+const listMentions = async (registry: string, name: string, guard: () => void): Promise<void> => {
   await run("mentions", removeScript([FEEDBACK]), { label: "Listing flag mentions" })
+  guard()
   const files = glob("**")
     .filter((path) => path !== registry && path !== ".gtd" && !path.startsWith(".gtd/"))
     .sort()
@@ -74,7 +75,7 @@ export const rolloutFlow = async (): Promise<void> => {
     })
     guard()
     await gate("suite", suiteBlockedMessage(), guard)
-    await listMentions(registry, name)
+    await listMentions(registry, name, guard)
   })
 }
 

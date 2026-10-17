@@ -247,6 +247,51 @@ Feature: rollout turns one release flag default-on and touches nothing else
       """
 
   @inmem
+  Scenario: a stray file written at the mentions step is refused naming that path
+    Given step "rollout.flipping" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release", defaultOn: true },
+        { name: "beta", owner: "b", expiry: "2027-02-01", kind: "release" },
+        { name: "ops1", owner: "c", expiry: "2027-03-01", kind: "ops" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    And step "rollout.suite.check" changes nothing
+    And step "rollout.mentions" runs its script
+    And step "rollout.mentions" writes "src/stray.ts" with:
+      """
+      export const x = 1
+      """
+    When gtd starts workflow "rollout" with "--var flag=alpha"
+    Then driving the process is refused with "rollout-only: src/stray.ts changed"
+
+  @inmem
+  Scenario: a second registry entry edited at the mentions step is refused
+    Given step "rollout.flipping" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release", defaultOn: true },
+        { name: "beta", owner: "b", expiry: "2027-02-01", kind: "release" },
+        { name: "ops1", owner: "c", expiry: "2027-03-01", kind: "ops" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    And step "rollout.suite.check" changes nothing
+    And step "rollout.mentions" runs its script
+    And step "rollout.mentions" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release", defaultOn: true },
+        { name: "beta", owner: "z", expiry: "2027-02-01", kind: "release" },
+        { name: "ops1", owner: "c", expiry: "2027-03-01", kind: "ops" },
+        { name: "live", owner: "d", expiry: "2027-04-01", kind: "release", defaultOn: true },
+      ] as const
+      """
+    When gtd starts workflow "rollout" with "--var flag=alpha"
+    Then driving the process is refused with "rollout-only: other edits in src/flags/index.ts"
+
+  @inmem
   Scenario: every line naming the flag is listed, no file is edited, and gtd summary repeats the list
     Given a file "README.md" with:
       """

@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest"
 
 import { jobs } from "./jobs"
-import { cleanReply, costTrailers, READ_ONLY_GIT, ship, THROWN } from "./ship"
+import { cleanReply, costTrailers, pushBranch, READ_ONLY_GIT, ship, THROWN } from "./ship"
 import type { Ran, ShipIo } from "./ship"
 
 const BASE = "b".repeat(40)
@@ -110,7 +110,10 @@ describe("ship hangs", () => {
       await vi.advanceTimersByTimeAsync(TEN_MINUTES / 2)
       expect(second).toBe(false)
       expect(outcomes).toHaveLength(1)
-      expect(outcomes[0]).toMatchObject({ ok: false, text: expect.stringMatching(/git push/) })
+      expect(outcomes[0]).toMatchObject({
+        ok: false,
+        text: expect.stringMatching(/git push/),
+      })
       expect(slot.busy()).toBeUndefined()
     } finally {
       vi.useRealTimers()
@@ -132,27 +135,78 @@ describe("a crashed read is a refusal, never an answer", () => {
   )
 })
 
+describe("pushBranch", () => {
+  const forced = {
+    "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+    "git merge-base --is-ancestor HEAD origin/feat/x": { code: 1 },
+  }
+  test("a failed first push says so and appends stderr", async () => {
+    const { io } = repo({
+      "git rev-parse --verify --quiet origin/feat/x": { code: 1 },
+      "git push --set-upstream origin feat/x": { code: 1, err: "denied\n" },
+    })
+    expect(await pushBranch(io, "feat/x")).toBe("git push failed.\ndenied")
+  })
+  test("a failed force push says moved and appends stderr", async () => {
+    const { io } = repo({
+      ...forced,
+      "git push --force-with-lease origin feat/x": { code: 1, err: "stale info" },
+    })
+    expect(await pushBranch(io, "feat/x")).toBe(
+      "git push failed: origin/feat/x moved. Fetch and reconcile first.\nstale info",
+    )
+  })
+  test("a killed force push is never moved", async () => {
+    const { io } = repo({ ...forced, "git push --force-with-lease origin feat/x": { crash: true } })
+    const out = await pushBranch(io, "feat/x")
+    expect(out).toBe(
+      "git push of feat/x did not finish; nothing was lost. Retry without fetching.\ntimed out after 10 minutes",
+    )
+  })
+  test("a killed first push is not failed", async () => {
+    const { io } = repo({
+      "git rev-parse --verify --quiet origin/feat/x": { code: 1 },
+      "git push --set-upstream origin feat/x": { crash: true },
+    })
+    expect(await pushBranch(io, "feat/x")).toBe(
+      "git push of feat/x did not finish; nothing was lost. Retry without fetching.\ntimed out after 10 minutes",
+    )
+  })
+})
+
 describe("ship history", () => {
   test("pushes this process's ref before the squash and writes the trailer", async () => {
     const { io, calls, ran } = repo(withHistory, ["feat: add x\n\nwhy", "feat: add x\n\nbody"])
     expect(await ship(io, false)).toMatchObject({ ok: true })
-    const push = `git push origin ${REF}:${REF}`
+    const push = `git push origin +${REF}:${REF}`
     expect(ran()).toContain(push)
     expect(ran().indexOf(push)).toBeLessThan(ran().indexOf(`git reset --soft ${BASE}`))
     expect(calls.find((c) => c.argv.startsWith("git commit"))?.stdin).toBe(
       `feat: add x\n\nwhy\n\nGtd-Cost: 1 sonnet\nGtd-Cost: 0.75 opus\nGtd-History: ${REF}\n`,
     )
     expect(ran().some((c) => c.includes("refs/gtd/history/*"))).toBe(false)
-    expect(ran().filter((c) => c.startsWith("git push origin refs/gtd/history"))).toEqual([push])
+    expect(ran().filter((c) => c.startsWith("git push origin +refs/gtd/history"))).toEqual([push])
   })
 
   test("a failed history push fails the ship with nothing squashed or pushed", async () => {
-    const { io, ran } = repo({ ...withHistory, [`git push origin ${REF}:${REF}`]: { code: 1 } }, [
+    const { io, ran } = repo({ ...withHistory, [`git push origin +${REF}:${REF}`]: { code: 1 } }, [
       "feat: add x",
     ])
     expect(await ship(io, false)).toEqual({
       ok: false,
       text: `git push of ${REF} failed; nothing was squashed or pushed.`,
+    })
+    expect(ran().some((c) => /^git (reset|commit)|^git push --|^gh /.test(c))).toBe(false)
+  })
+
+  test("a killed history push says it did not finish, with nothing squashed", async () => {
+    const { io, ran } = repo(
+      { ...withHistory, [`git push origin +${REF}:${REF}`]: { crash: true } },
+      ["feat: add x"],
+    )
+    expect(await ship(io, false)).toEqual({
+      ok: false,
+      text: `git push of ${REF} did not finish; nothing was squashed. Retry.\ntimed out after 10 minutes`,
     })
     expect(ran().some((c) => /^git (reset|commit)|^git push --|^gh /.test(c))).toBe(false)
   })
@@ -164,7 +218,7 @@ describe("ship history", () => {
     ])
     await ship(io, false)
     expect(ran()).not.toContain("gtd history list --json")
-    expect(ran().some((c) => c.startsWith("git push origin refs/gtd"))).toBe(false)
+    expect(ran().some((c) => /^git push origin \+?refs\/gtd\//.test(c))).toBe(false)
   })
 
   test("the no-change drop looks up and pushes nothing", async () => {
@@ -174,7 +228,7 @@ describe("ship history", () => {
     })
     await ship(io, false)
     expect(ran()).not.toContain("gtd history list --json")
-    expect(ran().some((c) => c.startsWith("git push origin refs/gtd"))).toBe(false)
+    expect(ran().some((c) => /^git push origin \+?refs\/gtd\//.test(c))).toBe(false)
   })
 
   test("no entry matches the tip: one log line, no trailer, no push, ship continues", async () => {
@@ -189,7 +243,7 @@ describe("ship history", () => {
     io.log = (l) => void lines.push(l)
     expect(await ship(io, false)).toMatchObject({ ok: true })
     expect(lines.filter((l) => /history/i.test(l))).toHaveLength(1)
-    expect(ran().some((c) => c.startsWith("git push origin refs/gtd"))).toBe(false)
+    expect(ran().some((c) => /^git push origin \+?refs\/gtd\//.test(c))).toBe(false)
     expect(calls.find((c) => c.argv.startsWith("git commit"))?.stdin).not.toContain("Gtd-History")
   })
 
@@ -206,7 +260,7 @@ describe("ship history", () => {
     io.log = (l) => void lines.push(l)
     expect(await ship(io, false)).toMatchObject({ ok: true })
     expect(lines.filter((l) => /history/i.test(l))).toHaveLength(1)
-    expect(ran().some((c) => c.startsWith("git push origin refs/gtd"))).toBe(false)
+    expect(ran().some((c) => /^git push origin \+?refs\/gtd\//.test(c))).toBe(false)
     expect(calls.find((c) => c.argv.startsWith("git commit"))?.stdin).not.toContain("Gtd-History")
   })
 
@@ -218,7 +272,7 @@ describe("ship history", () => {
       ["feat: add x\n\nwhy", "feat: add x\n\nbody"],
     )
     expect(await ship(io, false)).toMatchObject({ ok: true })
-    expect(ran()).toContain(`git push origin ${ref}:${ref}`)
+    expect(ran()).toContain(`git push origin +${ref}:${ref}`)
     expect(calls.find((c) => c.argv.startsWith("git commit"))?.stdin).toContain(
       `Gtd-History: ${ref}`,
     )
@@ -242,7 +296,7 @@ describe("ship history", () => {
     expect(lines).toContain(
       "No gtd history ref keeps this process: shipping without a Gtd-History trailer.",
     )
-    expect(ran().some((c) => c.startsWith("git push origin refs/gtd"))).toBe(false)
+    expect(ran().some((c) => /^git push origin \+?refs\/gtd\//.test(c))).toBe(false)
     expect(calls.find((c) => c.argv.startsWith("git commit"))?.stdin).not.toContain("Gtd-History")
   })
 

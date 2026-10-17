@@ -376,6 +376,28 @@ describe("summaryPrompt", () => {
     )
   })
 
+  const listed = (value: string): string =>
+    summaryPrompt({
+      ...base,
+      vars: { flag: "alpha", flagRegistry: "src/flags/index.ts" },
+      marks: [
+        { name: "flag-mentions", value: "1" },
+        { name: "flag-mention", value },
+      ],
+    })
+
+  it("prints a listed path with one backtick verbatim inside a double-backtick fence", () => {
+    expect(listed("a`b.ts:1")).toContain("- `` a`b.ts:1 ``\n")
+  })
+
+  it("prints a listed path with a double-backtick run verbatim inside a triple-backtick fence", () => {
+    expect(listed("a``b.ts:1")).toContain("- ``` a``b.ts:1 ```\n")
+  })
+
+  it("prints a plain listed path as a single-backtick span", () => {
+    expect(listed("src/x.ts:7")).toContain("- `src/x.ts:7`\n") // gtd-path-exempt: fixture path
+  })
+
   it("escapes regex metacharacters in the more-hint", () => {
     const prompt = summaryPrompt({
       ...base,

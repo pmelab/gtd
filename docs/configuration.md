@@ -1611,9 +1611,10 @@ process. A door with no argument is refused (see below).
   closing message `gtd summary` prints carries the same lines, then "…and N
   more:" with a `git grep -niIE` command over tracked files, excluding the
   registry and `.gtd/`, matching the same three forms. Fix that prose by hand,
-  or leave it for cleanup. These limits also bind a human's fix at
-  `rollout.suite.blocked`: it may touch only the flag's registry entry
-  (`.gtd/FEEDBACK.md` aside), or the landing is refused.
+  or leave it for cleanup. These limits also bind the mentions step
+  (`rollout.mentions`) and a human's fix at `rollout.suite.blocked`: each may
+  touch only the flag's registry entry (`.gtd/FEEDBACK.md` aside), or the
+  landing is refused.
 - **Cleanup** takes a default-on release flag, deletes its entry and every
   `GTD_FLAG_<NAME>` check from `src/` (only `.ts`/`.tsx` files there are
   scanned), keeping the flag-on path, then runs the review. A review note ends
@@ -1624,18 +1625,18 @@ process. A door with no argument is refused (see below).
 
 Refusals, each exiting non-zero with the text on stderr:
 
-| Text                                                                                         | When                                                             |
-| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `gtd: <workflow> needs --var flag=<name>`                                                    | no `flag` var                                                    |
-| `gtd door <rollout\|cleanup>: missing arguments — usage: gtd door <rollout\|cleanup> <flag>` | `gtd door rollout` or `gtd door cleanup` with no flag            |
-| `gtd: <workflow>: no flag "<name>" in <registry>`                                            | name not in the registry                                         |
-| `gtd: <workflow>: flag "<name>" is <kind>, not release`                                      | not a release flag                                               |
-| `gtd: rollout: flag "<name>" is already default-on`                                          | rollout of a default-on flag                                     |
-| `gtd: cleanup: flag "<name>" is not default-on — roll it out first`                          | cleanup of a flag still default-off                              |
-| `gtd land: rollout-only: <paths> changed — rollout may only set …`                           | rollout (agent or human fix) touched a file besides the registry |
-| `gtd land: rollout-only: other edits in <registry>: <faults>`                                | rollout (agent or human fix) edited beyond that one field        |
-| `gtd land: cleanup: <registry> still declares flag "<name>"`                                 | cleanup left or restored the registry entry                      |
-| `gtd land: cleanup: <paths> still names GTD_FLAG_<NAME>`                                     | cleanup left or reintroduced an env-var check under `src/`       |
+| Text                                                                                         | When                                                                            |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `gtd: <workflow> needs --var flag=<name>`                                                    | no `flag` var                                                                   |
+| `gtd door <rollout\|cleanup>: missing arguments — usage: gtd door <rollout\|cleanup> <flag>` | `gtd door rollout` or `gtd door cleanup` with no flag                           |
+| `gtd: <workflow>: no flag "<name>" in <registry>`                                            | name not in the registry                                                        |
+| `gtd: <workflow>: flag "<name>" is <kind>, not release`                                      | not a release flag                                                              |
+| `gtd: rollout: flag "<name>" is already default-on`                                          | rollout of a default-on flag                                                    |
+| `gtd: cleanup: flag "<name>" is not default-on — roll it out first`                          | cleanup of a flag still default-off                                             |
+| `gtd land: rollout-only: <paths> changed — rollout may only set …`                           | rollout (agent, mentions step or human fix) touched a file besides the registry |
+| `gtd land: rollout-only: other edits in <registry>: <faults>`                                | rollout (agent, mentions step or human fix) edited beyond that one field        |
+| `gtd land: cleanup: <registry> still declares flag "<name>"`                                 | cleanup left or restored the registry entry                                     |
+| `gtd land: cleanup: <paths> still names GTD_FLAG_<NAME>`                                     | cleanup left or reintroduced an env-var check under `src/`                      |
 
 New step names in both workflows are public API.
 

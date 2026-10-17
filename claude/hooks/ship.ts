@@ -102,14 +102,15 @@ Nothing else. No file-by-file list, no per-commit narration, no implementation
 detail the diff already shows, no test-plan boilerplate, no sign-off, no footer
 trailers. Short headings and lists are fine. Under 250 words.`
 
-// A push killed at the timeout rejects: read it as a failed push, so the step
-// fails by name. Only pushes: any other crashed read must abort the ship, not
-// pass as an answer.
-const attempt = async (io: ShipIo, argv: string[]): Promise<Ran> => {
+// A rejection becomes `killed`, so the caller can tell a timeout from a refused
+// push. Relies on the host's process runner rejecting at its timeout; a spawn
+// failure lands here too. Only pushes: any other crashed read must abort the
+// ship, not pass as an answer.
+const attempt = async (io: ShipIo, argv: string[]): Promise<Ran & { killed: boolean }> => {
   try {
-    return await io.run(argv)
+    return { ...(await io.run(argv)), killed: false }
   } catch (err) {
-    return { code: 1, out: "", err: err instanceof Error ? err.message : String(err) }
+    return { code: 1, out: "", err: err instanceof Error ? err.message : String(err), killed: true }
   }
 }
 
@@ -225,8 +226,15 @@ async function commitSquash(
 ): Promise<Shipped> {
   // Before the squash: a failure leaves the branch as it was, so a retry finds the process.
   if (history) {
+    // Forced so a retry after the tip changed lands. The ref is keyed by the entry
+    // commit, which every clone of the process shares: a second clone shipping the
+    // same entry replaces origin's copy.
     io.log(`Pushing ${history} to origin: the process's step commits become fetchable there.`)
-    const pushed = await attempt(io, ["git", "push", "origin", `${history}:${history}`])
+    const pushed = await attempt(io, ["git", "push", "origin", `+${history}:${history}`])
+    if (pushed.killed)
+      return fail(
+        `git push of ${history} did not finish; nothing was squashed. Retry.\n${pushed.err}`.trimEnd(),
+      )
     if (pushed.code !== 0)
       return fail(
         `git push of ${history} failed; nothing was squashed or pushed.\n${pushed.err}`.trimEnd(),
@@ -334,15 +342,23 @@ async function pullRequest(
 // the push failed, or nothing.
 export async function pushBranch(io: ShipIo, branch: string) {
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
-  const push = async (...args: string[]) => (await attempt(io, ["git", "push", ...args])).code === 0
+  const push = async (args: string[], failure: string) => {
+    const r = await attempt(io, ["git", "push", ...args])
+    if (r.killed)
+      return `git push of ${branch} did not finish; nothing was lost. Retry without fetching.\n${r.err}`.trimEnd()
+    if (r.code !== 0) return `${failure}\n${r.err}`.trimEnd()
+    return undefined
+  }
   if (!(await ok("rev-parse", "--verify", "--quiet", `origin/${branch}`))) {
     io.log(`Pushing ${branch} to origin…`)
-    if (!(await push("--set-upstream", "origin", branch))) return "git push failed."
-  } else if (!(await ok("merge-base", "--is-ancestor", "HEAD", `origin/${branch}`))) {
+    return push(["--set-upstream", "origin", branch], "git push failed.")
+  }
+  if (!(await ok("merge-base", "--is-ancestor", "HEAD", `origin/${branch}`))) {
     io.log(`Pushing ${branch} to origin…`)
-    if (!(await push("--force-with-lease", "origin", branch))) {
-      return `git push failed: origin/${branch} moved. Fetch and reconcile first.`
-    }
+    return push(
+      ["--force-with-lease", "origin", branch],
+      `git push failed: origin/${branch} moved. Fetch and reconcile first.`,
+    )
   }
   return undefined
 }

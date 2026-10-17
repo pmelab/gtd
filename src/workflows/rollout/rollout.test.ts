@@ -200,12 +200,11 @@ describe("rollout.mentions", () => {
   }
 
   it("lists mentions outside the registry and under no .gtd/ path", async () => {
-    const { repo, marks } = await finish({
+    const { marks } = await finish({
       "README.md": "intro\non under GTD_FLAG_ALPHA=1\n",
       "src/help.ts": 'export const h = "alpha help"\n',
       ".gtd/NOTES.md": "alpha\n",
     })
-    expect(repo.read(".gtd/FEEDBACK.md")).toBeUndefined()
     expect(marks).toEqual([
       "flag-mentions=2",
       "flag-mention=README.md:2",
@@ -213,16 +212,31 @@ describe("rollout.mentions", () => {
     ])
   })
 
-  it("scans the tree as it stands after the mentions script ran", async () => {
-    const { marks } = await finish({ "README.md": "alpha\n" }, (beat, r) => {
+  it("the mentions script removes a feedback file present at the step; marks list the tree", async () => {
+    const { repo, marks } = await finish({ "README.md": "alpha\n" }, (beat, r) => {
+      r.write(".gtd/FEEDBACK.md", "alpha\n")
       runsItsScript(beat, r)
-      r.write("0-early.md", "alpha\n")
     })
-    expect(marks).toEqual([
-      "flag-mentions=2",
-      "flag-mention=0-early.md:1",
-      "flag-mention=README.md:1",
-    ])
+    expect(repo.read(".gtd/FEEDBACK.md")).toBeUndefined()
+    expect(marks).toEqual(["flag-mentions=1", "flag-mention=README.md:1"])
+  })
+
+  it("refuses a stray file written by the mentions script", async () => {
+    await expect(
+      finish({}, (beat, r) => {
+        runsItsScript(beat, r)
+        r.write("src/stray.ts", "x\n")
+      }),
+    ).rejects.toThrow("gtd land: rollout-only: src/stray.ts changed")
+  })
+
+  it("refuses a registry edit beyond the flip made by the mentions script", async () => {
+    await expect(
+      finish({}, (beat, r) => {
+        runsItsScript(beat, r)
+        r.write("src/flags/index.ts", FLIPPED.replace('owner: "b"', 'owner: "z"'))
+      }),
+    ).rejects.toThrow("rollout-only: other edits in src/flags/index.ts")
   })
 
   it("marks 0 when nothing names the flag", async () => {

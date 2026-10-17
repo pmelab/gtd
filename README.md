@@ -623,9 +623,9 @@ When a process finishes, the landing that closes it also keeps the whole run
 behind a ref, `refs/gtd/history/<entry>`, so a squash or a deleted branch
 doesn't lose it. `/gtd ship` pushes this process's own ref to origin alongside
 the branch (never the others) and writes a `Gtd-History: <ref>` trailer on the
-squash commit. If that push fails, the ship fails and nothing is squashed.
-Recover the full trail with `gtd history fetch | sh`, then
-`gtd history show <ref>`.
+squash commit. The push is forced, so it replaces origin's copy of that one ref.
+If that push fails, the ship fails and nothing is squashed. Recover the full
+trail with `gtd history fetch | sh`, then `gtd history show <ref>`.
 
 ```sh
 gtd history list                 # one line per kept process
@@ -644,7 +644,9 @@ git config --add remote.origin.fetch 'refs/gtd/history/*:refs/gtd/history/*'
 ```
 
 The second line makes every plain `git fetch` include them. It has no leading
-`+`, so a conflicting local ref fails instead of being overwritten.
+`+`, so a conflicting local ref fails instead of being overwritten: after a
+forced `/gtd ship` push, a clone holding the old tip deletes its local ref
+(`git update-ref -d <ref>`) and fetches again.
 
 A step declared with `keep: true` files its turn under `refs/gtd/kept/` instead
 of on the branch (see [Kept tips](docs/configuration.md#kept-tips)). Those refs
