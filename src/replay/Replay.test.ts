@@ -15,6 +15,7 @@ import {
   restart,
   run,
   scope,
+  slice,
   threads,
   type Flow,
   type ScopeAccess,
@@ -1208,5 +1209,141 @@ describe("human({ approve })", () => {
       await human("after")
     }, h)
     expect(outcome.kind).toBe("rest")
+  })
+})
+
+describe("slice()", () => {
+  const spansOf = (o: ReplayOutcome) => (o as { slices: unknown }).slices
+
+  it("records enteredAt and leftAt as the commit replay stood on", async () => {
+    const wf = async () => {
+      await human("a")
+      await slice("refactor", async () => {
+        await human("b")
+      })
+      await human("c")
+    }
+    const h = new History().land("human", "a", 1, "b").land("human", "b", 1, "c")
+    const outcome = await replayOf(wf, h)
+    expect(outcome).toMatchObject({ kind: "rest" })
+    expect(spansOf(outcome)).toEqual([
+      { name: "refactor", enteredAt: hashOf(1), leftAt: hashOf(2) },
+    ])
+  })
+
+  it("keeps leftAt undefined when the process rests inside the slice", async () => {
+    const wf = async () => {
+      await slice("refactor", async () => {
+        await human("a")
+      })
+    }
+    const outcome = await replayOf(wf, new History())
+    expect(spansOf(outcome)).toEqual([
+      { name: "refactor", enteredAt: hashOf(0), leftAt: undefined },
+    ])
+  })
+
+  it("records enteredAt === leftAt for a slice that landed no commit", async () => {
+    const wf = async () => {
+      await human("a")
+      await slice("empty", async () => undefined)
+      await human("b")
+    }
+    const h = new History().land("human", "a", 1, "b")
+    expect(spansOf(await replayOf(wf, h))).toEqual([
+      { name: "empty", enteredAt: hashOf(1), leftAt: hashOf(1) },
+    ])
+  })
+
+  it("prefixes no step name and ignores an enclosing scope", async () => {
+    const wf = async () => {
+      await scope("build", async () => {
+        await slice("refactor", async () => {
+          await human("gate")
+        })
+      })
+    }
+    const outcome = await replayOf(wf, new History())
+    expect(outcome).toMatchObject({ kind: "rest", rest: { name: "build.gate" } })
+    expect((spansOf(outcome) as { name: string }[])[0]!.name).toBe("refactor")
+  })
+
+  const failed = async (wf: Flow) => {
+    const outcome = await replayOf(wf, new History())
+    expect(outcome.kind).toBe("failed")
+    return (outcome as { message: string }).message
+  }
+
+  it.each(["Refactor", "step_1", "v2.api", ""])("refuses the name %j", async (name) => {
+    expect(await failed(async () => slice(name, async () => human("a")))).toBe(
+      `gtd: slice "${name}": name must match /^[a-z][a-z0-9-]*$/`,
+    )
+  })
+
+  it("accepts refactor-2", async () => {
+    const outcome = await replayOf(
+      async () => slice("refactor-2", async () => human("a")),
+      new History(),
+    )
+    expect(outcome.kind).toBe("rest")
+  })
+
+  it("refuses the reserved name main", async () => {
+    expect(await failed(async () => slice("main", async () => human("a")))).toBe(
+      'gtd: slice "main" is reserved for the implicit slice',
+    )
+  })
+
+  it("refuses nesting, also through scope()", async () => {
+    const message = 'gtd: slice "inner" is entered inside slice "outer" — slices do not nest'
+    expect(
+      await failed(async () => slice("outer", async () => slice("inner", async () => human("a")))),
+    ).toBe(message)
+    expect(
+      await failed(async () =>
+        slice("outer", async () => scope("s", async () => slice("inner", async () => human("a")))),
+      ),
+    ).toBe(message)
+  })
+
+  it("checks the name rule before main and nesting", async () => {
+    expect(
+      await failed(async () => slice("outer", async () => slice("Main", async () => human("a")))),
+    ).toBe('gtd: slice "Main": name must match /^[a-z][a-z0-9-]*$/')
+  })
+
+  it("lets a flow that caught an error from a slice enter another", async () => {
+    const wf = async () => {
+      try {
+        await slice("a", async () => {
+          throw new Error("boom")
+        })
+      } catch {}
+      await slice("b", async () => human("x"))
+    }
+    expect(await replayOf(wf, new History())).toMatchObject({ kind: "rest" })
+  })
+
+  it("refuses a non-string name", async () => {
+    expect(
+      await failed(async () => slice(undefined as unknown as string, async () => human("a"))),
+    ).toContain("name must match")
+  })
+
+  it("refuses a name entered twice, sequentially and from a loop", async () => {
+    const message =
+      'gtd: slice "again" is entered twice in this episode — a loop must sit inside its slice'
+    expect(
+      await failed(async () => {
+        await slice("again", async () => undefined)
+        await slice("again", async () => human("a"))
+      }),
+    ).toBe(message)
+    expect(
+      await failed(async () => {
+        for (let i = 0; i < 2; i++) await slice("again", async () => undefined)
+        await human("a")
+      }),
+    ).toBe(message)
   })
 })

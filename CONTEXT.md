@@ -211,6 +211,11 @@ persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`
 when there are none). One scope, one model, system prompt and skill list.
 _Avoid_: session, context window, conversation, history
 
+**Slice**: A named span of an episode's history, marked by `slice(name, fn)`.
+Distinct from a [memory scope](#memory-scope) (no step renaming, no agent
+conversation) and from a [package](#package) (a build unit, not a flow marker).
+_Avoid_: section, stage
+
 **Session id**: The agent CLI's own conversation handle — DERIVED from a memory
 scope's key (a `uuidv5` hash), never stored anywhere, so the same scope-run
 always re-derives the same id (`gtd next --json`'s

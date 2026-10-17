@@ -37,11 +37,13 @@ import {
   isRecordableApproval,
   parseCommitMessage,
   replay,
+  sliceRanges,
   treeFromRecord,
   type EpisodeCommit,
   type JudgeVerdict,
   type ReachedStep,
   type ReplayOutcome,
+  type SliceRange,
   type TreeView,
 } from "../replay/index.js"
 import type { Mark, ScopeAccess } from "../flows/index.js"
@@ -895,6 +897,7 @@ interface Rest extends ResolvedRest {
   /** Total recorded cost of the process, and its per-model breakdown. */
   readonly cost: { readonly total: number; readonly byModel: readonly ModelCost[] }
   readonly setup: ReplaySetup
+  readonly slices: readonly SliceRange[]
 }
 
 /** Per-model token totals, highest-cost first (ties broken by model name). */
@@ -987,6 +990,15 @@ const pendingChanges = (git: GitOperations, withIndex: boolean) =>
     return [...worktree, ...(yield* git.stagedPaths()).filter((e) => !seen.has(e.path))]
   })
 
+const sliceRangesOf = (
+  slices: Parameters<typeof sliceRanges>[0],
+  run: { readonly startParentHash: string; readonly trace: readonly { readonly hash: string }[] },
+) =>
+  sliceRanges(slices, {
+    base: run.startParentHash,
+    tip: run.trace.at(-1)?.hash ?? run.startParentHash,
+  })
+
 /** Resolve the rest at `ref`, or at HEAD when `ref` is `undefined`. */
 export const restAt = (
   ref: string | undefined,
@@ -1060,6 +1072,7 @@ export const restAt = (
         byModel: costByModel(run.costEntries),
       },
       setup,
+      slices: sliceRangesOf(outcome.slices, run),
     }
   })
 

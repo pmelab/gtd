@@ -23,6 +23,7 @@ import {
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
 import { globMatches } from "../wire/index.js"
 import { refNameFault } from "./RefName.js"
+import { IMPLICIT_SLICE, SLICE_NAME, type SliceSpan } from "./Slices.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
 import {
   formatStepId,
@@ -117,6 +118,7 @@ export type ReplayOutcome =
       readonly landed: ReachedStep | undefined
       /** Marks the flow made after the pending turn's step resolved; [] without a pending turn. */
       readonly marks: readonly Mark[]
+      readonly slices: readonly SliceSpan[]
     }
   | {
       readonly kind: "ended"
@@ -297,6 +299,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   >()
   let landed: ReachedStep | undefined
   const marks: Mark[] = []
+  const slices: { name: string; enteredAt: string; leftAt: string | undefined }[] = []
   let outcome: ReplayOutcome | undefined
   let signal: (() => void) | undefined
   const settled = new Promise<void>((resolve) => {
@@ -558,7 +561,14 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     const commit = commits[cursor]
     if (commit !== undefined) return consumeCommit(step, commit)
     if (input.pending === undefined || pendingUsed) {
-      return finish({ kind: "rest", rest: step, trace, landed, marks })
+      return finish({
+        kind: "rest",
+        rest: step,
+        trace,
+        landed,
+        marks,
+        slices: slices.map((s) => ({ ...s })),
+      })
     }
     return landPending(step, input.pending)
   }
@@ -629,6 +639,34 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     popScope: () => {
       scopes.pop()
       scopeCallIds.pop()
+    },
+    enterSlice: (name) => {
+      if (outcome !== undefined) return
+      const fail = (message: string): never => {
+        void finish({ kind: "failed", message })
+        throw new Stop()
+      }
+      if (typeof name !== "string" || !SLICE_NAME.test(name)) {
+        fail(`gtd: slice "${name}": name must match ${SLICE_NAME}`)
+      }
+      if (name === IMPLICIT_SLICE) {
+        fail(`gtd: slice "${IMPLICIT_SLICE}" is reserved for the implicit slice`)
+      }
+      const open = slices.find((s) => s.leftAt === undefined)
+      if (open !== undefined) {
+        fail(`gtd: slice "${name}" is entered inside slice "${open.name}" — slices do not nest`)
+      }
+      if (slices.some((s) => s.name === name)) {
+        fail(
+          `gtd: slice "${name}" is entered twice in this episode — a loop must sit inside its slice`,
+        )
+      }
+      slices.push({ name, enteredAt: position.hash, leftAt: undefined })
+    },
+    leaveSlice: () => {
+      if (outcome !== undefined) return
+      const open = slices.find((s) => s.leftAt === undefined)
+      if (open !== undefined) open.leftAt = position.hash
     },
     read: (path) => position.tree.read(path),
     glob: (pattern) => position.tree.paths().filter((path) => globMatches(path, pattern)),

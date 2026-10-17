@@ -596,6 +596,34 @@ export const summary = (it) => it.marks.map((m) => m.name + "=" + m.value).join(
   })
 })
 
+describe("Rest.slices", () => {
+  const SLICED = `import { agent, human, slice } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "idle-message" })
+  await slice("build", async () => {
+    await agent("building", "build-prompt")
+  })
+  await slice("verify", async () => {
+    await agent("checking", "check-prompt")
+  })
+}
+`
+
+  it("folds the replay's spans over the run's base and its last commit", async () => {
+    const repo = repoWith(SLICED)
+    const boundary = headOf(repo)
+    await land(repo, { "a.txt": "a\n" })
+    const checking = await land(repo, { "b.txt": "b\n" })
+    const rest = await provide(currentRest, repo)
+    expect(rest.state).toBe("checking")
+    expect(rest.slices).toEqual([
+      { name: "build", base: boundary, tip: checking, open: false },
+      { name: "verify", base: checking, tip: checking, open: true },
+    ])
+  })
+})
+
 describe("restAt", () => {
   it("restAt(ref) resolves where the process rested at that commit", async () => {
     const repo = repoWith(LINEAR)

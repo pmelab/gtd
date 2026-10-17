@@ -310,6 +310,21 @@ while (true) {
   turn inside `fn` runs with; see [File access](#file-access). `agent()` takes
   no `access` option either: narrower access for one step needs its own
   `scope()`.
+- `slice(name, fn)` — marks the span `fn` covers as one named **slice** of the
+  episode. For now it only names the span: it changes nothing about how the
+  episode lands (slices landing as their own commits or stacked PRs is planned
+  in #379 and #380). It lands no commit, renames no step and opens no memory
+  scope — it is not a `scope()`; wrap one in the other when you want both. A
+  slice's commits run from where the previous slice ended: commits before the
+  first slice fold into it, commits between two slices into the next, commits
+  after the last into the last. A slice that landed no commit is dropped, its
+  neighbours absorbing the gap. A flow with no surviving slice has one implicit
+  slice named `main` over the whole episode, so `main` is reserved. Names match
+  `/^[a-z][a-z0-9-]*$/` and are unique within an episode: entering one twice,
+  nesting a `slice()` inside another (even through a `scope()`), or breaking the
+  name rule fails the episode naming the slice. A loop must sit inside its
+  slice. `restart()` starts a new episode with its own base, so the next one may
+  reuse the names and its slices never include the earlier episode's commits.
 - `refuse(message)` — refuse the pending landing: nothing lands, `gtd land`
   exits 1 with `message`, and the process stays where it rests. Call it right
   after a step whose turn left something the flow does not accept.
@@ -871,8 +886,8 @@ exempt — it may do anything. Everything else follows
   filesystem access in flow code. Read the tree through the helpers; do IO
   inside a `run()` body. gtd cannot see this mistake up front: a flow that
   branches on something other than history shows up later as a divergence.
-- **Await only steps**: a flow may `await` a step, `scope()`, or a function that
-  itself awaits steps. Awaiting anything else fails the replay:
+- **Await only steps**: a flow may `await` a step, `scope()`, `slice()`, or a
+  function that itself awaits steps. Awaiting anything else fails the replay:
   `the flow awaited something that is not a step`.
 - **Unique names**: one step name per call site; call a shared helper from two
   places inside two different `scope()`s. Two call sites sharing a name read as
