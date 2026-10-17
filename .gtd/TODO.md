@@ -1,10 +1,5 @@
-## Deferred review notes (836985b)
-
-- note-3 — flaky.[^stdout] (could): Restore `expect(captured().stdout).toBe("")`
-  in the garbled-flag CLI test; dropping it weakens the test with no reason.
-
-## Deferred review notes (daed27f)
-
-- note-2 — output.[^weak] (could): Please strengthen this scenario: finish a
-  process that kept a tip, then assert `gtd history list` shows only the
-  finished process and never the kept ref.
+PR389 review fixes: print versionWarning before unknown-slice refusal; fold
+hasSummary/summarySlice into one summaryFor(run, sliceName?) resolving workflow
+once; drop unreachable narrowToSlice outside-process guard; fix text.ts comment
+(ship.ts only reads the git log line); update runSummaryCommand JSDoc refusals;
+share cost total helper with historyTrail; split step args on whitespace
