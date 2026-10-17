@@ -1488,7 +1488,7 @@ const narrowToSlice = (
   return { trace, costEntries: run.costEntries.filter((c) => hashes.has(c.hash)) }
 }
 
-export interface SummaryResult {
+interface SummaryResult {
   readonly prompt: string | undefined
   readonly versionWarning?: string
   readonly unknownSlice?: string
@@ -1554,11 +1554,8 @@ const locateSlice = (
   })
 
 /**
- * `gtd summary`'s prompt for `run`, or `prompt: undefined` when the workflow has no
- * `summary` template or (plain call) there is nothing to summarize. With `sliceName`
- * it replays like `gtd slices` and narrows range, human commits and cost to that
- * slice; `entryCommit` and `marks` stay whole-process. An unknown name is a
- * `unknownSlice`, a version mismatch a `versionWarning`; the edge never narrates.
+ * A plain call never replays; under a slice, `entryCommit` and `marks` stay
+ * whole-process.
  */
 export const summaryFor = (
   run: ProcessRun,

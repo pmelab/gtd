@@ -326,8 +326,9 @@ const planLanding = (
  * closes or sits inside its own closing message. Writes nothing — no git, no
  * state transition, no file. Refuses (throws, mapped to the runtime-error
  * exit code) when the workflow declares no `summary` prompt, or the resolved
- * run has no commits to name. The edge never narrates: the version warning is
- * printed before any refusal.
+ * run has no commits to name. The edge never narrates: the CLI prints the
+ * version warning, before the unknown-slice refusal; a replay refusal carries
+ * it in its message.
  */
 const runSummaryCommand = (
   out: ArtifactOut,

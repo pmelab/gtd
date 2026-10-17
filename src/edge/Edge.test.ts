@@ -902,61 +902,48 @@ export const summary = (it) => JSON.stringify(it)
     expect(message).toContain("revert or stash")
   })
 
-  it("refuses a closed process that does not end under today's config with the summary prefix", async () => {
-    const { repo } = await finished()
-    const run = await provide(summaryRun, repo)
-    repo.writeFile(
-      "gtd.config.ts",
-      SLICED.replace(
-        'await agent("checking", "check-prompt")',
-        'await agent("checking", "check-prompt")\n    await human("idle", { message: "again" })\n    await agent("polishing", "polish-prompt")',
-      ),
-    )
-    // Every ref reads as the working tree: only replay divergence remains.
-    const git: GitOperations = {
-      ...fakeGitOperations(repo),
-      readFileAtRef: (_ref, path) => Effect.succeed(repo.readFile(path) ?? ""),
-    }
-    const exit = await Effect.runPromiseExit(
-      summaryFor(run, "build").pipe(
-        Effect.provideService(GitService, git),
-        Effect.provide(testLayers(repo, {})),
-      ),
-    )
-    expect(Exit.isFailure(exit) ? String(exit.cause) : "").toContain(
-      `gtd summary: refused — ${repo.resolveRef("HEAD")!.slice(0, 7)} closes a process that does not end under today's config`,
-    )
-  })
-
-  it("a divergence refusal under another gtd version carries the version warning", async () => {
-    const { repo } = await finished()
-    const tip = withTipMessage(repo, (m) =>
-      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
-    )
-    const run = await Effect.runPromise(
-      summaryRun.pipe(Effect.provideService(GitService, tip), Effect.provide(testLayers(repo, {}))),
-    )
-    repo.writeFile(
-      "gtd.config.ts",
-      SLICED.replace(
-        'await agent("checking", "check-prompt")',
-        'await agent("checking", "check-prompt")\n    await human("idle", { message: "again" })\n    await agent("polishing", "polish-prompt")',
-      ),
-    )
-    const git: GitOperations = {
-      ...tip,
-      readFileAtRef: (_ref, path) => Effect.succeed(repo.readFile(path) ?? ""),
-    }
-    const exit = await Effect.runPromiseExit(
-      summaryFor(run, "build").pipe(
-        Effect.provideService(GitService, git),
-        Effect.provide(testLayers(repo, {})),
-      ),
-    )
-    const message = Exit.isFailure(exit) ? String(exit.cause) : ""
-    expect(message).toContain("does not end under today's config")
-    expect(message).toContain("0.0.1")
-  })
+  it.each([
+    { recorded: GTD_VERSION, warned: false },
+    { recorded: "0.0.1", warned: true },
+  ])(
+    "refuses a closed process that does not end under today's config (recorded $recorded)",
+    async ({ recorded, warned }) => {
+      const { repo } = await finished()
+      const tip = withTipMessage(repo, (m) =>
+        m.replace(`Gtd-Version: ${GTD_VERSION}`, `Gtd-Version: ${recorded}`),
+      )
+      const run = await Effect.runPromise(
+        summaryRun.pipe(
+          Effect.provideService(GitService, tip),
+          Effect.provide(testLayers(repo, {})),
+        ),
+      )
+      repo.writeFile(
+        "gtd.config.ts",
+        SLICED.replace(
+          'await agent("checking", "check-prompt")',
+          'await agent("checking", "check-prompt")\n    await human("idle", { message: "again" })\n    await agent("polishing", "polish-prompt")',
+        ),
+      )
+      // Every ref reads as the working tree: only replay divergence remains.
+      const git: GitOperations = {
+        ...tip,
+        readFileAtRef: (_ref, path) => Effect.succeed(repo.readFile(path) ?? ""),
+      }
+      const exit = await Effect.runPromiseExit(
+        summaryFor(run, "build").pipe(
+          Effect.provideService(GitService, git),
+          Effect.provide(testLayers(repo, {})),
+        ),
+      )
+      const message = Exit.isFailure(exit) ? String(exit.cause) : ""
+      expect(message).toContain(
+        `gtd summary: refused — ${repo.resolveRef("HEAD")!.slice(0, 7)} closes a process that does not end under today's config`,
+      )
+      if (warned) expect(message).toContain(`recorded by gtd ${recorded}`)
+      else expect(message).not.toContain("recorded by gtd")
+    },
+  )
 
   it("returns no prompt, not a failure, when an edited config no longer exports a summary", async () => {
     const { repo } = await finished()
