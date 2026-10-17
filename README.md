@@ -327,23 +327,23 @@ Then, in any repository:
 That starts a process from your requirements and drives it until it needs you. A
 long, multi-line requirements paste still starts a process; if Claude Code never
 expanded the paste, gtd says it could not read it, and you write the
-requirements to `.gtd/TODO.md` and run `/gtd`. `/gtd fix` and
-`/gtd review [base]` take the two doors described below. At every human rest
-Claude itself takes over: it walks you through the open questions one at a time,
-answers your own questions about the plan or the diff, records what you decide
-in the steering file the way the step asks, and moves the process on only when
-you say so; a review you leave untouched signs off. While a step runs you can
-keep asking; requests for changes wait for the next rest. When the process
-finishes, Claude offers to squash it into one commit and open its pull request
-(or run `/gtd ship`). A process can change hands at any gate: ask Claude to hand
-it off (or run `/gtd throw @dev`) and it opens a draft pull request assigned to
-them, and `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote
-the requirements can hand the architecture to someone else. Ship, hand-off and
-throw answer at once and run in the background, with progress on the status
-line; they report by waking Claude, a toast, a transcript line and a push
-notification, and a failed push or `gh` call reports as a failure. While a ship
-or hand-off runs or is queued, `/gtd catch`, the doors, `/gtd <requirements>`
-and bare `/gtd` wait for its report. See
+requirements to `.gtd/TODO.md` and run `/gtd`. `/gtd fix`, `/gtd review [base]`,
+`/gtd rollout <flag>` and `/gtd cleanup <flag>` take the doors described below.
+At every human rest Claude itself takes over: it walks you through the open
+questions one at a time, answers your own questions about the plan or the diff,
+records what you decide in the steering file the way the step asks, and moves
+the process on only when you say so; a review you leave untouched signs off.
+While a step runs you can keep asking; requests for changes wait for the next
+rest. When the process finishes, Claude offers to squash it into one commit and
+open its pull request (or run `/gtd ship`). A process can change hands at any
+gate: ask Claude to hand it off (or run `/gtd throw @dev`) and it opens a draft
+pull request assigned to them, and `/gtd catch <pr>` picks it up exactly where
+it waits, so whoever wrote the requirements can hand the architecture to someone
+else. Ship, hand-off and throw answer at once and run in the background, with
+progress on the status line; they report by waking Claude, a toast, a transcript
+line and a push notification, and a failed push or `gh` call reports as a
+failure. While a ship or hand-off runs or is queued, `/gtd catch`, the doors,
+`/gtd <requirements>` and bare `/gtd` wait for its report. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own
@@ -362,27 +362,28 @@ state name to choose. The four commands: **`gtd-build`** drives beats until the
 process rests; **`gtd-edit`** opens the steering file the process is waiting on
 right now — falling back to `.gtd/TODO.md` when the resting state declares none;
 **`gtd-door <name> [args...]`** starts a process through a door (`gtd-door fix`,
-`gtd-door review [base]`) and drives it. The `.gtd/TODO.md` fallback is also how
-you begin: on a clean repository the edit command opens the empty
-`.gtd/TODO.md`, and whatever you write there is the first sketch the whole
-process gets planned from. As a final step, if it finds an LSP-capable editor,
-the briefing also offers to wire up live diagnostics and review actions in it —
-asking first and naming the exact file, and merging rather than overwriting your
-editor's config. That editor integration also adds a footnote at the exact
-cursor position with one code action, landing the cursor in the new, empty
-definition ready to type, and jumps between a footnote's marker and its
-definition both ways — so leaving a comment for the next agent turn never means
-hand-typing the `[^name]` syntax yourself. In a review file, a `./path#42-70`
-hunk pointer is also a clickable link straight to that file and range, no
-go-to-definition required. A footnote can also hold a `H:`/`A:` conversation (a
-thread — see [configuration](docs/configuration.md)); the editor outlines
-threads, flags the open ones, and a `gtd: reply` code action adds your empty
-`- H:` entry and puts the cursor there; `gtd check <mode> <file> --open-threads`
-lists the ones still waiting on you, and a review question gets its answer at
-the review gate again, not a lap. The same conversation works as bare `// H: …`
-/ `// A: …` line comments (`#`, `--`, `;` by language) in files the process
-changed; `gtd check --open-threads` alone lists the open ones (editor-only — the
-phone UI does not show them).
+`gtd-door review [base]`, `gtd-door rollout <flag>`, `gtd-door cleanup <flag>`)
+and drives it. The `.gtd/TODO.md` fallback is also how you begin: on a clean
+repository the edit command opens the empty `.gtd/TODO.md`, and whatever you
+write there is the first sketch the whole process gets planned from. As a final
+step, if it finds an LSP-capable editor, the briefing also offers to wire up
+live diagnostics and review actions in it — asking first and naming the exact
+file, and merging rather than overwriting your editor's config. That editor
+integration also adds a footnote at the exact cursor position with one code
+action, landing the cursor in the new, empty definition ready to type, and jumps
+between a footnote's marker and its definition both ways — so leaving a comment
+for the next agent turn never means hand-typing the `[^name]` syntax yourself.
+In a review file, a `./path#42-70` hunk pointer is also a clickable link
+straight to that file and range, no go-to-definition required. A footnote can
+also hold a `H:`/`A:` conversation (a thread — see
+[configuration](docs/configuration.md)); the editor outlines threads, flags the
+open ones, and a `gtd: reply` code action adds your empty `- H:` entry and puts
+the cursor there; `gtd check <mode> <file> --open-threads` lists the ones still
+waiting on you, and a review question gets its answer at the review gate again,
+not a lap. The same conversation works as bare `// H: …` / `// A: …` line
+comments (`#`, `--`, `;` by language) in files the process changed;
+`gtd check --open-threads` alone lists the open ones (editor-only — the phone UI
+does not show them).
 
 ### The workflow it ships with
 
@@ -580,10 +581,18 @@ gate.
 
 ### Rolling out and cleaning up release flags
 
-Two more bundled workflows retire a release flag:
-`gtd --workflow rollout --var flag=<name>` turns it default-on,
-`gtd --workflow cleanup --var flag=<name>` removes it afterwards. See
+Two more bundled workflows retire a release flag: `gtd door rollout <flag>`
+turns it default-on, `gtd door cleanup <flag>` removes it afterwards
+(`/gtd rollout <flag>` and `/gtd cleanup <flag>` in Claude Code;
+`gtd --workflow rollout --var flag=<name>` works too). See
 [Feature flags](docs/configuration.md#rolling-out-and-cleaning-up-a-release-flag).
+
+Rollout makes "on under `GTD_FLAG_<NAME>=1`" prose wrong until cleanup, so once
+the suite passes it lists every line outside the registry that names the flag
+(as `path:line`, the first 50, then a `grep` command for the rest) and edits
+none of them, leaving no file behind. The list is in the closing commit's
+`Gtd-Mark:` trailers and the closing message `gtd summary` prints; an empty list
+says so in one line. Fix the prose by hand or leave it for cleanup.
 
 The delivery model these workflows implement: [Delivery model](SDLC.md).
 
@@ -604,8 +613,11 @@ or `.gitmodules` `ignore` say. Works in any git repository, no process needed.
 
 When a process finishes, the landing that closes it also keeps the whole run
 behind a ref, `refs/gtd/history/<entry>`, so a squash or a deleted branch
-doesn't lose it. `/gtd ship` changes nothing about this: the turns are already
-kept before it squashes.
+doesn't lose it. `/gtd ship` pushes this process's own ref to origin alongside
+the branch (never the others) and writes a `Gtd-History: <ref>` trailer on the
+squash commit. If that push fails, the ship fails and nothing is squashed.
+Recover the full trail with `gtd history fetch | sh`, then
+`gtd history show <ref>`.
 
 ```sh
 gtd history list                 # one line per kept process
@@ -614,7 +626,9 @@ gtd history fetch | sh           # pull every kept ref from origin
 ```
 
 `gtd history fetch` only prints a fetch script; pipe it into `sh` to run it.
-Refs are not pushed or fetched by default. To share them:
+Beyond that one ship push, refs are not pushed or fetched by default. The ref
+holds every step commit, including steering files and code a later step removed,
+so anyone who can fetch the remote can read it. To share the rest:
 
 ```sh
 git push origin 'refs/gtd/history/*'

@@ -210,20 +210,29 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then the exit code is 1
     And stderr contains "door \"go\" names workflow \"nope\""
 
-  Scenario: two workflows building the same door is a config error naming the door
+  Scenario: two workflows building the same door, none exported under its name, is a config error naming the door
     Given a gtd config file at "gtd.config.ts" with:
       """
-      export { feature as default, fix, fix as mend, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      export { feature as default, fix as mend, fix as patch, defaults, envDefaults } from "@pmelab/gtd/workflows"
       """
     When I run gtd with args "doors"
     Then the exit code is 1
     And stderr contains "door \"fix\" is built by workflows"
     And stderr contains "declare it in the \"doors\" export to choose one"
 
-  Scenario: a doors export declaring the clashing name settles it, the declared door winning
+  Scenario: a door several workflows build belongs to the one exported under the door's own name
     Given a gtd config file at "gtd.config.ts" with:
       """
       export { feature as default, fix, fix as mend, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      """
+    When I run gtd with args "doors"
+    Then it succeeds
+    And stdout contains "fix → fix"
+
+  Scenario: a doors export declaring the clashing name settles it, the declared door winning
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      export { feature as default, fix as mend, fix as patch, defaults, envDefaults } from "@pmelab/gtd/workflows"
 
       export const doors = { fix: { workflow: "mend" } }
       """

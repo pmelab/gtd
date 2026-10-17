@@ -1,7 +1,19 @@
-import { agent, changesSince, head, read, refuse, scope, vars } from "../../flows/index.js"
+import {
+  agent,
+  changesSince,
+  glob,
+  head,
+  mark,
+  read,
+  refuse,
+  removeScript,
+  run,
+  scope,
+  vars,
+} from "../../flows/index.js"
 import { gate } from "../shared/health.js"
 import { flagShipped } from "../shared/options.js"
-import { flipProblems, requireFlag } from "../shared/registry.js"
+import { flagMentions, flipProblems, requireFlag } from "../shared/registry.js"
 import { coder, FEEDBACK } from "../shared/steps.js"
 
 const flippingPrompt = (name: string, registry: string): string =>
@@ -9,6 +21,30 @@ const flippingPrompt = (name: string, registry: string): string =>
 
 const suiteBlockedMessage = (): string =>
   "The suite is red after the rollout. Fix it by hand — a rollout may only touch the flag's registry entry — then land."
+
+// Marks past this many are dropped; the summary points at grep for the rest.
+const MARKED_MENTIONS = 50
+
+// Lists, never edits: the human fixes the now-stale prose, or cleanup does. The
+// list rides in marks only: a state file left at idle would be published by
+// ship and read as a failed unwind by the next process.
+const listMentions = async (registry: string, name: string): Promise<void> => {
+  const files = glob("**")
+    .filter((path) => path !== registry && path !== ".gtd" && !path.startsWith(".gtd/"))
+    .sort()
+    .map((path) => ({ path, text: read(path) ?? "" }))
+  const mentions = flagMentions(files, name)
+  await run("mentions", removeScript([FEEDBACK]), { label: "Listing flag mentions" })
+  mark("flag-mentions", String(mentions.length))
+  for (const m of mentions.slice(0, MARKED_MENTIONS)) {
+    // A path the mark grammar rejects stays counted above, just unlisted here.
+    try {
+      mark("flag-mention", `${m.path}:${m.line}`)
+    } catch {
+      continue
+    }
+  }
+}
 
 // No review gate — a one-field change needs no review lap.
 export const rolloutFlow = async (): Promise<void> => {
@@ -38,7 +74,13 @@ export const rolloutFlow = async (): Promise<void> => {
     })
     guard()
     await gate("suite", suiteBlockedMessage(), guard)
+    await listMentions(registry, name)
   })
 }
 
-export const rollout = flagShipped(rolloutFlow)
+export const rollout = flagShipped(rolloutFlow, {
+  rollout: {
+    args: [{ name: "flag" }],
+    vars: ({ flag }) => ({ flag: flag ?? "" }),
+  },
+})

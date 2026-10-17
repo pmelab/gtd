@@ -554,23 +554,34 @@ const derivedDoors = (
   catalogue: ReadonlyMap<string, LoadedWorkflow>,
   declared: ReadonlyMap<string, Door>,
 ): ReadonlyMap<string, Door> => {
-  const doors = new Map<string, Door>()
+  const builders = new Map<string, Door[]>()
   for (const [workflow, loaded] of catalogue) {
     for (const [name, spec] of Object.entries(loaded.doors ?? {})) {
       const door: Door = { ...spec, workflow }
       const problem = doorProblem(name, door)
       if (problem !== undefined)
         throw new Error(`workflow "${workflow}" builds door "${name}", which ${problem}`)
-      const other = doors.get(name)
-      if (other !== undefined && !declared.has(name)) {
-        throw new Error(
-          `door "${name}" is built by workflows "${other.workflow}" and "${workflow}" — declare it in the "doors" export to choose one (a declared door replaces the derived one, so restate its args and vars)`,
-        )
-      }
-      doors.set(name, door)
+      builders.set(name, [...(builders.get(name) ?? []), door])
     }
   }
+  const doors = new Map<string, Door>()
+  for (const [name, built] of builders) {
+    doors.set(name, ownerOf(name, built, declared.has(name)))
+  }
   return new Map([...doors, ...declared])
+}
+
+/** The export named after the door owns it; the others build none, whatever the order. */
+const ownerOf = (name: string, built: readonly Door[], isDeclared: boolean): Door => {
+  const owner = built.find((door) => door.workflow === name)
+  if (owner !== undefined) return owner
+  const [first, second] = built as [Door, Door?]
+  if (second !== undefined && !isDeclared) {
+    throw new Error(
+      `door "${name}" is built by workflows "${first.workflow}" and "${second.workflow}" — declare it in the "doors" export to choose one (a declared door replaces the derived one, so restate its args and vars)`,
+    )
+  }
+  return first
 }
 
 /** Sort the doors and check each names a startable workflow. */

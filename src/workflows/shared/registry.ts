@@ -136,6 +136,40 @@ export const flagReferences = (
     )
 }
 
+export interface FlagMention {
+  readonly path: string
+  readonly line: number
+  readonly text: string
+}
+
+const MENTION_LENGTH = 200
+
+/**
+ * Every line naming flag `name` as `GTD_FLAG_<NAME>`, `flag_<name>` or bare
+ * `<name>` — case-insensitive, never inside a longer identifier. Unlike
+ * `flagReferences`, test files count; a file holding a NUL byte is skipped.
+ */
+export const flagMentions = (
+  files: readonly { readonly path: string; readonly text: string }[],
+  name: string,
+): readonly FlagMention[] => {
+  const pattern = new RegExp(
+    `(?<![A-Za-z0-9_])(?:GTD_FLAG_|flag_)?${escapeRegExp(name)}(?![A-Za-z0-9_])`,
+    "i",
+  )
+  return files
+    .filter(({ text }) => !text.includes("\u0000"))
+    .flatMap(({ path, text }) =>
+      text
+        .split("\n")
+        .flatMap((line, i) =>
+          pattern.test(line)
+            ? [{ path, line: i + 1, text: line.trim().slice(0, MENTION_LENGTH) }]
+            : [],
+        ),
+    )
+}
+
 export const requireFlag = (
   workflow: "rollout" | "cleanup",
   registryPath: string,
