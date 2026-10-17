@@ -12,9 +12,7 @@ export {
   restIsIdle,
   previewLanding,
   snapshotFromRest,
-  hasSummary,
   summaryFor,
   historyTrail,
   processSlices,
-  summarySlice,
 } from "./Edge.js"

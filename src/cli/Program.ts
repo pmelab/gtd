@@ -59,10 +59,8 @@ import {
   reviewBaseFor,
   snapshotFromRest,
   stalledAt,
-  hasSummary,
   summaryFor,
   summaryRun,
-  summarySlice,
   type RenderedRest,
 } from "../edge/index.js"
 import { planStart, planStep as planStepPure, type JudgeVerdict } from "../step/index.js"
@@ -328,7 +326,9 @@ const planLanding = (
  * closes or sits inside its own closing message. Writes nothing — no git, no
  * state transition, no file. Refuses (throws, mapped to the runtime-error
  * exit code) when the workflow declares no `summary` prompt, or the resolved
- * run has no commits to name.
+ * run has no commits to name. The edge never narrates: the CLI prints the
+ * version warning, before the unknown-slice refusal; a replay refusal carries
+ * it in its message.
  */
 const runSummaryCommand = (
   out: ArtifactOut,
@@ -336,16 +336,10 @@ const runSummaryCommand = (
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const run = yield* summaryRun
-    // Plain `gtd summary` never replays: only a named slice needs the spans.
-    let rendered: string | undefined
-    if (sliceName === undefined) {
-      rendered = yield* summaryFor(run)
-    } else if (yield* hasSummary(run)) {
-      const { slice, versionWarning } = yield* summarySlice(run, sliceName)
-      if (versionWarning !== undefined) yield* (yield* Narrator).warn(versionWarning)
-      rendered = yield* summaryFor(run, slice)
-    }
-    if (rendered === undefined) {
+    const { prompt, versionWarning, unknownSlice } = yield* summaryFor(run, sliceName)
+    if (versionWarning !== undefined) yield* (yield* Narrator).warn(versionWarning)
+    if (unknownSlice !== undefined) return yield* Effect.fail(new Error(unknownSlice))
+    if (prompt === undefined) {
       return yield* Effect.fail(
         new Error(
           `gtd summary: refused — either this workflow declares no "summary:" template, or ` +
@@ -353,7 +347,7 @@ const runSummaryCommand = (
         ),
       )
     }
-    out.write(rendered.endsWith("\n") ? rendered : rendered + "\n")
+    out.write(prompt.endsWith("\n") ? prompt : prompt + "\n")
   })
 
 /** Prints the review anchor hash bare, so an external tool can be pointed at the range under review. Nothing is written. Refuses when the run has no commits, where the hash would name a range with no review. */
