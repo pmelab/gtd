@@ -1,27 +1,5 @@
 # Architecture
 
-## Open Questions
-
-### How does a refactor turn recognise a test file?
-
-**A stray never matches `seamAllow`** (the judge counts only paths outside it),
-so a test-file check built on `seamAllow` never fires in the shipped flow. The
-fork is where the test-file globs come from.
-
-- [x] A fixed built-in list, `seamAllow`'s default test globs
-  - `**/*.test.*`, `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**`,
-    `**/__tests__/**`
-  - no new setting, no new Stable surface
-  - **a repo with other naming (`*_test.go`, `test_*.py`) gets no refusal**
-- [ ] A new process setting `refactorTestFiles`, defaulting to that list
-  - covers any naming; pinned at process start like `seamAllow`
-  - one more Stable setting: factory option, `GTD_REFACTORTESTFILES`, docs
-- [ ] `seamAllow`'s globs minus `.gtd/**`
-  - no new setting
-  - **vacuous for the shipped flow**; guards only a custom `refactorFirst`
-    caller whose strays overlap `seamAllow`
-- [ ] _your answer_
-
 ## Interfaces
 
 `src/workflows/feature/feature.ts` — `reUnwind` moves to `review.ts`
@@ -66,8 +44,12 @@ export const implement: (
 `src/workflows/feature/refactor.ts`
 
 ```ts
-/** Refuses with `gtd land: refactor-tests: …`, listing each changed test path of the turn's own changes(). */
-export const requireNoTestFiles: (patterns: readonly string[]) => void
+/**
+ * Refuses with `gtd land: refactor-tests: …`, listing each changed path of the
+ * turn's own changes() matching `testFileGlobs`, strays included. Fixed list,
+ * no setting: `*_test.go`, `test_*.py` and other naming are not refused.
+ */
+export const requireNoTestFiles: () => void
 
 /**
  * refactorFirst plus its review, all inside the one scope({ name: "refactor",
@@ -83,7 +65,7 @@ export const reviewedRefactor: (
 ) => Promise<boolean>
 
 // refactorFirst: signature unchanged; its guard gains requireNoTestFiles.
-// guard = requireWithin(strays) + requireNoNewFlags(pattern, entry) + requireNoTestFiles(...)
+// guard = requireWithin(strays) + requireNoNewFlags(pattern, entry) + requireNoTestFiles()
 // where `entry` is HEAD at the refactor scope's entry, for every lap.
 ```
 
@@ -177,6 +159,12 @@ review's "feedback file present ⇒ feedback" test holds.
 `src/workflows/shared/vars.ts`, `options.ts`, `skills.ts`, `access.ts`
 
 ```ts
+/** The test-file globs: refactor guard's list, and seamAllow's default minus `.gtd/**`. */
+export const testFileGlobs: readonly string[] = [
+  "**/*.test.*", "**/*.spec.*", "**/*.feature",
+  "**/tests/**", "**/test/**", "**/__tests__/**",
+]
+defaults.seamAllow = [...testFileGlobs, ".gtd/**"].join(", ") // value unchanged
 defaults.refactorQualityReviews = "correctness, ponytail-review, conventions"
 ShippedOptions.refactorQualityReviews: setting // so FlagOptions gains it too
 
@@ -300,6 +288,8 @@ Guarded landing: refactor agent turn → `gtd land` → `guard` → `requireWith
   naming it, even when it is a stray (covers 4)
 - unit: src/workflows/feature/refactor.test.ts — passes non-test paths and
   `.gtd/` paths (covers 4)
+- unit: src/workflows/feature/refactor.test.ts — a narrowed `seamAllow` does not
+  narrow the refusal: the list is `testFileGlobs` (covers 4)
 
 ### reviewedRefactor
 
@@ -347,8 +337,10 @@ Guarded landing: refactor agent turn → `gtd land` → `guard` → `requireWith
 - unit: src/workflows/shared/text.test.ts — an undefined reference drops the
   `git show` line (covers 3)
 
-### refactorQualityReviews settings
+### refactorQualityReviews settings / testFileGlobs
 
+- unit: src/workflows/shared/options.test.ts — `seamAllow`'s default stays
+  byte-equal to today's string, built from `testFileGlobs` (covers 4)
 - unit: src/workflows/shared/options.test.ts — `refactorQualityReviews` defaults
   to `correctness, ponytail-review, conventions` and a factory option wins
   (covers 5)
@@ -367,8 +359,9 @@ Guarded landing: refactor agent turn → `gtd land` → `guard` → `requireWith
   (covers 7)
 - chore: docs/configuration.md — naive-pass path list, `seam.approve` out of
   scope/step lists, `refactor.build.*` scopes and skills keys,
-  `refactorQualityReviews` setting, refactor package rules (no test file),
-  `reviewedRefactor` (covers 7)
+  `refactorQualityReviews` setting, refactor package rules (no test file; the
+  fixed test-file globs, and that `*_test.go`/`test_*.py` naming is not
+  refused), `reviewedRefactor` (covers 7)
 - chore: README.md — naive-pass mention and `refactorQualityReviews` (covers 7)
 - chore: src/workflows/shared/skills.ts — fix the "every refactor agent turn
   loads ponytail" comment: `refactor.build.*` carry the `build.*` lists
@@ -542,3 +535,10 @@ cycle.
 
 It diverges like any Stable step rename; the `BREAKING CHANGE:` footer tells the
 person to `gtd abandon` and restart.
+
+### How does a refactor turn recognise a test file?
+
+A fixed built-in list, `seamAllow`'s default test globs (`**/*.test.*`,
+`**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**`, `**/__tests__/**`),
+shared as `testFileGlobs`: no new setting, no new Stable surface. **A repo with
+other naming (`*_test.go`, `test_*.py`) gets no refusal.**
