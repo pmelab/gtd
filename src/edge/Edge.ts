@@ -45,7 +45,7 @@ import {
   type ReplayOutcome,
   type TreeView,
 } from "../replay/index.js"
-import type { Mark, ScopeAccess, SummarySlice } from "../flows/index.js"
+import type { Mark, ScopeAccess, SummaryContext, SummarySlice } from "../flows/index.js"
 import { steeringFormatFor } from "../steering/index.js"
 import {
   judgeJson,
@@ -1495,6 +1495,65 @@ export interface SummaryResult {
   readonly refusal?: string
 }
 
+const humanCommitsOf = (
+  trace: ProcessRun["trace"],
+  entryCommit: string,
+): { hash: string; state: StateName }[] =>
+  trace
+    .filter((entry) => entry.actor === "human" && entry.hash !== entryCommit)
+    .map((entry) => ({ hash: entry.hash, state: entry.state }))
+
+const summaryInput = (
+  run: ProcessRun,
+  slice: SummarySlice | undefined,
+  settings: Pick<SummaryContext, "vars" | "env">,
+) => {
+  const entryCommit = run.trace[0]!.hash
+  const { trace, costEntries } = narrowToSlice(run, slice)
+  const { total, byModel } = costTotals(costEntries)
+  return {
+    entryCommit,
+    processBase: slice?.base ?? run.startParentHash,
+    processTip: slice?.tip ?? run.trace[run.trace.length - 1]!.hash,
+    humanCommits: humanCommitsOf(trace, entryCommit),
+    processCost: total,
+    processCostByModel: byModel,
+    marks: run.marks,
+    ...settings,
+    ...(slice !== undefined ? { slice } : {}),
+  }
+}
+
+const locateSlice = (
+  config: Parameters<typeof replayedSlices>[0],
+  run: ProcessRun,
+  sliceName: string | undefined,
+): Effect.Effect<
+  | { readonly slice?: SummarySlice; readonly versionWarning?: string }
+  | { readonly refusal: string; readonly versionWarning?: string },
+  Error,
+  RestRequirements
+> =>
+  Effect.gen(function* () {
+    if (sliceName === undefined) return {}
+    const replayed = yield* replayedSlices(config, run, {
+      command: "gtd summary",
+      configReason:
+        "HEAD's process replays under today's config; revert or stash the edit to summarize its slices",
+    })
+    const { ranges, versionWarning } = replayed
+    const warn = versionWarning !== undefined ? { versionWarning } : {}
+    const at = ranges.findIndex((r) => r.name === sliceName)
+    if (at < 0) {
+      return {
+        refusal: `gtd summary: refused — no slice named "${sliceName}"; the slices, in stack order: ${ranges.map((r) => r.name).join(", ")}`,
+        ...warn,
+      }
+    }
+    const { base, tip } = ranges[at]!
+    return { slice: { name: sliceName, base, tip, index: at + 1, count: ranges.length }, ...warn }
+  })
+
 /**
  * `gtd summary`'s prompt for `run`, or `prompt: undefined` when the workflow has no
  * `summary` template or (plain call) there is nothing to summarize. With `sliceName`
@@ -1512,49 +1571,14 @@ export const summaryFor = (
     const resolved = yield* workflowOf(config, run)
     const summary = resolved.def.summary
     if (summary === undefined) return { prompt: undefined }
-    let slice: SummarySlice | undefined
-    let versionWarning: string | undefined
-    if (sliceName === undefined) {
-      if (run.trace.length === 0) return { prompt: undefined }
-    } else {
-      const replayed = yield* replayedSlices(config, run, {
-        command: "gtd summary",
-        configReason:
-          "HEAD's process replays under today's config; revert or stash the edit to summarize its slices",
-      })
-      versionWarning = replayed.versionWarning
-      const { ranges } = replayed
-      const at = ranges.findIndex((r) => r.name === sliceName)
-      if (at < 0) {
-        return {
-          prompt: undefined,
-          refusal: `gtd summary: refused — no slice named "${sliceName}"; the slices, in stack order: ${ranges.map((r) => r.name).join(", ")}`,
-          ...(versionWarning !== undefined ? { versionWarning } : {}),
-        }
-      }
-      const { base, tip } = ranges[at]!
-      slice = { name: sliceName, base, tip, index: at + 1, count: ranges.length }
-    }
-    const entryCommit = run.trace[0]!.hash
-    const { trace, costEntries } = narrowToSlice(run, slice)
-    const { total, byModel } = costTotals(costEntries)
-    const prompt = summary({
-      entryCommit,
-      processBase: slice?.base ?? run.startParentHash,
-      processTip: slice?.tip ?? run.trace[run.trace.length - 1]!.hash,
-      humanCommits: trace
-        .filter((entry) => entry.actor === "human" && entry.hash !== entryCommit)
-        .map((entry) => ({ hash: entry.hash, state: entry.state })),
-      processCost: total,
-      processCostByModel: byModel,
-      marks: run.marks,
-      ...settingsFor(resolved, run.pinnedVars, host.env, {}, {}),
-      ...(slice !== undefined ? { slice } : {}),
-    })
-    return {
-      prompt,
-      ...(versionWarning !== undefined ? { versionWarning } : {}),
-    }
+    if (sliceName === undefined && run.trace.length === 0) return { prompt: undefined }
+    const located = yield* locateSlice(config, run, sliceName)
+    if ("refusal" in located) return { prompt: undefined, ...located }
+    const { slice, versionWarning } = located
+    const prompt = summary(
+      summaryInput(run, slice, settingsFor(resolved, run.pinnedVars, host.env, {}, {})),
+    )
+    return { prompt, ...(versionWarning !== undefined ? { versionWarning } : {}) }
   })
 
 export interface HistoryStep {
