@@ -647,7 +647,7 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
   return {
     file,
     catalogue,
-    doors: rejections.length > 0 ? derived.doors : checkDoors(derived.doors, catalogue),
+    doors: checkDoors(derived.doors, catalogue),
     default: defaultWorkflow && { ...defaultWorkflow, name: defaultName },
     config: compileConfig(exports["config"], module.filepath),
     diagnostics: [

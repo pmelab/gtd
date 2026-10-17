@@ -723,6 +723,22 @@ describe("ConfigService", () => {
       expect(doors.get("cleanup")?.args).toEqual([{ name: "flag" }])
     })
 
+    it("rollout and cleanup load from their own subpaths", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          `export { feature as default, fix, review } from "@pmelab/gtd/workflows"`,
+          `export { rollout } from "@pmelab/gtd/workflows/rollout"`,
+          `export { cleanup } from "@pmelab/gtd/workflows/cleanup"`,
+          ``,
+        ].join("\n"),
+      )
+      const { doors } = await getConfig()
+      expect([...doors.keys()]).toEqual(["cleanup", "fix", "review", "rollout"])
+      expect(doors.get("rollout")?.args).toEqual([{ name: "flag" }])
+      expect(doors.get("cleanup")?.args).toEqual([{ name: "flag" }])
+    })
+
     it("a config's doors merge derived doors (exported workflows) with declared doors (doors export)", async () => {
       withDoors(
         `{ hot: { workflow: "hotfix", args: [{ name: "ticket" }] } }`,

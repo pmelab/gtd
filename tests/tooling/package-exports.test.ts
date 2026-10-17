@@ -46,8 +46,8 @@ describe("the entrypoint docs", () => {
 describe("rollout and cleanup", () => {
   const factories = {
     "./workflows": ["rollout", "cleanup"],
-    "./workflows/rollout": ["default"],
-    "./workflows/cleanup": ["default"],
+    "./workflows/rollout": ["default", "rollout"],
+    "./workflows/cleanup": ["default", "cleanup"],
   } as const
   for (const [subpath, names] of Object.entries(factories)) {
     it(`${subpath} exports ${names.join(" and ")} as functions`, async () => {

@@ -333,9 +333,14 @@ falls back to the `gtd` on your `PATH`.
   as it was.
 - `/gtd <door> [args]` starts a process through one of the doors `gtd doors`
   lists, runs the script `gtd door` prints, then drives like `/gtd`. The bundled
-  doors are `fix` (repair a red baseline as its own reviewed commit) and
+  doors are `fix` (repair a red baseline as its own reviewed commit),
   `review [base]` (a pure review of everything since the merge-base with `base`,
-  the default branch unless named).
+  the default branch unless named), and, only where the config exports them from
+  `@pmelab/gtd/workflows/rollout` and `@pmelab/gtd/workflows/cleanup`,
+  `rollout <flag>` (turn a release flag default-on) and `cleanup <flag>` (remove
+  it). `/gtd <verb> …` enters a door only when one by that name exists and the
+  word count fits its args; otherwise the text, bare `/gtd rollout` included,
+  starts a process as requirements.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
   `/gtd ui` starts the browser view of the rest it waits at.
 - `/gtd throw`, `/gtd ship [-n]` and their tools (`handoff`, `ship`) answer at
