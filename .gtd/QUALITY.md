@@ -163,3 +163,50 @@ was added.
    - **Problem:** these two new names use the word the glossary bans. Older
      tests in the file use it too, but this change adds more.
    - **Fix:** "an edited config" / "a config edited since the close".
+
+## spec-challenge
+
+Planning docs read: `REQUIREMENTS.md` (0aad07ae), `ARCHITECTURE.md` (b4b6422e),
+packages 01/02 (d3f2a201). Checked each decision against tests, `docs/cli.md`,
+`CONTEXT.md` and the data the replay relies on.
+
+**Should fix**
+
+1. **Spec premise "replay refusals never coexist with a warning" is false**
+   (ARCHITECTURE.md, Answered Questions, "How does the unknown-slice refusal
+   carry the version warning out of the edge?": "Replay refusals stay failures;
+   they never coexist with a warning")
+   - **Decision:** only the unknown-name refusal gets returned with
+     `versionWarning`. Divergence and config-edited refusals stay `Error`
+     failures with no warning attached.
+   - **Invariant it conflicts with:** `docs/cli.md` "Narration and remediation"
+     (edited by this change) says `gtd summary --slice` prints the WARNING when
+     a finished process was recorded by another gtd version. The recorded
+     version is parsed from the closing commit message (`replayFinishedProcess`,
+     `src/edge/Edge.ts` ~L1726). It does not depend on the replay, so it is
+     known on every closed-process path.
+   - **Why the premise fails:** a gtd upgrade changes the shipped workflow code
+     (`@pmelab/gtd/workflows`, imported by `gtd.config.ts`) without editing any
+     config file. So `differingConfigPaths` passes, the replay stops ending, and
+     `slicesDivergence` fails before `versionWarningFor` runs. Divergence under
+     another gtd version is the main case where the two happen together. The
+     same gap reaches `gtd slices` and `gtd history show`, which share
+     `replayFinishedProcess`. This is the root cause of ponytail-review #1 and
+     test-audit #4. It is a spec error, not an implementation slip, so a fix
+     that only follows the spec cannot close it.
+   - **Fix:** in `replayFinishedProcess`, work out `recorded`/`versionWarning`
+     before the config check and the replay. Append it to the refusal error on
+     both failure branches. That one change covers all three commands. Pin it
+     with one Edge test (0.0.1 tip + config that does not end). Or, if this is
+     deferred, narrow the `docs/cli.md` sentence to "when the replay succeeds".
+   - **If we skip it:** the doc promises a warning that is missing in exactly
+     the case that needs it.
+
+Checked, no conflict: removing the `narrowToSlice` guard is safe. Slice
+`base`/`tip` come from `sliceRanges`, built from the same `run`'s
+`startParentHash`, trace tip and replayed `leftAt`, so the guarded case cannot
+happen. Turning a returned `refusal` into an `Error` in the CLI keeps the
+runtime-error exit code that the pinned exit-code table expects. Running the
+template check before the empty-trace check keeps the pinned "--slice on a fresh
+idle repo is refused" stderr. `costTotals` returning `Rest["cost"]` keeps
+`gtd next --json`'s `cost` shape and `costByModel`'s order.
