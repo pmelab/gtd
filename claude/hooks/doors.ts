@@ -32,3 +32,15 @@ export async function enter(io: ShipIo, name: string, args: string[]): Promise<S
   if (started.code !== 0) return fail(`The door script failed.\n${started.err.trim()}`)
   return { ok: true, text: `Started ${name}.` }
 }
+
+// A door is entered only when the words fit its args; anything else is requirements.
+export function doorFor(
+  listed: readonly Door[],
+  verb: string,
+  args: readonly string[],
+): Door | undefined {
+  const door = listed.find((d) => d.name === verb)
+  if (!door) return undefined
+  const required = door.args.filter((a) => !a.optional).length
+  return args.length >= required && args.length <= door.args.length ? door : undefined
+}

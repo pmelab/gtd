@@ -333,9 +333,14 @@ falls back to the `gtd` on your `PATH`.
   as it was.
 - `/gtd <door> [args]` starts a process through one of the doors `gtd doors`
   lists, runs the script `gtd door` prints, then drives like `/gtd`. The bundled
-  doors are `fix` (repair a red baseline as its own reviewed commit) and
+  doors are `fix` (repair a red baseline as its own reviewed commit),
   `review [base]` (a pure review of everything since the merge-base with `base`,
-  the default branch unless named).
+  the default branch unless named), and, only where the config exports them from
+  `@pmelab/gtd/workflows/rollout` and `@pmelab/gtd/workflows/cleanup`,
+  `rollout <flag>` (turn a release flag default-on) and `cleanup <flag>` (remove
+  it). `/gtd <verb> …` enters a door only when one by that name exists and the
+  word count fits its args; otherwise the text, bare `/gtd rollout` included,
+  starts a process as requirements.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
   `/gtd ui` starts the browser view of the rest it waits at.
 - `/gtd throw`, `/gtd ship [-n]` and their tools (`handoff`, `ship`) answer at
@@ -362,19 +367,22 @@ falls back to the `gtd` on your `PATH`.
   each memory scope starts fresh for the catcher.
 - `/gtd ship` squashes the finished process into one commit (the process's turns
   are already kept under `refs/gtd/history/`, written before the squash by the
-  landing that finished it), pushes the branch, and opens its pull request, or
-  appends to the open one's description when something changed at the level of
-  its motivation, solution or decisions. A subagent writes the commit message
-  (from `gtd summary`) and the pull-request text; nothing reviews them before
-  they are published. Ship refuses while the process is still underway. The
-  commit message keeps a `BREAKING CHANGE:` footer when the change is breaking,
-  and the writer may run only read-only `git` commands and write only its own
-  answer, since it reads commit messages anyone on the branch wrote.
-  `/gtd ship -n` prints the commit message and what would happen to the pull
-  request, and writes nothing. It needs `gh`, a clean tree, and a branch other
-  than the default. When a process finishes on such a branch, Claude offers to
-  open the pull request. On a thrown draft, ship writes the title and
-  description properly and marks the pull request ready for review.
+  landing that finished it), pushes that process's history ref before the squash
+  and records it as a `Gtd-History: <ref>` trailer on the commit (a failed
+  history push fails the ship with nothing squashed), pushes the branch, and
+  opens its pull request, or appends to the open one's description when
+  something changed at the level of its motivation, solution or decisions. A
+  subagent writes the commit message (from `gtd summary`) and the pull-request
+  text; nothing reviews them before they are published. Ship refuses while the
+  process is still underway. The commit message keeps a `BREAKING CHANGE:`
+  footer when the change is breaking, and the writer may run only read-only
+  `git` commands and write only its own answer, since it reads commit messages
+  anyone on the branch wrote. `/gtd ship -n` prints the commit message and what
+  would happen to the pull request, and writes nothing. It needs `gh`, a clean
+  tree, and a branch other than the default. When a process finishes on such a
+  branch, Claude offers to open the pull request. On a thrown draft, ship writes
+  the title and description properly and marks the pull request ready for
+  review.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A

@@ -548,30 +548,42 @@ const doorsFrom = (exports: Record<string, unknown>): ReadonlyMap<string, Door> 
 
 /**
  * Each exported workflow's own doors, onto the name it is exported under. The
- * `doors` export adds to them and settles a name two workflows both declare.
+ * `doors` export adds to them and declares a name several workflows clash on.
  */
 const derivedDoors = (
   catalogue: ReadonlyMap<string, LoadedWorkflow>,
   declared: ReadonlyMap<string, Door>,
-): ReadonlyMap<string, Door> => {
-  const doors = new Map<string, Door>()
+): {
+  readonly doors: ReadonlyMap<string, Door>
+  readonly clashes: ReadonlyMap<string, readonly string[]>
+} => {
+  const builders = new Map<string, Door[]>()
   for (const [workflow, loaded] of catalogue) {
     for (const [name, spec] of Object.entries(loaded.doors ?? {})) {
       const door: Door = { ...spec, workflow }
       const problem = doorProblem(name, door)
       if (problem !== undefined)
         throw new Error(`workflow "${workflow}" builds door "${name}", which ${problem}`)
-      const other = doors.get(name)
-      if (other !== undefined && !declared.has(name)) {
-        throw new Error(
-          `door "${name}" is built by workflows "${other.workflow}" and "${workflow}" — declare it in the "doors" export to choose one (a declared door replaces the derived one, so restate its args and vars)`,
-        )
-      }
-      doors.set(name, door)
+      builders.set(name, [...(builders.get(name) ?? []), door])
     }
   }
-  return new Map([...doors, ...declared])
+  const doors = new Map<string, Door>()
+  const clashes = new Map<string, readonly string[]>()
+  for (const [name, built] of builders) {
+    const owner = ownerOf(name, built)
+    if (owner !== undefined) doors.set(name, owner)
+    else if (!declared.has(name))
+      clashes.set(
+        name,
+        built.map((door) => door.workflow),
+      )
+  }
+  return { doors: new Map([...doors, ...declared]), clashes }
 }
+
+/** The export named after the door owns it, else the sole builder; a clash of several builds no door. */
+const ownerOf = (name: string, built: readonly Door[]): Door | undefined =>
+  built.find((door) => door.workflow === name) ?? (built.length === 1 ? built[0] : undefined)
 
 /** Sort the doors and check each names a startable workflow. */
 const checkDoors = (
@@ -628,16 +640,28 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
     }),
   )
   const defaultWorkflow = built.get(value)
+  const derived =
+    rejections.length > 0
+      ? { doors: new Map<string, Door>(), clashes: new Map<string, readonly string[]>() }
+      : derivedDoors(catalogue, doorsFrom(exports))
   return {
     file,
     catalogue,
-    doors:
-      rejections.length > 0
-        ? new Map()
-        : checkDoors(derivedDoors(catalogue, doorsFrom(exports)), catalogue),
+    doors: checkDoors(derived.doors, catalogue),
     default: defaultWorkflow && { ...defaultWorkflow, name: defaultName },
     config: compileConfig(exports["config"], module.filepath),
-    diagnostics: nameRejections(rejections),
+    diagnostics: [
+      ...nameRejections(rejections),
+      ...[...derived.clashes].map(([name, builders]): Diagnostic => {
+        const names = [...builders].sort().map((b) => JSON.stringify(b))
+        return {
+          severity: "warning",
+          message: `door "${name}" is built by workflows ${names.slice(0, -1).join(", ")} and ${names.at(-1)} and none is exported under that name — declare it in the "doors" export`,
+          path: ["doors", name],
+          origin: file.origin,
+        }
+      }),
+    ],
   }
 }
 

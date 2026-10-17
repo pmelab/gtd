@@ -35,6 +35,7 @@ export default feature
 
 /**
  * @deprecated Empty: each shipped workflow builds its own doors, so a config
- * gets `fix` and `review [base]` by exporting `fix` and `review`.
+ * gets `fix` and `review [base]` by exporting `fix` and `review`, and
+ * `rollout <flag>` and `cleanup <flag>` by exporting `rollout` and `cleanup`.
  */
 export const doors: Doors = {}

@@ -774,18 +774,21 @@ of process settings — no git runs while it is evaluated.
 
 A [workflow factory](#workflow-factories) may build doors of its own, without a
 `workflow` (it is whatever name the config exports it under): gtd's `fix` builds
-`fix`, its `review` builds `review [base]`. A config's doors are those of every
-workflow it exports, plus its `doors` export, which wins a name clash — a door
-two exported workflows both build is a config error until the `doors` export
-settles it; a declared door replaces the derived one whole, so it restates
-`args` and `vars` itself. A config exporting only `fix` offers only the `fix`
-door. The shipped module's own `doors` export is an empty no-op, and its `base`
-export maps `reviewBase` for a workflow named `review`; both are kept only so an
-older config re-exporting them still loads. `gtd door <name> [args...]` starts
-the process (printing the same script `gtd --workflow` does); an unknown door or
-the wrong number of args is a usage error (exit 2). `gtd doors` lists every
-door, one `name [args] → workflow` line each; `gtd doors --json` prints them as
-data for a driver to offer.
+`fix`, its `review` builds `review [base]`, its `rollout` builds
+`rollout <flag>`, its `cleanup` builds `cleanup <flag>`. A config's doors are
+those of every workflow it exports, plus its `doors` export, which wins a name
+clash — a door several exported workflows build belongs to the one exported
+under the door's own name (the others build none, whatever the order); when none
+is, no workflow builds that door and loading warns (`gtd: warning: …` on every
+command that loads the config) until the `doors` export declares it; a declared
+door replaces the derived one whole, so it restates `args` and `vars` itself. A
+config exporting only `fix` offers only the `fix` door. The shipped module's own
+`doors` export is an empty no-op, and its `base` export maps `reviewBase` for a
+workflow named `review`; both are kept only so an older config re-exporting them
+still loads. `gtd door <name> [args...]` starts the process (printing the same
+script `gtd --workflow` does); an unknown door or the wrong number of args is a
+usage error (exit 2). `gtd doors` lists every door, one `name [args] → workflow`
+line each; `gtd doors --json` prints them as data for a driver to offer.
 
 ### Episodes, replay and divergence
 
@@ -1579,12 +1582,15 @@ a list of feature flags.
 
 Two bundled workflows move a release flag through its life. Export them from
 `gtd.config.ts` (`export { rollout, cleanup } from "@pmelab/gtd/workflows"`) and
-start each by name:
+start each through its door:
 
 ```bash
-gtd --workflow rollout --var flag=<name>
-gtd --workflow cleanup --var flag=<name>
+gtd door rollout <flag>
+gtd door cleanup <flag>
 ```
+
+`gtd --workflow rollout --var flag=<name>` (likewise `cleanup`) starts the same
+process. A door with no argument is refused (see below).
 
 - `flag` is the flag's name in the registry; it is required.
 - `flagRegistry` is a factory option
@@ -1595,9 +1601,19 @@ gtd --workflow cleanup --var flag=<name>
   (`defaultOn` optional). Comments and string contents are not entries.
 - **Rollout** takes a non-default-on release flag and has an agent set
   `defaultOn: true` on its entry, and nothing else. The suite must stay green.
-  There is no review: it ends once the suite passes. These limits also bind a
-  human's fix at `rollout.suite.blocked`: it may touch only the flag's registry
-  entry (`.gtd/FEEDBACK.md` aside), or the landing is refused.
+  There is no review: once the suite passes, step `rollout.mentions` lists every
+  line in a tracked file, `src/` help strings and `docs/` alike, that names the
+  flag (as `GTD_FLAG_<NAME>`, `flag_<name>` or the bare name, case-insensitive),
+  outside the registry and `.gtd/`, and the process ends. The list edits no file
+  and leaves none behind: the closing commit records
+  `Gtd-Mark: flag-mentions=<total>` and one
+  `Gtd-Mark: flag-mention=<path>:<line>` per listed line (the first 50), and the
+  closing message `gtd summary` prints carries the same lines, then "…and N
+  more:" with a `git grep -niIE` command over tracked files, excluding the
+  registry and `.gtd/`, matching the same three forms. Fix that prose by hand,
+  or leave it for cleanup. These limits also bind a human's fix at
+  `rollout.suite.blocked`: it may touch only the flag's registry entry
+  (`.gtd/FEEDBACK.md` aside), or the landing is refused.
 - **Cleanup** takes a default-on release flag, deletes its entry and every
   `GTD_FLAG_<NAME>` check from `src/` (only `.ts`/`.tsx` files there are
   scanned), keeping the flag-on path, then runs the review. A review note ends
@@ -1608,17 +1624,18 @@ gtd --workflow cleanup --var flag=<name>
 
 Refusals, each exiting non-zero with the text on stderr:
 
-| Text                                                                | When                                                             |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `gtd: <workflow> needs --var flag=<name>`                           | no `flag` var                                                    |
-| `gtd: <workflow>: no flag "<name>" in <registry>`                   | name not in the registry                                         |
-| `gtd: <workflow>: flag "<name>" is <kind>, not release`             | not a release flag                                               |
-| `gtd: rollout: flag "<name>" is already default-on`                 | rollout of a default-on flag                                     |
-| `gtd: cleanup: flag "<name>" is not default-on — roll it out first` | cleanup of a flag still default-off                              |
-| `gtd land: rollout-only: <paths> changed — rollout may only set …`  | rollout (agent or human fix) touched a file besides the registry |
-| `gtd land: rollout-only: other edits in <registry>: <faults>`       | rollout (agent or human fix) edited beyond that one field        |
-| `gtd land: cleanup: <registry> still declares flag "<name>"`        | cleanup left or restored the registry entry                      |
-| `gtd land: cleanup: <paths> still names GTD_FLAG_<NAME>`            | cleanup left or reintroduced an env-var check under `src/`       |
+| Text                                                                                         | When                                                             |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `gtd: <workflow> needs --var flag=<name>`                                                    | no `flag` var                                                    |
+| `gtd door <rollout\|cleanup>: missing arguments — usage: gtd door <rollout\|cleanup> <flag>` | `gtd door rollout` or `gtd door cleanup` with no flag            |
+| `gtd: <workflow>: no flag "<name>" in <registry>`                                            | name not in the registry                                         |
+| `gtd: <workflow>: flag "<name>" is <kind>, not release`                                      | not a release flag                                               |
+| `gtd: rollout: flag "<name>" is already default-on`                                          | rollout of a default-on flag                                     |
+| `gtd: cleanup: flag "<name>" is not default-on — roll it out first`                          | cleanup of a flag still default-off                              |
+| `gtd land: rollout-only: <paths> changed — rollout may only set …`                           | rollout (agent or human fix) touched a file besides the registry |
+| `gtd land: rollout-only: other edits in <registry>: <faults>`                                | rollout (agent or human fix) edited beyond that one field        |
+| `gtd land: cleanup: <registry> still declares flag "<name>"`                                 | cleanup left or restored the registry entry                      |
+| `gtd land: cleanup: <paths> still names GTD_FLAG_<NAME>`                                     | cleanup left or reintroduced an env-var check under `src/`       |
 
 New step names in both workflows are public API.
 

@@ -651,15 +651,92 @@ describe("ConfigService", () => {
       expect((await getConfig()).workflowNamed("review")?.def.base?.("review", {})).toBe("develop")
     })
 
-    it("a door two workflows build is a config error until the doors export settles it", async () => {
-      const both = `export { feature as default, fix, fix as fix2 } from "@pmelab/gtd/workflows"`
+    it("a door several workflows build gets no door when none is exported under its name, until the doors export declares it", async () => {
+      const both = `export { feature as default, fix as fix2, fix as fix3 } from "@pmelab/gtd/workflows"`
       writeFileSync(join(projectDir, "gtd.config.ts"), `${both}\n`)
-      await expect(getConfig()).rejects.toThrow(/door "fix" is built by workflows "fix" and "fix2"/)
+      expect((await getConfig()).doors.get("fix")).toBeUndefined()
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
-        `${both}\nexport const doors = { fix: { workflow: "fix2" } }\n`,
+        `${both}\nexport const doors = { fix: { workflow: "fix3" } }\n`,
       )
-      expect((await getConfig()).doors.get("fix")?.workflow).toBe("fix2")
+      expect((await getConfig()).doors.get("fix")?.workflow).toBe("fix3")
+    })
+
+    it("a door clash warns once at doors.<name>, builders sorted", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `export { feature as default, fix as fix3, fix as fix4, fix as fix2 } from "@pmelab/gtd/workflows"\n`,
+      )
+      const cfg = await getConfig()
+      const clash = cfg.warnings.filter((w) => w.path[0] === "doors")
+      expect(clash).toEqual([
+        {
+          severity: "warning",
+          path: ["doors", "fix"],
+          origin: join(projectDir, "gtd.config.ts"),
+          message: `door "fix" is built by workflows "fix2", "fix3" and "fix4" and none is exported under that name — declare it in the "doors" export`,
+        },
+      ])
+    })
+
+    it("no clash warning when an export is named after the door, one workflow builds it, or doors declares it", async () => {
+      const both = `export { feature as default, fix as fix2, fix as fix3 } from "@pmelab/gtd/workflows"`
+      for (const body of [
+        `export { feature as default, fix as fix2, fix } from "@pmelab/gtd/workflows"\n`,
+        `export { feature as default, fix } from "@pmelab/gtd/workflows"\n`,
+        `${both}\nexport const doors = { fix: { workflow: "fix3" } }\n`,
+      ]) {
+        writeFileSync(join(projectDir, "gtd.config.ts"), body)
+        expect((await getConfig()).warnings.filter((w) => w.path[0] === "doors")).toEqual([])
+      }
+    })
+
+    it("door ownership does not depend on export order", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `export { feature as default, fix as fix2, fix } from "@pmelab/gtd/workflows"\n`,
+      )
+      expect((await getConfig()).doors.get("fix")?.workflow).toBe("fix")
+    })
+
+    it("rollout and a second instance of it load, door rollout running workflow rollout whichever export comes first", async () => {
+      for (const body of [
+        `export { rollout } from "@pmelab/gtd/workflows"\nimport { rollout } from "@pmelab/gtd/workflows"\nexport const elsewhere = rollout({ flagRegistry: "x.ts" })`,
+        `import { rollout } from "@pmelab/gtd/workflows"\nexport const elsewhere = rollout({ flagRegistry: "x.ts" })\nexport { rollout }`,
+      ]) {
+        writeFileSync(
+          join(projectDir, "gtd.config.ts"),
+          `export { feature as default } from "@pmelab/gtd/workflows"\n${body}\n`,
+        )
+        expect((await getConfig()).doors.get("rollout")?.workflow).toBe("rollout")
+      }
+    })
+
+    it("shipped rollout and cleanup list their doors beside fix and review", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `export { feature as default, fix, review, rollout, cleanup } from "@pmelab/gtd/workflows"\n`,
+      )
+      const { doors } = await getConfig()
+      expect([...doors.keys()]).toEqual(["cleanup", "fix", "review", "rollout"])
+      expect(doors.get("rollout")?.args).toEqual([{ name: "flag" }])
+      expect(doors.get("cleanup")?.args).toEqual([{ name: "flag" }])
+    })
+
+    it("rollout and cleanup load from their own subpaths", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          `export { feature as default, fix, review } from "@pmelab/gtd/workflows"`,
+          `export { rollout } from "@pmelab/gtd/workflows/rollout"`,
+          `export { cleanup } from "@pmelab/gtd/workflows/cleanup"`,
+          ``,
+        ].join("\n"),
+      )
+      const { doors } = await getConfig()
+      expect([...doors.keys()]).toEqual(["cleanup", "fix", "review", "rollout"])
+      expect(doors.get("rollout")?.args).toEqual([{ name: "flag" }])
+      expect(doors.get("cleanup")?.args).toEqual([{ name: "flag" }])
     })
 
     it("a config's doors merge derived doors (exported workflows) with declared doors (doors export)", async () => {

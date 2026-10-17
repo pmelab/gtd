@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { installContext } from "../../flows/index.js"
-import { flagReferences, flipProblems, registryEntry, requireFlag } from "./registry.js"
+import {
+  flagMentions,
+  flagReferences,
+  flipProblems,
+  registryEntry,
+  requireFlag,
+} from "./registry.js"
 
 const ONE_LINE = `export const FLAGS = [
   { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
@@ -301,5 +307,39 @@ describe("flagReferences", () => {
     expect(flagReferences(files, "a+b")).toEqual(["src/b.ts:2"])
     expect(() => flagReferences(files, "a(b")).not.toThrow()
     expect(flagReferences(files, "a(b")).toEqual([])
+  })
+})
+
+describe("flagMentions", () => {
+  it("matches the env var, the flag_ form and the bare name, any case, 1-based", () => {
+    const files = [
+      {
+        path: "README.md",
+        text: "intro\non under GTD_FLAG_ALPHA=1\nflag_alpha helper\nThe Alpha flag\nnone\n",
+      },
+    ]
+    expect(flagMentions(files, "alpha")).toEqual([
+      { path: "README.md", line: 2 },
+      { path: "README.md", line: 3 },
+      { path: "README.md", line: 4 },
+    ])
+  })
+
+  it("never matches inside a longer identifier", () => {
+    const text = "alphabet\nalpha_two\nGTD_FLAG_ALPHA_TWO\nxalpha\nflag_alphabet\n"
+    expect(flagMentions([{ path: "a.md", text }], "alpha")).toEqual([])
+  })
+
+  it("keeps test files, and skips a file holding a NUL byte", () => {
+    const files = [
+      { path: "src/a.test.ts", text: "GTD_FLAG_ALPHA\n" },
+      { path: "bin.dat", text: "alpha\u0000alpha\n" },
+    ]
+    expect(flagMentions(files, "alpha").map((m) => m.path)).toEqual(["src/a.test.ts"])
+  })
+
+  it("matches regex metacharacters in the name literally", () => {
+    const files = [{ path: "a.md", text: "a.b\naxb\n" }]
+    expect(flagMentions(files, "a.b").map((m) => m.line)).toEqual([1])
   })
 })

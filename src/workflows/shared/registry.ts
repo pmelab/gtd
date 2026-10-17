@@ -47,7 +47,7 @@ const mask = (text: string): string => {
   return out
 }
 
-const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+export const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 // Entries are flat object literals, so the nearest braces around the name delimit one.
 const entrySpan = (text: string, name: string) => {
@@ -133,6 +133,31 @@ export const flagReferences = (
     .filter(({ path }) => !/\.(test|fixture|stories)\.tsx?$/.test(path))
     .flatMap(({ path, text }) =>
       text.split("\n").flatMap((line, i) => (pattern.test(line) ? [`${path}:${i + 1}`] : [])),
+    )
+}
+
+export interface FlagMention {
+  readonly path: string
+  readonly line: number
+}
+
+/**
+ * Every line naming flag `name` as `GTD_FLAG_<NAME>`, `flag_<name>` or bare
+ * `<name>` — case-insensitive, never inside a longer identifier. Unlike
+ * `flagReferences`, test files count; a file holding a NUL byte is skipped.
+ */
+export const flagMentions = (
+  files: readonly { readonly path: string; readonly text: string }[],
+  name: string,
+): readonly FlagMention[] => {
+  const pattern = new RegExp(
+    `(?<![A-Za-z0-9_])(?:GTD_FLAG_|flag_)?${escapeRegExp(name)}(?![A-Za-z0-9_])`,
+    "i",
+  )
+  return files
+    .filter(({ text }) => !text.includes("\u0000"))
+    .flatMap(({ path, text }) =>
+      text.split("\n").flatMap((line, i) => (pattern.test(line) ? [{ path, line: i + 1 }] : [])),
     )
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { CONFIG_SCAFFOLD } from "../../install/index.js"
-import { testRepo } from "../../testkit/index.js"
+import { runsItsScript, testRepo } from "../../testkit/index.js"
 
 const CONFIG = `${CONFIG_SCAFFOLD}export { rollout } from "@pmelab/gtd/workflows"\n`
 
@@ -30,9 +30,13 @@ describe("the rollout workflow", () => {
         r.write("src/flags/index.ts", FLIPPED)
       },
       "rollout.suite.check": () => undefined,
+      "rollout.mentions": runsItsScript,
     })
     expect(rest.state).toBe("idle")
-    expect(repo.subjects().at(-1)).toBe("gtd(check): rollout.suite.check → idle")
+    expect(repo.subjects().slice(-2)).toEqual([
+      "gtd(check): rollout.suite.check → rollout.mentions",
+      "gtd(check): rollout.mentions → idle",
+    ])
   })
 
   it("lands a flip when the tree was already dirty at the start", async () => {
@@ -42,6 +46,7 @@ describe("the rollout workflow", () => {
     const rest = await repo.drive({
       "rollout.flipping": (_, r) => r.write("src/flags/index.ts", FLIPPED),
       "rollout.suite.check": () => undefined,
+      "rollout.mentions": runsItsScript,
     })
     expect(rest.state).toBe("idle")
   })
@@ -160,8 +165,83 @@ describe("the rollout workflow", () => {
             ),
           ),
         "rollout.suite.check": () => undefined,
+        "rollout.mentions": runsItsScript,
       })
       expect(rest.state).toBe("idle")
     })
+  })
+})
+
+describe("rollout.mentions", () => {
+  const flip = {
+    "rollout.flipping": (_: unknown, r: { write: (p: string, c: string) => void }) =>
+      r.write("src/flags/index.ts", FLIPPED),
+  }
+  const finish = async (
+    files: Record<string, string>,
+    mentions: typeof runsItsScript = runsItsScript,
+  ) => {
+    const repo = testRepo({
+      workflow: CONFIG,
+      files: { "src/flags/index.ts": REGISTRY, "src/a.ts": "a\n", ...files },
+    })
+    await repo.start("rollout", "--var", "flag=alpha")
+    const rest = await repo.drive({
+      ...flip,
+      "rollout.suite.check": () => undefined,
+      "rollout.mentions": mentions,
+    })
+    expect(rest.state).toBe("idle")
+    const marks = (repo.messages().at(-1) ?? "")
+      .split("\n")
+      .filter((l) => l.startsWith("Gtd-Mark: "))
+      .map((l) => l.slice("Gtd-Mark: ".length))
+    return { repo, marks }
+  }
+
+  it("lists mentions outside the registry and under no .gtd/ path", async () => {
+    const { repo, marks } = await finish({
+      "README.md": "intro\non under GTD_FLAG_ALPHA=1\n",
+      "src/help.ts": 'export const h = "alpha help"\n',
+      ".gtd/NOTES.md": "alpha\n",
+    })
+    expect(repo.read(".gtd/FEEDBACK.md")).toBeUndefined()
+    expect(marks).toEqual([
+      "flag-mentions=2",
+      "flag-mention=README.md:2",
+      "flag-mention=src/help.ts:1",
+    ])
+  })
+
+  it("scans the tree as it stands after the mentions script ran", async () => {
+    const { marks } = await finish({ "README.md": "alpha\n" }, (beat, r) => {
+      runsItsScript(beat, r)
+      r.write("0-early.md", "alpha\n")
+    })
+    expect(marks).toEqual([
+      "flag-mentions=2",
+      "flag-mention=0-early.md:1",
+      "flag-mention=README.md:1",
+    ])
+  })
+
+  it("marks 0 when nothing names the flag", async () => {
+    const { marks } = await finish({})
+    expect(marks).toEqual(["flag-mentions=0"])
+  })
+
+  it("marks the total for 60 mentions but only the first 50 lines", async () => {
+    const text = Array.from({ length: 60 }, (_, i) => `alpha ${i}`).join("\n")
+    const { marks } = await finish({ "docs/many.md": `${text}\n` })
+    expect(marks[0]).toBe("flag-mentions=60")
+    expect(marks.filter((m) => m.startsWith("flag-mention="))).toHaveLength(50)
+  })
+
+  it("counts a path the mark grammar rejects without marking it, and never throws", async () => {
+    const { marks } = await finish({
+      "docs/bad\u0001name.md": "alpha\n",
+      "README.md": "alpha\n",
+    })
+    expect(marks).toEqual(["flag-mentions=2", "flag-mention=README.md:1"])
   })
 })

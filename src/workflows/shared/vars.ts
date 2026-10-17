@@ -4,6 +4,8 @@
 // is read live on every invocation. A factory option, `--var` (process
 // settings only) and `GTD_<NAME>` override either.
 
+export const defaultFlagRegistry = "src/flags/index.ts"
+
 /** Process settings. */
 export const defaults: Readonly<Record<string, string>> = {
   reviewBase: "",
