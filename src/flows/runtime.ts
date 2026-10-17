@@ -150,6 +150,9 @@ export interface FlowContext {
   readonly refuse: (message: string) => never
   readonly pushScope: (scope: ScopeOptions) => void
   readonly popScope: () => void
+  /** Absent on an engine older than `slice`; FLOWS_PROTOCOL stays 1. */
+  readonly enterSlice?: (name: string) => void
+  readonly leaveSlice?: () => void
   readonly read: (path: string) => string | undefined
   readonly glob: (pattern: string) => readonly string[]
   /** The last step's changes, content read on demand. */
@@ -281,6 +284,21 @@ export const scope = async <T>(scope: string | ScopeOptions, fn: () => Promise<T
     return await fn()
   } finally {
     context.popScope()
+  }
+}
+
+/**
+ * Mark the span `fn` covers as one named slice of the process. Lands no
+ * commit, prefixes no step name, opens no memory scope.
+ */
+export const slice = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+  const context = ctx()
+  if (typeof context.enterSlice !== "function") return fn()
+  context.enterSlice(name)
+  try {
+    return await fn()
+  } finally {
+    context.leaveSlice?.()
   }
 }
 

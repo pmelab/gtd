@@ -7,6 +7,7 @@ import {
   kept,
   mark,
   protocolMismatch,
+  slice,
   type FlowContext,
 } from "./runtime.js"
 
@@ -125,5 +126,31 @@ describe("kept()", () => {
       "gtd: kept() needs a newer gtd — upgrade the gtd that runs it",
     )
     expect(FLOWS_PROTOCOL).toBe(1)
+  })
+})
+
+describe("slice()", () => {
+  const withSlices = () => {
+    const calls: string[] = []
+    installContext({
+      enterSlice: (n: string) => calls.push(`enter ${n}`),
+      leaveSlice: () => calls.push("leave"),
+    } as unknown as FlowContext)
+    return calls
+  }
+
+  it("brackets fn with enter and leave and resolves to its value", async () => {
+    const calls = withSlices()
+    const value = await slice("refactor", async () => {
+      calls.push("fn")
+      return 42
+    })
+    expect(value).toBe(42)
+    expect(calls).toEqual(["enter refactor", "fn", "leave"])
+  })
+
+  it("runs fn unsliced on a context without enterSlice", async () => {
+    installContext(context)
+    expect(await slice("refactor", async () => "ran")).toBe("ran")
   })
 })
