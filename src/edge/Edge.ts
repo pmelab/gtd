@@ -43,7 +43,6 @@ import {
   type JudgeVerdict,
   type ReachedStep,
   type ReplayOutcome,
-  type SliceRange,
   type TreeView,
 } from "../replay/index.js"
 import type { Mark, ScopeAccess } from "../flows/index.js"
@@ -897,7 +896,6 @@ interface Rest extends ResolvedRest {
   /** Total recorded cost of the process, and its per-model breakdown. */
   readonly cost: { readonly total: number; readonly byModel: readonly ModelCost[] }
   readonly setup: ReplaySetup
-  readonly slices: readonly SliceRange[]
 }
 
 /** Per-model token totals, highest-cost first (ties broken by model name). */
@@ -1072,11 +1070,59 @@ export const restAt = (
         byModel: costByModel(run.costEntries),
       },
       setup,
-      slices: sliceRangesOf(outcome.slices, run),
     }
   })
 
 export const currentRest: Effect.Effect<Rest, Error, RestRequirements> = restAt(undefined)
+
+export interface ProcessSlice {
+  readonly name: string
+  /** Full hash, exclusive: git's base..tip. */
+  readonly base: string
+  /** Full hash, inclusive; HEAD's hash for the open slice. */
+  readonly tip: string
+  /** false only for the last slice of an underway process. */
+  readonly closed: boolean
+}
+
+/**
+ * The slices of the process HEAD closes or sits inside, current episode only,
+ * stack order. Reads like `historyTrail`, never `restAt`: nothing narrates,
+ * warns or writes.
+ */
+export const processSlices: Effect.Effect<readonly ProcessSlice[], Error, RestRequirements> =
+  Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    const workspace = yield* Workspace
+    const host = yield* Host
+    const run = yield* summaryRun
+    if (run.trace.length === 0) {
+      return yield* Effect.fail(new Error("gtd slices: refused — no process is underway at HEAD"))
+    }
+    const { setup } = yield* setupFor(config, run, workspace, host)
+    const outcome = yield* Effect.promise(() => replayFor(setup))
+    if (outcome.kind === "rest" && run.closingHash !== undefined) {
+      // A changed config must never report a closed process as open.
+      return yield* Effect.fail(
+        new Error(
+          `gtd slices: ${run.closingHash.slice(0, 7)} closes a process that does not end under today's config`,
+        ),
+      )
+    }
+    if (outcome.kind === "ended" && run.closingHash === undefined) {
+      // The mirror drift: HEAD is mid-process by history, today's flow ends before it.
+      return yield* Effect.fail(replayError(outcome) ?? new Error("gtd slices: replay failed"))
+    }
+    if (outcome.kind !== "rest" && outcome.kind !== "ended") {
+      return yield* Effect.fail(replayError(outcome) ?? new Error("gtd slices: replay failed"))
+    }
+    return sliceRangesOf(outcome.slices, run).map(({ name, base, tip, open }) => ({
+      name,
+      base,
+      tip,
+      closed: outcome.kind === "ended" || !open,
+    }))
+  })
 
 /**
  * Whether `gtd --workflow <name>` can start a process here: the workflow must

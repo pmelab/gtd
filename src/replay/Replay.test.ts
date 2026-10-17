@@ -1231,6 +1231,38 @@ describe("slice()", () => {
     ])
   })
 
+  it("an ended outcome carries every span of the episode that just ended", async () => {
+    const wf = async () => {
+      await slice("one", async () => {
+        await human("a")
+      })
+      await slice("two", async () => {
+        await human("b")
+      })
+    }
+    const h = new History().land("human", "a", 1, "b").land("human", "b", 1, "done")
+    const outcome = await replayOf(wf, h)
+    expect(outcome).toMatchObject({ kind: "ended", via: "return" })
+    expect(spansOf(outcome)).toEqual([
+      { name: "one", enteredAt: hashOf(0), leftAt: hashOf(1) },
+      { name: "two", enteredAt: hashOf(1), leftAt: hashOf(2) },
+    ])
+  })
+
+  it("restart() inside a slice ends via restart with that span's leftAt undefined", async () => {
+    const wf = async () => {
+      await human("a")
+      await slice("risky", async () => {
+        await human("b")
+        await restart()
+      })
+    }
+    const h = new History().land("human", "a", 1, "b").land("human", "b", 1, "done")
+    const outcome = await replayOf(wf, h)
+    expect(outcome).toMatchObject({ kind: "ended", via: "restart" })
+    expect(spansOf(outcome)).toEqual([{ name: "risky", enteredAt: hashOf(1), leftAt: undefined }])
+  })
+
   it("keeps leftAt undefined when the process rests inside the slice", async () => {
     const wf = async () => {
       await slice("refactor", async () => {

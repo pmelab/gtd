@@ -312,12 +312,12 @@ while (true) {
   `scope()`.
 - `slice(name, fn)` — marks the span `fn` covers as one named **slice** of the
   episode. For now it only names the span: it changes nothing about how the
-  episode lands (slices landing as their own commits or stacked PRs is planned
-  in #379 and #380). It lands no commit, renames no step and opens no memory
-  scope — it is not a `scope()`; wrap one in the other when you want both. A
-  slice's commits run from where the previous slice ended: commits before the
-  first slice fold into it, commits between two slices into the next, commits
-  after the last into the last. A slice that landed no commit is dropped, its
+  episode lands, and `gtd slices` lists the spans (`--json` is the contract a
+  driver reads). It lands no commit, renames no step and opens no memory scope —
+  it is not a `scope()`; wrap one in the other when you want both. A slice's
+  commits run from where the previous slice ended: commits before the first
+  slice fold into it, commits between two slices into the next, commits after
+  the last into the last. A slice that landed no commit is dropped, its
   neighbours absorbing the gap. A flow with no surviving slice has one implicit
   slice named `main` over the whole episode, so `main` is reserved. Names match
   `/^[a-z][a-z0-9-]*$/` and are unique within an episode: entering one twice,
@@ -1326,7 +1326,7 @@ A workflow declaring one name in both `defaults` and `envDefaults` fails to
 load. All load failures exit **1** and write to **stderr**, never stdout.
 
 gtd requires a repository with **at least one commit** before any state command
-(`land`, `--workflow`, `door`, `doors`, `next`, `abandon`, `restore`,
+(`land`, `--workflow`, `door`, `doors`, `slices`, `next`, `abandon`, `restore`,
 `validate`, `summary`) will run — there is no workflow state to derive from an
 empty history. `gtd install`, `gtd lsp`, and `gtd check` are unaffected, since
 none of them needs a process history (`gtd lsp` then serves `REVIEW.md` alone).

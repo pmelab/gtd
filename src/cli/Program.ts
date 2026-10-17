@@ -51,6 +51,7 @@ import {
   renderRest,
   restAt,
   previewLanding,
+  processSlices,
   noProcessUnderway,
   restIsIdle,
   reviewBaseFor,
@@ -143,6 +144,7 @@ export type Command =
     }
   | { readonly kind: "door"; readonly name: string; readonly args: readonly string[] }
   | { readonly kind: "doors" }
+  | { readonly kind: "slices" }
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
   | { readonly kind: "next" }
@@ -655,6 +657,24 @@ const runDoorsCommand = (
       workflow: d.workflow,
       args: (d.args ?? []).map((arg) => ({ name: arg.name, optional: arg.optional === true })),
     }))
+    if (json.kind === "document") out.write(`${JSON.stringify(document)}\n`)
+    else yield* writeSelection(out, document, json.path)
+  })
+
+const runSlicesCommand = (
+  json: JsonMode,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const slices = yield* processSlices
+    if (json.kind === "off") {
+      out.write(slices.map((s) => `${s.name} ${s.base}..${s.tip}\n`).join(""))
+      return
+    }
+    const document = {
+      schema: 1,
+      slices: slices.map(({ name, base, tip, closed }) => ({ name, base, tip, closed })),
+    }
     if (json.kind === "document") out.write(`${JSON.stringify(document)}\n`)
     else yield* writeSelection(out, document, json.path)
   })
@@ -1223,6 +1243,8 @@ const dispatchVoidCommand = (
       return runDoorCommand(command.name, command.args, out)
     case "doors":
       return runDoorsCommand(json, out)
+    case "slices":
+      return runSlicesCommand(json, out)
     case "abandon":
       return runAbandonCommand(out)
     case "restore":

@@ -44,11 +44,11 @@ histories written by an older or newer gtd.
 ## Follows package SemVer
 
 - **CLI** — every command (`next`, `land`, `abandon`, `restore`, `validate`,
-  `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `strays`,
-  `history list`, `history show`, `history fetch`, `version`, `help`, `ui`,
-  `lsp`, `loop`, `judge`, `judge answer`, `judge run`), option and argument in
-  [CLI reference](docs/cli.md), the doors the bundled `fix` and `review` build
-  (`fix`, `review [base]`), and the `gtd doors --json` and
+  `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `slices`,
+  `strays`, `history list`, `history show`, `history fetch`, `version`, `help`,
+  `ui`, `lsp`, `loop`, `judge`, `judge answer`, `judge run`), option and
+  argument in [CLI reference](docs/cli.md), the doors the bundled `fix` and
+  `review` build (`fix`, `review [base]`), and the `gtd doors --json` and
   `gtd history list --json` arrays (bare arrays with no `schema`), and
   `gtd history show --json` (no `schema`; not a driver document).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on

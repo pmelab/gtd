@@ -101,16 +101,17 @@ const FLAGS: readonly FlagRow[] = [
       kind === "judge" ||
       kind === "judgeAnswer" ||
       kind === "doors" ||
+      kind === "slices" ||
       kind === "historyList" ||
       kind === "historyShow" ||
       kind === "strays",
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd history list`/`gtd history show`/`gtd strays` — " +
+      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd slices`/`gtd history list`/`gtd history show`/`gtd strays` — " +
       "every other command prints plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "<path>",
     help: [
-      "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history",
+      "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd slices/gtd history",
       "list/gtd history show/gtd strays only) output structured JSON. Bare --json prints the whole document;",
       "--json=<path> (a dotted key path into that document, e.g.",
       "kind, content, session.id) prints just that value: a",
@@ -634,6 +635,20 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "each. --json prints one JSON array of { name, workflow,",
       "args: [{ name, optional }] } instead; --json=<path> reads one",
       "value off it. Writes nothing",
+    ],
+  },
+  {
+    token: "slices",
+    kind: "slices",
+    arity: "none",
+    details: [
+      "List the slices of the process HEAD closes or sits inside,",
+      "first slice first: one `name base..tip` line each (full",
+      "hashes; plain output carries no promise). --json prints",
+      "{ schema: 1, slices: [{ name, base, tip, closed }] };",
+      "--json=<path> reads one value off it. Writes nothing: no",
+      "git, no state transition, no session identity. Refuses",
+      "(exit 1) when no process is underway",
     ],
   },
   {
@@ -1304,6 +1319,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "install"
       | "loop"
       | "doors"
+      | "slices"
       | "summary"
       | "base"
       | "judge"

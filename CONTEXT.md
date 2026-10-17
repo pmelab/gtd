@@ -138,8 +138,8 @@ script. The driver's whole read surface. _Avoid_: next payload, dispatch
 document
 
 **Schema**: The integer every JSON document a driver reads leads with — a beat
-document, `gtd land --json`, the judge documents. Bumped only when a field is
-removed or renamed, never for an added one. Not the
+document, `gtd land --json`, `gtd slices --json`, the judge documents. Bumped
+only when a field is removed or renamed, never for an added one. Not the
 [history format](#history-format) and not the package version. _Avoid_: wire
 version, protocol version
 

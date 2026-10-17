@@ -7,6 +7,7 @@ import {
   currentRun,
   historyTrail,
   noProcessUnderway,
+  processSlices,
   renderRest,
   restAt,
   restIsIdle,
@@ -596,31 +597,37 @@ export const summary = (it) => it.marks.map((m) => m.name + "=" + m.value).join(
   })
 })
 
-describe("Rest.slices", () => {
-  const SLICED = `import { agent, human, slice } from "@pmelab/gtd/flows"
+describe("processSlices", () => {
+  const failure = async (repo: InMemRepo): Promise<string> => {
+    const exit = await provideExit(processSlices, repo)
+    expect(Exit.isFailure(exit)).toBe(true)
+    return Exit.isFailure(exit) ? String(exit.cause) : ""
+  }
 
-export default async () => {
-  await human("idle", { message: "idle-message" })
-  await slice("build", async () => {
-    await agent("building", "build-prompt")
-  })
-  await slice("verify", async () => {
-    await agent("checking", "check-prompt")
-  })
-}
-`
-
-  it("folds the replay's spans over the run's base and its last commit", async () => {
-    const repo = repoWith(SLICED)
-    const boundary = headOf(repo)
+  it("never reports an open slice for a closed run whose replay no longer ends", async () => {
+    const repo = repoWith(LINEAR)
     await land(repo, { "a.txt": "a\n" })
-    const checking = await land(repo, { "b.txt": "b\n" })
-    const rest = await provide(currentRest, repo)
-    expect(rest.state).toBe("checking")
-    expect(rest.slices).toEqual([
-      { name: "build", base: boundary, tip: checking, open: false },
-      { name: "verify", base: checking, tip: checking, open: true },
-    ])
+    await land(repo, { "b.txt": "b\n" })
+    await land(repo, { "c.txt": "c\n" })
+    repo.writeFile(
+      "gtd.config.ts",
+      LINEAR.replace(
+        'await agent("checking", "check-prompt")',
+        'await agent("checking", "check-prompt")\n  await human("idle", { message: "again" })\n  await agent("polishing", "polish-prompt")',
+      ),
+    )
+    expect(await failure(repo)).toContain("does not end under today's config")
+  })
+
+  it("never reports a closed slice for an underway run whose replay now ends", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    repo.writeFile(
+      "gtd.config.ts",
+      LINEAR.replace('  await agent("checking", "check-prompt")\n', ""),
+    )
+    expect(await failure(repo)).toContain("the workflow changed under this process")
   })
 })
 
