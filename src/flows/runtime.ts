@@ -490,17 +490,36 @@ export const openQuestions = (text: string): readonly OpenQuestion[] => ctx().op
 /** A workflow's one flow. */
 export type Flow = () => Promise<void>
 
+/** The slice `gtd summary --slice` writes the closing message for. */
+export interface SummarySlice {
+  readonly name: string
+  /** Exclusive, as in git's `base..tip`. */
+  readonly base: string
+  readonly tip: string
+  /** 1-based stack position: `index === count` is the last slice. */
+  readonly index: number
+  readonly count: number
+}
+
 export interface SummaryContext {
+  /** Whole process, even under a slice. */
   readonly entryCommit: string
+  /** The slice's `base` under `--slice`. */
   readonly processBase: string
+  /** The slice's `tip` under `--slice`. */
   readonly processTip: string
+  /** The slice's own under `--slice`. */
   readonly humanCommits: readonly { readonly hash: string; readonly state: string }[]
+  /** The slice's own under `--slice`. */
   readonly processCost: number
+  /** The slice's own under `--slice`. */
   readonly processCostByModel: readonly { readonly model: string; readonly cost: number }[]
-  /** Every `Gtd-Mark` of the process's commits, oldest first. */
+  /** Every `Gtd-Mark` of the process's commits, oldest first — whole process, even under a slice. */
   readonly marks: readonly Mark[]
   readonly vars: Readonly<Record<string, string>>
   readonly env: Readonly<Record<string, string>>
+  /** Present only under `gtd summary --slice`; the key is absent, not undefined, otherwise. */
+  readonly slice?: SummarySlice
 }
 
 /** `gtd summary`'s prompt — a workflow module's optional `summary` export. */

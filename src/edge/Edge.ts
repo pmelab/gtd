@@ -45,7 +45,7 @@ import {
   type ReplayOutcome,
   type TreeView,
 } from "../replay/index.js"
-import type { Mark, ScopeAccess } from "../flows/index.js"
+import type { Mark, ScopeAccess, SummarySlice } from "../flows/index.js"
 import { steeringFormatFor } from "../steering/index.js"
 import {
   judgeJson,
@@ -126,6 +126,8 @@ const locateEpisode = (def: WorkflowDefinition, history: History): EpisodeLocati
 export interface CostEntry {
   readonly cost: number
   readonly model: string
+  /** The process commit whose `Gtd-Cost` trailer recorded it. */
+  readonly hash: string
 }
 
 export interface JudgeVerdictEntry {
@@ -203,8 +205,8 @@ const traceEntryOf = (
   actor: message.parsed?.actor ?? "",
 })
 
-const costEntriesOf = (message: ReturnType<typeof parseCommitMessage>): CostEntry[] =>
-  message.cost.map((c) => ({ cost: c.cost, model: c.model ?? UNATTRIBUTED_MODEL }))
+const costEntriesOf = (hash: string, message: ReturnType<typeof parseCommitMessage>): CostEntry[] =>
+  message.cost.map((c) => ({ cost: c.cost, model: c.model ?? UNATTRIBUTED_MODEL, hash }))
 
 const hashAt = (history: History, index: number): string | undefined => history[index]?.hash
 
@@ -278,7 +280,7 @@ const buildRun = (
     startParentHash,
     diffBase: first?.reviewBase ?? startParentHash,
     trace: processCommits.map((c, i) => traceEntryOf(c.hash, parsed[i]!)),
-    costEntries: parsed.flatMap(costEntriesOf),
+    costEntries: parsed.flatMap((m, i) => costEntriesOf(processCommits[i]!.hash, m)),
     judgeVerdicts: parsed.flatMap((m) => m.judge),
     marks: parsed.flatMap((m) => m.marks),
     approvals: processCommits.flatMap((c, i) => approvalEntryOf(c.hash, parsed[i]!)),
@@ -1076,21 +1078,42 @@ export interface ProcessSlices {
   readonly versionWarning?: string
 }
 
+type EndedOutcome = Extract<ReplayOutcome, { kind: "ended" }>
+type UnendedOutcome = Exclude<ReplayOutcome, { kind: "ended" }>
+
+/** Every slice refusal reads `<command>: refused — <reason>`; replay's own `gtd: ` lead is dropped. */
+const slicesDivergence = (command: string, run: ProcessRun, outcome: ReplayOutcome): Error => {
+  const reason =
+    outcome.kind === "rest" && run.closingHash !== undefined
+      ? `${run.closingHash.slice(0, 7)} closes a process that does not end under today's config`
+      : (replayError(outcome)?.message.replace(/^gtd: /, "") ?? "replay failed")
+  return new Error(`${command}: refused — ${reason}`)
+}
+
 /**
- * The slices of the process HEAD closes or sits inside, current episode only,
- * stack order. Reads like `historyTrail`, never `restAt`: it narrates and
- * writes nothing, and returns a version warning for a closed run.
+ * The replay `gtd slices` and `gtd summary --slice` share: the slice ranges of
+ * `run`, plus whether HEAD closes it. Reads like `historyTrail`, never
+ * `restAt`: it narrates and writes nothing.
  */
-export const processSlices: Effect.Effect<ProcessSlices, Error, RestRequirements> = Effect.gen(
-  function* () {
-    const git = yield* GitService
+const replayedSlices = (
+  run: ProcessRun,
+  how: { readonly command: string; readonly configReason: string },
+): Effect.Effect<
+  {
+    readonly ranges: ReturnType<typeof sliceRangesOf>
+    readonly closed: boolean
+    readonly versionWarning?: string
+  },
+  Error,
+  RestRequirements
+> =>
+  Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
     const workspace = yield* Workspace
     const host = yield* Host
-    const run = yield* runAtHead(git, config.workflow)
     if (run.trace.length === 0) {
       return yield* Effect.fail(
-        new Error("gtd slices: refused — HEAD neither closes nor sits inside a process"),
+        new Error(`${how.command}: refused — HEAD neither closes nor sits inside a process`),
       )
     }
     const closing = run.closingHash
@@ -1098,41 +1121,84 @@ export const processSlices: Effect.Effect<ProcessSlices, Error, RestRequirements
     let versionWarning: string | undefined
     if (closing !== undefined) {
       const replayed = yield* replayFinishedProcess(config, run, closing, {
-        command: "gtd slices",
-        configReason:
-          "HEAD's process replays under today's config; revert or stash the edit to list its slices",
-        notEnded: (o) => slicesDivergence(run, o),
+        command: how.command,
+        configReason: how.configReason,
+        notEnded: (o) => slicesDivergence(how.command, run, o),
       })
       outcome = replayed.outcome
       versionWarning = replayed.versionWarning
     } else {
       const { setup } = yield* setupFor(config, run, workspace, host)
       outcome = yield* Effect.promise(() => replayFor(setup))
-      if (outcome.kind !== "rest") return yield* Effect.fail(slicesDivergence(run, outcome))
+      if (outcome.kind !== "rest")
+        return yield* Effect.fail(slicesDivergence(how.command, run, outcome))
     }
     return {
-      slices: sliceRangesOf(outcome.slices, run).map(({ name, base, tip, open }) => ({
+      ranges: sliceRangesOf(outcome.slices, run),
+      closed: closing !== undefined,
+      ...(versionWarning !== undefined ? { versionWarning } : {}),
+    }
+  })
+
+/**
+ * The slices of the process HEAD closes or sits inside, current episode only,
+ * stack order. Returns a version warning for a closed run.
+ */
+export const processSlices: Effect.Effect<ProcessSlices, Error, RestRequirements> = Effect.gen(
+  function* () {
+    const git = yield* GitService
+    const config = yield* (yield* ConfigService).load
+    const run = yield* runAtHead(git, config.workflow)
+    const { ranges, closed, versionWarning } = yield* replayedSlices(run, {
+      command: "gtd slices",
+      configReason:
+        "HEAD's process replays under today's config; revert or stash the edit to list its slices",
+    })
+    return {
+      slices: ranges.map(({ name, base, tip, open }) => ({
         name,
         base,
         tip,
-        closed: closing !== undefined || !open,
+        closed: closed || !open,
       })),
       ...(versionWarning !== undefined ? { versionWarning } : {}),
     }
   },
 )
 
-type EndedOutcome = Extract<ReplayOutcome, { kind: "ended" }>
-type UnendedOutcome = Exclude<ReplayOutcome, { kind: "ended" }>
-
-/** Every `gtd slices` refusal reads `gtd slices: refused — <reason>`; replay's own `gtd: ` lead is dropped. */
-const slicesDivergence = (run: ProcessRun, outcome: ReplayOutcome): Error => {
-  const reason =
-    outcome.kind === "rest" && run.closingHash !== undefined
-      ? `${run.closingHash.slice(0, 7)} closes a process that does not end under today's config`
-      : (replayError(outcome)?.message.replace(/^gtd: /, "") ?? "replay failed")
-  return new Error(`gtd slices: refused — ${reason}`)
-}
+/**
+ * The named slice of `run`, from the same replay `gtd slices` runs. An unknown
+ * name fails naming every valid slice in stack order; a version mismatch is
+ * returned as `versionWarning`, never a failure.
+ */
+export const summarySlice = (
+  run: ProcessRun,
+  name: string,
+): Effect.Effect<
+  { readonly slice: SummarySlice; readonly versionWarning?: string },
+  Error,
+  RestRequirements
+> =>
+  Effect.gen(function* () {
+    const { ranges, versionWarning } = yield* replayedSlices(run, {
+      command: "gtd summary",
+      configReason:
+        "HEAD's process replays under today's config; revert or stash the edit to summarize its slices",
+    })
+    const at = ranges.findIndex((r) => r.name === name)
+    if (at < 0) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd summary: refused — no slice named "${name}"; the slices, in stack order: ${ranges.map((r) => r.name).join(", ")}`,
+        ),
+      )
+    }
+    const { base, tip } = ranges[at]!
+    return {
+      slice: { name, base, tip, index: at + 1, count: ranges.length },
+      ...(versionWarning !== undefined ? { versionWarning } : {}),
+    }
+  })
 
 /**
  * Whether `gtd --workflow <name>` can start a process here: the workflow must
@@ -1440,9 +1506,40 @@ export const snapshotFromRest = (
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 
-/** `gtd summary`'s prompt for `run`, or `undefined` when the workflow has none or there is nothing to summarize. */
+/**
+ * The trace window and cost entries of `slice`, or `undefined` when it lies
+ * outside the process: a guard against a `run`/`slice` pair from different
+ * replays, which `summarySlice` never produces.
+ */
+const narrowToSlice = (
+  run: ProcessRun,
+  slice: SummarySlice | undefined,
+): Pick<ProcessRun, "trace" | "costEntries"> | undefined => {
+  if (slice === undefined) return { trace: run.trace, costEntries: run.costEntries }
+  // `base` is exclusive: -1 when it is the episode's start parent, before the first entry.
+  const from =
+    slice.base === run.startParentHash ? -1 : run.trace.findIndex((e) => e.hash === slice.base)
+  const to = run.trace.findIndex((e) => e.hash === slice.tip)
+  if ((from < 0 && slice.base !== run.startParentHash) || to < 0) return undefined
+  const trace = run.trace.slice(from + 1, to + 1)
+  const hashes = new Set(trace.map((e) => e.hash))
+  return { trace, costEntries: run.costEntries.filter((c) => hashes.has(c.hash)) }
+}
+
+/** Whether `run`'s workflow declares a `summary` template; checked before `--slice` pays for a replay. */
+export const hasSummary = (run: ProcessRun): Effect.Effect<boolean, Error, ConfigRequirements> =>
+  Effect.gen(function* () {
+    const config = yield* (yield* ConfigService).load
+    return (yield* workflowOf(config, run)).def.summary !== undefined
+  })
+
+/**
+ * `gtd summary`'s prompt for `run`, or `undefined` when the workflow has none or there is nothing to summarize.
+ * `slice` narrows range, human commits and cost to its trace window; `entryCommit` and `marks` stay whole-process.
+ */
 export const summaryFor = (
   run: ProcessRun,
+  slice?: SummarySlice,
 ): Effect.Effect<string | undefined, Error, RestRequirements> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
@@ -1451,17 +1548,25 @@ export const summaryFor = (
     const summary = resolved.def.summary
     if (summary === undefined || run.trace.length === 0) return undefined
     const entryCommit = run.trace[0]!.hash
+    const narrowed = narrowToSlice(run, slice)
+    if (narrowed === undefined) {
+      return yield* Effect.fail(
+        new Error(`gtd summary: refused — slice "${slice!.name}" lies outside the process`),
+      )
+    }
+    const { trace, costEntries } = narrowed
     return summary({
       entryCommit,
-      processBase: run.startParentHash,
-      processTip: run.trace[run.trace.length - 1]!.hash,
-      humanCommits: run.trace
+      processBase: slice?.base ?? run.startParentHash,
+      processTip: slice?.tip ?? run.trace[run.trace.length - 1]!.hash,
+      humanCommits: trace
         .filter((entry) => entry.actor === "human" && entry.hash !== entryCommit)
         .map((entry) => ({ hash: entry.hash, state: entry.state })),
-      processCost: run.costEntries.reduce((sum, entry) => sum + entry.cost, 0),
-      processCostByModel: costByModel(run.costEntries),
+      processCost: costEntries.reduce((sum, entry) => sum + entry.cost, 0),
+      processCostByModel: costByModel(costEntries),
       marks: run.marks,
       ...settingsFor(resolved, run.pinnedVars, host.env, {}, {}),
+      ...(slice !== undefined ? { slice } : {}),
     })
   })
 
