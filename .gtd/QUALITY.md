@@ -121,3 +121,59 @@ scenario text; `docs/cli.md` names no module; no new import crosses a boundary;
      `entryCommit`/`marks` stay whole-process under a slice. Say "the edge never
      narrates" in one place. This fits with correctness nit 1 and deferred
      note-1, which touch the same Program.ts comment.
+
+## spec-challenge
+
+Planning docs read: round 1 `REQUIREMENTS.md` (0aad07ae), `ARCHITECTURE.md`
+(b4b6422e), packages 01/02 (d3f2a201); round 2 `REQUIREMENTS.md` (cabe6df6),
+`ARCHITECTURE.md` (1533f740), package 01 (afe31a66). Checked each decision
+against `docs/cli.md`, `renderFailure`, the `--json` envelope and the pinned
+scenarios.
+
+**Should fix**
+
+1. **The round-2 spec accepts the warning folded into the refusal message. That
+   breaks the stderr contract the round-1 spec and `docs/cli.md` rely on.**
+   (round-2 REQUIREMENTS.md §1 "Assert presence, not line order — the refusal
+   and warning share one error message today"; ARCHITECTURE.md 1533f740
+   "Test-only change: the behaviour already ships";
+   `src/edge/Edge.ts:1724-1733`)
+   - **Decision:** keep `withWarning`, which appends `\ngtd: warning: …` to the
+     `Error.message` of the config-edited and diverged refusals. Pin it by
+     presence only, so the join is never challenged.
+   - **Invariants it conflicts with:**
+     - `docs/cli.md` L430-434 lists the WARNING as one of three things stderr
+       carries "beyond the `gtd: ` message line". Now it is part of that
+       message.
+     - `docs/cli.md` "Error envelope": under `--json` the envelope is
+       `{"state":"error","prompt":"<message>"}` (`src/cli/Cli.ts:1487`). So for
+       `gtd slices --json`, a driver now gets the warning inside `prompt`, not
+       as its own stderr line the way the success path prints it.
+     - Round-1 spec concern 2 and its pinned `summary-slice.feature` scenario:
+       on `gtd summary --slice`, the warning comes _before_ the refusal, printed
+       by the CLI through `Narrator.warn` ("the edge never narrates … the CLI
+       prints it"). The config-drift and diverged refusals of the same command
+       now print it _after_, from inside the edge's error. One command now
+       orders the warning two different ways, depending on which refusal fires.
+     - `renderFailure` (`src/platform/Commentary.ts`) is how extra lines get
+       attached to a failure: `GtdError.detail`, indented under the message and
+       kept out of `prompt`. `withWarning` skips that path.
+   - **Why it matters:** the round-2 scope was "test-only", so it pinned the
+     join without questioning it. Telling a scenario not to check order is a
+     sign the spec knew the output shape was off.
+   - **Fix:** in `replayFinishedProcess`, stop rewriting the message. Return the
+     warning beside the failure instead: either a `GtdError` with the warning in
+     `detail` (this keeps `prompt` clean), or a tagged failure the CLI unwraps
+     and passes to `Narrator.warn` before it fails. The second option gives
+     every refusal the round-1 order. Then tighten the new
+     `slices-command.feature` scenario to check that the warning comes first, as
+     `summary-slice.feature` does. If the join stays, change `docs/cli.md` to
+     say a refusal carries the warning in its message (and in the `--json`
+     `prompt`).
+   - **If we skip it:** drivers parsing the `--json` envelope get a two-line
+     `prompt`, and the documented "separate WARNING line" holds only on success
+     and the unknown-slice path.
+
+Checked, no conflict: round 2 scoping out `gtd history show` contradicts no
+test. Leaving the config edit uncommitted matches the copied scenario and the
+edit check reading the working tree.
