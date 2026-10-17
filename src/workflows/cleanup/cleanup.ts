@@ -49,4 +49,9 @@ export const cleanupFlow = async (): Promise<void> => {
   await handOffTail(false, start(), guard)
 }
 
-export const cleanup = flagShipped(cleanupFlow)
+export const cleanup = flagShipped(cleanupFlow, {
+  cleanup: {
+    args: [{ name: "flag" }],
+    vars: ({ flag }) => ({ flag: flag ?? "" }),
+  },
+})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { configure } from "../../flows/index.js"
+import { configure, type WorkflowDoors } from "../../flows/index.js"
 import * as workflows from "../index.js"
 import * as options from "./options.js"
 
@@ -85,7 +85,7 @@ describe("the shipped workflow factories", () => {
   })
 
   describe("flagShipped", () => {
-    const factory = flagShipped(async () => {})
+    const factory = flagShipped(async () => {}, {})
 
     it("declare flag and flagRegistry as process settings, so --var flag= is accepted", () => {
       expect(configure(factory)).toMatchObject({
@@ -96,6 +96,20 @@ describe("the shipped workflow factories", () => {
         },
       })
     })
+
+    it.each(["rollout", "cleanup"] as const)(
+      "%s declares one door named after it, with one required flag arg",
+      (name) => {
+        const result = configure(workflows[name]())
+        expect(result).toMatchObject({
+          ok: true,
+          build: { doors: { [name]: { args: [{ name: "flag" }] } } },
+        })
+        const build = (result as { build?: { doors?: WorkflowDoors } }).build
+        expect(Object.keys(build?.doors ?? {})).toEqual([name])
+        expect(build?.doors?.[name]?.vars?.({ flag: "x" })).toEqual({ flag: "x" })
+      },
+    )
 
     it("fail the load on an unknown option", () => {
       // @ts-expect-error — `flag` is a --var, not an option

@@ -47,8 +47,9 @@ histories written by an older or newer gtd.
   `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `slices`,
   `strays`, `history list`, `history show`, `history fetch`, `version`, `help`,
   `ui`, `lsp`, `loop`, `judge`, `judge answer`, `judge run`), option and
-  argument in [CLI reference](docs/cli.md), the doors the bundled `fix` and
-  `review` build (`fix`, `review [base]`), and the `gtd doors --json` and
+  argument in [CLI reference](docs/cli.md), the doors the bundled `fix`,
+  `review`, `rollout` and `cleanup` build (`fix`, `review [base]`,
+  `rollout <flag>`, `cleanup <flag>`), and the `gtd doors --json` and
   `gtd history list --json` arrays (bare arrays with no `schema`), and
   `gtd history show --json` (no `schema`; not a driver document).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
@@ -79,10 +80,11 @@ histories written by an older or newer gtd.
 - **The `config` export** — the keys `defineConfig` accepts (`modes`, `ui`,
   `skills`, `access`) and their values. See
   [The `config` export](docs/configuration.md#the-config-export).
-- **Bundled workflow and step names** — `feature`, `fix`, `review`, and each
-  step's full name, plus which steps a bundled workflow reaches and in what
-  order: changing either strands every process resting on it. Adding `approve`
-  to an existing step strands every process that already passed it.
+- **Bundled workflow and step names** — `feature`, `fix`, `review`, `rollout`,
+  `cleanup`, and each step's full name, plus which steps a bundled workflow
+  reaches and in what order: changing either strands every process resting on
+  it. Adding `approve` to an existing step strands every process that already
+  passed it.
 - **The review hand-off** — what `review` leaves for `fix`: `.gtd/REVIEW.md`
   with the human's notes beside the reviewer's own `.gtd/REVIEW.orig.md`, read
   as review notes (see [Steering formats](src/steering/FORMATS.md)).

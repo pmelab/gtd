@@ -298,6 +298,76 @@ describe("summaryPrompt", () => {
     expect(summaryPrompt(base)).not.toContain("Production signals")
   })
 
+  it("adds the one no-mentions line, naming the flag, for flag-mentions=0", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha" },
+      marks: [{ name: "flag-mentions", value: "0" }],
+    })
+    expect(prompt).toContain("Flag `alpha`: no line outside the registry names it.")
+  })
+
+  it("lists the flag-mention values as data, then says how many more there are", () => {
+    const listed = Array.from({ length: 50 }, (_, i) => ({
+      name: "flag-mention",
+      value: `README.md:${i + 1}`,
+    }))
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listed],
+    })
+    expect(prompt).toContain("naming flag `alpha`")
+    expect(prompt).toContain("- `README.md:1`\n")
+    expect(prompt).toContain("- `README.md:50`\n")
+    expect(prompt).toContain(
+      "…and 3 more: `grep -rniE '(^|[^a-z0-9_])(gtd_flag_|flag_)?alpha([^a-z0-9_]|$)'`",
+    )
+  })
+
+  it("prints a grep hint that finds all three mention forms, and no longer identifier", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha" },
+      marks: [{ name: "flag-mentions", value: "2" }],
+    })
+    const command = /more: `(grep [^`]+)`/.exec(prompt)?.[1] ?? ""
+    const dir = mkdtempSync(join(tmpdir(), "gtd-grep-"))
+    writeFileSync(
+      join(dir, "a.md"),
+      "GTD_FLAG_ALPHA=1\nflag_alpha\nThe alpha flag\nalphabet\nmy_alpha\n",
+    )
+    const out = execFileSync("sh", ["-c", `${command} . || true`], { cwd: dir }).toString()
+    expect(out.trim().split("\n")).toEqual([
+      "./a.md:1:GTD_FLAG_ALPHA=1",
+      "./a.md:2:flag_alpha",
+      "./a.md:3:The alpha flag",
+    ])
+  })
+
+  it("says nothing of more when every mention is listed", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha" },
+      marks: [
+        { name: "flag-mentions", value: "1" },
+        { name: "flag-mention", value: "README.md:3" },
+      ],
+    })
+    expect(prompt).toContain("- `README.md:3`\n")
+    expect(prompt).not.toContain("more: ")
+  })
+
+  it("adds no flag section without flag marks, even with a flag var", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha" },
+      marks: [{ name: "risk-tier", value: "low" }],
+    })
+    expect(prompt).toContain("Token cost: 0\n\nPrint the closing message")
+    expect(prompt).not.toContain("alpha")
+  })
+
   it("adds the advisory risk line once for the last lap's high tier", () => {
     const prompt = summaryPrompt({
       ...base,

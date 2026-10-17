@@ -140,10 +140,10 @@ Commands:
                    positional args to that workflow's process settings — the
                    same start `gtd --workflow` makes, printed the same way.
                    Each workflow the config exports brings its own doors (gtd's
-                   `fix` brings `fix`, `review` brings `review [base]`), plus
-                   the config's `doors` export. An unknown door, or too few or
-                   too many args, is a usage error (exit 2) naming the doors or
-                   the door's synopsis
+                   `fix`, `review [base]`, `rollout <flag>` and `cleanup <flag>`),
+                   plus the config's `doors` export. An unknown door, or too few
+                   or too many args, is a usage error (exit 2) naming the doors
+                   or the door's synopsis
   doors            List every door, sorted: one `name [args] → workflow` line
                    each. --json prints one JSON array of { name, workflow,
                    args: [{ name, optional }] } instead; --json=<path> reads one
