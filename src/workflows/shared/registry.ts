@@ -139,10 +139,7 @@ export const flagReferences = (
 export interface FlagMention {
   readonly path: string
   readonly line: number
-  readonly text: string
 }
-
-const MENTION_LENGTH = 200
 
 /**
  * Every line naming flag `name` as `GTD_FLAG_<NAME>`, `flag_<name>` or bare
@@ -160,13 +157,7 @@ export const flagMentions = (
   return files
     .filter(({ text }) => !text.includes("\u0000"))
     .flatMap(({ path, text }) =>
-      text
-        .split("\n")
-        .flatMap((line, i) =>
-          pattern.test(line)
-            ? [{ path, line: i + 1, text: line.trim().slice(0, MENTION_LENGTH) }]
-            : [],
-        ),
+      text.split("\n").flatMap((line, i) => (pattern.test(line) ? [{ path, line: i + 1 }] : [])),
     )
 }
 

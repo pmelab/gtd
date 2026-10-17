@@ -319,9 +319,9 @@ describe("flagMentions", () => {
       },
     ]
     expect(flagMentions(files, "alpha")).toEqual([
-      { path: "README.md", line: 2, text: "on under GTD_FLAG_ALPHA=1" },
-      { path: "README.md", line: 3, text: "flag_alpha helper" },
-      { path: "README.md", line: 4, text: "The Alpha flag" },
+      { path: "README.md", line: 2 },
+      { path: "README.md", line: 3 },
+      { path: "README.md", line: 4 },
     ])
   })
 
@@ -336,16 +336,6 @@ describe("flagMentions", () => {
       { path: "bin.dat", text: "alpha\u0000alpha\n" },
     ]
     expect(flagMentions(files, "alpha").map((m) => m.path)).toEqual(["src/a.test.ts"])
-  })
-
-  it("trims the text and cuts it at 200 chars", () => {
-    const [mention] = flagMentions(
-      [{ path: "a.md", text: `   alpha ${"x".repeat(300)}  \n` }],
-      "alpha",
-    )
-    expect(mention?.text.length).toBe(200)
-    expect(mention?.text.startsWith("alpha xxx")).toBe(true)
-    expect(flagMentions([{ path: "a.md", text: "\t alpha \t\n" }], "alpha")[0]?.text).toBe("alpha")
   })
 
   it("matches regex metacharacters in the name literally", () => {

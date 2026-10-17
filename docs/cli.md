@@ -399,9 +399,10 @@ is 2, never 1, so a driver can tell "you invoked gtd wrong" apart from "gtd
 refused/broke" (see [Exit codes](#exit-codes)).
 
 A human-readable `gtd: <message>` line is also always written to **stderr**,
-right after the envelope — stdout carries neither one on a failing run. Stderr
-always carries exactly one `gtd: ` prefix: a message already authored with its
-own `gtd:`/`gtd <cmd>:` prefix is never doubled.
+right after the envelope — stdout carries neither one on a failing run. Config
+warnings (`gtd: warning: …`) may precede the envelope. The error line carries
+exactly one `gtd: ` prefix: a message already authored with its own
+`gtd:`/`gtd <cmd>:` prefix is never doubled.
 
 ### Schema
 

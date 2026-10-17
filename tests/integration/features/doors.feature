@@ -220,8 +220,8 @@ Feature: doors — named shortcuts that start a workflow with positional args
     And stdout does not contain "\"name\":\"fix\""
     When I run gtd with args "door fix"
     Then the exit code is 2
-    And stderr contains "built by mend, patch"
-    And stderr contains "declare it in the `doors` export"
+    And stderr contains "built by workflows \"mend\" and \"patch\""
+    And stderr contains "declare it in the \"doors\" export"
 
   Scenario: a door several workflows build belongs to the one exported under the door's own name
     Given a gtd config file at "gtd.config.ts" with:
@@ -395,3 +395,20 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then it succeeds
     And the last commit body contains "Gtd-Workflow: rolloutB"
     And the last commit body contains "Gtd-Var: flag=x"
+
+  Scenario: two exported rollout instances with no doors entry warn on stderr and keep the other doors
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      export { fix } from "@pmelab/gtd/workflows"
+      import { feature, rollout } from "@pmelab/gtd/workflows"
+
+      export default feature
+      export const rolloutA = rollout({ flagRegistry: "a.ts" })
+      export const rolloutB = rollout({ flagRegistry: "b.ts" })
+      """
+    When I run gtd with args "doors"
+    Then it succeeds
+    And stderr contains "gtd: warning:"
+    And stderr contains "door \"rollout\" is built by workflows \"rolloutA\" and \"rolloutB\""
+    And stderr contains "declare it in the \"doors\" export"
+    And stdout contains "fix → fix"

@@ -779,16 +779,16 @@ A [workflow factory](#workflow-factories) may build doors of its own, without a
 those of every workflow it exports, plus its `doors` export, which wins a name
 clash — a door several exported workflows build belongs to the one exported
 under the door's own name (the others build none, whatever the order); when none
-is, no workflow builds that door until the `doors` export declares it; a
-declared door replaces the derived one whole, so it restates `args` and `vars`
-itself. A config exporting only `fix` offers only the `fix` door. The shipped
-module's own `doors` export is an empty no-op, and its `base` export maps
-`reviewBase` for a workflow named `review`; both are kept only so an older
-config re-exporting them still loads. `gtd door <name> [args...]` starts the
-process (printing the same script `gtd --workflow` does); an unknown door or the
-wrong number of args is a usage error (exit 2). `gtd doors` lists every door,
-one `name [args] → workflow` line each; `gtd doors --json` prints them as data
-for a driver to offer.
+is, no workflow builds that door and loading warns (`gtd: warning: …` on every
+command that loads the config) until the `doors` export declares it; a declared
+door replaces the derived one whole, so it restates `args` and `vars` itself. A
+config exporting only `fix` offers only the `fix` door. The shipped module's own
+`doors` export is an empty no-op, and its `base` export maps `reviewBase` for a
+workflow named `review`; both are kept only so an older config re-exporting them
+still loads. `gtd door <name> [args...]` starts the process (printing the same
+script `gtd --workflow` does); an unknown door or the wrong number of args is a
+usage error (exit 2). `gtd doors` lists every door, one `name [args] → workflow`
+line each; `gtd doors --json` prints them as data for a driver to offer.
 
 ### Episodes, replay and divergence
 
