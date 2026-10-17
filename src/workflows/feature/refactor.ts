@@ -2,6 +2,7 @@ import {
   changes,
   changesSince,
   head,
+  matches,
   quote,
   read,
   refuse,
@@ -11,12 +12,15 @@ import {
   vars,
   type DiffShapeResult,
 } from "../../flows/index.js"
-import { healthy } from "../shared/health.js"
-import { coder, FEEDBACK } from "../shared/steps.js"
+import { lensesOf } from "../../workflow-kit/index.js"
+import { healthy, type Guard } from "../shared/health.js"
+import { coder, FEEDBACK, REFACTOR } from "../shared/steps.js"
 import * as t from "../shared/text.js"
-import { defaults } from "../shared/vars.js"
+import { defaults, testFileGlobs } from "../shared/vars.js"
+import { buildTail, reUnwind } from "./review.js"
+import { refactorCollecting } from "./steps.js"
 
-export const REFACTOR_PACKAGE = ".gtd/REFACTOR.md"
+export const REFACTOR_PACKAGE = REFACTOR
 
 export interface RefactorOptions {
   /** Blank counts as absent: `kept()` reports `""` while the keeping turn is pending. */
@@ -32,6 +36,17 @@ export const requireWithin = (allowed: readonly string[]): void => {
   if (outside.length === 0) return
   refuse(
     `gtd land: refactor-scope: the refactor may change only its stray paths — revert these:\n${outside.map((path) => `  - ${path}`).join("\n")}`,
+  )
+}
+
+// A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
+export const requireNoTestFiles = (): void => {
+  const tests = changes()
+    .map((c) => c.path)
+    .filter((path) => isCode(path) && testFileGlobs.some((glob) => matches(path, glob)))
+  if (tests.length === 0) return
+  refuse(
+    `gtd land: refactor-tests: the refactor may not change a test file — revert these:\n${tests.map((path) => `  - ${path}`).join("\n")}`,
   )
 }
 
@@ -111,7 +126,7 @@ const packageLines = (
   "## Rules",
   "",
   "- The suite's outcome must not change",
-  "- Change only the paths above; a test file only when it is one of them",
+  "- Change only the paths above, and never a test file",
   `- Introduce no flag read and add no second read of an existing one (\`${pattern}\`)`,
   "",
   "## Reference",
@@ -127,11 +142,15 @@ const deriveScript = (lines: readonly string[]): string =>
 printf '%s\\n' ${lines.map(quote).join(" ")} > ${quote(REFACTOR_PACKAGE)}
 `
 
-export const refactorFirst = async (
-  shape: DiffShapeResult,
-  options: RefactorOptions = {},
-): Promise<boolean> => {
-  if (shape.choice !== "refactor-first" || shape.unreadable.length > 0) return false
+interface Plan {
+  readonly pattern: string
+  readonly strays: readonly string[]
+  readonly reference: string | undefined
+}
+
+/** Resolves undefined for every shape that is not a readable `refactor-first`; throws on a bad flag pattern. */
+const plan = (shape: DiffShapeResult, options: RefactorOptions): Plan | undefined => {
+  if (shape.choice !== "refactor-first" || shape.unreadable.length > 0) return undefined
   const pattern = vars.refactorFlagPattern ?? defaults.refactorFlagPattern!
   const expression = flagExpression(pattern)
   const { strays } = shape
@@ -141,38 +160,97 @@ export const refactorFirst = async (
       `gtd: refactorFlagPattern (${pattern}) produces a zero-length match in:\n${listPaths(zeroLength)}`,
     )
   const reference = options.reference?.trim() ? options.reference : undefined
-  return scope({ name: "refactor", access: { write: [...strays, ".gtd/**"] } }, async () => {
-    await run("deriving", deriveScript(packageLines(strays, pattern, reference)), {
-      label: "Deriving the refactor package",
-      file: REFACTOR_PACKAGE,
-    })
-    const from = head()
-    // The in-memory `strays`, never the package file: a hand edit of its list changes nothing.
-    // Scope looks at the turn's own changes: a person's edit at an escalation rest must not
-    // wedge every later fix turn. Flags look at the whole range.
-    const guard = (): void => {
-      requireWithin(strays)
-      requireNoNewFlags(pattern, from)
-    }
-    await t.agentWithSkills(
-      "building",
-      t.refactorBuildingPrompt(REFACTOR_PACKAGE, strays, pattern, reference),
-      { label: "Refactoring", model: coder(), system: t.builderSystem() },
-    )
-    guard()
-    await healthy(
-      async () => {
-        await t.agentWithSkills("fix.suite.fixing", t.refactorFixPrompt(strays, pattern), {
-          label: "Fixing the check",
-          file: FEEDBACK,
-          model: coder(),
-          system: t.builderSystem(),
-        })
-        guard()
-      },
-      { describeGuard: guard },
-    )
-    await run("closing", removeScript([REFACTOR_PACKAGE]), { label: "Closing out the refactor" })
+  return { pattern, strays, reference }
+}
+
+// The in-memory `strays`, never the package file: a hand edit of its list changes nothing.
+// Scope and tests look at the turn's own changes: a person's edit at an escalation rest must
+// not wedge every later fix turn. Flags look at the whole range since `entry`.
+const guardOf =
+  ({ pattern, strays }: Plan, entry: string): Guard =>
+  () => {
+    requireWithin(strays)
+    requireNoNewFlags(pattern, entry)
+    requireNoTestFiles()
+  }
+
+/** Derive, build, check and close one refactor lap; `feedback` is the collected review text of the lap before. */
+const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<void> => {
+  const { pattern, strays, reference } = p
+  await run(
+    "deriving",
+    deriveScript([
+      ...packageLines(strays, pattern, reference),
+      ...(feedback === undefined
+        ? []
+        : ["## Review feedback", "", ...feedback.trimEnd().split("\n"), ""]),
+    ]),
+    { label: "Deriving the refactor package", file: REFACTOR_PACKAGE },
+  )
+  await t.agentWithSkills(
+    "building",
+    t.refactorBuildingPrompt(REFACTOR_PACKAGE, strays, pattern, reference, feedback !== undefined),
+    { label: "Refactoring", model: coder(), system: t.builderSystem() },
+  )
+  guard()
+  await healthy(
+    async () => {
+      await t.agentWithSkills("fix.suite.fixing", t.refactorFixPrompt(strays, pattern), {
+        label: "Fixing the check",
+        file: FEEDBACK,
+        model: coder(),
+        system: t.builderSystem(),
+      })
+      guard()
+    },
+    { describeGuard: guard },
+  )
+  await run("closing", removeScript([REFACTOR_PACKAGE]), { label: "Closing out the refactor" })
+}
+
+export const refactorFirst = async (
+  shape: DiffShapeResult,
+  options: RefactorOptions = {},
+): Promise<boolean> => {
+  const p = plan(shape, options)
+  if (p === undefined) return false
+  return scope({ name: "refactor", access: { write: [...p.strays, ".gtd/**"] } }, async () => {
+    await refactorLap(p, guardOf(p, head()))
     return true
+  })
+}
+
+/**
+ * `refactorFirst` plus its review, in the one `refactor` scope so the tail's
+ * steps are `refactor.build.*`. A review edit re-runs the refactor, never a
+ * re-plan: the collected notes ride the re-derived package.
+ */
+export const reviewedRefactor = async (
+  shape: DiffShapeResult,
+  options: RefactorOptions = {},
+): Promise<boolean> => {
+  const p = plan(shape, options)
+  if (p === undefined) return false
+  return scope({ name: "refactor", access: { write: [...p.strays, ".gtd/**"] } }, async () => {
+    const entry = head()
+    const guard = guardOf(p, entry)
+    const feedback = {
+      file: REFACTOR_PACKAGE,
+      collecting: (capture: string) => refactorCollecting(capture, p.strays),
+      unmatched:
+        "gtd land: refactor-feedback: the review feedback changed files but wrote no .gtd/REFACTOR.md — a refactor cannot act on it; revert the change, or `gtd abandon` and restart",
+    }
+    let collected: string | undefined
+    for (;;) {
+      await refactorLap(p, guard, collected)
+      const outcome = await buildTail(false, entry, true, {
+        guard,
+        lenses: lensesOf(vars.refactorQualityReviews ?? ""),
+        feedback,
+      })
+      if (outcome.verdict === "signoff") return true
+      await reUnwind(outcome)
+      collected = read(REFACTOR_PACKAGE) ?? ""
+    }
   })
 }

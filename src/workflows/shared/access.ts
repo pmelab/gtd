@@ -19,4 +19,7 @@ export const access = (
   "build.review.fix.nits": {},
   "build.review.fix.risks": {},
   ...lensScopes("build.quality", lensesOf(vars.qualityReviews ?? ""), () => ({ write: [] })),
+  ...lensScopes("refactor.build.quality", lensesOf(vars.refactorQualityReviews ?? ""), () => ({
+    write: [],
+  })),
 })

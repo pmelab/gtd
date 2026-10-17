@@ -25,10 +25,16 @@ export const skills = (
   "build.review.fix.risks": ["debugging-and-error-recovery", "incremental-implementation"],
   // `fix`'s turn over the notes a review handed on.
   notes: ["incremental-implementation", "code-simplification"],
-  // Every refactor agent turn loads `ponytail`.
+  // The refactor's own turns load `ponytail`; `refactor.build.*` carry the `build.*` lists.
   refactor: ["ponytail"],
   "refactor.fix.suite": ["ponytail", "debugging-and-error-recovery"],
   "refactor.health": ["ponytail", "debugging-and-error-recovery"],
+  "refactor.build": ["debugging-and-error-recovery"],
+  "refactor.build.health": ["debugging-and-error-recovery"],
+  "refactor.build.fix.quality": ["incremental-implementation", "code-simplification"],
+  "refactor.build.review": ["code-review-and-quality"],
+  "refactor.build.review.fix.nits": ["incremental-implementation", "code-simplification"],
+  "refactor.build.review.fix.risks": ["debugging-and-error-recovery", "incremental-implementation"],
   // Declared whether or not `naive_pass` is on, so a config keyed on them keeps
   // loading when the flag flips off.
   seam: ["incremental-implementation"],
@@ -38,6 +44,11 @@ export const skills = (
   ...lensScopes(
     "build.quality",
     lensesOf(vars.qualityReviews ?? ""),
+    (lens) => builtInLenses[lens]?.skills ?? [lens],
+  ),
+  ...lensScopes(
+    "refactor.build.quality",
+    lensesOf(vars.refactorQualityReviews ?? ""),
     (lens) => builtInLenses[lens]?.skills ?? [lens],
   ),
 })

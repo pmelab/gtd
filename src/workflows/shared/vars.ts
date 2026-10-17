@@ -4,6 +4,16 @@
 // is read live on every invocation. A factory option, `--var` (process
 // settings only) and `GTD_<NAME>` override either.
 
+/** The refactor guard's fixed list, and `seamAllow`'s default minus `.gtd/**`. */
+export const testFileGlobs: readonly string[] = [
+  "**/*.test.*",
+  "**/*.spec.*",
+  "**/*.feature",
+  "**/tests/**",
+  "**/test/**",
+  "**/__tests__/**",
+]
+
 export const defaultFlagRegistry = "src/flags/index.ts"
 
 /** Process settings. */
@@ -14,8 +24,7 @@ export const defaults: Readonly<Record<string, string>> = {
   reviewNoteActionable: "0.7",
   reviewSeverityMinP: "0.7",
   refactorFlagPattern: "\\bGTD_FLAG_\\w+",
-  seamAllow:
-    "**/*.test.*, **/*.spec.*, **/*.feature, **/tests/**, **/test/**, **/__tests__/**, .gtd/**",
+  seamAllow: [...testFileGlobs, ".gtd/**"].join(", "),
   // GTD_FLAG_NAIVE_PASS, recorded at process start; only "1" is on.
   flag_naive_pass: "0",
   // GTD_FLAG_RISK_TIER, recorded at process start; only "1" is on. Acts only with flag_naive_pass.
@@ -24,6 +33,8 @@ export const defaults: Readonly<Record<string, string>> = {
   // keyed in `./skills.ts`.
   qualityReviews:
     "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge",
+  // The refactor slice's lenses: one `refactor.build.quality.<lens>` scope per entry.
+  refactorQualityReviews: "correctness, ponytail-review, conventions",
 }
 
 /** Environment settings. */

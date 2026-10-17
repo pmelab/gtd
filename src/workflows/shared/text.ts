@@ -448,8 +448,8 @@ ${fixFeedbackPrompt}
 
 const refactorRules = (strays: readonly string[], pattern: string): string =>
   `- Behaviour-neutral: the suite's outcome must not change
-- Change only these paths, nothing else — a test file only when it is
-  one of them:
+- Change only these paths, nothing else, and never a test file even
+  when it is one of them:
 ${strays.map((path) => `  - \`${path}\``).join("\n")}
 - Introduce no new flag read and add no second read of an existing one:
   every match of \`${pattern}\` may move, never increase in number`
@@ -459,10 +459,17 @@ export const refactorBuildingPrompt = (
   strays: readonly string[],
   pattern: string,
   reference?: string,
+  feedback = false,
 ): string =>
   `${stateFileRules}
 - The package to implement is \`${pkg}\`; never delete it
-${refactorRules(strays, pattern)}
+${
+  feedback
+    ? `- The package carries a \`## Review feedback\` section: a human's review of the
+  last refactor. Act on it, within the rules below
+`
+    : ""
+}${refactorRules(strays, pattern)}
 ${
   reference === undefined
     ? ""
@@ -856,6 +863,58 @@ default; a skipped judgment never dismisses a note).
 Also judge each note's severity, one id per note: \`note-<n>.security\`,
 \`note-<n>.reversibility\`, \`note-<n>.blastRadius\` and
 \`note-<n>.newConcept\`.
+`
+
+/** `buildReviewCollectingPrompt`'s twin for the refactor review: concerns fold into `.gtd/REFACTOR.md`, and one the refactor cannot build is left out. */
+export const refactorReviewCollectingPrompt = (
+  capture: string,
+  strays: readonly string[],
+): string =>
+  `${styleBlock}
+
+${styleFormatContract}
+
+You are judging and classifying a round of review feedback on a
+behaviour-neutral refactor.
+
+${stateFileRules}
+${footnoteFoldIn}${codeThreadReplies()}
+- This turn writes \`.gtd/REFACTOR.md\` (the folded concerns) and
+  replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
+  in the tree) — you classify, you do not build
+- Fold every concluded thread, ticked answer and hand-edit — and each
+  \`edit\` note the capture lists, no other note — into
+  \`.gtd/REFACTOR.md\` as an ordered list of concerns, and delete the
+  folded threads from \`.gtd/REVIEW.md\`; append one \`- A:\` reply to
+  each thread whose last entry is a \`- H:\` question
+- Keep capture order, and carry each note's \`(tier: reason)\`
+  label into the concern folded from it
+- Nit notes were already fixed: never re-raise a fixed nit as a concern
+- The next refactor may change only these paths, and never a test file
+  or a flag read:
+${strays.map((path) => `  - \`${path}\``).join("\n")}
+  A concern needing any other path, a test file, or a new or added flag
+  read cannot be built: do not fold it. Say in the reply that the way
+  out is \`gtd abandon\` and a restart
+- Finish by running \`gtd check review .gtd/REVIEW.md\` and fix
+  what it reports
+
+The raw review material is:
+
+${capture}
+It names a commit. Work from what you already reviewed if you
+wrote today's review earlier this conversation; otherwise read
+that commit's diff yourself first.
+
+The round is actionable if the human left a note on
+\`.gtd/REVIEW.md\`, added a code comment, or hand-edited code this
+round (a sketch of what they were reaching for, re-derived from
+scratch, never final).
+
+- If actionable and a concern can be built: write \`.gtd/REFACTOR.md\`.
+  Then finish
+- If not: finish without writing anything — changing nothing is
+  the sign-off
 `
 
 export const buildReviewCollectingPrompt = (capture: string): string =>

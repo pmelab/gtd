@@ -1,7 +1,15 @@
 import { human, run } from "../../flows/index.js"
 import * as t from "../shared/text.js"
 import { riskTierOn } from "./tier.js"
-import { ARCHITECTURE, coder, FEEDBACK, planner, REQUIREMENTS, REVIEW } from "../shared/steps.js"
+import {
+  ARCHITECTURE,
+  coder,
+  FEEDBACK,
+  planner,
+  REFACTOR,
+  REQUIREMENTS,
+  REVIEW,
+} from "../shared/steps.js"
 
 /** Turn the sketch since `base` into `.gtd/REQUIREMENTS.md`. */
 export const triage = (base: string): Promise<void> =>
@@ -87,6 +95,16 @@ export const collecting = (capture: string): Promise<void> =>
     label: "Collecting your feedback",
     file: REQUIREMENTS,
     mode: "qa",
+    model: planner(),
+    system: t.reviewerSystem(),
+    allowEmpty: true,
+  })
+
+/** Turn the refactor review round `capture` describes into `.gtd/REFACTOR.md`, or change nothing. */
+export const refactorCollecting = (capture: string, strays: readonly string[]): Promise<void> =>
+  t.agentWithSkills("review.collecting", t.refactorReviewCollectingPrompt(capture, strays), {
+    label: "Collecting your refactor feedback",
+    file: REFACTOR,
     model: planner(),
     system: t.reviewerSystem(),
     allowEmpty: true,

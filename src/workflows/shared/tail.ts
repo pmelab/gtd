@@ -29,8 +29,15 @@ export const REVIEW_ORIG = ".gtd/REVIEW.orig.md"
  * finding to `.gtd/QUALITY.md`. Resolves `"findings"` when that file
  * has any.
  */
-export const qualityLap = (guard?: Guard): Promise<"clean" | "findings"> =>
-  kit.qualityLap(kit.lensesOf(vars.qualityReviews ?? ""), guarded(reviewQuality, guard), QUALITY)
+export const qualityLap = (
+  guard?: Guard,
+  lenses?: readonly string[],
+): Promise<"clean" | "findings"> =>
+  kit.qualityLap(
+    lenses ?? kit.lensesOf(vars.qualityReviews ?? ""),
+    guarded(reviewQuality, guard),
+    QUALITY,
+  )
 
 /** Resolves `true` once `.gtd/QUALITY.md` is resolved, `false` when the fix cap escalated instead. */
 export const fixQualityFindings = (escalations: EscalationCount, guard?: Guard): Promise<boolean> =>
@@ -67,6 +74,7 @@ export const tail = <T>(
   finish: (escalations: EscalationCount) => Promise<T>,
   green = false,
   guard?: Guard,
+  lenses?: readonly string[],
 ): Promise<T> =>
   scope("build", async () => {
     const escalations: EscalationCount = { rounds: 0 }
@@ -79,7 +87,7 @@ export const tail = <T>(
     if (fixFirst) await repair()
     else if (!green) await healthy(fix, { escalations, guard })
     // The lap runs once a tail: after its findings are fixed, review follows.
-    if ((await qualityLap(guard)) === "findings") {
+    if ((await qualityLap(guard, lenses)) === "findings") {
       if (await fixQualityFindings(escalations, guard)) {
         await healthy(fix, { escalations, guard })
       } else await repair()

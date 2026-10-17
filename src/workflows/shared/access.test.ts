@@ -22,6 +22,9 @@ describe("the bundled workflow's access export", () => {
       "build.quality.test-audit": { write: [] },
       "build.quality.conventions": { write: [] },
       "build.quality.spec-challenge": { write: [] },
+      "refactor.build.quality.correctness": { write: [] },
+      "refactor.build.quality.ponytail-review": { write: [] },
+      "refactor.build.quality.conventions": { write: [] },
     })
   })
 
@@ -32,6 +35,15 @@ describe("the bundled workflow's access export", () => {
         .filter((k) => k.startsWith("build.quality."))
         .sort(),
     ).toEqual(["build.quality.correctness", "build.quality.my-lens"])
+  })
+
+  it("keys one refactor lens scope per refactorQualityReviews entry and no other refactor.build.* scope", () => {
+    const custom = access({ ...defaults, refactorQualityReviews: " my-lens ,, correctness" })
+    expect(
+      Object.keys(custom)
+        .filter((k) => k.startsWith("refactor."))
+        .sort(),
+    ).toEqual(["refactor.build.quality.correctness", "refactor.build.quality.my-lens"])
   })
 
   it("keys only turn or script scopes", () => {

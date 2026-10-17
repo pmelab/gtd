@@ -39,6 +39,15 @@ describe("the bundled workflow's skills export", () => {
         "build.quality.test-audit",
         "build.quality.conventions",
         "build.quality.spec-challenge",
+        "refactor.build",
+        "refactor.build.health",
+        "refactor.build.fix.quality",
+        "refactor.build.review",
+        "refactor.build.review.fix.nits",
+        "refactor.build.review.fix.risks",
+        "refactor.build.quality.correctness",
+        "refactor.build.quality.ponytail-review",
+        "refactor.build.quality.conventions",
       ].sort(),
     )
   })
@@ -82,6 +91,28 @@ describe("the bundled workflow's skills export", () => {
       "implement.fix.suite": ["debugging-and-error-recovery"],
       "implement.health": ["debugging-and-error-recovery"],
     })
+  })
+
+  it("gives each refactor.build.* scope its build.* counterpart's list", () => {
+    for (const name of ["health", "fix.quality", "review", "review.fix.nits", "review.fix.risks"]) {
+      expect(bundled[`refactor.build.${name}`]).toEqual(bundled[`build.${name}`])
+    }
+    expect(bundled["refactor.build"]).toEqual(bundled.build)
+    expect(bundled["refactor.build.quality.correctness"]).toEqual(
+      bundled["build.quality.correctness"],
+    )
+    expect(bundled["refactor.build.quality.conventions"]).toEqual([])
+  })
+
+  it("keys one refactor lens scope per refactorQualityReviews entry", () => {
+    const custom = skills({ ...defaults, refactorQualityReviews: " my-lens ,, correctness" })
+    expect(
+      Object.keys(custom)
+        .filter((k) => k.startsWith("refactor.build.quality."))
+        .sort(),
+    ).toEqual(["refactor.build.quality.correctness", "refactor.build.quality.my-lens"])
+    const none = skills({ ...defaults, refactorQualityReviews: "" })
+    expect(Object.keys(none).filter((k) => k.startsWith("refactor.build.quality."))).toEqual([])
   })
 
   it("loads one lens skill per quality lens: correctness its review skill, conventions and spec-challenge none, any other itself", () => {

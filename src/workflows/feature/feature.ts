@@ -1,22 +1,12 @@
-import {
-  changes,
-  head,
-  human,
-  requireRevert,
-  restoreScript,
-  revertScript,
-  run,
-  start,
-  vars,
-} from "../../flows/index.js"
+import { changes, head, human, revertScript, run, start, vars } from "../../flows/index.js"
 import { gate } from "../shared/health.js"
 import { shipped } from "../shared/options.js"
-import { FEEDBACK, REVIEW } from "../shared/steps.js"
+import { FEEDBACK } from "../shared/steps.js"
 import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import { packages } from "./packages.js"
 import { architecture, design } from "./planning.js"
-import { buildTail, type ReviewOutcome } from "./review.js"
+import { buildTail, reUnwind, type ReviewOutcome } from "./review.js"
 import { seamBuild } from "./seam.js"
 import { recordRisk, riskTierOn } from "./tier.js"
 
@@ -34,23 +24,7 @@ export const unwind = (): Promise<void> => {
   })
 }
 
-/**
- * Undo the human's review-round code edits. A path changed since the human
- * left it is not overwritten; requireRevert names it instead.
- */
-export const reUnwind = async (
-  feedback: Extract<ReviewOutcome, { verdict: "feedback" }>,
-): Promise<void> => {
-  const { base, restoreFrom, edited } = feedback
-  const restore = edited.filter((c) => c.status !== "added").map((c) => c.path)
-  const remove = edited.filter((c) => c.status === "added").map((c) => c.path)
-  await run("re-unwind", restoreScript(base, { restore, remove }, restoreFrom), {
-    label: "Re-unwinding your review edit",
-    file: REVIEW,
-    base,
-  })
-  requireRevert(edited, base)
-}
+export { reUnwind }
 
 /** Plan, build and review until a review round signs off; feedback re-plans from scratch. */
 export const planAndBuild = async (firstBase: string): Promise<void> => {
