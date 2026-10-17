@@ -49,3 +49,63 @@ replays.
 
 Verdict: fix 1 first (or defer it explicitly, because the gap predates this
 change and also affects `gtd slices`). Lean: -0 lines (2 is a one-token swap).
+
+## test-audit
+
+Lens: does each new/changed test guard a behaviour this change owns, and would
+it fail with that behaviour removed. Traced `summaryFor` → `locateSlice` →
+`replayedSlices` and the CLI caller against every touched test.
+
+Strong (keep): `returns no prompt … no longer exports a summary` fails if the
+summary check moves after the replay; `plain summaryFor … never replaying` fails
+if the plain call replays; the empty-trace test now pins the exact refusal text
+and the plain call's `{ prompt: undefined }`; the Edge unknown-name test pins
+refusal + slice list + warning together.
+
+**Should fix**
+
+1. **`--model=sonnet` and the step-parser change prove nothing**
+   (`tests/integration/features/summary-slice.feature:48`,
+   `tests/integration/support/steps/history.steps.ts:34`)
+   - **What this is:** scenario 1 now lands with `--cost=10 --model=sonnet`, and
+     `gtd lands … with` now splits on `/\s+/` after `trim()`.
+   - **Problem:** that scenario's `summary` template never renders
+     `processCostByModel`, so the model reaches no assertion; drop the flag and
+     the scenario passes unchanged. The args are single-space separated, so
+     `split(" ")` already gave the same result; no scenario exercises the new
+     parsing. Fixture noise that looks like coverage.
+   - **Fix:** revert both. (Slice-narrowed by-model cost is already owned by the
+     Edge `splits cost by slice` test.) If CLI proof of per-slice by-model cost
+     is wanted, add `processCostByModel` to the template and assert it instead.
+   - **If we skip it:** a reader believes per-slice model breakdown is covered
+     at the CLI when it is not.
+
+**Nice to have**
+
+2. **Unknown-name warning-before-refusal pinned twice at the same tier**
+   (`src/cli/Program.test.ts:1885`, `summary-slice.feature` new scenario)
+   - **What this is:** both run `gtd summary --slice nope` on a 0.0.1-closed
+     process in memory and assert warning precedes refusal on stderr.
+   - **Problem:** same contract, same in-memory transport, same failure mode;
+     the Edge test already owns the result shape. One CLI owner is enough.
+   - **Fix:** keep the `@inmem` feature scenario (repo convention for a
+     feature), delete the Program test.
+   - **If we skip it:** two tests to update for one wording change.
+
+3. **Plain-vs-named test repeats the slice-resolution test**
+   (`src/edge/Edge.test.ts`
+   `renders no slice key for the plain call, the exact slice for a named one`)
+   - **Problem:** its `verify` `toEqual` is byte-identical to the one in
+     `resolves each slice with its range, 1-based index and count`. Only the
+     `"slice" in plain === false` half is new proof.
+   - **Fix:** reduce it to the plain-call assertion (rename to match).
+   - **If we skip it:** duplicate expectation; harmless.
+
+4. **Divergence path has no version-warning test** — same gap as ponytail-review
+   #1; whichever way that is decided, the fix needs the Edge test it names
+   (0.0.1 tip + non-ending config), since nothing today fails if `docs/cli.md`'s
+   new `gtd summary --slice` warning claim is false on that path.
+
+Not a finding: the new `restAt` cost test partly overlaps `token-cost.feature`
+(`gtd next --json` breakdown) but uniquely pins highest-first order and guards
+the `costTotals` extraction; keep.
