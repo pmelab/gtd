@@ -53,7 +53,7 @@ export function costTrailers(log: string) {
 // `gtd summary` is the only place gtd names the process's start parent.
 // `gtd base` is the review anchor and would squash only part of the process.
 const summaryRange = (summary: string) =>
-  /git log ([0-9a-f]{7,40})\.\.([0-9a-f]{7,40})/.exec(summary)?.slice(1, 3)
+  /git log ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})/.exec(summary)?.slice(1, 3)
 
 const COMMIT_FORMAT = `
 --- MESSAGE FORMAT (overrides any formatting the instructions above imply) ---
@@ -253,15 +253,21 @@ async function historyRef(io: ShipIo, tip: string) {
   } catch {
     // unreadable list reads as no entry
   }
-  // The entry becomes a refspec: anything but a full sha is not pushed.
+  // The ref becomes a refspec: push it only when it is exactly the full-sha
+  // name of its entry (40 hex, or 64 under SHA-256).
   const found = Array.isArray(entries)
-    ? entries.find((e) => e.tip === tip && /^[0-9a-f]{40}$/.test(e.entry ?? ""))
+    ? entries.find(
+        (e) =>
+          e.tip === tip &&
+          /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(e.entry ?? "") &&
+          e.ref === `refs/gtd/history/${e.entry}`,
+      )
     : undefined
   if (!found) {
     io.log("No gtd history ref keeps this process: shipping without a Gtd-History trailer.")
     return undefined
   }
-  return `refs/gtd/history/${found.entry}`
+  return found.ref
 }
 
 async function preview(

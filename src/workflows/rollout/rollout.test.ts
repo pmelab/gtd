@@ -177,7 +177,10 @@ describe("rollout.mentions", () => {
     "rollout.flipping": (_: unknown, r: { write: (p: string, c: string) => void }) =>
       r.write("src/flags/index.ts", FLIPPED),
   }
-  const finish = async (files: Record<string, string>) => {
+  const finish = async (
+    files: Record<string, string>,
+    mentions: typeof runsItsScript = runsItsScript,
+  ) => {
     const repo = testRepo({
       workflow: CONFIG,
       files: { "src/flags/index.ts": REGISTRY, "src/a.ts": "a\n", ...files },
@@ -186,7 +189,7 @@ describe("rollout.mentions", () => {
     const rest = await repo.drive({
       ...flip,
       "rollout.suite.check": () => undefined,
-      "rollout.mentions": runsItsScript,
+      "rollout.mentions": mentions,
     })
     expect(rest.state).toBe("idle")
     const marks = (repo.messages().at(-1) ?? "")
@@ -207,6 +210,18 @@ describe("rollout.mentions", () => {
       "flag-mentions=2",
       "flag-mention=README.md:2",
       "flag-mention=src/help.ts:1",
+    ])
+  })
+
+  it("scans the tree as it stands after the mentions script ran", async () => {
+    const { marks } = await finish({ "README.md": "alpha\n" }, (beat, r) => {
+      runsItsScript(beat, r)
+      r.write("0-early.md", "alpha\n")
+    })
+    expect(marks).toEqual([
+      "flag-mentions=2",
+      "flag-mention=0-early.md:1",
+      "flag-mention=README.md:1",
     ])
   })
 

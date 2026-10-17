@@ -358,6 +358,22 @@ describe("summaryPrompt", () => {
     )
   })
 
+  it("escapes regex metacharacters in the more-hint and strips quotes and backticks", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "a.b", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    const command = /more: `(git grep [^`]+)`/.exec(prompt)?.[1] ?? ""
+    expect(command).toContain("a\\.b")
+    const quoted = summaryPrompt({
+      ...base,
+      vars: { flag: "a'b`c", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    expect(/more: `(git grep [^`]+)`/.exec(quoted)?.[1]).toContain("?abc(")
+  })
+
   it("shell-quotes a registry path holding a quote, and the command still runs", () => {
     const prompt = summaryPrompt({
       ...base,

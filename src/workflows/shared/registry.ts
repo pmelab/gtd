@@ -47,7 +47,7 @@ const mask = (text: string): string => {
   return out
 }
 
-const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+export const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 // Entries are flat object literals, so the nearest braces around the name delimit one.
 const entrySpan = (text: string, name: string) => {

@@ -616,9 +616,14 @@ const runDoorCommand = (
     const door = config.doors.get(name)
     if (door === undefined) {
       const known = [...config.doors]
+      const clash = config.doorClashes.get(name)
+      const hint =
+        clash === undefined
+          ? ""
+          : `; "${name}" is built by ${clash.join(", ")} and none is exported under that name — declare it in the \`doors\` export`
       return yield* Effect.fail(
         new GtdUsageError(
-          `gtd door: unknown door "${name}" — doors: ${known.map(([n, d]) => doorSynopsis(n, d)).join(", ")}`,
+          `gtd door: unknown door "${name}" — doors: ${known.map(([n, d]) => doorSynopsis(n, d)).join(", ")}${hint}`,
         ),
       )
     }

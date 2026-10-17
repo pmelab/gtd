@@ -7,7 +7,7 @@ import type { AccessDef } from "./access"
 import { jobPrompt, wakePrompt, wakes } from "./assist"
 import { afterReload, drive, isTrue } from "./drive"
 import type { Io, Opening, Turn, TurnEnd } from "./drive"
-import { doors, enter } from "./doors"
+import { doorFor, doors, enter } from "./doors"
 import { subagentModel } from "./models"
 import { pastedCommand } from "./paste"
 import { personaSpec, resumable } from "./persona"
@@ -824,9 +824,7 @@ async function command($: $, arg: string): Promise<string | undefined> {
     case "":
       return resume($)
     default:
-      return (await doors(shipIo($))).some((d) => d.name === verb)
-        ? enterNow($, verb, rest)
-        : begin($, arg)
+      return doorFor(await doors(shipIo($)), verb, rest) ? enterNow($, verb, rest) : begin($, arg)
   }
 }
 
