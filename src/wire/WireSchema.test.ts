@@ -9,6 +9,8 @@ import {
   landFields,
   renderBeatJson,
   renderLandJson,
+  renderSlicesJson,
+  slicesDocument,
   statusOf,
   WIRE_SCHEMA,
   type BeatKind,
@@ -116,6 +118,9 @@ const documents: Readonly<Record<string, string>> = {
     }),
   ),
   "judge.json": JUDGE,
+  "slices.json": renderSlicesJson(
+    slicesDocument([{ name: "build", base: "a".repeat(40), tip: "b".repeat(40), closed: true }]),
+  ),
 }
 
 describe(`wire schema ${WIRE_SCHEMA}`, () => {
@@ -137,6 +142,19 @@ describe(`wire schema ${WIRE_SCHEMA}`, () => {
         { step: "gate#1", name: "Ada", email: "ada@x.io", commit: "a".repeat(40) },
       ])
     }
+  })
+
+  describe("slicesDocument", () => {
+    it("stamps WIRE_SCHEMA and drops any field beyond the four", () => {
+      const doc = slicesDocument([
+        { name: "n", base: "b", tip: "t", closed: false, extra: 1 } as never,
+      ])
+      expect(doc).toEqual({
+        schema: WIRE_SCHEMA,
+        slices: [{ name: "n", base: "b", tip: "t", closed: false }],
+      })
+      expect(Object.keys(doc.slices[0]!)).toEqual(["name", "base", "tip", "closed"])
+    })
   })
 
   describe("the shape check", () => {

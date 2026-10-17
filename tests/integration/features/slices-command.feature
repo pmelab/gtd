@@ -269,6 +269,12 @@ Feature: gtd slices — list the slices of the process HEAD closes or sits insid
       """
       <head>
       """
+    When I run gtd with args "slices --json=schema"
+    Then it succeeds
+    And stdout is:
+      """
+      1
+      """
     When I run gtd with args "slices --json=nope"
     Then the exit code is 2
 

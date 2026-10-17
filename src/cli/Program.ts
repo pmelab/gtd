@@ -43,6 +43,8 @@ import {
   type StatusChange,
   selectPath,
   EXIT_OK,
+  renderSlicesJson,
+  slicesDocument,
 } from "../wire/index.js"
 import {
   currentRest,
@@ -671,11 +673,8 @@ const runSlicesCommand = (
       out.write(slices.map((s) => `${s.name} ${s.base}..${s.tip}\n`).join(""))
       return
     }
-    const document = {
-      schema: 1,
-      slices: slices.map(({ name, base, tip, closed }) => ({ name, base, tip, closed })),
-    }
-    if (json.kind === "document") out.write(`${JSON.stringify(document)}\n`)
+    const document = slicesDocument(slices)
+    if (json.kind === "document") out.write(renderSlicesJson(document))
     else yield* writeSelection(out, document, json.path)
   })
 

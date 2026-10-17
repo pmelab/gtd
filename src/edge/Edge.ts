@@ -475,25 +475,20 @@ const runAtTip = (
     return yield* runOf([...before, ...closing], { ...location }, tip.hash)
   })
 
+const runAtHead = (git: GitOperations, def: WorkflowDefinition) =>
+  Effect.gen(function* () {
+    // Cheap: just HEAD's own subject, never the commits before it.
+    return yield* runAtTip(git, def, (yield* git.subjectHistory(1, 0))[0])
+  })
+
 /** The process HEAD closes or sits inside — `gtd summary`'s run. */
 export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = Effect.gen(
   function* () {
     const git = yield* GitService
     const def = (yield* (yield* ConfigService).load).workflow
-    // Cheap: just HEAD's own subject, never the commits before it.
-    return yield* runAtTip(git, def, (yield* git.subjectHistory(1, 0))[0])
+    return yield* runAtHead(git, def)
   },
 )
-
-/** The process whose finishing commit is `tip` — reads from `tip`'s own ancestry, so it works when no branch reaches it. */
-export const closedRunAt = (tip: string): Effect.Effect<ProcessRun, Error, ConfigRequirements> =>
-  Effect.gen(function* () {
-    const git = yield* GitService
-    const def = (yield* (yield* ConfigService).load).workflow
-    const hash = yield* git.resolveRef(tip)
-    const subject = yield* git.lastCommitSubject(hash)
-    return yield* runAtTip(git, def, { hash, subject })
-  })
 
 // ── Trees ───────────────────────────────────────────────────────────────────
 
@@ -1092,29 +1087,41 @@ export interface ProcessSlice {
  */
 export const processSlices: Effect.Effect<readonly ProcessSlice[], Error, RestRequirements> =
   Effect.gen(function* () {
+    const git = yield* GitService
     const config = yield* (yield* ConfigService).load
     const workspace = yield* Workspace
     const host = yield* Host
-    const run = yield* summaryRun
+    const run = yield* runAtHead(git, config.workflow)
     if (run.trace.length === 0) {
       return yield* Effect.fail(new Error("gtd slices: refused — no process is underway at HEAD"))
     }
+    if (run.closingHash !== undefined) {
+      const differing = yield* differingConfigPaths(
+        git,
+        workspace,
+        host.root,
+        config,
+        run,
+        run.closingHash,
+      )
+      if (differing.length > 0) {
+        return yield* Effect.fail(
+          configRefusal(
+            "gtd slices",
+            run.closingHash,
+            differing,
+            "HEAD's process replays under today's config; commit or revert the edit to list its slices",
+          ),
+        )
+      }
+    }
     const { setup } = yield* setupFor(config, run, workspace, host)
     const outcome = yield* Effect.promise(() => replayFor(setup))
-    if (outcome.kind === "rest" && run.closingHash !== undefined) {
-      // A changed config must never report a closed process as open.
-      return yield* Effect.fail(
-        new Error(
-          `gtd slices: ${run.closingHash.slice(0, 7)} closes a process that does not end under today's config`,
-        ),
-      )
-    }
-    if (outcome.kind === "ended" && run.closingHash === undefined) {
-      // The mirror drift: HEAD is mid-process by history, today's flow ends before it.
-      return yield* Effect.fail(replayError(outcome) ?? new Error("gtd slices: replay failed"))
-    }
-    if (outcome.kind !== "rest" && outcome.kind !== "ended") {
-      return yield* Effect.fail(replayError(outcome) ?? new Error("gtd slices: replay failed"))
+    if (
+      (outcome.kind !== "rest" && outcome.kind !== "ended") ||
+      (outcome.kind === "ended") !== (run.closingHash !== undefined)
+    ) {
+      return yield* Effect.fail(slicesDrift(run, outcome))
     }
     return sliceRangesOf(outcome.slices, run).map(({ name, base, tip, open }) => ({
       name,
@@ -1123,6 +1130,15 @@ export const processSlices: Effect.Effect<readonly ProcessSlice[], Error, RestRe
       closed: outcome.kind === "ended" || !open,
     }))
   })
+
+/** Every `gtd slices` refusal reads `gtd slices: refused — <reason>`; replay's own `gtd: ` lead is dropped. */
+const slicesDrift = (run: ProcessRun, outcome: Awaited<ReturnType<typeof replayFor>>): Error => {
+  const reason =
+    outcome.kind === "rest" && run.closingHash !== undefined
+      ? `${run.closingHash.slice(0, 7)} closes a process that does not end under today's config`
+      : (replayError(outcome)?.message.replace(/^gtd: /, "") ?? "replay failed")
+  return new Error(`gtd slices: refused — ${reason}`)
+}
 
 /**
  * Whether `gtd --workflow <name>` can start a process here: the workflow must
@@ -1488,10 +1504,14 @@ const inRepoConfigPaths = (
   return [...paths].filter((p) => p !== "" && !p.startsWith("..") && !isAbsolute(p)).sort()
 }
 
-const configRefusal = (tip: string, paths: readonly string[]): Error =>
+const configRefusal = (
+  command: string,
+  tip: string,
+  paths: readonly string[],
+  reason = "A history ref replays under today's config, so it is unreadable after the config changes",
+): Error =>
   new Error(
-    `gtd history: refused — config differs at ${tip.slice(0, 7)}: ${paths.join(", ")}. ` +
-      `A history ref replays under today's config, so it is unreadable after the config changes`,
+    `${command}: refused — config differs at ${tip.slice(0, 7)}: ${paths.join(", ")}. ${reason}`,
   )
 
 const differingConfigPaths = (
@@ -1556,10 +1576,12 @@ export const historyTrail = (tip: string): Effect.Effect<HistoryTrail, Error, Re
     const workspace = yield* Workspace
     const host = yield* Host
     const hash = yield* git.resolveRef(tip)
-    const run = yield* closedRunAt(hash)
+    const subject = yield* git.lastCommitSubject(hash)
+    const run = yield* runAtTip(git, config.workflow, { hash, subject })
 
     const differing = yield* differingConfigPaths(git, workspace, host.root, config, run, hash)
-    if (differing.length > 0) return yield* Effect.fail(configRefusal(hash, differing))
+    if (differing.length > 0)
+      return yield* Effect.fail(configRefusal("gtd history", hash, differing))
 
     const { setup } = yield* setupFor(config, run, workspace, host)
     yield* workspace.episodeTrees(

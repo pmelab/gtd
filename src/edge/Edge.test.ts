@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest"
 import { runCli } from "../cli/index.js"
 import {
   currentRest,
-  closedRunAt,
   currentRun,
   historyTrail,
   noProcessUnderway,
@@ -616,7 +615,23 @@ describe("processSlices", () => {
         'await agent("checking", "check-prompt")\n  await human("idle", { message: "again" })\n  await agent("polishing", "polish-prompt")',
       ),
     )
-    expect(await failure(repo)).toContain("does not end under today's config")
+    // Stands for a flow change with no in-repo config edit (an upgraded
+    // out-of-repo import): every ref reads as the working tree, so the
+    // config-differs refusal stays quiet and only replay drift remains.
+    const git: GitOperations = {
+      ...fakeGitOperations(repo),
+      readFileAtRef: (_ref, path) => Effect.succeed(repo.readFile(path) ?? ""),
+    }
+    const exit = await Effect.runPromiseExit(
+      processSlices.pipe(
+        Effect.provideService(GitService, git),
+        Effect.provide(testLayers(repo, {})),
+      ),
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    const message = Exit.isFailure(exit) ? String(exit.cause) : ""
+    expect(message).toContain("gtd slices: refused")
+    expect(message).toContain("does not end under today's config")
   })
 
   it("never reports a closed slice for an underway run whose replay now ends", async () => {
@@ -627,7 +642,42 @@ describe("processSlices", () => {
       "gtd.config.ts",
       LINEAR.replace('  await agent("checking", "check-prompt")\n', ""),
     )
-    expect(await failure(repo)).toContain("the workflow changed under this process")
+    const message = await failure(repo)
+    expect(message).toContain("gtd slices: refused")
+    expect(message).toContain("the workflow changed under this process")
+    expect(message).toContain("gtd abandon")
+    expect(message).not.toContain("gtd slices: gtd:")
+  })
+
+  it("refuses a renamed step with replay's message, prefixed and without a gtd: lead", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    repo.writeFile("gtd.config.ts", LINEAR.replace('agent("building"', 'agent("constructing"'))
+    const message = await failure(repo)
+    expect(message).toContain("gtd slices: refused — ")
+    expect(message).not.toContain("no process is underway")
+    expect(message).not.toContain("refused — gtd: ")
+    expect(message).not.toContain("gtd slices: gtd:")
+  })
+
+  it("refuses a finished process whose config file was edited since", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    await land(repo, { "c.txt": "c\n" })
+    repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
+    const message = await failure(repo)
+    expect(message).toContain("gtd slices: refused — config differs at")
+    expect(message).toContain("gtd.config.ts")
+    expect(message).toContain("commit or revert the edit")
+    expect(message).not.toContain("history ref")
+  })
+
+  it("still lists an underway process's slices after the same config edit", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
+    expect(await provide(processSlices, repo)).toHaveLength(1)
   })
 })
 
@@ -1158,30 +1208,6 @@ describe("the pending working tree is read at most once per restAt, and never st
     // memo (rather than the per-`ReplaySetup` one) would have kept `calls()`
     // at 1 and `snap2` stuck on the first request's tree.
     expect(calls()).toBe(2)
-  })
-})
-
-describe("closedRunAt", () => {
-  it("is the run summaryRun reads when HEAD is the tip", async () => {
-    const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    await land(repo, { "b.txt": "b\n" })
-    const tip = await land(repo, { "c.txt": "c\n" })
-    expect(await provide(closedRunAt(tip), repo)).toEqual(await provide(summaryRun, repo))
-  })
-
-  it("resolves the closed run with HEAD elsewhere", async () => {
-    const repo = repoWith(LINEAR)
-    const building = await land(repo, { "a.txt": "a\n" })
-    await land(repo, { "b.txt": "b\n" })
-    const tip = await land(repo, { "c.txt": "c\n" })
-    const closed = await provide(closedRunAt(tip), repo)
-    repo.writeFile("d.txt", "d\n")
-    repo.seedCommit("chore: unrelated")
-    const later = await provide(closedRunAt(tip), repo)
-    expect(later).toEqual(closed)
-    expect(later.closingHash).toBe(tip)
-    expect(later.startHash).toBe(building)
   })
 })
 
