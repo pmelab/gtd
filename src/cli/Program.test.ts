@@ -1852,6 +1852,37 @@ export const summary = (c) => \`entry=\${c.entryCommit} tip=\${c.processTip} hum
   })
 })
 
+describe("gtd summary --slice", () => {
+  const SLICED = `import { agent, human, slice } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "hi" })
+  await slice("build", async () => {
+    await agent("working", "go")
+  })
+  await slice("verify", async () => {
+    await agent("polishing", "polish")
+  })
+}
+
+export const summary = (c) => \`\${c.slice ? c.slice.name + " " + c.slice.index + "/" + c.slice.count : "plain"} \${c.processBase}..\${c.processTip}\`
+`
+
+  it("a version warning goes to stderr, stdout still carries the prompt", async () => {
+    const repo = seed(SLICED)
+    await landTurn(repo, { "NOTE.md": "a note\n" })
+    await landTurn(repo, { "WORK.md": "done\n" })
+    repo.writeFile("POLISH.md", "ok\n")
+    repo.seedCommit(
+      "gtd(agent): polishing → idle\n\nGtd-Step: polishing#1\nGtd-Version: 0.0.1\nGtd-Format: 1",
+    )
+    const { exitCode, stdout, stderr } = await run(repo, "summary", "--slice", "verify")
+    expect(exitCode).toBe(0)
+    expect(stderr).toContain("recorded by gtd 0.0.1")
+    expect(stdout).toContain("verify 2/2")
+  })
+})
+
 describe("gtd base — prints the review anchor hash", () => {
   // Each round's review window starts at the commit that entered `deciding`;
   // FEEDBACK.md sends the process round again, a clean accept finishes it.

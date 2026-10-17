@@ -916,9 +916,24 @@ exempt — it may do anything. Everything else follows
 
 A `summary` export sets the prompt `gtd summary` prints: a function receiving
 `{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, marks, vars, env }`
-and returning a string. `humanCommits` lists every human-authored commit of the
-process as `{ hash, state }`; `marks` lists every `Gtd-Mark` of the process as
-`{ name, value }`, oldest first. Without `summary`, `gtd summary` refuses.
+(plus `slice` under `--slice`, below) and returning a string. `humanCommits`
+lists every human-authored commit of the process as `{ hash, state }`; `marks`
+lists every `Gtd-Mark` of the process as `{ name, value }`, oldest first.
+Without `summary`, `gtd summary` refuses.
+
+`gtd summary --slice <name>` calls it once for one slice (names and order as
+`gtd slices` lists them) with an extra `slice` field,
+`{ name, base, tip, index, count }`. `index` is 1-based, so `index === count` is
+the last slice. On plain `gtd summary` the `slice` key is absent. Under
+`--slice`, `processBase`, `processTip`, `humanCommits`, `processCost` and
+`processCostByModel` narrow to the slice (`base` exclusive, `tip` inclusive; the
+per-slice costs sum to the plain cost), while `entryCommit` and `marks` stay
+whole-process. A template that says "the process" mislabels a slice unless it
+reads `slice`. `--slice` replays the process, so it also refuses a HEAD-closing
+process whose config files differ from the working tree or whose replay
+diverged; plain `gtd summary` never does. On a process still underway the last
+slice is open: its range, `count` and the production signals are provisional,
+since later commits fold into it and `count` grows as slices land.
 
 Authoring a workflow with a coding agent? `skills/authoring/SKILL.md` is the
 agent-facing guide.

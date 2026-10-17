@@ -59,8 +59,10 @@ import {
   reviewBaseFor,
   snapshotFromRest,
   stalledAt,
+  hasSummary,
   summaryFor,
   summaryRun,
+  summarySlice,
   type RenderedRest,
 } from "../edge/index.js"
 import { planStart, planStep as planStepPure, type JudgeVerdict } from "../step/index.js"
@@ -162,7 +164,7 @@ export type Command =
   | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "install" }
   | { readonly kind: "loop" }
-  | { readonly kind: "summary" }
+  | { readonly kind: "summary"; readonly slice?: string }
   | { readonly kind: "base" }
   | { readonly kind: "judge" }
   | { readonly kind: "judgeAnswer" }
@@ -328,10 +330,21 @@ const planLanding = (
  * exit code) when the workflow declares no `summary` prompt, or the resolved
  * run has no commits to name.
  */
-const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
+const runSummaryCommand = (
+  out: ArtifactOut,
+  sliceName: string | undefined,
+): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const run = yield* summaryRun
-    const rendered = yield* summaryFor(run)
+    // Plain `gtd summary` never replays: only a named slice needs the spans.
+    let rendered: string | undefined
+    if (sliceName === undefined) {
+      rendered = yield* summaryFor(run)
+    } else if (yield* hasSummary(run)) {
+      const { slice, versionWarning } = yield* summarySlice(run, sliceName)
+      if (versionWarning !== undefined) yield* (yield* Narrator).warn(versionWarning)
+      rendered = yield* summaryFor(run, slice)
+    }
     if (rendered === undefined) {
       return yield* Effect.fail(
         new Error(
@@ -1270,7 +1283,7 @@ const dispatchVoidCommand = (
     case "loop":
       return runLoopCommand()
     case "summary":
-      return runSummaryCommand(out)
+      return runSummaryCommand(out, command.slice)
     case "base":
       return runBaseCommand(out)
     case "judge":

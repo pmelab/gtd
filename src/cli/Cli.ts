@@ -246,6 +246,21 @@ const FLAGS: readonly FlagRow[] = [
     ],
   },
   {
+    name: "--slice",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "summary",
+    decode: ([raw]) => Either.right(raw!),
+    scopeError: "gtd: --slice is only valid for `gtd summary`",
+    valueHint: "<name>",
+    help: [
+      "(gtd summary only) the closing-message prompt for one",
+      "slice, named as `gtd slices` lists it: its own range, human",
+      "commits and cost. An unknown name is refused (exit 1) with",
+      "every valid slice listed",
+    ],
+  },
+  {
     name: "--workflow",
     arity: 1,
     repeatable: false,
@@ -591,10 +606,15 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "no state transition, no file, no session identity — the",
       "driver pipes the output to a cold agent and does what it",
       "wants with the result (a squash, an amend, a PR body).",
-      "Refuses (exit 1) when the workflow declares no summary:",
-      "template, or when the resolved run has no commits to name",
-      "— runnable any time before the next thing lands on the",
-      "branch",
+      "--slice <name> prints it for one slice instead: its own",
+      "range, human commits and cost (see `gtd slices`); it also",
+      "refuses an unknown slice name, and a HEAD-closing process",
+      "whose config files differ from the working tree or whose",
+      "replay diverged; an open last slice is provisional. Refuses",
+      "(exit 1) when the workflow declares no summary: template,",
+      "or when the resolved run has no commits to name — plain",
+      "gtd summary is runnable any time before the next thing",
+      "lands on the branch",
     ],
   },
   {
@@ -1161,6 +1181,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--dev"?: boolean
     readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
+    readonly "--slice"?: string
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1264,6 +1285,18 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
+  if (kind === "summary") {
+    return {
+      kind: "command",
+      command: {
+        kind: "summary",
+        ...(bag["--slice"] !== undefined ? { slice: bag["--slice"] } : {}),
+      },
+      json,
+      verbose,
+    }
+  }
+
   if (kind === "historyShow") {
     return {
       kind: "command",
@@ -1325,7 +1358,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "loop"
       | "doors"
       | "slices"
-      | "summary"
       | "base"
       | "judge"
       | "judgeAnswer"
