@@ -1474,7 +1474,6 @@ export const snapshotFromRest = (
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 
-/** The trace window and cost entries of `slice`, or the whole run's when there is none. */
 const narrowToSlice = (
   run: ProcessRun,
   slice: SummarySlice | undefined,
@@ -1492,7 +1491,7 @@ const narrowToSlice = (
 export interface SummaryResult {
   readonly prompt: string | undefined
   readonly versionWarning?: string
-  readonly refusal?: string
+  readonly unknownSlice?: string
 }
 
 const humanCommitsOf = (
@@ -1525,12 +1524,12 @@ const summaryInput = (
 }
 
 const locateSlice = (
-  config: Parameters<typeof replayedSlices>[0],
+  config: ConfigOperations,
   run: ProcessRun,
   sliceName: string | undefined,
 ): Effect.Effect<
   | { readonly slice?: SummarySlice; readonly versionWarning?: string }
-  | { readonly refusal: string; readonly versionWarning?: string },
+  | { readonly unknownSlice: string; readonly versionWarning?: string },
   Error,
   RestRequirements
 > =>
@@ -1546,7 +1545,7 @@ const locateSlice = (
     const at = ranges.findIndex((r) => r.name === sliceName)
     if (at < 0) {
       return {
-        refusal: `gtd summary: refused — no slice named "${sliceName}"; the slices, in stack order: ${ranges.map((r) => r.name).join(", ")}`,
+        unknownSlice: `gtd summary: refused — no slice named "${sliceName}"; the slices, in stack order: ${ranges.map((r) => r.name).join(", ")}`,
         ...warn,
       }
     }
@@ -1559,7 +1558,7 @@ const locateSlice = (
  * `summary` template or (plain call) there is nothing to summarize. With `sliceName`
  * it replays like `gtd slices` and narrows range, human commits and cost to that
  * slice; `entryCommit` and `marks` stay whole-process. An unknown name is a
- * `refusal`, a version mismatch a `versionWarning`; the edge never narrates.
+ * `unknownSlice`, a version mismatch a `versionWarning`; the edge never narrates.
  */
 export const summaryFor = (
   run: ProcessRun,
@@ -1573,7 +1572,7 @@ export const summaryFor = (
     if (summary === undefined) return { prompt: undefined }
     if (sliceName === undefined && run.trace.length === 0) return { prompt: undefined }
     const located = yield* locateSlice(config, run, sliceName)
-    if ("refusal" in located) return { prompt: undefined, ...located }
+    if ("unknownSlice" in located) return { prompt: undefined, ...located }
     const { slice, versionWarning } = located
     const prompt = summary(
       summaryInput(run, slice, settingsFor(resolved, run.pinnedVars, host.env, {}, {})),
@@ -1717,15 +1716,20 @@ const replayFinishedProcess = (
     const git = yield* GitService
     const workspace = yield* Workspace
     const host = yield* Host
-    const differing = yield* differingConfigPaths(git, workspace, host.root, config, run, hash)
-    if (differing.length > 0)
-      return yield* Effect.fail(configRefusal(how.command, hash, differing, how.configReason))
-    const { setup } = yield* setupFor(config, run, workspace, host)
-    const outcome = yield* Effect.promise(() => replayFor(setup))
-    if (outcome.kind !== "ended") return yield* Effect.fail(how.notEnded(outcome))
     const recorded = parseCommitMessage(
       run.episode.commits.find((c) => c.hash === hash)?.message ?? "",
     ).version
     const versionWarning = versionWarningFor(recorded)
+    // A refusal is often caused by the version change, so it carries the warning.
+    const withWarning = (err: Error): Error =>
+      versionWarning === undefined ? err : new Error(`${err.message}\n${versionWarning}`)
+    const differing = yield* differingConfigPaths(git, workspace, host.root, config, run, hash)
+    if (differing.length > 0)
+      return yield* Effect.fail(
+        withWarning(configRefusal(how.command, hash, differing, how.configReason)),
+      )
+    const { setup } = yield* setupFor(config, run, workspace, host)
+    const outcome = yield* Effect.promise(() => replayFor(setup))
+    if (outcome.kind !== "ended") return yield* Effect.fail(withWarning(how.notEnded(outcome)))
     return { outcome, recorded, ...(versionWarning !== undefined ? { versionWarning } : {}) }
   })

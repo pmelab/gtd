@@ -836,16 +836,9 @@ export const summary = (it) => JSON.stringify(it)
     })
   })
 
-  it("renders no slice key for the plain call, the exact slice for a named one", async () => {
-    const { repo, built, closing } = await finished()
+  it("renders no slice key for the plain call", async () => {
+    const { repo } = await finished()
     expect("slice" in (await render(repo))).toBe(false)
-    expect((await render(repo, "verify")).slice).toEqual({
-      name: "verify",
-      base: built,
-      tip: closing,
-      index: 2,
-      count: 2,
-    })
   })
 
   it("narrows range and human commits to the slice's window, base exclusive and tip inclusive", async () => {
@@ -935,14 +928,44 @@ export const summary = (it) => JSON.stringify(it)
     )
   })
 
-  it("returns no prompt, not a failure, when the drifted config no longer exports a summary", async () => {
+  it("a divergence refusal under another gtd version carries the version warning", async () => {
+    const { repo } = await finished()
+    const tip = withTipMessage(repo, (m) =>
+      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
+    )
+    const run = await Effect.runPromise(
+      summaryRun.pipe(Effect.provideService(GitService, tip), Effect.provide(testLayers(repo, {}))),
+    )
+    repo.writeFile(
+      "gtd.config.ts",
+      SLICED.replace(
+        'await agent("checking", "check-prompt")',
+        'await agent("checking", "check-prompt")\n    await human("idle", { message: "again" })\n    await agent("polishing", "polish-prompt")',
+      ),
+    )
+    const git: GitOperations = {
+      ...tip,
+      readFileAtRef: (_ref, path) => Effect.succeed(repo.readFile(path) ?? ""),
+    }
+    const exit = await Effect.runPromiseExit(
+      summaryFor(run, "build").pipe(
+        Effect.provideService(GitService, git),
+        Effect.provide(testLayers(repo, {})),
+      ),
+    )
+    const message = Exit.isFailure(exit) ? String(exit.cause) : ""
+    expect(message).toContain("does not end under today's config")
+    expect(message).toContain("0.0.1")
+  })
+
+  it("returns no prompt, not a failure, when an edited config no longer exports a summary", async () => {
     const { repo } = await finished()
     const run = await provide(summaryRun, repo)
     repo.writeFile("gtd.config.ts", SLICED.replace(/export const summary.*\n/, ""))
     expect(await provide(summaryFor(run, "build"), repo)).toEqual({ prompt: undefined })
   })
 
-  it("plain summaryFor still returns a prompt under a drifted config, never replaying", async () => {
+  it("plain summaryFor still returns a prompt under a config edited since the close, never replaying", async () => {
     const { repo } = await finished()
     const run = await provide(summaryRun, repo)
     repo.writeFile("gtd.config.ts", `${SLICED}\n// edited\n`)
@@ -964,7 +987,7 @@ export const summary = (it) => JSON.stringify(it)
     expect(result.prompt).toBeDefined()
   })
 
-  it("an unknown slice name returns a refusal naming every slice, and keeps the version warning", async () => {
+  it("an unknown slice name returns unknownSlice naming every slice, and keeps the version warning", async () => {
     const { repo } = await finished()
     const git = withTipMessage(repo, (m) =>
       m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
@@ -976,8 +999,8 @@ export const summary = (it) => JSON.stringify(it)
       ),
     )
     expect(result.prompt).toBeUndefined()
-    expect(result.refusal).toContain('no slice named "nope"')
-    expect(result.refusal).toContain("build, verify")
+    expect(result.unknownSlice).toContain('no slice named "nope"')
+    expect(result.unknownSlice).toContain("build, verify")
     expect(result.versionWarning).toContain("0.0.1")
   })
 })

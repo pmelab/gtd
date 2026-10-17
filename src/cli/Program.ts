@@ -326,9 +326,8 @@ const planLanding = (
  * closes or sits inside its own closing message. Writes nothing — no git, no
  * state transition, no file. Refuses (throws, mapped to the runtime-error
  * exit code) when the workflow declares no `summary` prompt, or the resolved
- * run has no commits to name. `--slice` also refuses an unknown slice name
- * (every valid slice listed), a config edited since a closed process, and a
- * replay that diverges.
+ * run has no commits to name. The edge never narrates: the version warning is
+ * printed before any refusal.
  */
 const runSummaryCommand = (
   out: ArtifactOut,
@@ -336,9 +335,9 @@ const runSummaryCommand = (
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const run = yield* summaryRun
-    const { prompt, versionWarning, refusal } = yield* summaryFor(run, sliceName)
+    const { prompt, versionWarning, unknownSlice } = yield* summaryFor(run, sliceName)
     if (versionWarning !== undefined) yield* (yield* Narrator).warn(versionWarning)
-    if (refusal !== undefined) return yield* Effect.fail(new Error(refusal))
+    if (unknownSlice !== undefined) return yield* Effect.fail(new Error(unknownSlice))
     if (prompt === undefined) {
       return yield* Effect.fail(
         new Error(
