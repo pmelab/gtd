@@ -18,7 +18,8 @@ import { jobs } from "./jobs"
 import { documents, readDocument } from "./schema"
 import { READ_ONLY_GIT, ship } from "./ship"
 import type { Shipped, ShipIo } from "./ship"
-import { decideContinue, decideJob, JOB_NAME, restId, TOOLS } from "./tools"
+import { collectAnswer } from "./delegate"
+import { decideCommand, decideContinue, decideJob, restId, TOOLS } from "./tools"
 import type { JobName } from "./tools"
 import {
   beatLine,
@@ -533,17 +534,14 @@ async function delegate($: $, who: Delegate, prompt: string, model: string, deli
   if (!id) return undefined
   ours.add(id)
   delegates.set(id, { file, mayRun: who.mayRun })
-  const ended = await Promise.race([turnEnd(id), $.clock.sleep(TEN_MINUTES).then(() => undefined)])
-  // A timed-out agent may still be running: it keeps its tool limits (and its
-  // answer file) until its turn ends, where turn.complete drops them.
-  if (!ended) return undefined
-  try {
-    return ended.ok ? await $.fs.read(file) : undefined
-  } catch {
-    return undefined
-  } finally {
-    await $.process.run(["rm", "-f", file])
-  }
+  // A timed-out agent may still be running: it keeps its tool limits until its
+  // turn ends, where turn.complete drops them.
+  return collectAnswer({
+    ended: turnEnd(id),
+    deadline: $.clock.sleep(TEN_MINUTES),
+    read: () => $.fs.read(file),
+    remove: () => $.process.run(["rm", "-f", file]),
+  })
 }
 
 async function writer($: $, prompt: string) {
@@ -805,6 +803,8 @@ async function stopNow($: $) {
 // `/gtd [verb] …`; anything that is not a verb is a new process's requirements.
 async function command($: $, arg: string): Promise<string | undefined> {
   if (arg === "stop") return stopNow($)
+  const busy = decideCommand(arg, background.busy())
+  if (busy) return busy
   const problem = await preflight($)
   if (problem) return problem
   const [verb = "", ...rest] = arg.split(/\s+/)
@@ -831,8 +831,6 @@ async function command($: $, arg: string): Promise<string | undefined> {
 }
 
 async function resume($: $) {
-  const busy = background.busy()
-  if (busy) return `A ${JOB_NAME[busy]} is still running: wait for its report.`
   const b = await docs($).next()
   if (isTrue(b.idle)) {
     return `Nothing is in progress. Start a process with /gtd <requirements>, or sketch the change in ${b.file ?? ".gtd/TODO.md"} and run /gtd.`

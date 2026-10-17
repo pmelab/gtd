@@ -79,6 +79,20 @@ export type JobName = "ship" | "handoff"
 
 export const JOB_NAME: Record<JobName, string> = { ship: "ship", handoff: "hand-off" }
 
+const busyText = (job: JobName) => `A ${JOB_NAME[job]} is still running: wait for its report.`
+
+// Only these leave the tree alone (ship and throw refuse for themselves); any
+// other verb, unknown ones included, may switch branch or write .gtd/. `stop`
+// is not here: `command` takes the bare word itself, and `stop <words>` is a
+// requirement. `ui` is not: its page writes steering files.
+const WHILE_BUSY = new Set(["status", "throw", "ship"])
+
+export function decideCommand(arg: string, busy: JobName | undefined): string | undefined {
+  if (!busy) return undefined
+  const verb = arg.trim().split(/\s+/)[0] ?? ""
+  return WHILE_BUSY.has(verb) ? undefined : busyText(busy)
+}
+
 // Pure: a refused job leaves the run, and so `continue`, as it was.
 export function decideJob(run: Run, job: JobName): string | undefined {
   if (run.isRunning) return "gtd is running a step: wait for it to rest."
@@ -99,7 +113,7 @@ export async function decideContinue(
   io: ContinueIo,
 ): Promise<Proceed> {
   if (run.isRunning) return { refuse: "gtd is already running a step." }
-  if (io.busy) return { refuse: `A ${JOB_NAME[io.busy]} is still running: wait for its report.` }
+  if (io.busy) return { refuse: busyText(io.busy) }
   const stop = run.stop
   if (!stop) return { refuse: "Nothing is waiting: gtd has no rest open. /gtd drives it." }
   if (stop.kind === "done") {

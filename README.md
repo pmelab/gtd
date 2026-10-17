@@ -341,7 +341,9 @@ them, and `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote
 the requirements can hand the architecture to someone else. Ship, hand-off and
 throw answer at once and run in the background, with progress on the status
 line; they report by waking Claude, a toast, a transcript line and a push
-notification, and a failed push or `gh` call reports as a failure. See
+notification, and a failed push or `gh` call reports as a failure. While a ship
+or hand-off runs or is queued, `/gtd catch`, the doors, `/gtd <requirements>`
+and bare `/gtd` wait for its report. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own

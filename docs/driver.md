@@ -340,10 +340,14 @@ falls back to the `gtd` on your `PATH`.
   `/gtd ui` starts the browser view of the rest it waits at.
 - `/gtd throw`, `/gtd ship [-n]` and their tools (`handoff`, `ship`) answer at
   once and run in the background, one at a time; progress shows on the status
-  line. When the job ends it reports by waking Claude, a toast, a transcript
-  line and a push notification. A failed `git push` or `gh` call reports as a
-  failure naming the step; a failure after the squash keeps the squash, and
-  `/gtd ship` again pushes the already-squashed branch.
+  line. While one runs or is queued, `/gtd catch`, `/gtd <door>`,
+  `/gtd <requirements>`, `/gtd ui` and bare `/gtd` refuse with "wait for its
+  report"; `/gtd throw` and `/gtd ship` refuse for themselves on the same
+  grounds, and only `/gtd status` and `/gtd stop` always work. When the job ends
+  it reports by waking Claude, a toast, a transcript line and a push
+  notification. A failed `git push` or `gh` call reports as a failure naming the
+  step; a failure after the squash keeps the squash, and `/gtd ship` again
+  pushes the already-squashed branch.
 - `/gtd throw [@user]` hands the process to someone else. It needs a clean tree:
   proceed or stash a half-made answer first, and refuses when `origin` holds
   commits your branch lacks. It pushes the branch (moving the process to a new

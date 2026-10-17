@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest"
 
 import type { Run, Stop } from "../types"
-import { decideContinue, decideJob, restId, TOOL, TOOLS } from "./tools"
+import { decideCommand, decideContinue, decideJob, restId, TOOL, TOOLS } from "./tools"
 import type { ContinueIo } from "./tools"
 
 const judgment = {
@@ -161,4 +161,35 @@ test("a rest is its HEAD and state", () => {
 
 test("every tool is served under the gtd plugin's name", () => {
   expect(TOOLS.map((t) => `mcp__gtd__${t.name}`).sort()).toEqual(Object.values(TOOL).sort())
+})
+
+describe("decideCommand", () => {
+  const refused = [
+    "catch 12",
+    "catch feature/x",
+    "fix",
+    "review main",
+    "review",
+    "add a --json flag",
+    "",
+    "bogus",
+    "stop now",
+    "ui",
+  ]
+  const allowed = ["status", "throw @dev", "throw", "ship", "ship -n"]
+
+  test.each(refused)("refuses %j while a ship runs", (arg) => {
+    expect(decideCommand(arg, "ship")).toBe("A ship is still running: wait for its report.")
+  })
+  test("names a running hand-off", () => {
+    expect(decideCommand("catch 12", "handoff")).toBe(
+      "A hand-off is still running: wait for its report.",
+    )
+  })
+  test.each(allowed)("lets %j through while busy", (arg) => {
+    expect(decideCommand(arg, "ship")).toBeUndefined()
+  })
+  test("lets everything through when idle", () => {
+    expect(decideCommand("catch 12", undefined)).toBeUndefined()
+  })
 })
