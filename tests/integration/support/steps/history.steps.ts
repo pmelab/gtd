@@ -31,7 +31,7 @@ Given("gtd lands {string}", async (world: GtdWorld, subject: string) => {
 Given(
   "gtd lands {string} with {string}",
   async (world: GtdWorld, subject: string, args: string) => {
-    await world.runGtd("land", ...args.split(" "))
+    await world.runGtd("land", ...args.trim().split(/\s+/))
     expectSubject(world, subject)
   },
 )

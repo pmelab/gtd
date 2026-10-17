@@ -45,7 +45,7 @@ Feature: gtd summary --slice — the closing-message prompt for one slice
       """
       a
       """
-    And gtd lands "gtd(agent): building → gate" with "--cost=10"
+    And gtd lands "gtd(agent): building → gate" with "--cost=10 --model=sonnet"
     And I mark the current commit as "built"
     And a file "b.txt" with:
       """
