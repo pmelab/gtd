@@ -589,10 +589,11 @@ turns it default-on, `gtd door cleanup <flag>` removes it afterwards
 
 Rollout makes "on under `GTD_FLAG_<NAME>=1`" prose wrong until cleanup, so once
 the suite passes it lists every line outside the registry that names the flag
-(as `path:line`, the first 50, then a `grep` command for the rest) and edits
-none of them, leaving no file behind. The list is in the closing commit's
-`Gtd-Mark:` trailers and the closing message `gtd summary` prints; an empty list
-says so in one line. Fix the prose by hand or leave it for cleanup.
+(as `path:line`, the first 50, then a `git grep` command over tracked files for
+the rest) and edits none of them, leaving no file behind. The list is in the
+closing commit's `Gtd-Mark:` trailers and the closing message `gtd summary`
+prints; an empty list says so in one line. Fix the prose by hand or leave it for
+cleanup.
 
 The delivery model these workflows implement: [Delivery model](SDLC.md).
 
