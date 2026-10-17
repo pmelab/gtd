@@ -339,6 +339,24 @@ describe("summaryPrompt", () => {
     expect(prompt).toContain("Flag `alpha`: no line outside the registry names it.")
   })
 
+  it("keeps a backtick flag name inside one span in the heading and the no-mentions line", () => {
+    const zero = summaryPrompt({
+      ...base,
+      vars: { flag: "a`b" },
+      marks: [{ name: "flag-mentions", value: "0" }],
+    })
+    expect(zero).toContain("Flag `` a`b ``: no line outside the registry names it.")
+    const some = summaryPrompt({
+      ...base,
+      vars: { flag: "a``b" },
+      marks: [
+        { name: "flag-mentions", value: "1" },
+        { name: "flag-mention", value: "README.md:1" },
+      ],
+    })
+    expect(some).toContain("still naming flag ``` a``b ``` —")
+  })
+
   const listedMentions = Array.from({ length: 50 }, (_, i) => ({
     name: "flag-mention",
     value: `README.md:${i + 1}`,
@@ -358,7 +376,7 @@ describe("summaryPrompt", () => {
     )
   })
 
-  it("escapes regex metacharacters in the more-hint and strips quotes and backticks", () => {
+  it("escapes regex metacharacters in the more-hint", () => {
     const prompt = summaryPrompt({
       ...base,
       vars: { flag: "a.b", flagRegistry: "src/flags/index.ts" },
@@ -366,12 +384,45 @@ describe("summaryPrompt", () => {
     })
     const command = /more: `(git grep [^`]+)`/.exec(prompt)?.[1] ?? ""
     expect(command).toContain("a\\.b")
-    const quoted = summaryPrompt({
+  })
+
+  it("shell-quotes a flag name holding a quote and the command still matches it", () => {
+    const prompt = summaryPrompt({
       ...base,
-      vars: { flag: "a'b`c", flagRegistry: "src/flags/index.ts" },
+      vars: { flag: "it's", flagRegistry: "src/flags/index.ts" },
       marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
     })
-    expect(/more: `(git grep [^`]+)`/.exec(quoted)?.[1]).toContain("?abc(")
+    const command = /more: `(git grep [^`]+)`/.exec(prompt)?.[1] ?? ""
+    expect(command).toContain("it'\\''s")
+    const { dir, env, git } = scratchRepo()
+    git("init", "-q")
+    writeFileSync(join(dir, "a.txt"), "uses it's here\nuses GTD_FLAG_it's too\nunrelated\n")
+    git("add", "a.txt")
+    git("commit", "-q", "-m", "x")
+    const out = execFileSync("sh", ["-c", command], { cwd: dir, env }).toString()
+    expect(out.trim().split("\n")).toHaveLength(2)
+    expect(out).toContain("it's here")
+    expect(out).toContain("GTD_FLAG_it's")
+  })
+
+  it("keeps a backtick in the flag name and wraps the command in a double-backtick span", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "a`b", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    const command = /more: `` (git grep .+?) ``\n/.exec(prompt)?.[1] ?? ""
+    expect(command).toContain("a`b")
+  })
+
+  it("sizes the span delimiter past a backtick run in the flag name", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "a``b", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    const command = /more: ``` (git grep .+?) ```\n/.exec(prompt)?.[1] ?? ""
+    expect(command).toContain("a``b")
   })
 
   it("shell-quotes a registry path holding a quote, and the command still runs", () => {
