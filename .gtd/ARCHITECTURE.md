@@ -1,30 +1,5 @@
 # Architecture
 
-## Open Questions
-
-### On an empty trace, does `gtd summary --slice` keep today's "HEAD neither closes nor sits inside a process" refusal?
-
-Concern 1 says `summaryFor` returns "nothing to render" on an empty trace before
-any replay; the preamble says no user-visible change outside concern 2. On a
-fresh idle repo with a `summary` template these disagree: the empty-trace check
-first prints the generic refusal, letting the slice replay refuse first prints
-today's line, which `summary-slice.feature` ("--slice on a fresh idle repo is
-refused") pins.
-
-- [x] Keep today's text: with a slice name, skip the empty-trace short-circuit
-      and let the shared replay refuse
-  - stderr unchanged; the pinned scenario stays as is
-  - order becomes template check → replay (which refuses an empty trace) — no
-    extra cost, the replay fails before any work
-  - `summaryFor` reads "no trace → nothing to render" only on the plain path
-- [ ] Follow concern 1 literally: empty trace → nothing to render on both paths
-  - `--slice` on an idle repo prints the generic "either this workflow declares
-    no "summary:" template, or there is no finished/in-flight process…" line
-  - rewrite the pinned scenario's expected stderr; a second user-visible change
-    besides concern 2
-  - one uniform guard, simpler `summaryFor`
-- [ ] _your answer_
-
 ## Interfaces
 
 ```ts
@@ -43,9 +18,11 @@ export interface SummaryResult {
 
 /**
  * Loads config and resolves the run's workflow once. No `summary` template →
- * `{ prompt: undefined }` before any replay. No `sliceName` → never replays.
- * With `sliceName`: replays once (shared with `gtd slices`), narrows trace and
- * cost to that slice; replay refusals (config edited, diverged) still fail.
+ * `{ prompt: undefined }` before any replay. No `sliceName` → never replays;
+ * empty trace → `{ prompt: undefined }`. With `sliceName`: no empty-trace
+ * short-circuit — replays once (shared with `gtd slices`), narrows trace and
+ * cost to that slice; replay refusals (empty trace, config edited, diverged)
+ * still fail.
  */
 export const summaryFor: (
   run: ProcessRun,
@@ -70,13 +47,16 @@ Internal, not exported, no tests of their own:
 
 - `gtd summary` → `runSummaryCommand` (`src/cli/Program.ts`) → `summaryRun` →
   `summaryFor(run)` → `ConfigService.load` + `workflowOf` once → no template:
-  `{ prompt: undefined }` → `costTotals` → workflow `summary(context)` → CLI
-  writes prompt or fails with the generic refusal; text byte for byte
+  `{ prompt: undefined }` → empty trace: `{ prompt: undefined }` → `costTotals`
+  → workflow `summary(context)` → CLI writes prompt or fails with the generic
+  refusal; text byte for byte
 - `gtd summary --slice <name>` → `runSummaryCommand` → `summaryRun` →
   `summaryFor(run, name)` → `ConfigService.load` + `workflowOf` once → no
-  template: `{ prompt: undefined }`, no replay → `replayedSlices(config, …)` →
-  name lookup: unknown → `{ prompt: undefined, refusal, versionWarning? }` →
-  known → `narrowToSlice` → `costTotals` → `summary(context with slice)`
+  template: `{ prompt: undefined }`, no replay → `replayedSlices(config, …)`
+  (empty trace fails
+  `gtd summary: refused — HEAD neither closes nor sits inside a process`) → name
+  lookup: unknown → `{ prompt: undefined, refusal, versionWarning? }` → known →
+  `narrowToSlice` → `costTotals` → `summary(context with slice)`
 - CLI after `summaryFor` → `Narrator.warn(versionWarning)` first → `refusal`:
   fail with it (exit 1, stdout empty) → `prompt` undefined: generic refusal →
   else write prompt
@@ -93,9 +73,9 @@ Internal, not exported, no tests of their own:
   `Gtd-Version: 0.0.1` closing-commit Givens from `slices-command.feature`
   (covers concern 2)
 - e2e: tests/integration/features/summary-slice.feature — every existing
-  scenario passes unchanged, incl. `--cost=1/10/100/1000` per-slice costs
-  summing to the plain total and plain `gtd summary` text (covers concerns 1,
-  4, 6)
+  scenario passes unchanged, incl. "--slice on a fresh idle repo is refused"
+  (stderr text as today), `--cost=1/10/100/1000` per-slice costs summing to the
+  plain total and plain `gtd summary` text (covers concerns 1, 4, 6)
 
 ## Unit Tests
 
@@ -129,10 +109,11 @@ Internal, not exported, no tests of their own:
   `summaryFor(run, "nope")`: no failure, `prompt` undefined, `refusal` names
   `"nope"` and `build, verify`, `versionWarning` contains "0.0.1" (covers
   concern 2)
-- unit: src/edge/Edge.test.ts — empty trace with `--slice`: per the open
-  question, either fails "HEAD neither closes nor sits inside a process" or
-  returns `{ prompt: undefined }` (ported "refuses an empty trace") (covers
-  concern 1)
+- unit: src/edge/Edge.test.ts — empty trace, workflow with a `summary` template:
+  `summaryFor(run, "build")` fails
+  `gtd summary: refused — HEAD neither closes nor sits inside a process`;
+  `summaryFor(run)` returns `{ prompt: undefined }` (ported "refuses an empty
+  trace") (covers concern 1)
 - unit: src/edge/Edge.test.ts — `restAt` on a process landed with `--cost=1`
   (opus) and `--cost=10` (haiku): `cost.total` 11, `byModel` haiku 10 then opus
   1 (covers concern 4)
@@ -173,8 +154,11 @@ Today `runSummaryCommand` (`src/cli/Program.ts`) calls `hasSummary`, then
 
 - **`summaryFor` takes the slice NAME, not a resolved `SummarySlice`**: it
   resolves the workflow once, returns "nothing to render" when the workflow has
-  no `summary` template or the run has no trace, and only then replays for the
-  slice
+  no `summary` template, and only then replays for the slice
+- **Empty trace: "nothing to render" only on the plain path**; with a slice name
+  the replay refuses with today's
+  `HEAD neither closes nor sits inside a process` line — order is template check
+  → replay
 - **Keep the cost ordering**: the template check stays ahead of the replay, so a
   workflow with no `summary:` never pays for a replay
 - **Plain `gtd summary` still never replays**, and its text stays byte for byte
@@ -249,8 +233,8 @@ here.
 ### Does any concern change user-visible output?
 
 Only concern 2 (warning now printed on the unknown-slice refusal); every other
-concern is a refactor or test/comment fix with output unchanged — pending the
-empty-trace open question above.
+concern is a refactor or test/comment fix with output unchanged, incl. the
+empty-trace `--slice` refusal.
 
 ### How does the unknown-slice refusal carry the version warning out of the edge?
 
@@ -274,3 +258,11 @@ both call sites read `{ total, byModel }` from one place.
 
 No: it is test support; every `gtd lands … with …` scenario exercises it, and
 `trim().split(/\s+/)` keeps single-space args identical.
+
+### On an empty trace, does `gtd summary --slice` keep today's "HEAD neither closes nor sits inside a process" refusal?
+
+Yes, keep today's text: with a slice name, `summaryFor` skips the empty-trace
+short-circuit and lets the shared replay refuse; stderr and the pinned "--slice
+on a fresh idle repo is refused" scenario stay unchanged, order is template
+check → replay, and "no trace → nothing to render" applies only to the plain
+path.
