@@ -53,7 +53,7 @@ export function costTrailers(log: string) {
 // `gtd summary` is the only place gtd names the process's start parent.
 // `gtd base` is the review anchor and would squash only part of the process.
 const summaryRange = (summary: string) =>
-  /git log ([0-9a-f]{7,40})\.\.([0-9a-f]{7,40})/.exec(summary)?.slice(1, 3)
+  /git log ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})/.exec(summary)?.slice(1, 3)
 
 const COMMIT_FORMAT = `
 --- MESSAGE FORMAT (overrides any formatting the instructions above imply) ---
@@ -102,6 +102,18 @@ Nothing else. No file-by-file list, no per-commit narration, no implementation
 detail the diff already shows, no test-plan boilerplate, no sign-off, no footer
 trailers. Short headings and lists are fine. Under 250 words.`
 
+// A rejection becomes `killed`, so the caller can tell a timeout from a refused
+// push. Relies on the host's process runner rejecting at its timeout; a spawn
+// failure lands here too. Only pushes: any other crashed read must abort the
+// ship, not pass as an answer.
+const attempt = async (io: ShipIo, argv: string[]): Promise<Ran & { killed: boolean }> => {
+  try {
+    return { ...(await io.run(argv)), killed: false }
+  } catch (err) {
+    return { code: 1, out: "", err: err instanceof Error ? err.message : String(err), killed: true }
+  }
+}
+
 export async function ship(io: ShipIo, isDry: boolean): Promise<Shipped> {
   const git = async (...args: string[]) => (await io.run(["git", ...args])).out.trim()
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
@@ -125,7 +137,7 @@ export async function ship(io: ShipIo, isDry: boolean): Promise<Shipped> {
 
   const squashed = await squash(io, git, ok, branch, isDry)
   if (!squashed.ok) return squashed
-  if (isDry) return preview(io, git, branch, baseRef, squashed.text)
+  if (isDry) return preview(io, git, branch, baseRef, squashed.text, squashed.history)
   return pullRequest(io, git, ok, branch, baseBranch, baseRef)
 }
 
@@ -154,7 +166,7 @@ async function squash(
   ok: Ok,
   branch: string,
   isDry: boolean,
-): Promise<Shipped> {
+): Promise<Shipped & { history?: string }> {
   const summary = await io.run(["gtd", "summary"])
   if (summary.code !== 0) {
     io.log(`No gtd process at HEAD, so nothing is squashed; ${branch} is described as it stands.`)
@@ -172,24 +184,62 @@ async function squash(
   const { base, tip, count } = range
 
   // gtd churns its own steering files every process, so `.gtd/` alone is no change.
-  if (await ok("diff", "--quiet", base, "HEAD", "--", ":(exclude).gtd/")) {
-    if (isDry)
-      return { ok: true, text: `No file changes outside .gtd/: would drop ${count} commit(s).` }
-    if (!(await ok("reset", "--hard", base))) return fail("git reset failed; nothing changed.")
-    io.log(
-      `No file changes outside .gtd/: dropped ${count} commit(s). Undo with git reset --hard ORIG_HEAD.`,
-    )
-    return { ok: true, text: "" }
-  }
+  if (await ok("diff", "--quiet", base, "HEAD", "--", ":(exclude).gtd/"))
+    return dropProcess(io, ok, base, count, isDry)
 
   io.log(`Squashing ${count} commit(s) since ${short(base)}…`)
   const trailers = costTrailers(await git("log", "--format=%B%n", `${base}..${tip}`))
+  const history = await historyRef(io, tip)
+  if (history) trailers.push(`Gtd-History: ${history}`)
   const reply = await io.complete(summary.out + "\n" + COMMIT_FORMAT)
   const message = reply && cleanReply(reply)
   if (!message) return fail("The commit-message turn produced nothing.")
   const full = trailers.length ? `${message}\n\n${trailers.join("\n")}` : message
-  if (isDry) return { ok: true, text: full }
+  if (isDry) return { ok: true, text: full, history }
 
+  return commitSquash(io, git, ok, base, full, history)
+}
+
+async function dropProcess(
+  io: ShipIo,
+  ok: Ok,
+  base: string,
+  count: number,
+  isDry: boolean,
+): Promise<Shipped> {
+  if (isDry)
+    return { ok: true, text: `No file changes outside .gtd/: would drop ${count} commit(s).` }
+  if (!(await ok("reset", "--hard", base))) return fail("git reset failed; nothing changed.")
+  io.log(
+    `No file changes outside .gtd/: dropped ${count} commit(s). Undo with git reset --hard ORIG_HEAD.`,
+  )
+  return { ok: true, text: "" }
+}
+
+async function commitSquash(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  base: string,
+  full: string,
+  history: string | undefined,
+): Promise<Shipped> {
+  // Before the squash: a failure leaves the branch as it was, so a retry finds the process.
+  if (history) {
+    // Forced so a retry after the tip changed lands. The ref is keyed by the entry
+    // commit, which every clone of the process shares: a second clone shipping the
+    // same entry replaces origin's copy.
+    io.log(`Pushing ${history} to origin: the process's step commits become fetchable there.`)
+    const pushed = await attempt(io, ["git", "push", "origin", `+${history}:${history}`])
+    if (pushed.killed)
+      return fail(
+        `git push of ${history} did not finish; nothing was squashed. Retry.\n${pushed.err}`.trimEnd(),
+      )
+    if (pushed.code !== 0)
+      return fail(
+        `git push of ${history} failed; nothing was squashed or pushed.\n${pushed.err}`.trimEnd(),
+      )
+  }
   if (!(await ok("reset", "--soft", base))) return fail("git reset failed; nothing changed.")
   const commit = await io.run(["git", "commit", "--cleanup=strip", "-F", "-"], full + "\n")
   if (commit.code !== 0) {
@@ -203,7 +253,39 @@ async function squash(
   return { ok: true, text: "" }
 }
 
-async function preview(io: ShipIo, git: Git, branch: string, baseRef: string, message: string) {
+async function historyRef(io: ShipIo, tip: string) {
+  const list = await io.run(["gtd", "history", "list", "--json"])
+  let entries: { ref?: string; entry?: string; tip?: string }[] = []
+  try {
+    entries = JSON.parse(list.out)
+  } catch {
+    // unreadable list reads as no entry
+  }
+  // The ref becomes a refspec: push it only when it is exactly the full-sha
+  // name of its entry (40 hex, or 64 under SHA-256).
+  const found = Array.isArray(entries)
+    ? entries.find(
+        (e) =>
+          e.tip === tip &&
+          /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(e.entry ?? "") &&
+          e.ref === `refs/gtd/history/${e.entry}`,
+      )
+    : undefined
+  if (!found) {
+    io.log("No gtd history ref keeps this process: shipping without a Gtd-History trailer.")
+    return undefined
+  }
+  return found.ref
+}
+
+async function preview(
+  io: ShipIo,
+  git: Git,
+  branch: string,
+  baseRef: string,
+  message: string,
+  history?: string,
+) {
   const mergeBase = await git("merge-base", baseRef, "HEAD")
   const existing = await io.run(["gh", "pr", "view", "--json", "url"])
   const pr =
@@ -212,7 +294,11 @@ async function preview(io: ShipIo, git: Git, branch: string, baseRef: string, me
       : `would open a pull request for ${branch} into ${baseRef} (${await git("rev-list", "--count", `${mergeBase}..HEAD`)} commit(s) before the squash)`
   return {
     ok: true,
-    text: [message && `Commit message:\n\n${message}`, `Pull request: ${pr}.`]
+    text: [
+      message && `Commit message:\n\n${message}`,
+      history && `History: would push ${history} to origin.`,
+      `Pull request: ${pr}.`,
+    ]
       .filter(Boolean)
       .join("\n\n"),
   }
@@ -256,14 +342,23 @@ async function pullRequest(
 // the push failed, or nothing.
 export async function pushBranch(io: ShipIo, branch: string) {
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
+  const push = async (args: string[], failure: string) => {
+    const r = await attempt(io, ["git", "push", ...args])
+    if (r.killed)
+      return `git push of ${branch} did not finish; nothing was lost. Retry without fetching.\n${r.err}`.trimEnd()
+    if (r.code !== 0) return `${failure}\n${r.err}`.trimEnd()
+    return undefined
+  }
   if (!(await ok("rev-parse", "--verify", "--quiet", `origin/${branch}`))) {
     io.log(`Pushing ${branch} to origin…`)
-    if (!(await ok("push", "--set-upstream", "origin", branch))) return "git push failed."
-  } else if (!(await ok("merge-base", "--is-ancestor", "HEAD", `origin/${branch}`))) {
+    return push(["--set-upstream", "origin", branch], "git push failed.")
+  }
+  if (!(await ok("merge-base", "--is-ancestor", "HEAD", `origin/${branch}`))) {
     io.log(`Pushing ${branch} to origin…`)
-    if (!(await ok("push", "--force-with-lease", "origin", branch))) {
-      return `git push failed: origin/${branch} moved. Fetch and reconcile first.`
-    }
+    return push(
+      ["--force-with-lease", "origin", branch],
+      `git push failed: origin/${branch} moved. Fetch and reconcile first.`,
+    )
   }
   return undefined
 }

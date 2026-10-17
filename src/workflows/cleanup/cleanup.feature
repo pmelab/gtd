@@ -76,6 +76,27 @@ Feature: cleanup removes a default-on release flag and keeps its flag-on path
     Then the process rests at "build.review.reviewing"
 
   @inmem
+  Scenario: gtd door cleanup starts the cleanup of its flag argument and reaches the review
+    Given step "cleanup.removing" writes "src/flags/index.ts" with:
+      """
+      export const FLAGS = [
+        { name: "alpha", owner: "a", expiry: "2027-01-01", kind: "release" },
+      ] as const
+      """
+    And step "cleanup.removing" writes "src/calc.ts" with:
+      """
+      export const on = true
+      """
+    And step "build.health.check" changes nothing
+    When gtd opens door "cleanup" with "live"
+    And the process is driven
+    Then the process rests at "build.review.reviewing"
+
+  @inmem
+  Scenario: gtd door cleanup with no argument is refused naming the flag
+    Then opening door "cleanup" is refused with "usage: gtd door cleanup <flag>"
+
+  @inmem
   Scenario: a fix after a red suite that restores the registry entry is refused
     Given step "cleanup.removing" writes "src/flags/index.ts" with:
       """

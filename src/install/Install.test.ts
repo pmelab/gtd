@@ -10,6 +10,7 @@ import { resolve } from "node:path"
 import { createRequire } from "node:module"
 import { describe, expect, it } from "vitest"
 import { EDIT_COMMAND, DOOR_COMMAND, MINIMAL_DRIVER, renderBriefing } from "./Install.js"
+import { CONFIG_SCAFFOLD } from "./index.js"
 
 const SUITE_PATHS = ["gtd-build", "gtd-edit", "gtd-door"]
 const SUPERSEDED_PATHS = ["gtd-fix", "gtd-review"]
@@ -422,5 +423,14 @@ describe("DOOR_COMMAND", () => {
 
   it("prints usage to stderr and exits 2 when no name is given", () => {
     expect(DOOR_COMMAND).toMatch(/usage: gtd-door <name> \[args\.\.\.\]" >&2\n\s*exit 2/)
+  })
+})
+
+describe("bundled door lists", () => {
+  it("the scaffold's exports stay feature, review, fix, never rollout or cleanup", () => {
+    const code = CONFIG_SCAFFOLD.split("\n")
+      .filter((l) => !l.startsWith("//"))
+      .join("\n")
+    expect(code).not.toMatch(/rollout|cleanup/)
   })
 })

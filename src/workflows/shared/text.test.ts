@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import {
   buildReviewTriageMessage,
   deferNotesScript,
@@ -261,6 +261,38 @@ describe("buildQualityReviewingPrompt", () => {
   })
 })
 
+// These cases run real git and sh on purpose: they prove the command a person
+// pastes works in real git, which an in-memory twin cannot show. An inherited
+// GIT_DIR would commit into the real repository; the user's git config would
+// change the exact output lines compared.
+const gitEnv = (): NodeJS.ProcessEnv => {
+  const env = { ...process.env }
+  delete env.GIT_DIR
+  delete env.GIT_WORK_TREE
+  delete env.GIT_INDEX_FILE
+  env.GIT_CONFIG_GLOBAL = "/dev/null"
+  env.GIT_CONFIG_NOSYSTEM = "1"
+  return env
+}
+
+const scratchDirs: string[] = []
+afterEach(() => {
+  for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+const scratchRepo = () => {
+  const dir = mkdtempSync(join(tmpdir(), "gtd-grep-"))
+  scratchDirs.push(dir)
+  const env = gitEnv()
+  const git = (...args: string[]) =>
+    execFileSync(
+      "git",
+      ["-c", "commit.gpgsign=false", "-c", "user.name=t", "-c", "user.email=t@t", ...args],
+      { cwd: dir, env },
+    )
+  return { dir, env, git }
+}
+
 describe("summaryPrompt", () => {
   it("puts the total and every model's cost on a line of its own", () => {
     const prompt = summaryPrompt({
@@ -296,6 +328,224 @@ describe("summaryPrompt", () => {
     expect(summaryPrompt(base)).toContain("Token cost: 0\n\nPrint the closing message")
     expect(summaryPrompt(base)).not.toContain("Risk tier")
     expect(summaryPrompt(base)).not.toContain("Production signals")
+  })
+
+  it("adds the one no-mentions line, naming the flag, for flag-mentions=0", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha" },
+      marks: [{ name: "flag-mentions", value: "0" }],
+    })
+    expect(prompt).toContain("Flag `alpha`: no line outside the registry names it.")
+  })
+
+  it("keeps a backtick flag name inside one span in the heading and the no-mentions line", () => {
+    const zero = summaryPrompt({
+      ...base,
+      vars: { flag: "a`b" },
+      marks: [{ name: "flag-mentions", value: "0" }],
+    })
+    expect(zero).toContain("Flag `` a`b ``: no line outside the registry names it.")
+    const some = summaryPrompt({
+      ...base,
+      vars: { flag: "a``b" },
+      marks: [
+        { name: "flag-mentions", value: "1" },
+        { name: "flag-mention", value: "README.md:1" },
+      ],
+    })
+    expect(some).toContain("still naming flag ``` a``b ``` —")
+  })
+
+  const listedMentions = Array.from({ length: 50 }, (_, i) => ({
+    name: "flag-mention",
+    value: `README.md:${i + 1}`,
+  }))
+
+  it("lists the flag-mention values as data, then says how many more there are", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    expect(prompt).toContain("naming flag `alpha`")
+    expect(prompt).toContain("- `README.md:1`\n")
+    expect(prompt).toContain("- `README.md:50`\n")
+    expect(prompt).toContain(
+      "…and 3 more: `git grep --full-name -niIE '(^|[^a-z0-9_])(gtd_flag_|flag_)?alpha([^a-z0-9_]|$)' -- ':(top)' ':(top,exclude,literal)src/flags/index.ts' ':(top,exclude).gtd'`",
+    )
+  })
+
+  const listed = (value: string): string =>
+    summaryPrompt({
+      ...base,
+      vars: { flag: "alpha", flagRegistry: "src/flags/index.ts" },
+      marks: [
+        { name: "flag-mentions", value: "1" },
+        { name: "flag-mention", value },
+      ],
+    })
+
+  it("prints a listed path with one backtick verbatim inside a double-backtick fence", () => {
+    expect(listed("a`b.ts:1")).toContain("- `` a`b.ts:1 ``\n")
+  })
+
+  it("prints a listed path with a double-backtick run verbatim inside a triple-backtick fence", () => {
+    expect(listed("a``b.ts:1")).toContain("- ``` a``b.ts:1 ```\n")
+  })
+
+  it("prints a plain listed path as a single-backtick span", () => {
+    expect(listed("src/x.ts:7")).toContain("- `src/x.ts:7`\n") // gtd-path-exempt: fixture path
+  })
+
+  it("escapes regex metacharacters in the more-hint", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "a.b", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    const command = /more: `(git grep [^`]+)`/.exec(prompt)?.[1] ?? ""
+    expect(command).toContain("a\\.b")
+  })
+
+  it("shell-quotes a flag name holding a quote and the command still matches it", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "it's", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    const command = /more: `(git grep [^`]+)`/.exec(prompt)?.[1] ?? ""
+    expect(command).toContain("it'\\''s")
+    const { dir, env, git } = scratchRepo()
+    git("init", "-q")
+    writeFileSync(join(dir, "a.txt"), "uses it's here\nuses GTD_FLAG_it's too\nunrelated\n")
+    git("add", "a.txt")
+    git("commit", "-q", "-m", "x")
+    const out = execFileSync("sh", ["-c", command], { cwd: dir, env }).toString()
+    expect(out.trim().split("\n")).toHaveLength(2)
+    expect(out).toContain("it's here")
+    expect(out).toContain("GTD_FLAG_it's")
+  })
+
+  it("keeps a backtick in the flag name and wraps the command in a double-backtick span", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "a`b", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    const command = /more: `` (git grep .+?) ``\n/.exec(prompt)?.[1] ?? ""
+    expect(command).toContain("a`b")
+  })
+
+  it("sizes the span delimiter past a backtick run in the flag name", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "a``b", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    const command = /more: ``` (git grep .+?) ```\n/.exec(prompt)?.[1] ?? ""
+    expect(command).toContain("a``b")
+  })
+
+  it("shell-quotes a registry path holding a quote, and the command still runs", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha", flagRegistry: "config/it's flags.ts" },
+      marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+    })
+    const command = /more: `(git grep [^`]+)`/.exec(prompt)?.[1] ?? ""
+    expect(command).toContain(`':(top,exclude,literal)config/it'\\''s flags.ts'`)
+    const { dir, env, git } = scratchRepo()
+    git("init", "-q")
+    // git grep exits 1 for no match; 128 would be a rejected pathspec
+    expect(() =>
+      execFileSync("sh", ["-c", `${command}; test $? -le 1`], { cwd: dir, env }),
+    ).not.toThrow()
+  })
+
+  it("prints a git grep hint that finds all three mention forms in tracked files only", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha", flagRegistry: "src/flags/index.ts" },
+      marks: [{ name: "flag-mentions", value: "2" }],
+    })
+    const command = /more: `(git grep [^`]+)`/.exec(prompt)?.[1] ?? ""
+    const { dir, env, git } = scratchRepo()
+    mkdirSync(join(dir, "src/flags"), { recursive: true })
+    mkdirSync(join(dir, ".gtd"))
+    writeFileSync(
+      join(dir, "a.md"),
+      "GTD_FLAG_ALPHA=1\nflag_alpha\nThe alpha flag\nalphabet\nmy_alpha\n",
+    )
+    writeFileSync(join(dir, "src/flags/index.ts"), "alpha\n")
+    writeFileSync(join(dir, ".gtd/TODO.md"), "alpha\n")
+    writeFileSync(join(dir, "untracked.md"), "alpha\n")
+    writeFileSync(join(dir, "bin.dat"), "alpha\u0000\n")
+    git("init", "-q")
+    git("add", "a.md", "bin.dat", "src/flags/index.ts")
+    git("add", "-f", ".gtd/TODO.md")
+    git("commit", "-q", "-m", "init")
+    const expected = ["a.md:1:GTD_FLAG_ALPHA=1", "a.md:2:flag_alpha", "a.md:3:The alpha flag"]
+    // from a subdirectory the hint must still search the whole repository
+    for (const cwd of [dir, join(dir, "src")]) {
+      const out = execFileSync("sh", ["-c", `${command}; test $? -le 1`], { cwd, env }).toString()
+      expect(out.trim().split("\n")).toEqual(expected)
+    }
+  })
+
+  describe("with no usable flagRegistry", () => {
+    const run = (vars: Record<string, string>) => {
+      const prompt = summaryPrompt({
+        ...base,
+        vars: { flag: "alpha", ...vars },
+        marks: [{ name: "flag-mentions", value: "53" }, ...listedMentions],
+      })
+      const command = /more: `(git grep [^`]+)`/.exec(prompt)?.[1] ?? ""
+      const { dir, env, git } = scratchRepo()
+      mkdirSync(join(dir, "src/flags"), { recursive: true })
+      writeFileSync(join(dir, "a.md"), "The alpha flag\n")
+      writeFileSync(join(dir, "src/flags/index.ts"), "alpha\n")
+      git("init", "-q")
+      git("add", "a.md", "src/flags/index.ts")
+      git("commit", "-q", "-m", "init")
+      const out = execFileSync("sh", ["-c", `${command}; test $? -le 1`], { cwd: dir, env })
+      return { command, out: out.toString().trim() }
+    }
+
+    it("falls back to the default registry when the var is unset", () => {
+      const { out } = run({})
+      expect(out).toBe("a.md:1:The alpha flag")
+    })
+
+    it("falls back to the default registry when the var is empty, never an empty exclude", () => {
+      const { command, out } = run({ flagRegistry: "" })
+      expect(command).toContain("':(top,exclude,literal)src/flags/index.ts'")
+      expect(command).not.toContain("':(top,exclude,literal)'")
+      expect(out).toBe("a.md:1:The alpha flag")
+    })
+  })
+
+  it("says nothing of more when every mention is listed", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha" },
+      marks: [
+        { name: "flag-mentions", value: "1" },
+        { name: "flag-mention", value: "README.md:3" },
+      ],
+    })
+    expect(prompt).toContain("- `README.md:3`\n")
+    expect(prompt).not.toContain("more: ")
+  })
+
+  it("adds no flag section without flag marks, even with a flag var", () => {
+    const prompt = summaryPrompt({
+      ...base,
+      vars: { flag: "alpha" },
+      marks: [{ name: "risk-tier", value: "low" }],
+    })
+    expect(prompt).toContain("Token cost: 0\n\nPrint the closing message")
+    expect(prompt).not.toContain("alpha")
   })
 
   it("adds the advisory risk line once for the last lap's high tier", () => {

@@ -210,20 +210,32 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then the exit code is 1
     And stderr contains "door \"go\" names workflow \"nope\""
 
-  Scenario: two workflows building the same door is a config error naming the door
+  Scenario: two workflows building the same door, none exported under its name, builds no door
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      export { feature as default, fix as mend, fix as patch, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      """
+    When I run gtd with args "doors --json"
+    Then it succeeds
+    And stdout does not contain "\"name\":\"fix\""
+    When I run gtd with args "door fix"
+    Then the exit code is 2
+    And stderr contains "built by workflows \"mend\" and \"patch\""
+    And stderr contains "declare it in the \"doors\" export"
+
+  Scenario: a door several workflows build belongs to the one exported under the door's own name
     Given a gtd config file at "gtd.config.ts" with:
       """
       export { feature as default, fix, fix as mend, defaults, envDefaults } from "@pmelab/gtd/workflows"
       """
     When I run gtd with args "doors"
-    Then the exit code is 1
-    And stderr contains "door \"fix\" is built by workflows"
-    And stderr contains "declare it in the \"doors\" export to choose one"
+    Then it succeeds
+    And stdout contains "fix → fix"
 
   Scenario: a doors export declaring the clashing name settles it, the declared door winning
     Given a gtd config file at "gtd.config.ts" with:
       """
-      export { feature as default, fix, fix as mend, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      export { feature as default, fix as mend, fix as patch, defaults, envDefaults } from "@pmelab/gtd/workflows"
 
       export const doors = { fix: { workflow: "mend" } }
       """
@@ -355,3 +367,48 @@ Feature: doors — named shortcuts that start a workflow with positional args
     When I run gtd with args "base"
     Then it succeeds
     And stdout contains the hash of "base"
+
+  Scenario: the doors export declares the rollout door two instances clash on
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { rollout } from "@pmelab/gtd/workflows"
+
+      export { feature as default } from "@pmelab/gtd/workflows"
+      export const rolloutA = rollout({ flagRegistry: "a.ts" })
+      export const rolloutB = rollout({ flagRegistry: "b.ts" })
+      export const doors = {
+        rollout: {
+          workflow: "rolloutB",
+          args: [{ name: "flag" }],
+          vars: ({ flag }) => ({ flag: flag ?? "" }),
+        },
+      }
+      """
+    When I run gtd with args "doors --json"
+    Then it succeeds
+    And stdout contains "\"name\":\"rollout\",\"workflow\":\"rolloutB\""
+    Given a commit "chore: add registry" that adds "b.ts" with:
+      """
+      export const flags = [{ name: "x", kind: "release", defaultOn: false }]
+      """
+    When I run gtd with args "door rollout x"
+    Then it succeeds
+    And the last commit body contains "Gtd-Workflow: rolloutB"
+    And the last commit body contains "Gtd-Var: flag=x"
+
+  Scenario: two exported rollout instances with no doors entry warn on stderr and keep the other doors
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      export { fix } from "@pmelab/gtd/workflows"
+      import { feature, rollout } from "@pmelab/gtd/workflows"
+
+      export default feature
+      export const rolloutA = rollout({ flagRegistry: "a.ts" })
+      export const rolloutB = rollout({ flagRegistry: "b.ts" })
+      """
+    When I run gtd with args "doors"
+    Then it succeeds
+    And stderr contains "gtd: warning:"
+    And stderr contains "door \"rollout\" is built by workflows \"rolloutA\" and \"rolloutB\""
+    And stderr contains "declare it in the \"doors\" export"
+    And stdout contains "fix → fix"

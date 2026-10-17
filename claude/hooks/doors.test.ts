@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 
-import { doors, enter } from "./doors"
+import { doorFor, doors, enter } from "./doors"
+import type { Door } from "./doors"
 import type { Ran, ShipIo } from "./ship"
 
 const repo = (script: Record<string, Partial<Ran>>) => {
@@ -70,5 +71,30 @@ describe("enter", () => {
       "sh -c boom": { code: 1, err: "bad\n" },
     })
     expect(await enter(io, "fix", [])).toEqual({ ok: false, text: "The door script failed.\nbad" })
+  })
+})
+
+describe("doorFor", () => {
+  const listed: Door[] = [
+    { name: "rollout", workflow: "w", args: [{ name: "flag", optional: false }] },
+    { name: "review", workflow: "w", args: [{ name: "base", optional: true }] },
+    { name: "fix", workflow: "w", args: [] },
+  ]
+
+  test("required arg missing -> undefined", () => {
+    expect(doorFor(listed, "rollout", [])).toBeUndefined()
+  })
+  test("exactly the required args -> the door", () => {
+    expect(doorFor(listed, "rollout", ["x"])).toBe(listed[0])
+  })
+  test("optional arg omitted -> the door", () => {
+    expect(doorFor(listed, "review", [])).toBe(listed[1])
+  })
+  test("too many args -> undefined", () => {
+    expect(doorFor(listed, "rollout", ["the", "new", "search", "page"])).toBeUndefined()
+    expect(doorFor(listed, "fix", ["x"])).toBeUndefined()
+  })
+  test("unknown verb -> undefined", () => {
+    expect(doorFor(listed, "nope", [])).toBeUndefined()
   })
 })
