@@ -11,7 +11,7 @@ first prints the generic refusal, letting the slice replay refuse first prints
 today's line, which `summary-slice.feature` ("--slice on a fresh idle repo is
 refused") pins.
 
-- [ ] Keep today's text: with a slice name, skip the empty-trace short-circuit
+- [x] Keep today's text: with a slice name, skip the empty-trace short-circuit
       and let the shared replay refuse
   - stderr unchanged; the pinned scenario stays as is
   - order becomes template check → replay (which refuses an empty trace) — no
