@@ -24,7 +24,7 @@ the CLI prints the warning, then fails on `unknownSlice`.
 
 - [ ] ./src/cli/Program.ts#323-350 — CLI drops its own branching: warn, then
       refuse on `unknownSlice`, then refuse on no prompt. Doc comment states the
-      warning comes before any refusal.
+      warning comes before any refusal.[^jsdoc]
 - [ ] ./src/edge/Edge.ts#1477-1490 — `narrowToSlice` loses its "slice outside
       the process" guard and its `undefined` return. Safe only because the slice
       now comes from `locateSlice` in the same call. **A future caller passing a
@@ -49,7 +49,7 @@ the CLI prints the warning, then fails on `unknownSlice`.
       line. **Scope is wider than summary: `gtd slices` and `gtd history show`
       refusals also gain the line.** Only the divergence path under `summaryFor`
       is unit-tested; config-drift-plus-warning and the slices/history refusals
-      have no test pinning the appended warning.
+      have no test pinning the appended warning.[^slicewarn]
 - [ ] ./docs/cli.md#430-434 — WARNING paragraph now names `gtd summary --slice`
       among the commands that print it. Does not mention that refusals now carry
       it too.
@@ -88,3 +88,13 @@ the CLI prints the warning, then fails on `unknownSlice`.
 - [ ] ./tests/integration/support/steps/history.steps.ts#31-37 —
       `gtd lands … with …` trims and splits args on any whitespace run, so stray
       spaces no longer produce empty args.
+
+[^jsdoc]:
+    The `runSummaryCommand` doc comment still lists only the two plain refusals.
+    Add the `--slice` ones, short: unknown slice name (valid slices listed),
+    config edited since a closed process, diverged replay.
+
+[^slicewarn]:
+    Pin the wider scope: add one `@inmem` scenario where `gtd slices` refuses
+    (config edited after a closing commit recorded by gtd 0.0.1) and stderr
+    carries both the refusal and the version warning.
