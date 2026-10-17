@@ -55,7 +55,10 @@ export const FlagOptions = Schema.Struct({ ...ShippedOptions.fields, flagRegistr
 
 export type FlagOptions = Schema.Schema.Encoded<typeof FlagOptions>
 
-export const flagShipped = (flow: Flow, doors: WorkflowDoors): WorkflowFactory<FlagOptions> =>
+export const flagShipped = (
+  flow: Flow,
+  name: "rollout" | "cleanup",
+): WorkflowFactory<FlagOptions> =>
   defineWorkflow(
     Schema.standardSchemaV1(FlagOptions, { onExcessProperty: "error", errors: "all" }),
     (options) => {
@@ -64,7 +67,7 @@ export const flagShipped = (flow: Flow, doors: WorkflowDoors): WorkflowFactory<F
         flow,
         defaults: over(flagDefaults, options),
         envDefaults: over(envDefaults, options),
-        doors,
+        doors: { [name]: { args: [{ name: "flag" }], vars: ({ flag }) => ({ flag: flag ?? "" }) } },
         base: undefined,
       }
     },

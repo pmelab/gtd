@@ -651,12 +651,10 @@ describe("ConfigService", () => {
       expect((await getConfig()).workflowNamed("review")?.def.base?.("review", {})).toBe("develop")
     })
 
-    it("a door several workflows build is a config error when none is exported under its name, until the doors export settles it", async () => {
+    it("a door several workflows build gets no door when none is exported under its name, until the doors export declares it", async () => {
       const both = `export { feature as default, fix as fix2, fix as fix3 } from "@pmelab/gtd/workflows"`
       writeFileSync(join(projectDir, "gtd.config.ts"), `${both}\n`)
-      await expect(getConfig()).rejects.toThrow(
-        /door "fix" is built by workflows "fix2" and "fix3"/,
-      )
+      expect((await getConfig()).doors.get("fix")).toBeUndefined()
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
         `${both}\nexport const doors = { fix: { workflow: "fix3" } }\n`,

@@ -11,6 +11,7 @@ import {
   type AgentOptions,
   type SummaryContext,
 } from "../../flows/index.js"
+import { escapeRegExp } from "./registry.js"
 import { defaultFlagRegistry } from "./vars.js"
 import type { RemovedAssertions } from "../../workflow-kit/index.js"
 import {
@@ -1012,7 +1013,7 @@ const SIGNAL_LENGTH = 200
 // `top` anchors the pathspecs: the registry path is repo-root-relative, and
 // the hint may be pasted from a subdirectory.
 const mentionGrep = (flag: string, registry: string): string => {
-  const name = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/['`]/g, "")
+  const name = escapeRegExp(flag).replace(/['`]/g, "")
   return `git grep --full-name -niIE '(^|[^a-z0-9_])(gtd_flag_|flag_)?${name}([^a-z0-9_]|$)' -- ':(top)' ${quote(`:(top,exclude,literal)${registry}`)} ':(top,exclude).gtd'`
 }
 

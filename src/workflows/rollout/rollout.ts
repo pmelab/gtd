@@ -29,12 +29,12 @@ const MARKED_MENTIONS = 50
 // list rides in marks only: a state file left at idle would be published by
 // ship and read as a failed unwind by the next process.
 const listMentions = async (registry: string, name: string): Promise<void> => {
+  await run("mentions", removeScript([FEEDBACK]), { label: "Listing flag mentions" })
   const files = glob("**")
     .filter((path) => path !== registry && path !== ".gtd" && !path.startsWith(".gtd/"))
     .sort()
     .map((path) => ({ path, text: read(path) ?? "" }))
   const mentions = flagMentions(files, name)
-  await run("mentions", removeScript([FEEDBACK]), { label: "Listing flag mentions" })
   mark("flag-mentions", String(mentions.length))
   for (const m of mentions.slice(0, MARKED_MENTIONS)) {
     // A path the mark grammar rejects stays counted above, just unlisted here.
@@ -78,9 +78,4 @@ export const rolloutFlow = async (): Promise<void> => {
   })
 }
 
-export const rollout = flagShipped(rolloutFlow, {
-  rollout: {
-    args: [{ name: "flag" }],
-    vars: ({ flag }) => ({ flag: flag ?? "" }),
-  },
-})
+export const rollout = flagShipped(rolloutFlow, "rollout")

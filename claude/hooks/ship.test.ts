@@ -210,6 +210,62 @@ describe("ship history", () => {
     expect(calls.find((c) => c.argv.startsWith("git commit"))?.stdin).not.toContain("Gtd-History")
   })
 
+  test("a 64-hex entry with a matching ref is pushed verbatim and trailed", async () => {
+    const sha = "a".repeat(64)
+    const ref = `refs/gtd/history/${sha}`
+    const { io, calls, ran } = repo(
+      { ...feature, "gtd history list --json": { out: JSON.stringify([entry(sha, TIP)]) } },
+      ["feat: add x\n\nwhy", "feat: add x\n\nbody"],
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(ran()).toContain(`git push origin ${ref}:${ref}`)
+    expect(calls.find((c) => c.argv.startsWith("git commit"))?.stdin).toContain(
+      `Gtd-History: ${ref}`,
+    )
+  })
+
+  test.each([
+    [
+      "a ref that disagrees with its entry",
+      { ...entry(ENTRY, TIP), ref: `refs/gtd/history/${"9".repeat(40)}` },
+    ],
+    ["a ref outside refs/gtd/history", { ...entry(ENTRY, TIP), ref: `refs/heads/${ENTRY}` }],
+    ["a missing ref", { ...entry(ENTRY, TIP), ref: undefined }],
+  ])("%s: logged, no push, no trailer", async (_, bad) => {
+    const lines: string[] = []
+    const { io, calls, ran } = repo(
+      { ...feature, "gtd history list --json": { out: JSON.stringify([bad]) } },
+      ["feat: add x\n\nwhy", "feat: add x\n\nbody"],
+    )
+    io.log = (l) => void lines.push(l)
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(lines).toContain(
+      "No gtd history ref keeps this process: shipping without a Gtd-History trailer.",
+    )
+    expect(ran().some((c) => c.startsWith("git push origin refs/gtd"))).toBe(false)
+    expect(calls.find((c) => c.argv.startsWith("git commit"))?.stdin).not.toContain("Gtd-History")
+  })
+
+  test("a gtd summary naming a full 64-hex range parses and squashes", async () => {
+    const base = "1".repeat(64)
+    const tip = "2".repeat(64)
+    const { io, ran } = repo(
+      {
+        ...feature,
+        "gtd summary": { out: `Inspect: \`git log ${base}..${tip}\`` },
+        [`git rev-parse --verify ${base}^{commit}`]: { out: base },
+        [`git rev-parse --verify ${tip}^{commit}`]: { out: tip },
+        "git rev-parse HEAD": { out: tip },
+        [`git rev-list --count ${base}..HEAD`]: { out: "5" },
+        [`git diff --quiet ${base} HEAD -- :(exclude).gtd/`]: { code: 1 },
+        [`git log --format=%B%n ${base}..${tip}`]: { out: "" },
+      },
+      ["feat: add x\n\nwhy", "feat: add x\n\nbody"],
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(ran()).toContain(`git reset --soft ${base}`)
+  })
+
   test("a dry run previews the trailer and the history push and pushes nothing", async () => {
     const { io, ran } = repo(withHistory, ["feat: add x"])
     const out = await ship(io, true)

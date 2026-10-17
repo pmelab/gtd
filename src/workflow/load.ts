@@ -38,6 +38,8 @@ export interface ConfigOperations {
   readonly workflowNamed: (name: string) => ResolvedWorkflow | undefined
   /** Every door `gtd door` accepts. A door's `workflow` resolves through `workflowNamed`. */
   readonly doors: ReadonlyMap<string, Door>
+  /** Door names several workflows build with no owner and no `doors` entry, onto their builders. */
+  readonly doorClashes: ReadonlyMap<string, readonly string[]>
   /** `config.ui` (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: flows.UiSettings
   /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
@@ -170,6 +172,7 @@ export const load: Effect.Effect<
     defaultWorkflow,
     workflowNames: names,
     doors: loaded.doors,
+    doorClashes: loaded.doorClashes,
     workflowNamed: (name) => {
       const entry = loaded.catalogue.get(name)
       return entry === undefined ? undefined : resolve(name, entry)
@@ -227,6 +230,7 @@ interface Loaded {
   /** Every startable workflow. */
   readonly catalogue: ReadonlyMap<string, LoadedWorkflow>
   readonly doors: ReadonlyMap<string, Door>
+  readonly doorClashes: ReadonlyMap<string, readonly string[]>
   /** What an ordinary start runs; absent only alongside an error in `diagnostics`. */
   readonly default: (LoadedWorkflow & { readonly name: string }) | undefined
   readonly config: CompiledConfig
@@ -548,12 +552,15 @@ const doorsFrom = (exports: Record<string, unknown>): ReadonlyMap<string, Door> 
 
 /**
  * Each exported workflow's own doors, onto the name it is exported under. The
- * `doors` export adds to them and settles a name two workflows both declare.
+ * `doors` export adds to them and declares a name several workflows clash on.
  */
 const derivedDoors = (
   catalogue: ReadonlyMap<string, LoadedWorkflow>,
   declared: ReadonlyMap<string, Door>,
-): ReadonlyMap<string, Door> => {
+): {
+  readonly doors: ReadonlyMap<string, Door>
+  readonly clashes: ReadonlyMap<string, readonly string[]>
+} => {
   const builders = new Map<string, Door[]>()
   for (const [workflow, loaded] of catalogue) {
     for (const [name, spec] of Object.entries(loaded.doors ?? {})) {
@@ -565,24 +572,22 @@ const derivedDoors = (
     }
   }
   const doors = new Map<string, Door>()
+  const clashes = new Map<string, readonly string[]>()
   for (const [name, built] of builders) {
-    doors.set(name, ownerOf(name, built, declared.has(name)))
+    const owner = ownerOf(name, built)
+    if (owner !== undefined) doors.set(name, owner)
+    else if (!declared.has(name))
+      clashes.set(
+        name,
+        built.map((door) => door.workflow),
+      )
   }
-  return new Map([...doors, ...declared])
+  return { doors: new Map([...doors, ...declared]), clashes }
 }
 
-/** The export named after the door owns it; the others build none, whatever the order. */
-const ownerOf = (name: string, built: readonly Door[], isDeclared: boolean): Door => {
-  const owner = built.find((door) => door.workflow === name)
-  if (owner !== undefined) return owner
-  const [first, second] = built as [Door, Door?]
-  if (second !== undefined && !isDeclared) {
-    throw new Error(
-      `door "${name}" is built by workflows "${first.workflow}" and "${second.workflow}" — declare it in the "doors" export to choose one (a declared door replaces the derived one, so restate its args and vars)`,
-    )
-  }
-  return first
-}
+/** The export named after the door owns it, else the sole builder; a clash of several builds no door. */
+const ownerOf = (name: string, built: readonly Door[]): Door | undefined =>
+  built.find((door) => door.workflow === name) ?? (built.length === 1 ? built[0] : undefined)
 
 /** Sort the doors and check each names a startable workflow. */
 const checkDoors = (
@@ -639,13 +644,15 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
     }),
   )
   const defaultWorkflow = built.get(value)
+  const derived =
+    rejections.length > 0
+      ? { doors: new Map<string, Door>(), clashes: new Map<string, readonly string[]>() }
+      : derivedDoors(catalogue, doorsFrom(exports))
   return {
     file,
     catalogue,
-    doors:
-      rejections.length > 0
-        ? new Map()
-        : checkDoors(derivedDoors(catalogue, doorsFrom(exports)), catalogue),
+    doors: rejections.length > 0 ? derived.doors : checkDoors(derived.doors, catalogue),
+    doorClashes: derived.clashes,
     default: defaultWorkflow && { ...defaultWorkflow, name: defaultName },
     config: compileConfig(exports["config"], module.filepath),
     diagnostics: nameRejections(rejections),

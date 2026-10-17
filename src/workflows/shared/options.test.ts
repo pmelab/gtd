@@ -85,7 +85,7 @@ describe("the shipped workflow factories", () => {
   })
 
   describe("flagShipped", () => {
-    const factory = flagShipped(async () => {}, {})
+    const factory = flagShipped(async () => {}, "rollout")
 
     it("declare flag and flagRegistry as process settings, so --var flag= is accepted", () => {
       expect(configure(factory)).toMatchObject({
@@ -110,6 +110,15 @@ describe("the shipped workflow factories", () => {
         expect(build?.doors?.[name]?.vars?.({ flag: "x" })).toEqual({ flag: "x" })
       },
     )
+
+    it.each(["rollout", "cleanup"] as const)("%s builds one door of that name", (name) => {
+      const result = configure(flagShipped(async () => {}, name))
+      const doors = (result as { build?: { doors?: WorkflowDoors } }).build?.doors
+      expect(Object.keys(doors ?? {})).toEqual([name])
+      expect(doors?.[name]?.args).toEqual([{ name: "flag" }])
+      expect(doors?.[name]?.vars?.({ flag: "x" })).toEqual({ flag: "x" })
+      expect(doors?.[name]?.vars?.({})).toEqual({ flag: "" })
+    })
 
     it("fail the load on an unknown option", () => {
       // @ts-expect-error — `flag` is a --var, not an option
