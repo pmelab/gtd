@@ -8,7 +8,7 @@ With a process at HEAD, ship squashes, then restacks. On a conflict the rebase
 is aborted either way; the fork is whether HEAD ends on the squash or on the
 process's step commits.
 
-- [ ] Keep the squash: refs as before the restack, not before the ship
+- [x] Keep the squash: refs as before the restack, not before the ship
   - the printed `git rebase --onto` moves one squashed commit per slice — the
     hand rebase the human expects
   - the next ship finds no process at HEAD and only restacks
