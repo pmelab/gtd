@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { runsItsScript, testRepo } from "../../testkit/index.js"
-import type { Actor } from "../../testkit/TestRepo.js"
+import { runsItsScript, testRepo, type Actor } from "../../testkit/index.js"
 import { CONFIG_SCAFFOLD } from "../../install/index.js"
 import { reviewDoc } from "../shared/config.fixture.js"
 

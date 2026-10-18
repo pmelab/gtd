@@ -1,4 +1,4 @@
-export { runsItsScript, testRepo, type TestRepo } from "./TestRepo.js"
+export { runsItsScript, testRepo, type Actor, type TestRepo } from "./TestRepo.js"
 export { InMemRepo } from "./InMemRepo.js"
 export { makeInMemoryWorkspaceOps, testLayers, type ScriptedCommand } from "./Layers.js"
 export { makeCapturingCliIo } from "./cliIo.js"
