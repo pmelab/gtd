@@ -252,6 +252,7 @@ export const reviewedRefactor = async (
         lenses: lensesOf(vars.refactorQualityReviews ?? ""),
         feedback,
         fixAccess: { write: [...p.strays, ".gtd/**"] },
+        lensBase: entry,
       })
       if (outcome.verdict === "signoff") return true
       await reUnwind(outcome)

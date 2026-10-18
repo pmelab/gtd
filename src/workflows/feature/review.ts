@@ -266,6 +266,8 @@ export interface BuildTailOptions {
   readonly feedback?: FeedbackTarget
   /** Write access for the nit and risk fix turns; absent: the bundled `access` export decides. */
   readonly fixAccess?: ScopeAccess
+  /** The commit the quality lap reviews from; absent: `start()`. */
+  readonly lensBase?: string
 }
 
 /** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */
@@ -282,6 +284,7 @@ export const buildTail = (
     options.guard,
     options.lenses,
     options.guardRests,
+    options.lensBase,
   )
 
 /**

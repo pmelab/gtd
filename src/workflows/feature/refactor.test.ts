@@ -711,6 +711,21 @@ describe("reviewedRefactor", () => {
     expect(reviewing?.kind === "agent" ? reviewing.prompt : "").toContain("base: c0")
   })
 
+  it("names the entry commit in every lens prompt, on the first lap and after a feedback lap", async () => {
+    const lensPrompts = (h: Reviewed) =>
+      h.steps.flatMap((s) =>
+        s.kind === "agent" && s.name === "quality.correctness.reviewing" ? [s.prompt] : [],
+      )
+    const first = lensPrompts(await driveReviewed(shape()))
+    expect(first).toHaveLength(1)
+    expect(first[0]).toContain("from `c0`")
+    const after = lensPrompts(
+      await driveReviewed(shape(), { notes: ["add — rename it", undefined] }),
+    )
+    expect(after).toHaveLength(2)
+    for (const prompt of after) expect(prompt).toContain("from `c0`")
+  })
+
   it("takes its quality lenses from refactorQualityReviews, none when blank", async () => {
     const one = await driveReviewed(shape(), { vars: { refactorQualityReviews: "correctness" } })
     expect(one.names.filter((n) => n.includes(".quality."))).toEqual([

@@ -207,19 +207,24 @@ describe("the hand-off review", () => {
   })
 })
 
+const prompts: string[] = []
+
 describe("the quality lap's lenses", () => {
   const lap = async (run: () => Promise<unknown>, vars: Record<string, string> = {}) => {
     const log: string[] = []
+    prompts.length = 0
     installContext(
       fixtureContext(
         { vars },
         {
           step: (request: StepRequest) => {
             if (request.kind !== "restart") log.push(request.name)
+            if (request.kind === "agent") prompts.push(request.prompt)
             return Promise.resolve()
           },
           pushScope: () => undefined,
           popScope: () => undefined,
+          start: () => "START-SHA",
         },
       ),
     )
@@ -242,6 +247,31 @@ describe("the quality lap's lenses", () => {
   it("an empty list runs no lens turn", async () => {
     const log = await lap(() => qualityLap(undefined, []), { qualityReviews: "correctness" })
     expect(log).toEqual([])
+  })
+
+  it("lensBase reaches every lens turn's prompt; absent, they name start()", async () => {
+    await lap(() => qualityLap(undefined, ["conventions", "correctness"], "BASE-SHA"))
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `BASE-SHA`")
+    await lap(() => qualityLap(undefined, ["conventions", "correctness"]))
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `START-SHA`")
+  })
+
+  it("tail threads lensBase to every lens turn", async () => {
+    await lap(() =>
+      tail(
+        false,
+        () => Promise.resolve(),
+        true,
+        undefined,
+        ["conventions", "correctness"],
+        true,
+        "BASE-SHA",
+      ),
+    )
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `BASE-SHA`")
   })
 
   it("tail passes lenses to its lap and a guard after each lens turn", async () => {

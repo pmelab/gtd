@@ -13,6 +13,7 @@ import {
   buildFixPrompt,
   buildFixQualityPrompt,
   buildQualityReviewingPrompt,
+  specChallengeBrief,
   buildReviewAwaitReviewMessage,
   buildReviewCollectingPrompt,
   designGateAnswerMessage,
@@ -262,6 +263,29 @@ describe("buildQualityReviewingPrompt", () => {
     expect(renderText(() => buildQualityReviewingPrompt("x", "BRIEF-TEXT"))).toContain(
       "This lens's brief:\nBRIEF-TEXT",
     )
+  })
+  it("reviews from the process start by default", () => {
+    const start = "START-SHA"
+    const text = renderText(() => buildQualityReviewingPrompt("x"), { start })
+    expect(text).toContain("from `START-SHA`")
+  })
+  it("reviews from a given base and still names the process start", () => {
+    const text = renderText(() => buildQualityReviewingPrompt("x", undefined, "BASE-SHA"), {
+      start: "START-SHA",
+    })
+    expect(text).toContain("from `BASE-SHA`")
+    expect(text).not.toContain("from `START-SHA`")
+    expect(text).toContain("started at `START-SHA`")
+  })
+  it("the spec-challenge brief looks up planning documents from the process start", () => {
+    const text = renderText(
+      () => buildQualityReviewingPrompt("x", specChallengeBrief, "BASE-SHA"),
+      {
+        start: "START-SHA",
+      },
+    )
+    expect(text).toContain("started at `START-SHA`")
+    expect(text).toContain("git log <start>..HEAD")
   })
 })
 

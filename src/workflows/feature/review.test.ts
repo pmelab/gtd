@@ -7,6 +7,7 @@ import {
   type StepRequest,
 } from "../../flows/index.js"
 import {
+  buildTail,
   review,
   reUnwind,
   severityOf,
@@ -766,5 +767,47 @@ describe("severity routing", () => {
     })
     expect(run.log).toContain("review.collecting")
     expect(run.log).not.toContain("review.defer")
+  })
+})
+
+describe("BuildTailOptions.lensBase", () => {
+  const lensPrompts = async (options: BuildTailOptions): Promise<string[]> => {
+    const prompts: string[] = []
+    installContext(
+      fixtureContext(
+        { vars: { qualityReviews: "conventions, correctness" } },
+        {
+          step: (request: StepRequest) => {
+            if (request.kind === "restart") return Promise.resolve()
+            if (request.kind === "agent" && request.name.startsWith("quality."))
+              prompts.push(request.prompt)
+            if (request.name === "review.reviewing") throw new Stop()
+            return Promise.resolve()
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          changesSince: () => {
+            throw new Stop()
+          },
+          start: () => "START-SHA",
+        },
+      ),
+    )
+    await buildTail(false, "base", true, options).catch((error: unknown) => {
+      if (!(error instanceof Stop)) throw error
+    })
+    return prompts
+  }
+
+  it("reaches every quality-lens prompt", async () => {
+    const prompts = await lensPrompts({ lensBase: "SLICE-BASE" })
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `SLICE-BASE`")
+  })
+
+  it("absent, the lens prompts name start()", async () => {
+    const prompts = await lensPrompts({})
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `START-SHA`")
   })
 })

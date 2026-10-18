@@ -32,10 +32,11 @@ export const REVIEW_ORIG = ".gtd/REVIEW.orig.md"
 export const qualityLap = (
   guard?: Guard,
   lenses?: readonly string[],
+  base?: string,
 ): Promise<"clean" | "findings"> =>
   kit.qualityLap(
     lenses ?? kit.lensesOf(vars.qualityReviews ?? ""),
-    guarded(reviewQuality, guard),
+    guarded((lens: string) => reviewQuality(lens, base), guard),
     QUALITY,
   )
 
@@ -81,6 +82,7 @@ export const tail = <T>(
   guard?: Guard,
   lenses?: readonly string[],
   guardRests = true,
+  lensBase?: string,
 ): Promise<T> =>
   scope("build", async () => {
     const escalations: EscalationCount = { rounds: 0 }
@@ -93,7 +95,7 @@ export const tail = <T>(
     if (fixFirst) await repair()
     else if (!green) await healthy(fix, { escalations, guard, guardRests })
     // The lap runs once a tail: after its findings are fixed, review follows.
-    if ((await qualityLap(guard, lenses)) === "findings") {
+    if ((await qualityLap(guard, lenses, lensBase)) === "findings") {
       if (await fixQualityFindings(escalations, guard, guardRests)) {
         await healthy(fix, { escalations, guard, guardRests })
       } else await repair()

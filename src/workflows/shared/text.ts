@@ -584,12 +584,17 @@ export const specChallengeBrief = `- Find this process's planning documents in h
   other code relies on — naming the decision and the invariant
 - With no planning documents in history, write nothing`
 
-export const buildQualityReviewingPrompt = (lens: string, brief?: string): string =>
+/** Reviews from `base` (default `start()`) to the working tree. */
+export const buildQualityReviewingPrompt = (
+  lens: string,
+  brief?: string,
+  base: string = start(),
+): string =>
   `${stateFileRules}
 - The only state file this turn writes is \`.gtd/QUALITY.md\` — no
   other files for notes or output
-- Review the whole assembled change, from \`${start()}\`
-  to the working tree, through this ONE quality lens only —
+- Review the whole assembled change, from \`${base}\`
+  to the working tree (this process started at \`${start()}\`), through this ONE quality lens only —
   \`${lens}\`
 - Trace, do not skim: follow the order of external calls against
   the resume/retry logic. On a large change, read the touched code

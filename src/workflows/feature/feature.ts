@@ -50,19 +50,21 @@ const naivePlanAndBuild = async (firstBase: string): Promise<void> => {
   const seam = await seamBuild(firstBase)
   await slice("feature", async () => {
     await implement(seam.reference, tier)
-    await featureFeedback(await buildTail(false, seam.base, true))
+    await featureFeedback(
+      await buildTail(false, seam.base, true, { lensBase: seam.base }),
+      seam.base,
+    )
   })
 }
 
-// `lensBase` is accepted for the per-slice quality lap; not yet threaded.
-const featureFeedback = async (first: ReviewOutcome, _lensBase?: string): Promise<void> => {
+const featureFeedback = async (first: ReviewOutcome, lensBase?: string): Promise<void> => {
   let outcome = first
   while (outcome.verdict === "feedback") {
     await reUnwind(outcome)
     await design(outcome.base)
     const tier = riskTierOn() ? recordRisk() : undefined
     await implement(undefined, tier)
-    outcome = await buildTail(false, outcome.base, true)
+    outcome = await buildTail(false, outcome.base, true, lensBase === undefined ? {} : { lensBase })
   }
 }
 
