@@ -19,14 +19,17 @@ export interface DeclaredTest {
   readonly unchanged: boolean
 }
 
-const TEST_LINE = /^\s*-\s+(unit|e2e):\s+`([^`]+)`( \(unchanged\)(?=\s|$))?/
+const TEST_LINE = /^\s*-\s+(unit|e2e):\s+`([^`]+)`(.*)$/
+const MARKER = /^[ \t]+\(unchanged\)(?=\s|$)/i
 
 /** The `## Tests` entries of a package file; malformed lines are ignored. */
 export const declaredTests = (packageText: string): readonly DeclaredTest[] => {
   const found: DeclaredTest[] = []
   let inTests = false
-  // oxfmt wraps a long line's ` (unchanged)` onto its own continuation line.
-  for (const line of packageText.replace(/\n\s+(?=\(unchanged\))/g, " ").split("\n")) {
+  // oxfmt wraps a long line's ` (unchanged)` onto its own continuation line;
+  // `[ \t]`, not `\s`, so the rejoin never crosses a blank line.
+  const text = packageText.replace(/\r\n?/g, "\n").replace(/\n[ \t]+(?=\(unchanged\))/gi, " ")
+  for (const line of text.split("\n")) {
     if (/^##\s/.test(line)) inTests = /^##\s+Tests\s*$/.test(line)
     else if (inTests) {
       const match = TEST_LINE.exec(line)
@@ -34,7 +37,7 @@ export const declaredTests = (packageText: string): readonly DeclaredTest[] => {
         found.push({
           level: match[1] as DeclaredTest["level"],
           path: match[2]!,
-          unchanged: match[3] !== undefined,
+          unchanged: MARKER.test(match[3]!),
         })
     }
   }
@@ -52,20 +55,24 @@ export const requireDeclaredTests = (pkg: string, since: string): void => {
   const text = range.get(pkg)?.before ?? read(pkg) ?? ""
   const satisfied = read(".gtd/SATISFIED.md") !== undefined
   const notInDiff: string[] = []
+  const deletedMarked: string[] = []
   const notInTree: string[] = []
   for (const test of declaredTests(text)) {
-    const inDiff = range.get(test.path) !== undefined && range.get(test.path)?.status !== "deleted"
+    const change = range.get(test.path)
+    const inDiff = change !== undefined && change.status !== "deleted"
     if (!satisfied && !test.unchanged && !inDiff) notInDiff.push(test.path)
-    else if (read(test.path) === undefined) notInTree.push(test.path)
+    else if (read(test.path) === undefined)
+      (test.unchanged && change?.status === "deleted" ? deletedMarked : notInTree).push(test.path)
   }
   const groups = [
-    ["not in the package's diff", notInDiff],
+    ["not in the package's diff — write them", notInDiff],
+    ["marked (unchanged) but deleted — restore them", deletedMarked],
     ["missing from the tree", notInTree],
   ] as const
   const reasons = groups.filter(([, paths]) => paths.length > 0)
   if (reasons.length === 0) return
   refuse(
-    `gtd land: declared-tests: ${pkg} declares tests that are not satisfied — write them first:\n${reasons
+    `gtd land: declared-tests: ${pkg} declares tests this turn left unmet:\n${reasons
       .map(([reason, paths]) => `${reason}:\n${paths.map((path) => `  - ${path}`).join("\n")}`)
       .join("\n")}`,
   )

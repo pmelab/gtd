@@ -204,6 +204,8 @@ Feature: A package's declared tests gate its build
     Then it fails
     And stderr contains "declared-tests"
     And stderr contains "lib/existing.test.ts"
+    And stderr contains "restore"
+    And stderr does not contain "satisfied"
 
   Scenario: a builder adding the marker to its own Tests line cannot dodge the guard
     Given a file ".gtd/packages/01-widget.md" with:

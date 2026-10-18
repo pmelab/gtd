@@ -53,9 +53,42 @@ describe("declaredTests", () => {
       ["b.test.ts", false],
       ["c.test.ts", false],
       ["f.test.ts", true],
-      ["d.test.ts", false],
+      ["d.test.ts", true],
       ["e.feature", true],
     ])
+  })
+
+  it("accepts tabs, several spaces and any case before the boundary", () => {
+    const text = [
+      "## Tests",
+      "- unit: `a.test.ts`\t(unchanged)",
+      "- unit: `b.test.ts`   (unchanged)",
+      "- unit: `c.test.ts` (UNCHANGED)",
+      "- unit: `d.test.ts` (unchanged)x",
+      "- unit: `e.test.ts`(unchanged)",
+      "- Unit: `f.test.ts` (unchanged)",
+    ].join("\n")
+    expect(declaredTests(text).map((t) => [t.path, t.unchanged])).toEqual([
+      ["a.test.ts", true],
+      ["b.test.ts", true],
+      ["c.test.ts", true],
+      ["d.test.ts", false],
+      ["e.test.ts", false],
+    ])
+  })
+
+  it("parses CRLF and lone CR like LF, including a wrapped marker", () => {
+    const lf = "## Tests\n- unit: `a/long.test.ts`\n  (unchanged)\n- e2e: `b.feature`\n"
+    expect(declaredTests(lf.replace(/\n/g, "\r\n"))).toEqual(declaredTests(lf))
+    expect(declaredTests(lf.replace(/\n/g, "\r"))).toEqual(declaredTests(lf))
+    expect(declaredTests(lf).map((t) => t.unchanged)).toEqual([true, false])
+  })
+
+  it("never joins a marker across an empty or whitespace-only line", () => {
+    for (const gap of ["\n\n", "\n  \n", "\n\t\n"]) {
+      const text = `## Tests\n- unit: \`a.test.ts\`${gap}  (unchanged)\n`
+      expect(declaredTests(text).map((t) => t.unchanged)).toEqual([false])
+    }
   })
 
   it("reads a marker oxfmt wrapped onto a continuation line", () => {
@@ -140,6 +173,7 @@ describe("requireDeclaredTests", () => {
       message = String(error instanceof Error ? error.message : error)
     }
     expect(message).toContain("gtd land: declared-tests:")
+    expect(message).not.toMatch(/satisf/i)
     const diffAt = message.indexOf("not in the package's diff")
     const treeAt = message.indexOf("missing from the tree")
     expect(diffAt).toBeGreaterThanOrEqual(0)
@@ -148,5 +182,108 @@ describe("requireDeclaredTests", () => {
     expect(message.indexOf("  - lib/unwritten.test.ts")).toBeLessThan(treeAt)
     expect(message.indexOf("  - lib/gone.test.ts")).toBeGreaterThan(treeAt)
     expect(message).not.toContain("kept.test.ts")
+  })
+
+  const run = (
+    text: string,
+    tree: readonly string[],
+    changes: readonly Change[],
+    satisfied = false,
+  ) => {
+    const pkg = ".gtd/packages/01-a.md"
+    let lookups = 0
+    installContext(
+      fixtureContext(
+        {},
+        {
+          read: (path: string) =>
+            path === pkg
+              ? text
+              : path === ".gtd/SATISFIED.md"
+                ? satisfied
+                  ? "x"
+                  : undefined
+                : tree.includes(path)
+                  ? "x"
+                  : undefined,
+          refuse: (message: string): never => {
+            throw new Error(message)
+          },
+          changesSince: (): Changes => {
+            const list: Change[] = [
+              { path: pkg, status: "modified", before: text, after: text },
+              ...changes,
+            ]
+            // runtime's `get` is `list.find`: one find per lookup
+            const find = list.find.bind(list)
+            list.find = ((predicate: (c: Change) => boolean) => {
+              lookups += 1
+              return find(predicate)
+            }) as typeof list.find
+            return Object.assign(list, { paths: [], get: () => undefined })
+          },
+        },
+      ),
+    )
+    let message = ""
+    try {
+      requireDeclaredTests(pkg, "c")
+    } catch (error) {
+      message = String(error instanceof Error ? error.message : error)
+    }
+    return { message, lookups: () => lookups }
+  }
+  const deleted = (path: string): Change => ({
+    path,
+    status: "deleted",
+    before: "x",
+    after: undefined,
+  })
+
+  it("sends a marked deleted test to restore only", () => {
+    const { message } = run("## Tests\n- unit: `a.test.ts` (unchanged)", [], [deleted("a.test.ts")])
+    expect(message).toContain("declares tests this turn left unmet:")
+    expect(message).toContain("marked (unchanged) but deleted — restore them:\n  - a.test.ts")
+    expect(message).not.toContain("missing from the tree")
+    expect(message).not.toContain("write them")
+  })
+
+  it("keeps a marked absent test with no diff change under missing", () => {
+    const { message } = run("## Tests\n- unit: `a.test.ts` (unchanged)", [], [])
+    expect(message).toContain("missing from the tree:\n  - a.test.ts")
+    expect(message).not.toContain("restore")
+  })
+
+  it("keeps an unmarked deleted test under write, or missing once satisfied", () => {
+    const text = "## Tests\n- unit: `a.test.ts`"
+    expect(run(text, [], [deleted("a.test.ts")]).message).toContain(
+      "not in the package's diff — write them:\n  - a.test.ts",
+    )
+    const done = run(text, [], [deleted("a.test.ts")], true).message
+    expect(done).toContain("missing from the tree:\n  - a.test.ts")
+    expect(done).not.toContain("restore")
+  })
+
+  it("orders write, restore, missing and never says satisfied", () => {
+    const text = [
+      "## Tests",
+      "- unit: `w.test.ts`",
+      "- unit: `r.test.ts` (unchanged)",
+      "- unit: `m.test.ts` (unchanged)",
+    ].join("\n")
+    const { message } = run(text, [], [deleted("r.test.ts")])
+    const w = message.indexOf("write them")
+    const r = message.indexOf("restore them")
+    const m = message.indexOf("missing from the tree")
+    expect(w).toBeGreaterThan(0)
+    expect(r).toBeGreaterThan(w)
+    expect(m).toBeGreaterThan(r)
+    expect(message).not.toMatch(/satisf/i)
+  })
+
+  it("looks each declared path up once", () => {
+    const text = "## Tests\n- unit: `a.test.ts`\n- unit: `b.test.ts` (unchanged)"
+    // the package file plus one lookup per declared test
+    expect(run(text, ["b.test.ts"], []).lookups()).toBe(3)
   })
 })
