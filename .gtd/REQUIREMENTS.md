@@ -21,7 +21,7 @@ name. The fork is whether ship writes the stack relationship into the PR bodies.
 - [ ] No link — the base branch says it
   - nothing extra in any description
   - reviewer must infer order from `<branch>-refactor` as base
-- [ ] Feature PR names the PR it stacks on
+- [x] Feature PR names the PR it stacks on
   - one line like "Stacked on #N — merge that first" above the description
   - lower PR knows nothing of the one above
 - [ ] Both directions — each PR lists the whole stack, its own entry marked
@@ -38,7 +38,7 @@ commits back into one. The fork is how hard ship guards that.
 - [ ] Document it only
   - no extra `gh` call
   - a squash merge silently loses the per-slice commits
-- [ ] Warn when the repo disallows rebase merge, ship anyway
+- [x] Warn when the repo disallows rebase merge, ship anyway
   - one `gh repo view` read of the allowed merge methods
   - the report line tells the human before the PR is merged
 - [ ] Refuse to ship when the repo disallows rebase merge
