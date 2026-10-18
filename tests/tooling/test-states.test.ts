@@ -10,6 +10,7 @@ import {
   VITEST_TASKS,
   failureSignature,
   flagValue,
+  runOptions,
   planStates,
   runStates,
   spawnTurbo,
@@ -140,9 +141,9 @@ describe("spawnTurbo against a shim turbo", () => {
       "run",
       "a",
       "b",
-      "--force",
       "--output-logs=errors-only",
       "--log-prefix=task",
+      "--force",
     ])
   })
 
@@ -167,85 +168,42 @@ describe("spawnTurbo against a shim turbo", () => {
 })
 
 describe("flagValue", () => {
-  it("reads --flag=x", () =>
-    expect(flagValue(["--output-logs=full"], "--output-logs")).toBe("full"))
-  it("reads --flag x", () =>
-    expect(flagValue(["--output-logs", "full"], "--output-logs")).toBe("full"))
-  it("reads =new-only", () =>
-    expect(flagValue(["--output-logs=new-only"], "--output-logs")).toBe("new-only"))
-  it("reads separate new-only", () =>
-    expect(flagValue(["--output-logs", "new-only"], "--output-logs")).toBe("new-only"))
-  it("is undefined when absent", () =>
-    expect(flagValue(["--force"], "--output-logs")).toBeUndefined())
-  it("is empty when the flag ends args", () =>
-    expect(flagValue(["--output-logs"], "--output-logs")).toBe(""))
-  it("reads --log-prefix in both spellings", () => {
-    expect(flagValue(["--log-prefix=none"], "--log-prefix")).toBe("none")
-    expect(flagValue(["--log-prefix", "none"], "--log-prefix")).toBe("none")
-  })
+  it.each([
+    [["--output-logs=full"], "--output-logs", "full"],
+    [["--output-logs", "new-only"], "--output-logs", "new-only"],
+    [["--log-prefix=none"], "--log-prefix", "none"],
+    [["--log-prefix", "none"], "--log-prefix", "none"],
+    [["--force"], "--output-logs", undefined],
+    [["--output-logs"], "--output-logs", ""],
+    [["--", "--output-logs=full"], "--output-logs", undefined],
+  ])("%j reads %s as %j", (args, flag, expected) => expect(flagValue(args, flag)).toBe(expected))
 })
 
-describe("entry point option expressions", () => {
-  const opts = (args: string[]) => ({
-    full: flagValue(args, "--output-logs") === "full",
-    collapse: (flagValue(args, "--log-prefix") ?? "task") === "task",
-  })
-  it("--log-prefix=task keeps collapse on", () =>
-    expect(opts(["--log-prefix=task"]).collapse).toBe(true))
-  it("--log-prefix=none turns collapse off", () =>
-    expect(opts(["--log-prefix=none"]).collapse).toBe(false))
-  it("--output-logs=new-only leaves full off and collapse on", () =>
-    expect(opts(["--output-logs=new-only"])).toEqual({ full: false, collapse: true }))
-  it("--output-logs full turns full on", () =>
-    expect(opts(["--output-logs", "full"]).full).toBe(true))
+describe("runOptions", () => {
+  it.each([
+    [[], { full: false, collapse: true }],
+    [["--output-logs", "full"], { full: true, collapse: false }],
+    [["--output-logs=new-only"], { full: false, collapse: true }],
+    [["--output-logs=errors-only"], { full: false, collapse: true }],
+    [["--output-logs=hash-only"], { full: false, collapse: false }],
+    [["--output-logs=none"], { full: false, collapse: false }],
+    [["--log-prefix=task"], { full: false, collapse: true }],
+    [["--log-prefix=none"], { full: false, collapse: false }],
+    [["--log-prefix", "none"], { full: false, collapse: false }],
+  ])("%j gives %j", (args, expected) => expect(runOptions(args)).toEqual(expected))
 })
 
 describe("turboArgv", () => {
-  it("appends both defaults after forwarded args", () => {
-    expect(turboArgv(["a", "b"], ["--force"])).toEqual([
-      "run",
-      "a",
-      "b",
-      "--force",
-      "--output-logs=errors-only",
-      "--log-prefix=task",
-    ])
-  })
-
-  it("keeps a user --output-logs=full and appends only the prefix default", () => {
-    expect(turboArgv(["a"], ["--output-logs=full"])).toEqual([
-      "run",
-      "a",
-      "--output-logs=full",
-      "--log-prefix=task",
-    ])
-  })
-
-  it("keeps a user --output-logs full (separate value)", () => {
-    expect(turboArgv(["a"], ["--output-logs", "full"])).toEqual([
-      "run",
-      "a",
-      "--output-logs",
-      "full",
-      "--log-prefix=task",
-    ])
-  })
-
-  it("replaces the output default with user new-only, either spelling", () => {
-    for (const args of [["--output-logs=new-only"], ["--output-logs", "new-only"]]) {
-      const argv = turboArgv(["a"], args)
-      expect(argv).not.toContain("--output-logs=errors-only")
-      expect(argv).toContain("--log-prefix=task")
-    }
-  })
-
-  it("replaces the prefix default with a user --log-prefix, either spelling", () => {
-    for (const args of [["--log-prefix=none"], ["--log-prefix", "none"]]) {
-      const argv = turboArgv(["a"], args)
-      expect(argv).not.toContain("--log-prefix=task")
-      expect(argv).toContain("--output-logs=errors-only")
-    }
-  })
+  const O = "--output-logs=errors-only"
+  const P = "--log-prefix=task"
+  it.each([
+    [["a", "b"], ["--force"], ["run", "a", "b", O, P, "--force"]],
+    [["a"], ["--output-logs=full"], ["run", "a", P, "--output-logs=full"]],
+    [["a"], ["--output-logs", "new-only"], ["run", "a", P, "--output-logs", "new-only"]],
+    [["a"], ["--log-prefix", "none"], ["run", "a", O, "--log-prefix", "none"]],
+    [["a"], ["--", "x"], ["run", "a", O, P, "--", "x"]],
+    [["a"], ["--", "--log-prefix=none"], ["run", "a", O, P, "--", "--log-prefix=none"]],
+  ])("%j with %j", (tasks, args, expected) => expect(turboArgv(tasks, args)).toEqual(expected))
 })
 
 describe("failureSignature against real turbo", () => {

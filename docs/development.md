@@ -27,8 +27,9 @@ earlier one, it prints one `same failure as <state>` line instead of repeating
 the log. `--log-prefix=task` is always passed; a `--log-prefix` of your own
 replaces it and turns collapsing off unless it is `task`.
 `npm test -- --output-logs=full` prints every state's full log, passes included,
-and never collapses; any other `--output-logs` value replaces the default but
-still collapses.
+and never collapses; `--output-logs=hash-only` and `none` print no failure log,
+so they also turn collapsing off; `new-only` replaces the default and still
+collapses.
 
 A pre-commit hook is installed automatically via the `prepare` script when you
 run `npm install` on a fresh clone — it runs
