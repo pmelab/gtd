@@ -47,10 +47,19 @@ in full.
       fails without `FAIL` lines (unhandled error, crash) always reprints. This
       over-prints, never hides; acceptable, but the test title claiming
       "ignoring ... timing" overstates it
+
+  Note: rename that test so its title says what it actually pins; no behaviour
+  change.
+
 - [ ] ./scripts/test-states.ts#101-132 — `condenseFailure`: seven parameters,
       `i` passed only to bail on the first state; the caller could skip it.
       `Seen` duplicates the inline type at line 142. Nit-level, no behaviour
       impact
+
+  Note: please drop `i` (skip the call for the first state in `runStates`),
+  reuse `Seen` for the `seen` array, and pass the rest as one options object
+  instead of seven positional parameters.
+
 - [ ] ./scripts/test-states.ts#134-154 — `runStates` turns async; every state
       still runs, pass/FAIL line and exit status unchanged. Without `condense`
       every state streams live as before; only tests use that path
