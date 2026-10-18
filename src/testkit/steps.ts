@@ -212,6 +212,17 @@ Then("the resting step's content contains {string}", async (world: TestkitWorld,
 })
 
 Then(
+  "the resting step's content contains the hash of the commit {string}",
+  async (world: TestkitWorld, subject: string) => {
+    const repo = world.repo()
+    const hash = repo.hashes()[repo.subjects().lastIndexOf(subject)]
+    assert.ok(hash !== undefined, `no commit "${subject}"`)
+    const { content } = await repo.next()
+    assert.ok(content.includes(hash), content)
+  },
+)
+
+Then(
   "the resting step's content does not contain {string}",
   async (world: TestkitWorld, text: string) => {
     const { content } = await world.repo().next()
@@ -247,6 +258,16 @@ Then(
   async (world: TestkitWorld, list: string, text: string) => {
     const out = await outputOf(world, list)
     assert.ok(!out.includes(text), out)
+  },
+)
+
+Then(
+  "the output lines of gtd {string} start with:",
+  async (world: TestkitWorld, list: string, prefixes: string) => {
+    const out = (await outputOf(world, list)).split("\n").filter((line) => line !== "")
+    const expected = prefixes.split("\n").filter((line) => line.trim() !== "")
+    assert.strictEqual(out.length, expected.length, out.join("\n"))
+    out.forEach((line, i) => assert.ok(line.startsWith(expected[i]!), out.join("\n")))
   },
 )
 

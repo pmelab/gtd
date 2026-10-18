@@ -1198,19 +1198,26 @@ Start over and choose a different approach; do not rebuild the same diff.
 `
 }`
 
-export const implementBuildingPrompt = (reference: string, tier?: "low" | "high"): string =>
+export const implementBuildingPrompt = (
+  reference: string | undefined,
+  tier?: "low" | "high",
+): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 - Implement them properly, fitting the codebase's seams and conventions
-- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
+${
+  reference === undefined
+    ? ""
+    : `- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
   Read it for ideas; never apply, cherry-pick or check it out — write
   the change fresh
-${
-  tier === "low"
-    ? "- Add no release flag — this change is low risk tier"
-    : `- Put the new behaviour behind a new release flag, following the
+`
+}${
+    tier === "low"
+      ? "- Add no release flag — this change is low risk tier"
+      : `- Put the new behaviour behind a new release flag, following the
   repository's flag conventions`
-}
+  }
 - Write the tests first, then the code that makes them pass
 - Leave \`.gtd/REQUIREMENTS.md\` in place and everything uncommitted, then
   finish your turn

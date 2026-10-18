@@ -854,6 +854,14 @@ describe("the seam phase's texts", () => {
     expect(low).toContain("git show abc123")
   })
 
+  it("drops the git show line when there is no reference", () => {
+    const prompt = renderText(() => implementBuildingPrompt(undefined, "low"))
+    expect(prompt).not.toContain("git show")
+    expect(prompt).not.toContain("Reference only")
+    expect(prompt).toContain("Add no release flag")
+    expect(prompt).toContain("Implement them properly")
+  })
+
   it("keeps a fix turn to the feedback file's rules", () => {
     expect(renderText(() => implementFixPrompt())).toContain(".gtd/FEEDBACK.md")
   })

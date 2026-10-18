@@ -38,9 +38,10 @@ Each gate is a point where a person must act before work continues. Counts are
 per design round: a review-feedback round re-runs design.
 
 - `feature`: design and review sign-off; `architecture.gate.answer` only on the
-  default path (naive pass off); `seam.approve` only with naive pass on and
-  judge `refactor-first`. **Default path 3 gates; naive path 2, or 3 on
-  `refactor-first`.** Overrule at `seam.steer` passes no seam gate.
+  default path (naive pass off); a refactor review sign-off only with naive pass
+  on and judge `refactor-first`. **Default path 3 gates; naive path 2, or 3 on
+  `refactor-first`** (design, refactor review, feature review). Overrule at
+  `seam.steer` passes no seam gate.
 - `cleanup`, `fix`, `review`: review sign-off only.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
   are its only control.
@@ -48,12 +49,12 @@ per design round: a review-feedback round re-runs design.
 In every row the authorizer is the person who asked for the change, and the
 record carries the commit author only, no approver trailer, unless stated.
 
-| Gate                                                     | Who approved                          | What was tested                             | Where the record lives                                                                                                                                                               |
-| -------------------------------------------------------- | ------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `design.gate.answer`                                     | the person who answers the questions  | the design questions, answered before build | step commit and `.gtd/` file history                                                                                                                                                 |
-| `architecture.gate.answer` (default path only)           | the person who answers the questions  | the technical plan, answered before build   | step commit and `.gtd/` file history                                                                                                                                                 |
-| review gate sign-off                                     | the reviewer who signs off            | the diff, against the review checklist      | the sign-off commit                                                                                                                                                                  |
-| `seam.approve` (naive pass on, only on `refactor-first`) | the approver who accepts the refactor | the seam diff, against the allowed seam     | `Gtd-Approved:` trailer: git author identity of whoever ran `gtd land`, not authenticated by gtd; signed only if the repository signs commits (authorizer: the seam judge's verdict) |
+| Gate                                                               | Who approved                         | What was tested                                 | Where the record lives               |
+| ------------------------------------------------------------------ | ------------------------------------ | ----------------------------------------------- | ------------------------------------ |
+| `design.gate.answer`                                               | the person who answers the questions | the design questions, answered before build     | step commit and `.gtd/` file history |
+| `architecture.gate.answer` (default path only)                     | the person who answers the questions | the technical plan, answered before build       | step commit and `.gtd/` file history |
+| review gate sign-off                                               | the reviewer who signs off           | the diff, against the review checklist          | the sign-off commit                  |
+| refactor review sign-off (naive pass on, only on `refactor-first`) | the reviewer who signs off           | the refactor diff, against the review checklist | the sign-off commit                  |
 
 For non-repudiation use signed commits or branch protection outside gtd.
 
@@ -83,7 +84,9 @@ Each path has a `.feature` file:
 - [`src/workflows/feature/one-step-land.feature`](src/workflows/feature/one-step-land.feature):
   naive pass, judge `land`
 - [`src/workflows/feature/refactor-first.feature`](src/workflows/feature/refactor-first.feature):
-  judge `refactor-first`, then `seam.approve`
+  judge `refactor-first`, then the refactor review, then the implementation
+- [`src/workflows/feature/refactor-review.feature`](src/workflows/feature/refactor-review.feature):
+  the refactor review's feedback loop, refusals and lenses
 - [`src/workflows/feature/seam-rejection.feature`](src/workflows/feature/seam-rejection.feature):
   three rejects ending at `seam.steer`
 - [`src/workflows/cleanup/cleanup-path.feature`](src/workflows/cleanup/cleanup-path.feature):
@@ -103,5 +106,7 @@ Paths and text are checked, **never behaviour**.
 - `seam.judge` judges the shape of the naive pass. The implementation turn that
   lands is not re-judged or scoped, and review sign-off is the only human look
   at the full diff. New files are exempt. `gtd strays` works in any repository.
-- `Gtd-Approved:` stops a dirty landing and a missing git author identity from
-  passing an approval gate.
+- Two reviews split the diff on `refactor-first`: the refactor review covers
+  only the refactor slice, and the feature review only what follows its
+  sign-off. A refactor turn that changes a test file is refused (`gtd land`:
+  `refactor-tests`), whatever `seamAllow` says.

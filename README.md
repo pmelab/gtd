@@ -568,8 +568,11 @@ home directory — fails every command until you delete it. See
 architecture and package files, the agent first implements the requirements
 directly. A judge checks whether it changed anything outside the expected set
 (tests, steering files; see `seamAllow`). Incidental changes land; a needed seam
-change goes to you for approval and is refactored first; a wrong approach is
-retried twice, then rests for you to steer or overrule it. Details in
+change is refactored first, in its own slice with its own quality lap
+(`refactorQualityReviews`) and review, before the feature is implemented and
+reviewed; a wrong approach is retried twice, then rests for you to steer or
+overrule it. `gtd slices` lists the `refactor` and `feature` slices. Feedback at
+a review re-runs design and the implementation, never the naive pass. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
 **Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default, needs
@@ -654,8 +657,9 @@ are not process history: `gtd history` does not list them, and the
 `refs/gtd/history/*` refspecs above neither push nor fetch them.
 
 A workflow can rest at an approval gate (`human(name, { approve: true })`; the
-`seamGate` helper does this after a `refactor-first` diff-shape judgment). Only
-a clean `gtd land` approves it, and the commit records who in a
+`seamGate` helper does this for a `refactor-first` diff-shape judgment; the
+shipped flow does not use it). Only a clean `gtd land` approves it, and the
+commit records who in a
 `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}` trailer;
 a landing with any edit is refused (as is a script run after the tree changed —
 revert and land again), and `gtd abandon` is the only other way out. `approve`

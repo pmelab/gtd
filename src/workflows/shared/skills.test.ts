@@ -60,7 +60,6 @@ describe("the bundled workflow's skills export", () => {
       "build.quality",
       "implement.fix",
       "seam.judge",
-      "seam.approve",
       "seam.steer",
       "seam.by-hand",
     ]) {
