@@ -1,55 +1,38 @@
-## Open Questions
-
-### How does #371 close: rerun the dogfood with both flags on, or scope the #355 acceptance line?
-
-#355's "trailers for every gate" is half met. History already holds one
-naive-pass run (#384, `flag_naive_pass=1`, `flag_risk_tier=0`): `seam.judge`
-step trailers exist (`772d69db`), on a branch and its `refs/gtd/history/*` ref
-only, not on `main`. **No `Gtd-Mark: risk-tier` trailer exists anywhere.** The
-options differ in whether this branch ships a run, a doc change, or both.
-
-- [x] Scope the acceptance line to default-flag gates
-  - SDLC.md's #371 line becomes a stated scope: flag-gated gates (`seam.judge`,
-    risk tier) leave trailers only when their flag is on
-  - Docs-only change; closes #371 now
-  - The risk-tier gate stays never dogfooded
-- [ ] Credit #384 for `seam.judge`, scope out risk tier only
-  - SDLC.md cites the #384 run as the `seam.judge` record and says risk tier has
-    no dogfood record yet
-  - Docs-only change; closes #371 now
-  - **Risk: the #384 judgment went through #394's bug** (every verdict refused),
-    so it records the cautious route, not a real judge ruling
-- [ ] Require a dogfood run with both flags on, then drop the #371 line
-  - This process cannot be that run: its flags are pinned off
-    (`flag_naive_pass=0`, `flag_risk_tier=0`)
-  - **Blocked on #394** (judge can never answer `seam.judge`) and likely #395;
-    this branch only files a tracking issue and keeps #371 open
-  - Only option that yields real trailers for every gate
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. Settle the #355 trailer gap (PRODUCT)
 
-#371 asks for a decision, not a feature. Fold the answer above into one outcome:
-either SDLC.md states the scope plainly, or a both-flags-on dogfood run is
-tracked and #371 stays open until it lands. Today SDLC.md says only **"A default
-setup records no `seam.judge` judgment or `Gtd-Mark: risk-tier` trailers
-(#371)"** — a known-gap note pointing at an open issue. Whatever the answer,
-that line stops pointing at an open #371 once this branch merges.
+#371 asks for a decision, not a feature. **Decision: scope #355's "trailers for
+every gate" acceptance to default-flag gates.** Flag-gated gates (`seam.judge`,
+risk tier) leave trailers only when their flag is on, and SDLC.md says so as a
+plain scope, not a known gap. **Docs-only change; #371 closes when this branch
+merges.** **The risk-tier gate stays never dogfooded** — accepted, no tracking
+issue filed. The #384 naive-pass run is not cited as a `seam.judge` record.
+
+Today SDLC.md says only **"A default setup records no `seam.judge` judgment or
+`Gtd-Mark: risk-tier` trailers (#371)"** — a known-gap note pointing at an open
+issue. After this branch that line states the scope and no longer points at
+#371.
 
 ### 2. Reword SDLC.md's #371 line (TECHNICAL)
 
-Rewrite lines 77-78 of `SDLC.md` per concern 1. Keep it user-facing: name the
-flags (`GTD_FLAG_NAIVE_PASS`, `GTD_FLAG_RISK_TIER`), never a `src/*.ts` module.
-Keep it an oxfmt fixed point.
+Rewrite lines 77-78 of `SDLC.md` as a scope statement: `seam.judge` judgments
+and `Gtd-Mark: risk-tier` trailers appear only when `GTD_FLAG_NAIVE_PASS` /
+`GTD_FLAG_RISK_TIER` is on; a default setup records neither. Drop the `(#371)`
+reference. Keep it user-facing: name the flags, never a `src/*.ts` module. Keep
+it an oxfmt fixed point.
 
 ### 3. Close #371 from the merge (TECHNICAL)
 
-The squash message carries `Closes #371` when the answer closes it now,
-`Refs #371` otherwise, per `docs/commits.md`.
+The squash message carries `Closes #371`, per `docs/commits.md`.
 
 ## Answered Questions
+
+### How does #371 close: rerun the dogfood with both flags on, or scope the #355 acceptance line?
+
+Scope the acceptance line to default-flag gates (human's pick). SDLC.md states
+that flag-gated gates leave trailers only when their flag is on; docs-only,
+closes #371 now; the risk-tier gate stays never dogfooded.
 
 ### Do the three deleted `## Deferred review notes` entries (note-1, note-2, note-3) get folded in?
 
