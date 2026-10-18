@@ -114,3 +114,48 @@ oxfmt does not reflow template literals, so it stays. Suggest e.g. "which must
 exist before the turn and stay untouched — creating, editing or deleting it
 refuses the turn; if the marker is wrong…", rewrapped. (Folds in with the
 correctness lens's wording fix to the same bullet.)
+
+## spec-challenge: concern 2 ("`turn` is required") conflicts with the entrypoint-export SemVer tier
+
+Decision: REQUIREMENTS concern 2 / ARCHITECTURE "Interfaces" — "`turn` has no
+default any more; every caller names it", classed TECHNICAL, shipped under
+`fix(workflows):`.
+
+Invariant: COMPATIBILITY.md "Entrypoint exports — … each export's name, type and
+behaviour", which lists `@pmelab/gtd/workflows/feature`. `requireDeclaredTests`
+is exported there, and released v29.1.0 has `(pkg: string, since: string)`. The
+spec reasons only about the in-repo caller ("the only production caller
+(`packageItem`) already passes it, so nothing else changes"). It never looks at
+external `gtd.config.ts` callers, and those are exactly who the tier protects. A
+two-arg call that compiles against v29.1.0 fails type-checking after this
+change. So the spec decision is a breaking change that its TECHNICAL
+classification and the branch's commit type hide. Same outcome as the
+conventions finding, but this traces the cause to the plan, not the code.
+
+Resolve: keep `= "fix"` (concern 2's goal is then met for in-repo callers only,
+by review), or keep the decision and mark the squash breaking (`BREAKING CHANGE`
+footer; `refactor!`/`fix!` alone cuts no release here).
+
+## spec-challenge: concern 1 says "refused until a human fixes the package", but the guard is built so editing the package cannot change the verdict
+
+Decision: REQUIREMENTS concern 1 — "The turn stays refused until a human fixes
+the package". The refusal text, "stop and leave it to a person", rests on that.
+
+Invariant: `requireDeclaredTests` reads the package as of `since`
+(`range.get(pkg)?.before`), "so a builder editing its own `## Tests` (or adding
+`(unchanged)`) cannot dodge the guard" (its JSDoc, pinned by existing tests in
+`packages.test.ts` / `declared-tests.feature`). And `packageItem` captures
+`from = head()` once, before the build, then reuses it for every recheck. So a
+person who drops the wrong marker mid-item changes nothing. The verdict is fixed
+by the package text at `from`. The next build either creates the file
+(`addedMarked`) or doesn't (`notInTree`). The fix turns never run because the
+build check comes first. The only way out is `gtd abandon`. What the spec
+expects to rescue the person, editing the package, is exactly what the
+anti-dodge invariant blocks. It never says which actor, or which point in the
+process, may fix the marker.
+
+Resolve: say what really happens: a wrong marker means `gtd abandon` and fixing
+the plan upstream, in the refusal/prompt/README (this overlaps the correctness
+lens's text fix). The other option is a design change: let a human-authored
+commit move `from`, or let a human's edit to the package count. Either option
+weakens the anti-dodge invariant, so it needs its own decision.
