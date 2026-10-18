@@ -49,3 +49,63 @@ Load assumed: one person shipping one branch.
    - **If we skip it:** Nothing breaks; a few extra lines to read.
 
 Verdict: Ship. Lean: -3 lines possible.
+
+## test-audit: resume offsets past a merged slice are never exercised
+
+Every recorded-stack test in `claude/hooks/ship.test.ts` records two slices
+(`refactor feature`). With two slices `done` is 0 or 1, and at `done = 1` the
+`chain` loop is empty, so the new offset arithmetic in `resumable` never runs
+with a non-zero offset:
+
+- `commits[i - done]` in `revive` — `commits[i]` passes every test
+- `${top}~${recorded.length - 1 - i}` for a missing branch above a merged slice
+- the floor `${top}~${last - (done - 1)}` — with `last = 1, done = 1`,
+  `~${last}`, `~${done}` and the real formula all give `~1`
+
+A wrong offset would revive a slice branch at the wrong commit, or read the
+wrong merged floor and list the wrong commits in the next pull request. Nothing
+catches that. Fix: add one three-slice resume (`a b c` recorded, `a` MERGED,
+`feat/x-b` gone, top recorded). Expect `git branch -f feat/x-b <top~1 sha>`, the
+floor read at `<top>~2` (shown by the `git log … <floor>..` range), and `b`'s
+pull request into `main`.
+
+## test-audit: READ_ONLY_GIT now refuses `git log --no-merges`, and no case pins it
+
+Checked with node against the base and current regex. The new flag lookahead
+`-["'\\]*-["'\\]*(?:… n["'\\]*o- | e["'\\]*x | t["'\\]*e)` matches any `--no-…`,
+`--ex…` or `--te…` flag. So `git log --no-merges a..b`, `git diff --text a b`
+and `git log --exclude=x --all` are now refused. The base commit allowed all
+three. `--no-merges` is the flag ship itself passes when it reads slice history,
+so the writer (`mayRun: READ_ONLY_GIT` in `claude/hooks/register.tsx`) is now
+likely to be refused on its most natural command. The accept list has no case
+for any of these flags, so the regression passes.
+
+The `n-o-` branch also has no negative case of its own:
+`git diff --no-index /etc/hosts /dev/null` is refused by the `/etc` path rule
+anyway. Deleting the `n["'\\]*o-` alternative breaks no test.
+
+Fix: narrow the alternatives to the flags that are actually meant (`--no-index`,
+`--ext-diff`, `--textconv`). Add `git log --no-merges a..b` (and `--text`) to
+the accept list, and `git diff --no-index a b` with in-tree paths to the refuse
+list if that refusal is intended.
+
+## test-audit: smaller gaps and one call-shape assertion
+
+- `plan`'s
+  `const failed = await found.revive?.(); if (failed) return fail(failed)` (the
+  no-process resume path) has no failing-revive test. The existing retry test
+  only fails `git branch -f` in the first, multi-slice run (`recordStack`). The
+  second run's revive always succeeds. This is the same gap correctness found
+  for `squashOntoStack`, at a second call site. One test that fails
+  `git branch -f` on a `resume` fixture and expects
+  `git branch -f … failed; /gtd ship resumes.` with no push covers it.
+- `mergedSlices` gives the top slice its own refusal text ("Rename the branch").
+  Its only test ("a MERGED/CLOSED top PR refuses…") uses `sbase`, which is a
+  fresh stack and goes through `stackPrecheck`. A CLOSED top PR on a resume (the
+  `resume` fixture) is untested, so a wrong ternary there would pass.
+- "the squash lands on the top branch and the stack is kept untouched" asserts
+  `toContain('git merge-base --is-ancestor ${C1} ${BASE}')`. That is a
+  call-shape assertion: unscripted commands succeed, so it checks only that the
+  call happened. The behaviour is already pinned by "a record that no longer
+  chains retires…", which fails `is-ancestor C1 BASE` and would break if `at`
+  went back to `HEAD`. Delete the assertion.
