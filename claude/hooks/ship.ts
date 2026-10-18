@@ -780,7 +780,8 @@ async function mergedSlices(
 // Every read happens before any write, so a refusal (a string) changes nothing.
 // `revive` is left to the caller so a squash can come first. `planRestack` false
 // skips the network and worktree reads a restack needs: a caller that only asks
-// whether the record is live must not depend on them.
+// whether the record is live must not depend on them. A hand-restacked record
+// is still live then: its shape test is local.
 async function resumable(
   io: ShipIo,
   git: Git,
@@ -802,9 +803,11 @@ async function resumable(
   if ("refusal" in guard) return guard.refusal
   const { top } = guard
   const { commits, missing, valid } = await chain(git, ok, branch, recorded, done, top, at)
-  if (valid && "rebased" in guard && done && planRestack) {
+  if (valid && "rebased" in guard && done) {
     const { from, links } = await stackRest(git, { branch, recorded, done, top, commits, branchOf })
-    const hand = from && (await handRestack(io, git, ok, { branch, baseBranch, top, from, links }))
+    const hand =
+      from &&
+      (await handRestack(io, git, ok, { branch, baseBranch, top, from, links, plan: planRestack }))
     if (hand) return hand
   }
   if (!valid || "rebased" in guard) {
@@ -828,7 +831,7 @@ async function resumable(
 }
 
 // `from` is the merged slice's commit, read off the recorded top: the local
-// slice branch may have moved since. No top means no `from`.
+// slice branch may have moved since.
 async function stackRest(
   git: Git,
   c: {
@@ -990,7 +993,7 @@ async function restackOf(
     const held = await checkedOutElsewhere(io, lower)
     if (typeof held === "string") return held
     if (held)
-      return `Slice branch ${held.branch} is checked out in worktree ${held.path}, so git rebase --update-refs would skip it; nothing changed. Free it there (git -C ${held.path} switch --detach), then /gtd ship.`
+      return `Slice branch ${held.branch} is checked out in worktree ${held.path}, so git rebase --update-refs would skip it; nothing changed. Free it there (git -C '${held.path}' switch --detach), then /gtd ship.`
   }
   const links = await originLeases(io, ok, c.links, (l) => l.commit)
   if (typeof links === "string") return links
@@ -1032,13 +1035,25 @@ async function restackOf(
         (await ok("merge-base", "--is-ancestor", onto, at)) &&
         !(await ok("merge-base", "--is-ancestor", from, at))
       if (moved) continue
-      for (const [r, sha] of pre)
-        await ok("update-ref", `refs/heads/${r}`, sha, await git("rev-parse", `refs/heads/${r}`))
-      await ok("reset", "--keep", preHead)
+      const failed: string[] = []
+      for (const [r, sha] of pre) {
+        const now = await git("rev-parse", `refs/heads/${r}`)
+        if (!(await ok("update-ref", `refs/heads/${r}`, sha, now)))
+          failed.push(`git update-ref refs/heads/${r} ${sha} ${now}`)
+      }
+      if (!(await ok("reset", "--keep", preHead))) failed.push(`git reset --keep ${preHead}`)
+      if (failed.length)
+        return [
+          `Slice branch ${b} was not restacked, and the rollback failed: slice branches stay rebased and nothing was pushed or recorded. Run by hand, then /gtd ship:`,
+          ...failed,
+          undo,
+        ]
+          .filter(Boolean)
+          .join("\n")
       const held = await checkedOutElsewhere(io, [b])
       const where = typeof held === "object" ? ` (checked out in worktree ${held.path})` : ""
       return [
-        `Slice branch ${b} was not restacked${where}; the restack is undone and nothing was pushed or recorded.`,
+        `Slice branch ${b} was not restacked${where}; the slice branches and HEAD are restored and nothing was pushed or recorded.`,
         undo,
       ]
         .filter(Boolean)
@@ -1096,6 +1111,7 @@ async function handRestack(
     top: string
     from: string
     links: Link[]
+    plan: boolean
   },
 ): Promise<Resumed | string | undefined> {
   const { branch, baseBranch, top, from, links: slices } = c
@@ -1105,6 +1121,8 @@ async function handRestack(
   // to sit on a commit of origin/<default>.
   const onto = `origin/${baseBranch}`
   if (!(await ok("merge-base", "--is-ancestor", `${lowest}~1`, onto))) return undefined
+  // A liveness probe needs only the shape: origin is not asked.
+  if (!c.plan) return { links: slices, forget: false }
   // The pre-rebase tips are gone: origin's copies are judged against the recorded
   // top, or pass as a former tip of the local branch. The top is stale once the
   // top branch is re-shipped or restacked with more than one commit above.

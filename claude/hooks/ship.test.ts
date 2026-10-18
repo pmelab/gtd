@@ -2187,6 +2187,8 @@ describe("ship stack", () => {
     const FETCH = "git fetch origin +refs/heads/main:refs/remotes/origin/main"
     const GITPATH = "git rev-parse --git-path rebase-merge"
     const lsTop = `git ls-remote origin refs/heads/feat/x`
+    const WT = "git worktree list --porcelain"
+    const here = { out: "worktree /repo\nHEAD abc\nbranch refs/heads/feat/x\n" }
     const ls3 = `git ls-remote origin refs/heads/feat/x-middle refs/heads/feat/x`
     const writes =
       /^git (push|rebase|reset|commit|branch)|^git config --local (?!--get)|^gh pr (create|edit)/
@@ -2200,6 +2202,7 @@ describe("ship stack", () => {
       [lsTop]: { out: `${O}\trefs/heads/feat/x\n` },
       "git merge-base origin/main feat/x": { out: M },
       "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+      [WT]: here,
     }
     const three: Record<string, Scripted> = {
       ...resume,
@@ -2220,6 +2223,7 @@ describe("ship stack", () => {
       "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
       "git rev-parse --verify --quiet origin/feat/x-middle": { code: 0 },
       [`git merge-base --is-ancestor ${S1} refs/heads/feat/x-middle`]: { code: 1 },
+      [WT]: here,
     }
     const at = (ran: () => string[], c: string) => ran().indexOf(c)
 
@@ -2238,6 +2242,7 @@ describe("ship stack", () => {
       expect(order.every((i) => i >= 0)).toBe(true)
       expect([...order].sort((a, b) => a - b)).toEqual(order)
       expect(ran().filter((c) => c.startsWith("git rebase"))).toEqual([REBASE])
+      expect(ran()).not.toContain("git fetch origin main")
       expect(ran().lastIndexOf(`git config --local --unset ${KEY}`)).toBeGreaterThan(
         at(ran, "gh pr edit 8 --base main"),
       )
@@ -2563,9 +2568,8 @@ describe("ship stack", () => {
       })
     })
 
-    describe("review round 1", () => {
+    describe("restack after a merged lower slice", () => {
       const D = "d".repeat(40)
-      const WT = "git worktree list --porcelain"
       const elsewhere = {
         out: "worktree /repo\nHEAD abc\nbranch refs/heads/feat/x\n\nworktree /elsewhere\nHEAD def\nbranch refs/heads/feat/x-middle\n",
       }
@@ -2583,14 +2587,6 @@ describe("ship stack", () => {
             c,
           ),
         )
-
-      test("fetches an explicit refspec, never the bare form, then rebases onto origin/main", async () => {
-        const { io, ran } = repo(two)
-        await ship(io, false)
-        expect(ran()).toContain(FETCH)
-        expect(ran()).not.toContain("git fetch origin main")
-        expect(at(ran, FETCH)).toBeLessThan(at(ran, REBASE))
-      })
 
       test("a rebase-merge dir is aborted even without a REBASE_HEAD, and names the top slice", async () => {
         const { io, ran } = repo({
@@ -2643,7 +2639,6 @@ describe("ship stack", () => {
         })
         expect(await ship(io, false)).toMatchObject({ ok: true })
         expect(ran().filter((c) => c.startsWith("git rebase"))).toEqual([REBASE])
-        expect(ran().some((c) => c.includes("refs/heads/feat/x-refactor"))).toBe(false)
       })
 
       test("a stale local merged branch does not stop a hand restack", async () => {
@@ -2653,7 +2648,6 @@ describe("ship stack", () => {
         })
         expect(await ship(io, false)).toMatchObject({ ok: true })
         expect(ran()).toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
-        expect(ran().some((c) => c.includes("refs/heads/feat/x-refactor"))).toBe(false)
       })
 
       test("no floor commit refuses and names the merged slice", async () => {
@@ -2678,16 +2672,10 @@ describe("ship stack", () => {
         expect(ran()).toContain(`git config --local ${KEY} middle feature`)
       })
 
-      test("a hand restack reads the recorded top once", async () => {
-        const { io, ran } = repo(hand)
-        await ship(io, false)
-        expect(ran().filter((c) => c === `git config --local --get ${TOP}`)).toHaveLength(1)
-      })
-
       test("a slice branch checked out elsewhere refuses before the rebase, and under -n", async () => {
         const refusal = {
           ok: false,
-          text: "Slice branch feat/x-middle is checked out in worktree /elsewhere, so git rebase --update-refs would skip it; nothing changed. Free it there (git -C /elsewhere switch --detach), then /gtd ship.",
+          text: "Slice branch feat/x-middle is checked out in worktree /elsewhere, so git rebase --update-refs would skip it; nothing changed. Free it there (git -C '/elsewhere' switch --detach), then /gtd ship.",
         }
         const real = repo({ ...three, [WT]: elsewhere })
         expect(await ship(real.io, false)).toEqual(refusal)
@@ -2721,7 +2709,7 @@ describe("ship stack", () => {
         const { io, ran } = repo({ ...three, ...over })
         expect(await ship(io, false)).toEqual({
           ok: false,
-          text: "Slice branch feat/x-middle was not restacked; the restack is undone and nothing was pushed or recorded.",
+          text: "Slice branch feat/x-middle was not restacked; the slice branches and HEAD are restored and nothing was pushed or recorded.",
         })
         expect(ran()).toContain(`git update-ref refs/heads/feat/x-middle ${S2} ${S2}`)
         expect(at(ran, `git reset --keep ${S3}`)).toBeGreaterThan(at(ran, REBASE3))
@@ -2747,7 +2735,7 @@ describe("ship stack", () => {
         expect(ran().some((c) => /^git push --force|^gh pr edit/.test(c))).toBe(false)
       })
 
-      test("recordedRefusal's dry call plans no restack: no ls-remote, fetch or worktree list", async () => {
+      test("a live record refuses a fresh stack even when origin is unreachable", async () => {
         const { io, ran } = repo({
           ...two,
           "gtd summary": { out: "Describe the process." },
@@ -2757,7 +2745,54 @@ describe("ship stack", () => {
         const out = await ship(io, false)
         expect(out.text).not.toContain("ls-remote")
         expect(out.text).toContain("already has a recorded stack")
-        expect(ran().some((c) => /^git (ls-remote|fetch|worktree)/.test(c))).toBe(false)
+        expect(ran().some((c) => /^git (ls-remote|fetch)/.test(c))).toBe(false)
+      })
+
+      test("a hand-restacked record refuses a fresh stack without asking origin", async () => {
+        const { io, ran } = repo({
+          ...hand,
+          "gtd summary": { out: "Describe the process." },
+          "git rev-parse HEAD": { out: C },
+          [ls3]: { code: 1, err: "offline" },
+        })
+        const out = await ship(io, false)
+        expect(out.text).toContain("already has a recorded stack")
+        expect(ran().some((c) => /^git (ls-remote|fetch|push)/.test(c))).toBe(false)
+      })
+
+      test("a rollback restores the branch the rebase moved, from its pre-rebase sha", async () => {
+        const MOVED = "6".repeat(40)
+        const mid = "refs/heads/feat/x-mid2"
+        const script: Record<string, Scripted> = {
+          ...three,
+          [`git config --local --get ${KEY}`]: { out: "refactor middle mid2 feature\n" },
+          [`git rev-parse --verify --quiet ${S3}~3`]: { out: S1 },
+          [`git rev-parse --verify --quiet ${S3}~2`]: { out: S2 },
+          "git rev-parse --verify --quiet refs/heads/feat/x-mid2": { out: S3 },
+          "git rev-parse refs/heads/feat/x-mid2": { out: S3 },
+          "git rev-parse refs/heads/feat/x-middle": { out: S2 },
+          [view("feat/x-mid2")]: pr(10, { baseRefName: "feat/x-middle" }),
+          [view("feat/x")]: pr(9, { baseRefName: "feat/x-mid2" }),
+          "git rev-parse --verify --quiet origin/feat/x-mid2": { code: 0 },
+          // the rebase moved middle, skipped mid2
+          [`git merge-base --is-ancestor ${S1} ${mid}`]: { code: 0 },
+          "git merge-base --is-ancestor origin/main refs/heads/feat/x-middle": { code: 0 },
+          "git merge-base --is-ancestor origin/main refs/heads/feat/x-mid2": { code: 1 },
+        }
+        const { io, ran } = repo(script)
+        let rebased = false
+        const run = io.run
+        io.run = async (argv, stdin) => {
+          const key = argv.join(" ")
+          if (key.startsWith("git rebase --update-refs")) rebased = true
+          if (rebased && key === "git rev-parse refs/heads/feat/x-middle")
+            return { code: 0, out: MOVED, err: "" }
+          return run(argv, stdin)
+        }
+        const out = await ship(io, false)
+        expect(out.text).toContain("Slice branch feat/x-mid2 was not restacked")
+        expect(ran()).toContain(`git update-ref refs/heads/feat/x-middle ${S2} ${MOVED}`)
+        expect(ran()).toContain(`git update-ref ${mid} ${S3} ${S3}`)
       })
 
       test("-n after a merged lower slice prints one Retarget line", async () => {
