@@ -20,7 +20,7 @@ sanctioned marker, or both.
     the guard
   - planner keeps listing unchanged tests, so packages carry more lines the
     build ignores
-- [ ] Both: planner rule first, marker as the backstop
+- [x] Both: planner rule first, marker as the backstop
   - largest change: prompt, package grammar, guard
   - no dead end either way
 - [ ] _your answer_
@@ -36,7 +36,7 @@ in an evidence file, or the plan never produces such packages.
   - smallest change; no trail of what the turn did
   - **risk: any package declaring no tests (chore packages) passes a do-nothing
     turn silently**
-- [ ] Evidence file: the builder does the work, then writes `.gtd/SATISFIED.md`
+- [x] Evidence file: the builder does the work, then writes `.gtd/SATISFIED.md`
       with concrete evidence (issue URLs) — the diff is non-empty, closing
       removes the file
   - no engine change; build step keeps refusing genuinely empty turns
