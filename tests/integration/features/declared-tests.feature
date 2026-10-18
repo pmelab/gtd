@@ -253,3 +253,30 @@ Feature: A package's declared tests gate its build
     And stderr contains "not in the package's diff"
     And stderr contains "lib/widget.test.ts"
     And stderr does not contain "lib/existing.test.ts"
+
+  Scenario: a package with no Tests section closes on SATISFIED.md alone
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget. Nothing to test, the behaviour already exists.
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And a file ".gtd/SATISFIED.md" with:
+      """
+      - [x] widget already shipped — https://github.com/pmelab/gtd/issues/373
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
+
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.closing"
+
+    Given the file ".gtd/packages/01-widget.md" is deleted
+    And the file ".gtd/SATISFIED.md" is deleted
+    And the file ".gtd/ARCHITECTURE.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): packages.item.closing → build.quality.correctness.reviewing"
+    And ".gtd/packages/01-widget.md" does not exist
+    And ".gtd/SATISFIED.md" does not exist
