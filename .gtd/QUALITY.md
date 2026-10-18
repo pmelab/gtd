@@ -53,3 +53,20 @@ reached, and the next record overwrites the top. Still, `topGuard` treats "top
 two keys describing the same stack. Nit: unset `gtdStackTop` in the undo branch,
 or write the names first and the top last, so the two keys only ever exist as a
 matched pair.
+
+## owasp-security: the new refusal hands the agent a shell command built from the branch name (Low)
+
+`topGuard`'s refusal (`claude/hooks/ship.ts:535`) repeats a pattern `settle`
+already has. It interpolates `STACK_KEY(branch)` into a backticked
+`git config --local --unset …` command and tells the reader to run it. Git
+refnames may contain `$`, `(`, `)`, `;` and backticks, so a branch named
+`x$(curl …|sh)` turns that advice into command substitution once it is pasted
+into a shell. In the Claude mod, the reader is an agent that may run the advice
+by itself (CWE-78, A05:2025, ASI05 Unexpected Code Execution). Every `io.run`
+call takes an argv array, so ship itself never runs the name through a shell.
+The path only exists when someone checks out a branch whose name someone else
+chose, for example one caught from a handoff, so this is defense in depth with
+no demonstrated exploit. Fix: the correctness chunk above already moves both
+refusals to `GTD_SHIP_MODE=commits`, which removes the interpolated command. If
+a command stays, single-quote the key (`'branch.<b>.gtdStack'`) or name the
+command without the branch.
