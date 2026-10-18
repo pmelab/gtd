@@ -72,3 +72,34 @@ a long run in memory. So the release flag does not keep the old behaviour when
 it is off. Consider keeping `stdio: "inherit"` and skipping the capture whenever
 the caller will not use the output (no condense), and piping only under the
 flag.
+
+## ponytail-review: the new release flag buys a full extra vitest pass that tests nothing
+
+`condense_failures` is declared `kind: "release"` in `src/flags/index.ts`.
+`planStates` turns every release flag into its own state, so `npm test` now runs
+a fourth state, `condense_failures on`, over all of `VITEST_TASKS`. Every vitest
+task in `turbo.json` lists `GTD_FLAG_*` in its `env`, so that state has its own
+cache key and runs in full on every gate and in CI.
+
+But nothing under `src/`, `claude/` or `tests/` reads the flag. The only reader
+is `scripts/test-states.main.ts`, the runner itself, which takes it from the
+ambient env, not from the state's env. So the `condense_failures on` state runs
+the same product code as `defaults` and can only repeat its result. Concrete
+case: a clean tree with three states took three vitest passes; now it takes
+four, about a third more wall time per gate, for zero extra coverage. AGENTS.md
+already says "each release flag adds a full vitest pass to every gate".
+
+Fix: do not model a runner option as a product release flag. Read a plain env
+var (or a CLI option to the runner) in `test-states.main.ts`, drop the `FLAGS`
+entry and the `condense_failures flag` test that only asserts the state exists.
+If it must stay a flag, give it a kind that `planStates` skips.
+
+## ponytail-review (Nit): `RunTasks` widened to a four-way union only for old fakes
+
+`RunTasks` now returns `number | null | RunResult | Promise<…>`, and `asResult`
+exists only to fold the bare-status forms back into `RunResult`. The one real
+implementation, `spawnTurbo`, always returns `Promise<RunResult>`. The bare
+forms survive only so older test fakes can keep returning `0`/`1`. Fix: make
+`RunTasks` return `Promise<RunResult>` (or `RunResult | Promise<RunResult>`),
+have the fakes return `{ status, output: "" }`, and delete `asResult` and its
+doc comment. About -8 lines, and one less shape to reason about.
