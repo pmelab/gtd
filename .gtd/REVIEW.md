@@ -1,4 +1,4 @@
-# Review: 96c2129
+# Review: 078595f
 
 <!-- base: 0cd86a2c245c8a0ea2446eca85f7ee2df1831eb1 -->
 
@@ -70,12 +70,10 @@ write-access check fires first, with "outside its write access".
 - [ ] ./docs/configuration.md#584-592 — `refactorFirst` docs: test files are
       dropped from the strays, and an all-test `refactor-first` resolves
       `false`.
-- [ ] ./docs/configuration.md#622-626 — Risk: the bullet still says a changed
-      test file is refused as `refactor-tests`, but no real landing can reach it
-      now. A test file is never in the refactor's write access, so the person
-      sees "this turn wrote outside its write access" (the reworded e2e
-      scenarios prove it). Either say the write access refuses it, or drop the
-      `refactor-tests` code from the docs.
+- [ ] ./docs/configuration.md#621-626 — fixed: the bullet drops the
+      `refactor-tests` code and says a test-file stray is refused by the write
+      access ("this turn wrote outside its write access"), matching the reworded
+      e2e scenarios.
 - [ ] ./src/workflows/feature/refactor.test.ts#134-146 — `refactorStrays` unit
       test under a narrowed `seamAllow`.
 - [ ] ./src/workflows/feature/refactor.test.ts#349-364 — all-test strays run no
@@ -135,7 +133,12 @@ the refactor review does), such a round is "reopened". Its notes since
 - [ ] ./src/testkit/steps.ts#149-158 — new Given
       `step {string} rewrites {string} with:`. It writes only while the file
       exists, so a closed turn changes nothing.
-- [ ] ./docs/configuration.md#701-704 — documents the settled-round refusal.
+- [ ] ./docs/configuration.md#702-705 — Risk: **the doc says a settled round
+      refuses on a note judged `nit` or `defer`; the code does not.**
+      `routeNotes` fixes a `nit` and re-reviews, and sets a `defer` aside and
+      rests; only `edit` notes and hand-edited paths refuse (the "nit-only note
+      is fixed without a collecting turn or a refusal" unit test pins this).
+      Drop `nit` and `defer` from the refusing list.
 
 ## The closed refactor collecting prompt is chosen by round, not by file presence
 
@@ -236,5 +239,5 @@ lands at `###`, which can raise a level, and deeper levels cap at `######`.
 
 - [ ] ./README.md#578-580 — "28.x" becomes "27.5.0 or later" for the
       `refactor-first` abandon note.
-- [ ] ./docs/configuration.md#713-713 — same correction in the upgrade
+- [ ] ./docs/configuration.md#714-714 — same correction in the upgrade
       migration.
