@@ -74,8 +74,9 @@ survives a squash only under `refs/gtd/history/*`, which nothing pushes by
 default (#374).** Read it with `gtd history show <ref>`; the manual fix is in
 [Process history](README.md#process-history).
 
-**A default setup records no `seam.judge` judgment or `Gtd-Mark: risk-tier`
-trailers (#371).**
+**`seam.judge` judgments appear only with `GTD_FLAG_NAIVE_PASS` on, and
+`Gtd-Mark: risk-tier` trailers only with `GTD_FLAG_RISK_TIER` and
+`GTD_FLAG_NAIVE_PASS` on; a default setup records neither.**
 
 ## Worked examples
 
