@@ -50,3 +50,26 @@ The retry therefore starts over and files duplicate issues instead of resuming.
 Fix: add one rule — before doing out-of-tree work, check whether it was already
 done (e.g. search for an existing issue with the same title via `gh`) and reuse
 it as evidence. Should.
+
+## owasp-security — out-of-tree escape hatch is self-attested (Low, non-blocking)
+
+`src/workflows/shared/text.ts` `packagesItemBuildingPrompt` now tells the
+unattended builder it may satisfy a package by side effects outside the tree
+("issues filed, commands run") and record them in `.gtd/SATISFIED.md`. In
+`src/workflows/feature/packages.ts` `requireDeclaredTests`, that file's mere
+existence drops the in-diff requirement; its claimed evidence (issue URL,
+command output) is never checked, and `closing` deletes it, so nothing durable
+in history shows what was claimed. Path: package text (agent-authored) → builder
+turn → external writes via `gh`/shell (LLM03 Excessive Agency, ASI09 Human-Agent
+Trust Exploitation; OWASP A06:2025) → guard passes on a self-written file. Not
+exploitable by an outside party — builder and decompose agents are already
+trusted with a shell and the declared tests must still exist — so this is
+defense-in-depth: the guard's integrity rests on the agent's honesty, and the
+prompt now explicitly invites irreversible public side effects (filed issues)
+with no human gate, compounding the retry duplication noted under correctness.
+
+Fix (pick one): scope the out-of-tree clause to packages with no `## Tests`
+(chore packages), so a package that declares tests can never trade them for
+SATISFIED.md claims; or keep `.gtd/SATISFIED.md` out of the `closing` removal
+until the squash so its evidence is reviewable in the review step. Confidence:
+Confirmed (behaviour read from code; impact theoretical).
