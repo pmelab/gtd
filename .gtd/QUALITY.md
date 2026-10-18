@@ -212,3 +212,29 @@ Nit. AGENTS.md, Comments: "Everything else (restatement of the code, history, a
 "`kept(l, sha)` says origin's commit survives the restack" only renames the
 parameter in prose. Drop it, and keep the lease and refuses-before-writes
 reasons, which are the decision.
+
+## spec-challenge: concern 2 changed what the hand-restack guard compares, but the spec scheduled no doc change, so docs/driver.md now promises a refusal the code skips (docs/driver.md hand-restack paragraph, claude/hooks/ship.ts `handRestack` comment)
+
+Decision (ARCHITECTURE concern 2, package task 2): `keptByHand` replaces the
+reflog test. Origin's commits beyond the recorded top (or the merge base) pass
+when each one's identity is in `origin/<default>..refs/heads/<b>`. The spec's
+chores only reword the concern-3 refusal in README.md and docs/driver.md.
+Concern 2 has no doc chore.
+
+Invariant: docs/driver.md is the user contract for the restack. It still says
+the hand-restack push leases on origin's commit "refusing if origin holds
+commits the recorded top lacks". The comment above `handRestack` says the same
+thing ("origin's copies hold nothing the recorded top lacks"). The code no
+longer works that way.
+
+- It passes origin commits the top lacks whenever the local branch holds a
+  same-identity copy. Example: a collaborator's commit you pulled and kept.
+- Once the top object is gone, it judges against the merge base, not the top.
+
+So a user who reads the doc expects a refusal that never comes. User global
+rule: "every significant change is also reflected in the readme". Concern 2
+changes user-visible safety behaviour, and the doc still describes the old rule.
+
+Consider: reword the driver.md clause to "refusing if origin holds a commit the
+local branch has no copy of (same author, date and message)". Fix the
+`handRestack` comment to match.
