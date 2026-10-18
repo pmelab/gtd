@@ -9,6 +9,8 @@ import {
   buildReviewReviewingPrompt,
   agentWithSkills,
   architectureAuthorPrompt,
+  architectureDecomposePrompt,
+  packagesItemBuildingPrompt,
   architectureGateAnswerMessage,
   buildFixPrompt,
   buildFixQualityPrompt,
@@ -1265,4 +1267,46 @@ describe("buildReviewReviewingPrompt lap wording", () => {
       }
     },
   )
+})
+
+describe("architectureDecomposePrompt tests rule", () => {
+  it("states one rule: write-or-change, relied-on marked (unchanged), no other untouched", () => {
+    const prompt = renderText(() => architectureDecomposePrompt()).replace(/\s+/g, " ")
+    expect(prompt).toContain("List every test the package writes or changes")
+    expect(prompt).toContain("also list an existing test a criterion relies on")
+    expect(prompt).toContain("list no other untouched test")
+    expect(prompt).toContain("- unit: \\`<path>\\` (unchanged)")
+    expect(prompt).toContain("- e2e: \\`<path>\\` (unchanged)")
+    expect(prompt).toContain("only decompose places the marker")
+  })
+})
+
+describe("packagesItemBuildingPrompt", () => {
+  const prompt = renderText(() => packagesItemBuildingPrompt(".gtd/packages/01-a.md")).replace(
+    /\s+/g,
+    " ",
+  )
+  it("carries the evidence kinds and the already-done check", () => {
+    for (const w of [
+      "evidence per criterion",
+      "commit, file, symbol, issue URL, or command output — and change nothing else",
+      "it was not already done",
+      "via `gh`",
+    ])
+      expect(prompt).toContain(w)
+  })
+  it("states the already-met, no-tests out-of-tree and implement-normally rules flat", () => {
+    expect(prompt).toContain("Every criterion already met in the tree")
+    expect(prompt).toContain("No `## Tests` and work outside the tree")
+    expect(prompt).toContain(
+      "Any other package**: implement normally, write no `.gtd/SATISFIED.md`",
+    )
+  })
+  it("says an (unchanged) line must exist and stay untouched", () => {
+    expect(prompt).toContain("(unchanged)")
+    expect(prompt).toContain("stay untouched")
+    expect(prompt).toContain("creating, editing or deleting it refuses the turn")
+    expect(prompt).toContain("must exist before the turn")
+    expect(prompt).toContain("stop without creating it")
+  })
 })

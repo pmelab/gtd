@@ -376,7 +376,12 @@ ${stateFileRules}
 - Every package with tests has a \`## Tests\` section, one line per
   declared test, copied from the architecture entries:
   \`- unit: \\\`<path>\\\`\` or \`- e2e: \\\`<path>\\\`\`. Chore packages have
-  none
+  none. List every test the package writes or changes; also list an
+  existing test a criterion relies on, marked \`(unchanged)\` —
+  \`- unit: \\\`<path>\\\` (unchanged)\` or
+  \`- e2e: \\\`<path>\\\` (unchanged)\`; list no other untouched test;
+  never mark a file the package also writes or changes — list it once,
+  unmarked; only decompose places the marker
 - Leave everything uncommitted and finish
 `
 
@@ -413,15 +418,26 @@ export const packagesItemBuildingPrompt = (pkg: string): string =>
   never delete the package file (the declared-tests guard reads it
   after you)
 - The package to implement is \`${pkg}\`
-- First check its acceptance criteria against the current tree —
-  an earlier fix turn may already satisfy them. If **every**
-  criterion is met, implement nothing: write \`.gtd/SATISFIED.md\`
-  with each criterion's concrete evidence (commit, file, or
-  symbol), change nothing else, and finish. Otherwise implement
-  normally and skip that file
+- First check the acceptance criteria against the current tree —
+  an earlier fix turn may already meet them
+- **Every criterion already met in the tree**: write
+  \`.gtd/SATISFIED.md\` with evidence per criterion — commit, file,
+  symbol, issue URL, or command output — and change nothing else
+- **No \`## Tests\` and work outside the tree**: first check it was
+  not already done by an earlier attempt (e.g. an existing issue
+  with the same title via \`gh\`) and reuse that as evidence, or do
+  the work; then write \`.gtd/SATISFIED.md\` with that evidence and
+  change nothing else in the tree
+- **Any other package**: implement normally, write no
+  \`.gtd/SATISFIED.md\`
 - Write the tests the package declares under \`## Tests\` first,
   then the code that makes them pass; the turn is refused unless
-  every declared test is in your diff
+  every declared test is in your diff — except a line marked
+  \`(unchanged)\`, which must exist before the turn and stay
+  untouched — creating, editing or deleting it refuses the turn. If
+  it does not exist yet, or the marker is wrong because the package
+  must change that test, stop without creating it and leave it to
+  a person
 - A declared e2e test is a scenario in the repository's own e2e
   framework for the behaviour its \`## E2E Scenarios\` entry names.
   Word it to fit the existing steps — reuse and generalise them
