@@ -1,4 +1,4 @@
-# Review: a4fdcbb
+# Review: f5a91e9
 
 <!-- base: 3527a142b65cc7f66d4086f613d3590208c290c1 -->
 
@@ -9,8 +9,8 @@ fetch, retired slice names stop blocking a fresh stack, and a hand restack of a
 multi-commit top-only remainder is recognised. No `.feature` file changed, so
 there is no Scenarios chunk; all coverage is vitest in `claude/hooks/`.
 
-**One risk: a successful restack push never clears `gtdLease`, so a later
-rewriting ship of that branch is refused with "stale info".**
+**No open risks.** The earlier one (a successful restack push never cleared
+`gtdLease`) is fixed: any successful push now unsets the key.
 
 ## Persisted push lease
 
@@ -22,30 +22,28 @@ collaborator's commit into an overwrite. A rejected push names the unset line.
 
 - [ ] ./claude/hooks/ship.ts#323-327 — new `LEASE_KEY`; deliberately outside
       `forgetStack`'s key list.
-- [ ] ./claude/hooks/ship.ts#1235-1243 — Risk: the lease is written for every
-      moved branch, but the restack's own push passes `l.lease` explicitly,
-      which zeroes `kept` in `pushBranch`, so the key is **never unset after a
-      successful push** (the test "forgetting the stack never touches the lease"
-      pins exactly that). The key then lingers with the pre-restack sha. The
-      next ship that rewrites that branch without restacking (a squash whose
-      result no longer contains origin's tip) finds origin's sha not an ancestor
-      of HEAD, falls back to the stale stored sha, and is **rejected every
-      time** until the user unsets the key by hand. Without the key, that push
-      succeeds via plain `--force-with-lease`. Also contradicts docs/driver.md
-      ("kept ... until a push of that branch succeeds"). Fix: unset the key
-      after any successful push of that branch, explicit lease included.
-- [ ] ./claude/hooks/ship.ts#1717-1737 — reads the key, probes origin with
+- [ ] ./claude/hooks/ship.ts#1235-1243 — writes the lease for every moved branch
+      before the record shrinks; the restack's own push then passes it
+      explicitly as `l.lease`.
+- [ ] ./claude/hooks/ship.ts#1716-1737 — reads the key, probes origin with
       `git ls-remote`, picks the lease. Adds one network round trip to every
-      push of a branch that carries a key.
-- [ ] ./claude/hooks/ship.ts#1742-1749 — appends the unset hint only on a
-      `stale info`/`rejected` error, and unsets the key only when it drove the
-      push.
+      push of a branch that carries a key. Fix: splits the read into `stored`
+      (key present) and `kept` (key drives the lease, only without an explicit
+      lease); origin losing the branch clears both.
+- [ ] ./claude/hooks/ship.ts#1742-1752 — appends the unset hint only on a
+      `stale info`/`rejected` error when the key drove the push. Fix: **any
+      successful push now unsets a stored key, explicit restack lease
+      included**, so a stale sha no longer rejects every later rewrite of the
+      branch; matches docs/driver.md's "until a push of that branch succeeds".
 - [ ] ./claude/hooks/ship.test.ts#237-319 — `pushBranch` unit cases: lease from
       key, rejection keeps key, unrelated failure, reconciled origin, origin
       lost the branch, killed push, no key.
-- [ ] ./claude/hooks/ship.test.ts#3082-3165 — end-to-end: written before the
+- [ ] ./claude/hooks/ship.test.ts#3082-3181 — end-to-end: written before the
       record shrinks, failed write pushes nothing, rejected push then fetch
-      keeps the old lease, reconciled ship leases on origin's sha.
+      keeps the old lease, reconciled ship leases on origin's sha. Fix: the old
+      "forgetting the stack never touches the lease" case (which pinned the bug)
+      is replaced by two: a successful restack push unsets the key after the
+      push; a rejected one keeps it.
 
 ## Restack rollback and shape checks
 
@@ -104,7 +102,7 @@ commit by author, email, author date and message, and its parent is on origin.
       reads do not count as a match.
 - [ ] ./claude/hooks/ship.ts#1312-1316 — the extra check applies only to a
       one-slice remainder.
-- [ ] ./claude/hooks/ship.test.ts#3191-3251 — resumes with a leased push and
+- [ ] ./claude/hooks/ship.test.ts#3207-3267 — resumes with a leased push and
       retarget; mismatched identity, two-slice remainder, empty reads and an
       off-origin parent all drop the record with no force push.
 
@@ -124,7 +122,7 @@ existed or this ship recorded a new one; an ordinary resume keeps it.
       freshly recorded stack.
 - [ ] ./claude/hooks/ship.ts#699-700 — `takenSlice` treats retired names as
       gtd-built.
-- [ ] ./claude/hooks/ship.test.ts#3166-3190 — retired name reusable by a fresh
+- [ ] ./claude/hooks/ship.test.ts#3182-3206 — retired name reusable by a fresh
       stack; ordinary resume keeps `gtdStackRetired`.
 
 ## Default branch resolved once
@@ -153,5 +151,4 @@ preflight. `baseBranch` is now threaded through the call chain, and
 - [ ] ./docs/driver.md#429-432 — failed abort says mid-rebase.
 - [ ] ./docs/driver.md#444-469 — rollback cases, stray-branch refusal,
       `gtdLease` key and how to override it, top-only hand restack rule. The
-      "until a push of that branch succeeds" claim is false today; see the Risk
-      above.
+      "until a push of that branch succeeds" claim now holds.
