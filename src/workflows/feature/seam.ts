@@ -41,9 +41,13 @@ export const naivePass = (rejection?: t.SeamRejection): Promise<void> =>
     system: t.builderSystem(),
   })
 
-export const implement = (reference: string | undefined, tier?: RiskTier): Promise<void> =>
+export const implement = (
+  reference: string | undefined,
+  tier?: RiskTier,
+  amend?: boolean,
+): Promise<void> =>
   scope("implement", async () => {
-    await t.agentWithSkills("building", t.implementBuildingPrompt(reference, tier), {
+    await t.agentWithSkills("building", t.implementBuildingPrompt(reference, tier, amend), {
       label: "Implementing",
       model: coder(),
       system: t.builderSystem(),

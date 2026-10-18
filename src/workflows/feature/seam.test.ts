@@ -200,7 +200,11 @@ describe("seamBuild", () => {
 })
 
 describe("implement", () => {
-  const building = async (reference: string | undefined) => {
+  const building = async (
+    reference: string | undefined,
+    tier?: "low" | "high",
+    amend?: boolean,
+  ) => {
     const requests: StepRequest[] = []
     installContext(
       fixtureContext(
@@ -216,7 +220,7 @@ describe("implement", () => {
         },
       ),
     )
-    await implement(reference)
+    await implement(reference, tier, amend)
     const request = requests.find((r) => r.kind === "agent" && r.name === "building")
     if (request?.kind !== "agent") throw new Error("no building turn")
     return request.prompt
@@ -228,5 +232,31 @@ describe("implement", () => {
 
   it("carries no git show line without a reference", async () => {
     expect(await building(undefined)).not.toContain("git show")
+  })
+
+  it("first lap renders the reference line and the fresh-write wording", async () => {
+    const prompt = await building("abc")
+    expect(prompt).toContain("git show abc")
+    expect(prompt).toContain("Implement them properly")
+    expect(prompt).toContain("write\n  the change fresh")
+    expect(prompt).toContain("new release flag")
+  })
+
+  it("amend says the change exists, keeps the earlier flag and asks for no new one", async () => {
+    const prompt = await building(undefined, undefined, true)
+    expect(prompt).toContain("already exists")
+    expect(prompt).toContain("amend")
+    expect(prompt).toContain("Keep the release flag")
+    expect(prompt).toContain("add none")
+    expect(prompt).not.toContain("implement them properly")
+    expect(prompt).not.toContain("Implement them properly")
+    expect(prompt).not.toContain("write the change fresh")
+    expect(prompt).not.toContain("new release flag")
+  })
+
+  it("amend on tier low says to add no release flag", async () => {
+    const prompt = await building(undefined, "low", true)
+    expect(prompt).toContain("Add no release flag")
+    expect(prompt).toContain("amend")
   })
 })

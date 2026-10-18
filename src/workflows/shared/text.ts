@@ -1206,21 +1206,30 @@ Start over and choose a different approach; do not rebuild the same diff.
 export const implementBuildingPrompt = (
   reference: string | undefined,
   tier?: "low" | "high",
+  amend?: boolean,
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
-- Implement them properly, fitting the codebase's seams and conventions
 ${
-  reference === undefined
-    ? ""
-    : `- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
+  amend === true
+    ? `- The change already exists in the tree from an earlier lap; amend it to meet
+  the re-derived requirements instead of rewriting it
+`
+    : `- Implement them properly, fitting the codebase's seams and conventions
+`
+}${
+    reference === undefined || amend === true
+      ? ""
+      : `- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
   Read it for ideas; never apply, cherry-pick or check it out — write
   the change fresh
 `
-}${
+  }${
     tier === "low"
       ? "- Add no release flag — this change is low risk tier"
-      : `- Put the new behaviour behind a new release flag, following the
+      : amend === true
+        ? "- Keep the release flag the earlier lap added; add none"
+        : `- Put the new behaviour behind a new release flag, following the
   repository's flag conventions`
   }
 - Write the tests first, then the code that makes them pass

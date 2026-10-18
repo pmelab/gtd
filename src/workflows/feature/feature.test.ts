@@ -100,6 +100,8 @@ describe("planAndBuild on the naive pass", () => {
       "design.gate.answer": () => undefined,
     })
     expect(rest.state).toBe("implement.building")
+    expect(rest.content).toContain("already exists")
+    expect(rest.content).not.toContain("write the change fresh")
     const subjects = repo.subjects()
     const reUnwind = subjects.findIndex((subject) => subject.endsWith("→ re-unwind"))
     expect(reUnwind).toBeGreaterThan(-1)
@@ -173,7 +175,10 @@ describe("afterTail feedback lap", () => {
       (await repo.drive({ "build.review.closing": runsItsScript, "re-unwind": runsItsScript }))
         .state,
     ).toBe("design.triage")
-    expect((await repo.drive(afterFeedback)).state).toBe("implement.building")
+    const rest = await repo.drive(afterFeedback)
+    expect(rest.state).toBe("implement.building")
+    expect(rest.content).toContain("already exists")
+    expect(rest.content).not.toContain("write the change fresh")
     expect(repo.subjects().some((subject) => subject.includes("seam."))).toBe(false)
   })
 

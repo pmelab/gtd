@@ -63,7 +63,7 @@ const featureFeedback = async (first: ReviewOutcome, lensBase?: string): Promise
     await reUnwind(outcome)
     await design(outcome.base)
     const tier = riskTierOn() ? recordRisk() : undefined
-    await implement(undefined, tier)
+    await implement(undefined, tier, true)
     outcome = await buildTail(false, outcome.base, true, lensBase === undefined ? {} : { lensBase })
   }
 }
