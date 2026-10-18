@@ -237,3 +237,54 @@ invariant that does not hold, so it is a wrong comment rather than a redundant
 one (see the correctness finding on partly unbuildable rounds). The comment on
 `afterTail` ("Opens no slice: slices cannot nest") and the one on
 `demoteHeadings` explain decisions and are fine.
+
+## spec-challenge: "spec-challenge looks up planning docs from the process start" is not what the brief says once the lap base moves
+
+Decision (ARCHITECTURE `buildQualityReviewingPrompt`, package 04): the lens
+prompt reviews from `base` and "names the process start beside `base`", so
+`specChallengeBrief` keeps finding planning documents from the process start,
+because `design.triage` lands before the slice base. Invariant it breaks: the
+brief tells the agent to look things up with `git log <start>..HEAD`, where
+"`<start>` is the commit above". In the new prompt the first commit named, the
+one in "Review the whole assembled change, from `<base>`", is the slice base.
+The process start appears only in a parenthesis after it. On `refactor-first`
+the feature lap's base is `seam.base` (`head()` after the refactor sign-off,
+`src/workflows/feature/seam.ts`), which is later than `design.triage`'s
+`.gtd/REQUIREMENTS.md`. So an agent that reads "the commit above" as the review
+base finds no planning documents, and then by the brief's last line "write
+nothing", which is a silent approval. `spec-challenge` is in the default
+`qualityReviews`, so this hits every default naive `refactor-first` run. The
+`text.test.ts` case "the spec-challenge brief looks up planning documents from
+the process start" only checks that the constant contains
+`git log <start>..HEAD` and that a `started at` line exists. It would still pass
+with this ambiguity. Fix: put the process-start SHA into the brief itself (make
+`specChallengeBrief` a function of `start()`, or have the brief say "the process
+start named in parentheses above, not the review base"), and have the test
+assert the start SHA appears in the `git log` line.
+
+## spec-challenge: the shared collecting prompt keeps "reply inside `.gtd/REVIEW.md` — the file stays in the tree", though the round has already closed it
+
+Decision (concern 6 / package 05): one collecting prompt, with the feature
+variant byte-identical to before (pinned by
+`__fixtures__/feature-collecting-prompt.txt`). The refactor variant drops only
+the "say in the reply" line, "because the round closes that file before
+collecting runs" (REQUIREMENTS concern 1). Invariant: that premise is true for
+every collecting path. `routeNotes`' edits branch calls `r.close()` and
+`finish`'s `collectWith` calls `close()` before `collect`
+(`src/workflow-kit/review.ts`), and `closeReview`
+(`src/workflows/shared/tail.ts`) removes `.gtd/REVIEW.md` and
+`.gtd/REVIEW.orig.md`. Yet both variants still say "replies inside
+`.gtd/REVIEW.md` (thread replies only; the file stays in the tree)", "delete the
+folded threads from `.gtd/REVIEW.md`", "append one `- A:` reply to each
+thread…", and "Finish by running `gtd check review .gtd/REVIEW.md`". On the
+refactor path this is now harmful, not just stale. An agent that follows it and
+recreates `.gtd/REVIEW.md` to append a reply (allowed: the
+`refactor.build.review` access is `.gtd/REVIEW.md`), but cannot build the
+concern, changes a file without writing `.gtd/REFACTOR.md`. That gets the
+`unmatched` refusal ("revert the change, or `gtd abandon`") instead of the new
+`dropped` one, so the human never sees which notes were left out. The spec made
+this one-line exception on that premise, but the golden fixture pins the
+contradiction for the feature variant and nothing checks the refactor variant
+against it. Fix: drop the REVIEW.md-reply, delete-threads and `gtd check review`
+lines from the refactor variant at least, and decide deliberately whether the
+feature golden should keep them. Or else correct the premise in the spec.
