@@ -1,43 +1,40 @@
-# Review: a674f32
+# Review: cb6fc72
 
 <!-- base: 6230714423ca81186820540e7b7d5154778a2c94 -->
 
 No `.feature` file changed. All changes sit in `claude/hooks/ship.ts`, its unit
-tests, and `docs/driver.md`.
+tests, and `docs/driver.md`. Since the last review, one fix landed: the leftover
+retired record no longer wipes a freshly built stack.
 
 ## Stack record lifecycle: retire, then forget after the PR step
 
 A ship that drops the stack (commits mode, single squash, broken chain) used to
 unset the record straight away. A failed PR step then lost the slice names it
 needed to retarget the PR on retry. Now the record moves to a `gtdStackRetired`
-key, and all three keys are unset only once the PR step succeeds.
+key, and the keys are unset only once the PR step succeeds.
 
-- [ ] ./claude/hooks/ship.ts#186-210 — reads live and retired records before the
-      squash, retires the live one when this ship drops the stack, forgets all
-      keys after a successful PR step.
-- [ ] ./claude/hooks/ship.ts#208-208 — Risk: **a leftover retired record wipes a
-      freshly built stack.** If a commits-mode ship fails at the PR step
-      (retired key set) and a later stack-mode ship succeeds, `retired.length`
-      is non-zero, so `forgetStack` unsets the new `gtdStack`/`gtdStackTop` too.
-      The next resume then ships one PR, and a commits re-ship no longer
-      retargets off the slice base. Fix: on the stack path, unset only
-      `RETIRED_KEY`. No test covers this.
-- [ ] ./claude/hooks/ship.ts#212-222 — `resolveStack` pulls the
+- [ ] ./claude/hooks/ship.ts#186-213 — reads live and retired records before the
+      squash, retires the live one when this ship drops the stack, and clears
+      keys after a successful PR step. **Fix since last review: a ship that
+      keeps its stack now unsets only `gtdStackRetired`.** `forgetStack` (all
+      three keys) runs only when the ship set `forget`. A stale retired record
+      from a failed commits-mode ship no longer takes the new
+      `gtdStack`/`gtdStackTop` with it. Risk resolved.
+- [ ] ./claude/hooks/ship.ts#215-226 — `resolveStack` pulls the
       resume-and-settle branch out of `ship`. Behaviour unchanged.
-- [ ] ./claude/hooks/ship.ts#305-321 — new `TOP_KEY`/`RETIRED_KEY`,
+- [ ] ./claude/hooks/ship.ts#309-324 — new `TOP_KEY`/`RETIRED_KEY`,
       `forgetStack` (unsets all three), and `retireStack` (writes the retired
       key first, so a failed write keeps the live record).
-- [ ] ./claude/hooks/ship.ts#325-364 — `plan` reports `forget` instead of
+- [ ] ./claude/hooks/ship.ts#335-367 — `plan` reports `forget` instead of
       unsetting the record itself. The no-process commits path always sets
       `forget`.
-- [ ] ./claude/hooks/ship.ts#386-439 — `squash` drops its inline unsets and
+- [ ] ./claude/hooks/ship.ts#369-442 — `squash` drops its inline unsets and
       `squashOne`. The single and unstacked chain paths return `forget: true`.
-      The dry-run object moves to `dryRun` (#366-384).
-- [ ] ./claude/hooks/ship.ts#441-461 — `recordStack` writes `gtdStackTop` before
+      The dry-run object moves to `dryRun`.
+- [ ] ./claude/hooks/ship.ts#444-464 — `recordStack` writes `gtdStackTop` before
       `gtdStack`. On either failure it runs `forgetStack` and undoes the squash,
       so the two keys only exist as a pair. `forgetStack` here also drops any
-      retired record. That is harmless, because the squash is undone and the
-      process is back.
+      retired record. Harmless: the squash is undone and the process is back.
 
 ## Missing slice branch rebuilt only at the recorded top
 
@@ -46,26 +43,26 @@ when HEAD had moved, so the slice could point at the wrong commit. Now it is
 rebuilt only when HEAD equals the recorded `gtdStackTop`. Otherwise the ship
 refuses and names commits mode.
 
-- [ ] ./claude/hooks/ship.ts#552-578 — `topGuard` refuses on the first missing
+- [ ] ./claude/hooks/ship.ts#555-582 — `topGuard` refuses on the first missing
       slice branch when HEAD is not the recorded top. `reviveMissing` is the
       extracted rebuild loop. **A record written before this change has no top
       key, so any missing slice branch now refuses instead of being rebuilt.**
-      That is intended, and tested ("no top recorded").
-- [ ] ./claude/hooks/ship.ts#580-613 — `resumable` runs the guard before the
+      Intended, and tested ("no top recorded").
+- [ ] ./claude/hooks/ship.ts#585-616 — `resumable` runs the guard before the
       chain check and returns `{ links, forget }` instead of unsetting the
       record itself. The guard also runs on dry runs, so dry and real runs
       refuse alike.
-- [ ] ./claude/hooks/ship.ts#630-634 — a closed lower slice's refusal now names
+- [ ] ./claude/hooks/ship.ts#633-637 — a closed lower slice's refusal now names
       `GTD_SHIP_MODE=commits` instead of a raw `git config --unset`.
 
 ## Retargeting: only off slice bases, thrown drafts included
 
-- [ ] ./claude/hooks/ship.ts#686-703 — `sliceStep` now retargets a thrown draft
+- [ ] ./claude/hooks/ship.ts#689-706 — `sliceStep` now retargets a thrown draft
       before rewriting it. A failed retarget keeps the THROWN marker, so a retry
       still rewrites it.
-- [ ] ./claude/hooks/ship.ts#909-937 — `unstack` handles both the retarget and
+- [ ] ./claude/hooks/ship.ts#912-940 — `unstack` handles both the retarget and
       the stack-line strip, and reports whether anything changed.
-- [ ] ./claude/hooks/ship.ts#939-988 — `pullRequest` retargets only when the
+- [ ] ./claude/hooks/ship.ts#942-991 — `pullRequest` retargets only when the
       PR's base is one of the recorded (live or retired) slice branches. An
       author-chosen base such as `release/1` stays. The stack line is stripped
       on a slice base or the default branch. A thrown draft is retargeted but
@@ -95,15 +92,18 @@ refuses and names commits mode.
 - [ ] ./claude/hooks/ship.test.ts#1423-1451 — a retry after a failed
       single-squash PR step uses the retired record and does not resume the
       dropped stack.
-- [ ] ./claude/hooks/ship.test.ts#1453-1501 — missing slice branch: refuses when
+- [ ] ./claude/hooks/ship.test.ts#1453-1462 — new since last review: a fresh
+      stack shipped over a leftover retired record unsets only
+      `gtdStackRetired`, never `gtdStack` or `gtdStackTop`. Closes the gap
+      flagged last round.
+- [ ] ./claude/hooks/ship.test.ts#1464-1512 — missing slice branch: refuses when
       HEAD moved or no top is recorded, a dry run refuses the same way, a dry
       run at the top never runs `git branch -f`, and with every branch present
-      the chain check decides. **Gap: no case ships a stack while a retired
-      record exists (see the Risk above).**
+      the chain check decides.
 
 ## Docs
 
-- [ ] ./docs/driver.md#396-415 — splits the refusal advice: commits mode for a
+- [ ] ./docs/driver.md#399-415 — splits the refusal advice: commits mode for a
       lower slice's PR, a renamed branch for a merged or closed top PR. Adds
       what squash and rebase merges do to the PR above, that a commits re-ship
       retargets and leaves the lower PRs open, and that a non-slice base and the
