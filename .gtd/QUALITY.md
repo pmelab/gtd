@@ -112,3 +112,75 @@ one person driving one process.
 
 Verdict: fix 1 first. Lean: -12 lines possible. Not checked: the settled-branch
 issues the correctness lens already filed above are not repeated here.
+
+## test-audit: a kit test pins the settled round's silent loss of an edit note
+
+`src/workflow-kit/review.test.ts` "without a dropped refusal an edit note signs
+off unjudged" asserts that a settled round whose policy has no
+`refusals.dropped` — the feature review's policy, since only the refactor's
+`FeedbackTarget` sets `dropped` — signs off with an `edit` note never triaged or
+folded. That is the lossy behaviour, made a contract: `finish` routes the
+settled branch on whether a refusal string exists, not on what the round asked
+for. A fix that sends the feature review's settled notes to triage (the
+correctness remedy above) breaks this test for the right reason.
+
+Remedy: delete this case, or invert it into the behaviour wanted for the feature
+review (a settled edit note is triaged and folded), once that is decided.
+
+## test-audit: settled-branch tests cannot see the capture's commit or the verdict split
+
+- The `driveRound` mock captures (`edits: () => (captured.push("edits"), …)`)
+  drop their arguments, so "a code hand-edit since reviewed names the path"
+  passes whatever commit `captureFor` passes — the wrong-commit defect the
+  correctness lens filed is invisible to it. Record the `round` argument and
+  assert it is the range start (`reviewed`), not `head()` = `h2`.
+- `docs/configuration.md` now says a settled round refuses on a note judged
+  `nit` or `defer`. No kit test or scenario gives a settled round a `nit`,
+  `defer` or `question` verdict; the settled cases use only `edit`/`praise`.
+  This is the documented behaviour with no test, and the place the correctness
+  finding on verdict routing would need its regression test.
+- Both refusing settled scenarios in `refactor-review.feature` script the closed
+  collecting turn to change nothing, and the kit's "a closed collecting turn
+  that writes the feedback file turns the round into feedback" mocks the write
+  itself. Nothing shows a real closed turn able to fold a pre-thread hand-edit
+  from what the capture gives it.
+
+## test-audit: guard reorder is pinned only below the access layer
+
+`guardOf` now runs `requireNoTestFiles` before `requireWithin`. With test files
+dropped from the strays, every live refactor turn's write access also excludes
+them, so the access check refuses first — `refactor-package.feature` and
+`refactor-review.feature` were changed to expect "outside its write access", not
+"refactor-tests". The unit cases that still expect "refactor-tests"
+(`refactor.test.ts` "refuses a build turn changing a test file even when it is a
+stray", and the nit-fix and fix-check guard cases) pass only because the
+in-memory `drive` harness enforces no write access. They pin an order no driver
+can observe. Their names have also drifted: `src/a.test.ts` is no longer a stray
+once `refactorStrays` filters it.
+
+Remedy: keep one guard-level case with a comment saying it pins the guard under
+access (like the existing line-544 note), rename it ("a test file the shape
+listed"), and drop the reorder comment's claim that it matters live, or remove
+`requireNoTestFiles` from the guard if access is now the sole owner.
+
+## test-audit: test-only export and duplicate proof
+
+- `isTestFile` is exported only for its direct test ("isTestFile is true for a
+  test glob match only"). Production reaches it only through `refactorStrays`
+  and `requireNoTestFiles`, which are already covered by the
+  `refactorFirst`/`reviewedRefactor` cases on mixed strays. Unexport it and drop
+  the direct test.
+- The lap-wording contract has four owners: `text.test.ts` (owner, all three
+  laps), `refactor.test.ts` "review lap wording", `feature.test.ts` flag matrix,
+  and the `refactor-review.feature` scenario "the refactor review says the whole
+  refactor…", which re-proves the flag=1 refactor + feedback threading
+  `feature.test.ts` and `refactor.test.ts` already cover. Keep one threading
+  proof per caller. The `feature.test.ts` case also drives through a catch-all
+  `Proxy` actor that runs any `*closing` script and stops at `maxBeats: 80`, so
+  a new or renamed state on that path is quietly handled, not reported.
+- The new testkit step `step {string} rewrites {string} with:` does nothing when
+  the file is absent. That is intended (it no-ops at the closed turn), but a
+  scenario whose in-gate turn finds no review file passes without writing. Make
+  it throw when the step it is scoped to runs as the in-gate turn and the file
+  is missing, or name the conditional in the step text ("rewrites … if
+  present").
