@@ -1450,6 +1450,17 @@ describe("ship stack", () => {
     expect(second.ran()).toContain(`git config --local --unset ${RETIRED}`)
   })
 
+  test("a fresh stack shipped over a leftover retired record keeps its own record", async () => {
+    const { io, ran } = repo(
+      { ...sbase, [`git config --local --get ${RETIRED}`]: { out: "old other\n" } },
+      writers(),
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(ran()).toContain(`git config --local --unset ${RETIRED}`)
+    expect(ran()).not.toContain(`git config --local --unset ${KEY}`)
+    expect(ran()).not.toContain(`git config --local --unset ${TOP}`)
+  })
+
   describe("a missing slice branch on resume", () => {
     const gone = {
       ...resume,

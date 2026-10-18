@@ -205,7 +205,10 @@ export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promis
   const opened = stack
     ? await stackPullRequests(io, git, ok, stack, baseBranch, baseRef, floor)
     : await pullRequest(io, git, ok, branch, baseBranch, baseRef, recorded)
-  if (opened.ok && (squashed.forget || retired.length)) await forgetStack(io, branch)
+  // A stale retired record must not take a stack this ship just recorded with it.
+  if (opened.ok && squashed.forget) await forgetStack(io, branch)
+  else if (opened.ok && retired.length)
+    await io.run(["git", "config", "--local", "--unset", RETIRED_KEY(branch)])
   return withWarning(opened, squashed.warning)
 }
 
