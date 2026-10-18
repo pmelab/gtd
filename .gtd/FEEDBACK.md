@@ -863,3 +863,8 @@ Tasks: 6 successful, 6 total Cached: 1 cached, 6 total Time: 3m42.082s
 test-states: risk_tier on — pass
 
 <!-- gtd check 5087a02 -->
+
+## Note
+
+The single failure (JudgeIo [live] "hands back what claude printed", 10s
+timeout) is a load flake: it passed in the naive_pass and risk_tier runs. Retry.
