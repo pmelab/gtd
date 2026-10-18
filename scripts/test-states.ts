@@ -65,8 +65,9 @@ const ANSI = /\u001b\[[0-9;]*m/g // eslint-disable-line no-control-regex
 const stripAnsi = (text: string): string => text.replace(ANSI, "")
 
 /**
- * Failed task -> its failing vitest test names, or its own output lines when it names none
- * (typecheck, lint, an unhandled error), so an empty list never makes two failures look equal.
+ * Failed task -> its sorted failing test names, as the repo reporter prints them. A task with
+ * no names (typecheck, lint, build) maps to [] and is never "the same": its lines carry
+ * per-state cache hashes, so only the names are a stable identity.
  */
 export function failuresOf(
   output: string,
@@ -77,30 +78,22 @@ export function failuresOf(
     const m = /^Failed:\s+(.*)$/.exec(l)
     return m ? m[1]!.split(",").map((t) => t.trim().replace(/^.*#/, "")) : []
   })
-  const own = new Map(failed.map((t) => [t, { names: [] as string[], lines: [] as string[] }]))
+  const names = new Map(failed.map((t) => [t, new Set<string>()]))
   for (const line of lines) {
     const task = taskOf(line, tasks)
-    const entry = task && own.get(task)
-    if (!entry) continue
-    const text = line.slice(task.length + 2)
-    entry.lines.push(text)
-    const m = /^\s*FAIL\s+(.*?)\s*$/.exec(text)
-    if (m) entry.names.push(m[1]!)
+    const set = task && names.get(task)
+    if (!set) continue
+    const m = /^FAIL\s+(.*?)\s*$/.exec(line.slice(task.length + 2))
+    if (m) set.add(m[1]!)
   }
-  return new Map(
-    [...own].map(([t, e]) => [t, e.names.length > 0 ? [...new Set(e.names)].sort() : e.lines]),
-  )
+  return new Map([...names].map(([t, s]) => [t, [...s].sort()]))
 }
 
 const taskOf = (line: string, tasks: readonly string[]): string | undefined =>
   tasks.find((t) => line.startsWith(`${t}: `))
 
 const sameTests = (a: readonly string[] | undefined, b: readonly string[]): boolean =>
-  a !== undefined && a.length === b.length && a.every((n, i) => n === b[i])
-
-export interface Condense {
-  readonly print: (text: string) => void
-}
+  a !== undefined && b.length > 0 && a.length === b.length && a.every((n, i) => n === b[i])
 
 interface Seen {
   readonly label: string
@@ -112,17 +105,17 @@ function condenseFailure({
   output,
   mine,
   seen,
-  condense,
+  print,
   log,
 }: {
   state: TestState
   output: string
   mine: ReadonlyMap<string, readonly string[]>
   seen: readonly Seen[]
-  condense: Condense
+  print: (text: string) => void
   log: (line: string) => void
 }): void {
-  if (mine.size === 0) return condense.print(`${output}\n`)
+  if (mine.size === 0) return print(`${output}\n`)
   const covering: string[] = []
   const novel = new Set(mine.keys())
   for (const earlier of seen) {
@@ -131,72 +124,117 @@ function condenseFailure({
     hits.forEach((t) => novel.delete(t))
   }
   if (novel.size === 0)
-    return log(`test-states: ${state.label} — same failures as ${covering.join(", ")}`)
-  if (seen.length === 0) return condense.print(`${output}\n`)
+    return log(`test-states: ${state.label} — failures already seen in ${covering.join(", ")}`)
+  if (seen.length === 0) return print(`${output}\n`)
   const own = stripAnsi(output)
     .split("\n")
     .filter((l) => novel.has(taskOf(l, state.tasks) ?? ""))
-  condense.print(`${own.join("\n")}\n`)
+  // A novel task with no prefixed lines (e.g. --log-prefix=none) still has to be shown.
+  print(`${own.length > 0 ? own.join("\n") : output}\n`)
 }
 
 export async function runStates(
   states: readonly TestState[],
   run: RunTasks,
   log: (line: string) => void,
-  condense?: Condense,
+  print: (text: string) => void,
 ): Promise<number> {
   if (states.length === 1) return (await run(states[0]!.tasks, states[0]!.env, true)).status ?? 1
   let failed = false
   const seen: Seen[] = []
   for (const [i, state] of states.entries()) {
-    const { status, output } = await run(state.tasks, state.env, !condense || i === 0)
+    const { status, output } = await run(state.tasks, state.env, i === 0)
     const ok = status === 0
     if (!ok) failed = true
     log(`test-states: ${state.label} — ${ok ? "pass" : "FAIL"}`)
-    if (ok || !condense) continue
+    if (ok) continue
     const mine = failuresOf(output, state.tasks)
-    if (i > 0) condenseFailure({ state, output, mine, seen, condense, log })
+    if (i > 0) condenseFailure({ state, output, mine, seen, print, log })
     seen.push({ label: state.label, failures: mine })
   }
   return failed ? 1 : 0
 }
 
-// --continue: without it turbo kills the other tasks at the first failure, and
-// `Failed:` would list just that one. --color: stdout is a pipe, so turbo would
-// otherwise drop colour from a streamed run; failuresOf strips it anyway.
+// --continue=dependencies-successful: without --continue turbo kills the other tasks at the
+// first failure, and `Failed:` would list just that one. A bare --continue means `always`,
+// which would run the e2e tasks against a stale dist/ bundle after a failed `build`.
+// --color: stdout is a pipe, so turbo would otherwise drop colour from a streamed run;
+// failuresOf strips it anyway.
 export const turboArgv = (
   tasks: readonly string[],
   args: readonly string[],
   color = false,
-): string[] => ["run", ...tasks, "--continue", ...(color ? ["--color"] : []), ...args]
+): string[] => [
+  "run",
+  ...tasks,
+  "--continue=dependencies-successful",
+  ...(color ? ["--color"] : []),
+  ...args,
+]
+
+export interface Io {
+  readonly out: (text: string) => void
+  readonly err: (text: string) => void
+  readonly tty: boolean
+}
+
+// Only whole lines reach `append`, so a stderr line never lands inside a split stdout line.
+const wholeLines = (append: (text: string) => void) => {
+  let rest = ""
+  return {
+    push(chunk: string) {
+      rest += chunk
+      const end = rest.lastIndexOf("\n") + 1
+      if (end === 0) return
+      append(rest.slice(0, end))
+      rest = rest.slice(end)
+    },
+    flush() {
+      if (rest) append(rest)
+      rest = ""
+    },
+  }
+}
 
 // args must be turbo options: a bare word would run as an extra task, and
 // --dry-run/--graph exit 0 without running anything.
 export const spawnTurbo = (
   tasks: readonly string[],
   env: Env,
-  args: readonly string[] = [],
-  live = true,
+  args: readonly string[],
+  live: boolean,
+  io: Io,
 ): Promise<RunResult> =>
   new Promise((resolve) => {
-    const child = spawn("turbo", turboArgv(tasks, args, live && process.stdout.isTTY === true), {
+    const child = spawn("turbo", turboArgv(tasks, args, live && io.tty), {
       stdio: ["inherit", "pipe", "pipe"],
       env: env as NodeJS.ProcessEnv,
     })
     // Always captured: a live state's failures are what later states are compared against.
     let output = ""
+    const append = (text: string) => {
+      output += text
+    }
+    const out = wholeLines(append)
+    const err = wholeLines(append)
     // Decode whole characters: a chunk boundary inside `×`/`❯` would corrupt a FAIL name.
     child.stdout.setEncoding("utf8")
     child.stderr.setEncoding("utf8")
-    const tee = (sink: NodeJS.WriteStream) => (chunk: string) => {
-      output += chunk
-      if (live) sink.write(chunk)
-    }
-    child.stdout.on("data", tee(process.stdout))
-    child.stderr.on("data", tee(process.stderr))
+    child.stdout.on("data", (chunk: string) => {
+      out.push(chunk)
+      if (live) io.out(chunk)
+    })
+    child.stderr.on("data", (chunk: string) => {
+      err.push(chunk)
+      if (live) io.err(chunk)
+    })
     child.on("error", (e) => {
-      console.error(`test-states: cannot run turbo: ${e.message}`)
+      io.err(`test-states: cannot run turbo: ${e.message}\n`)
       resolve({ status: null, output })
     })
-    child.on("close", (status) => resolve({ status, output }))
+    child.on("close", (status) => {
+      out.flush()
+      err.flush()
+      resolve({ status, output })
+    })
   })
