@@ -272,3 +272,42 @@ longer be reached from the plugin, and every test would stay green.
 `register.tsx` has no tests at all (older than this change), so this is FYI. A
 small test that `shipNow` passes the env value through would close the gap, if a
 harness for `$` exists or is worth adding.
+
+## conventions: comments that restate the code, one of them wrong
+
+AGENTS.md, Comments: "Keep a comment … only where it explains an important
+decision or genuinely unclear code … Everything else (restatement of the code,
+history, a 'what' with no 'why') gets deleted, not moved."
+
+- `claude/hooks/ship.ts` L271, above `type Link`: "One PR of a stack: its
+  branch, its squashed commit, and what it is stacked on." Only restates the
+  fields, and `Link` has no "stacked on" field (`name`, `branch`, `commit`), so
+  it is also wrong. Delete it.
+- L278, "Either the finished process's landed groups, or the result that ends
+  the ship early.": restates the union type below it. Delete it.
+- L823-824, above `type Ctx`: "The commit range a PR describes. `stacked` PRs
+  also carry the 'Stacked on' line, naming `below` …": restates the field names.
+  Delete it.
+- L1-4 module header, which this change rewrote: the new parenthetical "(one
+  commit for a single slice, one per landed slice otherwise)" is a "what" that
+  the code (`landed`, `squashOne`) already says, and "A port of the `ship` fish
+  function" is history. Cut it down to the decision, or delete it.
+
+## conventions (FYI): the new ship mode has no `@inmem` cucumber scenario
+
+AGENTS.md, Testing: "create cucumber.js scenarios for each new feature, tagged
+`@inmem`." Stacked ship and `GTD_SHIP_MODE` are a new user-facing feature, and
+they are covered only by vitest in `claude/hooks/ship.test.ts`. There is
+precedent: the Claude Code mod has no cucumber harness, and the old one-commit
+ship had no scenario either. Add a scenario, or accept the mod as an exception
+on purpose. Leaving it out unremarked is not the same as deciding.
+
+## conventions (FYI): `docs/driver.md` still describes one commit message for `-n`
+
+User CLAUDE.md: "always make sure every significant change is also reflected in
+the readme". The README was updated, but the rewritten `/gtd ship` bullet in
+`docs/driver.md` still says "`/gtd ship -n` prints the commit message and what
+would happen to the pull request". A multi-slice dry run prints one message per
+slice and one PR plan per slice. It also says "A subagent writes the commit
+message (from `gtd summary`)", but each slice's message now comes from
+`gtd summary --slice=<name>`. Change both to the plural.
