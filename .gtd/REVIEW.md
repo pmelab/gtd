@@ -176,13 +176,13 @@ PRs are created bottom first, so each upper PR's body can open with
 
 ## Docs and prompts
 
-- [ ] ./docs/driver.md#396-399 — Risk: still says a merged or closed pull
-      request refuses "(use `GTD_SHIP_MODE=commits` or rename the branch)" with
-      no scope. For a closed **top** PR, commits mode squashes, pushes history
-      and force-pushes the branch, then fails on the same closed PR, so **the
-      doc advises the exact path the code fix stopped advising**. Fix: scope the
-      commits-mode hint to a lower slice's PR, and say a closed top PR needs a
-      renamed branch
+- [ ] ./docs/driver.md#396-399 [^docs-closed] — Risk: still says a merged or
+      closed pull request refuses "(use `GTD_SHIP_MODE=commits` or rename the
+      branch)" with no scope. For a closed **top** PR, commits mode squashes,
+      pushes history and force-pushes the branch, then fails on the same closed
+      PR, so **the doc advises the exact path the code fix stopped advising**.
+      Fix: scope the commits-mode hint to a lower slice's PR, and say a closed
+      top PR needs a renamed branch
 - [ ] ./docs/driver.md#368-403 — `/gtd ship` rewritten for per-slice commits,
       `GTD_SHIP_MODE` (`stack`/`commits`), branch naming, refusals, the missing
       `commit-msg` hook, and resuming. Does not mention that a commits-mode
@@ -192,3 +192,10 @@ PRs are created bottom first, so each upper PR's body can open with
       commit
 - [ ] ./claude/hooks/assist.ts#122-122 — the finish prompt now offers to "squash
       it and open its pull request(s)"
+
+[^docs-closed]:
+    Fix the doc as the item says: offer `GTD_SHIP_MODE=commits` only for a
+    merged or closed lower slice's pull request, and say a merged or closed top
+    pull request needs a renamed branch. Also mention that a commits-mode
+    re-ship of a stacked branch retargets its pull request to the default branch
+    and leaves the lower slice pull requests open.
