@@ -312,16 +312,13 @@ describe("requireDeclaredTests", () => {
     expect(run(text, ["a.test.ts"], [added("a.test.ts")], false, "fix").message).toBe("")
   })
 
-  it("defaults to the fix turn when called with two arguments", () => {
+  it.each([
+    ["modified", modified("a.test.ts")],
+    ["added", added("a.test.ts")],
+  ] as [string, Change][])("defaults to the fix turn with two arguments (%s)", (_label, change) => {
     const text = "## Tests\n- unit: `a.test.ts` (unchanged)"
-    const cases: [string, Change][] = [
-      ["modified", modified("a.test.ts")],
-      ["added", added("a.test.ts")],
-    ]
-    for (const [, change] of cases) {
-      expect(run(text, ["a.test.ts"], [change], false, "default").message).toBe("")
-      expect(run(text, ["a.test.ts"], [change], false, "build").message).not.toBe("")
-    }
+    expect(run(text, ["a.test.ts"], [change], false, "default").message).toBe("")
+    expect(run(text, ["a.test.ts"], [change], false, "build").message).not.toBe("")
   })
 
   it("lets an unmarked entry win over a marked one the build added", () => {
