@@ -7,4 +7,5 @@ process.exitCode = runStates(
   planStates(FLAGS, process.env),
   (tasks, env) => spawnTurbo(tasks, env, args),
   console.log,
+  args.some((a) => a === "--output-logs" || a.startsWith("--output-logs=")),
 )

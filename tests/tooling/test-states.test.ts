@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -6,11 +7,13 @@ import { resolveFlags, type FlagDeclaration } from "../../src/flags/index.ts"
 import {
   TASKS,
   VITEST_TASKS,
+  failureSignature,
   planStates,
   runStates,
   spawnTurbo,
   turboArgv,
   type RunTasks,
+  type TurboRun,
   type TestState,
 } from "../../scripts/test-states.ts"
 
@@ -27,14 +30,15 @@ const stateOf = (label: string): TestState => ({
   env: {},
 })
 
-const stub = (codes: readonly (number | null)[]) => {
+const stub = (runs: readonly (number | null | TurboRun)[]) => {
   const calls: {
     tasks: readonly string[]
     env: Readonly<Record<string, string | undefined>>
   }[] = []
   const run: RunTasks = (tasks, env) => {
     calls.push({ tasks, env })
-    return codes[calls.length - 1]!
+    const r = runs[calls.length - 1]!
+    return typeof r === "object" && r !== null ? r : { code: r, stdout: "" }
   }
   return { run, calls }
 }
@@ -110,12 +114,12 @@ describe("planStates and resolveFlags agree on the variable name", () => {
 })
 
 describe("spawnTurbo", () => {
-  it("returns null and reports when turbo cannot be spawned", () => {
+  it("returns code null and reports when turbo cannot be spawned", () => {
     const errors: unknown[] = []
     const original = console.error
     console.error = (...a: unknown[]) => errors.push(a[0])
     try {
-      expect(spawnTurbo([], { PATH: "/nonexistent" })).toBeNull()
+      expect(spawnTurbo([], { PATH: "/nonexistent" })).toEqual({ code: null, stdout: "" })
     } finally {
       console.error = original
     }
@@ -129,41 +133,232 @@ describe("spawnTurbo against a shim turbo", () => {
     const out = join(dir, "argv")
     writeFileSync(join(dir, "turbo"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${out}"\n`)
     chmodSync(join(dir, "turbo"), 0o755)
-    expect(spawnTurbo(["a", "b"], { PATH: dir }, ["--force"])).toBe(0)
-    expect(readFileSync(out, "utf8").trim().split("\n")).toEqual(["run", "a", "b", "--force"])
+    expect(spawnTurbo(["a", "b"], { PATH: dir }, ["--force"]).code).toBe(0)
+    expect(readFileSync(out, "utf8").trim().split("\n")).toEqual([
+      "run",
+      "a",
+      "b",
+      "--force",
+      "--output-logs=errors-only",
+    ])
+  })
+
+  it("captures stdout and the exit code", () => {
+    const dir = mkdtempSync(join(tmpdir(), "turbo-shim-"))
+    writeFileSync(join(dir, "turbo"), "#!/bin/sh\necho hello\nexit 3\n")
+    chmodSync(join(dir, "turbo"), 0o755)
+    expect(spawnTurbo(["a"], { PATH: dir })).toEqual({ code: 3, stdout: "hello\n" })
+  })
+
+  it("captures 2 MiB of stdout without killing turbo", () => {
+    const dir = mkdtempSync(join(tmpdir(), "turbo-shim-"))
+    writeFileSync(
+      join(dir, "turbo"),
+      "#!/bin/sh\ni=0\nwhile [ $i -lt 2048 ]; do printf '%01024d' 0; i=$((i+1)); done\n",
+    )
+    chmodSync(join(dir, "turbo"), 0o755)
+    const r = spawnTurbo(["a"], { PATH: dir })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toHaveLength(2 * 1024 * 1024)
   })
 })
 
 describe("turboArgv", () => {
   it("puts forwarded args after the task names", () => {
-    expect(turboArgv(["a", "b"], ["--force"])).toEqual(["run", "a", "b", "--force"])
+    expect(turboArgv(["a", "b"], ["--force"])).toEqual([
+      "run",
+      "a",
+      "b",
+      "--force",
+      "--output-logs=errors-only",
+    ])
+  })
+
+  it("keeps a user --output-logs=full and appends no default", () => {
+    expect(turboArgv(["a"], ["--output-logs=full"])).toEqual(["run", "a", "--output-logs=full"])
+  })
+
+  it("keeps a user --output-logs full (separate value) and appends no default", () => {
+    expect(turboArgv(["a"], ["--output-logs", "full"])).toEqual([
+      "run",
+      "a",
+      "--output-logs",
+      "full",
+    ])
+  })
+})
+
+describe("failureSignature against real turbo", () => {
+  it("is non-empty and stable across two runs of a failing task", () => {
+    const dir = mkdtempSync(join(tmpdir(), "turbo-real-"))
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "scratch",
+        private: true,
+        packageManager: "npm@10.0.0",
+        scripts: { boom: "echo boom-line; exit 1" },
+      }),
+    )
+    writeFileSync(
+      join(dir, "turbo.json"),
+      JSON.stringify({
+        $schema: "https://turbo.build/schema.json",
+        tasks: { boom: { cache: false } },
+      }),
+    )
+    writeFileSync(join(dir, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }))
+    const bin = join(process.cwd(), "node_modules", ".bin")
+    const run = () =>
+      spawnSync(join(bin, "turbo"), ["run", "boom", "--output-logs=errors-only"], {
+        cwd: dir,
+        encoding: "utf8",
+        env: { ...process.env, TURBO_TELEMETRY_DISABLED: "1" },
+      }).stdout
+    const a = failureSignature(run(), ["boom"])
+    expect(a).toContain("boom-line")
+    expect(failureSignature(run(), ["boom"])).toBe(a)
+  })
+})
+
+describe("failureSignature", () => {
+  const tasks = ["test:unit", "lint"]
+
+  it("is equal for outputs differing only in noise", () => {
+    const a =
+      "test:unit: \x1b[31mFAIL\x1b[0m foo took 12ms at 10:01:02 on 2026-10-18T10:01:02.123Z hash 0123456789abcdef\n"
+    const b =
+      "test:unit: FAIL foo took 3.4 s at 11:59:59 on 2026-10-19T01:00:00Z hash fedcba9876543210\n"
+    expect(failureSignature(a, tasks)).toBe(failureSignature(b, tasks))
+    expect(failureSignature(a, tasks)).not.toBe("")
+  })
+
+  it("differs when assertion text differs", () => {
+    expect(failureSignature("test:unit: expected 1 to be 2\n", tasks)).not.toBe(
+      failureSignature("test:unit: expected 1 to be 3\n", tasks),
+    )
+  })
+
+  it("ignores turbo's summary lines", () => {
+    const body = "test:unit: boom\n"
+    expect(failureSignature(`${body} Tasks: 10 successful, 11 total\n`, tasks)).toBe(
+      failureSignature(`${body} Tasks: 4 successful, 5 total\n`, tasks),
+    )
+  })
+
+  it("is order-insensitive across interleaved tasks", () => {
+    const a = "test:unit: a1\nlint: b1\ntest:unit: a2\nlint: b2\n"
+    const b = "lint: b1\nlint: b2\ntest:unit: a1\ntest:unit: a2\n"
+    expect(failureSignature(a, tasks)).toBe(failureSignature(b, tasks))
+  })
+
+  it("keeps line order within a task", () => {
+    expect(failureSignature("lint: a\nlint: b\n", tasks)).not.toBe(
+      failureSignature("lint: b\nlint: a\n", tasks),
+    )
+  })
+
+  it("is empty with no task-prefixed line", () => {
+    expect(failureSignature("some banner\nTasks: 1 total\nother: x\n", tasks)).toBe("")
   })
 })
 
 describe("runStates", () => {
-  it("returns a single state's code verbatim and logs nothing", () => {
-    const { run } = stub([3])
+  const fail = (text: string): TurboRun => ({ code: 1, stdout: `test:unit: ${text}\n` })
+  const run3 = (runs: readonly TurboRun[]) => {
     const lines: string[] = []
+    const code = runStates(
+      ["defaults", "alpha on", "beta on"]
+        .slice(0, runs.length)
+        .map((label) => ({ ...stateOf(label), tasks: ["test:unit"] })),
+      stub(runs).run,
+      (l) => lines.push(l),
+    )
+    return { lines, code }
+  }
+  const text = (lines: readonly string[]) => lines.join("\n")
+
+  it("logs a single state's stdout, no pass/FAIL line, and returns its code verbatim", () => {
+    const lines: string[] = []
+    const { run } = stub([{ code: 3, stdout: "out\n" }])
     expect(runStates([stateOf("defaults")], run, (l) => lines.push(l))).toBe(3)
-    expect(lines).toEqual([])
+    expect(text(lines)).toContain("out")
+    expect(text(lines)).not.toMatch(/pass|FAIL/)
   })
 
-  it("logs one pass line per state and returns 0", () => {
-    const { run } = stub([0, 0])
-    const lines: string[] = []
-    const code = runStates([stateOf("defaults"), stateOf("alpha on")], run, (l) => lines.push(l))
+  it("maps a single state's null code to 1", () => {
+    const { run } = stub([null])
+    expect(runStates([stateOf("defaults")], run, () => {})).toBe(1)
+  })
+
+  it("logs one pass line per state, never stdout, and returns 0", () => {
+    const { lines, code } = run3([
+      { code: 0, stdout: "test:unit: noisy pass\n" },
+      { code: 0, stdout: "test:unit: noisy pass\n" },
+    ])
     expect(code).toBe(0)
     expect(lines).toEqual(["test-states: defaults — pass", "test-states: alpha on — pass"])
   })
 
-  it("runs the flag-on state after a red all-off and returns 1", () => {
-    const { run, calls } = stub([1, 0])
+  it("with full logs, prints pass stdout and never collapses a repeated failure", () => {
     const lines: string[] = []
-    const code = runStates([stateOf("defaults"), stateOf("alpha on")], run, (l) => lines.push(l))
-    expect(calls).toHaveLength(2)
-    expect(lines[0]).toBe("test-states: defaults — FAIL")
-    expect(lines[1]).toBe("test-states: alpha on — pass")
+    const runs = [
+      { code: 0, stdout: "test:unit: noisy pass\n" },
+      fail("same boom"),
+      fail("same boom"),
+    ]
+    const states = ["defaults", "alpha on", "beta on"].map((l) => ({
+      ...stateOf(l),
+      tasks: ["test:unit"],
+    }))
+    runStates(states, stub(runs).run, (l) => lines.push(l), true)
+    expect(text(lines)).toContain("noisy pass")
+    expect(text(lines).match(/same boom/g)).toHaveLength(2)
+    expect(text(lines)).not.toContain("same failure")
+  })
+
+  it("prints the first failure in full, then its FAIL line", () => {
+    const { lines, code } = run3([
+      {
+        code: 1,
+        stdout:
+          "test:unit: FAIL my test\ntest:unit: AssertionError: nope\ntest:unit:   at x.ts:1\n",
+      },
+      { code: 0, stdout: "" },
+    ])
     expect(code).toBe(1)
+    const out = text(lines)
+    expect(out).toContain("FAIL my test")
+    expect(out).toContain("AssertionError: nope")
+    expect(out).toContain("at x.ts:1")
+    expect(out.indexOf("AssertionError")).toBeLessThan(out.indexOf("test-states: defaults — FAIL"))
+    expect(lines.at(-1)).toBe("test-states: alpha on — pass")
+  })
+
+  it("collapses a repeated failure to one line naming the earlier state", () => {
+    const { lines, code } = run3([fail("same boom 10ms"), fail("same boom 99ms")])
+    expect(code).toBe(1)
+    expect(lines.at(-1)).toBe("test-states: alpha on — FAIL (same failure as defaults)")
+    expect(text(lines).match(/same boom/g)).toHaveLength(1)
+  })
+
+  it("prints a later distinct failure in full and matches the second for a third", () => {
+    const { lines, code } = run3([fail("boom A"), fail("boom B"), fail("boom B")])
+    expect(code).toBe(1)
+    expect(text(lines)).toContain("boom A")
+    expect(text(lines)).toContain("boom B")
+    expect(text(lines).match(/boom B/g)).toHaveLength(1)
+    expect(lines.at(-1)).toBe("test-states: beta on — FAIL (same failure as alpha on)")
+  })
+
+  it("prints both failures when signatures are empty", () => {
+    const { lines, code } = run3([
+      { code: 1, stdout: "weird one\n" },
+      { code: 1, stdout: "weird one\n" },
+    ])
+    expect(code).toBe(1)
+    expect(text(lines).match(/weird one/g)).toHaveLength(2)
+    expect(text(lines)).not.toContain("same failure")
   })
 
   it("runs all three states in order when the middle one is red", () => {
