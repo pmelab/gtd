@@ -42,15 +42,14 @@ export function planStates(registry: readonly FlagDeclaration[], env: Env): read
       }),
     ),
   })
-  const states: TestState[] = [{ label: "defaults", tasks: TASKS, env: pinned() }]
-  for (const { name, defaultOn } of releases) {
-    states.push({
+  return [
+    { label: "defaults", tasks: TASKS, env: pinned() },
+    ...releases.map(({ name, defaultOn }) => ({
       label: `${name} ${defaultOn ? "off" : "on"}`,
       tasks: VITEST_TASKS,
       env: pinned(name),
-    })
-  }
-  return states
+    })),
+  ]
 }
 
 export function runStates(
