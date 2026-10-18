@@ -184,3 +184,91 @@ time. (The earlier chunks' findings are not repeated here.)
 Verdict: fix 1 first (with the earlier chunks' must-fixes). Lean: -10 lines
 possible. Not checked: `gh pr view <branch>` returning merged PRs was taken from
 gh's documented branch lookup, not run against GitHub.
+
+## test-audit: the resume test makes up the state the first run should have left
+
+`ship stack` ›
+`an upper push failing keeps the squash, reports, and a second run resumes`
+(ship.test.ts L1036-1068) runs `ship` twice, but the second run does not start
+from what the first run wrote. It scripts the state itself:
+
+- It sets `git config --local --get branch.feat/x.gtdStack` → `refactor feature`
+  and `refs/heads/feat/x-refactor` → C1. Nothing checks that the first run wrote
+  them before its first push. `branches each slice…` (L910) checks only that
+  `git branch -f` and `git config` ran at some point, never that they ran before
+  `git push --set-upstream origin feat/x-refactor`. If `recordStack` moved after
+  `stackPullRequests` (so the record is written only on success), every test
+  still passes, but a real part-way failure would leave nothing to resume from.
+  Then the retry ships one PR into main, the same silent stack drop the
+  correctness chunk describes.
+- It inherits `origin/feat/x-refactor` → missing from `sbase`, although the
+  first run pushed that branch. So the second run pushes the lower slice
+  `--set-upstream` again, and the test does not notice. The case that matters is
+  never exercised: on resume, the lower branch is already on origin at C1, and
+  the resume must not push it.
+- Fix:
+  - In the first run, check that `git config --local … gtdStack` and
+    `git branch -f feat/x-refactor C1` come before the first `git push`.
+  - In the second run, script `origin/feat/x-refactor` as existing, with
+    `git merge-base --is-ancestor C1 origin/feat/x-refactor` → 0. Check that no
+    push of `feat/x-refactor` happens.
+  - The missing-branch and merged-lower cases from the correctness chunks need
+    their own resume tests. Today the only resume-failure test,
+    `a recorded stack that no longer chains…`, covers only the ancestry check.
+    The `!sha` path, where an upper branch ref is missing, has no test.
+
+## test-audit: a vacuous check in the `.gtd/`-only fold test
+
+`ship per slice` › `a .gtd/-only second slice folds into the first…` (L705)
+checks `ran().some(c => /^git push .*refs\/heads/.test(c))` is false. No push in
+ship ever names `refs/heads/`. `pushBranch` pushes `origin <branch>` /
+`--set-upstream origin <branch>`. So this check passes even if the fold wrongly
+builds a stack. The rest of the test catches the main regression (one
+`git commit`, no `commit-tree`), but the "no slice branch" part proves nothing.
+Replace it with checks that nothing runs `git branch -f`,
+`git push --set-upstream origin feat/x-refactor` or
+`gh pr view feat/x-refactor`.
+
+## test-audit: a commits-mode test pins the stale-record bug
+
+`ship stack` › `commits mode builds no slice branches` (L1116-1124) checks
+`ran().some(c => c.includes(KEY))` is false: commits mode never touches
+`branch.feat/x.gtdStack` at all, not even to clear it. The correctness FYI chunk
+says commits mode should unset a stale record. This test would then fail for the
+right fix. Narrow it to "no `git branch -f`, no
+`git config --local <KEY> <names>` set". An `--unset` should still pass.
+
+## test-audit: guarded failure paths with no test that fails when the guard is removed
+
+Each of these is a guard in this change. Deleting it fails no test (reasoned,
+not mutation-run):
+
+- `stackPullRequests` L593-594: the stop when the PR number cannot be read from
+  `gh pr create`'s reply. Without it, `below` stays `undefined`, and `stackLine`
+  quietly removes the "Stacked on" line from the upper PR. That PR is then
+  published with nothing saying it depends on the one below. Test: the lower
+  `create(...)` replies `out: "created\n"` (no `/pull/N`), and the ship fails at
+  "pull request" with no `gh pr create` for `feat/x`.
+- `commitChain` L665-677: a `git stripspace` or `git commit-tree` failure, or an
+  empty `commit-tree` output. The scripted repo answers unscripted calls with
+  `code 0, out ""`. So if the `!prev` check is dropped, the run goes on to
+  `git reset --soft ""`, and nothing catches it. Test: second `commit-tree` with
+  `code: 1`, then check that no `git reset`, `git branch -f` or `gh` call runs.
+  This is the one place the "every commit exists before any ref moves" comment
+  is actually enforced.
+- `sliceStep` L551-557: a failed retarget (`gh pr edit --base` exits non-zero).
+  Nothing checks that the ship stops at "retarget" before `updatePr` edits the
+  body.
+- `recordStack` L397/L399: a failed `git config` or `git branch -f`. This is the
+  untested path the correctness chunk names. Listed here only so the fix comes
+  with its test.
+
+## test-audit (FYI): `GTD_SHIP_MODE` wiring has no test
+
+`register.tsx` L596 is the only place `GTD_SHIP_MODE` reaches `ship`. Every mode
+test calls `ship(io, isDry, "commits")` directly. If the
+`await $.env.get("GTD_SHIP_MODE")` argument were dropped, commits mode could no
+longer be reached from the plugin, and every test would stay green.
+`register.tsx` has no tests at all (older than this change), so this is FYI. A
+small test that `shipNow` passes the env value through would close the gap, if a
+harness for `$` exists or is worth adding.
