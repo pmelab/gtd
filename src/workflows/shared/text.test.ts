@@ -21,6 +21,7 @@ import {
   implementFixPrompt,
   naivePassPrompt,
   refactorBuildingPrompt,
+  refactorDroppedRefusal,
   refactorFixPrompt,
   refactorReviewCollectingPrompt,
   seamByHandMessage,
@@ -936,5 +937,26 @@ describe("the refactor prompts", () => {
       expect(prompt).toContain("gtd check review .gtd/REVIEW.md")
       expect(prompt).toContain("- A: <reply>")
     })
+  })
+})
+
+describe("refactorDroppedRefusal", () => {
+  const message = refactorDroppedRefusal({
+    notes: [{ id: "note-2", anchor: "./src/a.ts#1-1", text: "rename it" }] as never,
+    paths: ["src/b.ts"], // gtd-path-exempt: fixture paths
+  })
+
+  it("starts with the refactor-feedback landing refusal", () => {
+    expect(message.startsWith("gtd land: refactor-feedback:")).toBe(true)
+  })
+
+  it("lists each note and each hand-edited path", () => {
+    expect(message).toContain("note-2 (./src/a.ts#1-1): rename it")
+    expect(message).toContain("src/b.ts") // gtd-path-exempt: fixture paths
+  })
+
+  it("names gtd abandon and what it throws away", () => {
+    expect(message).toContain("gtd abandon")
+    expect(message).toContain("the naive pass, the refactor and its review")
   })
 })

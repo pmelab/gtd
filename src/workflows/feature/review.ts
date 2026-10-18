@@ -241,6 +241,7 @@ export const review = (
       deleted:
         "gtd land: review-doc: .gtd/REVIEW.md was deleted — restore it, or leave a note (or edit code) to request changes.",
       unmatched: feedback.unmatched,
+      ...(feedback.dropped === undefined ? {} : { dropped: feedback.dropped }),
     },
   })
 }
@@ -250,6 +251,8 @@ export interface FeedbackTarget {
   readonly collecting: (capture: string) => Promise<void>
   /** Refusal when the collecting turn changed something but not `file`. */
   readonly unmatched: string
+  /** Refusal when the round asked for changes and the collecting turn wrote nothing; absent: it signs off. */
+  readonly dropped?: (requested: kit.Requested) => string
 }
 
 export interface BuildTailOptions {

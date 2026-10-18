@@ -291,6 +291,36 @@ describe("the feedback target", () => {
     expect(run.result).toEqual({ verdict: "signoff" })
   })
 
+  it("a feature review edit note collected to nothing signs off", async () => {
+    const run = await drive({
+      notes: edit,
+      options: {
+        feedback: {
+          file: REQUIREMENTS,
+          collecting: () => Promise.resolve(),
+          unmatched: "unmatched",
+        },
+      },
+    })
+    expect(run.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("dropped is passed through as the refusal for a round collected to nothing", async () => {
+    await expect(
+      drive({
+        notes: edit,
+        options: {
+          feedback: {
+            file: REFACTOR,
+            collecting: () => Promise.resolve(),
+            unmatched: "unmatched: refactor",
+            dropped: (r) => `dropped: ${r.notes.map((n) => n.id).join(",")}`,
+          },
+        },
+      }),
+    ).rejects.toThrow("dropped: note-1")
+  })
+
   it("refuses with unmatched when the collecting turn changed something but not file", async () => {
     await expect(
       drive({

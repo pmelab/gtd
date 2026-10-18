@@ -676,6 +676,13 @@ A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `design.triage`. A concern that needs a path outside the strays, a test file or
 a new flag read cannot be built: abandon and restart.
 
+A refactor-review round carrying an `edit` note or a code hand-edit whose
+collecting turn writes no `.gtd/REFACTOR.md` and changes nothing is never signed
+off: `gtd land` refuses the collecting landing (`refactor-feedback`), naming
+every left-out note and edited path. The only way out is `gtd abandon`, which
+throws away the naive pass, the refactor and its review. A praise-only round
+still signs off; the feature review signs off on a round that changes nothing.
+
 **Upgrading:** a process resting at `seam.approve` must `gtd abandon`; the step
 is gone.
 

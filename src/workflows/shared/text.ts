@@ -13,7 +13,7 @@ import {
 } from "../../flows/index.js"
 import { escapeRegExp } from "./registry.js"
 import { defaultFlagRegistry } from "./vars.js"
-import type { RemovedAssertions } from "../../workflow-kit/index.js"
+import type { RemovedAssertions, Requested } from "../../workflow-kit/index.js"
 import {
   accessPreamble,
   skillsPreamble,
@@ -1261,3 +1261,12 @@ ${listed(strays, unreadable)}
 See them with \`git show ${reference} -- <path>\` and review by hand. Land a
 clean tree to go on to the implementation, which runs next.
 `
+
+/** Refuses the collecting landing of a refactor-review round that asked for a change but left nothing the refactor can build. */
+export const refactorDroppedRefusal = (requested: Requested): string =>
+  `gtd land: refactor-feedback: the refactor review asked for a change but .gtd/REFACTOR.md was not written, so nothing can be built from it:
+${[
+  ...requested.notes.map((n) => `  - ${n.id} (${n.anchor}): ${n.text}`),
+  ...requested.paths.map((path) => `  - hand-edited ${path}`),
+].join("\n")}
+The only way out is \`gtd abandon\`, which throws away the naive pass, the refactor and its review.`

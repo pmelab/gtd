@@ -581,6 +581,8 @@ interface ReviewedScript {
   /** The turn's own changes by full step name. */
   readonly turns?: Readonly<Record<string, readonly Change[]>>
   readonly vars?: Readonly<Record<string, string>>
+  /** The collecting turn writes no package. */
+  readonly silentCollect?: boolean
 }
 
 /** Runs `reviewedRefactor` against a scripted context; a third await-review stops the run. */
@@ -619,7 +621,9 @@ const driveReviewed = async (
     closing: () => void files.delete(REFACTOR_PACKAGE),
     "review.reviewing": () => void files.set(REVIEW, reviewDoc("add")),
     "review.closing": () => void files.delete(REVIEW),
-    "review.collecting": () => void files.set(REFACTOR_PACKAGE, "collected concern"),
+    "review.collecting": () => {
+      if (!script.silentCollect) files.set(REFACTOR_PACKAGE, "collected concern")
+    },
     "fix.quality.fixing": () => void files.delete(QUALITY),
     "review.await-review": () => {
       const note = script.notes?.[awaits]
@@ -763,6 +767,18 @@ describe("reviewedRefactor", () => {
       const prompt = collecting?.kind === "agent" ? collecting.prompt : ""
       expect(prompt).toContain(".gtd/REFACTOR.md")
       expect(prompt).not.toContain(".gtd/REQUIREMENTS.md")
+    })
+  })
+
+  describe("a note the collecting turn leaves out", () => {
+    it("refuses the landing naming the note and gtd abandon, never signing off", async () => {
+      const h = await driveReviewed(shape(), { notes: ["add — rename it"], silentCollect: true })
+      const message = (h.result as Error).message
+      expect(h.result).toBeInstanceOf(Error)
+      expect(message).toContain("refactor-feedback")
+      expect(message).toContain("note-1")
+      expect(message).toContain("rename it")
+      expect(message).toContain("gtd abandon")
     })
   })
 

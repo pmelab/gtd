@@ -17,7 +17,7 @@ import { healthy, type Guard } from "../shared/health.js"
 import { coder, FEEDBACK, REFACTOR } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults, testFileGlobs } from "../shared/vars.js"
-import { buildTail, reUnwind } from "./review.js"
+import { buildTail, reUnwind, type FeedbackTarget } from "./review.js"
 import { refactorCollecting } from "./steps.js"
 
 export const REFACTOR_PACKAGE = REFACTOR
@@ -235,11 +235,12 @@ export const reviewedRefactor = async (
   return scope({ name: "refactor", access: { write: [...p.strays, ".gtd/**"] } }, async () => {
     const entry = head()
     const guard = guardOf(p, entry)
-    const feedback = {
+    const feedback: FeedbackTarget = {
       file: REFACTOR_PACKAGE,
       collecting: (capture: string) => refactorCollecting(capture, p.strays),
       unmatched:
         "gtd land: refactor-feedback: the review feedback changed files but wrote no .gtd/REFACTOR.md — a refactor cannot act on it; revert the change, or `gtd abandon` and restart",
+      dropped: t.refactorDroppedRefusal,
     }
     let collected: string | undefined
     for (;;) {

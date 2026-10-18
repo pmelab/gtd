@@ -24,6 +24,12 @@ export type ReviewOutcome =
       readonly edited: readonly Change[]
     }
 
+/** What a round asked to change: the `edit` notes it carried and the code paths the human hand-edited. */
+export interface Requested {
+  readonly notes: readonly ReviewNote[]
+  readonly paths: readonly string[]
+}
+
 export type Verdict = "edit" | "question" | "nit" | "praise" | "defer"
 
 export type ReviewRisk = ReturnType<typeof reviewRisks>[number]
@@ -68,13 +74,30 @@ export interface ReviewPolicy {
     readonly deleted: string
     /** The collecting turn changed something without writing `feedback`. */
     readonly unmatched: string
+    /**
+     * The collecting turn changed nothing though the round carried an `edit`
+     * note or a code hand-edit. Absent: that round signs off.
+     */
+    readonly dropped?: (requested: Requested) => string
   }
 }
 
-const collect = async (p: ReviewPolicy, capture: string): Promise<"signoff" | "feedback"> => {
+const collect = async (
+  p: ReviewPolicy,
+  capture: string,
+  requested?: Requested,
+): Promise<"signoff" | "feedback"> => {
   await p.collecting(capture)
   if (read(p.feedback) !== undefined) return "feedback"
-  if (changes().length === 0) return "signoff"
+  if (changes().length === 0) {
+    if (
+      p.refusals.dropped !== undefined &&
+      requested !== undefined &&
+      requested.notes.length + requested.paths.length > 0
+    )
+      return refuse(p.refusals.dropped(requested))
+    return "signoff"
+  }
   return refuse(p.refusals.unmatched)
 }
 
@@ -152,7 +175,12 @@ export const routeNotes = async (
   if (deferred.length > 0) await p.defer(deferred)
   if (edits.length > 0) {
     await r.close()
-    return r.outcome(await collect(p, p.captures.editNotes(r.round, edits, answeredAt)))
+    return r.outcome(
+      await collect(p, p.captures.editNotes(r.round, edits, answeredAt), {
+        notes: edits,
+        paths: [],
+      }),
+    )
   }
   if (nits.length > 0) {
     await r.close()
@@ -220,13 +248,14 @@ const finish = async (
     return outcome(folded ? "feedback" : "signoff")
   }
 
-  const collectWith = async (capture: string): Promise<Finish> => {
+  const collectWith = async (capture: string, requested?: Requested): Promise<Finish> => {
     await close()
-    return outcome(await collect(p, capture))
+    return outcome(await collect(p, capture, requested))
   }
   if (settled || (edited.length === 0 && !noted)) return unfolded()
-  if (edited.length > 0) return collectWith(p.captures.edits(round))
   const notes = reviewNotes(baselineText, record)
+  if (edited.length > 0)
+    return collectWith(p.captures.edits(round), { notes, paths: edited.map((c) => c.path) })
   if (notes.length === 0) return collectWith(p.captures.notes(round))
   return routeNotes(p, notes, { round, close, outcome, unfolded })
 }
