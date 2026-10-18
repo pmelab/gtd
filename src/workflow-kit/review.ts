@@ -249,6 +249,28 @@ const settledAfter = (
     !notedSince(p, collectedAt),
 })
 
+const finishNotes = async (
+  p: ReviewPolicy,
+  before: string,
+  reopened: boolean,
+  ctx: Parameters<typeof routeNotes>[2],
+): Promise<Finish> => {
+  // An unchanged review file has no baseline entry, which would read as all-new.
+  const notes = reviewNotes(before, read(p.file) ?? "")
+  if (notes.length > 0) return routeNotes(p, notes, ctx)
+  if (reopened) return ctx.unfolded()
+  await ctx.close()
+  return ctx.outcome(await collect(p, p.captures.notes(ctx.round), "notes"))
+}
+
+const toOutcome = (
+  verdict: "signoff" | "feedback",
+  rest: { base: string; restoreFrom: string; edited: ReadonlyArray<Change> },
+): ReviewOutcome => (verdict === "signoff" ? { verdict } : { verdict, ...rest })
+
+const isReopened = (p: ReviewPolicy, r: { settled: boolean; folded: boolean }): boolean =>
+  r.settled && !r.folded && p.refusals.dropped !== undefined
+
 const finish = async (
   p: ReviewPolicy,
   reviewed: string,
@@ -265,7 +287,7 @@ const finish = async (
   const noted = since.some((c) => c.path === p.file)
   const close = (): Promise<void> => p.close(round)
   const outcome = (verdict: "signoff" | "feedback"): ReviewOutcome =>
-    verdict === "signoff" ? { verdict } : { verdict, base: round, restoreFrom: reviewed, edited }
+    toOutcome(verdict, { base: round, restoreFrom: reviewed, edited })
   const unfolded = async (): Promise<Finish> => {
     await close()
     return outcome(folded ? "feedback" : "signoff")
@@ -273,7 +295,7 @@ const finish = async (
 
   // Thread-only edits settled the round, but a change note or hand-edit since
   // `reviewed` must still reach a collecting turn when a dropped edit is refused.
-  const reopened = settled && !folded && p.refusals.dropped !== undefined
+  const reopened = isReopened(p, { settled, folded })
   if ((settled && !reopened) || (edited.length === 0 && !noted)) return unfolded()
   if (edited.length > 0) {
     await close()
@@ -284,14 +306,12 @@ const finish = async (
       }),
     )
   }
-  // An unchanged review file has no baseline entry, which would read as all-new.
-  const notes = reviewNotes(since.get(p.file)?.before ?? "", read(p.file) ?? "")
-  if (notes.length === 0) {
-    if (reopened) return unfolded()
-    await close()
-    return outcome(await collect(p, p.captures.notes(round), "notes"))
-  }
-  return routeNotes(p, notes, { round, close, outcome, unfolded })
+  return finishNotes(p, since.get(p.file)?.before ?? "", reopened, {
+    round,
+    close,
+    outcome,
+    unfolded,
+  })
 }
 
 /** Write the review; if it marks risks, fix them, keep green, and write it again — once, so the re-review's own risks reach the human unfixed. */
