@@ -225,6 +225,7 @@ describe("implement", () => {
     reference: string | undefined,
     tier?: "low" | "high",
     amend?: boolean,
+    call: () => Promise<void> = () => implement({ reference, tier, amend }),
   ) => {
     const requests: StepRequest[] = []
     installContext(
@@ -241,11 +242,24 @@ describe("implement", () => {
         },
       ),
     )
-    await implement(reference, tier, amend)
+    await call()
     const request = requests.find((r) => r.kind === "agent" && r.name === "building")
     if (request?.kind !== "agent") throw new Error("no building turn")
     return request.prompt
   }
+
+  it("the deprecated positional form renders the same prompt as the options form", async () => {
+    const modern = await building("abc", "low")
+    const legacy = await building("abc", "low", undefined, () => implement("abc", "low"))
+    expect(legacy).toBe(modern)
+    expect(legacy).toContain("git show abc")
+    const amended = await building(undefined, undefined, true)
+    expect(
+      await building(undefined, undefined, undefined, () => implement(undefined, undefined, true)),
+    ).toBe(amended)
+    const bare = await building(undefined, undefined, undefined, () => implement())
+    expect(bare).toBe(await building(undefined))
+  })
 
   it("names the reference with a git show line", async () => {
     expect(await building("abc")).toContain("git show abc")

@@ -116,7 +116,7 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
 
       export async function review() {
         await gate("review-gate", "The baseline is red.")
-        return afterTail(await buildTail(false, start()))
+        return afterTail(await buildTail(start()))
       }
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""

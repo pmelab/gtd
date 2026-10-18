@@ -131,7 +131,7 @@ describe("afterTail feedback lap", () => {
     `export { feature as default, defaults, envDefaults, summary, base, steering, skills, access } from "@pmelab/gtd/workflows"`,
     `export async function tail() {`,
     `  await gate("review-gate", "The baseline is red.")`,
-    `  return afterTail(await buildTail(false, start()))`,
+    `  return afterTail(await buildTail(start()))`,
     `}`,
   ].join("\n")
 

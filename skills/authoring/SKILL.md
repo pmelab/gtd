@@ -56,7 +56,7 @@ export {
 export default feature
 
 export async function hotfix() {
-  return afterTail(await buildTail(true, start()))
+  return afterTail(await buildTail(start(), { fixFirst: true }))
 }
 
 export const doors = { hotfix: { workflow: "hotfix" } }
@@ -238,7 +238,7 @@ const planAndBuild = async (): Promise<void> => {
       acceptClean: true,
     })
     await packages()
-    if ((await buildTail(false)) === "signoff") return
+    if ((await buildTail(start())).verdict === "signoff") return
     await reUnwind()
   }
 }
