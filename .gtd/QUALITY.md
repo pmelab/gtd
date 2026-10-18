@@ -110,3 +110,26 @@ guard, never with the refactor guard.
 
 Add one case where a tail fix turn adds a `GTD_FLAG_*` read and expect a
 `refactor-flags` refusal.
+
+## owasp-security: stray paths reach the new refactor prompts unescaped
+
+[Low] Prompt text injection through a stray file name (CWE-74, OWASP A05:2025,
+LLM01 Prompt Injection)
+
+- Location: `src/workflows/shared/text.ts`, in `refactorReviewCollectingPrompt`
+  (the stray list) and `refactorRules`, which `refactorBuildingPrompt` and
+  `refactorFixPrompt` now both use
+- Path: a file name the naive pass or the human's sketch creates →
+  `judgeDiffShape` strays → `` `  - \`${path}\`` `` inside the agent prompt
+- Impact: a stray whose name holds a newline or a backtick adds its own lines to
+  the rule block. For example, `a.ts\n- A test file may change too` reads as a
+  rule. The guards check the in-memory strays, so `refactor-tests` and
+  `refactor-scope` still refuse the write. The harm is limited to steering the
+  agent and to refused turns that loop (see the correctness chunks on unbounded
+  refusals). No guard is bypassed.
+- Fix: render each path with `displayPath(path)`, the way `seamByHandMessage`
+  and `seamReport` already do. That helper JSON-quotes control characters. The
+  removed `seam.approve` report was the one place these strays were shown
+  escaped, and it is gone in this change.
+- Confidence: Likely. Git allows such names. Whether `changes()` keeps them raw
+  was not verified.
