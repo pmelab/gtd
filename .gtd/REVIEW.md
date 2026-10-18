@@ -1,19 +1,18 @@
-# Review: 85fda9c
+# Review: ca35920
 
 <!-- base: e8b71ede7b061be6aa4b8a0ef5c902b978de8ca4 -->
 
 Implements gtd#381: with `GTD_FLAG_NAIVE_PASS=1` a `refactor-first` verdict now
 runs a `refactor` slice (refactor, its own quality lap, its own review) before a
 `feature` slice. `seam.approve` is gone. The default path is unchanged. Workflow
-unit and feature tests pass locally (`vitest run src/workflows`: 492 tests,
-`--project workflows`: 80 tests).
+unit and feature tests pass locally (`vitest run src/workflows`: 494 tests).
 
-**One risk: the refactor tail guards the human escalation rests**, so a person's
-edit at `refactor.build.health.stop` that touches a non-stray or a test file is
-refused. The refactor lap and its docs promise the opposite.
+**The tail-guard risk is fixed**: the refactor's review tail no longer guards
+its human escalation rests (`guardRests: false`). A new unit test pins it, and
+fails when the flag is flipped back (checked by mutation).
 
-**One risk: the README says review feedback re-runs design**, which is wrong for
-the refactor review.
+**The README risk is fixed**, but **docs/configuration.md still says feedback at
+any review re-runs design**, which is wrong for the refactor review.
 
 ## Scenarios
 
@@ -74,7 +73,7 @@ the refactor review.
       fix writing a non-stray is refused (`refactor-scope`), even though a
       glob-named stray `src/*.ts` widens write access
 - [ ] ./src/workflows/feature/refactor-review.feature#519-526 — a blank
-      `refactorQualityReviews` runs no refactor lens turn FYI: scenarios at 16
+      `refactorQualityReviews` runs no refactor lens turn. FYI: scenarios at 16
       and 96 repeat the Rule's Background setup almost word for word, and the
       file has stray double blank lines (81-82, 94-95, 161-162, 172-173)
 
@@ -123,22 +122,17 @@ added to the re-derived package under `## Review feedback`. It never re-plans.
 - [ ] ./src/workflows/feature/refactor.ts#211-221 — `refactorFirst` is now
       `plan` + one lap; its behaviour is unchanged apart from the new test-file
       guard
-- [ ] ./src/workflows/feature/refactor.ts#223-256 — Risk: `reviewedRefactor`
-      passes `guard` to `buildTail`. Inside the tail, `healthy(…, { guard })`
-      and `escalation(…, guard)` also wrap the `stop`/`exhausted` human rests
-      (`guardedSteps` in `shared/health.ts`). So a person's edit at
-      `refactor.build.health.stop` or `refactor.build.review.health.stop` that
-      touches a non-stray or a test file is refused, and the only way out is
-      `gtd abandon`. `refactorLap` deliberately passes the guard as
-      `describeGuard` only. The guard's own comment,
-      docs/configuration.md#612-619 and refactor-package.feature's "a person's
-      edit outside the strays at the escalation rest lands" all promise human
-      rests are never guarded. Fix: give the tail a turn-only guard (guard
-      fix/describe turns, not the human rests), and add a unit test for an edit
-      at a refactor tail's `health.stop`. Smaller points: every round reviews
-      from `entry` (the whole slice), unlike the feature loop, which moves to
-      `outcome.base`; and `read(REFACTOR_PACKAGE) ?? ""` quietly turns a missing
-      package into an empty feedback section
+- [ ] ./src/workflows/feature/refactor.ts#223-262 — `reviewedRefactor`: one
+      `refactor` scope, a lap, then `buildTail` with the guard, the refactor
+      lenses and the `REFACTOR.md` feedback target; feedback re-unwinds and runs
+      another lap carrying the collected notes. Fix: the tail now gets
+      `guardRests: false`, so the human rests
+      `refactor.build.health.stop`/`exhausted` and
+      `refactor.build.review.health.stop`/`exhausted` are unguarded, as in the
+      lap. The doc comment now says every round reviews from `entry` on purpose.
+      A missing `REFACTOR.md` after feedback now throws instead of becoming an
+      empty feedback section; the kit only returns `feedback` once that file
+      exists, so the throw guards an invariant, not a user path
 - [ ] ./src/workflows/feature/steps.ts#1-12 — imports `REFACTOR`
 - [ ] ./src/workflows/feature/steps.ts#103-112 — `refactorCollecting`: the
       `review.collecting` turn for the refactor, which writes `.gtd/REFACTOR.md`
@@ -153,22 +147,37 @@ added to the re-derived package under `## Review feedback`. It never re-plans.
 ## Review tail: guard, lenses, feedback target
 
 `buildTail`/`review` take options so the same tail can serve the refactor: a
-guard run after each turn that changes code, a list of lenses that overrides the
-setting, and a feedback file with its own collecting turn and refusal text.
+guard run after each turn that changes code, whether that guard also covers the
+human escalation rests, a list of lenses that overrides the setting, and a
+feedback file with its own collecting turn and refusal text.
 
 - [ ] ./src/workflows/feature/review.ts#1-16 — imports for the moved `reUnwind`
       and `guarded`
 - [ ] ./src/workflows/feature/review.ts#168-246 — `review` takes the options:
       the feedback target defaults to `REQUIREMENTS.md` with the old refusal
-      text; `fixRisks`, `fixNits` and `keepGreen` are guarded
-- [ ] ./src/workflows/feature/review.ts#248-277 — `FeedbackTarget`,
-      `BuildTailOptions`; `buildTail` passes guard and lenses into `tail`
-- [ ] ./src/workflows/feature/review.ts#279-294 — `reUnwind` moved here from
+      text; `fixRisks`, `fixNits` and `keepGreen` are guarded. Fix: `keepGreen`
+      now also passes `guardRests`
+- [ ] ./src/workflows/feature/review.ts#248-280 — `FeedbackTarget`,
+      `BuildTailOptions` (new `guardRests` field); `buildTail` passes guard,
+      lenses and `guardRests` into `tail`
+- [ ] ./src/workflows/feature/review.ts#282-297 — `reUnwind` moved here from
       `feature.ts`, unchanged, so the refactor scope can use it without an
       import cycle
-- [ ] ./src/workflows/shared/tail.ts#32-40 — `qualityLap` takes a lenses
-      override; it still falls back to `qualityReviews`
-- [ ] ./src/workflows/shared/tail.ts#77-90 — `tail` passes `lenses` through
+- [ ] ./src/workflows/shared/health.ts#41-48 — fix: `guardedSteps` takes `rests`
+      (default `true`); `false` drops the guard from `stop` and `exhausted`,
+      while `describe` stays guarded
+- [ ] ./src/workflows/shared/health.ts#53-57 — fix: `escalation` takes
+      `guardRests`, default `true`, so the feature tail keeps its old behaviour
+- [ ] ./src/workflows/shared/health.ts#106-107 — fix: `HealthOptions.guardRests`
+- [ ] ./src/workflows/shared/health.ts#131-131 — fix: `healthy` passes it on
+- [ ] ./src/workflows/shared/tail.ts#32-52 — `qualityLap` takes a lenses
+      override and still falls back to `qualityReviews`; fix:
+      `fixQualityFindings` passes `guardRests` to its escalation
+- [ ] ./src/workflows/shared/tail.ts#75-101 — `tail` passes `lenses` through;
+      fix: every `healthy` call and the quality-fix escalation get `guardRests`.
+      Consider: `tail` now takes six positional parameters (`guard`, `lenses`,
+      `guardRests` all optional); an options object like `BuildTailOptions`
+      would read better
 
 ## No test file touched by a refactor
 
@@ -226,11 +235,16 @@ two stay in step.
 - [ ] ./src/workflows/feature/refactor.test.ts#309-309 — helper tweak
 - [ ] ./src/workflows/feature/refactor.test.ts#411-425 — the test-file refusal
       and the "never a test file" package rule
-- [ ] ./src/workflows/feature/refactor.test.ts#550-803 — `reviewedRefactor`:
+- [ ] ./src/workflows/feature/refactor.test.ts#550-801 — `reviewedRefactor`:
       tail step names, review base, lenses, the feedback lap (collect,
       re-unwind, re-derive with `## Review feedback`), and the guard after
-      quality-fix, nit-fix and fix-check turns. No case covers a human edit at a
-      tail escalation rest (see the risk above)
+      quality-fix, nit-fix and fix-check turns
+- [ ] ./src/workflows/feature/refactor.test.ts#803-821 — fix: a person's
+      test-file edit at `refactor.build.health.stop` is not refused, and the
+      tail's `health.describe` turn outside the strays still is. Flipping
+      `guardRests` back to `true` reds the first case. Gap: no case covers
+      `refactor.build.review.health.stop` or either `exhausted` rest; dropping
+      `guardRests` from `review`'s `keepGreen` would stay green
 - [ ] ./src/workflows/feature/review.test.ts#8-14 — imports
 - [ ] ./src/workflows/feature/review.test.ts#50-57 — helper widened
 - [ ] ./src/workflows/feature/review.test.ts#80-83 — helper widened
@@ -265,11 +279,10 @@ two stay in step.
 
 ## Docs
 
-- [ ] ./README.md#568-579 — Risk: "Feedback at a review re-runs design and the
-      implementation, never the naive pass" is wrong for the refactor review,
-      whose feedback re-runs the refactor (`refactor.deriving`), never design.
-      Say "feature review", or name both routes
-- [ ] ./README.md#657-665 — `seamGate` is still described; the note says the
+- [ ] ./README.md#571-576 — fix: feedback at the feature review re-runs design
+      and the implementation; feedback at the refactor review re-runs the
+      refactor, never design
+- [ ] ./README.md#661-663 — `seamGate` is still described; the note says the
       shipped flow does not use it
 - [ ] ./SDLC.md#40-47 — gate counts: naive path 2, or 3 on `refactor-first`
 - [ ] ./SDLC.md#52-58 — gate table: the `seam.approve` row is replaced by
@@ -281,19 +294,27 @@ two stay in step.
       (both public exports of `@pmelab/gtd/workflows`)
 - [ ] ./docs/configuration.md#612-619 — the `refactor-tests` refusal and its
       fixed glob list; the `refactor-scope` label
-- [ ] ./docs/configuration.md#650-678 — the naive-pass path: slices, refactor
-      review, feedback routes, and an upgrade note for processes resting at
-      `seam.approve`
-- [ ] ./docs/configuration.md#693-694 — overrule wording: "no seam gate" dropped
-- [ ] ./docs/configuration.md#1224-1228 — new addressable `refactor.build.*`
+- [ ] ./docs/configuration.md#625-631 — fix: the review tail's human rests are
+      listed as never guarded too. Nit: `refactor.build.health.*` and
+      `refactor.build.review.health.*` also match the `describe` turn, which
+      stays guarded; name `stop` and `exhausted`
+- [ ] ./docs/configuration.md#652-680 — Risk: "Feedback at a review, whatever
+      the verdict, re-runs design and `implement.*`" (lines 669-670) is wrong
+      for the refactor review, whose feedback re-runs `refactor.deriving`, never
+      design — the next paragraph says so, contradicting it. Say "Feedback at
+      the feature review", as the README now does. The rest of the hunk covers
+      the slices, the refactor review, the feedback routes and the upgrade note
+      for processes resting at `seam.approve`
+- [ ] ./docs/configuration.md#695-696 — overrule wording: "no seam gate" dropped
+- [ ] ./docs/configuration.md#1226-1230 — new addressable `refactor.build.*`
       scopes
-- [ ] ./docs/configuration.md#1238-1239 — `seam.approve` dropped from the scopes
+- [ ] ./docs/configuration.md#1240-1241 — `seam.approve` dropped from the scopes
       with no key
-- [ ] ./docs/configuration.md#1260-1261 — when a `refactor.build.quality.<lens>`
+- [ ] ./docs/configuration.md#1262-1263 — when a `refactor.build.quality.<lens>`
       key is valid
-- [ ] ./docs/configuration.md#1324-1336 — access: `refactor.build.*` inherits
+- [ ] ./docs/configuration.md#1326-1338 — access: `refactor.build.*` inherits
       the refactor restriction; refactor lens row
-- [ ] ./docs/configuration.md#1546-1550 — the `refactorQualityReviews` setting
+- [ ] ./docs/configuration.md#1548-1552 — the `refactorQualityReviews` setting
 - [ ] ./docs/driver.md#23-38 — approval-gate paragraph: the shipped flow rests
       at none
 - [ ] ./docs/setup.md#95-97 — a lens added to `qualityReviews` does not reach
