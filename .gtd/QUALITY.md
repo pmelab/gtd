@@ -147,3 +147,28 @@ Already raised under other lenses and not repeated here: the merged-name reuse
 test's `noPr` mock/live drift (correctness), the missing reconcile-then-ship
 test (correctness), and the missing unrelated-error test for the unset hint
 (owasp-security).
+
+## conventions: Nit: new ship behaviour has no `@inmem` scenario
+
+AGENTS.md, Testing: "create cucumber.js scenarios for each new feature, tagged
+`@inmem`". This change adds user-visible behaviour to `/gtd ship`: the
+stray-branch refusal, the persisted `branch.<b>.gtdLease` and its unset hint,
+the multi-commit top accepted as a hand restack, reusing a merged slice's name,
+and the rollback for a slice left empty. All of it is pinned only by vitest
+cases in `claude/hooks/ship.test.ts`. No `.feature` file covers the mod's ship
+flow, before or after this change, so this follows existing precedent and is not
+a regression. It still breaks the rule as written.
+
+Fix: add `@inmem` scenarios for at least the stray-branch refusal and the
+kept-lease retry, built from composable Given steps that show the branch and
+config state in the scenario text. Or, if `claude/` is meant to be exempt from
+the rule, the user should say so in AGENTS.md.
+
+## conventions: Nit: a comment that restates its function
+
+AGENTS.md, Comments: "Everything else (restatement of the code, history, a
+'what' with no 'why') gets deleted, not moved."
+`// The refusal for a clean rebase that left a slice without a commit of its own.`
+above `shapeRefusal` (`claude/hooks/ship.ts`) only says what the function does.
+The reason (a rebase that drops an already-upstream commit exits 0) already sits
+on `brokenShape`. Delete the comment.
