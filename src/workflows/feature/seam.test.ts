@@ -247,11 +247,11 @@ describe("implement", () => {
     expect(prompt).toContain("already exists")
     expect(prompt).toContain("amend")
     expect(prompt).toContain("Keep the release flag")
-    expect(prompt).toContain("add none")
+    expect(prompt).toContain("if it added one")
     expect(prompt).not.toContain("implement them properly")
     expect(prompt).not.toContain("Implement them properly")
     expect(prompt).not.toContain("write the change fresh")
-    expect(prompt).not.toContain("new release flag")
+    expect(prompt).toContain("otherwise put")
   })
 
   it("amend on tier low says to add no release flag", async () => {

@@ -217,7 +217,7 @@ const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<vo
       })
       guard()
     },
-    { describeGuard: guard },
+    { describeGuard: guard, rules: t.refactorRules(strays, pattern) },
   )
   await run("closing", removeScript([REFACTOR_PACKAGE]), { label: "Closing out the refactor" })
 }

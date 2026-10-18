@@ -267,7 +267,7 @@ export interface BuildTailOptions {
   readonly fixAccess?: ScopeAccess
   /** The commit the quality lap reviews from; absent: `start()`. */
   readonly lensBase?: string
-  /** Appended to every fix and describe prompt of the tail; `reviewedRefactor` passes `refactorRules(strays, pattern)`. */
+  /** Appended to every fix and describe prompt of the tail. */
   readonly rules?: string
 }
 

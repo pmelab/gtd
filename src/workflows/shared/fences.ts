@@ -1,4 +1,4 @@
-// An unclosed fence runs to end of file, so the tier reads `high` (fail-closed). A backtick
+// An unclosed fence runs to end of file. A backtick
 // opener with a backtick in its info string still counts as a fence: deviates from CommonMark,
 // worst case is `high`.
 export const markFenced = (text: string): readonly { line: string; fenced: boolean }[] => {

@@ -122,11 +122,11 @@ const notesOf = (text: string): string => {
       .replace(
         new RegExp(
           `^\\[\\^${n}\\]:[^\\n]*(\\n(?: {2,}|\\t)[^\\n]*|\\n(?=\\s*\\n(?: {2,}|\\t)))*`,
-          "gm",
+          "gim",
         ),
         "",
       )
-      .replace(new RegExp(`\\[\\^${n}\\]`, "g"), "")
+      .replace(new RegExp(`\\[\\^${n}\\]`, "gi"), "")
   }
   return out.replace(/\[x\]/gi, "[ ]").replace(/\s+/g, " ").trim()
 }

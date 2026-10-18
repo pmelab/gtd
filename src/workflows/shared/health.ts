@@ -114,7 +114,6 @@ export interface HealthOptions {
   readonly describeGuard?: Guard | undefined
   /** `false`: `guard` skips the human rests `health.stop` and `health.exhausted`. */
   readonly guardRests?: boolean | undefined
-  /** Appended to the escalation's describe prompt. */
   readonly rules?: string | undefined
 }
 

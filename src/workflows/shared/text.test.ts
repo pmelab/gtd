@@ -1019,7 +1019,7 @@ describe("the refactor collecting prompt", () => {
   it("in-gate asks for one - A: per waiting thread, leaves one-shot footnotes and notes untouched, never says closed", () => {
     const prompt = renderText(() => buildReviewCollectingPrompt("capture", { strays, open: true }))
     expect(prompt).toContain("exactly one `- A:` reply")
-    expect(prompt).toContain("Leave one-shot footnotes and notes untouched")
+    expect(prompt).toContain("Fold each one-shot footnote and note")
     expect(prompt).toContain("gtd check review .gtd/REVIEW.md")
     expect(prompt).not.toContain("already closed")
   })

@@ -951,8 +951,8 @@ ${
 - Fold a concluded thread into \`${target}\` only when it asks for a
   change, then delete it from \`.gtd/REVIEW.md\`; a concluded thread
   that asks for none is just deleted
-- Leave one-shot footnotes and notes untouched: the round's triage
-  judges them
+- Fold each one-shot footnote and note that asks for a change into
+  \`${target}\` and delete it in this same turn; praise is just deleted
 `
       : `- This turn writes \`${target}\` (the folded concerns) — you classify,
   you do not build. \`.gtd/REVIEW.md\` is already closed: do not
@@ -1228,7 +1228,7 @@ ${
     tier === "low"
       ? "- Add no release flag — this change is low risk tier"
       : amend === true
-        ? "- Keep the release flag the earlier lap added; add none"
+        ? "- Keep the release flag the earlier lap added, if it added one; otherwise put\n  the behaviour behind a new release flag"
         : `- Put the new behaviour behind a new release flag, following the
   repository's flag conventions`
   }

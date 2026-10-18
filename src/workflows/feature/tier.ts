@@ -13,6 +13,7 @@ const sectionLines = (
 ): readonly { line: string; fenced: boolean }[] => {
   if (text === undefined) return []
   const heading = new RegExp(`^##[ \\t]+${title}[ \\t]*$`, "i")
+  // An unclosed fence hides the rest, so the tier reads `high` (fail-closed).
   const lines = markFenced(text)
   const start = lines.findIndex((l) => !l.fenced && heading.test(l.line))
   if (start < 0) return []
