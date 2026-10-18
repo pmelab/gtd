@@ -85,12 +85,12 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       // review and fix as feature's own tail: a note is triaged and re-planned.
       export async function review() {
         await gate("review-gate", "The baseline is red.")
-        return afterTail(await buildTail(false, start()))
+        return afterTail(await buildTail(start()))
       }
 
       export async function fix() {
         if (await baseline("fix-precheck")) return
-        return afterTail(await buildTail(true, start()))
+        return afterTail(await buildTail(start(), { fixFirst: true }))
       }
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""

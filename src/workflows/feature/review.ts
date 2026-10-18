@@ -257,9 +257,9 @@ export interface FeedbackTarget {
 
 export interface BuildTailOptions {
   /** Fix first when entered red; default `false`. */
-  readonly fixFirst?: boolean
-  /** Skip keeping green; default `false`. */
-  readonly green?: boolean
+  readonly fixFirst?: boolean | undefined
+  /** Asserts the tree is already green, so the tail skips keep-green; default `false`. */
+  readonly green?: boolean | undefined
   /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
   readonly guard?: Guard
   /** `false`: `guard` skips the escalation's human rests. */
@@ -292,15 +292,23 @@ export function buildTail(
   third = false,
   fourth: Omit<BuildTailOptions, "fixFirst" | "green"> = {},
 ): Promise<kit.ReviewOutcome> {
-  const base = typeof first === "string" ? first : (second as string)
-  const options: BuildTailOptions =
+  // Before any step runs, so a bad call never leaves a half-walked flow.
+  if (typeof first !== "string" && typeof first !== "boolean" && typeof second !== "string") {
+    return Promise.reject(
+      new Error(
+        "buildTail takes buildTail(base, options?) or the deprecated buildTail(fixFirst, base, green?, options?); this call fits neither",
+      ),
+    )
+  }
+  const [base, options]: [string, BuildTailOptions] =
     typeof first === "string"
-      ? ((second as BuildTailOptions | undefined) ?? {})
-      : { ...fourth, fixFirst: first, green: third }
+      ? [first, (second as BuildTailOptions | undefined) ?? {}]
+      : [second as string, { ...fourth, fixFirst: first, green: third }]
+  const { fixFirst, green, ...reviewOptions } = options
   return tail(
-    options.fixFirst ?? false,
-    (escalations) => review(base, escalations, options),
-    options.green ?? false,
+    fixFirst ?? false,
+    (escalations) => review(base, escalations, reviewOptions),
+    green ?? false,
     options.guard,
     options.lenses,
     options.guardRests,

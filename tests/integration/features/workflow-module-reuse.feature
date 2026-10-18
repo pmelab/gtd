@@ -19,7 +19,7 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
 
       export { feature as default, defaults, envDefaults, summary, base, steering, skills } from "@pmelab/gtd/workflows"
 
-      export const hotfix = async () => afterTail(await buildTail(true, start()))
+      export const hotfix = async () => afterTail(await buildTail(start(), { fixFirst: true }))
       """
 
   Scenario: an ordinary start runs the shipped flow, resting at its idle step
@@ -76,7 +76,7 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
 
       export async function review() {
         await gate("review-gate", "The baseline is red.")
-        return afterTail(await buildTail(false, start()))
+        return afterTail(await buildTail(start()))
       }
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""

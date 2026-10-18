@@ -1063,7 +1063,7 @@ describe("the refactor prompts", () => {
 
   it("building and fix rules forbid every test file, with no stray exception", () => {
     for (const prompt of renderText(() => [
-      refactorBuildingPrompt(".gtd/REFACTOR.md", strays, pattern),
+      refactorBuildingPrompt({ pkg: ".gtd/REFACTOR.md", strays, pattern }),
       refactorFixPrompt(strays, pattern),
     ])) {
       expect(prompt).toContain("never a test file")
@@ -1073,8 +1073,8 @@ describe("the refactor prompts", () => {
 
   it("building adds the act-on-review-feedback line only when asked", () => {
     const [plain, feedback] = renderText(() => [
-      refactorBuildingPrompt(".gtd/REFACTOR.md", strays, pattern),
-      refactorBuildingPrompt(".gtd/REFACTOR.md", strays, pattern, undefined, true),
+      refactorBuildingPrompt({ pkg: ".gtd/REFACTOR.md", strays, pattern }),
+      refactorBuildingPrompt({ pkg: ".gtd/REFACTOR.md", strays, pattern, feedback: true }),
     ])
     expect(plain).not.toContain("## Review feedback")
     expect(feedback).toContain("## Review feedback")

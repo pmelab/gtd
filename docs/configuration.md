@@ -440,6 +440,10 @@ export async function hotfix() {
 export const doors = { hotfix: { workflow: "hotfix" } }
 ```
 
+`buildTail(base, options?)` is the call form;
+`buildTail(fixFirst, base, green?, options?)` is deprecated. A call fitting
+neither form is rejected before any of `buildTail`'s own steps run.
+
 A config's doors are those its workflows bring plus its `doors` export: export
 `fix` and `review` to keep their doors (see [Doors](#doors)).
 

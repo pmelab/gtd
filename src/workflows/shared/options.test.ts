@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { FLAGS, type FlagDeclaration } from "../../flags/index.js"
 import { configure, type WorkflowDoors } from "../../flows/index.js"
 import * as workflows from "../index.js"
 import * as options from "./options.js"
@@ -10,13 +11,19 @@ describe("the shipped workflow factories", () => {
   it("take exactly the settings the shipped workflows declare as options", () => {
     expect(Object.keys(ShippedOptions.fields).sort()).toEqual(
       [...Object.keys(defaults), ...Object.keys(envDefaults)]
-        .filter((name) => name !== "flag_naive_pass" && name !== "flag_risk_tier")
+        .filter((name) => !name.startsWith("flag_"))
         .sort(),
     )
   })
 
+  it("declare a flag_<name> default for exactly the registered flags", () => {
+    const declared = Object.keys(defaults).filter((name) => name.startsWith("flag_"))
+    expect(declared.sort()).toEqual(FLAGS.map(({ name }) => `flag_${name}`).sort())
+    for (const { name, defaultOn } of FLAGS as readonly FlagDeclaration[])
+      expect(defaults).toHaveProperty(`flag_${name}`, defaultOn ? "1" : "0")
+  })
+
   it("declare seamAllow and flag_naive_pass defaults; flag_naive_pass is no option", () => {
-    expect(defaults.flag_naive_pass).toBe("0")
     expect(Object.keys(ShippedOptions.fields)).not.toContain("flag_naive_pass")
     expect(configure(feature({ seamAllow: "docs/**" }))).toMatchObject({
       ok: true,
@@ -25,7 +32,6 @@ describe("the shipped workflow factories", () => {
   })
 
   it("declare flag_risk_tier off by default; it is no factory option", () => {
-    expect(defaults.flag_risk_tier).toBe("0")
     expect(Object.keys(ShippedOptions.fields)).not.toContain("flag_risk_tier")
   })
 
