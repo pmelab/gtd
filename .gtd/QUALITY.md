@@ -44,3 +44,36 @@ slice's branch after that branch had already landed, and when gh reports no
 `mergedAt`. Reword to cover these cases, for example "merged anywhere but the
 default branch, unless it merged into a lower slice branch before that one
 merged into the default branch".
+
+## owasp-security: a collaborator's amended commit on origin passes `keptByHand` and is force-pushed away (claude/hooks/ship.ts `keptByHand`)
+
+[LOW] Data-integrity guard keyed on spoofable metadata, not content (CWE-345,
+OWASP A08:2025 Software or Data Integrity Failures)
+
+Path: origin/<slice> (written by anyone with push access) → `originLeases` →
+`keptByHand` compares `%an %ae %at %B` only → lease = origin's sha → restack
+`push --force-with-lease=<slice>:<that sha>` overwrites it.
+
+`git commit --amend` (and `rebase -i` edit/fixup) keeps author name, email,
+author date and, usually, the message. A collaborator who amends a slice commit
+with a content fix and force-pushes produces a commit whose identity equals the
+local, pre-amend one, so `theirs.every((i) => mine.has(i))` holds, the lease is
+taken on their sha, and the restack's push discards their change with no
+refusal. The old reflog/ancestor check refused this (their sha is neither in the
+local reflog nor an ancestor of the top); the new one weakens that guard. Not
+attacker-exploitable — whoever can push to origin can already delete the branch
+— the harm is silent loss of a trusted collaborator's work, which is exactly
+what the `holds commits <b> lacks` refusal exists to prevent.
+
+Consider: match on identity AND content — require `git patch-id --stable` of
+each origin commit to equal that of its identity twin in the local range (a hand
+rebase that resolved a conflict would then refuse, which is the safe direction),
+or at least compare tree diffs for twins with equal identity. Add a test:
+origin's slice tip is an amended copy of a local commit (same identity,
+different diff) and the restack must refuse before any write.
+
+Hardening noted, not a finding: resolving slice branches as `refs/heads/<b>` (a
+tag of the same name can no longer redirect rebase ranges or `rev-parse`), and
+`landedOn` failing closed on a missing/unparseable `mergedAt` (NaN compares
+false → refusal). All git/gh calls stay argv arrays, no shell; branch names
+cannot start with `-`.
