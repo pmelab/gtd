@@ -193,13 +193,9 @@ export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promis
   // Until the PR step succeeds the record only moves aside: a retry must not
   // resume the stack this ship dropped, yet must still find its slice bases.
   if (squashed.forget && live.length && !isDry) await retireStack(io, branch, live)
-  let { stack } = squashed
-  let floor: string | undefined
-  if (stack && squashed.resumed) {
-    const settled = await settle(io, branch, stack)
-    if (typeof settled === "string") return fail(settled)
-    ;({ links: stack, floor } = settled)
-  }
+  const resolved = await resolveStack(io, branch, squashed.stack, squashed.resumed)
+  if (typeof resolved === "string") return fail(resolved)
+  const { stack, floor } = resolved
   if (stack && isDry) {
     const text = await stackPreview(io, stack, baseBranch, squashed.messages, squashed.history)
     return withWarning({ ok: true, text }, squashed.warning)
@@ -211,6 +207,18 @@ export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promis
     : await pullRequest(io, git, ok, branch, baseBranch, baseRef, recorded)
   if (opened.ok && (squashed.forget || retired.length)) await forgetStack(io, branch)
   return withWarning(opened, squashed.warning)
+}
+
+async function resolveStack(
+  io: ShipIo,
+  branch: string,
+  stack: Link[] | undefined,
+  resumed?: boolean,
+) {
+  if (!stack || !resumed) return { stack, floor: undefined as string | undefined }
+  const settled = await settle(io, branch, stack)
+  if (typeof settled === "string") return settled
+  return { stack: settled.links, floor: settled.floor }
 }
 
 function withWarning(r: Shipped, warning?: string): Shipped {
