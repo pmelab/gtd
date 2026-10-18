@@ -156,6 +156,13 @@ const attempt = async (io: ShipIo, argv: string[]): Promise<Ran & { killed: bool
   }
 }
 
+async function resolveRef(ok: Ok, baseBranch: string): Promise<string | undefined> {
+  for (const candidate of [baseBranch, `origin/${baseBranch}`]) {
+    if (await ok("rev-parse", "--verify", "--quiet", candidate)) return candidate
+  }
+  return undefined
+}
+
 export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promise<Shipped> {
   const mode = shipMode(rawMode)
   if (typeof mode === "object") return fail(mode.refusal)
@@ -167,13 +174,7 @@ export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promis
   const head = await git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
   const baseBranch = head.replace(/^origin\//, "") || "main"
   if (branch === baseBranch) return fail(`You are on the default branch (${baseBranch}).`)
-  let baseRef: string | undefined
-  for (const candidate of [baseBranch, `origin/${baseBranch}`]) {
-    if (await ok("rev-parse", "--verify", "--quiet", candidate)) {
-      baseRef = candidate
-      break
-    }
-  }
+  const baseRef = await resolveRef(ok, baseBranch)
   if (!baseRef) return fail(`There is no ref '${baseBranch}' (tried origin/${baseBranch} too).`)
   // `reset --soft` would fold pending changes into the squash without saying so.
   if (await git("status", "--porcelain"))
@@ -332,10 +333,8 @@ async function squash(
   const many = groups.length > 1
   const stacked = mode === "stack" && many
 
-  if (stacked) {
-    const refused = await stackPrecheck(io, git, ok, branch, groups)
-    if (refused) return fail(refused)
-  }
+  const refused = stacked ? await stackPrecheck(io, git, ok, branch, groups) : undefined
+  if (refused) return fail(refused)
   io.log(`Squashing ${count} commit(s) since ${short(base)} into ${groups.length} commit(s)…`)
   const msgs = await commitMessages(io, git, groups, tip)
   if (!msgs.ok) return msgs
@@ -348,12 +347,11 @@ async function squash(
       commit: commits[i] ?? "",
     }))
   if (isDry) {
-    const text = many
-      ? fulls.map((f, i) => `[${groups[i]!.name}]\n${f}`).join("\n\n---\n\n")
-      : fulls[0]!
     return {
       ok: true,
-      text,
+      text: many
+        ? fulls.map((f, i) => `[${groups[i]!.name}]\n${f}`).join("\n\n---\n\n")
+        : fulls[0]!,
       history,
       warning: await warn(),
       stack: stacked ? links([]) : undefined,
@@ -363,17 +361,32 @@ async function squash(
 
   const pushed = await pushHistory(io, history)
   if (pushed) return fail(pushed)
-  if (!many) {
-    const built = await commitSquash(io, git, ok, groups[0]!.base, fulls[0]!)
-    if (!built.ok) return built
-    await io.run(["git", "config", "--local", "--unset", STACK_KEY(branch)])
-    return { ok: true, text: "" }
-  }
+  if (!many) return squashOne(io, git, ok, branch, groups[0]!.base, fulls[0]!)
   const built = await commitChain(io, git, ok, groups, fulls)
   if (!built.ok) return built
   if (!stacked) return { ok: true, text: "", warning: await warn() }
 
   const stack = links(built.commits)
+  const recorded = await recordStack(io, ok, branch, stack)
+  if (recorded) return fail(recorded)
+  return { ok: true, text: "", stack }
+}
+
+async function squashOne(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  base: string,
+  full: string,
+): Promise<Shipped> {
+  const built = await commitSquash(io, git, ok, base, full)
+  if (!built.ok) return built
+  await io.run(["git", "config", "--local", "--unset", STACK_KEY(branch)])
+  return { ok: true, text: "" }
+}
+
+async function recordStack(io: ShipIo, ok: Ok, branch: string, stack: Link[]) {
   const recorded = await io.run([
     "git",
     "config",
@@ -381,12 +394,12 @@ async function squash(
     STACK_KEY(branch),
     stack.map((l) => l.name).join(" "),
   ])
-  if (recorded.code !== 0) return fail(`git config failed; the squash is kept.\n${recorded.err}`)
+  if (recorded.code !== 0) return `git config failed; the squash is kept.\n${recorded.err}`
   for (const l of stack.slice(0, -1)) {
     if (!(await ok("branch", "-f", l.branch, l.commit)))
-      return fail(`git branch -f ${l.branch} failed; the squash is kept. /gtd ship resumes.`)
+      return `git branch -f ${l.branch} failed; the squash is kept. /gtd ship resumes.`
   }
-  return { ok: true, text: "", stack }
+  return undefined
 }
 
 type View = {
@@ -515,6 +528,39 @@ export function stackLine(body: string, below?: number) {
   return below === undefined ? rest : `Stacked on #${below} — merge that first\n\n${rest}`
 }
 
+type Pr = Shipped & { number?: number }
+
+async function sliceStep(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  l: Link,
+  base: string,
+  lowerRef: string,
+  ctx: Ctx,
+): Promise<Pr | { step: string; why: string }> {
+  const view = await viewPr(io, l.branch)
+  if (typeof view === "string") return { step: "pull request", why: view }
+  let done: Pr
+  if (!view) done = await createPr(io, git, l.branch, base, lowerRef, ctx)
+  else if (view.state !== "OPEN")
+    return { step: "pull request", why: `#${view.number} is ${view.state}, not open.` }
+  else if (view.body?.includes(THROWN))
+    done = await createPr(io, git, l.branch, base, lowerRef, ctx, view)
+  else {
+    if (view.baseRefName !== base) {
+      const moved = await io.run(["gh", "pr", "edit", String(view.number), "--base", base])
+      if (moved.code !== 0)
+        return {
+          step: "retarget",
+          why: `gh pr edit --base ${base} failed.\n${moved.err}`.trimEnd(),
+        }
+    }
+    done = await updatePr(io, git, ok, l.branch, ctx, view)
+  }
+  return done.ok ? done : { step: "pull request", why: done.text }
+}
+
 // Bottom first, so each PR can name the number of the one below it. A failure
 // keeps every slice that already landed; /gtd ship resumes from the recorded stack.
 async function stackPullRequests(
@@ -540,24 +586,10 @@ async function stackPullRequests(
     const pushed = await pushBranch(io, l.branch, l.commit)
     if (pushed) return stop("push", pushed)
 
-    const view = await viewPr(io, l.branch)
-    if (typeof view === "string") return stop("pull request", view)
+    const lowerRef = lower?.branch ?? baseRef
     const ctx: Ctx = { to: l.commit, from: lower?.commit ?? mergeBase, below, stacked: true }
-    let done: Shipped & { number?: number }
-    if (!view) done = await createPr(io, git, l.branch, base, lower?.branch ?? baseRef, ctx)
-    else if (view.state !== "OPEN")
-      return stop("pull request", `#${view.number} is ${view.state}, not open.`)
-    else if (view.body?.includes(THROWN))
-      done = await createPr(io, git, l.branch, base, lower?.branch ?? baseRef, ctx, view)
-    else {
-      if (view.baseRefName !== base) {
-        const moved = await io.run(["gh", "pr", "edit", String(view.number), "--base", base])
-        if (moved.code !== 0)
-          return stop("retarget", `gh pr edit --base ${base} failed.\n${moved.err}`.trimEnd())
-      }
-      done = await updatePr(io, git, ok, l.branch, ctx, view)
-    }
-    if (!done.ok) return stop("pull request", done.text)
+    const done = await sliceStep(io, git, ok, l, base, lowerRef, ctx)
+    if ("step" in done) return stop(done.step, done.why)
     if (done.number === undefined && i < links.length - 1)
       return stop("pull request", "its number could not be read from gh's reply.")
     below = done.number
