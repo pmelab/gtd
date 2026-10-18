@@ -254,3 +254,69 @@ regression.
   package-rules body (`refactor.test.ts`), both prompts (`text.test.ts`), and
   `.gtd/REFACTOR.md` in `refactor-package.feature`. The scenario's `contains`
   line adds nothing beyond the unit test of the deriving body.
+
+## conventions: the squash must be marked breaking, and nothing in the change says so
+
+COMPATIBILITY.md puts "**Bundled workflow and step names** — … each step's full
+name, plus which steps a bundled workflow reaches and in what order" and
+"**Entrypoint exports** — … each export's name, type and behaviour" in the
+"Follows package SemVer" tier. docs/commits.md: "A breaking change puts `!`
+before the colon AND carries a footer that says how to migrate".
+
+This change breaks both:
+
+- `seam.approve` is gone. `refactor-first` now reaches
+  `refactor.build.quality.*` / `refactor.build.review.*` in its place. The docs'
+  own "**Upgrading:** a process resting at `seam.approve` must `gtd abandon`"
+  admits the process gets stranded.
+- `seamBuild`, exported from `@pmelab/gtd/workflows/feature`, changed from
+  `(tier?) => Promise<void>` (which also ran `implement`) to
+  `(base) => Promise<SeamOutcome>`, which no longer implements. A custom
+  workflow calling it compiles differently and skips the implementation.
+
+The naive pass is behind a release flag, but the tier list does not exempt
+flagged step names. The closing/squash message must be `feat(workflow)!: …` with
+a `BREAKING CHANGE:` footer that names both migrations: abandon a process at
+`seam.approve`, and call `implement` after `seamBuild`.
+
+## conventions: user docs still describe lens keys and lap extension as `qualityReviews`-only
+
+User CLAUDE.md: "always make sure every significant change is also reflected in
+the readme". AGENTS.md: docs exist to say "what its commands, flags, config keys
+… accept".
+
+`refactorQualityReviews` adds a second set of lens scopes, but these two places
+still read as if `qualityReviews` were the only one:
+
+- docs/configuration.md §Skills ("`qualityReviews` … and the
+  `build.quality.<lens>` keys are a pair … Such a key is valid only while the
+  lens is listed in `qualityReviews`") says nothing of
+  `refactor.build.quality.<lens>` keys or which setting validates them.
+- docs/setup.md §"Extending the quality-review lap" tells a user to extend
+  `qualityReviews` with a custom lens. It never says that lens does not reach
+  the refactor review, and that adding it there takes `refactorQualityReviews`
+  too.
+
+Add one sentence to each.
+
+## conventions: comments that restate the code (nit)
+
+AGENTS.md: "Keep a comment … only where it explains an important decision or
+genuinely unclear code … Everything else (restatement of the code …) gets
+deleted".
+
+- `src/workflows/feature/seam.ts`:
+  `// Unreadable strays rest at by-hand, before any refactor slice is entered.`
+  repeats the `if` below it.
+- `src/workflows/shared/vars.ts`:
+  `// The refactor slice's lenses: one refactor.build.quality.<lens> scope per entry.`
+  restates the setting.
+- `src/workflows/feature/review.ts`: the `FeedbackTarget` JSDoc ("Where a
+  review's edit notes land, and the turn that writes them") and
+  `BuildTailOptions.feedback` ("Default: `.gtd/REQUIREMENTS.md` via
+  `collecting`") repeat the field names and the default visible in `review()`.
+- `src/workflows/feature/feature.ts`: "The loop sits inside its slice." restates
+  the `slice("feature", …)` call.
+- `src/workflows/feature/refactor.ts`: the `plan` JSDoc says "Resolves
+  undefined", but `plan` is synchronous. Say "Returns", or drop the comment, and
+  keep only the note that it throws on a bad flag pattern.
