@@ -160,3 +160,35 @@ what the code cannot. Both need to be accurate.
   dropped lines are turbo's cache line plus npm's echo, so write "beyond turbo's
   and npm's own preamble". Otherwise a contributor whose task fails silently,
   except for an npm `pre` script's echo, reads a promise the code does not keep.
+
+## spec-challenge: "drop the cache line" breaks the "err toward distinct" invariant
+
+Spec decision (REQUIREMENTS concern 1, ARCHITECTURE "Filter, per task"): drop
+every turbo-written task line, the cache line included, and let "a failure whose
+task lines are all boilerplate" give `""`. The spec says this per failure, but
+the filter applies it per line, per task. It never says what happens when only
+some of a state's failing tasks are silent.
+
+Invariant it conflicts with: the comment on `failureSignature`
+(`scripts/test-states.ts:60-61`) says "Normalisation errs toward 'distinct'".
+The `output-logs` comment (`scripts/test-states.ts:180`) turns collapsing off
+wherever "signatures would merge distinct failures". Before this change, the
+cache line was the one line that put a silently failing task into the signature.
+The spec deletes that line and puts nothing in its place, so a silent task's
+failure no longer counts toward "distinct". This is the root cause of the
+correctness must-fix: state B = A plus a silent `typecheck` collapses into A. It
+sits in the spec, not only in the build. All three documents say only "all
+boilerplate → `""`", so a build that follows them exactly ships the bug, and no
+planned test covers a mixed state.
+
+Fix at the spec level: a task's presence is part of the signature. Drop
+boilerplate lines, but keep a per-task marker (for example `<task>: <failed>`).
+Return `""` only when every task present kept zero lines, which is what the
+requirement's "all boilerplate" means. Add the mixed-state `runStates` test to
+concern 2.
+
+Related (already raised under conventions and ponytail item 1): the ARCHITECTURE
+"Exit line" rule keeps a branch for a stdout shape the architecture itself says
+real turbo does not produce. That conflicts with the AGENTS.md rule that an
+in-memory fake is held to its live twin by a contract test. The spec decided to
+test against a log that does not exist.
