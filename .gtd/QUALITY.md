@@ -103,3 +103,73 @@ forms survive only so older test fakes can keep returning `0`/`1`. Fix: make
 `RunTasks` return `Promise<RunResult>` (or `RunResult | Promise<RunResult>`),
 have the fakes return `{ status, output: "" }`, and delete `asResult` and its
 doc comment. About -8 lines, and one less shape to reason about.
+
+## test-audit: the flag-off default path and live streaming have no test that fails when they break
+
+With `condense_failures` off (the default), every state must still stream live.
+That rests on two lines: `!condense || i === 0` in `runStates` and
+`if (live) sink.write(chunk)` in `spawnTurbo`. No test fails if either goes:
+
+- The `stub` helper drops its third argument (`(tasks, env) => …`). So none of
+  the non-condensing `runStates` tests sees `live`. Change the expression to
+  `i === 0` and every later state's output gets captured and dropped without a
+  word, on the path everyone runs by default. The whole suite stays green. Only
+  "runs every state and returns 1 when any failed" asserts `live`, and only with
+  condense on.
+- The one shim test passes `live = false` and checks capture only. Delete the
+  sink write and the first state, plus every state when the flag is off, goes
+  silent with no test failing. Stderr capture is never checked either, though
+  the repo's vitest reporter writes every `FAIL` line to stderr.
+
+Fix: have `stub` record `live` and assert `[true, true]` for a run without
+condense. Give the shim a stderr line too, run it with `live = true`, and assert
+that the bytes reach the sinks as well as `output`.
+
+## test-audit: the fixtures model vitest's default reporter, not the one this repo uses
+
+`vitest.config.ts` sets `reporters: ["./tests/vitest.reporter.ts"]`. That
+reporter writes `\nFAIL ${test.fullName}\n` to stderr: just the describe path
+and test name, with no file, no double space and no `[ 3ms ]`. The `failuresOf`
+and condensing fixtures (`" FAIL  a.test.ts > one [ 3ms ]"`) copy the default
+reporter's layout, which `npm test` never prints. The duration-stripping branch
+passes only against output that never happens, and nothing exercises the real
+line shape. I checked that turbo 2.10.9's `task: ` log prefix matches the
+fixture. The reporter line is what drifts.
+
+Two effects the fixtures hide:
+
+- `fullName` has no file in it, so two failing tests with the same describe and
+  test name in different files collapse into one entry under `new Set(names)`. A
+  state that fails both then compares equal to a state that fails only one.
+- The reporter writes nothing for a file that fails to load (that is not a test
+  case), so those vitest failures always land in the `[]` case covered above.
+
+Fix: build the vitest lines in the fixture from the reporter's own format, or
+better, take them from one run of the real reporter. Drop the `[ … ]` case
+unless some real reporter emits it.
+
+## test-audit: matches spread over several earlier states are never exercised
+
+Every condensing fixture is matched only against `defaults`. The `covering`
+accumulation and the per-task removal from `novel` across several `seen` entries
+never run with more than one useful entry. Two broken versions stay green: one
+that compares only against `seen[0]`, and one that stops at the first earlier
+state with any hit. Missing case: `defaults` fails task A, `alpha on` fails task
+B, and `beta on` fails A and B. That should log
+`same failures as defaults, alpha on` and print nothing.
+
+## test-audit (Nit): test name does not match what it checks
+
+"prints a pass line only for a later passing state" says nothing about what it
+actually proves: a passing middle state is not added to `seen`, and the third
+state is still matched against `defaults`. The pass line prints no matter what.
+Rename it, e.g. "a passing state in between does not break matching against
+defaults".
+
+## test-audit (Nit): the longest-first sort in `taskOf` guards nothing and has no test
+
+The comment says `test:e2e:inmem` must beat a `test:e2e` prefix. But matching
+uses `${t}: `, and task names contain no `": "`, so no task's prefix can also be
+a prefix of another task's. Sort order cannot change the result, so no test
+could pin it, and `TASKS` has no `test:e2e` anyway. Delete the sort and the
+comment instead of adding a test.
