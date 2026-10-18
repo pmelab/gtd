@@ -107,3 +107,74 @@ to `landedOn` instead of its four fields would also drop the duplicated
 parameters. Add a test: two-slice stack, top MERGED into the lower branch with
 `mergedAt` earlier than the lower's, lower MERGED into main; expect the "Rename
 the branch" refusal and no write.
+
+## test-audit: the "retry after a failed push" test retries nothing (claude/hooks/ship.test.ts "a retry after a failed push reads the same origin/main merge base")
+
+Should fix. `repo()` is stateless: each call builds a fresh recorder over a
+script that is never mutated, and the second run's script (`stale`) carries no
+config key, record or lease the first run might have written. So the failed
+first run is dead setup (its one assertion is `ok: false`). The second run is
+the same scenario as the test above it, "a stack's first writer prompt
+describes...", and makes weaker assertions. Retry-specific base drift (for
+example a `gtdStack`/`gtdStackTop` record left by run one that makes run two
+take the resume path) is never exercised. Either give the second run what the
+first one persisted (script the config reads from the first run's
+`git config --local <key> <value>` writes) or delete the test.
+
+## test-audit: `keptByHand`'s range exclusions are pinned by argv only, never by behaviour (claude/hooks/ship.test.ts "the merged slice's commits are excluded from origin's range")
+
+The test asserts the exact `git log ... <sha> ^<lower> ^origin/main ^<from>`
+argv. In the `hand` fixture that log call is unscripted, so it returns empty and
+`theirs` is `[]`. `keptByHand` therefore passes whether or not `^from` or
+`^onto` is present: the contract in the test's name ("a merged slice's commits
+on origin are not foreign") has no proof. The only thing that fails is an
+argv-order change, and a behaviour-preserving rewrite (`lower..sha`, reordered
+excludes) breaks it. Consider: give the merged slice's commit identity only to
+the argv that lacks `^<from>`, and leave the full-exclusion argv empty. Then
+dropping the exclusion produces the refusal, and the test asserts `ok: true`.
+Note the harness falls back by stripping one trailing `^\w+`; that fallback
+needs care here.
+
+## test-audit: `keptByHand`'s "no common history" refusal is untested (claude/hooks/ship.ts `if (!lower) return false`)
+
+No test makes `cat-file -e <top>` fail and `merge-base <sha> refs/heads/<b>`
+come back empty (origin's branch unrelated to the local one). If the guard were
+flipped to `return true` or deleted, the suite would still pass: with `lower`
+empty, the unscripted log returns nothing and `every` holds. Add a case to the
+"recorded top that is gone" describe: merge base unscripted/empty, expect the
+"holds commits ... lacks" refusal and no write.
+
+## test-audit: "both land and the restack proceeds" does not pin the outcome (claude/hooks/ship.test.ts "a slice merged into a lower slice branch")
+
+The positive case asserts only that the text lacks "merged into" and that a
+fetch ran. Any later refusal or failure with different wording still passes. So
+does a wrong `done` count, for example treating only the lowest slice as landed,
+which would rebase the already-merged middle slice. Assert the result (`ok`),
+and assert what `done = 2` must produce: the rebase range starts above the
+middle slice, and the record shrinks to the top slice alone.
+
+## test-audit: `untouched` is named backwards and is weaker than the in-scope `writes` (claude/hooks/ship.test.ts "a slice merged into a lower slice branch")
+
+Nit. `untouched(ran)` returns true when something WAS touched, and is used as
+`expect(untouched(ran)).toBe(false)`. Its regex also matches only
+fetch/push/rebase/config writes. It misses `gh pr create|edit`, `reset`,
+`commit` and `branch`, which the enclosing describe's `writes` regex covers. So
+these three "nothing changes" refusals prove less than their sibling refusal
+tests. Use `writes` (plus `fetch`, if a fetch must also be ruled out).
+
+## test-audit: implementation-shape assertions riding on behaviour tests (claude/hooks/ship.test.ts)
+
+Nit.
+
+- "origin holding a commit the local branch dropped by hand refuses ..." also
+  asserts `no git reflog` call. The refusal itself already fails under the old
+  reflog logic, because the scripted reflog lists O2. The extra line only pins
+  the implementation and can go.
+- `bareSlice` greps argv for bare slice names in
+  rev-parse/rev-list/merge-base/log/cat-file only. It is a call-shape check, and
+  the only proof the argv-scripted fake can give of the tag-shadowing fix. Keep
+  it, but know it misses other subcommands (`for-each-ref`, `diff`, `rebase`
+  operands) and any path the two fixtures do not reach. A real-git case (a tag
+  named like a slice branch) would be the real owner.
+- "single-PR path after the stack was forgotten, ..." sets up no stack and no
+  forgotten record. Drop "after the stack was forgotten" from the name.
