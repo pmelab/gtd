@@ -160,7 +160,7 @@ describe("requireDeclaredTests", () => {
     tree: readonly string[],
     changes: readonly Change[],
     satisfied = false,
-    turn: "build" | "fix" = "build",
+    turn: "build" | "fix" | "default" = "build",
   ) => {
     const pkg = ".gtd/packages/01-a.md"
     installContext(
@@ -195,7 +195,8 @@ describe("requireDeclaredTests", () => {
     )
     let message = ""
     try {
-      requireDeclaredTests(pkg, "c", turn)
+      if (turn === "default") requireDeclaredTests(pkg, "c")
+      else requireDeclaredTests(pkg, "c", turn)
     } catch (error) {
       message = String(error instanceof Error ? error.message : error)
     }
@@ -309,6 +310,18 @@ describe("requireDeclaredTests", () => {
   it("only the build turn refuses an added marked test (turn split, not a fix-turn flow)", () => {
     const text = "## Tests\n- unit: `a.test.ts` (unchanged)"
     expect(run(text, ["a.test.ts"], [added("a.test.ts")], false, "fix").message).toBe("")
+  })
+
+  it("defaults to the fix turn when called with two arguments", () => {
+    const text = "## Tests\n- unit: `a.test.ts` (unchanged)"
+    const cases: [string, Change][] = [
+      ["modified", modified("a.test.ts")],
+      ["added", added("a.test.ts")],
+    ]
+    for (const [, change] of cases) {
+      expect(run(text, ["a.test.ts"], [change], false, "default").message).toBe("")
+      expect(run(text, ["a.test.ts"], [change], false, "build").message).not.toBe("")
+    }
   })
 
   it("lets an unmarked entry win over a marked one the build added", () => {
