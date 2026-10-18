@@ -320,3 +320,82 @@ deleted".
 - `src/workflows/feature/refactor.ts`: the `plan` JSDoc says "Resolves
   undefined", but `plan` is synchronous. Say "Returns", or drop the comment, and
   keep only the note that it throws on a bad flag pattern.
+
+## spec-challenge: the quality lap ignores the slice split the reviews were moved to
+
+Decision (REQUIREMENTS §2/§3, ARCHITECTURE "Call Stacks"): the refactor review
+covers the refactor slice's commits only; the feature review covers the feature
+slice only, based at the refactor sign-off. `reviewedRefactor` passes `entry`
+and `naivePlanAndBuild` passes `seam.base` to `buildTail`, but only the human
+review (`review(base, …)`) receives that base.
+
+Invariant it conflicts with: every quality lens runs
+`buildQualityReviewingPrompt`, which says "Review the whole assembled change,
+from `${start()}`". `start()` is the process's diff base (`run.diffBase`), not
+the slice base. `tail`/`qualityLap` gained `guard` and `lenses` but no base, so
+both laps still span the whole process:
+
+- **Refactor lap** (`refactor.build.quality.<lens>`): the range holds
+  `.gtd/REQUIREMENTS.md`, the feature's design, which the refactor deliberately
+  does not implement. A correctness lens can file "requirement not implemented".
+  `refactor.build.fix.quality` is then told to fix it. If it stays inside the
+  strays, the guard lets it through, and feature behaviour lands in the
+  "behaviour-neutral" slice before the human ever sees it. If it does not, the
+  turn is refused and re-run. This is the same hole as the correctness chunk on
+  the collecting prompt, reached by another route.
+- **Feature lap on `refactor-first`** (`build.quality.<lens>`): the lap
+  re-reviews the refactor the human already signed off. `build.fix.quality`
+  turns run unguarded, so they can rewrite signed-off refactor code, test files
+  included, inside the feature slice.
+
+The new tests check the human review's `<!-- base:` only. Nothing pins the lap's
+range.
+
+Fix: pass the slice base through `tail` → `qualityLap` → the reviewing prompt in
+place of `start()`, or state in REQUIREMENTS that only the human review is
+split. Add an `@inmem` assertion on the refactor lens prompt's range.
+
+## spec-challenge: "no test file in the refactor" contradicts what a narrowed `seamAllow` asks for
+
+Decision (REQUIREMENTS §4, ARCHITECTURE "How does a refactor turn recognise a
+test file?"): `requireNoTestFiles` refuses any `testFileGlobs` path, strays
+included, and a narrowed `seamAllow` does not narrow the refusal.
+
+Invariant it conflicts with: docs/configuration.md documents `seamAllow` as the
+paths the naive pass may change "without the judge counting them as strays".
+`refactor-first` exists to reshape the strays so the feature fits. With the
+default `seamAllow`, a test file is never a stray, so the new rule only bites
+for a person who narrowed `seamAllow` on purpose to make test changes count as
+seams. For exactly that person, the judge now routes a test-file seam into a
+slice that is forbidden to touch it. The refactor review then signs off a
+refactor that could not address its own trigger, and the seam lands unrefactored
+in `implement.*`, the outcome `refactor-first` was meant to prevent. The
+scenario "with a narrowed seamAllow a test-named stray changed by the refactor
+is refused" pins this as intended.
+
+Fix (pick one, non-blocking): have the judge or `plan` drop `testFileGlobs`
+strays, or say so at `seam.judge`; or document under `seamAllow` that narrowing
+it past the test globs has no effect on the refactor.
+
+## spec-challenge: removing `seam.approve` drops the approval-gate guarantees, and a user doc still says the flow uses it
+
+Decision (REQUIREMENTS §1, "What records the refactor approval"): the refactor
+review's sign-off commit is the approval record, with no `Gtd-Approved:`.
+
+Invariants it conflicts with:
+
+- An `approve: true` gate (docs/configuration.md step options, docs/driver.md)
+  completes only on a clean `gtd land`, records the approver as a trailer, and
+  appears in `gtd next --json`'s `approvals`. A review sign-off has none of
+  these. On `refactor-first`, `approvals` is now `[]`, so a driver or audit
+  reading it for the refactor decision gets nothing. The approval has also moved
+  from before the agent edits the strays to after.
+- docs/driver.md (unchanged by this diff) still says: "An approval gate
+  (`approve: true`, the one `seamGate` rests at after a `refactor-first`
+  judgment)". That reads as the shipped flow resting there, which is no longer
+  true. README.md already says "the shipped flow does not use it". driver.md
+  needs the same wording.
+
+Fix: align the driver.md sentence. Add one line to SDLC.md's approval table
+saying the refactor sign-off is not an `approve` gate and lists under no
+`approvals`.
