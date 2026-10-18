@@ -115,3 +115,64 @@ lines printed for `beta on` too.
 not exist. Make `print` a required parameter and delete the non-condensing
 branch. The older `runStates` tests then pass a no-op `print`. About -5 lines,
 one fewer mode to reason about.
+
+## test-audit: the reporter-to-parser contract is pinned with a copied string
+
+`failuresOf` depends on the format of `tests/vitest.reporter.ts`. The tests
+never run that reporter. They use `REPORTER_FAIL`, a hand-copied
+`\nFAIL ${name}\n`. If the reporter's format changes, every test stays green.
+
+The copy also hides a real mismatch. The reporter writes each error message as
+`  ${err.message}`, and the parser's regex `^\s*FAIL\s+` accepts leading
+whitespace. So an assertion message that starts with `FAIL` is counted as a test
+name. A multi-line message has the same problem with any of its lines.
+
+Fix: build the expected text with the real reporter. Construct `SilentReporter`,
+feed `onTestCaseResult` a failed test case stub (`fullName`, `result()`), call
+`onTestRunEnd` with `process.stderr.write` captured, prefix each line with
+`test:unit: `, and parse the result with `failuresOf`. Include an error message
+that starts with `FAIL`. Then delete `REPORTER_FAIL`. Either anchor the regex to
+an unindented `FAIL` or make the reporter's format unambiguous.
+
+## test-audit: the "live port and in-memory" contract test duplicates other proof and misses the stream risk
+
+`parses the same through spawnTurbo and the in-memory output` is not a contract
+test between two port implementations. Its in-memory side calls `failuresOf` on
+the same string that the shim prints, so that half restates the `failuresOf`
+unit tests. Its live side writes one heredoc to stderr only. That proves only
+that `spawnTurbo` captures stderr losslessly, which
+`captures both streams, and streams them only when live` already proves. The
+fakes that the `runStates` tests use (`stub`, `feed`) are never checked against
+`spawnTurbo` at all.
+
+The one transport risk that `spawnTurbo` really has goes untested. That risk is
+stdout and stderr chunks interleaving mid-line, described in the correctness
+chunk above. Its second case (`a failed plain-text task keeps its own lines`)
+also pins the line fallback that the ponytail chunk proposes to drop.
+
+Fix: replace the test with a shim that writes a partial stdout line, then a
+whole stderr line, then the rest of the stdout line. For example, use
+`printf 'test:unit: FA'; echo 'typecheck: x' >&2; sleep 0.1; printf 'IL a > one\n'`.
+Assert that `failuresOf` still returns `a > one`. The test fails today, and it
+becomes the regression test for the stream-splice fix. Then drop the duplicated
+cases.
+
+## test-audit: condensing fixtures describe states the planner never produces
+
+The `runStates condensing` fixtures give every state the tasks
+`["typecheck", "test:unit"]`. The flag-specific case,
+`prints only the differing task's output for a flag-specific failure`, puts its
+novel failure in `typecheck`. A real later state runs only `VITEST_TASKS`, so it
+can never fail `typecheck`. `turboOut` also leaves out the per-state
+`<task>: cache miss, executing <hash>` line that real turbo prints. The ponytail
+chunk shows this omission is the only reason the line-fallback test passes.
+
+So the suite proves condensing against output shapes that cannot happen, and it
+skips the ones that do: a `defaults` failure in `typecheck`/`lint` that is
+absent later (the subset case in the nit above), and hash lines that differ per
+state.
+
+Fix: build the fixture states with
+`planStates([flag("alpha"), flag("beta")], {})`. Have `turboOut` emit a hash
+line per task that differs per state. Move the flag-specific novel failure into
+a second vitest task, for example `test:workflows`.
