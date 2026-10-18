@@ -174,3 +174,33 @@ escalation. It does not cover the describe prompt that `refactorLap`'s own
 `healthy(..., { describeGuard })` renders. That is why the correctness nit (that
 prompt has no `rules`) got through. When that nit is fixed, add the refactor
 lap's describe step to the same table (reds before the tail).
+
+## conventions: branch breaks two SemVer-tier surfaces; the squash must carry `!` plus a `BREAKING CHANGE:` footer
+
+Non-blocking now. It becomes blocking when the squash message is written.
+AGENTS.md says "Whether a change is breaking (`!`) is decided by the tiers in
+COMPATIBILITY.md". `docs/commits.md` says "a missing or wrong `!` is permanent
+once merged". Compared with `main`, the branch changes two surfaces that
+COMPATIBILITY.md puts under "Follows package SemVer":
+
+- "Entrypoint exports … each export's name, type and behaviour": the public
+  `seamBuild` export in `@pmelab/gtd/workflows` and
+  `@pmelab/gtd/workflows/feature` was `(tier?) => Promise<void>` on `main` and
+  is now `(base) => Promise<SeamOutcome>`, and it no longer runs `implement`.
+- "each step's full name … changing either strands every process resting on it":
+  the `seam.approve` step is gone. The new `docs/configuration.md` "Upgrading"
+  note itself says 28.0.0 processes must `gtd abandon`.
+
+`GTD_FLAG_NAIVE_PASS` being a no-promise flag does not cover these, because the
+export and the step name are tiered separately. The squash needs
+`feat(workflow)!: …` and a `BREAKING CHANGE:` footer with the two migrations
+already written in `docs/configuration.md` § the naive-pass path, "Upgrading".
+
+## conventions: `rules` option JSDoc names a caller and a private helper
+
+Nit. `src/workflows/feature/review.ts:270`:
+`/** Appended to every fix and describe prompt of the tail; \`reviewedRefactor\`
+passes \`refactorRules(strays, pattern)\`.
+_/`. AGENTS.md § Comments says: "Keep a comment … only where it explains an important decision or genuinely unclear code … (restatement of the code, history, a 'what' with no 'why') gets deleted". The second clause describes a call site. That is a fact the code already states, and it goes stale when a caller changes. `refactorRules`is also not exported from any entrypoint, yet this option belongs to the public tail options. Cut the clause after the semicolon.`src/workflows/shared/health.ts:117` `/_*
+Appended to the escalation's describe prompt. */` only restates the field. Keep
+it only if the public option needs one line for users. Otherwise delete it.
