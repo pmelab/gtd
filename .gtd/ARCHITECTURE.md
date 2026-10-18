@@ -5,28 +5,6 @@ All six fixes are in `claude/hooks/ship.ts`, and their tests are in
 `## Merged Concerns`). The README and `docs/driver.md` get one rewording each.
 **Every fix lands with a `ship.test.ts` case that fails before the fix.**
 
-## Open Questions
-
-### Must a slice merged into a lower slice's branch have merged before that lower slice did?
-
-Concern 3 accepts a MERGED slice b whose base is `<branch>-a` when a counts as
-merged into the default branch. **That rule alone is wrong in one case. If a
-merged first and its branch was kept (auto-delete off), b's later merge into
-`<branch>-a` never reaches the default branch. Ship still counts b as landed and
-drops it from the stack, so b's change silently misses the default branch.**
-
-- [x] Add a merge-order check: b counts only if it merged no later than a
-  - `viewPr` asks for `mergedAt` too, and `View` gains `mergedAt?: string`
-  - every scripted `gh pr view … --json` key in `ship.test.ts` changes, which is
-    wide test churn
-  - closes the silent-loss case: a b that merged after a refuses with the
-    existing "merged into …" text
-- [ ] Ship the rule as the requirement words it
-  - smallest diff: base names only, no new gh field
-  - **risk stays: with branch auto-delete off, a slice merged into an
-    already-merged lower branch is counted as landed and its change is lost**
-- [ ] _your answer_
-
 ## Interfaces
 
 ```ts
@@ -95,18 +73,29 @@ async function handRestack(
 
 ```ts
 // Concern 3. The signature is unchanged; the loop rule changes. A MERGED slice at
-// index `done` counts when its baseRefName is baseBranch, or is
-// branchOf(k) for some k < done (a slice already counted). Anything else
-// returns the existing "merged into <base>, not <default>" refusal, and nothing
-// changes. If the open question picks the merge-order check: View gains
-// `mergedAt?: string`, viewPr's --json list gains `mergedAt`, and a lower-branch
-// base counts only when its mergedAt <= the lower slice's mergedAt.
+// index `done` counts when its baseRefName is baseBranch, or is branchOf(k) for
+// some k < done (a slice already counted) AND its mergedAt is no later than
+// slice k's mergedAt (otherwise its change landed on k's kept branch after k
+// merged, and never reached the default branch). Anything else returns the
+// existing "merged into <base>, not <default>" refusal, and nothing changes.
+// mergedAt is an ISO-8601 string from gh; compare with Date.parse. A missing
+// mergedAt on either side refuses (safe side).
 async function mergedSlices(
   io: ShipIo,
   recorded: string[],
   branchOf: (i: number) => string,
   baseBranch: string,
 ): Promise<{ done: number } | string>
+```
+
+```ts
+// Concern 3. View gains mergedAt; viewPr's --json list becomes
+//   number,title,body,url,state,baseRefName,mergedAt
+// for every caller (one query shape, so one scripted key form in tests).
+type View = {
+  // existing fields unchanged
+  mergedAt?: string
+}
 ```
 
 ```ts
@@ -255,9 +244,17 @@ exist today still resolve `main`.
   OPEN (it never merged into `main`): refuses with the "merged into feat/x-a,
   not main" text, and nothing changes (no fetch, push, rebase or config write)
   (covers concern 3)
-- unit: claude/hooks/ship.test.ts — only if the open question picks the
-  merge-order check: a merged into `main` first, and b merged into `feat/x-a`
-  later (`mergedAt` after a's): refuses, and nothing changes (covers concern 3)
+- unit: claude/hooks/ship.test.ts — a merged into `main` first (branch kept),
+  and b merged into `feat/x-a` later (`mergedAt` after a's): refuses with the
+  "merged into feat/x-a, not main" text, and nothing changes (covers concern 3)
+- unit: claude/hooks/ship.test.ts — b merged into `feat/x-a` with no `mergedAt`
+  in gh's answer: refuses, nothing changes (covers concern 3)
+
+### View
+
+- unit: claude/hooks/ship.test.ts — every `gh pr view` the ship run issues asks
+  for `--json number,title,body,url,state,baseRefName,mergedAt` (the scripted io
+  fails on any other key, so the existing scenarios pin it) (covers concern 3)
 
 ### pushBranch
 
@@ -292,6 +289,9 @@ exist today still resolve `main`.
   `merge-base origin/main feat/x[-middle]`,
   `rev-list --count feat/x-middle..HEAD`, and others), and drop the reflog keys
   from the hand-restack fixtures (covers concern 5)
+- chore: claude/hooks/ship.test.ts — rewrite all 12 scripted
+  `gh pr view … --json number,title,body,url,state,baseRefName` keys to add
+  `,mergedAt`, and give MERGED fixtures a `mergedAt` (covers concern 3)
 
 ## Merged Concerns
 
@@ -420,3 +420,15 @@ ref reads would churn every push test and fix no reported fault.
 
 No. Rebase switches to that argument by branch name, and the printed by-hand
 line users copy must stay runnable as it is.
+
+### Must a slice merged into a lower slice's branch have merged before that lower slice did?
+
+Yes. A MERGED slice b based on `<branch>-a` counts only when b's `mergedAt` is
+no later than a's; a later merge landed on a's kept branch and never reached the
+default branch, so ship refuses with the existing "merged into …" text. `View`
+gains `mergedAt`, and every `gh pr view` asks for it.
+
+### What does the merge-order check do when gh returns no `mergedAt`?
+
+Refuses. Counting a slice as landed without proof is the silent-loss path the
+check exists to close.
