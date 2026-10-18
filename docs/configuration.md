@@ -619,11 +619,12 @@ narrows nothing. After the building turn, after every fix turn and after the
 escalation describe turn (`refactor.health.describe`), `gtd land` refuses the
 turn when:
 
-- it changed a test file (`refactor-tests`): any changed path matching
-  `**/*.test.*`, `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**` or
+- it changed a test file: any changed path matching `**/*.test.*`,
+  `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**` or
   `**/__tests__/**`. A test file the judge listed as a stray is never in the
-  refactor's write access. The list is fixed — `seamAllow` does not narrow it —
-  and `*_test.go`, `test_*.py` and other namings are not refused, or
+  refactor's write access, so the refusal is the write-access one ("this turn
+  wrote outside its write access"). The list is fixed — `seamAllow` does not
+  narrow it — and `*_test.go`, `test_*.py` and other namings are not refused, or
 - it changed a path outside `.gtd/` that is not exactly one of the strays
   (`refactor-scope`; a fix turn is judged on its own changes, so a person's edit
   at an escalation stop does not block it; no globs: a stray `src/*.ts` does not
