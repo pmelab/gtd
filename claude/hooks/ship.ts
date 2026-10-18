@@ -292,7 +292,8 @@ type Plan = { groups: Group[]; base: string; tip: string; count: number }
 type Link = { name: string; branch: string; commit: string }
 
 const STACK_KEY = (branch: string) => `branch.${branch}.gtdStack`
-// HEAD when the stack was built: only then may a missing slice branch be rebuilt.
+// The commit the stack was built at, never moved; missing slice branches are
+// rebuilt off it while HEAD still contains it.
 const TOP_KEY = (branch: string) => `branch.${branch}.gtdStackTop`
 
 const RETIRED_KEY = (branch: string) => `branch.${branch}.gtdStackRetired`
@@ -399,14 +400,20 @@ async function squash(
   if (!msgs.ok) return msgs
   const { fulls, history } = msgs
   const warn = () => (mode === "commits" && many ? rebaseWarning(io) : undefined)
-  const links = (commits: string[]) => sliceLinks(branch, groups, commits)
   if (resume?.links)
     return squashOntoStack(io, git, ok, groups[0]!, fulls[0]!, history, resume, isDry)
-  if (isDry) return dryRun(groups, fulls, history, await warn(), stacked ? links([]) : undefined)
+  if (isDry)
+    return dryRun(
+      groups,
+      fulls,
+      history,
+      await warn(),
+      stacked ? sliceLinks(branch, groups, []) : undefined,
+    )
 
   const pushed = await pushHistory(io, history)
   if (pushed) return fail(pushed)
-  return land(io, git, ok, branch, groups, fulls, stacked, await warn(), links)
+  return land(io, git, ok, branch, groups, fulls, stacked, await warn())
 }
 
 async function land(
@@ -418,7 +425,6 @@ async function land(
   fulls: string[],
   stacked: boolean,
   warning: string | undefined,
-  links: (commits: string[]) => Link[],
 ): Promise<Awaited<ReturnType<typeof squash>>> {
   if (groups.length === 1) {
     const one = await commitSquash(io, git, ok, groups[0]!.base, fulls[0]!)
@@ -428,7 +434,7 @@ async function land(
   if (!built.ok) return built
   // a record of an earlier stack must not outlive this ship
   if (!stacked) return { ok: true, text: "", warning, forget: true }
-  const stack = links(built.commits)
+  const stack = sliceLinks(branch, groups, built.commits)
   const recorded = await recordStack(io, ok, branch, stack)
   return recorded ? fail(recorded) : { ok: true as const, text: "", stack }
 }
@@ -1081,7 +1087,7 @@ export async function pushBranch(io: ShipIo, branch: string, head = "HEAD") {
 // git diff falls back to --no-index by itself when a path lies outside the work
 // tree, so diff refuses absolute, `~` and `..` paths.
 export const READ_ONLY_GIT =
-  /^git (?!diff\b.*["'\\])(?!diff\b[^;&|<>`$()\n{}*?[\]]*(?:\s["'\\]*(?:[/~]|\.\.(?![^\s/"'\\]))|\/\.\.(?![^\s/"'\\])))(?:(?:log|show|diff|status|rev-parse|rev-list|merge-base)\b(?![^;&|<>`$()\n{}*?[\]]*\s["'\\]*-["'\\]*(?:o|-["'\\]*(?:o["'\\]*u|n["'\\]*o-|e["'\\]*x|t["'\\]*e)))[^;&|<>`$()\n{}*?[\]]*|branch(?:\s+(?:--list|-a|-r|--show-current))*(?:\s+--contains\s+[\w./^~-]+)?)$/
+  /^git (?!diff\b.*["'\\])(?!diff\b[^;&|<>`$()\n{}*?[\]]*(?:\s["'\\]*(?:[/~]|\.\.(?![^\s/"'\\]))|\/\.\.(?![^\s/"'\\])))(?:(?:log|show|diff|status|rev-parse|rev-list|merge-base)\b(?![^;&|<>`$()\n{}*?[\]]*\s["'\\]*-["'\\]*(?:o|-["'\\]*(?:o["'\\]*u|n["'\\]*o["'\\]*-["'\\]*i|e["'\\]*x["'\\]*t["'\\]*-|t["'\\]*e["'\\]*x["'\\]*t["'\\]*c)))[^;&|<>`$()\n{}*?[\]]*|branch(?:\s+(?:--list|-a|-r|--show-current))*(?:\s+--contains\s+[\w./^~-]+)?)$/
 
 const TITLE = /^(feat|fix|refactor|perf|docs|test|build|ci|chore)(\([\w./-]+\))?!?: \S.{0,70}$/
 

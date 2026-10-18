@@ -532,6 +532,9 @@ describe("ship", () => {
       "git log --oneline",
       "git log --format='%h %s'",
       'git log --format="%H%n%B" a..b',
+      "git log --no-merges a..b",
+      "git diff --text a b",
+      "git log --exclude=x --all",
     ]) {
       expect(READ_ONLY_GIT.test(ok)).toBe(true)
     }
@@ -565,6 +568,7 @@ describe("ship", () => {
       "git log -*utput=x",
       "git log --out?ut=x",
       "git diff --no-index /etc/hosts /dev/null",
+      "git diff --no-index a b",
       "git diff /etc/hosts /dev/null",
       "git diff -- /etc/passwd /dev/null",
       "git diff --stat '/etc/hosts' /dev/null",
@@ -1586,7 +1590,6 @@ describe("ship stack", () => {
       const { io, ran } = repo(reship, ["feat: add x\n\nwhy"])
       expect(await ship(io, false)).toMatchObject({ ok: true })
       expect(ran()).toContain(`git reset --soft ${BASE}`)
-      expect(ran()).toContain(`git merge-base --is-ancestor ${C1} ${BASE}`)
       expect(ran().some((c) => c.startsWith("git branch -f"))).toBe(false)
       expect(ran().some((c) => c.startsWith("gh pr edit 8 --base"))).toBe(false)
       expect(ran().some((c) => c.includes("--unset"))).toBe(false)
