@@ -881,6 +881,8 @@ describe("ship stack", () => {
   const M = "m".repeat(40)
   const two = slicesDoc(["refactor", A, B], ["feature", B, C])
   const KEY = "branch.feat/x.gtdStack"
+  const TOP = "branch.feat/x.gtdStackTop"
+  const RETIRED = "branch.feat/x.gtdStackRetired"
   const view = (b: string) => `gh pr view ${b} --json number,title,body,url,state,baseRefName`
   const create = (head: string, into: string) =>
     `gh pr create --head ${head} --base ${into} --title feat: add x --body-file -`
@@ -1180,6 +1182,7 @@ describe("ship stack", () => {
         ...resume,
         "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { code: 1 },
         "git rev-parse --verify --quiet HEAD~1": { out: C1 },
+        [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
         "git rev-parse --verify --quiet origin/feat/x-refactor": { code: 1 },
         [view("feat/x-refactor")]: { code: 1 },
       },
@@ -1200,6 +1203,7 @@ describe("ship stack", () => {
     expect(out).toMatchObject({ ok: false })
     expect(out.text).toContain("undone")
     expect(ran()).toContain("git reset --soft ORIG_HEAD")
+    expect(ran()).toContain(`git config --local --unset ${TOP}`)
     expect(ran().some((c) => /^git (branch|push)|^gh pr (create|edit)/.test(c))).toBe(false)
   })
 
@@ -1213,11 +1217,11 @@ describe("ship stack", () => {
     expect(ran()).toContain(`git log --no-merges --reverse --format=%H%n%B%n--- ${C1}..${C2}`)
   })
 
-  test("a closed lower slice refuses a resume before any push and names the unset", async () => {
+  test("a closed lower slice refuses a resume before any push and names commits mode", async () => {
     const { io, ran } = repo({ ...resume, [view("feat/x-refactor")]: pr(7, { state: "CLOSED" }) })
     const out = await ship(io, false)
     expect(out).toMatchObject({ ok: false })
-    expect(out.text).toContain(`git config --local --unset ${KEY}`)
+    expect(out.text).toContain("GTD_SHIP_MODE=commits")
     expect(ran().some((c) => /^git push|^gh pr (create|edit)/.test(c))).toBe(false)
   })
 
@@ -1255,6 +1259,7 @@ describe("ship stack", () => {
 
   const reshipped = (count: string, body: string): Record<string, Scripted> => ({
     ...feature,
+    [`git config --local --get ${KEY}`]: { out: "refactor feature\n" },
     "gtd summary": { code: 1 },
     "gh pr view --json number,title,body,url,state,baseRefName": pr(8, {
       baseRefName: "feat/x-refactor",
@@ -1287,6 +1292,223 @@ describe("ship stack", () => {
     })
     expect(await ship(io, false, "commits")).toMatchObject({ ok: false })
     expect(ran().some((c) => c.startsWith("gh pr edit 8 --body-file"))).toBe(false)
+  })
+
+  test.each([
+    ["release/1", "refactor feature\n"],
+    ["feat/x-refactor", ""],
+  ])("a non-slice base %s is left alone: no retarget, no strip", async (base, record) => {
+    const { io, ran } = repo(
+      {
+        ...reshipped("2", "Stacked on #7 — merge that first\n\nstanding"),
+        [`git config --local --get ${KEY}`]: { out: record },
+        "gh pr view --json number,title,body,url,state,baseRefName": pr(8, {
+          baseRefName: base,
+          body: "Stacked on #7 — merge that first\n\nstanding",
+        }),
+      },
+      ["NO-UPDATE"],
+    )
+    expect(await ship(io, false, "commits")).toMatchObject({ ok: true })
+    expect(ran().some((c) => c.startsWith("gh pr edit 8 --base"))).toBe(false)
+    expect(ran().some((c) => c.startsWith("gh pr edit 8 --body-file"))).toBe(false)
+  })
+
+  test("a PR GitHub already moved to the default branch loses its stale stack line", async () => {
+    const { io, ran } = repo(
+      {
+        ...reshipped("0", "Stacked on #7 — merge that first\n\nstanding"),
+        "gh pr view --json number,title,body,url,state,baseRefName": pr(8, {
+          baseRefName: "main",
+          body: "Stacked on #7 — merge that first\n\nstanding",
+        }),
+      },
+      ["NO-UPDATE"],
+    )
+    expect(await ship(io, false, "commits")).toMatchObject({ ok: true })
+    expect(ran().some((c) => c.startsWith("gh pr edit 8 --base"))).toBe(false)
+    expect(ran()).toContain("gh pr edit 8 --body-file -")
+  })
+
+  test("the record is unset only after the retarget, both keys", async () => {
+    const { io, ran } = repo(reshipped("0", "standing"))
+    await ship(io, false, "commits")
+    const at = (c: string) => ran().indexOf(c)
+    expect(at("gh pr edit 8 --base main")).toBeGreaterThan(-1)
+    expect(at(`git config --local --unset ${RETIRED}`)).toBeGreaterThan(
+      at("gh pr edit 8 --base main"),
+    )
+  })
+
+  test("a failed retarget keeps the record", async () => {
+    const { io, ran } = repo({
+      ...reshipped("2", "standing"),
+      "gh pr edit 8 --base main": { code: 1, err: "nope" },
+    })
+    expect(await ship(io, false, "commits")).toMatchObject({ ok: false })
+    expect(ran().some((c) => c === `git config --local --unset ${RETIRED}`)).toBe(false)
+  })
+
+  test("single-slice stack-mode ship defers the unset until after the retarget", async () => {
+    const { io, ran } = repo(
+      {
+        ...reshipped("2", "standing"),
+        "gtd summary": { out: "Describe." },
+      },
+      ["feat: add x\n\nwhy", "NO-UPDATE"],
+    )
+    await ship(io, false)
+    const at = (c: string) => ran().indexOf(c)
+    expect(at("gh pr edit 8 --base main")).toBeGreaterThan(-1)
+    expect(at(`git config --local --unset ${RETIRED}`)).toBeGreaterThan(
+      at("gh pr edit 8 --base main"),
+    )
+  })
+
+  test("no-process commits ship unsets the record, never on a dry run", async () => {
+    const real = repo(reshipped("2", "standing"), ["NO-UPDATE"])
+    await ship(real.io, false, "commits")
+    expect(real.ran()).toContain(`git config --local --unset ${KEY}`)
+    const dry = repo(reshipped("2", "standing"), ["NO-UPDATE"])
+    await ship(dry.io, true, "commits")
+    expect(dry.ran().some((c) => c.startsWith("git config --local --unset"))).toBe(false)
+  })
+
+  test("a thrown draft on the wrong base is retargeted before it is marked ready", async () => {
+    const { io, ran } = repo(
+      { ...sbase, [view("feat/x")]: pr(9, { baseRefName: "main", body: `${THROWN}\nwaiting` }) },
+      writers(),
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    const at = (c: string) => ran().indexOf(c)
+    expect(at("gh pr edit 9 --base feat/x-refactor")).toBeGreaterThan(-1)
+    expect(at("gh pr edit 9 --base feat/x-refactor")).toBeLessThan(at("gh pr ready 9"))
+  })
+
+  test("a failed retarget of a thrown draft stops at retarget, nothing rewritten", async () => {
+    const { io, ran } = repo(
+      {
+        ...sbase,
+        [view("feat/x")]: pr(9, { baseRefName: "main", body: `${THROWN}\nwaiting` }),
+        "gh pr edit 9 --base feat/x-refactor": { code: 1, err: "nope" },
+      },
+      writers(),
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain("retarget")
+    expect(ran().some((c) => c === "gh pr ready 9" || c.startsWith("gh pr edit 9 --title"))).toBe(
+      false,
+    )
+  })
+
+  test("a fresh stack records both keys, then branches", async () => {
+    const { io, ran } = repo(sbase, writers())
+    await ship(io, false)
+    expect(ran()).toContain(`git config --local ${TOP} ${C2}`)
+    expect(ran()).toContain(`git config --local ${KEY} refactor feature`)
+    expect(ran()).toContain(`git branch -f feat/x-refactor ${C1}`)
+  })
+
+  test("a failed top write undoes the squash with no branch, push or gh call", async () => {
+    const { io, ran } = repo(
+      { ...sbase, [`git config --local ${TOP} ${C2}`]: { code: 1, err: "locked" } },
+      writers(),
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: false })
+    expect(ran()).toContain("git reset --soft ORIG_HEAD")
+    expect(ran().some((c) => /^git (branch|push)|^gh pr (create|edit)/.test(c))).toBe(false)
+  })
+
+  test("a retry after a failed single-squash PR step does not resume the dropped stack", async () => {
+    const first = repo(
+      {
+        ...reshipped("2", "Stacked on #7 — merge that first\n\nstanding"),
+        "gtd summary": { out: "Describe." },
+        "gh pr edit 8 --body-file -": { code: 1, err: "nope" },
+      },
+      ["feat: add x\n\nwhy", "NO-UPDATE"],
+    )
+    expect(await ship(first.io, false)).toMatchObject({ ok: false })
+    expect(first.ran()).toContain(`git config --local ${RETIRED} refactor feature`)
+    expect(first.ran().some((c) => c === `git config --local --unset ${RETIRED}`)).toBe(false)
+    const second = repo(
+      {
+        ...resume,
+        "gtd summary": { code: 1 },
+        [`git config --local --get ${KEY}`]: { out: "" },
+        [`git config --local --get ${RETIRED}`]: { out: "refactor feature\n" },
+        [`git config --local --get ${TOP}`]: { out: "" },
+        [view("feat/x")]: pr(8, { baseRefName: "main", body: "standing" }),
+        [`git rev-list --count ${M}..HEAD`]: { out: "2" },
+      },
+      ["feat: add x\n\nwhy", "NO-UPDATE"],
+    )
+    await ship(second.io, false)
+    expect(second.ran().some((c) => c === "gh pr edit 8 --base feat/x-refactor")).toBe(false)
+    expect(second.ran().some((c) => c.startsWith("git branch -f"))).toBe(false)
+    expect(second.ran()).toContain(`git config --local --unset ${RETIRED}`)
+  })
+
+  test("a fresh stack shipped over a leftover retired record keeps its own record", async () => {
+    const { io, ran } = repo(
+      { ...sbase, [`git config --local --get ${RETIRED}`]: { out: "old other\n" } },
+      writers(),
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(ran()).toContain(`git config --local --unset ${RETIRED}`)
+    expect(ran()).not.toContain(`git config --local --unset ${KEY}`)
+    expect(ran()).not.toContain(`git config --local --unset ${TOP}`)
+  })
+
+  describe("a missing slice branch on resume", () => {
+    const gone = {
+      ...resume,
+      "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { code: 1 },
+      "git rev-parse --verify --quiet HEAD~1": { out: C1 },
+    }
+    const refused = (ran: () => string[]) =>
+      ran().some((c) => /^git (branch|push)|^gh pr (create|edit)|--unset/.test(c))
+
+    test.each([
+      ["HEAD moved", { [`git config --local --get ${TOP}`]: { out: "9".repeat(40) + "\n" } }],
+      ["no top recorded", {}],
+    ])("%s: refuses naming the branch and commits mode", async (_n, extra) => {
+      const { io, ran } = repo({ ...gone, ...extra })
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false })
+      expect(out.text).toContain("feat/x-refactor")
+      expect(out.text).toContain("GTD_SHIP_MODE=commits")
+      expect(refused(ran)).toBe(false)
+    })
+
+    test("a dry run refuses with the same text", async () => {
+      const wet = await ship(repo(gone).io, false)
+      const dry = repo(gone)
+      expect(await ship(dry.io, true)).toEqual(wet)
+    })
+
+    test("a dry run at the recorded top never runs git branch -f", async () => {
+      const { io, ran } = repo(
+        { ...gone, [`git config --local --get ${TOP}`]: { out: C2 + "\n" } },
+        ["feat: add x\n\nbody"],
+      )
+      await ship(io, true)
+      expect(ran().some((c) => c.startsWith("git branch -f"))).toBe(false)
+    })
+
+    test("every branch present and HEAD moved: the chain check decides", async () => {
+      const { io, ran } = repo(
+        {
+          ...resume,
+          [`git config --local --get ${TOP}`]: { out: "9".repeat(40) + "\n" },
+          [`git merge-base --is-ancestor ${C1} HEAD`]: { code: 1 },
+        },
+        ["feat: add x\n\nbody"],
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran()).toContain(create("feat/x", "main"))
+    })
   })
 
   test("a slice branch moved by a writer turn is not pushed", async () => {
