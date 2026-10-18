@@ -1,8 +1,8 @@
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
-import { FLAGS, resolveFlags, type FlagDeclaration } from "../../src/flags/index.ts"
+import { describe, expect, it, vi } from "vitest"
+import { resolveFlags, type FlagDeclaration } from "../../src/flags/index.ts"
 import {
   TASKS,
   VITEST_TASKS,
@@ -33,10 +33,11 @@ const stub = (codes: readonly (number | null)[]) => {
   const calls: {
     tasks: readonly string[]
     env: Readonly<Record<string, string | undefined>>
+    live: boolean
   }[] = []
-  const run: RunTasks = (tasks, env) => {
-    calls.push({ tasks, env })
-    return codes[calls.length - 1]!
+  const run: RunTasks = (tasks, env, live) => {
+    calls.push({ tasks, env, live })
+    return { status: codes[calls.length - 1]!, output: "" }
   }
   return { run, calls }
 }
@@ -125,21 +126,86 @@ describe("spawnTurbo", () => {
   })
 })
 
+// The repo's vitest reporter (tests/vitest.reporter.ts) writes `FAIL <fullName>` to stderr,
+// and turbo prefixes every task line with `<task>: `.
+const REPORTER_FAIL = (name: string): string => `\nFAIL ${name}\n`
+
+const shimTurbo = (script: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), "turbo-shim-"))
+  writeFileSync(join(dir, "turbo"), `#!/bin/sh\n${script}\n`)
+  chmodSync(join(dir, "turbo"), 0o755)
+  return dir
+}
+
 describe("spawnTurbo against a shim turbo", () => {
-  it("delivers forwarded args after the task names and captures output", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "turbo-shim-"))
+  it("delivers forwarded args after the task names", async () => {
+    const dir = shimTurbo(`printf '%s\\n' "$@" > "$OUT"`)
     const out = join(dir, "argv")
-    writeFileSync(join(dir, "turbo"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${out}"\necho hello\n`)
-    chmodSync(join(dir, "turbo"), 0o755)
-    const result = await spawnTurbo(["a", "b"], { PATH: dir }, ["--force"], false)
-    expect(result).toEqual({ status: 0, output: "hello\n" })
-    expect(readFileSync(out, "utf8").trim().split("\n")).toEqual(["run", "a", "b", "--force"])
+    await spawnTurbo(["a", "b"], { PATH: `${dir}:/bin:/usr/bin`, OUT: out }, ["--force"], false)
+    expect(readFileSync(out, "utf8").trim().split("\n")).toEqual([
+      "run",
+      "a",
+      "b",
+      "--continue",
+      "--force",
+    ])
   })
+
+  it("captures both streams, and streams them only when live", async () => {
+    const dir = shimTurbo(`echo out-line\necho err-line >&2`)
+    const sinks = { out: "", err: "" }
+    const write = (k: "out" | "err") => (c: string | Uint8Array) => {
+      sinks[k] += String(c)
+      return true
+    }
+    const so = vi.spyOn(process.stdout, "write").mockImplementation(write("out"))
+    const se = vi.spyOn(process.stderr, "write").mockImplementation(write("err"))
+    try {
+      const quiet = await spawnTurbo([], { PATH: `${dir}:/bin:/usr/bin` }, [], false)
+      expect(sinks).toEqual({ out: "", err: "" })
+      const loud = await spawnTurbo([], { PATH: `${dir}:/bin:/usr/bin` }, [], true)
+      expect(sinks).toEqual({ out: "out-line\n", err: "err-line\n" })
+      expect(quiet.output.split("\n").sort()).toEqual(["", "err-line", "out-line"])
+      expect(loud.output.split("\n").sort()).toEqual(["", "err-line", "out-line"])
+    } finally {
+      so.mockRestore()
+      se.mockRestore()
+    }
+  })
+
+  it("keeps a multibyte character intact when it is split across chunks", async () => {
+    const dir = shimTurbo(`printf '\\303'\nsleep 0.2\nprintf '\\227\\n'`)
+    expect((await spawnTurbo([], { PATH: `${dir}:/bin:/usr/bin` }, [], false)).output).toBe("×\n")
+  })
+
+  // Same cases through the live port and the in-memory string a fake feeds `failuresOf`.
+  const cases = {
+    "a failed vitest task names its failing tests, as the repo reporter prints them": {
+      lines: [`test:unit: ${REPORTER_FAIL("suite > one").trim()}`],
+      failed: "test:unit",
+      expected: new Map([["test:unit", ["suite > one"]]]),
+    },
+    "a failed plain-text task keeps its own lines": {
+      lines: ["typecheck: error TS1"],
+      failed: "typecheck",
+      expected: new Map([["typecheck", ["error TS1"]]]),
+    },
+  }
+  for (const [name, c] of Object.entries(cases)) {
+    it(`parses the same through spawnTurbo and the in-memory output: ${name}`, async () => {
+      const text = [...c.lines.flatMap((l) => l.split("\n")), `Failed:    @pmelab/gtd#${c.failed}`]
+      const dir = shimTurbo(`cat <<'EOF' >&2\n${text.join("\n")}\nEOF\nexit 1`)
+      const live = await spawnTurbo(TASKS, { PATH: `${dir}:/bin:/usr/bin` }, [], false)
+      expect(live.status).toBe(1)
+      expect(failuresOf(live.output, TASKS)).toEqual(c.expected)
+      expect(failuresOf(text.join("\n"), TASKS)).toEqual(c.expected)
+    })
+  }
 })
 
 describe("turboArgv", () => {
-  it("puts forwarded args after the task names", () => {
-    expect(turboArgv(["a", "b"], ["--force"])).toEqual(["run", "a", "b", "--force"])
+  it("runs failing tasks to completion and puts forwarded args last", () => {
+    expect(turboArgv(["a", "b"], ["--force"])).toEqual(["run", "a", "b", "--continue", "--force"])
   })
 })
 
@@ -171,6 +237,12 @@ describe("runStates", () => {
     expect(lines[0]).toBe("test-states: defaults — FAIL")
     expect(lines[1]).toBe("test-states: alpha on — pass")
     expect(code).toBe(1)
+  })
+
+  it("streams every state live when not condensing", async () => {
+    const { run, calls } = stub([0, 0, 0])
+    await runStates([stateOf("defaults"), stateOf("alpha on"), stateOf("beta on")], run, () => {})
+    expect(calls.map((c) => c.live)).toEqual([true, true, true])
   })
 
   it("runs all three states in order when the middle one is red", async () => {
@@ -206,13 +278,13 @@ describe("failuresOf", () => {
 
   it("maps each failed task to its failing test names, ignoring ansi and timing", () => {
     const out = turboOut({
-      "test:unit": [" FAIL  a.test.ts > one [ 3ms ]", "\u001b[31m FAIL  a.test.ts > two\u001b[0m"],
+      "test:unit": ["FAIL a > one", "\u001b[31mFAIL a > two\u001b[0m"],
       typecheck: ["error TS1"],
     })
     expect(failuresOf(out, tasks)).toEqual(
       new Map([
-        ["test:unit", ["a.test.ts > one", "a.test.ts > two"]],
-        ["typecheck", []],
+        ["test:unit", ["a > one", "a > two"]],
+        ["typecheck", ["error TS1"]],
       ]),
     )
   })
@@ -230,7 +302,7 @@ describe("runStates condensing", () => {
   }))
   const red = (extra: Record<string, readonly string[]> = {}): RunResult => ({
     status: 1,
-    output: turboOut({ "test:unit": [" FAIL  a.test.ts > one"], ...extra }),
+    output: turboOut({ "test:unit": ["FAIL a > one"], ...extra }),
   })
   const green: RunResult = { status: 0, output: "all fine" }
   const feed = (results: readonly RunResult[]): RunTasks => {
@@ -264,7 +336,7 @@ describe("runStates condensing", () => {
     expect(printed).toEqual([])
   })
 
-  it("prints a pass line only for a later passing state", async () => {
+  it("a passing state in between does not break matching against defaults", async () => {
     const { code, lines, printed } = await go([red(), green, red()])
     expect(code).toBe(1)
     expect(lines).toContain("test-states: alpha on — pass")
@@ -287,16 +359,42 @@ describe("runStates condensing", () => {
   it("treats the same task with different failing tests as different", async () => {
     const other: RunResult = {
       status: 1,
-      output: turboOut({ "test:unit": [" FAIL  a.test.ts > other"] }),
+      output: turboOut({ "test:unit": ["FAIL a > other"] }),
     }
     const { printed } = await go([red(), other, green])
-    expect(printed.join("")).toBe("test:unit:  FAIL  a.test.ts > other\n")
+    expect(printed.join("")).toBe("test:unit: FAIL a > other\n")
   })
 
   it("prints unparseable output in full rather than hiding it", async () => {
     const odd: RunResult = { status: 1, output: "turbo exploded" }
     const { printed } = await go([odd, odd, green])
     expect(printed.join("")).toBe("turbo exploded\n")
+  })
+
+  it("prints a failure with no test names when it differs from the earlier one", async () => {
+    const tc = (body: string): RunResult => ({
+      status: 1,
+      output: turboOut({ typecheck: [body] }),
+    })
+    const { printed, lines } = await go([
+      tc("error TS1"),
+      tc("error TS2 flag-only"),
+      tc("error TS1"),
+    ])
+    expect(printed.join("")).toBe("typecheck: error TS2 flag-only\n")
+    expect(lines).toContain("test-states: beta on — same failures as defaults")
+  })
+
+  it("matches a state's failures spread over several earlier states", async () => {
+    const a = { "test:unit": ["FAIL a > one"] }
+    const b = { typecheck: ["error TS1"] }
+    const only = (t: Record<string, readonly string[]>): RunResult => ({
+      status: 1,
+      output: turboOut(t),
+    })
+    const { printed, lines } = await go([only(a), only(b), only({ ...a, ...b })])
+    expect(printed.join("")).toBe("typecheck: error TS1\n")
+    expect(lines.at(-1)).toBe("test-states: beta on — same failures as defaults, alpha on")
   })
 
   it("runs every state and returns 1 when any failed", async () => {
@@ -311,13 +409,5 @@ describe("runStates condensing", () => {
 
   it("exits 0 when every state passes", async () => {
     expect((await go([green, green, green])).code).toBe(0)
-  })
-})
-
-describe("condense_failures flag", () => {
-  it("is a declared release flag, so npm test also runs a state with it on", () => {
-    const states = planStates(FLAGS, {})
-    expect(FLAGS.find((f) => f.name === "condense_failures")).toMatchObject({ kind: "release" })
-    expect(states.map((s) => s.label)).toContain("condense_failures on")
   })
 })
