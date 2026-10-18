@@ -86,3 +86,28 @@ in the same refactor scope now carries them (`healthy` and `escalation` with
 `rules`). Two write paths to `.gtd/ESCALATION.md` in one scope now give
 different constraints. Pass `rules: t.refactorRules(strays, pattern)` there as
 well.
+
+## ponytail-review: thread strip in `notesOf` is case-sensitive, thread matching is not
+
+Nit. `src/workflow-kit/review.ts` `notesOf` builds its strip regexes from
+`parseThreads(text)` names, which come from the definition label. The parser
+ties markers to a thread case-insensitively (`foldName` in
+`src/steering/Threads.ts`), but the new regexes have no `i` flag.
+
+Case: the thread is defined as `[^q]:` and its marker in the text is `[^Q]`. The
+human concludes it after the in-gate turn by deleting it, as the
+`threadsPending` refusal suggests. `[^Q]` was never stripped, so the before and
+after texts differ, and `notedSince` reports a note. The round is not `settled`.
+It runs a triage and a collecting turn on a thread-only change.
+
+Fix: add the `i` flag to both `new RegExp(...)` calls in `notesOf`. Two
+characters, no other change.
+
+## ponytail-review: `markFenced`'s comment still talks about the tier
+
+Nit. `src/workflows/shared/fences.ts` is now shared with `demoteHeadings` in
+`src/workflows/feature/refactor.ts`, but its comment still says "so the tier
+reads `high` (fail-closed)". In the refactor caller, an unclosed fence means the
+rest of the text is never demoted, not that a tier is read. Reword it to the
+general fact: "an unclosed fence runs to end of file". Move the tier consequence
+to the `markFenced` call in `src/workflows/feature/tier.ts`.
