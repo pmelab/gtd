@@ -182,3 +182,41 @@ package whose work lies outside the repository, such as filing issues, closes on
 recorded evidence)". Keep it to user terms — no module or function names
 (AGENTS.md: prose "must not name a `src/*.ts` module, an internal function, or a
 private type").
+
+## spec-challenge — oxfmt wraps the `(unchanged)` marker off its line (Blocking)
+
+Decision (ARCHITECTURE.md Interfaces, "What exact spelling does the marker
+take?"): the marker is ` (unchanged)` "directly after the path's closing
+backtick" on the same `## Tests` line, parsed line by line by `TEST_LINE` in
+`src/workflows/feature/packages.ts`.
+
+Invariant (AGENTS.md "`.gtd/` is formatted, not ignored"): every file under
+`.gtd/` is oxfmt-formatted, and lint-staged runs `oxfmt --write` over the
+decompose step's commit. `.oxfmtrc.json` gives `*.md` `printWidth: 80` and
+`proseWrap: "always"`. The package text the guard reads (`before` as of the turn
+start) is therefore the formatted text.
+
+Conflict, reproduced with the repo's oxfmt:
+
+```
+- unit: `src/workflows/feature/some-long-directory/nested/packages.test.ts`
+  (unchanged)
+```
+
+Inline code is never broken, but the suffix wraps to a continuation line once
+the line passes 80 columns. `TEST_LINE` then matches the first line with no
+marker (`unchanged: false`) and ignores the second, so the guard demands the
+untouched test be in the diff — exactly the dead end #373 is meant to remove,
+now with a plan that looks correct. Threshold: a path over ~59 characters
+(`- e2e: ` / `- unit: ` prefix + backticks + ` (unchanged)`), fewer when the
+item is indented. Five test files in this repo already cross it (e.g.
+`tests/integration/features/next-status-content-parity.feature`), and repos
+using gtd have longer paths. No test covers it: every marked path in the unit
+and e2e fixtures is short.
+
+Fix (pick one): put the marker before the path, where it cannot wrap away
+(``- unit (unchanged): `path` `` or ``- unchanged: `path` ``), and update both
+prompts, `declaredTests`, and `evals/asserts/architecture-decompose.mjs`'s
+prefix regex to match; or keep the spelling and make `declaredTests` join a list
+item's indented continuation lines before matching. Either way, add a unit case
+with a path over 80 columns run through the formatted shape.
