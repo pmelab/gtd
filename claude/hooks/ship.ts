@@ -270,7 +270,7 @@ type Plan = { groups: Group[]; base: string; tip: string; count: number }
 // One PR of a stack: its branch, its squashed commit, and what it is stacked on.
 type Link = { name: string; branch: string; commit: string }
 
-export const STACK_KEY = (branch: string) => `branch.${branch}.gtdStack`
+const STACK_KEY = (branch: string) => `branch.${branch}.gtdStack`
 
 const names = (raw: string) => raw.split(/\s+/).filter(Boolean)
 
