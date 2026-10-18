@@ -340,18 +340,19 @@ rest. When the process finishes, Claude offers to squash it and open its pull
 request(s) (or run `/gtd ship`; `GTD_SHIP_MODE` picks one stacked pull request
 per slice or one commit per slice, see the [driver doc](docs/driver.md));
 re-running `/gtd ship` after a lower stacked pull request merged restacks the
-rest (it refuses, with nothing changed, when that pull request merged into
-another slice branch, a slice branch is checked out in another worktree, an
-unrelated local branch sits inside the rebased commits, or a slice's change is
-already upstream; a failed rebase is rolled back). A process can change hands at
-any gate: ask Claude to hand it off (or run `/gtd throw @dev`) and it opens a
-draft pull request assigned to them, and `/gtd catch <pr>` picks it up exactly
-where it waits, so whoever wrote the requirements can hand the architecture to
-someone else. Ship, hand-off and throw answer at once and run in the background,
-with progress on the status line; they report by waking Claude, a toast, a
-transcript line and a push notification, and a failed push or `gh` call reports
-as a failure. While a ship or hand-off runs or is queued, `/gtd catch`, the
-doors, `/gtd <requirements>` and bare `/gtd` wait for its report. See
+rest (it refuses, with nothing changed, when that pull request merged into a
+slice branch whose chain never reached the default branch, a slice branch is
+checked out in another worktree, an unrelated local branch sits inside the
+rebased commits, or a slice's change is already upstream; a failed rebase is
+rolled back). A process can change hands at any gate: ask Claude to hand it off
+(or run `/gtd throw @dev`) and it opens a draft pull request assigned to them,
+and `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
+requirements can hand the architecture to someone else. Ship, hand-off and throw
+answer at once and run in the background, with progress on the status line; they
+report by waking Claude, a toast, a transcript line and a push notification, and
+a failed push or `gh` call reports as a failure. While a ship or hand-off runs
+or is queued, `/gtd catch`, the doors, `/gtd <requirements>` and bare `/gtd`
+wait for its report. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own

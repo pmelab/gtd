@@ -214,8 +214,9 @@ test("ship describes a thrown draft properly and marks it ready", async () => {
       "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": { out: "origin/main\n" },
       "gtd summary": { code: 1 },
       "git merge-base main HEAD": { out: "m" },
+      "git merge-base --is-ancestor main origin/main": { code: 1 },
       "git rev-parse HEAD": { out: "h" },
-      "gh pr view gtd/x --json number,title,body,url,state,baseRefName": {
+      "gh pr view gtd/x --json number,title,body,url,state,baseRefName,mergedAt": {
         out: JSON.stringify(pr),
       },
     },
