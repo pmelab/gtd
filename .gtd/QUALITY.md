@@ -178,3 +178,37 @@ Nit.
   named like a slice branch) would be the real owner.
 - "single-PR path after the stack was forgotten, ..." sets up no stack and no
   forgotten record. Drop "after the stack was forgotten" from the name.
+
+## conventions: the restack's new git semantics are proven only against an argv-scripted fake, with no live twin (claude/hooks/ship.test.ts, claude/hooks/ship.ts)
+
+AGENTS.md, Testing: "reach every external resource (git, a shell, …) through a
+port with a live and an in-memory implementation, and hold the two together with
+a contract test that runs the same cases against both. A scenario needing a
+resource the in-memory tier lacks is a missing twin, not a reason to go
+`@live`".
+
+`ShipIo` is the port, but its only in-memory side is a per-test map from exact
+argv to scripted output, with no contract test against real git. This change
+adds behaviour whose correctness is git's semantics, not gtd's logic: the
+`refs/heads/<b>` qualification (the tag-shadowing fix), `resolveRef`'s ancestry
+choice between `main` and `origin/main`, and `keptByHand`'s
+`git log --format=…%x1e sha ^lower ^onto ^from` range. The fake answers whatever
+argv the test scripts, so it cannot show that a tag named like a slice branch
+would ever have won, or that the range excludes what the comment says. That is
+why `bareSlice` has to grep argv shapes (see test-audit). The gap predates this
+change, but this change adds to it. The new restack outcome (a slice merged into
+a lower slice branch that landed first now restacks) also has no `@inmem`
+scenario ("create cucumber.js scenarios for each new feature, tagged `@inmem`").
+
+Consider: a small real-git contract case (temp repo, one tag named like a slice
+branch, one diverged local `main`) run against the live `ShipIo`. Or record the
+missing twin as a follow-up rather than adding more argv-only assertions on ref
+semantics.
+
+## conventions: `originLeases`' comment restates its parameter (claude/hooks/ship.ts `originLeases`)
+
+Nit. AGENTS.md, Comments: "Everything else (restatement of the code, history, a
+'what' with no 'why') gets deleted, not moved." The edited clause
+"`kept(l, sha)` says origin's commit survives the restack" only renames the
+parameter in prose. Drop it, and keep the lease and refuses-before-writes
+reasons, which are the decision.
