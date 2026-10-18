@@ -27,7 +27,7 @@ commits below the squash, untouched. The requirement asks for fold or refuse;
 ship cannot see where the earlier episode starts without guessing from commit
 subjects.
 
-- [ ] Leave them as their own commits below the first slice, as today
+- [x] Leave them as their own commits below the first slice, as today
   - no detection code, no new refusal; a single-slice ship stays exactly as
     today (concern 3), including two unshipped processes on one branch
   - drops the requirement's "fold or refuse" — those `gtd(...)` step commits
