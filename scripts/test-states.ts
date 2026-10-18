@@ -102,18 +102,26 @@ export interface Condense {
   readonly print: (text: string) => void
 }
 
-type Seen = readonly { label: string; failures: ReadonlyMap<string, readonly string[]> }[]
+interface Seen {
+  readonly label: string
+  readonly failures: ReadonlyMap<string, readonly string[]>
+}
 
-function condenseFailure(
-  state: TestState,
-  output: string,
-  mine: ReadonlyMap<string, readonly string[]>,
-  seen: Seen,
-  i: number,
-  condense: Condense,
-  log: (line: string) => void,
-): void {
-  if (i === 0) return
+function condenseFailure({
+  state,
+  output,
+  mine,
+  seen,
+  condense,
+  log,
+}: {
+  state: TestState
+  output: string
+  mine: ReadonlyMap<string, readonly string[]>
+  seen: readonly Seen[]
+  condense: Condense
+  log: (line: string) => void
+}): void {
   if (mine.size === 0) return condense.print(`${output}\n`)
   const covering: string[] = []
   const novel = new Set(mine.keys())
@@ -139,7 +147,7 @@ export async function runStates(
 ): Promise<number> {
   if (states.length === 1) return (await run(states[0]!.tasks, states[0]!.env, true)).status ?? 1
   let failed = false
-  const seen: { label: string; failures: ReadonlyMap<string, readonly string[]> }[] = []
+  const seen: Seen[] = []
   for (const [i, state] of states.entries()) {
     const { status, output } = await run(state.tasks, state.env, !condense || i === 0)
     const ok = status === 0
@@ -147,7 +155,7 @@ export async function runStates(
     log(`test-states: ${state.label} — ${ok ? "pass" : "FAIL"}`)
     if (ok || !condense) continue
     const mine = failuresOf(output, state.tasks)
-    condenseFailure(state, output, mine, seen, i, condense, log)
+    if (i > 0) condenseFailure({ state, output, mine, seen, condense, log })
     seen.push({ label: state.label, failures: mine })
   }
   return failed ? 1 : 0
