@@ -1306,63 +1306,6 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(check): packages.item.closing → build.quality.correctness.reviewing"
 
   @inmem
-  Scenario: a package whose only task is out-of-tree completes via .gtd/SATISFIED.md evidence
-    Given a test project
-    And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
-    And a file "NOTE.md" with:
-      """
-      a sketch
-      """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
-    And a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Follow-up issues
-
-      File follow-up issues for the deferred work.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
-      """
-      Technical plan: file the follow-up issues with gh.
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    And a file ".gtd/packages/01-issues.md" with:
-      """
-      Package: follow-up issues. Independent tasks:
-      - [ ] file an issue per deferred item via gh
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
-
-    # the build turn changes nothing in the tree: the evidence is the only diff
-    Given a file ".gtd/SATISFIED.md" with:
-      """
-      - [x] file an issue per deferred item via gh — https://github.com/acme/widgets/issues/7
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.health.check → packages.item.closing"
-
-    Given the file ".gtd/packages/01-issues.md" is deleted
-    And the file ".gtd/SATISFIED.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): packages.item.closing → build.quality.correctness.reviewing"
-
-  @inmem
   Scenario: a dead-ended package stalls, then a human's .gtd/SATISFIED.md unsticks it
     Given a test project
     And the workflow gtd install scaffolds

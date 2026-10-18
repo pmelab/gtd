@@ -43,7 +43,8 @@ describe("declaredTests", () => {
       "## Tests",
       "- unit: `a.test.ts` (unchanged)",
       "- unit: `b.test.ts` extra",
-      "- unit: `c.test.ts` (unchanged-ish)",
+      "- unit: `c.test.ts` (unchanged)x",
+      "- unit: `f.test.ts` (unchanged) — kept as is",
       "- unit: `d.test.ts` (Unchanged)",
       "- e2e: `e.feature` (unchanged)",
     ].join("\n")
@@ -51,8 +52,17 @@ describe("declaredTests", () => {
       ["a.test.ts", true],
       ["b.test.ts", false],
       ["c.test.ts", false],
+      ["f.test.ts", true],
       ["d.test.ts", false],
       ["e.feature", true],
+    ])
+  })
+
+  it("reads a marker oxfmt wrapped onto a continuation line", () => {
+    const text = "## Tests\n- unit: `some/long/dir/a.test.ts`\n  (unchanged)\n- e2e: `b.feature`\n"
+    expect(declaredTests(text).map((t) => [t.path, t.unchanged])).toEqual([
+      ["some/long/dir/a.test.ts", true],
+      ["b.feature", false],
     ])
   })
 
@@ -107,11 +117,7 @@ describe("requireDeclaredTests", () => {
         {},
         {
           read: (path: string) =>
-            path === pkg
-              ? text
-              : path === "lib/gone.test.ts" || path === ".gtd/SATISFIED.md"
-                ? undefined
-                : "x",
+            path === pkg ? text : path === "lib/kept.test.ts" ? "x" : undefined,
           refuse: (message: string): never => {
             throw new Error(message)
           },

@@ -212,7 +212,7 @@ Feature: A package's declared tests gate its build
 
       ## Tests
 
-      - unit: `lib/widget.test.ts`
+      - unit: `lib/existing.test.ts`
       """
     And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
     And ".gtd/packages/01-widget.md" is modified to:
@@ -221,11 +221,15 @@ Feature: A package's declared tests gate its build
 
       ## Tests
 
-      - unit: `lib/widget.test.ts` (unchanged)
+      - unit: `lib/existing.test.ts` (unchanged)
+      """
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
       """
     When I run gtd land
     Then it fails
-    And stderr contains "lib/widget.test.ts"
+    And stderr contains "lib/existing.test.ts"
 
   Scenario: an unmarked unwritten line is refused while its marked sibling passes
     Given a file ".gtd/packages/01-widget.md" with:
@@ -244,5 +248,6 @@ Feature: A package's declared tests gate its build
       """
     When I run gtd land
     Then it fails
+    And stderr contains "not in the package's diff"
     And stderr contains "lib/widget.test.ts"
     And stderr does not contain "lib/existing.test.ts"

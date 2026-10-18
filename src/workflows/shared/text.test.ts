@@ -1289,7 +1289,8 @@ describe("packagesItemBuildingPrompt", () => {
     expect(prompt).toContain("evidence per criterion")
     expect(prompt).toContain("issue URL")
     expect(prompt).toContain("command output")
-    expect(prompt).toContain("do the work first, then write the file")
+    expect(prompt).toContain("do the work, then write the file")
+    expect(prompt).toContain("it was not already done")
   })
   it("says an (unchanged) line needs only to exist", () => {
     expect(prompt).toContain("(unchanged)")

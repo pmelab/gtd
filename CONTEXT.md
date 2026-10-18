@@ -337,9 +337,10 @@ an **answered question** by moving under `## Answered Questions` as prose.
 concern turns into — `architecture.decompose`'s output, one file per concern as
 it stands after `architecture.author`'s possible re-merging.
 
-**Satisfied package**: A package whose acceptance criteria are already met
-before its build turn runs — recorded as evidence in `.gtd/SATISFIED.md` rather
-than implemented, and reviewed and closed out like any other.
+**Satisfied package**: A package whose acceptance criteria are met before its
+build turn runs, or by that turn's work outside the tree — recorded as evidence
+in `.gtd/SATISFIED.md` rather than implemented, and reviewed and closed out like
+any other.
 
 **Feedback**: What a human or a check writes back to send work around again — a
 review's requested changes, or a failing suite's output.

@@ -25,7 +25,8 @@ const TEST_LINE = /^\s*-\s+(unit|e2e):\s+`([^`]+)`( \(unchanged\)(?=\s|$))?/
 export const declaredTests = (packageText: string): readonly DeclaredTest[] => {
   const found: DeclaredTest[] = []
   let inTests = false
-  for (const line of packageText.split("\n")) {
+  // oxfmt wraps a long line's ` (unchanged)` onto its own continuation line.
+  for (const line of packageText.replace(/\n\s+(?=\(unchanged\))/g, " ").split("\n")) {
     if (/^##\s/.test(line)) inTests = /^##\s+Tests\s*$/.test(line)
     else if (inTests) {
       const match = TEST_LINE.exec(line)
@@ -53,13 +54,9 @@ export const requireDeclaredTests = (pkg: string, since: string): void => {
   const notInDiff: string[] = []
   const notInTree: string[] = []
   for (const test of declaredTests(text)) {
-    if (read(test.path) === undefined) notInTree.push(test.path)
-    else if (
-      !satisfied &&
-      !test.unchanged &&
-      (range.get(test.path) === undefined || range.get(test.path)?.status === "deleted")
-    )
-      notInDiff.push(test.path)
+    const inDiff = range.get(test.path) !== undefined && range.get(test.path)?.status !== "deleted"
+    if (!satisfied && !test.unchanged && !inDiff) notInDiff.push(test.path)
+    else if (read(test.path) === undefined) notInTree.push(test.path)
   }
   const groups = [
     ["not in the package's diff", notInDiff],
