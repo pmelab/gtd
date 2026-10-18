@@ -31,3 +31,29 @@ passes. The one input the flush matters for is a heading that re-opens Tests,
 e.g. `"## Tests\n- unit: \`a.test.ts\`\n## Tests\n
 (unchanged)\n"`. Without the flush, `a.test.ts` would come out marked. Use that
 input, or drop the heading from the test's name.
+
+## ponytail-review: `requireDeclaredTests` gained a required parameter, which breaks a public export
+
+What this change does: the build turn of a package is now refused when it edits
+a test that decompose marked `(unchanged)`, and the `## Tests` parser now reads
+entries oxfmt wrapped over several lines. Load assumed: one person or driver
+running one gtd process per worktree, so no scale concerns apply.
+
+1. **Public export changed signature without a `!`**
+   (`src/workflows/feature/packages.ts:68`)
+   - **What this is:** `requireDeclaredTests` is re-exported from
+     `@pmelab/gtd/workflows` and `@pmelab/gtd/workflows/feature`, which
+     COMPATIBILITY.md puts under "Follows package SemVer" (each export's name,
+     type and behaviour). It shipped as `(pkg, since)` since v19.0.0.
+   - **Problem:** it is now `(pkg, since, turn)` with `turn` required. A user's
+     `gtd.config.ts` that calls `requireDeclaredTests(pkg, from)` in a custom
+     package loop stops type-checking after a non-major upgrade.
+   - **Fix:** default the parameter to the old behaviour:
+     `turn: DeclaredTestsTurn = "fix"` (the `"fix"` path is exactly the old
+     check, with no modified-test refusal). One token; no caller changes, no `!`
+     needed. Otherwise the squash title needs `!` and a `BREAKING CHANGE:`
+     footer per docs/commits.md.
+   - **If we skip it:** the change merges as a fix/minor while breaking configs
+     that reuse the export.
+
+Verdict: fix 1 first.
