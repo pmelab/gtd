@@ -99,3 +99,25 @@ confirmed above with `/etc/hosts`. An injected instruction can pull a secret
 into the shipper's context and then into the PR body that ship publishes. Fix:
 refuse `--no-index` (and `--ext-diff`/`--textconv`, which run configured
 programs) in the lookahead. Confidence: Likely, for the same reason as above.
+
+## ponytail-review: a test named "two re-ships in a row" runs no sequence and repeats two other tests
+
+`claude/hooks/ship.test.ts`, "two re-ships in a row never move the top; a
+deleted lower branch is rebuilt at its own commit". Each `repo(...)` is a fresh
+scripted io with no state carried over, so the loop runs the same independent
+ship twice: it is "the squash lands on the top branch and the stack is kept
+untouched" again (that test already asserts `topWrites` is empty). The last part
+uses `lowerGone` with the same completions and the same
+`git branch -f feat/x-refactor <C1>` assertion as "a top that is an ancestor of
+a later HEAD rebuilds from the top, not HEAD". Nothing here would fail that the
+other two do not already catch, and the name promises a sequence check that does
+not exist. Fix: delete the test, and move its one new line,
+`expect(ran().some((c) => c.includes("HEAD~"))).toBe(false)`, into "a top that
+is an ancestor of a later HEAD rebuilds from the top". About -12 lines.
+
+## ponytail-review: `recordedStack` is a one-call wrapper
+
+`claude/hooks/ship.ts` `recordedStack` has one caller, the last line of
+`squash`, and only turns `recordStack`'s string into `fail(...)`. It was split
+out of `squash`, not shared. Fix (nice to have): put the two lines back at the
+call site. -4 lines.
