@@ -203,3 +203,27 @@ Fix: pass the sinks and the TTY bit into `spawnTurbo` (for example
 `{ out, err, tty }`, defaulting to `process.*` only in `test-states.main.ts`),
 the same way `print` is passed to `runStates`. The tests then pass recording
 sinks and drop the `defineProperty`/`spyOn` patching.
+
+## spec-challenge: bare `--continue` runs the e2e tasks even when `build` failed
+
+The condensing spec compares "same failing tasks". To make that computable, the
+build added `--continue` to every turbo run (`turboArgv`, pinned by
+`runs failing tasks to completion and puts forwarded args last`). In turbo
+2.10.9, a bare `--continue` means `always`: it runs "all tasks, even those whose
+dependencies have failed" (`turbo run --help`).
+
+That conflicts with an invariant the repo relies on. `turbo.json` gives
+`test:unit`, `test:workflows`, `test:e2e:inmem` and `test:e2e:live`
+`dependsOn: ["build"]`, and `docs/development.md` promises that
+`npx turbo run test:e2e:live` "builds first (turbo dependsOn)" so it tests "a
+fresh bundle". The e2e world runs `dist/gtd.bundle.mjs` (`GTD_BIN`). With
+`always`, a red `build` still starts all four tasks against whatever stale
+bundle is left in `dist/`, in every state, because a failed `build` is never
+cached. The exit status stays 1, so this cannot produce a false green. But
+`.gtd/FEEDBACK.md` fills with failures (or passes) from a bundle the fixer did
+not write. Before this change, turbo stopped at the failed `build` and the
+report pointed straight at it.
+
+Fix: pass `--continue=dependencies-successful`. Independent failing tasks still
+run to completion, so `Failed:` still lists every one of them, and a task whose
+`build` failed is skipped. Update the `turboArgv` tests to match.
