@@ -73,3 +73,34 @@ Fix (pick one): scope the out-of-tree clause to packages with no `## Tests`
 SATISFIED.md claims; or keep `.gtd/SATISFIED.md` out of the `closing` removal
 until the squash so its evidence is reviewable in the review step. Confidence:
 Confirmed (behaviour read from code; impact theoretical).
+
+## ponytail-review — new out-of-tree e2e scenario pins nothing new (Should, lean)
+
+What this change does: it adds a ` (unchanged)` marker to a package's `## Tests`
+lines, so a test the plan names but never edits only has to exist, and it groups
+the guard's refusal by reason. For packages that do only out-of-tree work
+(filing issues), it changes the builder prompt so the builder records evidence
+in `.gtd/SATISFIED.md` instead of landing an empty turn.
+
+1. **Out-of-tree scenario is a copy of an existing one**
+   (`tests/integration/features/default-workflow.feature`, scenario "a package
+   whose only task is out-of-tree completes via .gtd/SATISFIED.md evidence")
+   - **What this is:** An e2e scenario meant to prove issue #373's second half:
+     a package that only files issues no longer stalls.
+   - **Problem:** The engine change for that half is prompt text only. The
+     scenario plays the agent itself by writing `.gtd/SATISFIED.md`, and the
+     engine never reads the package text or that file's content when no tests
+     are declared. So it is step-for-step the existing scenario "a package whose
+     work already landed closes out via .gtd/SATISFIED.md" with different
+     strings, and it passes on the base commit `58010417` too. It would not fail
+     if this change were reverted. The real fix is pinned by the
+     `packagesItemBuildingPrompt` substring tests in
+     `src/workflows/shared/text.test.ts`.
+   - **Fix:** Delete the scenario. Nothing else changes.
+   - **If we skip it:** 57 more lines of e2e setup to keep in step with the
+     workflow, and a reader thinks the empty-package stall has an engine-level
+     guard when it does not.
+
+Verdict: fix after the correctness findings above; this one alone does not
+block. Lean: -57 lines possible. Load assumed: one person running the gtd loop
+locally.
