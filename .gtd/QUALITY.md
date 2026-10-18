@@ -60,3 +60,21 @@ Kept as real proof, no action needed:
 - The "collapse off" `runStates` case fails if `collapse` is ignored.
 - The 12-char sha "differs" case is the only one that guards the hex-regex
   narrowing. The 16-char "equal" case also passes on the old regex.
+
+## conventions (consider): `RunOptions.collapse` JSDoc only restates the code
+
+AGENTS.md, Comments: "Keep a comment … only where it explains an important
+decision or genuinely unclear code … Everything else (restatement of the code …)
+gets deleted, not moved."
+
+In `scripts/test-states.ts`, `/** Collapse repeated failures (default true). */`
+on `RunOptions.collapse` says the field name again, and the default is right
+there in `runStates` (`options.collapse ?? true`). Delete it. The JSDoc on
+`full` can stay, because "never collapses" records the precedence over
+`collapse`, which isn't obvious from the field name. The `flagValue` JSDoc (""
+vs undefined) and the GitHub Actions `auto` comment in `turboArgv` explain a
+real why, so keep both.
+
+No other rule is broken. `docs/development.md` names only flags and npm scripts,
+no `src/*.ts` module or internal function. Code comments are allowed to name
+`failureSignature`.
