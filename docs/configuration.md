@@ -666,9 +666,11 @@ Every verdict wraps steps 4 and the feature review in the `feature` slice
 (`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
 The feature review covers the feature slice only: on `refactor-first`,
 everything since the refactor's sign-off. Feedback at a review, whatever the
-verdict, re-runs design and `implement.*` — `seam.naive` and `seam.judge` never
-run again once judged, so a seam a re-plan turns up is built unjudged and
-unrefactored; a wrong or missing refactor means `gtd abandon` and a restart.
+verdict, re-runs design and `implement.*` — including the feedback lap of a
+custom workflow ending in `afterTail`, which is design → implement and never the
+seam. `seam.naive` and `seam.judge` never run again once judged, so a seam a
+re-plan turns up is built unjudged and unrefactored; a wrong or missing refactor
+means `gtd abandon` and a restart.
 
 A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `refactor.deriving` runs again with the notes under `## Review feedback` — never

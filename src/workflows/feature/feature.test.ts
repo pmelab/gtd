@@ -121,3 +121,65 @@ describe("planAndBuild without the naive pass", () => {
     expect(repo.subjects().some((subject) => /seam|implement/.test(subject))).toBe(false)
   })
 })
+
+describe("afterTail feedback lap", () => {
+  const TAIL = [
+    `import { start } from "@pmelab/gtd/flows"`,
+    `import { afterTail, buildTail, gate } from "@pmelab/gtd/workflows"`,
+    `export { feature as default, defaults, envDefaults, summary, base, steering, skills, access } from "@pmelab/gtd/workflows"`,
+    `export async function tail() {`,
+    `  await gate("review-gate", "The baseline is red.")`,
+    `  return afterTail(await buildTail(false, start()))`,
+    `}`,
+  ].join("\n")
+
+  const feedbackLap = async (flag: "0" | "1") => {
+    const repo = testRepo({
+      workflow: TAIL,
+      env: { GTD_QUALITYREVIEWS: "", GTD_FLAG_NAIVE_PASS: flag, GTD_FLAG_RISK_TIER: "0" },
+    })
+    repo.write("src/calc.ts", CALC)
+    repo.commit("feat: add calculator")
+    await repo.start("tail", "--var", `reviewBase=${repo.hashes()[0]}`)
+    await repo.drive({
+      "review-gate.check": () => undefined,
+      "build.health.check": () => undefined,
+      "build.review.reviewing": (_: unknown, r: typeof repo) => r.write(".gtd/REVIEW.md", review()),
+    })
+    repo.write(".gtd/REVIEW.md", review("also export multiply"))
+    await repo.land()
+    await repo.drive({
+      "build.review.collecting": (_, r) => {
+        r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply\n")
+        r.write(".gtd/REVIEW.md", `${review("also export multiply")}    - A: noted.\n`)
+      },
+    })
+    repo.write(".gtd/REVIEW.md", review())
+    await repo.land()
+    return repo
+  }
+
+  const afterFeedback = {
+    "build.review.closing": runsItsScript,
+    "re-unwind": runsItsScript,
+    "design.triage": (_: unknown, r: ReturnType<typeof testRepo>) =>
+      r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply, designed\n"),
+    "design.gate.answer": () => undefined,
+  }
+
+  it("flag_naive_pass=1 rests at design.triage, then implement.building, reaching no seam step", async () => {
+    const repo = await feedbackLap("1")
+    expect(
+      (await repo.drive({ "build.review.closing": runsItsScript, "re-unwind": runsItsScript }))
+        .state,
+    ).toBe("design.triage")
+    expect((await repo.drive(afterFeedback)).state).toBe("implement.building")
+    expect(repo.subjects().some((subject) => subject.includes("seam."))).toBe(false)
+  })
+
+  it("flag_naive_pass=0 re-plans through architecture and packages", async () => {
+    const repo = await feedbackLap("0")
+    const rest = await repo.drive(afterFeedback)
+    expect(rest.state).toBe("architecture.author")
+  })
+})
