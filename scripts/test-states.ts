@@ -62,6 +62,9 @@ export function planStates(registry: readonly FlagDeclaration[], env: Env): read
 // toward "distinct": a random temp path keeps two states apart.
 export function failureSignature(stdout: string, tasks: readonly string[]): string {
   const byTask = new Map<string, string[]>()
+  // Remaining turbo `> ` echo lines per task, opened by its cache line. Position-based so a
+  // task's own `> ` output after the echoes survives.
+  const echoes = new Map<string, number>()
   for (const raw of stdout.split("\n")) {
     const line = raw
       // oxlint-disable-next-line no-control-regex
@@ -69,6 +72,18 @@ export function failureSignature(stdout: string, tasks: readonly string[]): stri
       .replace(/\r$/, "")
     const task = tasks.find((t) => line.startsWith(`${t}: `))
     if (task === undefined) continue
+    const body = line.slice(task.length + 2)
+    if (/^\s*cache (miss, executing|bypass, force executing|hit, replaying logs) /.test(body)) {
+      echoes.set(task, 2)
+      continue
+    }
+    if (body.trim() === "") continue
+    if (/^> /.test(body) && (echoes.get(task) ?? 0) > 0) {
+      echoes.set(task, echoes.get(task)! - 1)
+      continue
+    }
+    if (/^\s*ERROR\s+command \(.*\) .* exited \(\d+\)$/.test(body)) continue
+    echoes.set(task, 0)
     const norm = line
       .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?/g, "<ts>")
       .replace(/\d{1,2}:\d{2}:\d{2}/g, "<time>")
