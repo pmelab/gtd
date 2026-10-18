@@ -1378,10 +1378,12 @@ async function handRestack(
 const IDENTITY = "%an%x00%ae%x00%at%x00%B"
 
 // The pre-rebase tips are gone, and the reflog also holds commits pulled in and
-// dropped on purpose: origin's copy passes only when every commit it holds beyond
-// the recorded top (or the merge base, once that top is gone) is in the local
-// branch by identity and diff (index and hunk-offset lines ignored), a rebase keeping author, date, message and patch. The merged
-// slice's commits are expected to be gone.
+// dropped on purpose: origin's copy passes only when every commit it holds
+// beyond the recorded top (or the merge base, once that top is gone) is in the
+// local branch by identity and diff (index and hunk-offset lines ignored), a
+// rebase keeping author, date, message and patch. The merged slice's commits
+// are expected to be gone. git prints each patch after its header, so the
+// separator leads the header to keep a commit and its patch in one entry.
 async function keptByHand(
   git: Git,
   ok: Ok,
@@ -1392,7 +1394,7 @@ async function keptByHand(
   const lower = (await ok("cat-file", "-e", top)) ? top : await git("merge-base", sha, local)
   if (!lower) return false
   const identities = async (...range: string[]) =>
-    (await git("log", "-p", "--no-color", `--format=${IDENTITY}%x1e`, ...range))
+    (await git("log", "-p", "--no-color", `--format=%x1e${IDENTITY}`, ...range))
       .split("\x1e")
       .map((i) => i.replace(/^index .*\n|^(@@) .* @@/gm, "$1").trim())
       .filter(Boolean)

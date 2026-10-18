@@ -2648,7 +2648,7 @@ describe("ship stack", () => {
         expect(ran().some((c) => c.includes("--unset"))).toBe(false)
       })
 
-      const FMT = "-p --no-color --format=%an%x00%ae%x00%at%x00%B%x1e"
+      const FMT = "-p --no-color --format=%x1e%an%x00%ae%x00%at%x00%B"
       const theirs = (sha: string, lower = S3) =>
         `git log ${FMT} ${sha} ^${lower} ^origin/main ^${S1}`
       const mine = (b: string) => `git log ${FMT} origin/main..refs/heads/${b}`
@@ -2656,14 +2656,14 @@ describe("ship stack", () => {
         ok: false,
         text: `origin/${b} holds commits ${b} lacks; nothing changed. Pull or reconcile ${b}, then ship.`,
       })
-      const X = "Cy\x00c@x\x00300\x00fix: collaborator\n\x1e"
-      const mineX = `Ann\x00a@x\x00100\x00feat: own\n\x1e${X}`
+      const X = "\x1eCy\x00c@x\x00300\x00fix: collaborator\n"
+      const mineX = `\x1eAnn\x00a@x\x00100\x00feat: own\n${X}`
 
       test("origin holding a commit the local branch dropped by hand refuses before any write, though the reflog knows it", async () => {
         const { io, ran } = repo({
           ...hand,
           [theirs(O2)]: { out: X },
-          [mine("feat/x-middle")]: { out: "Ann\x00a@x\x00100\x00feat: own\n\x1e" },
+          [mine("feat/x-middle")]: { out: "\x1eAnn\x00a@x\x00100\x00feat: own\n" },
           "git reflog show --format=%H refs/heads/feat/x-middle": { out: `${O2}\n${S2}\n` },
         })
         expect(await ship(io, false)).toEqual(refused("feat/x-middle"))
@@ -2696,12 +2696,34 @@ describe("ship stack", () => {
         expect(await ship(io, false)).toMatchObject({ ok: true })
       })
 
+      test("origin's extra commit kept between other local commits, each with its patch, passes", async () => {
+        const commit = (id: string, line: string) =>
+          `\x1e${id}\n\n\ndiff --git a/f b/f\n@@ -1 +1,2 @@\n+${line}\n`
+        const x = commit("Cy\x00c@x\x00300\x00fix: collaborator\n", "x")
+        const { io, ran } = repo({
+          ...hand,
+          [theirs(O2)]: { out: x },
+          [mine("feat/x-middle")]: {
+            out:
+              commit("Ann\x00a@x\x00200\x00feat: newer\n", "b") +
+              x +
+              commit("Ann\x00a@x\x00100\x00feat: own\n", "a"),
+          },
+        })
+        expect(await ship(io, false)).toMatchObject({ ok: true })
+        // the fakes above are git's real order: only this format reads them
+        expect(ran()).toContain(theirs(O2))
+        expect(ran()).toContain(
+          `git push --force-with-lease=feat/x-middle:${O2} origin feat/x-middle`,
+        )
+      })
+
       test("origin's amended copy of a local commit (same identity, different diff) refuses before any write", async () => {
         const id = "Ann\x00a@x\x00100\x00feat: own\n"
         const { io, ran } = repo({
           ...hand,
-          [theirs(O2)]: { out: `${id}diff --git a/f b/f\n+theirs\n\x1e` },
-          [mine("feat/x-middle")]: { out: `${id}diff --git a/f b/f\n+mine\n\x1e` },
+          [theirs(O2)]: { out: `\x1e${id}diff --git a/f b/f\n+theirs\n` },
+          [mine("feat/x-middle")]: { out: `\x1e${id}diff --git a/f b/f\n+mine\n` },
         })
         expect(await ship(io, false)).toEqual(refused("feat/x-middle"))
         expect(ran().some((c) => writes.test(c))).toBe(false)
@@ -2711,8 +2733,8 @@ describe("ship stack", () => {
         const id = "Ann\x00a@x\x00100\x00feat: own\n"
         const { io } = repo({
           ...hand,
-          [theirs(O2)]: { out: `${id}index 1..2 100644\n@@ -1,2 +1,3 @@ fn\n+a\n\x1e` },
-          [mine("feat/x-middle")]: { out: `${id}index 3..4 100644\n@@ -9,2 +9,3 @@ fn\n+a\n\x1e` },
+          [theirs(O2)]: { out: `\x1e${id}index 1..2 100644\n@@ -1,2 +1,3 @@ fn\n+a\n` },
+          [mine("feat/x-middle")]: { out: `\x1e${id}index 3..4 100644\n@@ -9,2 +9,3 @@ fn\n+a\n` },
         })
         expect(await ship(io, false)).toMatchObject({ ok: true })
       })
