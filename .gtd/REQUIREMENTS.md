@@ -2,71 +2,52 @@
 
 ## Open Questions
 
-### Which real change does this dogfood ship?
+### What does a run that is red in several flag states print?
 
-The sketch says to pick one. It must edit an existing file outside `seamAllow`
-(tests, `.feature` files and `.gtd/**` don't count), or seam.judge has nothing
-to rule refactor-first on.
+Today every state streams its full turbo output, so one test red in all three
+states lands in `.gtd/FEEDBACK.md` three times. The options differ in how much a
+reader learns about the second and later states.
 
-- [x] #372(b): dedupe health-check feedback across release-flag states
-  - edits the existing `scripts/test-states.ts` runner, which is a likely
-    refactor seam
-  - fixes real friction: one red test currently writes a 1187-line
-    `.gtd/FEEDBACK.md`
-  - small and testable; closes half of an open dogfood issue
-- [ ] #339: record turn durations and sum them in the closing summary
-  - user-visible new feature; touches the land and summary code, so a refactor
-    is very likely
-  - larger: likely 3+ packages, so a longer run and more surface for friction
-- [ ] #373(1): let the declared-tests guard accept a plan that lists an
-      unchanged test
-  - edits the existing guard code; fixes friction from #355
-  - the fix needs a design choice first (planner rule or guard escape hatch), so
-    this question would come back on the next lap
-- [ ] _your answer_
-
-### What if seam.judge does not rule refactor-first?
-
-The ruling comes from an LLM judge (threshold p 0.7), so this process can't
-promise it. The outcomes differ: either the issue's acceptance is met or it
-isn't.
-
-- [ ] Ship whatever path ran, file the miss as `track:dogfood` friction, and
-      leave #384 open
-  - one run; #384 needs a second dogfood later
-- [x] Unwind and restart the process with a change more clearly shaped as
-      refactor-first
-  - acceptance stays in reach in this branch; costs a full extra run
-- [ ] _your answer_
-
-### What happens to the three deferred review notes the sketch deleted?
-
-The sketch replaced `.gtd/TODO.md` wholesale, which removed notes 1–3 (restore a
-stdout assertion, strengthen the `gtd history list` scenario, extend the
-`runSummaryCommand` doc comment). Removing them may mean "drop" or just "clear
-the file".
-
-- [ ] Drop them
-  - nothing tracks them any more
-- [x] File them as one GitHub issue and keep them out of this process
-  - the dogfood diff stays focused on the chosen change
-- [ ] Fold them into this process as extra concerns
-  - they touch only tests and a comment, so they land in the feature slice, not
-    the refactor slice
-  - mixes unrelated work into the dogfood PRs
+- [ ] Full output for the first failing state; each later state prints one line
+      when its failures match an earlier state, and only its own failing tasks'
+      output when they differ
+  - a failure that is red everywhere costs one state's output
+  - a flag-specific failure still shows in full
+  - needs a rule for "same failures" (failing task plus failing test names)
+- [ ] Full output for the first failing state; later states print only their
+      failing task names
+  - smallest feedback, simplest to build
+  - a failure that exists only under a flag shows its name but no detail, so the
+    fix turn has to rerun that state to see it
+- [ ] Stop at the first failing state
+  - smallest and fastest run
+  - hides whether the other states pass, so a fix can go green in one state and
+    red in the next lap
 - [ ] _your answer_
 
 ## Concerns
 
-### 1. Pick and build the change (PRODUCT)
+### 1. Build #372(b): condense repeated failures across flag states (PRODUCT)
 
-- Build the change picked above as an ordinary `feature` process on
-  `feat/384-dogfood-stacked`.
+- Build #372 follow-up (b) as an ordinary `feature` process on
+  `feat/384-dogfood-stacked`: **`npm test` stops repeating a failure once per
+  release-flag state.** The change lives in the `scripts/test-states.ts` runner;
+  the shipped health check and its `.gtd/FEEDBACK.md` writing stay as they are.
+- **Done when: one test red in all three states (defaults, `naive_pass` on,
+  `risk_tier` on) produces a failure report the size of one state's output, not
+  three**, in the shape the open question picks.
+- **The pass/FAIL line per state and the runner's exit status stay as today**
+  (exit 1 when any state failed, 0 only when all passed).
+- **`npm test` keeps streaming live output to the terminal** for the first
+  state; condensing applies to what later states repeat.
+- Covered by unit tests beside the runner in `tests/tooling/test-states.test.ts`
+  (it is tooling, not a gtd feature, so no `.feature` scenario applies). A
+  README or docs update is due only if the change alters something a user of
+  `npm test` reads there.
 - **This process already runs with `flag_naive_pass=1` and `flag_risk_tier=0`**
   (pinned in the entry commit's `Gtd-Var` trailers), so the naive pass and
   seam.judge run as-is. Leave both flags exactly as they are.
-- The change meets its own issue's "done when", with `@inmem` cucumber scenarios
-  and a README/docs update wherever it changes user-facing behaviour.
+- Closing comment on #372 notes that (b) is done and (a) stays open.
 
 ### 2. Walk the refactor-first path to two slices (PRODUCT)
 
@@ -76,6 +57,9 @@ the file".
   both before shipping.
 - **The refactor slice must change no behaviour:** the suite stays green after
   it, with no test edits beyond what the refactor review allows.
+- **If seam.judge does not rule refactor-first, unwind and restart this process
+  with a change more clearly shaped as refactor-first.** Nothing ships from the
+  missed run; the miss is filed as friction (concern 4).
 
 ### 3. Ship as two stacked PRs (PRODUCT)
 
@@ -87,12 +71,19 @@ the file".
 - Each PR title and squash message follows `docs/commits.md`; COMPATIBILITY.md
   decides `!`.
 
-### 4. File the friction (PRODUCT)
+### 4. File the friction and the parked review notes (PRODUCT)
 
 - **Every snag hit along the way becomes a GitHub issue labelled
   `track:dogfood`, with a body that references #384.**
 - First check existing open `track:dogfood` issues (#371–#373); add a comment to
   a matching issue rather than filing a duplicate.
+- **File the three deferred review notes the sketch removed as one GitHub
+  issue**, kept out of this process's packages: restore
+  `expect(captured().stdout).toBe("")` in the garbled-flag CLI test; strengthen
+  the `gtd history list` scenario (finish a process that kept a tip, assert only
+  the finished process shows, never the kept ref); add the `--slice` refusals
+  (unknown slice name with valid slices listed, config edited since a closed
+  process, diverged replay) to the `runSummaryCommand` doc comment.
 - **#384 closes only when concerns 2–4 all held.**
 
 ## Answered Questions
@@ -106,3 +97,31 @@ no file lands an empty attempt and stalls (#373 item 2).
 
 The human does, through the mod's `/gtd ship`, as #384's acceptance states. The
 agent never merges a PR.
+
+### Which real change does this dogfood ship?
+
+#372(b): dedupe health-check feedback across release-flag states, by editing the
+existing `scripts/test-states.ts` runner.
+
+### What if seam.judge does not rule refactor-first?
+
+Unwind and restart the process with a change more clearly shaped as
+refactor-first, keeping #384's acceptance in reach on this branch at the cost of
+a full extra run.
+
+### What happens to the three deferred review notes the sketch deleted?
+
+File them as one GitHub issue and keep them out of this process, so the dogfood
+diff stays focused on the chosen change.
+
+### Where does the condensing live: the runner or the shipped health check?
+
+The runner. The picked option named `scripts/test-states.ts`, and a change to
+the shipped health check would alter every user's feedback, not just this
+repo's.
+
+### Which change replaces #372(b) if the run has to restart?
+
+#339 (turn durations in the closing summary) by default: it touches land and
+summary code, so a refactor is very likely. The restart is a fresh process, so
+the human can still pick another in its sketch.
