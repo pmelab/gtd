@@ -787,6 +787,33 @@ async function pushLink(io: ShipIo, git: Git, l: Link, upper: boolean) {
   return pushBranch(io, l.branch, l.commit)
 }
 
+async function shipLink(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  links: Link[],
+  i: number,
+  baseBranch: string,
+  baseRef: string,
+  mergeBase: string,
+  below: number | undefined,
+): Promise<Pr | { step: string; why: string }> {
+  const l = links[i]!
+  const lower = i ? links[i - 1]! : undefined
+  const base = baseOf(links, i, baseBranch)
+  const view = await viewPr(io, l.branch)
+  if (typeof view === "string") return { step: "pull request", why: `${view} Nothing was pushed.` }
+  const pushed = await pushLink(io, git, l, i < links.length - 1)
+  if (pushed) return { step: "push", why: pushed }
+  const lowerRef = lower?.branch ?? baseRef
+  const ctx: Ctx = { to: l.commit, from: lower?.commit ?? mergeBase, below, stacked: true }
+  const done = await sliceStep(io, git, ok, l, view, base, lowerRef, ctx)
+  if ("step" in done) return done
+  if (done.number === undefined && i < links.length - 1)
+    return { step: "pull request", why: "its number could not be read from gh's reply." }
+  return done
+}
+
 // Bottom first, so each PR can name the number of the one below it. A failure
 // keeps every slice that already landed; /gtd ship resumes from the recorded stack.
 async function stackPullRequests(
@@ -808,19 +835,8 @@ async function stackPullRequests(
       fail(
         `Slice ${l.name} failed at ${step}: ${why}\nLanded: ${landed.length ? landed.join(", ") : "none"}. /gtd ship resumes.`,
       )
-    const lower = i ? links[i - 1]! : undefined
-    const base = baseOf(links, i, baseBranch)
-    const view = await viewPr(io, l.branch)
-    if (typeof view === "string") return stop("pull request", `${view} Nothing was pushed.`)
-    const pushed = await pushLink(io, git, l, i < links.length - 1)
-    if (pushed) return stop("push", pushed)
-
-    const lowerRef = lower?.branch ?? baseRef
-    const ctx: Ctx = { to: l.commit, from: lower?.commit ?? mergeBase, below, stacked: true }
-    const done = await sliceStep(io, git, ok, l, view, base, lowerRef, ctx)
+    const done = await shipLink(io, git, ok, links, i, baseBranch, baseRef, mergeBase, below)
     if ("step" in done) return stop(done.step, done.why)
-    if (done.number === undefined && i < links.length - 1)
-      return stop("pull request", "its number could not be read from gh's reply.")
     below = done.number
     landed.push(l.name)
     texts.push(`[${l.name}] ${done.text}`)
