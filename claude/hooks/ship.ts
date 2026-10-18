@@ -450,14 +450,7 @@ async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | st
   }
 }
 
-// Before the history push: a refusal leaves the repository exactly as it was.
-async function stackPrecheck(
-  io: ShipIo,
-  git: Git,
-  ok: Ok,
-  branch: string,
-  groups: Group[],
-): Promise<string | undefined> {
+async function takenSlice(git: Git, ok: Ok, branch: string, groups: Group[]) {
   const recorded = names(await git("config", "--local", "--get", STACK_KEY(branch)))
   for (const g of groups.slice(0, -1)) {
     const b = `${branch}-${g.name}`
@@ -468,6 +461,19 @@ async function stackPrecheck(
     )
       return `Branch ${b} (slice ${g.name}) already exists and is not part of a stack gtd built; nothing changed. Rename or delete it, then ship.`
   }
+  return undefined
+}
+
+// Before the history push: a refusal leaves the repository exactly as it was.
+async function stackPrecheck(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  groups: Group[],
+): Promise<string | undefined> {
+  const taken = await takenSlice(git, ok, branch, groups)
+  if (taken) return taken
   for (const [i, g] of groups.entries()) {
     const top = i === groups.length - 1
     const b = top ? branch : `${branch}-${g.name}`
@@ -1029,6 +1035,15 @@ ${await git("diff", "--stat", `${mergeBase}..${to}`)}`
   }
 }
 
+async function sinceHead(git: Git, ok: Ok, branch: string, mergeBase: string, to: string) {
+  const synced = await git("config", "--local", "--get", `branch.${branch}.prSyncHead`)
+  const isSynced =
+    synced &&
+    (await ok("rev-parse", "--verify", "--quiet", `${synced}^{commit}`)) &&
+    (await ok("merge-base", "--is-ancestor", synced, to))
+  return isSynced ? synced : mergeBase
+}
+
 async function updatePr(
   io: ShipIo,
   git: Git,
@@ -1056,12 +1071,7 @@ async function updatePr(
   }
   // Only what landed since the last run. A stored head a squash left behind
   // falls back to the whole branch, the only honest range left.
-  const synced = await git("config", "--local", "--get", `branch.${branch}.prSyncHead`)
-  const isSynced =
-    synced &&
-    (await ok("rev-parse", "--verify", "--quiet", `${synced}^{commit}`)) &&
-    (await ok("merge-base", "--is-ancestor", synced, to))
-  const since = isSynced ? synced : mergeBase
+  const since = await sinceHead(git, ok, branch, mergeBase, to)
   const count = Number(await git("rev-list", "--count", `${since}..${to}`))
   if (!count && (stacked || unstacked))
     return restacked(existing, `Nothing new since the last ship: ${existing.url}`)
