@@ -311,6 +311,59 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
         """
 
+    Scenario: a question answered at the refactor review reaches the re-derived package as ### Answered Questions
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-1
+          why a shared op?
+        - [ ] ./src/calc.ts#2-2
+          rename the helper to combine
+        """
+      And judge step "refactor.build.review.triage" answers:
+        """
+        [{"id":"note-1","answer":"question","p":0.9},{"id":"note-2","answer":"edit","p":0.9}]
+        """
+      And step "refactor.build.review.answer-review-questions" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-1
+          why a shared op?
+          A: add and subtract differ only by sign.
+        - [ ] ./src/calc.ts#2-2
+          rename the helper to combine
+        """
+      And step "refactor.build.review.collecting" writes ".gtd/REFACTOR.md" with:
+        """
+        ## Rename
+
+        Name the shared helper `combine`.
+
+        ## Answered Questions
+
+        ### why a shared op?
+
+        add and subtract differ only by sign.
+        """
+      And step "refactor.re-unwind" runs its script
+      And step "refactor.deriving" runs its script
+      When gtd lands
+      And the process is driven
+      Then ".gtd/REFACTOR.md" contains "## Review feedback"
+      And ".gtd/REFACTOR.md" contains "### Answered Questions"
+
     Scenario: a human code edit at the refactor review is reverted by refactor.re-unwind
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"
@@ -346,6 +399,81 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         gtd(check): refactor.closing → refactor.build.review.reviewing
         gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
         """
+
+    Scenario: an edit note the collecting turn leaves out refuses the landing and never signs off
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op — this should change behaviour, not just structure
+        """
+      And judge step "refactor.build.review.triage" answers:
+        """
+        [{"id":"note-1","answer":"edit","p":0.9}]
+        """
+      And step "refactor.build.review.collecting" changes nothing
+      When gtd lands
+      Then driving the process is refused with "refactor-feedback"
+      And driving the process is refused with "note-1"
+      And driving the process is refused with "gtd abandon"
+
+    Scenario: a code hand-edit the collecting turn leaves out refuses the landing naming the path
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        // TODO: rename op to adjust
+        """
+      And step "refactor.build.review.collecting" changes nothing
+      When gtd lands
+      Then driving the process is refused with "refactor-feedback"
+      And driving the process is refused with "src/calc.ts"
+
+    Scenario: a praise-only refactor review still signs off and the feature slice follows
+      Given step "implement.building" writes "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        export const subtract = (a: number, b: number) => op(a, b, -1)
+        """
+      And step "implement.health.check" changes nothing
+      And step "implement.closing" runs its script
+      And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op
+        """
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [x] ./src/calc.ts#1-2
+          add built on the shared op
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "build.review.await-review"
 
     Scenario: the feature review after a refactor covers only the commits since the refactor's sign-off
       Given step "implement.building" writes "src/calc.ts" with:
@@ -516,6 +644,34 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       When gtd lands
       Then driving the process is refused with "refactor-scope"
 
+    Scenario: the nit-fix turn in the refactor slice may write the strays and .gtd/** only
+      Given step "seam.naive" writes "src/*.ts" with:
+        """
+        export const literalGlobName = 2
+        """
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op — rename `sign` to `direction`
+        """
+      And judge step "refactor.build.review.triage" answers:
+        """
+        [{"id":"note-1","answer":"nit","p":0.9}]
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.build.review.fix.nits.fixing"
+      And the output of gtd "next --json=access.write" contains "src/*.ts"
+      And the output of gtd "next --json=access.write" contains ".gtd/**"
+
     Scenario: a blank refactorQualityReviews runs no refactor quality lap
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"
@@ -524,3 +680,185 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         gtd(check): refactor.closing → refactor.build.review.reviewing
         gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
         """
+
+  Rule: with a quality lens on both slices
+
+    Background:
+      Given an environment variable "GTD_REFACTORQUALITYREVIEWS" set to "correctness"
+      And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
+      And a file "src/calc.ts" with:
+        """
+        export const add = (a: number, b: number) => a + b
+        """
+      And a file "src/calc.test.ts" with:
+        """
+        import { expect, it } from "vitest"
+        it("adds", () => expect(1 + 1).toBe(2))
+        """
+      And a file "src/*.ts" with:
+        """
+        export const literalGlobName = 1
+        """
+      And the working tree is committed as "feat: add calculator"
+      And a file "TODO.md" with:
+        """
+        # Add subtract
+
+        subtract(a, b) returns the difference.
+        """
+      And step "unwind" changes nothing
+      And step "start-gate.check" changes nothing
+      And step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
+        """
+        # Requirements
+
+        ## Concerns
+
+        ### Subtract
+
+        - `subtract(a, b)` returns `a - b`.
+        """
+      And step "design.gate.answer" changes nothing
+      And step "seam.naive" writes "src/calc.ts" with:
+        """
+        export const add = (a: number, b: number) => a + b
+        export const subtract = (a: number, b: number) => a - b
+        """
+      And judge step "seam.judge" answers:
+        """
+        [{"id":"shape","answer":"refactor-first","p":0.9}]
+        """
+      And step "refactor.deriving" runs its script
+      And step "refactor.building" writes "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        """
+      And step "refactor.health.check" changes nothing
+      And step "refactor.closing" runs its script
+      And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op
+        """
+      And step "refactor.build.review.closing" runs its script
+
+    Scenario: each slice's quality lap reviews from that slice's base, before and after a feature feedback lap
+      When the process is driven
+      Then the process rests at "refactor.build.quality.correctness.reviewing"
+      And the resting step's content contains the hash of the commit "gtd(judge): seam.judge → refactor.deriving"
+      Given step "refactor.build.quality.correctness.reviewing" changes nothing
+      And step "implement.building" writes "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        export const subtract = (a: number, b: number) => op(a, b, -1)
+        """
+      And step "implement.health.check" changes nothing
+      And step "implement.closing" runs its script
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [x] ./src/calc.ts#1-2
+          add built on the shared op
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "build.quality.correctness.reviewing"
+      And the resting step's content contains the hash of the commit "gtd(check): refactor.build.review.closing → implement.building"
+      Given step "build.quality.correctness.reviewing" changes nothing
+      And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op
+        """
+      When the process is driven
+      Then the process rests at "build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op[^why]
+
+        [^why]:
+            - H: also export multiply
+        """
+      And step "build.review.collecting" writes ".gtd/REQUIREMENTS.md" with:
+        """
+        # Requirements
+
+        ## Concerns
+
+        ### Multiply
+
+        - Export `multiply()`.
+        """
+      And step "build.review.collecting" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op[^why]
+
+        [^why]:
+            - H: also export multiply
+            - A: noted in the requirements.
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op
+        """
+      And step "build.review.closing" runs its script
+      And step "re-unwind" runs its script
+      And step "build.quality.correctness.reviewing" is no longer scripted
+      And step "implement.building" writes "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        export const subtract = (a: number, b: number) => op(a, b, -1)
+        export const multiply = (a: number, b: number) => a * b
+        """
+      And step "implement.health.check" changes nothing
+      And step "implement.closing" runs its script
+      When gtd lands
+      And the process is driven
+      Then the process rests at "build.quality.correctness.reviewing"
+      And the resting step's content contains the hash of the commit "gtd(check): refactor.build.review.closing → implement.building"

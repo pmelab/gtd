@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const state = vi.hoisted(() => ({ feedback: undefined as string | undefined, head: "h1" }))
+const state = vi.hoisted(() => ({
+  feedback: undefined as string | undefined,
+  head: "h1",
+  pending: [] as unknown[],
+}))
 
 vi.mock("../flows/index.js", () => ({
-  changes: () => [],
+  changes: () => state.pending,
   changesSince: () => [],
   hasThreadFor: () => false,
   head: () => state.head,
@@ -15,12 +19,12 @@ vi.mock("../flows/index.js", () => ({
   requireThreadsClosed: () => {},
 }))
 
-import { routeNotes, type ReviewPolicy, type Verdict } from "./review.js"
+import { routeNotes, type Requested, type ReviewPolicy, type Verdict } from "./review.js"
 import type { ReviewNote } from "../steering/index.js"
 
 const note = (id: string) => ({ id }) as unknown as ReviewNote
 
-const setup = (verdicts: Record<string, Verdict>) => {
+const setup = (verdicts: Record<string, Verdict>, silent = false, dropped = false) => {
   const calls: string[] = []
   const deferred: string[][] = []
   const collected: ReviewNote[][] = []
@@ -33,7 +37,7 @@ const setup = (verdicts: Record<string, Verdict>) => {
     keepGreen: async () => void calls.push("green"),
     collecting: async () => {
       calls.push("collect")
-      state.feedback = "x"
+      if (!silent) state.feedback = "x"
     },
     captures: {
       editNotes: (_r: string, edits: readonly ReviewNote[]) => {
@@ -41,6 +45,12 @@ const setup = (verdicts: Record<string, Verdict>) => {
         return "cap"
       },
     },
+    refusals: dropped
+      ? {
+          dropped: (r: Requested) =>
+            `dropped: ${r.notes.map((n) => n.id).join(",")} / ${r.paths.join(",")}`,
+        }
+      : {},
     defer: async (ns: readonly ReviewNote[]) => {
       calls.push("defer")
       deferred.push(ns.map((n) => n.id))
@@ -57,6 +67,7 @@ const setup = (verdicts: Record<string, Verdict>) => {
 
 beforeEach(() => {
   state.feedback = undefined
+  state.pending = []
 })
 
 describe("routeNotes defer", () => {
@@ -80,5 +91,29 @@ describe("routeNotes defer", () => {
     const t = setup({ a: "nit", b: "defer", c: "edit" })
     await routeNotes(t.p, [note("a"), note("b"), note("c")], t.r)
     expect(t.calls).toEqual(["nits", "green", "defer", "close", "collect"])
+  })
+})
+
+describe("routeNotes dropped", () => {
+  it("an edit note whose collecting turn writes nothing is refused naming the note", async () => {
+    const t = setup({ a: "edit" }, true, true)
+    await expect(routeNotes(t.p, [note("a")], t.r)).rejects.toThrow("dropped: a / ")
+  })
+
+  it("signs off when no dropped refusal is set", async () => {
+    const t = setup({ a: "edit" }, true)
+    expect(await routeNotes(t.p, [note("a")], t.r)).toEqual({ verdict: "signoff" })
+  })
+
+  it("a collecting turn that changed something else is unmatched, not dropped", async () => {
+    const t = setup({ a: "edit" }, true, true)
+    Object.assign(t.p.refusals, { unmatched: "unmatched" })
+    state.pending = [{ path: "x" }]
+    await expect(routeNotes(t.p, [note("a")], t.r)).rejects.toThrow("unmatched")
+  })
+
+  it("a praise-only round never collects, so signs off", async () => {
+    const t = setup({ a: "praise" }, true, true)
+    expect(await routeNotes(t.p, [note("a")], t.r)).toEqual({ verdict: "signoff" })
   })
 })

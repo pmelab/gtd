@@ -46,24 +46,32 @@ export const planAndBuild = async (firstBase: string): Promise<void> => {
 // seam a re-plan turns up is built unjudged and unrefactored.
 const naivePlanAndBuild = async (firstBase: string): Promise<void> => {
   await design(firstBase)
-  let tier = riskTierOn() ? recordRisk() : undefined
+  const tier = riskTierOn() ? recordRisk() : undefined
   const seam = await seamBuild(firstBase)
   await slice("feature", async () => {
     await implement(seam.reference, tier)
-    let outcome = await buildTail(false, seam.base, true)
-    while (outcome.verdict === "feedback") {
-      await reUnwind(outcome)
-      await design(outcome.base)
-      tier = riskTierOn() ? recordRisk() : undefined
-      await implement(undefined, tier)
-      outcome = await buildTail(false, outcome.base, true)
-    }
+    await featureFeedback(
+      await buildTail(false, seam.base, true, { lensBase: seam.base }),
+      seam.base,
+    )
   })
 }
 
-/** After a tail that skipped planning: stop on sign-off, re-plan on feedback. */
+const featureFeedback = async (first: ReviewOutcome, lensBase?: string): Promise<void> => {
+  let outcome = first
+  while (outcome.verdict === "feedback") {
+    await reUnwind(outcome)
+    await design(outcome.base)
+    const tier = riskTierOn() ? recordRisk() : undefined
+    await implement(undefined, tier)
+    outcome = await buildTail(false, outcome.base, true, lensBase === undefined ? {} : { lensBase })
+  }
+}
+
+/** After a tail that skipped planning: stop on sign-off, re-plan on feedback. Opens no slice: slices cannot nest. */
 export const afterTail = async (outcome: ReviewOutcome): Promise<void> => {
   if (outcome.verdict === "signoff") return
+  if (vars.flag_naive_pass === "1") return featureFeedback(outcome)
   await reUnwind(outcome)
   await planAndBuild(outcome.base)
 }

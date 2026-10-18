@@ -65,3 +65,115 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
     Then it succeeds
     And stdout contains "\"my-org-runbook\""
     And stdout does not contain "debugging-and-error-recovery"
+
+  Scenario: with the naive pass on, afterTail's feedback lap is design → implement, never the seam
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { afterTail, buildTail, gate } from "@pmelab/gtd/workflows"
+
+      export { feature as default, defaults, envDefaults, summary, base, steering, skills, access } from "@pmelab/gtd/workflows"
+
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        return afterTail(await buildTail(false, start()))
+      }
+      """
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
+    And I mark the current commit as "base"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And gtd starts workflow "review" with "--var reviewBase=base"
+    And gtd lands "gtd(check): review-gate.check → build.health.check"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      - [ ] ./src/calc.ts#1
+      new add function
+      """
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      - [ ] ./src/calc.ts#1
+      new add function[^a][^b]
+
+      [^a]:
+          - H: add subtract too.
+
+      [^b]:
+          - H: why not multiply?
+      """
+    And gtd lands "gtd(human): build.review.await-review → build.review.collecting"
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      ## Subtract
+
+      Export `subtract()`.
+      """
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      - [ ] ./src/calc.ts#1
+      new add function[^b]
+
+      [^b]:
+          - H: why not multiply?
+          - A: this is the addition helper.
+      """
+    And gtd lands "gtd(agent): build.review.collecting → build.review.await-review"
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      - [ ] ./src/calc.ts#1
+      new add function — looks good
+      """
+    And gtd lands "gtd(human): build.review.await-review → build.review.triage"
+    When I run gtd judge answer with stdin:
+      """
+      [{"id": "note-1", "answer": "praise", "p": 0.99}]
+      """
+    Then it succeeds
+    Given the file ".gtd/REVIEW.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.closing → re-unwind"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): re-unwind → design.triage"
+    Given a file ".gtd/REQUIREMENTS.md" with:
+      """
+      # Requirements
+
+      - subtract
+      """
+    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): design.gate.answer → implement.building"
+    And the git log does not contain "seam.naive"
+    And the git log does not contain "seam.judge"

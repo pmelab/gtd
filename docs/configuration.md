@@ -623,12 +623,11 @@ turn when:
   count flat. A changed file whose before or after cannot be read refuses.
 
 The human rests `refactor.health.stop` and `refactor.health.exhausted`, and
-their counterparts in the refactor's review tail (`refactor.build.health.*`,
-`refactor.build.review.health.*`), are never guarded: a person's edit there is
-not refused. The flag count, though, spans every turn since the build: a flag
-read a person adds there refuses the next fix turn until it is removed, and that
-turn may not touch the file to remove it. Put no flag read in a person's edit at
-these rests.
+their counterparts in the refactor's review tail (`refactor.build.health.*`),
+are never guarded: a person's edit there is not refused. The flag count, though,
+spans every turn since the build: a flag read a person adds there refuses the
+next fix turn until it is removed, and that turn may not touch the file to
+remove it. Put no flag read in a person's edit at these rests.
 
 A blank or invalid `refactorFlagPattern` throws before the first step, naming
 the setting. A pattern that produces a zero-length match (a lookahead-only
@@ -666,15 +665,26 @@ in order:
 Every verdict wraps steps 4 and the feature review in the `feature` slice
 (`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
 The feature review covers the feature slice only: on `refactor-first`,
-everything since the refactor's sign-off. Feedback at a review, whatever the
-verdict, re-runs design and `implement.*` — `seam.naive` and `seam.judge` never
-run again once judged, so a seam a re-plan turns up is built unjudged and
+everything since the refactor's sign-off. Each slice's quality lap reviews from
+that slice's own base too: the refactor's from its entry commit, the feature's
+from the refactor's sign-off, on every lap including after a feedback lap.
+Feedback at a review, whatever the verdict, re-runs design and `implement.*` —
+including the feedback lap of a custom workflow ending in `afterTail`, which is
+design → implement and never the seam. `seam.naive` and `seam.judge` never run
+again once judged, so a seam a re-plan turns up is built unjudged and
 unrefactored; a wrong or missing refactor means `gtd abandon` and a restart.
 
 A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `refactor.deriving` runs again with the notes under `## Review feedback` — never
 `design.triage`. A concern that needs a path outside the strays, a test file or
 a new flag read cannot be built: abandon and restart.
+
+A refactor-review round carrying an `edit` note or a code hand-edit whose
+collecting turn writes no `.gtd/REFACTOR.md` and changes nothing is never signed
+off: `gtd land` refuses the collecting landing (`refactor-feedback`), naming
+every left-out note and edited path. The only way out is `gtd abandon`, which
+throws away the naive pass, the refactor and its review. A praise-only round
+still signs off; the feature review signs off on a round that changes nothing.
 
 **Upgrading:** a process resting at `seam.approve` must `gtd abandon`; the step
 is gone.
@@ -1324,18 +1334,25 @@ Only planning and review scopes are restricted, and only on writes; no bundled
 scope restricts reads. Build and fix scopes carry no entry, except `refactor`:
 `refactorFirst` restricts its writes to the strays and `.gtd/**` itself, and a
 `config.access.refactor` entry replaces that wholesale. Every `refactor.build.*`
-scope inherits that restriction, except the lens scopes below.
+scope inherits that restriction, except the scopes below that set their own.
+`refactor.build.review.fix.nits` and `refactor.build.review.fix.risks` carry the
+same strays-plus-`.gtd/**` limit, set at run time; a `config.access` entry on
+the fix scope outranks it, while a `config.access.refactor` entry does not reach
+it.
 
-| Scope                                             | `write`                                    |
-| ------------------------------------------------- | ------------------------------------------ |
-| `design`                                          | `[]`                                       |
-| `architecture`                                    | `.gtd/REQUIREMENTS.md`                     |
-| `architecture.decompose`                          | `.gtd/packages/**`, `.gtd/ARCHITECTURE.md` |
-| `build.review`                                    | `.gtd/REVIEW.md`                           |
-| `build.review.defer`                              | `.gtd/TODO.md`                             |
-| `build.review.fix.nits`, `build.review.fix.risks` | `{}` (reopened: fixes edit code)           |
-| `build.quality.<lens>`                            | `[]`                                       |
-| `refactor.build.quality.<lens>`                   | `[]`                                       |
+| Scope                                                               | `write`                                    |
+| ------------------------------------------------------------------- | ------------------------------------------ |
+| `design`                                                            | `[]`                                       |
+| `architecture`                                                      | `.gtd/REQUIREMENTS.md`                     |
+| `architecture.decompose`                                            | `.gtd/packages/**`, `.gtd/ARCHITECTURE.md` |
+| `build.review`                                                      | `.gtd/REVIEW.md`                           |
+| `build.review.defer`                                                | `.gtd/TODO.md`                             |
+| `build.review.fix.nits`, `build.review.fix.risks`                   | `{}` (reopened: fixes edit code)           |
+| `build.quality.<lens>`                                              | `[]`                                       |
+| `refactor.build.quality.<lens>`                                     | `[]`                                       |
+| `refactor.build.review`                                             | `.gtd/REVIEW.md`                           |
+| `refactor.build.review.defer`                                       | `.gtd/TODO.md`                             |
+| `refactor.build.review.fix.nits`, `refactor.build.review.fix.risks` | the strays, `.gtd/**` (run time)           |
 
 ### Validation and errors
 
@@ -1548,8 +1565,9 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 - **`refactorQualityReviews`** (`correctness, ponytail-review, conventions`) —
   the quality lap the refactor review runs, one turn per comma-separated lens,
   as `qualityReviews` does for the feature review. `qualityReviews` does not
-  reach it; blank runs no refactor quality lap. Each lens is its own scope,
-  keyed `refactor.build.quality.<lens>`.
+  reach it, and a lens left out never sees the refactor (the feature lap reviews
+  from the refactor's sign-off); blank runs no refactor quality lap. Each lens
+  is its own scope, keyed `refactor.build.quality.<lens>`.
 - **`reviewBase`** (empty) — the commitish `--workflow review` reviews from
   (`gtd door review` sets it).
 

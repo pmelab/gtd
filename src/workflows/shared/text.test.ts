@@ -13,6 +13,7 @@ import {
   buildFixPrompt,
   buildFixQualityPrompt,
   buildQualityReviewingPrompt,
+  specChallengeBrief,
   buildReviewAwaitReviewMessage,
   buildReviewCollectingPrompt,
   designGateAnswerMessage,
@@ -21,8 +22,8 @@ import {
   implementFixPrompt,
   naivePassPrompt,
   refactorBuildingPrompt,
+  refactorDroppedRefusal,
   refactorFixPrompt,
-  refactorReviewCollectingPrompt,
   seamByHandMessage,
   seamSteerMessage,
   summaryPrompt,
@@ -261,6 +262,29 @@ describe("buildQualityReviewingPrompt", () => {
     expect(renderText(() => buildQualityReviewingPrompt("x", "BRIEF-TEXT"))).toContain(
       "This lens's brief:\nBRIEF-TEXT",
     )
+  })
+  it("reviews from the process start by default", () => {
+    const start = "START-SHA"
+    const text = renderText(() => buildQualityReviewingPrompt("x"), { start })
+    expect(text).toContain("from `START-SHA`")
+  })
+  it("reviews from a given base and still names the process start", () => {
+    const text = renderText(() => buildQualityReviewingPrompt("x", undefined, "BASE-SHA"), {
+      start: "START-SHA",
+    })
+    expect(text).toContain("from `BASE-SHA`")
+    expect(text).not.toContain("from `START-SHA`")
+    expect(text).toContain("started at `START-SHA`")
+  })
+  it("the spec-challenge brief looks up planning documents from the process start", () => {
+    const text = renderText(
+      () => buildQualityReviewingPrompt("x", specChallengeBrief, "BASE-SHA"),
+      {
+        start: "START-SHA",
+      },
+    )
+    expect(text).toContain("started at `START-SHA`")
+    expect(text).toContain("NOT the review base")
   })
 })
 
@@ -625,6 +649,18 @@ describe("summaryPrompt", () => {
   })
 })
 
+describe("buildReviewCollectingPrompt without a refactor", () => {
+  it("is the feature prompt verbatim", () => {
+    const prompt = renderText(() => buildReviewCollectingPrompt("capture-text"))
+    expect(prompt).toBe(
+      readFileSync(
+        new URL("./__fixtures__/feature-collecting-prompt.txt", import.meta.url),
+        "utf8",
+      ),
+    )
+  })
+})
+
 describe("the thread rules", () => {
   it("are in all three answering prompts and no longer say a footnote is human input only", () => {
     const prompts = renderText(() => [
@@ -915,7 +951,7 @@ describe("the refactor prompts", () => {
   })
 
   describe("the review collecting prompt", () => {
-    const prompt = renderText(() => refactorReviewCollectingPrompt("capture-text", strays))
+    const prompt = renderText(() => buildReviewCollectingPrompt("capture-text", { strays }))
 
     it("folds into .gtd/REFACTOR.md and never names .gtd/REQUIREMENTS.md", () => {
       expect(prompt).toContain(".gtd/REFACTOR.md")
@@ -929,12 +965,44 @@ describe("the refactor prompts", () => {
       expect(prompt).toMatch(/cannot be built/)
       expect(prompt).toMatch(/test file/)
       expect(prompt).toMatch(/flag/)
-      expect(prompt).toContain("gtd abandon")
+      expect(prompt).toMatch(/behaviour/)
+      expect(prompt).not.toMatch(/say in the reply/i)
     })
 
-    it("keeps the review check and thread rules", () => {
-      expect(prompt).toContain("gtd check review .gtd/REVIEW.md")
-      expect(prompt).toContain("- A: <reply>")
+    it("carries answered questions into the target's ## Answered Questions", () => {
+      expect(prompt).toContain("`.gtd/REFACTOR.md`'s `## Answered Questions`")
     })
+
+    it("keeps the thread rules but not the closed review file's check or replies", () => {
+      expect(prompt).toContain("- A: <reply>")
+      expect(prompt).not.toContain("gtd check review .gtd/REVIEW.md")
+      expect(prompt).toContain("is already closed")
+    })
+
+    it("says an edit note or hand-edit must write the package", () => {
+      expect(prompt).toContain("MUST write")
+      expect(prompt).toContain("gtd abandon")
+    })
+  })
+})
+
+describe("refactorDroppedRefusal", () => {
+  const message = refactorDroppedRefusal({
+    notes: [{ id: "note-2", anchor: "./src/a.ts#1-1", text: "rename it" }] as never,
+    paths: ["src/b.ts"], // gtd-path-exempt: fixture paths
+  })
+
+  it("starts with the refactor-feedback landing refusal", () => {
+    expect(message.startsWith("gtd land: refactor-feedback:")).toBe(true)
+  })
+
+  it("lists each note and each hand-edited path", () => {
+    expect(message).toContain("note-2 (./src/a.ts#1-1): rename it")
+    expect(message).toContain("src/b.ts") // gtd-path-exempt: fixture paths
+  })
+
+  it("names gtd abandon and what it throws away", () => {
+    expect(message).toContain("gtd abandon")
+    expect(message).toContain("the naive pass, the refactor and its review")
   })
 })

@@ -17,7 +17,7 @@ import { healthy, type Guard } from "../shared/health.js"
 import { coder, FEEDBACK, REFACTOR } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults, testFileGlobs } from "../shared/vars.js"
-import { buildTail, reUnwind } from "./review.js"
+import { buildTail, reUnwind, type FeedbackTarget } from "./review.js"
 import { refactorCollecting } from "./steps.js"
 
 export const REFACTOR_PACKAGE = REFACTOR
@@ -137,6 +137,21 @@ const packageLines = (
   "",
 ]
 
+// Nested under `## Review feedback`, so every heading of the collected text drops a level.
+const demoteHeadings = (text: string): string[] => {
+  const lines = text.trimEnd().split("\n")
+  let marker: string | undefined
+  const headings = lines.map((line) => {
+    const fence = /^\s*(```|~~~)/.exec(line)?.[1]
+    if (fence) marker = marker === undefined ? fence : marker === fence ? undefined : marker
+    return marker === undefined && !fence ? /^(#{1,6}) /.exec(line)?.[1]?.length : undefined
+  })
+  const shallowest = Math.min(...headings.filter((n): n is number => n !== undefined))
+  // Collected headings nest under `## Review feedback`, so the shallowest lands at `###`.
+  const shift = Math.max(1, 3 - shallowest)
+  return lines.map((line, i) => (headings[i] === undefined ? line : "#".repeat(shift) + line))
+}
+
 const deriveScript = (lines: readonly string[]): string =>
   `mkdir -p .gtd
 printf '%s\\n' ${lines.map(quote).join(" ")} > ${quote(REFACTOR_PACKAGE)}
@@ -183,7 +198,7 @@ const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<vo
       ...packageLines(strays, pattern, reference),
       ...(feedback === undefined
         ? []
-        : ["## Review feedback", "", ...feedback.trimEnd().split("\n"), ""]),
+        : ["## Review feedback", "", ...demoteHeadings(feedback), ""]),
     ]),
     { label: "Deriving the refactor package", file: REFACTOR_PACKAGE },
   )
@@ -208,13 +223,15 @@ const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<vo
   await run("closing", removeScript([REFACTOR_PACKAGE]), { label: "Closing out the refactor" })
 }
 
+const strayAccess = (strays: readonly string[]) => ({ write: [...strays, ".gtd/**"] })
+
 export const refactorFirst = async (
   shape: DiffShapeResult,
   options: RefactorOptions = {},
 ): Promise<boolean> => {
   const p = plan(shape, options)
   if (p === undefined) return false
-  return scope({ name: "refactor", access: { write: [...p.strays, ".gtd/**"] } }, async () => {
+  return scope({ name: "refactor", access: strayAccess(p.strays) }, async () => {
     await refactorLap(p, guardOf(p, head()))
     return true
   })
@@ -232,14 +249,15 @@ export const reviewedRefactor = async (
 ): Promise<boolean> => {
   const p = plan(shape, options)
   if (p === undefined) return false
-  return scope({ name: "refactor", access: { write: [...p.strays, ".gtd/**"] } }, async () => {
+  return scope({ name: "refactor", access: strayAccess(p.strays) }, async () => {
     const entry = head()
     const guard = guardOf(p, entry)
-    const feedback = {
+    const feedback: FeedbackTarget = {
       file: REFACTOR_PACKAGE,
       collecting: (capture: string) => refactorCollecting(capture, p.strays),
       unmatched:
         "gtd land: refactor-feedback: the review feedback changed files but wrote no .gtd/REFACTOR.md — a refactor cannot act on it; revert the change, or `gtd abandon` and restart",
+      dropped: t.refactorDroppedRefusal,
     }
     let collected: string | undefined
     for (;;) {
@@ -250,6 +268,8 @@ export const reviewedRefactor = async (
         guardRests: false,
         lenses: lensesOf(vars.refactorQualityReviews ?? ""),
         feedback,
+        fixAccess: strayAccess(p.strays),
+        lensBase: entry,
       })
       if (outcome.verdict === "signoff") return true
       await reUnwind(outcome)

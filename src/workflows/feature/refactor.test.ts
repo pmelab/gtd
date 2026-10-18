@@ -567,6 +567,7 @@ interface Reviewed {
   /** Full step names, scope-qualified like the live replay. */
   readonly names: string[]
   readonly steps: StepRequest[]
+  readonly scopes: ScopeOptions[]
   readonly result: boolean | Error
 }
 
@@ -581,6 +582,9 @@ interface ReviewedScript {
   /** The turn's own changes by full step name. */
   readonly turns?: Readonly<Record<string, readonly Change[]>>
   readonly vars?: Readonly<Record<string, string>>
+  /** The collecting turn writes no package. */
+  readonly silentCollect?: boolean
+  readonly collected?: string
 }
 
 /** Runs `reviewedRefactor` against a scripted context; a third await-review stops the run. */
@@ -591,6 +595,7 @@ const driveReviewed = async (
   const names: string[] = []
   const steps: StepRequest[] = []
   const stack: string[] = []
+  const scopes: ScopeOptions[] = []
   const files = new Map<string, string>()
   let last = ""
   let awaits = 0
@@ -619,7 +624,10 @@ const driveReviewed = async (
     closing: () => void files.delete(REFACTOR_PACKAGE),
     "review.reviewing": () => void files.set(REVIEW, reviewDoc("add")),
     "review.closing": () => void files.delete(REVIEW),
-    "review.collecting": () => void files.set(REFACTOR_PACKAGE, "collected concern"),
+    "review.collecting": () => {
+      if (!script.silentCollect)
+        files.set(REFACTOR_PACKAGE, script.collected ?? "collected concern")
+    },
     "fix.quality.fixing": () => void files.delete(QUALITY),
     "review.await-review": () => {
       const note = script.notes?.[awaits]
@@ -642,7 +650,10 @@ const driveReviewed = async (
         refuse: (message) => {
           throw new Error(message)
         },
-        pushScope: (scope) => void stack.push(scope.name ?? ""),
+        pushScope: (scope) => {
+          scopes.push(scope)
+          stack.push(scope.name ?? "")
+        },
         popScope: () => void stack.pop(),
         read: (path) => files.get(path),
         changes: () =>
@@ -665,7 +676,7 @@ const driveReviewed = async (
   } catch (error) {
     pending = error as Error
   }
-  return { names, steps, result: pending }
+  return { names, steps, scopes, result: pending }
 }
 
 describe("reviewedRefactor", () => {
@@ -700,6 +711,21 @@ describe("reviewedRefactor", () => {
     const h = await driveReviewed(shape())
     const reviewing = h.steps.find((s) => s.kind === "agent" && s.name === "review.reviewing")
     expect(reviewing?.kind === "agent" ? reviewing.prompt : "").toContain("base: c0")
+  })
+
+  it("names the entry commit in every lens prompt, on the first lap and after a feedback lap", async () => {
+    const lensPrompts = (h: Reviewed) =>
+      h.steps.flatMap((s) =>
+        s.kind === "agent" && s.name === "quality.correctness.reviewing" ? [s.prompt] : [],
+      )
+    const first = lensPrompts(await driveReviewed(shape()))
+    expect(first).toHaveLength(1)
+    expect(first[0]).toContain("from `c0`")
+    const after = lensPrompts(
+      await driveReviewed(shape(), { notes: ["add — rename it", undefined] }),
+    )
+    expect(after).toHaveLength(2)
+    for (const prompt of after) expect(prompt).toContain("from `c0`")
   })
 
   it("takes its quality lenses from refactorQualityReviews, none when blank", async () => {
@@ -757,12 +783,52 @@ describe("reviewedRefactor", () => {
       expect(prompts[1]).toContain("## Review feedback")
     })
 
-    it("collects with the refactor prompt, naming .gtd/REFACTOR.md", async () => {
+    it("nests a collected ## Answered Questions as ### under ## Review feedback", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "## Rename\n\nrename it\n\n## Answered Questions\n\n### why?\n\nbecause",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("## Review feedback")
+      expect(body).toContain("### Rename")
+      expect(body).toContain("### Answered Questions")
+      expect(body).toContain("#### why?")
+      expect(body).not.toMatch(/^## Answered Questions/m)
+    })
+
+    it("nests a collected h1 under ## Review feedback and tracks the opening fence marker", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "# Top\n\n```\n~~~\n# code\n```\n\n## Sub",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("### Top")
+      expect(body).toContain("'# code'")
+      expect(body).toContain("#### Sub")
+    })
+
+    it("collects with the shared prompt's refactor block, naming .gtd/REFACTOR.md and the strays", async () => {
       const h = await run()
       const collecting = h.steps.find((s) => s.kind === "agent" && s.name === "review.collecting")
       const prompt = collecting?.kind === "agent" ? collecting.prompt : ""
       expect(prompt).toContain(".gtd/REFACTOR.md")
       expect(prompt).not.toContain(".gtd/REQUIREMENTS.md")
+      expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+      expect(prompt).toContain("`.gtd/REFACTOR.md`'s `## Answered Questions`")
+    })
+  })
+
+  describe("a note the collecting turn leaves out", () => {
+    it("refuses the landing naming the note and gtd abandon, never signing off", async () => {
+      const h = await driveReviewed(shape(), { notes: ["add — rename it"], silentCollect: true })
+      const message = (h.result as Error).message
+      expect(h.result).toBeInstanceOf(Error)
+      expect(message).toContain("refactor-feedback")
+      expect(message).toContain("note-1")
+      expect(message).toContain("rename it")
+      expect(message).toContain("gtd abandon")
     })
   })
 
@@ -786,6 +852,16 @@ describe("reviewedRefactor", () => {
       })
       expect((h.result as Error).message).toContain("refactor-tests")
       expect(h.names.at(-1)).toBe("refactor.build.review.fix.nits.fixing")
+    })
+
+    it("runs the nit-fix turn under the strays plus .gtd/** as its write access", async () => {
+      const write = ["src/a.test.ts", ".gtd/**"]
+      const h = await driveReviewed(shape({ strays: ["src/a.test.ts"] }), {
+        notes: ["add — typo"],
+        answers: { "note-1": { answer: "nit", p: 0.9 } },
+      })
+      expect(h.scopes).toContainEqual({ name: "review.fix.nits", access: { write } })
+      expect(h.names).toContain("refactor.build.review.fix.nits.fixing")
     })
 
     it("runs after a fix-check turn", async () => {

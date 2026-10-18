@@ -9,6 +9,7 @@ import {
   vars,
   type JudgeQuestion,
   type Judgment,
+  type ScopeAccess,
 } from "../../flows/index.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
@@ -170,7 +171,7 @@ export const review = (
   escalations: EscalationCount = { rounds: 0 },
   options: BuildTailOptions = {},
 ): Promise<kit.ReviewOutcome> => {
-  const { guard, guardRests } = options
+  const { guard, guardRests, fixAccess } = options
   const feedback: FeedbackTarget = options.feedback ?? {
     file: REQUIREMENTS,
     collecting,
@@ -189,7 +190,7 @@ export const review = (
       deferred = []
       return reviewing(b, carry)
     },
-    fixRisks: guarded(fixRisks, guard),
+    fixRisks: guarded((notes) => fixRisks(notes, fixAccess), guard),
     keepGreen: () => healthy(fixCheck, { escalations, guard, guardRests }),
     awaitReview: (b) => {
       const notes = deferred
@@ -211,7 +212,7 @@ export const review = (
       return deferNotes(deferred, head())
     },
     answerQuestions: answerReviewQuestions,
-    fixNits: guarded(fixNits, guard),
+    fixNits: guarded((notes) => fixNits(notes, fixAccess), guard),
     close: closeReview,
     captures: {
       edits: t.reviewEditsCapture,
@@ -241,6 +242,7 @@ export const review = (
       deleted:
         "gtd land: review-doc: .gtd/REVIEW.md was deleted — restore it, or leave a note (or edit code) to request changes.",
       unmatched: feedback.unmatched,
+      ...(feedback.dropped === undefined ? {} : { dropped: feedback.dropped }),
     },
   })
 }
@@ -250,6 +252,7 @@ export interface FeedbackTarget {
   readonly collecting: (capture: string) => Promise<void>
   /** Refusal when the collecting turn changed something but not `file`. */
   readonly unmatched: string
+  readonly dropped?: (requested: kit.Requested) => string
 }
 
 export interface BuildTailOptions {
@@ -260,6 +263,10 @@ export interface BuildTailOptions {
   /** Quality-lap lenses; default `lensesOf(vars.qualityReviews)`. */
   readonly lenses?: readonly string[]
   readonly feedback?: FeedbackTarget
+  /** Write access for the nit and risk fix turns; absent: the bundled `access` export decides. */
+  readonly fixAccess?: ScopeAccess
+  /** The commit the quality lap reviews from; absent: `start()`. */
+  readonly lensBase?: string
 }
 
 /** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */
@@ -276,6 +283,7 @@ export const buildTail = (
     options.guard,
     options.lenses,
     options.guardRests,
+    options.lensBase,
   )
 
 /**

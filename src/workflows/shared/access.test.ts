@@ -24,12 +24,17 @@ describe("the bundled workflow's access export", () => {
       "build.quality.spec-challenge": { write: [] },
       "refactor.build.review": { write: [".gtd/REVIEW.md"] },
       "refactor.build.review.defer": { write: [".gtd/TODO.md"] },
-      "refactor.build.review.fix.nits": {},
-      "refactor.build.review.fix.risks": {},
       "refactor.build.quality.correctness": { write: [] },
       "refactor.build.quality.ponytail-review": { write: [] },
       "refactor.build.quality.conventions": { write: [] },
     })
+  })
+
+  it("leaves the refactor review's fix scopes to the refactor's own scope option", () => {
+    expect(bundled).not.toHaveProperty(["refactor.build.review.fix.nits"])
+    expect(bundled).not.toHaveProperty(["refactor.build.review.fix.risks"])
+    expect(bundled["refactor.build.review"]).toEqual({ write: [".gtd/REVIEW.md"] })
+    expect(bundled["refactor.build.review.defer"]).toEqual({ write: [".gtd/TODO.md"] })
   })
 
   it("keys one lens scope per qualityReviews entry", () => {
@@ -52,8 +57,6 @@ describe("the bundled workflow's access export", () => {
       "refactor.build.quality.my-lens",
       "refactor.build.review",
       "refactor.build.review.defer",
-      "refactor.build.review.fix.nits",
-      "refactor.build.review.fix.risks",
     ])
   })
 

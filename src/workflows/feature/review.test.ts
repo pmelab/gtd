@@ -3,9 +3,11 @@ import {
   installContext,
   type Change,
   type JudgeAnswer,
+  type ScopeOptions,
   type StepRequest,
 } from "../../flows/index.js"
 import {
+  buildTail,
   review,
   reUnwind,
   severityOf,
@@ -67,6 +69,8 @@ interface Run {
   readonly gateMessages: readonly string[]
   /** Every `changesSince` argument, in order. */
   readonly since: readonly string[]
+  /** Every scope opened, in order. */
+  readonly scopes: readonly ScopeOptions[]
 }
 
 /** Run `review` against a scripted context; a second pass at the gate or a fresh review stops the run. */
@@ -77,6 +81,7 @@ const drive = async (d: Drive): Promise<Run> => {
   const gates: boolean[] = []
   const gateMessages: string[] = []
   const since: string[] = []
+  const scopes: ScopeOptions[] = []
   const files = new Map<string, string>([
     [REVIEW, d.after ?? doc(d.notes)],
     ...Object.entries(d.files ?? {}),
@@ -124,7 +129,7 @@ const drive = async (d: Drive): Promise<Run> => {
       refuse: (message: string): never => {
         throw new Error(message)
       },
-      pushScope: () => undefined,
+      pushScope: (scope) => void scopes.push(scope),
       popScope: () => undefined,
       read: (path) => files.get(path),
       changes: (): readonly Change[] => d.pending ?? [],
@@ -153,7 +158,7 @@ const drive = async (d: Drive): Promise<Run> => {
     if (!(error instanceof Stop)) throw error
     result = "stopped"
   }
-  return { log, prompts, result, judged, gates, gateMessages, since }
+  return { log, prompts, result, judged, gates, gateMessages, since, scopes }
 }
 
 const verdict = (answer: string, p = 0.9): JudgeAnswer => ({ answer, p })
@@ -186,6 +191,28 @@ describe("the risk-fix pass", () => {
       "review.reviewing",
       "review.await-review",
     ])
+  })
+
+  it("fixAccess wraps both fix turns in their own scope, the step names unchanged", async () => {
+    const fixAccess = { write: ["src/a.ts", ".gtd/**"] }
+    const run = await drive({
+      notes: ["add — typo", "sub", "mul"],
+      answers: { "note-1": verdict("nit") },
+      reviewDocs: [risky, clean],
+      options: { fixAccess },
+    })
+    expect(run.scopes).toEqual([
+      { name: "review.fix.risks", access: fixAccess },
+      { name: "review.fix.nits", access: fixAccess },
+    ])
+    // The harness pushes no scope names, so the step is relative to its own fix scope.
+    expect(run.log.filter((n) => n === "fixing")).toHaveLength(2)
+  })
+
+  it("without fixAccess the fix turns open no scope", async () => {
+    const run = await drive({ notes: [], reviewDocs: [risky, clean] })
+    expect(run.log).toContain("review.fix.risks.fixing")
+    expect(run.scopes).toEqual([])
   })
 
   it("no marker means no fix-risks step", async () => {
@@ -289,6 +316,36 @@ describe("the feedback target", () => {
       },
     })
     expect(run.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("a feature review edit note collected to nothing signs off", async () => {
+    const run = await drive({
+      notes: edit,
+      options: {
+        feedback: {
+          file: REQUIREMENTS,
+          collecting: () => Promise.resolve(),
+          unmatched: "unmatched",
+        },
+      },
+    })
+    expect(run.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("dropped is passed through as the refusal for a round collected to nothing", async () => {
+    await expect(
+      drive({
+        notes: edit,
+        options: {
+          feedback: {
+            file: REFACTOR,
+            collecting: () => Promise.resolve(),
+            unmatched: "unmatched: refactor",
+            dropped: (r) => `dropped: ${r.notes.map((n) => n.id).join(",")}`,
+          },
+        },
+      }),
+    ).rejects.toThrow("dropped: note-1")
   })
 
   it("refuses with unmatched when the collecting turn changed something but not file", async () => {
@@ -710,5 +767,47 @@ describe("severity routing", () => {
     })
     expect(run.log).toContain("review.collecting")
     expect(run.log).not.toContain("review.defer")
+  })
+})
+
+describe("BuildTailOptions.lensBase", () => {
+  const lensPrompts = async (options: BuildTailOptions): Promise<string[]> => {
+    const prompts: string[] = []
+    installContext(
+      fixtureContext(
+        { vars: { qualityReviews: "conventions, correctness" } },
+        {
+          step: (request: StepRequest) => {
+            if (request.kind === "restart") return Promise.resolve()
+            if (request.kind === "agent" && request.name.startsWith("quality."))
+              prompts.push(request.prompt)
+            if (request.name === "review.reviewing") throw new Stop()
+            return Promise.resolve()
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          changesSince: () => {
+            throw new Stop()
+          },
+          start: () => "START-SHA",
+        },
+      ),
+    )
+    await buildTail(false, "base", true, options).catch((error: unknown) => {
+      if (!(error instanceof Stop)) throw error
+    })
+    return prompts
+  }
+
+  it("reaches every quality-lens prompt", async () => {
+    const prompts = await lensPrompts({ lensBase: "SLICE-BASE" })
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `SLICE-BASE`")
+  })
+
+  it("absent, the lens prompts name start()", async () => {
+    const prompts = await lensPrompts({})
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `START-SHA`")
   })
 })

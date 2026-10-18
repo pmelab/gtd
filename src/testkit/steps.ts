@@ -121,6 +121,11 @@ Given("step {string} from now on changes nothing", (world: TestkitWorld, step: s
   world.actions.set(step, [() => undefined])
 })
 
+// Lets a later visit rest at a step an earlier one had scripted.
+Given("step {string} is no longer scripted", (world: TestkitWorld, step: string) => {
+  world.actions.delete(step)
+})
+
 Given(
   "step {string} writes {string} with:",
   (world: TestkitWorld, step: string, path: string, content: string) => {
