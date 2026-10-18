@@ -116,3 +116,53 @@ would close the gap.
 - The rollback-restore weakness (S2 before and after, so swapped `update-ref`
   arguments still pass) is already raised under correctness. This lens agrees,
   and holds that the `update-ref … S2 S2` assertion pins no restore.
+
+## conventions: new external calls reach git only through an untwinned port
+
+`claude/hooks/ship.ts` `checkedOutElsewhere` and `restackOf`'s `run`.
+
+- AGENTS.md: "reach every external resource (git, a shell, a file outside the
+  repository, the network, a spawned program) through a port with a live and an
+  in-memory implementation, and hold the two together with a contract test that
+  runs the same cases against both." The change adds
+  `git worktree list --porcelain`, `git rev-parse --git-path rebase-merge`, a
+  spawned `test -d`, an explicit-refspec `git fetch` and `git update-ref` /
+  `git reset --keep` through `ShipIo.run`. Its live side (`shipIo` in
+  `claude/hooks/register.tsx`) and the scripted fake in `ship.test.ts` share no
+  contract test, so nothing holds the fake's answers to real git. This is the
+  rule-level form of the correctness lens's "tested only against the scripted
+  fake" FYI. Here it is a convention violation: add a contract case that runs
+  the worktree-list parse, the rebase-merge probe and the `--update-refs` skip
+  against both.
+- `test -d <dir>` spawns a program to answer a filesystem question. Asking git
+  directly (`git rev-parse --verify --quiet REBASE_HEAD` is already read, or
+  `ok("rev-parse", "--git-path", …)` plus an existing file read on the port)
+  avoids one more untwinned external call. Non-blocking.
+
+## conventions: no cucumber scenario for the new refusals
+
+- AGENTS.md: "create cucumber.js scenarios for each new feature, tagged
+  `@inmem`." The change adds three user-visible behaviours, all documented in
+  `README.md` and `docs/driver.md`: the refusal when the lowest PR merged into a
+  non-default base, the worktree refusal (also under `-n`), and the backstop
+  rollback. No `.feature` covers `/gtd ship` at all, so this follows existing
+  practice for `claude/`. It still breaks the rule as written. Either add
+  `@inmem` scenarios, or treat `claude/` as exempt and record that where the
+  rule lives. Flag for the human. Not fixable inside this lens.
+
+## conventions: comments and test names
+
+- AGENTS.md (Comments): "Everything else (restatement of the code, history, a
+  'what' with no 'why') gets deleted." In the `stackRest` comment, "No top means
+  no `from`." restates the ternary below it. Delete that sentence; the first one
+  carries the why.
+- `describe("review round 1", …)` in `ship.test.ts` names the review round that
+  produced the tests, not the behaviour they pin. That is history in a name.
+  Under the same rule's spirit it should be renamed after what it covers (e.g.
+  "restack after a merged lower slice"). Non-blocking.
+- The "recordedRefusal's dry call …" test name naming an internal function is
+  already raised under test-audit. This lens agrees and adds nothing.
+- Docs side is clean: the `README.md` and `docs/driver.md` additions name no
+  `src/*.ts` module or internal function, the README reflects the change as the
+  global CLAUDE.md asks, and the doc-tested "A complete minimal driver" section
+  is untouched.
