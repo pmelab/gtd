@@ -104,3 +104,43 @@ in `.gtd/SATISFIED.md` instead of landing an empty turn.
 Verdict: fix after the correctness findings above; this one alone does not
 block. Lean: -57 lines possible. Load assumed: one person running the gtd loop
 locally.
+
+## test-audit — `(unchanged)` lookahead is unpinned (Should, nit)
+
+`src/workflows/feature/packages.ts` `TEST_LINE` guards the marker with
+`(?=\s|$)`, but no case in `src/workflows/feature/packages.test.ts` "marks only
+the exact ` (unchanged)` suffix as unchanged" reaches it: `(unchanged-ish)`
+never contains `(unchanged)` at all, so deleting the lookahead keeps every test
+green. The lookahead's other half — a marker followed by trailing prose — is not
+pinned either.
+
+Fix: in the same table, swap `(unchanged-ish)` for
+`` `c.test.ts` (unchanged)x `` (expect `false`) and add
+`` `f.test.ts` (unchanged) — kept as is `` (expect `true`). No new test.
+
+## test-audit — "unmarked unwritten line … marked sibling passes" duplicates two contracts (Should, lean)
+
+`tests/integration/features/declared-tests.feature`, the last new scenario: its
+refusal half is the existing "a build that leaves a declared test unwritten is
+refused", and its pass half (`stderr does not contain "lib/existing.test.ts"`)
+is "a test marked (unchanged) needs only to exist in the tree" plus the unit
+test's `not.toContain("kept.test.ts")`. It asserts nothing about the one thing
+that is new at the e2e boundary — the grouped refusal
+(`not in the package's diff:` / `missing from the tree:` headers) — which today
+only the unit test owns, with an unrealistic fixture (see correctness above).
+
+Fix: either delete the scenario, or make it the e2e owner of grouping by adding
+`And stderr contains "not in the package's diff"` once the correctness
+misclassification is fixed (today it would read "missing from the tree", which
+is exactly the bug — so this assertion would also have caught it).
+
+## test-audit — unit fixture hand-builds `Changes` (nit)
+
+`src/workflows/feature/packages.test.ts` "groups an unwritten unmarked test…"
+fabricates a `Changes` value inline via `Object.assign([...list], {paths, get})`
+and a `read` stub that answers `"x"` for every unknown path. The stub's blanket
+`"x"` is what makes the unwritten test "exist" (the correctness finding's root
+cause), and the inline `Changes` shape will drift silently from the real one.
+Fix: let `read` answer only for paths the test lists (absent otherwise), and if
+another test needs a `Changes` stub, lift it into `text.fixture.ts` rather than
+copying it.
