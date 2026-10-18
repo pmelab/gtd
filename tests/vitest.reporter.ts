@@ -15,7 +15,9 @@ export default class SilentReporter implements Reporter {
   onTestRunEnd(): void {
     if (this.failures.length === 0) return
 
-    for (const test of this.failures) {
+    // Sorted: completion order varies across parallel files and would defeat failure dedupe.
+    const sorted = [...this.failures].sort((a, b) => a.fullName.localeCompare(b.fullName))
+    for (const test of sorted) {
       const result = test.result()
       if (result.state !== "failed") continue
       process.stderr.write(`\nFAIL ${test.fullName}\n`)

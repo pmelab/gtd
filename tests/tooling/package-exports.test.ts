@@ -92,6 +92,6 @@ describe("this repository's config", () => {
       .sort()
     expect(declared.length).toBeGreaterThan(0)
     expect([...config.workflowNames].sort()).toEqual(declared)
-    for (const name of declared) expect(config.workflowNamed(name)?.def.initial).toBeDefined()
+    for (const name of declared) expect(config.workflowNamed(name)?.name).toBe(name)
   })
 })

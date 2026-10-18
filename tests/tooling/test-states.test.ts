@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -187,6 +188,39 @@ describe("turboArgv", () => {
   })
 })
 
+describe("failureSignature against real turbo", () => {
+  it("is non-empty and stable across two runs of a failing task", () => {
+    const dir = mkdtempSync(join(tmpdir(), "turbo-real-"))
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "scratch",
+        private: true,
+        packageManager: "npm@10.0.0",
+        scripts: { boom: "echo boom-line; exit 1" },
+      }),
+    )
+    writeFileSync(
+      join(dir, "turbo.json"),
+      JSON.stringify({
+        $schema: "https://turbo.build/schema.json",
+        tasks: { boom: { cache: false } },
+      }),
+    )
+    writeFileSync(join(dir, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }))
+    const bin = join(process.cwd(), "node_modules", ".bin")
+    const run = () =>
+      spawnSync(join(bin, "turbo"), ["run", "boom", "--output-logs=errors-only"], {
+        cwd: dir,
+        encoding: "utf8",
+        env: { ...process.env, TURBO_TELEMETRY_DISABLED: "1" },
+      }).stdout
+    const a = failureSignature(run(), ["boom"])
+    expect(a).toContain("boom-line")
+    expect(failureSignature(run(), ["boom"])).toBe(a)
+  })
+})
+
 describe("failureSignature", () => {
   const tasks = ["test:unit", "lint"]
 
@@ -264,6 +298,23 @@ describe("runStates", () => {
     ])
     expect(code).toBe(0)
     expect(lines).toEqual(["test-states: defaults — pass", "test-states: alpha on — pass"])
+  })
+
+  it("with full logs, prints pass stdout and never collapses a repeated failure", () => {
+    const lines: string[] = []
+    const runs = [
+      { code: 0, stdout: "test:unit: noisy pass\n" },
+      fail("same boom"),
+      fail("same boom"),
+    ]
+    const states = ["defaults", "alpha on", "beta on"].map((l) => ({
+      ...stateOf(l),
+      tasks: ["test:unit"],
+    }))
+    runStates(states, stub(runs).run, (l) => lines.push(l), true)
+    expect(text(lines)).toContain("noisy pass")
+    expect(text(lines).match(/same boom/g)).toHaveLength(2)
+    expect(text(lines)).not.toContain("same failure")
   })
 
   it("prints the first failure in full, then its FAIL line", () => {

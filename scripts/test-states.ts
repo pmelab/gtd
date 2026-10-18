@@ -26,7 +26,6 @@ export interface TestState {
   readonly env: Env
 }
 
-/** One turbo run: exit status and captured stdout (stderr stays inherited). */
 export interface TurboRun {
   readonly code: number | null
   readonly stdout: string
@@ -75,7 +74,9 @@ export function failureSignature(stdout: string, tasks: readonly string[]): stri
       .replace(/\d{1,2}:\d{2}:\d{2}/g, "<time>")
       .replace(/\b[0-9a-f]{12,}\b/gi, "<hex>")
       .replace(/\d+(\.\d+)?\s?(ms|s|m|h)\b/g, "<dur>")
-    byTask.set(task, [...(byTask.get(task) ?? []), norm])
+    const lines = byTask.get(task) ?? []
+    lines.push(norm)
+    byTask.set(task, lines)
   }
   return [...byTask.keys()]
     .sort()
@@ -87,6 +88,7 @@ export function runStates(
   states: readonly TestState[],
   run: RunTasks,
   log: (line: string) => void,
+  full = false,
 ): number {
   const print = (stdout: string) => {
     if (stdout.length > 0) log(stdout.replace(/\n$/, ""))
@@ -101,11 +103,12 @@ export function runStates(
   for (const state of states) {
     const { code, stdout } = run(state.tasks, state.env)
     if (code === 0) {
+      if (full) print(stdout)
       log(`test-states: ${state.label} — pass`)
       continue
     }
     failed = true
-    const sig = failureSignature(stdout, state.tasks)
+    const sig = full ? "" : failureSignature(stdout, state.tasks)
     const earlier = sig === "" ? undefined : seen.get(sig)
     if (earlier !== undefined) {
       log(`test-states: ${state.label} — FAIL (same failure as ${earlier})`)
@@ -136,6 +139,8 @@ export const spawnTurbo = (
   args: readonly string[] = [],
 ): TurboRun => {
   const result = spawnSync("turbo", turboArgv(tasks, args), {
+    // stdout is buffered, so an interrupted run loses the current state's log; stderr stays live
+    // so turbo's error banner is never buffered.
     stdio: ["inherit", "pipe", "inherit"],
     env: env as NodeJS.ProcessEnv,
     encoding: "utf8",
@@ -143,5 +148,5 @@ export const spawnTurbo = (
     maxBuffer: 256 * 1024 * 1024,
   })
   if (result.error) console.error(`test-states: cannot run turbo: ${result.error.message}`)
-  return { code: result.status, stdout: result.error ? "" : (result.stdout ?? "") }
+  return { code: result.status, stdout: result.stdout ?? "" }
 }
