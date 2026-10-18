@@ -117,3 +117,85 @@ step-name and scope assertions to pin. Separately, `reviewedRefactor`
 (`src/workflows/feature/refactor.ts`) spells
 `{ write: [...p.strays, ".gtd/**"] }` twice (the `refactor` scope and
 `fixAccess`); they must change together, so bind it once.
+
+## test-audit: fix-access tests pin the `access === undefined` ternary, not the resolved access
+
+`src/workflows/feature/review.test.ts` "without fixAccess the fix turns open no
+scope" and `src/workflows/feature/steps.test.ts` "fixNits with access runs in a
+review.fix.nits scope, the step named fixing inside it" check how `scope()` is
+called, through a fake `pushScope`. The resolved access and full step name are
+what count. The ponytail finding's fix (always open the scope, passing `access`
+through when it is undefined) changes no behaviour, yet it breaks the "opens no
+scope" test. That is an implementation-shape assertion. The real owner is the
+scenario "the nit-fix turn in the refactor slice may write the strays and
+.gtd/** only". It reads `next --json=access.write` and fails if `fixAccess` is
+dropped, because the step then inherits `refactor.build.review`'s
+`.gtd/REVIEW.md`. `refactor.test.ts` "runs the nit-fix turn under the strays…"
+also covers it. Delete the "opens no scope" test and the `steps.test.ts` one.
+`fixRisks`' access has no real-boundary proof. Only the `review.test.ts`
+`fixAccess` scope-list test covers it. Add a refactor-slice risk-fix scenario
+that asserts `access.write`, then cut that unit test down to the step names.
+Separately, nothing backs "only" in that scenario's name. It asserts just two
+`contains`.
+
+## test-audit: `lensBase` threading is replayed at every layer it crosses
+
+The contract "each slice's lap reviews from its own base" has a strong owner:
+the `@inmem` scenario "each slice's quality lap reviews from that slice's base,
+before and after a feature feedback lap". It pins `entry` in the refactor slice,
+and `seam.base` in the feature slice before and after `featureFeedback`. The
+other owner is `text.test.ts` "reviews from a given base and still names the
+process start", which pins the prompt bytes. The same pass-through is asserted
+again in `tail.test.ts` (both new `lensBase` cases), in `review.test.ts`
+`describe("BuildTailOptions.lensBase")` (two cases plus a bespoke context) and
+in `refactor.test.ts` "names the entry commit in every lens prompt…". Each is
+pure plumbing that the scenario already fails on. Delete them. `tail.test.ts`
+also adds a module-level mutable `prompts` array shared across the `describe`,
+which goes away with them. The `text.test.ts` spec-challenge case only asserts
+that a constant contains its own literal (`git log <start>..HEAD`), plus a
+`started at` line the previous case already pins. Drop it too.
+
+## test-audit: "a feature review edit note collected to nothing signs off" never reaches the feature target
+
+`src/workflows/feature/review.test.ts` passes its own `options.feedback`
+(`file: REQUIREMENTS`, no `dropped`). So it tests the same thing as the test
+right above it ("a collecting turn that wrote REQUIREMENTS but not file signs
+off…") and the kit test "signs off when no dropped refusal is set". It would
+still pass if the default feature target in `review()` gained a `dropped`
+refusal, which is the regression its name claims to guard. Fix: drive the
+default target (no `options.feedback`), overriding the harness's
+`review.collecting` effect to write nothing. Or delete the test as a duplicate.
+
+## test-audit (low): duplicate contracts
+
+- `src/workflows/shared/access.test.ts` "leaves the refactor review's fix scopes
+  to the refactor's own scope option" restates the exact-map `toEqual` inventory
+  right above it, which already fails if either key comes back. Delete it.
+- `src/workflows/feature/feature.test.ts` "flag_naive_pass=1 rests at
+  design.triage, then implement.building…" and
+  `tests/integration/features/workflow-module-reuse.feature` "with the naive
+  pass on, afterTail's feedback lap is design → implement, never the seam" own
+  the same contract. Keep the scenario, which also proves the published
+  `@pmelab/gtd/workflows` import, and keep the unit file's `flag_naive_pass=0`
+  case. Drop the unit `=1` case.
+
+## test-audit (low): earlier findings have no test that would catch them
+
+- No test checks the refactor collecting prompt against
+  `refactorDroppedRefusal`. The `text.test.ts` refactor-prompt block does not
+  assert what the prompt says about an edit-note or hand-edit round that writes
+  nothing. This is the correctness contradiction above, and it would have caught
+  it.
+- The hand-edit scenario "a code hand-edit the collecting turn leaves out…" has
+  no review notes. So nothing covers `Requested.notes` carrying praise or
+  question notes into the refusal.
+- `collect`'s `requested.notes.length + requested.paths.length > 0` guard is
+  never tested with an empty `Requested`. Neither caller can build one, so the
+  branch is dead or unpinned.
+- `refactor.test.ts` covers `demoteHeadings` with `##`/`###` input only (see the
+  correctness nit).
+
+The golden `__fixtures__/feature-collecting-prompt.txt` is a legitimate pin.
+Rendering `buildReviewCollectingPrompt` at `28cddd15` gives exactly this text,
+so the merged prompt kept the feature bytes. It was not generated from the
+subject under test.
