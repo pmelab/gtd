@@ -294,7 +294,6 @@ const scratchRepo = () => {
 }
 
 describe("summaryPrompt", () => {
-  // Pinned literal: claude/hooks/ship.ts regex-reads the plain prompt's prose.
   it("without a slice prints today's text byte for byte", () => {
     expect(
       summaryPrompt({

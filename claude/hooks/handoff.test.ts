@@ -215,7 +215,7 @@ test("ship describes a thrown draft properly and marks it ready", async () => {
       "gtd summary": { code: 1 },
       "git merge-base main HEAD": { out: "m" },
       "git rev-parse HEAD": { out: "h" },
-      "gh pr view --json number,title,body,url,state": { out: JSON.stringify(pr) },
+      "gh pr view --json number,title,body,url,state,baseRefName": { out: JSON.stringify(pr) },
     },
     ["feat: add x\n\nwhy"],
   )

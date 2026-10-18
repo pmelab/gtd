@@ -1,7 +1,3 @@
-// Squash the finished gtd process into one commit, push, and open or refresh
-// the branch's pull request. A port of the `ship` fish function: same steps,
-// same prompts, with the text turns answered by a subagent of the session.
-
 export type Ran = { code: number; out: string; err: string }
 
 export type ShipIo = {
@@ -50,10 +46,51 @@ export function costTrailers(log: string) {
     .map(([model, n]) => `Gtd-Cost: ${Number(n.toPrecision(10))} ${model}`)
 }
 
-// `gtd summary` is the only place gtd names the process's start parent.
-// `gtd base` is the review anchor and would squash only part of the process.
-const summaryRange = (summary: string) =>
-  /git log ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})/.exec(summary)?.slice(1, 3)
+export type ShipMode = "stack" | "commits"
+
+export function shipMode(raw: string | undefined): ShipMode | { refusal: string } {
+  if (!raw) return "stack"
+  if (raw === "stack" || raw === "commits") return raw
+  return { refusal: `GTD_SHIP_MODE must be 'stack' or 'commits', not '${raw}'.` }
+}
+
+export type Slice = { name: string; base: string; tip: string; closed: boolean }
+
+const HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+
+// The slice's problem as text, or the slice itself.
+function checkSlice(raw: Record<string, unknown> | undefined, done: Slice[]): Slice | string {
+  const { name, base, tip, closed } = raw ?? {}
+  if (typeof name !== "string" || !/^[a-z][a-z0-9-]*$/.test(name))
+    return `slice name ${JSON.stringify(name)}`
+  if (done.some((s) => s.name === name)) return `slice ${name} repeats`
+  if (typeof base !== "string" || !HASH.test(base) || typeof tip !== "string" || !HASH.test(tip))
+    return `slice ${name} has a malformed commit`
+  if (typeof closed !== "boolean") return `slice ${name} has no closed flag`
+  const prev = done.at(-1)
+  if (prev && prev.tip !== base) return `slice ${name} does not start at ${prev.name}'s tip`
+  return { name, base, tip, closed }
+}
+
+// `gtd slices --json` is the only place gtd names the process's slice ranges.
+export function readSlices(stdout: string): Slice[] | { refusal: string } {
+  const bad = (why: string) => ({ refusal: `gtd slices --json is unusable: ${why}.` })
+  let doc: { schema?: unknown; slices?: unknown }
+  try {
+    doc = JSON.parse(stdout)
+  } catch {
+    return bad("not JSON")
+  }
+  if (!doc || typeof doc !== "object" || doc.schema !== 1) return bad("schema is not 1")
+  if (!Array.isArray(doc.slices) || !doc.slices.length) return bad("no slices")
+  const slices: Slice[] = []
+  for (const raw of doc.slices as Record<string, unknown>[]) {
+    const checked = checkSlice(raw, slices)
+    if (typeof checked === "string") return bad(checked)
+    slices.push(checked)
+  }
+  return slices
+}
 
 const COMMIT_FORMAT = `
 --- MESSAGE FORMAT (overrides any formatting the instructions above imply) ---
@@ -114,50 +151,177 @@ const attempt = async (io: ShipIo, argv: string[]): Promise<Ran & { killed: bool
   }
 }
 
-export async function ship(io: ShipIo, isDry: boolean): Promise<Shipped> {
+async function resolveRef(ok: Ok, baseBranch: string): Promise<string | undefined> {
+  for (const candidate of [baseBranch, `origin/${baseBranch}`]) {
+    if (await ok("rev-parse", "--verify", "--quiet", candidate)) return candidate
+  }
+  return undefined
+}
+
+async function preflight(git: Git, ok: Ok) {
+  const branch = await git("rev-parse", "--abbrev-ref", "HEAD")
+  if (!branch || branch === "HEAD") return { refusal: "Detached HEAD: there is no branch to ship." }
+  const head = await git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+  const baseBranch = head.replace(/^origin\//, "") || "main"
+  if (branch === baseBranch) return { refusal: `You are on the default branch (${baseBranch}).` }
+  const baseRef = await resolveRef(ok, baseBranch)
+  if (!baseRef)
+    return { refusal: `There is no ref '${baseBranch}' (tried origin/${baseBranch} too).` }
+  // `reset --soft` would fold pending changes into the squash without saying so.
+  if (await git("status", "--porcelain"))
+    return { refusal: "The working tree is dirty. Commit or stash first." }
+  return { branch, baseBranch, baseRef }
+}
+
+export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promise<Shipped> {
+  const mode = shipMode(rawMode)
+  if (typeof mode === "object") return fail(mode.refusal)
   const git = async (...args: string[]) => (await io.run(["git", ...args])).out.trim()
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
 
-  const branch = await git("rev-parse", "--abbrev-ref", "HEAD")
-  if (!branch || branch === "HEAD") return fail("Detached HEAD: there is no branch to ship.")
-  const head = await git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-  const baseBranch = head.replace(/^origin\//, "") || "main"
-  if (branch === baseBranch) return fail(`You are on the default branch (${baseBranch}).`)
-  let baseRef: string | undefined
-  for (const candidate of [baseBranch, `origin/${baseBranch}`]) {
-    if (await ok("rev-parse", "--verify", "--quiet", candidate)) {
-      baseRef = candidate
-      break
-    }
-  }
-  if (!baseRef) return fail(`There is no ref '${baseBranch}' (tried origin/${baseBranch} too).`)
-  // `reset --soft` would fold pending changes into the squash without saying so.
-  if (await git("status", "--porcelain"))
-    return fail("The working tree is dirty. Commit or stash first.")
+  const pre = await preflight(git, ok)
+  if ("refusal" in pre) return fail(pre.refusal)
+  const { branch, baseBranch, baseRef } = pre
 
-  const squashed = await squash(io, git, ok, branch, isDry)
+  const squashed = await squash(io, git, ok, branch, isDry, mode)
   if (!squashed.ok) return squashed
-  if (isDry) return preview(io, git, branch, baseRef, squashed.text, squashed.history)
-  return pullRequest(io, git, ok, branch, baseBranch, baseRef)
+  let { stack } = squashed
+  let floor: string | undefined
+  if (stack && squashed.resumed) {
+    const settled = await settle(io, branch, stack)
+    if (typeof settled === "string") return fail(settled)
+    ;({ links: stack, floor } = settled)
+  }
+  if (stack && isDry) {
+    const text = await stackPreview(io, stack, baseBranch, squashed.messages, squashed.history)
+    return withWarning({ ok: true, text }, squashed.warning)
+  }
+  if (isDry)
+    return preview(io, git, branch, baseRef, squashed.text, squashed.history, squashed.warning)
+  const opened = stack
+    ? await stackPullRequests(io, git, ok, stack, baseBranch, baseRef, floor)
+    : await pullRequest(io, git, ok, branch, baseBranch, baseRef)
+  return withWarning(opened, squashed.warning)
+}
+
+function withWarning(r: Shipped, warning?: string): Shipped {
+  return warning ? { ...r, text: [r.text, warning].filter(Boolean).join("\n\n") } : r
 }
 
 type Git = (...args: string[]) => Promise<string>
 type Ok = (...args: string[]) => Promise<boolean>
 
-// The process's own commits, base exclusive, and only while it ends at HEAD;
-// a string is why ship refuses to squash.
-async function processRange(git: Git, summary: string) {
-  const range = summaryRange(summary)
-  if (!range) return "The gtd summary names no commit range, so ship refuses to guess a base."
-  const base = await git("rev-parse", "--verify", `${range[0]}^{commit}`)
-  const tip = await git("rev-parse", "--verify", `${range[1]}^{commit}`)
-  if (!base || !tip) return "The gtd summary's range does not resolve in this repository."
-  if (tip !== (await git("rev-parse", "HEAD"))) {
-    return `The process tip (${short(tip)}) is not HEAD: something landed since.`
+type Group = { name: string; base: string; tip: string }
+
+// Slices that changed a file outside .gtd/ each land a commit; one that did not
+// folds into the next landed slice, or the previous when it is last.
+async function landed(ok: Ok, slices: Slice[]) {
+  const groups: Group[] = []
+  let carry: string | undefined
+  for (const s of slices) {
+    // gtd churns its own steering files every process, so `.gtd/` alone is no change.
+    if (await ok("diff", "--quiet", s.base, s.tip, "--", ":(exclude).gtd/")) {
+      carry ??= s.base
+      continue
+    }
+    groups.push({ name: s.name, base: carry ?? s.base, tip: s.tip })
+    carry = undefined
   }
+  if (carry && groups.length) groups.at(-1)!.tip = slices.at(-1)!.tip
+  return groups
+}
+
+async function rebaseWarning(io: ShipIo) {
+  const read = await attempt(io, [
+    "gh",
+    "repo",
+    "view",
+    "--json",
+    "rebaseMergeAllowed",
+    "-q",
+    ".rebaseMergeAllowed",
+  ])
+  if (read.code === 0 && read.out.trim() === "true") return undefined
+  return "Warning: commits mode keeps one commit per slice only through a rebase merge, and this repository does not confirm rebase merges are allowed; any other merge method squashes them."
+}
+
+// A failure text while the process is not a finished, shippable one.
+async function unfinished(io: ShipIo, slices: Slice[]) {
+  const state = async () => (await io.run(["gtd", "next", "--json=state"])).out.trim()
+  // `gtd summary` also describes a process still underway; shipping that
+  // would publish half of it.
+  const open = slices.find((s) => !s.closed)
+  if (open)
+    return `The gtd process is still underway (slice ${open.name} is open, at ${await state()}). Finish it, then ship.`
+  const initial = (await io.run(["gtd", "next", "--json=initial"])).out.trim()
+  if (initial !== "true")
+    return `The gtd process is still underway (at ${await state()}). Finish it, then ship.`
+  return undefined
+}
+
+async function commitMessages(io: ShipIo, git: Git, groups: Group[], tip: string) {
+  const parts: { message: string; trailers: string[] }[] = []
+  for (const g of groups) {
+    const trailers = costTrailers(await git("log", "--format=%B%n", `${g.base}..${g.tip}`))
+    const summary = await io.run(["gtd", "summary", `--slice=${g.name}`])
+    if (summary.code !== 0)
+      return fail(
+        `gtd summary --slice=${g.name} failed; nothing changed.\n${summary.err}`.trimEnd(),
+      )
+    const reply = await io.complete(summary.out + "\n" + COMMIT_FORMAT)
+    const message = reply && cleanReply(reply)
+    if (!message) return fail("The commit-message turn produced nothing.")
+    parts.push({ message, trailers })
+  }
+  const history = await historyRef(io, tip)
+  const fulls = parts.map(({ message, trailers }) => {
+    const all = history ? [...trailers, `Gtd-History: ${history}`] : trailers
+    return all.length ? `${message}\n\n${all.join("\n")}` : message
+  })
+  return { ok: true as const, fulls, history }
+}
+
+type Plan = { groups: Group[]; base: string; tip: string; count: number }
+
+type Link = { name: string; branch: string; commit: string }
+
+const STACK_KEY = (branch: string) => `branch.${branch}.gtdStack`
+
+const names = (raw: string) => raw.split(/\s+/).filter(Boolean)
+
+async function plan(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  isDry: boolean,
+  mode: ShipMode,
+): Promise<Plan | (Shipped & { stack?: Link[]; resumed?: boolean })> {
+  const probe = await io.run(["gtd", "summary"])
+  if (probe.code !== 0) {
+    io.log(`No gtd process at HEAD, so nothing is squashed; ${branch} is described as it stands.`)
+    if (mode !== "stack") return { ok: true, text: "" }
+    const stack = await resumable(io, git, ok, branch, isDry)
+    if (typeof stack === "string") return fail(stack)
+    return { ok: true, text: "", stack, resumed: stack !== undefined }
+  }
+  const listed = await io.run(["gtd", "slices", "--json"])
+  if (listed.code !== 0) return fail(`gtd slices failed; nothing changed.\n${listed.err}`.trimEnd())
+  const slices = readSlices(listed.out)
+  if ("refusal" in slices) return fail(`${slices.refusal} Nothing changed.`)
+
+  const underway = await unfinished(io, slices)
+  if (underway) return fail(underway)
+  const base = slices[0]!.base
+  const tip = slices.at(-1)!.tip
+  if (tip !== (await git("rev-parse", "HEAD")))
+    return fail(`The process tip (${short(tip)}) is not HEAD: something landed since.`)
   const count = Number(await git("rev-list", "--count", `${base}..HEAD`))
-  if (!count) return `Nothing to squash: ${short(base)}..HEAD is empty.`
-  return { base, tip, count }
+  if (!count) return fail(`Nothing to squash: ${short(base)}..HEAD is empty.`)
+
+  const groups = await landed(ok, slices)
+  if (!groups.length) return dropProcess(io, ok, base, count, isDry)
+  return { groups, base, tip, count }
 }
 
 async function squash(
@@ -166,38 +330,352 @@ async function squash(
   ok: Ok,
   branch: string,
   isDry: boolean,
-): Promise<Shipped & { history?: string }> {
-  const summary = await io.run(["gtd", "summary"])
-  if (summary.code !== 0) {
-    io.log(`No gtd process at HEAD, so nothing is squashed; ${branch} is described as it stands.`)
-    return { ok: true, text: "" }
+  mode: ShipMode,
+): Promise<
+  Shipped & {
+    history?: string
+    warning?: string
+    stack?: Link[]
+    messages?: string[]
+    resumed?: boolean
   }
-  // `gtd summary` also describes a process still underway; shipping that
-  // would publish half of it.
-  const initial = (await io.run(["gtd", "next", "--json=initial"])).out.trim()
-  if (initial !== "true") {
-    const state = (await io.run(["gtd", "next", "--json=state"])).out.trim()
-    return fail(`The gtd process is still underway (at ${state}). Finish it, then ship.`)
+> {
+  const planned = await plan(io, git, ok, branch, isDry, mode)
+  if ("ok" in planned) return planned
+  const { groups, base, tip, count } = planned
+  const many = groups.length > 1
+  const stacked = mode === "stack" && many
+
+  const refused = stacked ? await stackPrecheck(io, git, ok, branch, groups) : undefined
+  if (refused) return fail(refused)
+  io.log(`Squashing ${count} commit(s) since ${short(base)} into ${groups.length} commit(s)…`)
+  const msgs = await commitMessages(io, git, groups, tip)
+  if (!msgs.ok) return msgs
+  const { fulls, history } = msgs
+  const warn = () => (mode === "commits" && many ? rebaseWarning(io) : undefined)
+  const links = (commits: string[]): Link[] =>
+    groups.map((g, i) => ({
+      name: g.name,
+      branch: i < groups.length - 1 ? `${branch}-${g.name}` : branch,
+      commit: commits[i] ?? "",
+    }))
+  if (isDry) {
+    return {
+      ok: true,
+      text: many
+        ? fulls.map((f, i) => `[${groups[i]!.name}]\n${f}`).join("\n\n---\n\n")
+        : fulls[0]!,
+      history,
+      warning: await warn(),
+      stack: stacked ? links([]) : undefined,
+      messages: fulls,
+    }
   }
-  const range = await processRange(git, summary.out)
-  if (typeof range === "string") return fail(range)
-  const { base, tip, count } = range
 
-  // gtd churns its own steering files every process, so `.gtd/` alone is no change.
-  if (await ok("diff", "--quiet", base, "HEAD", "--", ":(exclude).gtd/"))
-    return dropProcess(io, ok, base, count, isDry)
+  const pushed = await pushHistory(io, history)
+  if (pushed) return fail(pushed)
+  if (!many) return squashOne(io, git, ok, branch, groups[0]!.base, fulls[0]!)
+  const built = await commitChain(io, git, ok, groups, fulls)
+  if (!built.ok) return built
+  if (!stacked) {
+    // a record of an earlier stack must not outlive this ship
+    await io.run(["git", "config", "--local", "--unset", STACK_KEY(branch)])
+    return { ok: true, text: "", warning: await warn() }
+  }
 
-  io.log(`Squashing ${count} commit(s) since ${short(base)}…`)
-  const trailers = costTrailers(await git("log", "--format=%B%n", `${base}..${tip}`))
-  const history = await historyRef(io, tip)
-  if (history) trailers.push(`Gtd-History: ${history}`)
-  const reply = await io.complete(summary.out + "\n" + COMMIT_FORMAT)
-  const message = reply && cleanReply(reply)
-  if (!message) return fail("The commit-message turn produced nothing.")
-  const full = trailers.length ? `${message}\n\n${trailers.join("\n")}` : message
-  if (isDry) return { ok: true, text: full, history }
+  const stack = links(built.commits)
+  const recorded = await recordStack(io, ok, branch, stack)
+  if (recorded) return fail(recorded)
+  return { ok: true, text: "", stack }
+}
 
-  return commitSquash(io, git, ok, base, full, history)
+async function squashOne(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  base: string,
+  full: string,
+): Promise<Shipped> {
+  const built = await commitSquash(io, git, ok, base, full)
+  if (!built.ok) return built
+  await io.run(["git", "config", "--local", "--unset", STACK_KEY(branch)])
+  return { ok: true, text: "" }
+}
+
+async function recordStack(io: ShipIo, ok: Ok, branch: string, stack: Link[]) {
+  const recorded = await io.run([
+    "git",
+    "config",
+    "--local",
+    STACK_KEY(branch),
+    stack.map((l) => l.name).join(" "),
+  ])
+  if (recorded.code !== 0) {
+    // Without the record a retry would ship one pull request: put the process back.
+    const undone = await ok("reset", "--soft", "ORIG_HEAD")
+    return `git config failed; ${undone ? "the squash is undone, retry" : "the squash is kept, but a retry will not find the stack"}.\n${recorded.err}`.trimEnd()
+  }
+  for (const l of stack.slice(0, -1)) {
+    if (!(await ok("branch", "-f", l.branch, l.commit)))
+      return `git branch -f ${l.branch} failed; the squash is kept. /gtd ship resumes.`
+  }
+  return undefined
+}
+
+type View = {
+  number: number
+  title?: string
+  body?: string
+  url: string
+  state: string
+  baseRefName?: string
+}
+
+// `gh pr view <branch>`: no PR reads as none; a reply that is not JSON is an error.
+async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | string> {
+  const v = await io.run([
+    "gh",
+    "pr",
+    "view",
+    branch,
+    "--json",
+    "number,title,body,url,state,baseRefName",
+  ])
+  if (v.code !== 0) return undefined
+  try {
+    return JSON.parse(v.out) as View
+  } catch {
+    return `gh pr view ${branch} returned something unreadable.`
+  }
+}
+
+async function takenSlice(git: Git, ok: Ok, branch: string, groups: Group[]) {
+  const recorded = names(await git("config", "--local", "--get", STACK_KEY(branch)))
+  for (const g of groups.slice(0, -1)) {
+    const b = `${branch}-${g.name}`
+    if (recorded.includes(g.name)) continue
+    if (
+      (await ok("rev-parse", "--verify", "--quiet", `refs/heads/${b}`)) ||
+      (await ok("rev-parse", "--verify", "--quiet", `origin/${b}`))
+    )
+      return `Branch ${b} (slice ${g.name}) already exists and is not part of a stack gtd built; nothing changed. Rename or delete it, then ship.`
+  }
+  return undefined
+}
+
+// Before the history push: a refusal leaves the repository exactly as it was.
+async function stackPrecheck(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  groups: Group[],
+): Promise<string | undefined> {
+  const taken = await takenSlice(git, ok, branch, groups)
+  if (taken) return taken
+  for (const [i, g] of groups.entries()) {
+    const top = i === groups.length - 1
+    const b = top ? branch : `${branch}-${g.name}`
+    const view = await viewPr(io, b)
+    if (typeof view === "string") return `${view} Nothing changed.`
+    // Commits mode ships to the top branch too, so for it only a rename helps.
+    if (view && view.state !== "OPEN")
+      return `The pull request for slice ${g.name} (#${view.number}, ${b}) is ${view.state}, not open; nothing changed. ${top ? "Rename the branch" : "Ship with GTD_SHIP_MODE=commits, or rename the branch"}.`
+  }
+  return undefined
+}
+
+// The commits of a recorded stack's upper slices, and whether they still chain to HEAD.
+async function chain(git: Git, ok: Ok, branch: string, uppers: string[]) {
+  const commits: string[] = []
+  const missing: number[] = []
+  let valid = uppers.length > 0
+  for (const [i, name] of uppers.entries()) {
+    let sha = await git("rev-parse", "--verify", "--quiet", `refs/heads/${branch}-${name}`)
+    if (!sha) {
+      // the chain is HEAD's first-parent line, so an unmade branch is still findable
+      sha = await git("rev-parse", "--verify", "--quiet", `HEAD~${uppers.length - i}`)
+      missing.push(i)
+    }
+    if (!sha) valid = false
+    commits.push(sha)
+  }
+  for (const [i, c] of commits.entries()) {
+    if (!valid) break
+    if (!(await ok("merge-base", "--is-ancestor", c, commits[i + 1] ?? "HEAD"))) valid = false
+  }
+  return { commits, missing, valid }
+}
+
+// A stack that /gtd ship built and a part-way failure cut short, if its branches
+// still chain. A string is a refusal.
+async function resumable(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  isDry: boolean,
+): Promise<Link[] | undefined | string> {
+  const recorded = names(await git("config", "--local", "--get", STACK_KEY(branch)))
+  if (!recorded.length) return undefined
+  const uppers = recorded.slice(0, -1)
+  const { commits, missing, valid } = await chain(git, ok, branch, uppers)
+  if (!valid) {
+    io.log(
+      `The recorded stack for ${branch} no longer chains to HEAD: ${isDry ? "" : "dropped it, "}shipping the branch alone.`,
+    )
+    if (!isDry) await io.run(["git", "config", "--local", "--unset", STACK_KEY(branch)])
+    return undefined
+  }
+  if (!isDry)
+    for (const i of missing) {
+      const b = `${branch}-${recorded[i]}`
+      if (!(await ok("branch", "-f", b, commits[i]!)))
+        return `git branch -f ${b} failed; /gtd ship resumes.`
+    }
+  const top = await git("rev-parse", "HEAD")
+  return recorded.map((name, i) => ({
+    name,
+    branch: i < uppers.length ? `${branch}-${name}` : branch,
+    commit: commits[i] ?? top,
+  }))
+}
+
+// A resumed stack after its bottom pull requests merged: those slices are done, and
+// the next one targets the default branch. Reads only, so a refusal changes nothing.
+async function settle(
+  io: ShipIo,
+  branch: string,
+  links: Link[],
+): Promise<{ links: Link[]; floor?: string } | string> {
+  const states: (View | undefined)[] = []
+  for (const l of links) {
+    const view = await viewPr(io, l.branch)
+    if (typeof view === "string") return `${view} Nothing changed.`
+    states.push(view)
+  }
+  let done = 0
+  while (done < links.length - 1 && states[done]?.state === "MERGED") done++
+  for (const [i, view] of states.entries()) {
+    if (i >= done && view && view.state !== "OPEN")
+      return `The pull request for slice ${links[i]!.name} (#${view.number}, ${links[i]!.branch}) is ${view.state}, not open; nothing changed. Merged slices drop out of a resumed stack on their own; a closed one needs \`git config --local --unset ${STACK_KEY(branch)}\` to ship the branch alone.`
+  }
+  return { links: links.slice(done), floor: done ? links[done - 1]!.commit : undefined }
+}
+
+const baseOf = (links: Link[], i: number, baseBranch: string) =>
+  i ? links[i - 1]!.branch : baseBranch
+
+async function stackPreview(
+  io: ShipIo,
+  links: Link[],
+  baseBranch: string,
+  messages: string[] | undefined,
+  history?: string,
+) {
+  const parts: string[] = []
+  for (const [i, l] of links.entries()) {
+    const base = baseOf(links, i, baseBranch)
+    const view = await viewPr(io, l.branch)
+    const lines = [`[${l.name}]`]
+    if (messages?.[i]) lines.push(`Commit message:\n\n${messages[i]}`)
+    lines.push(`Branch: ${l.branch}`)
+    if (view && typeof view === "object") {
+      lines.push(`Pull request: would refresh ${view.url}.`)
+      if (view.baseRefName && view.baseRefName !== base)
+        lines.push(`Retarget: would retarget #${view.number} from ${view.baseRefName} to ${base}.`)
+    } else lines.push(`Pull request: would open into ${base}.`)
+    parts.push(lines.join("\n"))
+  }
+  if (history) parts.push(`History: would push ${history} to origin.`)
+  return parts.join("\n\n---\n\n")
+}
+
+const STACKED_ON = /^Stacked on #\d+ — merge that first(?:\r?\n(?:\r?\n)?|$)/
+
+export function stackLine(body: string, below?: number) {
+  const rest = body.replace(STACKED_ON, "")
+  return below === undefined ? rest : `Stacked on #${below} — merge that first\n\n${rest}`
+}
+
+type Pr = Shipped & { number?: number }
+
+async function sliceStep(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  l: Link,
+  base: string,
+  lowerRef: string,
+  ctx: Ctx,
+): Promise<Pr | { step: string; why: string }> {
+  const view = await viewPr(io, l.branch)
+  if (typeof view === "string") return { step: "pull request", why: view }
+  let done: Pr
+  if (!view) done = await createPr(io, git, l.branch, base, lowerRef, ctx)
+  else if (view.state !== "OPEN")
+    return { step: "pull request", why: `#${view.number} is ${view.state}, not open.` }
+  else if (view.body?.includes(THROWN))
+    done = await createPr(io, git, l.branch, base, lowerRef, ctx, view)
+  else {
+    if (view.baseRefName !== base) {
+      const moved = await io.run(["gh", "pr", "edit", String(view.number), "--base", base])
+      if (moved.code !== 0)
+        return {
+          step: "retarget",
+          why: `gh pr edit --base ${base} failed.\n${moved.err}`.trimEnd(),
+        }
+    }
+    done = await updatePr(io, git, ok, l.branch, ctx, view)
+  }
+  return done.ok ? done : { step: "pull request", why: done.text }
+}
+
+// The writer turns below may touch refs: push only the commit ship built.
+async function pushLink(io: ShipIo, git: Git, l: Link, upper: boolean) {
+  if (upper && (await git("rev-parse", `refs/heads/${l.branch}`)) !== l.commit)
+    return `refs/heads/${l.branch} no longer points at ${short(l.commit)}.`
+  return pushBranch(io, l.branch, l.commit)
+}
+
+// Bottom first, so each PR can name the number of the one below it. A failure
+// keeps every slice that already landed; /gtd ship resumes from the recorded stack.
+async function stackPullRequests(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  links: Link[],
+  baseBranch: string,
+  baseRef: string,
+  floor?: string,
+): Promise<Shipped> {
+  const mergeBase = floor ?? (await git("merge-base", baseRef, "HEAD"))
+  if (!mergeBase) return fail(`${baseRef} and HEAD share no ancestor.`)
+  const landed: string[] = []
+  const texts: string[] = []
+  let below: number | undefined
+  for (const [i, l] of links.entries()) {
+    const stop = (step: string, why: string) =>
+      fail(
+        `Slice ${l.name} failed at ${step}: ${why}\nLanded: ${landed.length ? landed.join(", ") : "none"}. /gtd ship resumes.`,
+      )
+    const lower = i ? links[i - 1]! : undefined
+    const base = baseOf(links, i, baseBranch)
+    const pushed = await pushLink(io, git, l, i < links.length - 1)
+    if (pushed) return stop("push", pushed)
+
+    const lowerRef = lower?.branch ?? baseRef
+    const ctx: Ctx = { to: l.commit, from: lower?.commit ?? mergeBase, below, stacked: true }
+    const done = await sliceStep(io, git, ok, l, base, lowerRef, ctx)
+    if ("step" in done) return stop(done.step, done.why)
+    if (done.number === undefined && i < links.length - 1)
+      return stop("pull request", "its number could not be read from gh's reply.")
+    below = done.number
+    landed.push(l.name)
+    texts.push(`[${l.name}] ${done.text}`)
+  }
+  return { ok: true, text: texts.join("\n\n") }
 }
 
 async function dropProcess(
@@ -216,30 +694,28 @@ async function dropProcess(
   return { ok: true, text: "" }
 }
 
+// Before the squash: a failure leaves the branch as it was, so a retry finds the process.
+async function pushHistory(io: ShipIo, history: string | undefined) {
+  if (!history) return undefined
+  // Forced so a retry after the tip changed lands. The ref is keyed by the entry
+  // commit, which every clone of the process shares: a second clone shipping the
+  // same entry replaces origin's copy.
+  io.log(`Pushing ${history} to origin: the process's step commits become fetchable there.`)
+  const pushed = await attempt(io, ["git", "push", "origin", `+${history}:${history}`])
+  if (pushed.killed)
+    return `git push of ${history} did not finish; nothing was squashed. Retry.\n${pushed.err}`.trimEnd()
+  if (pushed.code !== 0)
+    return `git push of ${history} failed; nothing was squashed or pushed.\n${pushed.err}`.trimEnd()
+  return undefined
+}
+
 async function commitSquash(
   io: ShipIo,
   git: Git,
   ok: Ok,
   base: string,
   full: string,
-  history: string | undefined,
 ): Promise<Shipped> {
-  // Before the squash: a failure leaves the branch as it was, so a retry finds the process.
-  if (history) {
-    // Forced so a retry after the tip changed lands. The ref is keyed by the entry
-    // commit, which every clone of the process shares: a second clone shipping the
-    // same entry replaces origin's copy.
-    io.log(`Pushing ${history} to origin: the process's step commits become fetchable there.`)
-    const pushed = await attempt(io, ["git", "push", "origin", `+${history}:${history}`])
-    if (pushed.killed)
-      return fail(
-        `git push of ${history} did not finish; nothing was squashed. Retry.\n${pushed.err}`.trimEnd(),
-      )
-    if (pushed.code !== 0)
-      return fail(
-        `git push of ${history} failed; nothing was squashed or pushed.\n${pushed.err}`.trimEnd(),
-      )
-  }
   if (!(await ok("reset", "--soft", base))) return fail("git reset failed; nothing changed.")
   const commit = await io.run(["git", "commit", "--cleanup=strip", "-F", "-"], full + "\n")
   if (commit.code !== 0) {
@@ -251,6 +727,59 @@ async function commitSquash(
     `Squashed: ${await git("log", "-1", "--format=%h %s")}. Undo with git reset --soft ORIG_HEAD.`,
   )
   return { ok: true, text: "" }
+}
+
+// A slice tip's tree, with `.gtd/` as HEAD holds it: steering files are
+// process-private, and a mid-process tip still carries some. Null on failure.
+async function sliceTree(io: ShipIo, git: Git, tip: string): Promise<string | null> {
+  const gtdOf = (rev: string) => git("rev-parse", "--verify", "--quiet", `${rev}:.gtd`)
+  if ((await gtdOf(tip)) === (await gtdOf("HEAD"))) return `${tip}^{tree}`
+  const entries = (await io.run(["git", "ls-tree", "-z", tip])).out
+    .split("\0")
+    .filter((e) => e && e.split("\t")[1] !== ".gtd")
+  const gtd = (await io.run(["git", "ls-tree", "-z", "HEAD", ".gtd"])).out.split("\0")[0]
+  if (gtd) entries.push(gtd)
+  const made = await io.run(["git", "mktree", "-z"], entries.map((e) => `${e}\0`).join(""))
+  return made.code === 0 && made.out.trim() ? made.out.trim() : null
+}
+
+// Every commit exists before any ref moves, so a failure part-way changes nothing.
+// commit-tree skips commit-msg hooks, but signing is carried over.
+async function commitChain(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  groups: Group[],
+  fulls: string[],
+): Promise<Shipped & { commits: string[] }> {
+  let prev = groups[0]!.base
+  const commits: string[] = []
+  const sign = (await git("config", "--type=bool", "--get", "commit.gpgSign")) === "true"
+  for (const [i, g] of groups.entries()) {
+    const clean = await io.run(["git", "stripspace", "--strip-comments"], fulls[i]! + "\n")
+    if (clean.code !== 0)
+      return { ...fail(`git stripspace failed; nothing changed.\n${clean.err}`), commits }
+    const tree = await sliceTree(io, git, g.tip)
+    if (!tree)
+      return { ...fail(`git mktree failed for slice ${g.name}; nothing changed.`), commits }
+    const made = await io.run(
+      ["git", "commit-tree", tree, ...(sign ? ["-S"] : []), "-p", prev, "-F", "-"],
+      clean.out,
+    )
+    prev = made.out.trim()
+    if (made.code !== 0 || !prev)
+      return {
+        ...fail(`git commit-tree failed for slice ${g.name}; nothing changed.\n${made.err}`),
+        commits,
+      }
+    commits.push(prev)
+  }
+  if (!(await ok("reset", "--soft", prev)))
+    return { ...fail("git reset failed; nothing changed."), commits }
+  io.log(
+    `Squashed into ${groups.length} commits: ${await git("log", "-1", "--format=%h %s")}. Undo with git reset --soft ORIG_HEAD.`,
+  )
+  return { ok: true, text: "", commits }
 }
 
 async function historyRef(io: ShipIo, tip: string) {
@@ -285,6 +814,7 @@ async function preview(
   baseRef: string,
   message: string,
   history?: string,
+  warning?: string,
 ) {
   const mergeBase = await git("merge-base", baseRef, "HEAD")
   const existing = await io.run(["gh", "pr", "view", "--json", "url"])
@@ -296,6 +826,7 @@ async function preview(
     ok: true,
     text: [
       message && `Commit message:\n\n${message}`,
+      warning,
       history && `History: would push ${history} to origin.`,
       `Pull request: ${pr}.`,
     ]
@@ -320,27 +851,52 @@ async function pullRequest(
   const pushed = await pushBranch(io, branch)
   if (pushed) return fail(pushed)
 
-  const view = await io.run(["gh", "pr", "view", "--json", "number,title,body,url,state"])
-  if (view.code !== 0) return createPr(io, git, branch, baseBranch, baseRef, mergeBase)
-  const existing = JSON.parse(view.out) as {
-    number: number
-    body?: string
-    url: string
-    state: string
-  }
+  const view = await io.run([
+    "gh",
+    "pr",
+    "view",
+    "--json",
+    "number,title,body,url,state,baseRefName",
+  ])
+  if (view.code !== 0)
+    return createPr(io, git, branch, baseBranch, baseRef, { from: mergeBase, to: "HEAD" })
+  const existing = JSON.parse(view.out) as View
   if (existing.state !== "OPEN")
     return fail(`The pull request for ${branch} is ${existing.state}, not open.`)
+  // A branch once shipped as a stack keeps the PR aimed at a slice branch.
+  let unstacked = false
+  if (existing.baseRefName && existing.baseRefName !== baseBranch) {
+    const moved = await io.run(["gh", "pr", "edit", String(existing.number), "--base", baseBranch])
+    if (moved.code !== 0)
+      return fail(
+        `gh pr edit --base ${baseBranch} failed; ${existing.url} is unchanged.\n${moved.err}`.trimEnd(),
+      )
+    unstacked = true
+  }
+  const ctx: Ctx = { from: mergeBase, to: "HEAD" }
   // A thrown draft only ever described a hand-off: ship writes it properly.
   if (existing.body?.includes(THROWN)) {
-    return createPr(io, git, branch, baseBranch, baseRef, mergeBase, existing)
+    return createPr(io, git, branch, baseBranch, baseRef, ctx, existing)
   }
-  return updatePr(io, git, ok, branch, mergeBase, existing)
+  const body = stackLine(existing.body ?? "")
+  if (body !== (existing.body ?? "")) {
+    const edited = await io.run(
+      ["gh", "pr", "edit", String(existing.number), "--body-file", "-"],
+      body,
+    )
+    if (edited.code !== 0)
+      return fail(
+        `gh pr edit failed; the stale stack line of ${existing.url} is unchanged.\n${edited.err}`.trimEnd(),
+      )
+    unstacked = true
+  }
+  return updatePr(io, git, ok, branch, { ...ctx, unstacked }, { ...existing, body })
 }
 
 // A pull request describes what the remote branch holds. A squash rewrote the
 // branch, so an existing origin/<branch> needs --force-with-lease. Returns why
 // the push failed, or nothing.
-export async function pushBranch(io: ShipIo, branch: string) {
+export async function pushBranch(io: ShipIo, branch: string, head = "HEAD") {
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
   const push = async (args: string[], failure: string) => {
     const r = await attempt(io, ["git", "push", ...args])
@@ -353,7 +909,7 @@ export async function pushBranch(io: ShipIo, branch: string) {
     io.log(`Pushing ${branch} to origin…`)
     return push(["--set-upstream", "origin", branch], "git push failed.")
   }
-  if (!(await ok("merge-base", "--is-ancestor", "HEAD", `origin/${branch}`))) {
+  if (!(await ok("merge-base", "--is-ancestor", head, `origin/${branch}`))) {
     io.log(`Pushing ${branch} to origin…`)
     return push(
       ["--force-with-lease", "origin", branch],
@@ -365,13 +921,17 @@ export async function pushBranch(io: ShipIo, branch: string) {
 
 // The shell commands ship's writer may run: it reads commit messages anyone
 // on the branch wrote, so read-only git and no shell syntax to chain more on.
+// `--output` writes a file and `branch` with arguments moves refs, so neither is allowed.
 export const READ_ONLY_GIT =
-  /^git (log|show|diff|status|rev-parse|rev-list|merge-base|branch)\b[^;&|<>`$()\n]*$/
+  /^git (?:(?:log|show|diff|status|rev-parse|rev-list|merge-base)\b(?![^;&|<>`$()\n]*\s(?:-o|--ou))[^;&|<>`$()\n]*|branch(?:\s+(?:--list|-a|-r|--show-current))*(?:\s+--contains\s+[\w./^~-]+)?)$/
 
 const TITLE = /^(feat|fix|refactor|perf|docs|test|build|ci|chore)(\([\w./-]+\))?!?: \S.{0,70}$/
 
 // Marks a draft pull request `/gtd throw` opened for a hand-off.
 export const THROWN = "<!-- gtd:thrown -->"
+
+// unstacked: this run took the PR off a stack, so nothing new is still a success.
+type Ctx = { from: string; to: string; stacked?: boolean; below?: number; unstacked?: boolean }
 
 async function createPr(
   io: ShipIo,
@@ -379,10 +939,10 @@ async function createPr(
   branch: string,
   baseBranch: string,
   baseRef: string,
-  mergeBase: string,
+  { from: mergeBase, to, stacked, below }: Ctx,
   thrown?: { number: number; url: string },
-) {
-  const count = await git("rev-list", "--count", `${mergeBase}..HEAD`)
+): Promise<Shipped & { number?: number }> {
+  const count = await git("rev-list", "--count", `${mergeBase}..${to}`)
   io.log(
     thrown
       ? `#${thrown.number} was thrown as a draft: describing ${count} commit(s) properly…`
@@ -413,10 +973,10 @@ Print the title and description and nothing else — no preamble, and no code
 fence wrapped around the whole reply.
 
 --- COMMITS ON ${branch} (against ${baseRef}), oldest first ---
-${await git("log", "--no-merges", "--reverse", "--format=%H%n%B%n---", `${mergeBase}..HEAD`)}
+${await git("log", "--no-merges", "--reverse", "--format=%H%n%B%n---", `${mergeBase}..${to}`)}
 
 --- DIFF STAT ---
-${await git("diff", "--stat", `${mergeBase}..HEAD`)}`
+${await git("diff", "--stat", `${mergeBase}..${to}`)}`
   const reply = await io.complete(prompt)
   const out = reply && cleanReply(reply)
   if (!out) return fail("The pull-request turn produced nothing.")
@@ -425,8 +985,9 @@ ${await git("diff", "--stat", `${mergeBase}..HEAD`)}`
   // a reply shaped like the title it was asked for.
   if (!TITLE.test(title))
     return fail(`The pull-request turn returned no usable title: ${title.slice(0, 120)}`)
-  const body = rest.join("\n").replace(/^\s*\n/, "")
-  const head = await git("rev-parse", "HEAD")
+  const written = rest.join("\n").replace(/^\s*\n/, "")
+  const body = stacked ? stackLine(written, below) : written
+  const head = await git("rev-parse", to)
   if (thrown) {
     const n = String(thrown.number)
     // Ready first: a failure here leaves the THROWN marker, so a retry comes back.
@@ -442,7 +1003,11 @@ ${await git("diff", "--stat", `${mergeBase}..HEAD`)}`
         `gh pr edit failed; ${thrown.url} is marked ready but keeps its thrown title and description.\n${edited.err}`,
       )
     await io.run(["git", "config", "--local", `branch.${branch}.prSyncHead`, head])
-    return { ok: true, text: `Rewrote ${thrown.url} and marked it ready for review.` }
+    return {
+      ok: true,
+      text: `Rewrote ${thrown.url} and marked it ready for review.`,
+      number: thrown.number,
+    }
   }
   const created = await io.run(
     [
@@ -461,14 +1026,22 @@ ${await git("diff", "--stat", `${mergeBase}..HEAD`)}`
     body + "\n",
   )
   if (created.code !== 0) return fail(`gh pr create failed; nothing was opened.\n${created.err}`)
-  await io.run([
-    "git",
-    "config",
-    "--local",
-    `branch.${branch}.prSyncHead`,
-    await git("rev-parse", "HEAD"),
-  ])
-  return { ok: true, text: `Opened ${created.out.trim()}` }
+  await io.run(["git", "config", "--local", `branch.${branch}.prSyncHead`, head])
+  const number = /\/pull\/(\d+)/.exec(created.out)?.[1]
+  return {
+    ok: true,
+    text: `Opened ${created.out.trim()}`,
+    number: number ? Number(number) : undefined,
+  }
+}
+
+async function sinceHead(git: Git, ok: Ok, branch: string, mergeBase: string, to: string) {
+  const synced = await git("config", "--local", "--get", `branch.${branch}.prSyncHead`)
+  const isSynced =
+    synced &&
+    (await ok("rev-parse", "--verify", "--quiet", `${synced}^{commit}`)) &&
+    (await ok("merge-base", "--is-ancestor", synced, to))
+  return isSynced ? synced : mergeBase
 }
 
 async function updatePr(
@@ -476,18 +1049,32 @@ async function updatePr(
   git: Git,
   ok: Ok,
   branch: string,
-  mergeBase: string,
+  { from: mergeBase, to, stacked, below, unstacked }: Ctx,
   existing: { number: number; body?: string; url: string },
-) {
+): Promise<Shipped & { number?: number }> {
+  const restack = (body: string) => (stacked ? stackLine(body, below) : body)
+  const edit = async (body: string) =>
+    io.run(["gh", "pr", "edit", String(existing.number), "--body-file", "-"], body)
+  // The stack line is re-applied on every refresh, but only written when it changed.
+  const restacked = async (pr: { body?: string }, text: string) => {
+    const fixed = restack(pr.body ?? "")
+    if (fixed === (pr.body ?? "")) return { ok: true, text, number: existing.number }
+    const edited = await edit(fixed)
+    if (edited.code !== 0)
+      return {
+        ...fail(
+          `gh pr edit failed; the stack line of ${existing.url} is unchanged.\n${edited.err}`,
+        ),
+        number: existing.number,
+      }
+    return { ok: true, text, number: existing.number }
+  }
   // Only what landed since the last run. A stored head a squash left behind
   // falls back to the whole branch, the only honest range left.
-  const synced = await git("config", "--local", "--get", `branch.${branch}.prSyncHead`)
-  const isSynced =
-    synced &&
-    (await ok("rev-parse", "--verify", "--quiet", `${synced}^{commit}`)) &&
-    (await ok("merge-base", "--is-ancestor", synced, "HEAD"))
-  const since = isSynced ? synced : mergeBase
-  const count = Number(await git("rev-list", "--count", `${since}..HEAD`))
+  const since = await sinceHead(git, ok, branch, mergeBase, to)
+  const count = Number(await git("rev-list", "--count", `${since}..${to}`))
+  if (!count && (stacked || unstacked))
+    return restacked(existing, `Nothing new since the last ship: ${existing.url}`)
   if (!count) return fail(`No commits since the last ship: ${existing.url}`)
   io.log(`#${existing.number}: weighing ${count} commit(s) against the standing description…`)
 
@@ -519,33 +1106,34 @@ for you), no preamble, no code fence around the whole reply.
 ${existing.body ?? ""}
 
 --- COMMITS ADDED SINCE IT WAS LAST CONSIDERED, oldest first ---
-${await git("log", "--no-merges", "--reverse", "--format=%H%n%B%n---", `${since}..HEAD`)}
+${await git("log", "--no-merges", "--reverse", "--format=%H%n%B%n---", `${since}..${to}`)}
 
 --- DIFF STAT (whole branch) ---
-${await git("diff", "--stat", `${mergeBase}..HEAD`)}`
+${await git("diff", "--stat", `${mergeBase}..${to}`)}`
   const reply = await io.complete(prompt)
   const out = reply && cleanReply(reply)
   if (!out) return fail("The pull-request turn produced nothing.")
 
   // The sync head advances either way: NO-UPDATE is a real answer.
-  const sha = await git("rev-parse", "HEAD")
+  const sha = await git("rev-parse", to)
   if (/^\s*NO-UPDATE\s*$/.test(out)) {
     await io.run(["git", "config", "--local", `branch.${branch}.prSyncHead`, sha])
-    return {
-      ok: true,
-      text: `Nothing at that level changed; the description of ${existing.url} is left alone.`,
-    }
+    return restacked(
+      existing,
+      `Nothing at that level changed; the description of ${existing.url} is left alone.`,
+    )
   }
   // Appended, dated and anchored to its commit, so the standing text keeps saying what it said.
   const repo = (await io.run(["gh", "repo", "view", "--json", "url", "-q", ".url"])).out.trim()
   const anchor = repo ? `[\`${sha.slice(0, 7)}\`](${repo}/commit/${sha})` : `\`${sha.slice(0, 7)}\``
-  const body = `${existing.body ?? ""}\n\n## Update ${io.today()} — ${anchor}\n\n${out}\n`
-  const edited = await io.run(
-    ["gh", "pr", "edit", String(existing.number), "--body-file", "-"],
-    body,
-  )
+  const body = restack(`${existing.body ?? ""}\n\n## Update ${io.today()} — ${anchor}\n\n${out}\n`)
+  const edited = await edit(body)
   if (edited.code !== 0)
     return fail(`gh pr edit failed; the pull request is unchanged.\n${edited.err}`)
   await io.run(["git", "config", "--local", `branch.${branch}.prSyncHead`, sha])
-  return { ok: true, text: `Appended an update to ${existing.url}:\n\n${out}` }
+  return {
+    ok: true,
+    text: `Appended an update to ${existing.url}:\n\n${out}`,
+    number: existing.number,
+  }
 }

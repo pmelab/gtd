@@ -593,7 +593,7 @@ async function shipNow($: $, isDry: boolean, isInTurn: boolean) {
     isInTurn,
     async () => {
       $.ui.status(isDry ? "previewing the pull request…" : "opening the pull request…")
-      return ship(shipIo($), isDry)
+      return ship(shipIo($), isDry, await $.env.get("GTD_SHIP_MODE"))
     },
     async (shipped) => {
       // a failed ship leaves the run as it was; a dry run changes nothing
