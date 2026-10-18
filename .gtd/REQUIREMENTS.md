@@ -11,41 +11,6 @@ from `.gtd/TODO.md`** (note-1 `runSummaryCommand` doc comment, note-2
 history-list scenario, note-3 garbled-flag stdout assertion). **They are
 dropped, not in scope.**
 
-## Open Questions
-
-### Should stacked pull requests point at each other?
-
-In `stack` mode a reviewer opening the feature PR sees only its base branch
-name. The fork is whether ship writes the stack relationship into the PR bodies.
-
-- [ ] No link — the base branch says it
-  - nothing extra in any description
-  - reviewer must infer order from `<branch>-refactor` as base
-- [x] Feature PR names the PR it stacks on
-  - one line like "Stacked on #N — merge that first" above the description
-  - lower PR knows nothing of the one above
-- [ ] Both directions — each PR lists the whole stack, its own entry marked
-  - reviewer sees order and position from any PR
-  - every ship must re-edit every PR in the stack when one is created
-  - more `gh pr edit` calls that can fail mid-way
-- [ ] _your answer_
-
-### What does `commits` mode do about a repo that cannot rebase-merge?
-
-`commits` mode only survives a rebase merge; a squash merge collapses the slice
-commits back into one. The fork is how hard ship guards that.
-
-- [ ] Document it only
-  - no extra `gh` call
-  - a squash merge silently loses the per-slice commits
-- [x] Warn when the repo disallows rebase merge, ship anyway
-  - one `gh repo view` read of the allowed merge methods
-  - the report line tells the human before the PR is merged
-- [ ] Refuse to ship when the repo disallows rebase merge
-  - nothing pushed; human switches to `stack` or changes repo settings
-  - a rebase-capable repo that merges by squash by habit still slips through
-- [ ] _your answer_
-
 ## 1. Read slices and per-slice messages from gtd, retire the summary regex (TECHNICAL)
 
 - **Ranges come from `gtd slices --json`**
@@ -96,6 +61,10 @@ commits back into one. The fork is how hard ship guards that.
   the default branch
 - **A slice PR that is merged or closed refuses the ship**, as today's "is
   MERGED, not open"
+- **Every PR above the first opens its description with one line naming the PR
+  it stacks on**, like "Stacked on #N — merge that first"; the lowest PR carries
+  no stack line, and no PR lists the ones above it. Re-applied on every update
+  so a refresh never drops it
 - Plain `gh` only — no stacking tool
 - A failure part-way keeps whatever already landed; the report names the failed
   slice and step, and `/gtd ship` again resumes on the squashed branch
@@ -104,8 +73,12 @@ commits back into one. The fork is how hard ship guards that.
 
 - **`<branch>` ends as one squashed commit per slice, in slice order; one PR
   into the default branch** describes all of them
-- **Survives only a rebase merge** — a squash merge collapses them (guard: see
-  Open Questions)
+- **Survives only a rebase merge** — a squash merge collapses them
+- **Ship reads the repo's allowed merge methods (`gh repo view`) and warns in
+  its report when rebase merge is disallowed, then ships anyway**; a failed read
+  warns too, never refuses. Dry run shows the same warning
+- Docs still state the rebase-merge requirement — the warning cannot catch a
+  rebase-capable repo merged by squash out of habit
 
 ## 6. Mode setting (PRODUCT)
 
@@ -132,7 +105,8 @@ commits back into one. The fork is how hard ship guards that.
 
 - **`claude/hooks/ship.test.ts` covers `stack`, `commits` and single-slice**,
   plus: open slice refused, invalid mode refused, empty slice skipped, wrong PR
-  base retargeted, merged slice PR refused, dry run per slice
+  base retargeted, merged slice PR refused, dry run per slice, "Stacked on" line
+  on upper PRs only, rebase-merge warning in `commits` mode
 - **`docs/driver.md` "Inside Claude Code" and the README** describe
   `GTD_SHIP_MODE`, both modes, the `<branch>-<slice>` naming, and the
   `commits`-mode merge requirement; drop "squash it into one commit" wording
@@ -177,3 +151,12 @@ whole-process rule already drops `.gtd/`-only work.
 
 No — the issue scopes it to `/gtd ship`; gtd stays agnostic and other drivers
 keep squashing via plain `gtd summary`.
+
+### Should stacked pull requests point at each other?
+
+Yes, one way: each PR above the first names the PR it stacks on ("Stacked on #N
+— merge that first"); lower PRs know nothing of those above.
+
+### What does `commits` mode do about a repo that cannot rebase-merge?
+
+Warns in the ship report when the repo disallows rebase merge, and ships anyway.
