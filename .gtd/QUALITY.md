@@ -121,3 +121,68 @@ is an ancestor of a later HEAD rebuilds from the top". About -12 lines.
 `squash`, and only turns `recordStack`'s string into `fail(...)`. It was split
 out of `squash`, not shared. Fix (nice to have): put the two lines back at the
 call site. -4 lines.
+
+## test-audit: "never its local ref" poisons a spelling the code never used, so reverting to the old floor still passes
+
+`claude/hooks/ship.test.ts`, "a merged slice's commit is found off the recorded
+top, never its local ref". It overrides only
+`git rev-parse refs/heads/feat/x-refactor` (no `--verify --quiet`). The `merged`
+fixture inherits `resume`, where
+`git rev-parse --verify --quiet refs/heads/feat/x-refactor` still answers `C1`,
+the same value `<top>~1` gives. The deleted `settle` took the floor from
+`links[done-1].commit`, which `chain` read with exactly that `--verify --quiet`
+spelling. So a regression back to "floor = the lower branch's local ref" (the
+behaviour this test exists to rule out) still logs `C1..X` and passes. The same
+gap applies to "a merged lower slice drops out of a resumed stack before any
+push", whose `C1..C2` log assertion is the only other floor proof. Fix: poison
+`--verify --quiet refs/heads/feat/x-refactor` with `"9".repeat(40)` too, so the
+two ways of reading the ref disagree with `<top>~1`.
+
+## test-audit: the merged-slice floor on a one-slice re-ship, and its "cannot be found" refusal, have no test
+
+- `squashOntoStack` returns `floor: resume.floor`, and `stackPullRequests` uses
+  it in place of `merge-base`. Every test in "a recorded stack resumed by a
+  one-slice ship" has all PRs `OPEN` (`done === 0`), so the floor is always
+  undefined there. Removing `floor: resume.floor` fails no test, and the top
+  PR's description would then cover the merged slice's commits again. Add one
+  `reship` case with `[view("feat/x-refactor")]: pr(7, { state: "MERGED" })` and
+  `` `${C2}~1` `` → `C1`, asserting the log range starts at `C1` and the top PR
+  is retargeted to `main`.
+- `resumable`'s `if (done && !floor)` refusal ("The commit of merged slice …
+  cannot be found; nothing changed") is not tested. No test scripts `<top>~n` to
+  fail while a slice is `MERGED`. Add a case to the `merged` describe with
+  `` `git rev-parse --verify --quiet ${C2}~1` `` → `{ code: 1 }` that asserts
+  the refusal text and that nothing in `mutating` ran.
+- The existing `test.each(["MERGED", "CLOSED"])` "a %s top PR refuses without
+  pointing at commits mode" uses `sbase` (fresh stack) only. Running the same
+  table over `reship` would pin the wrong remedy text the correctness lens found
+  for a resumed stack's top PR.
+
+## test-audit: duplicate refusal tests, a read-order test, and stale names after the mode switch
+
+- "a recorded top that is not an ancestor of HEAD refuses with nothing changed"
+  (`lowerGone` + `merge-base --is-ancestor C2 HEAD` failing) proves the same
+  thing as the `test.each` row "HEAD no longer contains the top" in "a missing
+  slice branch on resume" (`gone` + the same two scripted lines). The only
+  differences are `HEAD = X` and a poisoned `HEAD~1`, and neither is read on the
+  refusal path. Delete one of them. If the correctness fix (refuse a merged
+  floor without a missing branch) lands, give the kept slot the
+  `MERGED`-with-branches-present case instead.
+- "every gh pr view precedes any ref probe" checks the order of reads relative
+  to other reads. That is call shape, not observable behaviour. `topGuard` takes
+  `done` from the PR states, so the order is a data dependency that a reorder
+  could not keep anyway. The contract that matters, a non-open PR refusing with
+  nothing changed, is already covered by "a closed lower slice refuses a resume
+  before any push" and "a closed lower PR refuses before the history push".
+  Delete the test.
+- "a lower branch deleted before a one-slice re-ship is revived after the squash
+  at <top>~n" does not assert `ok`, and it does not assert that
+  `git reset --soft ${BASE}` ran. If the squash is skipped, `at(reset)` is `-1`
+  and the `toBeGreaterThan` still passes. Add `toMatchObject({ ok: true })` and
+  `at(reset) > -1`.
+- Names that no longer match what the tests do:
+  - "a failed git branch -f leaves a record that a second run rebuilds from
+    HEAD": the second run now reads `<top>~1`, not `HEAD~1`.
+  - "single-slice stack-mode ship defers the unset until after the retarget":
+    now calls `ship(io, false, "commits")`. Rename both, for example "…rebuilds
+    from the recorded top" and "single-slice commits-mode ship defers…".
