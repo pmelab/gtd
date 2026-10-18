@@ -15,3 +15,12 @@
   `runSummaryCommand` doc comment still lists only the two plain refusals. Add
   the `--slice` ones, short: unknown slice name (valid slices listed), config
   edited since a closed process, diverged replay.
+
+## Deferred review notes (15386cd)
+
+- note-1 — - [ ] ./docs/driver.md#396-399 [^docs-closed] — Risk: still says a
+  merged or (could): Fix the doc as the item says: offer `GTD_SHIP_MODE=commits`
+  only for a merged or closed lower slice's pull request, and say a merged or
+  closed top pull request needs a renamed branch. Also mention that a
+  commits-mode re-ship of a stacked branch retargets its pull request to the
+  default branch and leaves the lower slice pull requests open.
