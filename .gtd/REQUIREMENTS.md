@@ -8,7 +8,7 @@ The marker promises the test already exists, so a test the build turn added
 means decompose marked it wrongly. The builder cannot edit the package text, so
 the fix it is told to make decides whether the turn can ever pass.
 
-- [ ] Name the broken promise and say to stop and leave it to a person
+- [x] Name the broken promise and say to stop and leave it to a person
   - matches the build prompt's existing rule: "if the marker is wrong … stop and
     leave it to a person"
   - the turn stays refused until a human fixes the package
