@@ -125,3 +125,38 @@ Nits:
 
 5. Agree with ponytail item 2: "is empty for two boilerplate-only stdouts with
    differing hashes" repeats the `it.each` case.
+
+## conventions: the fake turbo log has no live twin holding it honest
+
+Rule (AGENTS.md, Testing): "reach every external resource (… a spawned program)
+through a port with a live and an in-memory implementation, and hold the two
+together with a contract test that runs the same cases against both."
+
+`runStates` takes a `TurboRun` (the in-memory side; `spawnTurbo` is the live
+side). The change adds a new in-memory case, the `boiler` stdout in "never
+collapses a boilerplate-only failure", plus the `head`/`tail` fixtures for
+`failureSignature`. No case runs the same input against both sides. The two new
+real-turbo tests check `failureSignature` on live output, but they never compare
+it with the fixtures. That gap is how the fixtures got the `ERROR … exited (N)`
+line on stdout, which real turbo writes to stderr (see ponytail item 1). A
+contract case would have caught it.
+
+Fix: make the boilerplate case one shared contract case. Assert that the fake
+stdout and `realRun("exit 1")()` both give `""`. Or build the fake from the
+captured live shape. Then delete the ERROR branch and the ERROR fixture lines
+together, as ponytail item 1 says.
+
+## conventions (Nit): the comment and doc credit npm's echo lines to turbo
+
+Rule (AGENTS.md, Comments): keep a comment "only where it explains an important
+decision… as short as the fact allows". Rule (Documentation): docs tell a user
+what the code cannot. Both need to be accurate.
+
+- `scripts/test-states.ts:65` says "Remaining turbo `> ` echo lines". The two
+  `> ` lines are npm's script echo (`> pkg@ script`, `> command`), not turbo's.
+  The correctness Nit's pre/post-script fragility follows from exactly that. Say
+  "npm's two `> ` script-echo lines after turbo's cache line".
+- `docs/development.md` says "prints nothing beyond turbo's own lines". The
+  dropped lines are turbo's cache line plus npm's echo, so write "beyond turbo's
+  and npm's own preamble". Otherwise a contributor whose task fails silently,
+  except for an npm `pre` script's echo, reads a promise the code does not keep.
