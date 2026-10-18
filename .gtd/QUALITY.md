@@ -229,3 +229,69 @@ history, a 'what' with no 'why') gets deleted, not moved."
   is a "what". The decisions worth keeping are "every read happens before any
   write, so a refusal changes nothing" and "`revive` is left to the caller so a
   squash can come first". Trim it to those.
+
+## spec-challenge: "floor from `<top>~n`, never its local ref" breaks the documented "a rebase ends the stack: ship then ships the branch alone"
+
+The decision is in ARCHITECTURE.md's answered question "Where does the floor
+commit come from once the merged branch is gone?" and in package 01, req. 3: the
+floor is always `<top>~n`, and reading it needs the recorded top to be in HEAD
+(`topGuard` with `from > 0`). It conflicts with two invariants:
+
+- `docs/driver.md`, which this change leaves as it was: "…until its branch is
+  rebased onto the default branch (a rebase ends the stack: ship then ships the
+  branch alone)"
+- REQUIREMENTS.md req. 2, which the package carries: "A recorded stack that no
+  longer chains to HEAD still drops and ships alone, as resume does today"
+
+Merging the bottom PR and then rebasing is the flow that doc sentence describes.
+In that flow the recorded top leaves HEAD, so the ship now refuses ("A merged
+slice's commit cannot be found and HEAD no longer contains the recorded top…")
+instead of shipping alone. The spec never weighed the two against each other:
+the answered question only covers a deleted merged branch. Its premise also
+assumed the local ref might be "moved". The rebase moves the recorded top too.
+The correctness finding above has the code fix: refuse only for a missing
+unmerged branch, and otherwise drop to ship-alone or `merge-base`. Whichever fix
+lands, the driver.md sentence and the spec must agree. Either restore
+ship-alone, or change the doc to say a rebase after a merge refuses and needs
+`GTD_SHIP_MODE=commits`.
+
+## spec-challenge: only a ONE-slice process keeps a recorded stack, while a multi-slice process on the same branch still replaces it
+
+Requirement 2 and its answered question ("only the top branch gains a commit, so
+lower pull requests are … never retargeted or closed") apply to
+`groups.length === 1` only (`stackReads`). A two-slice process on the same
+stacked branch still goes to `stackPrecheck` → `buildStack` → `recordStack`.
+That path overwrites `gtdStack`/`gtdStackTop` with only the new slice names.
+`takenSlice` explicitly lets recorded names through. `stackPullRequests` then
+bases its lowest new slice on the default branch, from
+`merge-base(baseRef, HEAD)`. The result:
+
+- the old lower slices drop out of the record, and their PRs stay open with
+  nothing tracking them
+- the new bottom PR targets the default branch and shows the old stack's commits
+  again
+- the old top PR (on `<branch>`) is retargeted onto the new slice branch
+
+That behaviour is older than this change. But the change now makes "keeps the
+stack" depend on how many slices the next process has, and `docs/driver.md` says
+only "in `stack` mode a single slice on a stacked branch lands on the top branch
+and keeps the stack". It says nothing about the multi-slice case. Either have a
+multi-slice process extend a live recorded stack the same way (its lowest slice
+bases on the old top, and the old names stay in the record), or document that a
+multi-slice process on a stacked branch starts a new stack. Then pin the chosen
+behaviour with a test.
+
+## spec-challenge: the re-shipped slice's name never enters the record, so its work is labelled with the old top slice's name
+
+The package's "`gtdStackTop` is never moved … no `git config` write on a
+re-ship" also leaves `gtdStack` as it was. `squashOntoStack` keeps
+`links[top].name` as the old top slice's name and swaps in only the commit.
+`stackPreview` (dry run) prints the new slice's commit message under
+`[<old top name>]`. `stackPullRequests` reports `[<old top name>] …`, and a
+part-way failure says "Slice <old top name> failed at …". The invariant this
+conflicts with is that a link's `name` is the slice whose commit it carries.
+`sliceLinks` and `recordStack` both build links that way, and every message uses
+`name` to mean that. Small, but every message on this new path names the wrong
+slice. Fix: label the top link with `group.name` for output only, and leave the
+recorded names alone so `<branch>-<name>` lookups still work. Or state in the
+dry-run text that the slice lands on the top slice's branch.
