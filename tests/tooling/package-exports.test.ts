@@ -82,6 +82,16 @@ describe("this repository's config", () => {
       ),
     )
     expect(config.defaultWorkflow.name).toBe("feature")
-    expect(config.workflowNames).toEqual(["cleanup", "feature", "fix", "review", "rollout"])
+    // A workflow exported in another shape is missed here and reds the diff.
+    const declared = [
+      ...readFileSync(join(root, "gtd.config.ts"), "utf8").matchAll(
+        /^export const (\w+) = \w+\(/gm,
+      ),
+    ]
+      .map((m) => m[1] as string)
+      .sort()
+    expect(declared.length).toBeGreaterThan(0)
+    expect([...config.workflowNames].sort()).toEqual(declared)
+    for (const name of declared) expect(config.workflowNamed(name)?.def.initial).toBeDefined()
   })
 })
