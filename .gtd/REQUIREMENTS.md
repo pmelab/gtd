@@ -3,26 +3,6 @@
 Six fixes to the refactor-first slice work on this branch (PR 390, closes #381).
 Each one ships green on its own, in this order.
 
-## Open Questions
-
-### After an unbuildable refactor note is refused, what is the human's way out?
-
-The refusal is settled (see below). Still open: is `gtd abandon` the only exit,
-or does the human get a rest where they can drop the note and sign off on
-purpose.
-
-- [x] Refuse the collecting turn's landing; the only way out is `gtd abandon`
-  - matches the current docs ("abandon and restart")
-  - the driver re-prompts once, then the process shows as blocked
-  - **abandoning throws away the naive pass, the refactor and its review**
-- [ ] Rest at a new human step that names the notes the refactor cannot build;
-      landing clean signs off without them, `gtd abandon` restarts
-  - no work is lost to a note that only belongs to the feature
-  - **adds a public step name** (for example
-    `refactor.build.review.unbuildable`), so it is API and docs
-  - the sign-off is explicit, never silent
-- [ ] _your answer_
-
 ## 1. Refactor review: never sign off silently on an unbuildable edit note (PRODUCT)
 
 Today a refactor-review edit note the refactor cannot build (it needs a path
@@ -35,7 +15,13 @@ the refactor signs off as if approved.**
   turn wrote no `.gtd/REFACTOR.md`, refuse — never `signoff`**
 - A round with only an approving remark (nothing actionable) still signs off by
   changing nothing
-- The refusal names the notes left out and the way out the open question settles
+- **The refusal is the collecting turn's landing being refused; the only way out
+  is `gtd abandon`** — no new step, no new public step name
+- The refusal names the notes left out and tells the human to run `gtd abandon`
+  and restart
+- **Abandoning throws away the naive pass, the refactor and its review** — the
+  refusal text says so, so the human knows what the restart costs
+- The driver re-prompts once, then the process shows as blocked
 - The collecting prompt drops "say in the reply" wording that points at
   `.gtd/REVIEW.md`: the round closes that file before collecting runs
 - Pin with a `@inmem` scenario in `refactor-review.feature` and unit tests in
@@ -133,3 +119,9 @@ whole promise is that it touches only the strays.
 
 No. The TODO says it skips the seam, and the shipped flow already never re-runs
 the seam once judged.
+
+### After an unbuildable refactor note is refused, what is the human's way out?
+
+`gtd abandon` only. The collecting turn's landing is refused, matching the
+current docs ("abandon and restart"); no rest step for dropping the note is
+added. Abandoning loses the naive pass, the refactor and its review.
