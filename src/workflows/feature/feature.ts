@@ -43,7 +43,7 @@ export const planAndBuild = async (firstBase: string): Promise<void> => {
 }
 
 // seam.naive / seam.judge run once: a feedback lap is design → implement on every verdict, so a
-// seam a re-plan turns up is built unjudged and unrefactored. The loop sits inside its slice.
+// seam a re-plan turns up is built unjudged and unrefactored.
 const naivePlanAndBuild = async (firstBase: string): Promise<void> => {
   await design(firstBase)
   let tier = riskTierOn() ? recordRisk() : undefined

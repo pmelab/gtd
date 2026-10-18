@@ -148,7 +148,7 @@ interface Plan {
   readonly reference: string | undefined
 }
 
-/** Resolves undefined for every shape that is not a readable `refactor-first`; throws on a bad flag pattern. */
+/** Undefined for every shape that is not a readable `refactor-first`; throws on a bad flag pattern. */
 const plan = (shape: DiffShapeResult, options: RefactorOptions): Plan | undefined => {
   if (shape.choice !== "refactor-first" || shape.unreadable.length > 0) return undefined
   const pattern = vars.refactorFlagPattern ?? defaults.refactorFlagPattern!

@@ -1257,7 +1257,8 @@ exits 1.
 lens is its own scope, keyed `build.quality.<lens>`. By default that scope's
 skills ARE the lens; a `build.quality.<lens>` entry REPLACES them with the
 configured list, leaving the prompt body's own mention of the lens untouched.
-Such a key is valid only while the lens is listed in `qualityReviews`, judged
+Such a key is valid only while the lens is listed in `qualityReviews` (for a
+`refactor.build.quality.<lens>` key, in `refactorQualityReviews`), judged
 against the running process's recorded settings, or against the workflow's
 settings, `GTD_<NAME>` and `--var` when no process is underway. A key added for
 a lens mid-process errors until that process finishes.

@@ -33,7 +33,6 @@ export const defaults: Readonly<Record<string, string>> = {
   // keyed in `./skills.ts`.
   qualityReviews:
     "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge",
-  // The refactor slice's lenses: one `refactor.build.quality.<lens>` scope per entry.
   refactorQualityReviews: "correctness, ponytail-review, conventions",
 }
 

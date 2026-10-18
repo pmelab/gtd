@@ -245,7 +245,6 @@ export const review = (
   })
 }
 
-/** Where a review's edit notes land, and the turn that writes them. */
 export interface FeedbackTarget {
   readonly file: string
   readonly collecting: (capture: string) => Promise<void>
@@ -258,7 +257,6 @@ export interface BuildTailOptions {
   readonly guard?: Guard
   /** Quality-lap lenses; default `lensesOf(vars.qualityReviews)`. */
   readonly lenses?: readonly string[]
-  /** Default: `.gtd/REQUIREMENTS.md` via `collecting`. */
   readonly feedback?: FeedbackTarget
 }
 

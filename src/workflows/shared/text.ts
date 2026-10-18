@@ -450,7 +450,7 @@ const refactorRules = (strays: readonly string[], pattern: string): string =>
   `- Behaviour-neutral: the suite's outcome must not change
 - Change only these paths, nothing else, and never a test file even
   when it is one of them:
-${strays.map((path) => `  - \`${path}\``).join("\n")}
+${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
 - Introduce no new flag read and add no second read of an existing one:
   every match of \`${pattern}\` may move, never increase in number`
 
@@ -892,9 +892,10 @@ ${footnoteFoldIn}${codeThreadReplies()}
 - Nit notes were already fixed: never re-raise a fixed nit as a concern
 - The next refactor may change only these paths, and never a test file
   or a flag read:
-${strays.map((path) => `  - \`${path}\``).join("\n")}
-  A concern needing any other path, a test file, or a new or added flag
-  read cannot be built: do not fold it. Say in the reply that the way
+${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
+  A concern needing any other path, a test file, a new or added flag
+  read, or a change in behaviour (that belongs to the feature, not this
+  refactor) cannot be built: do not fold it. Say in the reply that the way
   out is \`gtd abandon\` and a restart
 - Finish by running \`gtd check review .gtd/REVIEW.md\` and fix
   what it reports

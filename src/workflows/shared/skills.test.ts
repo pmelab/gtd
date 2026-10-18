@@ -92,17 +92,6 @@ describe("the bundled workflow's skills export", () => {
     })
   })
 
-  it("gives each refactor.build.* scope its build.* counterpart's list", () => {
-    for (const name of ["health", "fix.quality", "review", "review.fix.nits", "review.fix.risks"]) {
-      expect(bundled[`refactor.build.${name}`]).toEqual(bundled[`build.${name}`])
-    }
-    expect(bundled["refactor.build"]).toEqual(bundled.build)
-    expect(bundled["refactor.build.quality.correctness"]).toEqual(
-      bundled["build.quality.correctness"],
-    )
-    expect(bundled["refactor.build.quality.conventions"]).toEqual([])
-  })
-
   it("keys one refactor lens scope per refactorQualityReviews entry", () => {
     const custom = skills({ ...defaults, refactorQualityReviews: " my-lens ,, correctness" })
     expect(

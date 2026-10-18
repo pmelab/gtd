@@ -105,7 +105,6 @@ export interface SeamOutcome {
 export const seamBuild = async (base: string): Promise<SeamOutcome> => {
   const { reference, shape } = await decide()
   if (shape === undefined) return { reference, base }
-  // Unreadable strays rest at by-hand, before any refactor slice is entered.
   if (shape.unreadable.length > 0) {
     await scope("seam", () =>
       human("by-hand", {
@@ -116,6 +115,6 @@ export const seamBuild = async (base: string): Promise<SeamOutcome> => {
     )
     return { reference, base }
   }
-  const refactored = await slice("refactor", () => reviewedRefactor(shape, { reference }))
-  return { reference, base: refactored ? head() : base }
+  await slice("refactor", () => reviewedRefactor(shape, { reference }))
+  return { reference, base: head() }
 }

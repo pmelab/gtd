@@ -18,6 +18,10 @@ export const access = (
   // `{}` reopens what `build.review` restricted: the fixes edit code.
   "build.review.fix.nits": {},
   "build.review.fix.risks": {},
+  "refactor.build.review": { write: [".gtd/REVIEW.md"] },
+  "refactor.build.review.defer": { write: [".gtd/TODO.md"] },
+  "refactor.build.review.fix.nits": {},
+  "refactor.build.review.fix.risks": {},
   ...lensScopes("build.quality", lensesOf(vars.qualityReviews ?? ""), () => ({ write: [] })),
   ...lensScopes("refactor.build.quality", lensesOf(vars.refactorQualityReviews ?? ""), () => ({
     write: [],

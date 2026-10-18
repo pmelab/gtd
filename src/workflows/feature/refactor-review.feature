@@ -318,17 +318,17 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
         export const op = (a: number, b: number, sign: number) => a + sign * b
         export const add = (a: number, b: number) => op(a, b, 1)
-        // TODO: also export multiply
+        // TODO: rename op to adjust
         """
       And step "refactor.build.review.collecting" writes ".gtd/REFACTOR.md" with:
         """
-        Also export multiply from the shared helper.
+        Rename op to adjust in the shared helper.
         """
       And step "refactor.re-unwind" runs its script
       And step "refactor.building" writes "src/calc.ts" with:
         """
-        export const multiply = (a: number, b: number) => a * b
-        export const add = (a: number, b: number) => a + b
+        export const adjust = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => adjust(a, b, 1)
         """
       When gtd lands
       And the process is driven
