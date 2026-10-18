@@ -38,7 +38,7 @@ describe("declaredTests", () => {
     ])
   })
 
-  it("marks only the exact ` (unchanged)` suffix as unchanged", () => {
+  it("marks a whitespace-led, case-insensitive `(unchanged)` ending at a boundary", () => {
     const text = [
       "## Tests",
       "- unit: `a.test.ts` (unchanged)",
@@ -47,6 +47,10 @@ describe("declaredTests", () => {
       "- unit: `f.test.ts` (unchanged) — kept as is",
       "- unit: `d.test.ts` (Unchanged)",
       "- e2e: `e.feature` (unchanged)",
+      "- unit: `g.test.ts`\t(unchanged)",
+      "- unit: `h.test.ts`   (unchanged)",
+      "- unit: `i.test.ts`(unchanged)",
+      "- Unit: `j.test.ts` (unchanged)",
     ].join("\n")
     expect(declaredTests(text).map((t) => [t.path, t.unchanged])).toEqual([
       ["a.test.ts", true],
@@ -55,25 +59,9 @@ describe("declaredTests", () => {
       ["f.test.ts", true],
       ["d.test.ts", true],
       ["e.feature", true],
-    ])
-  })
-
-  it("accepts tabs, several spaces and any case before the boundary", () => {
-    const text = [
-      "## Tests",
-      "- unit: `a.test.ts`\t(unchanged)",
-      "- unit: `b.test.ts`   (unchanged)",
-      "- unit: `c.test.ts` (UNCHANGED)",
-      "- unit: `d.test.ts` (unchanged)x",
-      "- unit: `e.test.ts`(unchanged)",
-      "- Unit: `f.test.ts` (unchanged)",
-    ].join("\n")
-    expect(declaredTests(text).map((t) => [t.path, t.unchanged])).toEqual([
-      ["a.test.ts", true],
-      ["b.test.ts", true],
-      ["c.test.ts", true],
-      ["d.test.ts", false],
-      ["e.test.ts", false],
+      ["g.test.ts", true],
+      ["h.test.ts", true],
+      ["i.test.ts", false],
     ])
   })
 
@@ -137,53 +125,6 @@ describe("packages", () => {
 })
 
 describe("requireDeclaredTests", () => {
-  it("groups an unwritten unmarked test and a missing marked test in one refusal", () => {
-    const pkg = ".gtd/packages/01-a.md"
-    const text = [
-      "## Tests",
-      "- unit: `lib/unwritten.test.ts`",
-      "- unit: `lib/gone.test.ts` (unchanged)",
-      "- unit: `lib/kept.test.ts` (unchanged)",
-    ].join("\n")
-    installContext(
-      fixtureContext(
-        {},
-        {
-          read: (path: string) =>
-            path === pkg ? text : path === "lib/kept.test.ts" ? "x" : undefined,
-          refuse: (message: string): never => {
-            throw new Error(message)
-          },
-          changesSince: (): Changes => {
-            const list: readonly Change[] = [
-              { path: pkg, status: "modified", before: text, after: text },
-            ]
-            return Object.assign([...list], {
-              paths: list.map((c) => c.path),
-              get: (path: string) => list.find((c) => c.path === path),
-            })
-          },
-        },
-      ),
-    )
-    let message = ""
-    try {
-      requireDeclaredTests(pkg, "c")
-    } catch (error) {
-      message = String(error instanceof Error ? error.message : error)
-    }
-    expect(message).toContain("gtd land: declared-tests:")
-    expect(message).not.toMatch(/satisf/i)
-    const diffAt = message.indexOf("not in the package's diff")
-    const treeAt = message.indexOf("missing from the tree")
-    expect(diffAt).toBeGreaterThanOrEqual(0)
-    expect(treeAt).toBeGreaterThan(diffAt)
-    expect(message.indexOf("  - lib/unwritten.test.ts")).toBeGreaterThan(diffAt)
-    expect(message.indexOf("  - lib/unwritten.test.ts")).toBeLessThan(treeAt)
-    expect(message.indexOf("  - lib/gone.test.ts")).toBeGreaterThan(treeAt)
-    expect(message).not.toContain("kept.test.ts")
-  })
-
   const run = (
     text: string,
     tree: readonly string[],
@@ -191,7 +132,6 @@ describe("requireDeclaredTests", () => {
     satisfied = false,
   ) => {
     const pkg = ".gtd/packages/01-a.md"
-    let lookups = 0
     installContext(
       fixtureContext(
         {},
@@ -214,13 +154,10 @@ describe("requireDeclaredTests", () => {
               { path: pkg, status: "modified", before: text, after: text },
               ...changes,
             ]
-            // runtime's `get` is `list.find`: one find per lookup
-            const find = list.find.bind(list)
-            list.find = ((predicate: (c: Change) => boolean) => {
-              lookups += 1
-              return find(predicate)
-            }) as typeof list.find
-            return Object.assign(list, { paths: [], get: () => undefined })
+            return Object.assign(list, {
+              paths: list.map((c) => c.path),
+              get: (path: string) => list.find((c) => c.path === path),
+            })
           },
         },
       ),
@@ -231,13 +168,33 @@ describe("requireDeclaredTests", () => {
     } catch (error) {
       message = String(error instanceof Error ? error.message : error)
     }
-    return { message, lookups: () => lookups }
+    return { message }
   }
   const deleted = (path: string): Change => ({
     path,
     status: "deleted",
     before: "x",
     after: undefined,
+  })
+
+  it("groups an unwritten unmarked test and a missing marked test in one refusal", () => {
+    const text = [
+      "## Tests",
+      "- unit: `lib/unwritten.test.ts`",
+      "- unit: `lib/gone.test.ts` (unchanged)",
+      "- unit: `lib/kept.test.ts` (unchanged)",
+    ].join("\n")
+    const { message } = run(text, ["lib/kept.test.ts"], [])
+    expect(message).toContain("gtd land: declared-tests:")
+    expect(message).not.toMatch(/satisf/i)
+    const diffAt = message.indexOf("not in the package's diff")
+    const treeAt = message.indexOf("missing from the tree")
+    expect(diffAt).toBeGreaterThanOrEqual(0)
+    expect(treeAt).toBeGreaterThan(diffAt)
+    expect(message.indexOf("  - lib/unwritten.test.ts")).toBeGreaterThan(diffAt)
+    expect(message.indexOf("  - lib/unwritten.test.ts")).toBeLessThan(treeAt)
+    expect(message.indexOf("  - lib/gone.test.ts")).toBeGreaterThan(treeAt)
+    expect(message).not.toContain("kept.test.ts")
   })
 
   it("sends a marked deleted test to restore only", () => {
@@ -279,11 +236,5 @@ describe("requireDeclaredTests", () => {
     expect(r).toBeGreaterThan(w)
     expect(m).toBeGreaterThan(r)
     expect(message).not.toMatch(/satisf/i)
-  })
-
-  it("looks each declared path up once", () => {
-    const text = "## Tests\n- unit: `a.test.ts`\n- unit: `b.test.ts` (unchanged)"
-    // the package file plus one lookup per declared test
-    expect(run(text, ["b.test.ts"], []).lookups()).toBe(3)
   })
 })

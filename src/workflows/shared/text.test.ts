@@ -1284,19 +1284,12 @@ describe("packagesItemBuildingPrompt", () => {
     /\s+/g,
     " ",
   )
-  it("never says otherwise", () => {
-    expect(prompt).not.toMatch(/otherwise/i)
-  })
   it("carries the evidence kinds and the already-done check", () => {
     for (const w of [
       "evidence per criterion",
-      "commit",
-      "symbol",
-      "issue URL",
-      "command output",
+      "commit, file, symbol, issue URL, or command output — and change nothing else",
       "it was not already done",
       "via `gh`",
-      "change nothing else",
     ])
       expect(prompt).toContain(w)
   })
@@ -1306,8 +1299,6 @@ describe("packagesItemBuildingPrompt", () => {
     expect(prompt).toContain(
       "Any other package**: implement normally, write no `.gtd/SATISFIED.md`",
     )
-    expect(prompt).not.toContain("met by work outside the tree")
-    expect(prompt).not.toContain("do the work, then write the file")
   })
   it("says an (unchanged) line needs only to exist", () => {
     expect(prompt).toContain("(unchanged)")

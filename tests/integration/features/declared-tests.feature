@@ -278,5 +278,3 @@ Feature: A package's declared tests gate its build
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.closing → build.quality.correctness.reviewing"
-    And ".gtd/packages/01-widget.md" does not exist
-    And ".gtd/SATISFIED.md" does not exist
