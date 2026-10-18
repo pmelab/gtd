@@ -8,7 +8,7 @@ Today every state streams its full turbo output, so one test red in all three
 states lands in `.gtd/FEEDBACK.md` three times. The options differ in how much a
 reader learns about the second and later states.
 
-- [ ] Full output for the first failing state; each later state prints one line
+- [x] Full output for the first failing state; each later state prints one line
       when its failures match an earlier state, and only its own failing tasks'
       output when they differ
   - a failure that is red everywhere costs one state's output
