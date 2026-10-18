@@ -401,28 +401,74 @@ falls back to the `gtd` on your `PATH`.
   merged or closed, or an existing `<branch>-<slice>` branch the stack did not
   build, refuses before anything changes: for a lower slice's pull request of a
   fresh multi-slice stack, use `GTD_SHIP_MODE=commits` (a resume or a
-  single-slice re-ship skips a merged lower slice instead); a merged or closed
-  top pull request, or a branch the stack did not build, needs a renamed branch.
-  A fresh multi-slice stack ship on a branch whose recorded stack is still live
-  refuses too, naming `GTD_SHIP_MODE=commits` or unsetting
-  `branch.<branch>.gtdStack` and `gtdStackTop` and deleting or renaming the old
-  slice branches (a record that no longer chains to HEAD is dropped, not
-  refused). A `gh pr view` failure other than "no pull request" refuses before
-  that step's writes. Slice commits keep `commit.gpgSign` but run no
-  `commit-msg` hook. A failure part-way keeps what landed and names the slice
-  and step; run `/gtd ship` again to resume, and once a lower slice's pull
-  request has merged, a resume skips it and targets the default branch.
-  Squash-merging a lower stacked pull request rewrites its commit, and a rebase
-  merge does the same, so the pull request above shows that slice's changes
-  again until its branch is rebased onto the default branch (a rebase ends the
-  stack: ship then ships the branch alone); only a merge commit keeps the stack
-  clean. A commits-mode re-ship of a stacked branch retargets its pull request
-  to the default branch and leaves the lower slices' pull requests open; close
-  them by hand. A pull request on a base that is not a slice branch keeps its
-  base, a thrown draft in a stack is retargeted like any other, and a missing
-  slice branch is rebuilt from the commits the stack was built at while the
-  branch still contains them, otherwise the ship refuses and names
-  `GTD_SHIP_MODE=commits` to ship the branch alone.
+  single-slice re-ship skips a lower slice merged into the default branch
+  instead); a merged or closed top pull request, or a branch the stack did not
+  build, needs a renamed branch. A fresh multi-slice stack ship on a branch
+  whose recorded stack is still live refuses too, naming `GTD_SHIP_MODE=commits`
+  or unsetting `branch.<branch>.gtdStack` and `gtdStackTop` and deleting or
+  renaming the old slice branches (a record that no longer chains to HEAD is
+  dropped, not refused; a hand-restacked record is live). A `gh pr view` failure
+  other than "no pull request" refuses before that step's writes. Slice commits
+  keep `commit.gpgSign` but run no `commit-msg` hook. A failure part-way keeps
+  what landed and names the slice and step; run `/gtd ship` again to resume, and
+  once a lower slice's pull request has merged, a resume skips it and targets
+  the default branch. Squash-merging or rebase-merging a lower stacked pull
+  request rewrites its commit, so run `/gtd ship` again: it fetches the default
+  branch and rebases the remaining slice branches onto `origin/<default>` in one
+  `git rebase --update-refs` (git 2.38 or newer; the local default branch is not
+  touched), pushes each moved branch with a lease on origin's own commit,
+  retargets the lowest remaining pull request to the default branch and shrinks
+  the recorded stack to the remaining slices (it ends when only the top branch
+  remains). The restacked branches keep their pull requests, and the merged
+  slice's `<branch>-<slice>` branch is left alone, locally and on origin. With
+  new work at HEAD the ship squashes it first, then restacks, in the same
+  `/gtd ship`; `-n` prints the planned rebase, pushes and retarget from the last
+  fetch of `origin/<default>` and writes nothing. A merge commit keeps the
+  slice's commit in the default branch, so that case only retargets. If origin's
+  copy of a branch the restack moves holds commits the local branch lacks, the
+  ship refuses before changing anything: pull or reconcile that branch first. A
+  conflicting rebase is aborted, leaving the tree and refs as before the ship
+  (if the abort itself fails the failure says the repository is mid-rebase and
+  to run `git rebase --abort` by hand), and the failure names the slice and the
+  step and prints the
+  `git rebase --update-refs --onto origin/<default> <commit> <branch>` line to
+  run by hand (after a squash in that same `/gtd ship` the squash is kept, and
+  the failure prints the `git reset --soft` to undo it). The restack refuses,
+  with nothing changed, when a pull request merged anywhere but the default
+  branch, unless into a lower slice branch before that one merged into it (ship
+  the branch alone with `GTD_SHIP_MODE=commits`) or when a remaining lower slice
+  branch is checked out in another worktree, where `--update-refs` would skip it
+  (`-n` shows that refusal too; free the branch with `git switch --detach`
+  there). If the rebase still leaves such a branch unmoved (a worktree
+  mid-rebase, say), the slice branches and HEAD are restored and the ship
+  refuses, with nothing pushed or recorded; if that restore itself fails, the
+  refusal prints the `git update-ref` and `git reset --keep` lines to run by
+  hand. The same rollback runs when the rebase exits non-zero after it moved
+  HEAD or a slice branch, and when a remaining slice is left with no commit of
+  its own because its change is already in `origin/<default>` (the refusal names
+  the slice; ship the branch alone with `GTD_SHIP_MODE=commits`). The restack
+  also refuses, under `-n` too and with nothing changed, when another local
+  branch points into the commits being rebased, since `--update-refs` would move
+  it as well: move or delete it. Each moved branch's lease (origin's commit
+  before the restack) is kept in `branch.<branch>.gtdLease` until a push of that
+  branch succeeds, so a push rejected because a collaborator pushed first is
+  still refused when you fetch and ship again; to overwrite origin's copy on
+  purpose run `git config --local --unset branch.<branch>.gtdLease` first. The
+  next `/gtd ship` spots a hand restack (the lowest remaining slice branch no
+  longer holds the merged slice's commit and sits on a commit of
+  `origin/<default>`; when only the top branch remains, which may span several
+  commits, its first commit above `origin/<default>` must be a copy of the
+  recorded top's first commit, same author, date and message), pushes each with
+  a lease on origin's own commit (refusing if origin holds a commit the local
+  branch has no copy of, same author, date and message), retargets the lowest
+  remaining pull request and keeps the stack; a rebase that does not fit that
+  shape drops the record and ships the branch alone. A commits-mode re-ship of a
+  stacked branch retargets its pull request to the default branch and leaves the
+  lower slices' pull requests open; close them by hand. A pull request on a base
+  that is not a slice branch keeps its base, a thrown draft in a stack is
+  retargeted like any other, and a missing slice branch is rebuilt from the
+  commits the stack was built at while the branch still contains them, otherwise
+  the ship refuses and names `GTD_SHIP_MODE=commits` to ship the branch alone.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A

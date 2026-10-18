@@ -2,7 +2,7 @@
 // pushing the branch and telling them. `throw` opens (or refreshes) a draft
 // pull request for the hand-off; `catch` checks it out wherever it was thrown.
 
-import { pushBranch, THROWN } from "./ship"
+import { defaultBranch, pushBranch, THROWN } from "./ship"
 import type { ShipIo, Shipped } from "./ship"
 
 export type Rest = { state?: string; label?: string; content?: string; isIdle: boolean }
@@ -73,8 +73,7 @@ async function throwBranch(io: ShipIo, now: string) {
   const git = async (...args: string[]) => (await io.run(["git", ...args])).out.trim()
   const branch = await git("rev-parse", "--abbrev-ref", "HEAD")
   if (!branch || branch === "HEAD") return "Detached HEAD: there is no branch to throw."
-  const head = await git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-  const base = head.replace(/^origin\//, "") || "main"
+  const base = await defaultBranch(git)
   if (branch !== base) return { branch, base }
   const fresh = `gtd/${now.replace(/[-:]/g, "").replace("T", "-").slice(0, 13)}`
   const switched = await io.run(["git", "switch", "-c", fresh])
