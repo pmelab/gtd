@@ -62,3 +62,32 @@ makes the refusal side-effect free, like the new `gh pr view` refusal.
 `sliceStep` has the same order after `pushLink`, but there `stackPrecheck` /
 `mergedSlices` already refuse non-open PRs earlier, so only the single-branch
 path is affected.
+
+## test-audit: since-head floor test pins the main-merge re-weigh
+
+`a synced head not above the merge base falls back to it`
+(claude/hooks/ship.test.ts) scripts `merge-base --is-ancestor M S` as false and
+asserts the count runs over `M..HEAD`. On a single branch that state is exactly
+"the author merged main in" (see the correctness chunk on the since-head floor),
+so the test locks in the whole-branch re-weigh as intended behaviour. If the
+floor moves to `S..HEAD ^M`, change this test to assert that range instead. Keep
+the stacked upper-slice test as the owner of the "synced head below the lower
+commit" case.
+
+## test-audit: renamed garbled-JSON test says the opposite of what it asserts
+
+`a real single-branch ship names the branch, pushes and edits nothing` now
+asserts that no `git push` ran. "pushes and edits nothing" reads as "it pushes".
+Rename it to `... names the branch, pushes nothing and edits nothing`, to match
+its dry-run sibling (`... pushes nothing`).
+
+## test-audit: Consider: "no pull requests found" test duplicates the base fixture
+
+`stderr naming no pull request opens one as before` overrides `view("feat/x")`
+with the same `no pull requests found` stderr that the shared `feature` fixture
+now scripts. So every existing single-branch create test already proves this
+path, and the test adds nothing. Either drop it, or make it the one owner by
+giving the shared fixtures a `noPr(branch)` helper (it is defined only inside
+this describe; sbase, feature and the missing-branch fixture each inline the
+literal). That also keeps the gh string in one place for the correctness drift
+chunk.
