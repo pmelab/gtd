@@ -77,3 +77,33 @@ tag of the same name can no longer redirect rebase ranges or `rev-parse`), and
 `landedOn` failing closed on a missing/unparseable `mergedAt` (NaN compares
 false → refusal). All git/gh calls stay argv arrays, no shell; branch names
 cannot start with `-`.
+
+## ponytail-review: a top slice that merged into a lower slice which then landed gets a false "not main" refusal (claude/hooks/ship.ts `unsettled`)
+
+Should fix. `landedOn` (merged into a lower slice before that slice merged into
+the default branch counts as landed) is applied only inside the `done` loop,
+which stops below the top slice. `unsettled` then judges every slice at or above
+`done` with the old test `baseRefName !== c.baseBranch`, so it ignores the new
+rule.
+
+Case: stack `feat/x-refactor`, `feat/x` (top). The top PR merges into
+`feat/x-refactor` first, then `feat/x-refactor` merges into `main`. GitHub does
+not retarget an already-merged PR, so the top PR keeps base `feat/x-refactor`.
+The user adds a commit and runs `/gtd ship`: `done` becomes 1, `unsettled` sees
+the top MERGED with base `feat/x-refactor` and returns `mergedElsewhere`:
+"merged into feat/x-refactor, not main ... Ship the branch alone with
+GTD_SHIP_MODE=commits". That is false (its change is in `main`) and the advice
+points at the wrong cure. The code before this change said "is MERGED, not open
+... Rename the branch", which was right. It also contradicts the new
+README/driver.md wording ("a slice branch whose chain never reached the default
+branch").
+
+Fix: in `unsettled`, test
+`view.state === "MERGED" && !landedOn(c.states, i, c.branchOf, c.baseBranch)`
+instead of the bare base check, so a landed top falls through to the "is MERGED,
+not open ... Rename the branch" refusal. Slices above `done` merged into an open
+lower slice still refuse as before (that slice has no `mergedAt`). Passing `c`
+to `landedOn` instead of its four fields would also drop the duplicated
+parameters. Add a test: two-slice stack, top MERGED into the lower branch with
+`mergedAt` earlier than the lower's, lower MERGED into main; expect the "Rename
+the branch" refusal and no write.
