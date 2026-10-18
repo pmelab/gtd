@@ -196,6 +196,7 @@ export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promis
   const { stack, floor } = squashed
   if (stack && isDry) {
     const text = await stackPreview(io, stack, baseBranch, squashed.messages, squashed.history)
+    if (typeof text !== "string") return fail(text.refusal)
     return withWarning({ ok: true, text }, squashed.warning)
   }
   if (isDry)
@@ -524,7 +525,8 @@ type View = {
   baseRefName?: string
 }
 
-// `gh pr view <branch>`: no PR reads as none; a reply that is not JSON is an error.
+// `gh pr view <branch>`: only gh's "no pull requests found" reads as none; any
+// other failure (auth, network) must refuse, or ship would open a duplicate PR.
 async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | string> {
   const v = await io.run([
     "gh",
@@ -534,7 +536,10 @@ async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | st
     "--json",
     "number,title,body,url,state,baseRefName",
   ])
-  if (v.code !== 0) return undefined
+  if (v.code !== 0) {
+    if (v.err.includes("no pull requests found")) return undefined
+    return `gh pr view ${branch} failed: ${v.err.trim()}`
+  }
   try {
     return JSON.parse(v.out) as View
   } catch {
@@ -543,10 +548,8 @@ async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | st
 }
 
 async function takenSlice(git: Git, ok: Ok, branch: string, groups: Group[]) {
-  const recorded = names(await git("config", "--local", "--get", STACK_KEY(branch)))
   for (const g of groups.slice(0, -1)) {
     const b = `${branch}-${g.name}`
-    if (recorded.includes(g.name)) continue
     if (
       (await ok("rev-parse", "--verify", "--quiet", `refs/heads/${b}`)) ||
       (await ok("rev-parse", "--verify", "--quiet", `origin/${b}`))
@@ -564,6 +567,9 @@ async function stackPrecheck(
   branch: string,
   groups: Group[],
 ): Promise<string | undefined> {
+  const live = names(await git("config", "--local", "--get", STACK_KEY(branch)))
+  if (live.length)
+    return `${branch} already has a recorded stack (${live.join(", ")}); nothing changed. Ship with GTD_SHIP_MODE=commits, or run git config --local --unset branch.${branch}.gtdStack and git config --local --unset branch.${branch}.gtdStackTop, then ship again.`
   const taken = await takenSlice(git, ok, branch, groups)
   if (taken) return taken
   for (const [i, g] of groups.entries()) {
@@ -714,15 +720,16 @@ async function stackPreview(
   baseBranch: string,
   messages: string[] | undefined,
   history?: string,
-) {
+): Promise<string | { refusal: string }> {
   const parts: string[] = []
   for (const [i, l] of links.entries()) {
     const base = baseOf(links, i, baseBranch)
     const view = await viewPr(io, l.branch)
+    if (typeof view === "string") return { refusal: `${view} Nothing changed.` }
     const lines = [`[${l.name}]`]
     if (messages?.[i]) lines.push(`Commit message:\n\n${messages[i]}`)
     lines.push(`Branch: ${l.branch}`)
-    if (view && typeof view === "object") {
+    if (view) {
       lines.push(`Pull request: would refresh ${view.url}.`)
       if (view.baseRefName && view.baseRefName !== base)
         lines.push(`Retarget: would retarget #${view.number} from ${view.baseRefName} to ${base}.`)
@@ -747,12 +754,11 @@ async function sliceStep(
   git: Git,
   ok: Ok,
   l: Link,
+  view: View | undefined,
   base: string,
   lowerRef: string,
   ctx: Ctx,
 ): Promise<Pr | { step: string; why: string }> {
-  const view = await viewPr(io, l.branch)
-  if (typeof view === "string") return { step: "pull request", why: view }
   let done: Pr
   if (!view) done = await createPr(io, git, l.branch, base, lowerRef, ctx)
   else if (view.state !== "OPEN")
@@ -804,12 +810,14 @@ async function stackPullRequests(
       )
     const lower = i ? links[i - 1]! : undefined
     const base = baseOf(links, i, baseBranch)
+    const view = await viewPr(io, l.branch)
+    if (typeof view === "string") return stop("pull request", `${view} Nothing was pushed.`)
     const pushed = await pushLink(io, git, l, i < links.length - 1)
     if (pushed) return stop("push", pushed)
 
     const lowerRef = lower?.branch ?? baseRef
     const ctx: Ctx = { to: l.commit, from: lower?.commit ?? mergeBase, below, stacked: true }
-    const done = await sliceStep(io, git, ok, l, base, lowerRef, ctx)
+    const done = await sliceStep(io, git, ok, l, view, base, lowerRef, ctx)
     if ("step" in done) return stop(done.step, done.why)
     if (done.number === undefined && i < links.length - 1)
       return stop("pull request", "its number could not be read from gh's reply.")
@@ -1021,12 +1029,10 @@ async function pullRequest(
   if (mergeBase === (await git("rev-parse", "HEAD")))
     return fail(`HEAD is an ancestor of ${baseRef}: nothing to describe.`)
 
+  const existing = await viewPr(io, branch)
+  if (typeof existing === "string") return fail(`${existing} Nothing was pushed.`)
   const pushed = await pushBranch(io, branch)
   if (pushed) return fail(pushed)
-
-  const existing = await viewPr(io, branch)
-  if (typeof existing === "string")
-    return fail(`${existing} ${branch} is pushed; nothing else changed.`)
   if (!existing)
     return createPr(io, git, branch, baseBranch, baseRef, { from: mergeBase, to: "HEAD" })
   if (existing.state !== "OPEN")
@@ -1204,7 +1210,8 @@ async function sinceHead(git: Git, ok: Ok, branch: string, mergeBase: string, to
   const isSynced =
     synced &&
     (await ok("rev-parse", "--verify", "--quiet", `${synced}^{commit}`)) &&
-    (await ok("merge-base", "--is-ancestor", synced, to))
+    (await ok("merge-base", "--is-ancestor", synced, to)) &&
+    (await ok("merge-base", "--is-ancestor", mergeBase, synced))
   return isSynced ? synced : mergeBase
 }
 
