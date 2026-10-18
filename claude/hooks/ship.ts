@@ -320,7 +320,8 @@ async function commitMessages(io: ShipIo, git: Git, groups: Group[], tip: string
 type Plan = { groups: Group[]; base: string; tip: string; count: number }
 
 // `lease`: origin's sha for the branch, read before a restack rebased it.
-type Link = { name: string; branch: string; commit: string; lease?: string }
+// `fresh`: ls-remote showed origin lacks the branch, so any tracking ref is stale.
+type Link = { name: string; branch: string; commit: string; lease?: string; fresh?: boolean }
 
 const STACK_KEY = (branch: string) => `branch.${branch}.gtdStack`
 // The commit the stack was built at; missing slice branches are rebuilt off it
@@ -785,12 +786,8 @@ type Restack = {
 
 // Merged into a slice branch counts only when that branch landed earlier: its
 // chain then reached the default branch. A missing `mergedAt` proves nothing.
-function landedOn(
-  states: (View | undefined)[],
-  i: number,
-  branchOf: (i: number) => string,
-  baseBranch: string,
-): boolean {
+function landedOn(c: Merging, i: number): boolean {
+  const { states, branchOf, baseBranch } = c
   const view = states[i]!
   if (view.baseRefName === baseBranch) return true
   const k = [...Array(i).keys()].find((j) => view.baseRefName === branchOf(j))
@@ -816,7 +813,7 @@ const mergedElsewhere = (c: Merging, i: number) =>
 function unsettled(c: Merging, done: number): string | undefined {
   for (const [i, view] of c.states.entries()) {
     if (i < done || !view || view.state === "OPEN") continue
-    if (view.state === "MERGED" && view.baseRefName !== c.baseBranch) return mergedElsewhere(c, i)
+    if (view.state === "MERGED" && !landedOn(c, i)) return mergedElsewhere(c, i)
     const way =
       i === c.recorded.length - 1
         ? "Rename the branch"
@@ -841,7 +838,7 @@ async function mergedSlices(
   const c = { recorded, states, branchOf, baseBranch }
   let done = 0
   while (done < recorded.length - 1 && states[done]?.state === "MERGED") {
-    if (!landedOn(states, done, branchOf, baseBranch)) return mergedElsewhere(c, done)
+    if (!landedOn(c, done)) return mergedElsewhere(c, done)
     done++
   }
   return unsettled(c, done) ?? { done }
@@ -987,7 +984,7 @@ async function finishResume(
 
 // The lease is origin's sha as read here, never origin/<b>: a fetch rewrites
 // that. Checked before any rebase, squash or push, so a refusal changes
-// nothing; `kept(l, sha)` says origin's commit survives the restack.
+// nothing.
 async function originLeases(
   io: ShipIo,
   ok: Ok,
@@ -1011,7 +1008,7 @@ async function originLeases(
     if (sha && !((await ok("cat-file", "-e", sha)) && (await kept(l, sha))))
       return `origin/${l.branch} holds commits ${l.branch} lacks; nothing changed. Pull or reconcile ${l.branch}, then ship.`
   }
-  return links.map((l) => ({ ...l, lease: origin.get(l.branch) }))
+  return links.map((l) => ({ ...l, lease: origin.get(l.branch), fresh: !origin.has(l.branch) }))
 }
 
 const pushLines = (links: Link[]) =>
@@ -1334,7 +1331,7 @@ async function isRecordedTop(git: Git, ok: Ok, onto: string, lowest: string, top
 // Someone rebased by hand after a conflict. Every condition must hold, or an
 // unrelated rebase would turn into a force push: the merged slice's commit is
 // off the lowest remaining branch, origin/<default> is under it, and origin's
-// copies hold nothing the recorded top lacks. Anything else keeps the
+// copies hold nothing the local branch lacks. Anything else keeps the
 // drop-and-ship-alone rule.
 async function handRestack(
   io: ShipIo,
@@ -1382,8 +1379,8 @@ const IDENTITY = "%an%x00%ae%x00%at%x00%B"
 
 // The pre-rebase tips are gone, and the reflog also holds commits pulled in and
 // dropped on purpose: origin's copy passes only when every commit it holds beyond
-// the recorded top (or the merge base, once that top is stale) is in the local
-// branch by identity, a rebase keeping author, date and message. The merged
+// the recorded top (or the merge base, once that top is gone) is in the local
+// branch by identity and diff (index and hunk-offset lines ignored), a rebase keeping author, date, message and patch. The merged
 // slice's commits are expected to be gone.
 async function keptByHand(
   git: Git,
@@ -1395,9 +1392,9 @@ async function keptByHand(
   const lower = (await ok("cat-file", "-e", top)) ? top : await git("merge-base", sha, local)
   if (!lower) return false
   const identities = async (...range: string[]) =>
-    (await git("log", `--format=${IDENTITY}%x1e`, ...range))
+    (await git("log", "-p", "--no-color", `--format=${IDENTITY}%x1e`, ...range))
       .split("\x1e")
-      .map((i) => i.trim())
+      .map((i) => i.replace(/^index .*\n|^(@@) .* @@/gm, "$1").trim())
       .filter(Boolean)
   const mine = new Set(await identities(`${onto}..${local}`))
   const theirs = await identities(sha, `^${lower}`, `^${onto}`, `^${from}`)
@@ -1478,7 +1475,7 @@ async function sliceStep(
 async function pushLink(io: ShipIo, git: Git, l: Link, upper: boolean) {
   if (upper && (await git("rev-parse", `refs/heads/${l.branch}`)) !== l.commit)
     return `refs/heads/${l.branch} no longer points at ${short(l.commit)}.`
-  return pushBranch(io, l.branch, l.commit, l.lease)
+  return pushBranch(io, l.branch, l.commit, l.lease, l.fresh)
 }
 
 async function shipLink(
@@ -1776,13 +1773,19 @@ async function pullRequest(
 // A pull request describes what the remote branch holds. A squash rewrote the
 // branch, so an existing origin/<branch> needs --force-with-lease. Returns why
 // the push failed, or nothing.
-export async function pushBranch(io: ShipIo, branch: string, head = "HEAD", lease?: string) {
+export async function pushBranch(
+  io: ShipIo,
+  branch: string,
+  head = "HEAD",
+  lease?: string,
+  fresh = false,
+) {
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
   // A rejected restack push persisted its lease: a fetch moves the tracking ref, so
   // only the stored sha still tells a collaborator's commit from ours.
   let stored = (await io.run(["git", "config", "--local", "--get", LEASE_KEY(branch)])).out.trim()
-  let kept = lease ? "" : stored
-  let gone = false
+  let kept = lease || fresh ? "" : stored
+  let gone = fresh
   if (kept) {
     // The key may be days old: origin's own sha decides whether it still applies.
     const read = await io.run(["git", "ls-remote", "origin", `refs/heads/${branch}`])
