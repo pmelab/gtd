@@ -184,3 +184,65 @@ listed"), and drop the reorder comment's claim that it matters live, or remove
   it throw when the step it is scoped to runs as the in-gate turn and the file
   is missing, or name the conditional in the step text ("rewrites … if
   present").
+
+## conventions: README still says 28.x after the upgrade note moved to 27.5.0
+
+Rule (`~/.claude/CLAUDE.md`): "always make sure every significant change is also
+reflected in the readme".
+
+`docs/configuration.md` "Upgrading" now says a `GTD_FLAG_NAIVE_PASS` process
+"from 27.5.0 or later" whose judge ruled `refactor-first` must `gtd abandon`.
+`README.md` (naive-pass paragraph, ~line 578) still says "A 28.x process whose
+judge ruled `refactor-first` must `gtd abandon` too". A 27.5–27.x user reading
+the README is told they are unaffected.
+
+Remedy: change the README sentence to "A process from 27.5.0 or later whose
+judge ruled `refactor-first` …", matching the docs.
+
+## conventions: `refactor-tests` doc still says "strays included"
+
+Rule (AGENTS.md): docs exist to tell a user "what its commands, flags, config
+keys … accept"; and the same readme rule as above.
+
+`docs/configuration.md` refusal list (~line 622): "it changed a test file
+(`refactor-tests`): any changed path matching … , strays included." On this
+branch a test-file stray is removed from the strays (`refactorStrays`), so it
+never reaches the refactor's write access; the renamed
+`refactor-package.feature` scenario ("…even when the shape named it a stray")
+now expects "outside its write access", not `refactor-tests`. The doc promises a
+refusal name the user no longer gets in the one case it calls out.
+
+Remedy: drop "strays included" (or say a test file the judge listed as a stray
+is never in the refactor's write access, so it is refused as out of scope), so
+the doc matches the new `refactorFirst` paragraph above it ("minus any test
+file").
+
+## conventions: `ReviewLap` reuses "lap" for a review round
+
+Rule (AGENTS.md): "`CONTEXT.md` … the domain language this repo uses … Read it
+before naming anything".
+
+Docs and README use "lap" only for the quality lap ("its own quality lap", "the
+refactor's quality lap") and "round" for a review round (`CollectRound`, "a
+settled round", "a hand-edit round"). The new
+`ReviewLap = "first" | "feedback" | "refactor"` and `BuildTailOptions.lap` name
+which _review round_ the reviewer writes, so one change now uses "lap" for both
+concepts and "round" for the same one beside it. Nice to have: rename to
+`ReviewRange`/`ReviewKind` (it selects the range wording), or add the term to
+`CONTEXT.md` if "lap" is meant.
+
+## conventions: JSDoc that restates the type
+
+Rule (AGENTS.md "Comments"): "Keep a comment … only where it explains an
+important decision or genuinely unclear code … Everything else (restatement of
+the code …) gets deleted".
+
+- `src/workflow-kit/review.ts`:
+  `/** Which collecting turn runs: in-gate thread replies, or a closed round of each kind. */`
+  over `CollectRound` restates the union.
+- `src/workflows/feature/review.ts` `BuildTailOptions.lap`:
+  `/** Which review round the reviewer writes; absent: "first". */` — the first
+  half restates the type's own JSDoc in `text.ts`; keep only `absent: "first"`
+  if anything.
+
+Nice to have; delete or trim.
