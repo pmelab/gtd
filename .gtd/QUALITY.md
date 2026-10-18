@@ -156,3 +156,37 @@ body. It fails on the current code, which is the point.
   invalid chain whose PR step then fails: the record must survive that, and the
   `io.log` line "dropped it" is then false. One case with
   `create("feat/x","main")` failing would cover both the record and the wording.
+
+## conventions: two new comments only restate what the code does
+
+AGENTS.md, "Comments": "Keep a comment … only where it explains an important
+decision or genuinely unclear code … Everything else (restatement of the code,
+history, a "what" with no "why") gets deleted, not moved."
+
+- `unstack` in `claude/hooks/ship.ts`: "Aims a PR off a slice branch and drops
+  its stale stack line. Returns a failure, or whether it changed anything and
+  the body to keep." The first sentence is the body read aloud. The second one
+  describes the return type, which the code already shows. No decision is
+  recorded. Delete the comment. The "why" (only a slice base is gtd's to move)
+  already sits at the `onSlice` line in `pullRequest`.
+- `resumable`'s new sentence "`forget` asks ship to drop a stale record once its
+  PR step succeeded" repeats the field name and the
+  `if (opened.ok && squashed.forget)` line in `ship()`. Drop it, and keep "A
+  string is a refusal", which the return type does not say.
+
+Nit, non-blocking.
+
+## conventions: the new ship behaviours get no `@inmem` scenario
+
+AGENTS.md, "Testing": "create cucumber.js scenarios for each new feature, tagged
+`@inmem`." This change adds behaviour a user can see. A missing slice branch is
+now refused unless HEAD is the recorded `gtdStackTop`. Only a PR on a recorded
+slice base is retargeted, so a PR on any other base keeps that base. A thrown
+draft in a stack is retargeted before it is marked ready. All of it is covered
+only by vitest cases in `claude/hooks/ship.test.ts`, and no `.feature` file
+covers `/gtd ship` at all. `claude/` has no feature harness, and the original
+ship commit (`6230714`) added none, so this inherits the gap rather than opening
+it. Still, the rule has no exception for `claude/`. Either add an `@inmem`
+scenario for the top-guard refusal, the case most likely to surprise a user, or
+record in TODO.md that the mod's ship flow is deliberately left to unit tests.
+Non-blocking.
