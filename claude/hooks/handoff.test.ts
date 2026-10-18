@@ -227,3 +227,32 @@ test("ship describes a thrown draft properly and marks it ready", async () => {
   ).toBe("why\n")
   expect(ran()).toContain("gh pr ready 9")
 })
+
+describe("throwing from the default branch", () => {
+  const draft = {
+    "gh pr view gtd/20261003-0941 --json number,url,state,body,assignees": { code: 1 },
+    [`gh pr create --draft --head gtd/20261003-0941 --base main --title wip: gtd/20261003-0941 — Answer the questions --body-file -`]:
+      { out: "https://github.com/o/r/pull/9\n" },
+  }
+  test("reads the default branch from origin/HEAD", async () => {
+    const { io, ran } = repo({
+      ...onMain,
+      "git rev-parse --abbrev-ref HEAD": { out: "trunk\n" },
+      "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": { out: "origin/trunk\n" },
+      ...draft,
+      [`gh pr create --draft --head gtd/20261003-0941 --base trunk --title wip: gtd/20261003-0941 — Answer the questions --body-file -`]:
+        { out: "https://github.com/o/r/pull/9\n" },
+    })
+    expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({ ok: true })
+    expect(ran()).toContain("git switch -c gtd/20261003-0941")
+  })
+  test("falls back to main when origin/HEAD is unset", async () => {
+    const { io, ran } = repo({
+      ...onMain,
+      "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": { out: "" },
+      ...draft,
+    })
+    expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({ ok: true })
+    expect(ran()).toContain("git switch -c gtd/20261003-0941")
+  })
+})

@@ -234,6 +234,89 @@ describe("pushBranch with a lease", () => {
   })
 })
 
+describe("pushBranch with a persisted lease", () => {
+  const KEY = "git config --local --get branch.feat/x.gtdLease"
+  const UNSET = "git config --local --unset branch.feat/x.gtdLease"
+  const L = "f".repeat(40)
+  const tracked = {
+    "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+    "git merge-base --is-ancestor HEAD origin/feat/x": { code: 0 },
+  }
+  const push = `git push --force-with-lease=feat/x:${L} origin feat/x`
+  const LS = "git ls-remote origin refs/heads/feat/x"
+  const atL = { [LS]: { out: `${L}\trefs/heads/feat/x\n` } }
+  const unreconciled = { ...atL, [`git merge-base --is-ancestor ${L} HEAD`]: { code: 1 } }
+  test("pushes with the key's sha even when HEAD is an ancestor of origin, then unsets it", async () => {
+    const { io, ran } = repo({ ...tracked, ...unreconciled, [KEY]: { out: `${L}\n` } })
+    expect(await pushBranch(io, "feat/x")).toBeUndefined()
+    expect(ran()).toContain(push)
+    expect(ran()).toContain(UNSET)
+  })
+  test("a rejected push keeps the key and names the unset line", async () => {
+    const { io, ran } = repo({
+      ...tracked,
+      ...unreconciled,
+      [KEY]: { out: L },
+      [push]: { code: 1, err: "stale info" },
+    })
+    expect(await pushBranch(io, "feat/x")).toBe(
+      "git push failed: origin/feat/x moved. Pull or reconcile feat/x, then ship.\nstale info\nTo overwrite origin's copy on purpose, run git config --local --unset branch.feat/x.gtdLease first.",
+    )
+    expect(ran()).not.toContain(UNSET)
+  })
+  test("an unrelated push failure keeps the key and does not name the unset line", async () => {
+    const { io, ran } = repo({
+      ...tracked,
+      ...unreconciled,
+      [KEY]: { out: L },
+      [push]: { code: 1, err: "Permission denied" },
+    })
+    const out = await pushBranch(io, "feat/x")
+    expect(out).toContain("Permission denied")
+    expect(out).not.toContain("--unset")
+    expect(ran()).not.toContain(UNSET)
+  })
+  test("origin's sha already in the pushed commit leases on it, then unsets the key", async () => {
+    const R = "e".repeat(40)
+    const reconciled = `git push --force-with-lease=feat/x:${R} origin feat/x`
+    const { io, ran } = repo({
+      ...tracked,
+      [KEY]: { out: L },
+      [LS]: { out: `${R}\trefs/heads/feat/x\n` },
+    })
+    expect(await pushBranch(io, "feat/x")).toBeUndefined()
+    expect(ran()).toContain(reconciled)
+    expect(ran()).not.toContain(push)
+    expect(ran()).toContain(UNSET)
+  })
+  test("a key whose branch origin lost is unset and the branch pushed fresh", async () => {
+    const { io, ran } = repo({
+      [KEY]: { out: L },
+      [LS]: { out: "" },
+      "git rev-parse --verify --quiet origin/feat/x": { code: 1 },
+    })
+    expect(await pushBranch(io, "feat/x")).toBeUndefined()
+    expect(ran()).toContain(UNSET)
+    expect(ran()).toContain("git push --set-upstream origin feat/x")
+    expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+  })
+  test("a killed push keeps the key", async () => {
+    const { io, ran } = repo({
+      ...tracked,
+      ...unreconciled,
+      [KEY]: { out: L },
+      [push]: { crash: true },
+    })
+    expect(await pushBranch(io, "feat/x")).toContain("did not finish")
+    expect(ran()).not.toContain(UNSET)
+  })
+  test("no key: today's ancestor shortcut and no unset", async () => {
+    const { io, ran } = repo(tracked)
+    expect(await pushBranch(io, "feat/x")).toBeUndefined()
+    expect(ran().some((c) => c.startsWith("git push") || c === UNSET)).toBe(false)
+  })
+})
+
 describe("ship history", () => {
   test("pushes this process's ref before the squash and writes the trailer", async () => {
     const { io, calls, ran } = repo(withHistory, ["feat: add x\n\nwhy", "feat: add x\n\nbody"])
@@ -2200,6 +2283,7 @@ describe("ship stack", () => {
       [view("feat/x")]: pr(8, { baseRefName: "feat/x-refactor" }),
       [`git merge-base --is-ancestor ${C1} origin/main`]: { code: 1 },
       [lsTop]: { out: `${O}\trefs/heads/feat/x\n` },
+      "git rev-list --count origin/main..HEAD": { out: "1" },
       "git merge-base origin/main feat/x": { out: M },
       "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
       [WT]: here,
@@ -2219,10 +2303,13 @@ describe("ship stack", () => {
       [`git merge-base --is-ancestor ${S1} origin/main`]: { code: 1 },
       [ls3]: { out: `${O2}\trefs/heads/feat/x-middle\n${O}\trefs/heads/feat/x\n` },
       [`git rev-list --reverse feat/x-middle..feat/x`]: { out: `${N1}\n` },
+      "git rev-list --count feat/x-middle..HEAD": { out: "1" },
       "git merge-base origin/main feat/x-middle": { out: M },
       "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
       "git rev-parse --verify --quiet origin/feat/x-middle": { code: 0 },
       [`git merge-base --is-ancestor ${S1} refs/heads/feat/x-middle`]: { code: 1 },
+      "git rev-parse feat/x-middle~1": { out: BASE },
+      "git rev-parse origin/main": { out: BASE },
       [WT]: here,
     }
     const at = (ran: () => string[], c: string) => ran().indexOf(c)
@@ -2812,6 +2899,370 @@ describe("ship stack", () => {
         const { io } = repo(three)
         const out = await ship(io, true)
         expect(out.text.split("\n").filter((l) => l.startsWith("Retarget:"))).toHaveLength(1)
+      })
+    })
+
+    describe("restack hardening", () => {
+      const MOVED = "6".repeat(40)
+      const Z = "7".repeat(40)
+      const NO_DIR = {
+        [GITPATH]: { out: ".git/rebase-merge" },
+        "test -d .git/rebase-merge": { code: 1 },
+      }
+      const LEASE = (b: string) => `branch.${b}.gtdLease`
+      const RETIRED = "branch.feat/x.gtdStackRetired"
+      const KEYS = "branch.feat/x.gtdStack"
+      const sets = (ran: () => string[]) =>
+        ran().filter((c) => c.startsWith("git config --local") && !c.includes("--get"))
+      const pushed = (ran: () => string[]) => ran().some((c) => c.startsWith("git push"))
+      const rolled = (ran: () => string[]) => ran().some((c) => /^git (update-ref|reset)/.test(c))
+      // after the rebase ran, these reads answer with the moved value
+      const afterRebase = (io: ShipIo, moved: Record<string, string>) => {
+        const run = io.run
+        let rebased = false
+        io.run = async (argv, stdin) => {
+          const key = argv.join(" ")
+          if (key.startsWith("git rebase --update-refs")) rebased = true
+          if (rebased && key in moved) return { code: 0, out: moved[key]!, err: "" }
+          return run(argv, stdin)
+        }
+      }
+      const failing = { ...three, ...NO_DIR, [REBASE3]: { code: 1, err: "update refs failed" } }
+      const headMoved = "git rev-parse HEAD"
+      const midMoved = "git rev-parse refs/heads/feat/x-middle"
+      const restored = (why: string) =>
+        `${why}; the slice branches and HEAD are restored and nothing was pushed or recorded.`
+
+      describe("a conflict whose abort fails", () => {
+        const conflict = {
+          ...three,
+          [REBASE3]: { code: 1, err: "CONFLICT" },
+          [GITPATH]: { out: ".git/rebase-merge" },
+          "git rev-parse --verify --quiet REBASE_HEAD": { out: S2 },
+        }
+        test("says the repository is mid-rebase and never claims a clean state", async () => {
+          const { io, ran } = repo({
+            ...conflict,
+            "git rebase --abort": { code: 1, err: "no abort" },
+          })
+          const out = await ship(io, false)
+          expect(out.ok).toBe(false)
+          expect(out.text).toContain(
+            "Slice middle failed at restack: git rebase conflicted, and git rebase --abort failed too: the repository is mid-rebase. Run git rebase --abort by hand, then rebase by hand, which restacks every slice branch:",
+          )
+          expect(out.text).toContain(REBASE3)
+          expect(out.text).toContain("then /gtd ship.")
+          expect(out.text).toContain("no abort")
+          expect(out.text).not.toContain("tree and refs are as before")
+          expect(pushed(ran) || sets(ran).length > 0).toBe(false)
+        })
+        test("a successful abort keeps today's text", async () => {
+          const { io } = repo(conflict)
+          expect((await ship(io, false)).text).toContain(
+            "Slice middle failed at restack: git rebase conflicted; tree and refs are as before.",
+          )
+        })
+      })
+
+      describe("a non-zero rebase with no rebase dir", () => {
+        test("HEAD moved: refs and HEAD are rolled back, never 'refs are unchanged'", async () => {
+          const { io, ran } = repo(failing)
+          afterRebase(io, { [headMoved]: MOVED })
+          const out = await ship(io, false)
+          expect(out).toEqual({
+            ok: false,
+            text: `${restored("git rebase failed after moving refs")}\nupdate refs failed`,
+          })
+          expect(ran()).toContain(`git update-ref refs/heads/feat/x-middle ${S2} ${S2}`)
+          expect(ran()).toContain(`git reset --keep ${S3}`)
+          expect(pushed(ran) || sets(ran).length > 0).toBe(false)
+        })
+        test("only a lower ref moved: rolled back from its pre-rebase sha", async () => {
+          const { io, ran } = repo(failing)
+          afterRebase(io, { [midMoved]: MOVED })
+          const out = await ship(io, false)
+          expect(out.text).toContain("git rebase failed after moving refs")
+          expect(out.text).not.toContain("refs are unchanged")
+          expect(ran()).toContain(`git update-ref refs/heads/feat/x-middle ${S2} ${MOVED}`)
+          expect(ran()).toContain(`git reset --keep ${S3}`)
+        })
+        test("a failing rollback prints the hand lines", async () => {
+          const { io } = repo({
+            ...failing,
+            [`git update-ref refs/heads/feat/x-middle ${S2} ${MOVED}`]: { code: 1 },
+          })
+          afterRebase(io, { [midMoved]: MOVED })
+          const out = await ship(io, false)
+          expect(out.text).toContain(
+            "git rebase failed after moving refs, and the rollback failed: slice branches stay rebased and nothing was pushed or recorded. Run by hand, then /gtd ship:",
+          )
+          expect(out.text).toContain(`git update-ref refs/heads/feat/x-middle ${S2} ${MOVED}`)
+        })
+        test("nothing moved keeps 'refs are unchanged' and runs no rollback", async () => {
+          const { io, ran } = repo(failing)
+          const out = await ship(io, false)
+          expect(out.text).toContain("git rebase failed; refs are unchanged.")
+          expect(rolled(ran)).toBe(false)
+        })
+      })
+
+      describe("a slice left with no commit of its own", () => {
+        const midBroken = {
+          "git rev-parse feat/x-middle~1": { out: Z },
+          "git rev-parse origin/main": { out: BASE },
+        }
+        test("a lower slice already upstream is rolled back and refused by name", async () => {
+          const { io, ran } = repo({ ...three, ...midBroken })
+          const out = await ship(io, false)
+          expect(out).toEqual({
+            ok: false,
+            text: `${restored("Slice middle keeps no commit of its own after the restack (its change is already in origin/main)")} Ship the branch alone with GTD_SHIP_MODE=commits.`,
+          })
+          expect(ran()).toContain(`git update-ref refs/heads/feat/x-middle ${S2} ${S2}`)
+          expect(ran()).toContain(`git reset --keep ${S3}`)
+          expect(pushed(ran) || sets(ran).length > 0).toBe(false)
+        })
+        test("a top with no commit above its lower is refused naming the top slice", async () => {
+          const { io, ran } = repo({
+            ...three,
+            "git rev-list --count feat/x-middle..HEAD": { out: "0" },
+          })
+          const out = await ship(io, false)
+          expect(out.text).toContain("Slice feature keeps no commit of its own after the restack")
+          expect(ran()).toContain(`git reset --keep ${S3}`)
+          expect(pushed(ran) || sets(ran).length > 0).toBe(false)
+        })
+        test("a failing rollback prints the hand lines", async () => {
+          const { io } = repo({
+            ...three,
+            ...midBroken,
+            [`git update-ref refs/heads/feat/x-middle ${S2} ${S2}`]: { code: 1 },
+          })
+          const out = await ship(io, false)
+          expect(out.text).toContain("and the rollback failed: slice branches stay rebased")
+          expect(out.text).toContain(`git update-ref refs/heads/feat/x-middle ${S2} ${S2}`)
+        })
+      })
+
+      describe("an unrelated local branch inside the range", () => {
+        const range = `git rev-list ${S1}..feat/x`
+        const REFS = "git for-each-ref --format=%(objectname) %(refname) refs/heads/"
+        const text =
+          "Branch backup points into the commits the restack rebases, so git rebase --update-refs would move it too; nothing changed. Move or delete it, then /gtd ship."
+        const stray = {
+          ...three,
+          [range]: { out: `${S2}\n${S3}\n` },
+          [REFS]: {
+            out: `${S2} refs/heads/feat/x-middle\n${S3} refs/heads/feat/x\n${S2} refs/heads/backup\n`,
+          },
+        }
+        test("refuses before any rebase, squash or push", async () => {
+          const { io, ran } = repo(stray)
+          expect(await ship(io, false)).toEqual({ ok: false, text })
+          expect(ran().some((c) => /^git (rebase|push|reset|commit|update-ref)/.test(c))).toBe(
+            false,
+          )
+          expect(sets(ran)).toEqual([])
+        })
+        test("refuses identically under -n", async () => {
+          const { io } = repo(stray)
+          expect(await ship(io, true)).toEqual({ ok: false, text })
+        })
+        test("remaining slice branches, the top and the merged slice's branch never refuse", async () => {
+          const { io } = repo({
+            ...stray,
+            [REFS]: {
+              out: `${S2} refs/heads/feat/x-middle\n${S3} refs/heads/feat/x\n${S2} refs/heads/feat/x-refactor\n`,
+            },
+          })
+          expect(await ship(io, false)).toMatchObject({ ok: true })
+        })
+      })
+
+      describe("a persisted lease", () => {
+        test("is written per moved branch origin had, before the record shrinks", async () => {
+          const { io, ran } = repo(three)
+          await ship(io, false)
+          const mid = `git config --local ${LEASE("feat/x-middle")} ${O2}`
+          const top = `git config --local ${LEASE("feat/x")} ${O}`
+          expect(ran()).toContain(mid)
+          expect(ran()).toContain(top)
+          expect(at(ran, top)).toBeLessThan(at(ran, `git config --local ${KEYS} middle feature`))
+          expect(at(ran, mid)).toBeLessThan(at(ran, `git config --local ${KEYS} middle feature`))
+        })
+        test("a failed write leaves the record untouched and pushes nothing", async () => {
+          const { io, ran } = repo({
+            ...three,
+            [`git config --local ${LEASE("feat/x-middle")} ${O2}`]: { code: 1, err: "locked" },
+          })
+          const out = await ship(io, false)
+          expect(out.text).toContain("git config failed after the restack")
+          expect(out.text).toContain("locked")
+          expect(ran().some((c) => c.startsWith(`git config --local ${KEYS} `))).toBe(false)
+          expect(pushed(ran)).toBe(false)
+        })
+        test("the one-slice-left restack persists the top's lease too", async () => {
+          const { io, ran } = repo(two)
+          await ship(io, false)
+          expect(ran()).toContain(`git config --local ${LEASE("feat/x")} ${O}`)
+        })
+        test("a rejected top push, then a ship after a fetch, keeps the old lease and names the unset line", async () => {
+          const first = repo({
+            ...two,
+            [`git push --force-with-lease=feat/x:${O} origin feat/x`]: {
+              code: 1,
+              err: "stale info",
+            },
+          })
+          expect((await ship(first.io, false)).ok).toBe(false)
+          expect(first.ran()).toContain(`git config --local ${LEASE("feat/x")} ${O}`)
+          const retry = {
+            ...feature,
+            "gtd summary": { code: 1 },
+            "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+            "git merge-base --is-ancestor HEAD origin/feat/x": { code: 0 },
+            [`git config --local --get ${LEASE("feat/x")}`]: { out: `${O}\n` },
+            "git ls-remote origin refs/heads/feat/x": { out: `${O}\trefs/heads/feat/x\n` },
+            [`git merge-base --is-ancestor ${O} HEAD`]: { code: 1 },
+          }
+          const rejected = repo({
+            ...retry,
+            [`git push --force-with-lease=feat/x:${O} origin feat/x`]: {
+              code: 1,
+              err: "stale info",
+            },
+          })
+          const out = await ship(rejected.io, false)
+          expect(out.text).toContain(`git config --local --unset ${LEASE("feat/x")} first.`)
+          expect(rejected.ran()).toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
+          const later = repo(retry, ["feat: add x", "feat: add x\n\nbody"])
+          await ship(later.io, false)
+          expect(later.ran()).toContain(`git config --local --unset ${LEASE("feat/x")}`)
+        })
+        test("a ship after the user reconciled leases on origin's sha, not the stale key", async () => {
+          const R = "e".repeat(40)
+          const { io, ran } = repo({
+            ...feature,
+            "gtd summary": { code: 1 },
+            "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+            "git merge-base --is-ancestor HEAD origin/feat/x": { code: 0 },
+            [`git config --local --get ${LEASE("feat/x")}`]: { out: `${O}\n` },
+            "git ls-remote origin refs/heads/feat/x": { out: `${R}\trefs/heads/feat/x\n` },
+          })
+          await ship(io, false)
+          expect(ran()).toContain(`git push --force-with-lease=feat/x:${R} origin feat/x`)
+          expect(ran()).not.toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
+          expect(ran()).toContain(`git config --local --unset ${LEASE("feat/x")}`)
+        })
+        test("a successful restack push unsets the lease it persisted", async () => {
+          const { io, ran } = repo({
+            ...two,
+            [`git config --local --get ${LEASE("feat/x")}`]: { out: `${O}\n` },
+          })
+          await ship(io, false)
+          const push = `git push --force-with-lease=feat/x:${O} origin feat/x`
+          const unset = `git config --local --unset ${LEASE("feat/x")}`
+          expect(ran()).toContain(unset)
+          expect(at(ran, unset)).toBeGreaterThan(at(ran, push))
+        })
+        test("a rejected restack push keeps the lease it persisted", async () => {
+          const { io, ran } = repo({
+            ...two,
+            [`git config --local --get ${LEASE("feat/x")}`]: { out: `${O}\n` },
+            [`git push --force-with-lease=feat/x:${O} origin feat/x`]: {
+              code: 1,
+              err: "stale info",
+            },
+          })
+          await ship(io, false)
+          expect(ran()).not.toContain(`git config --local --unset ${LEASE("feat/x")}`)
+        })
+      })
+
+      describe("retired slice names", () => {
+        test("a fresh stack may reuse a retired slice's name", async () => {
+          const taken = {
+            ...sbase,
+            "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { out: C1 },
+          }
+          const refused = repo(taken, writers())
+          expect((await ship(refused.io, false)).text).toContain("is not part of a stack gtd built")
+          const { io } = repo(
+            { ...taken, [`git config --local --get ${RETIRED}`]: { out: "refactor\n" } },
+            writers(),
+          )
+          expect((await ship(io, false)).text).not.toContain("is not part of a stack gtd built")
+        })
+        test("an ordinary resume with a live record keeps gtdStackRetired", async () => {
+          const { io, ran } = repo({
+            ...two,
+            [`git config --local --get ${RETIRED}`]: { out: "old\n" },
+            [`git merge-base --is-ancestor ${C1} origin/main`]: { code: 0 },
+          })
+          await ship(io, false)
+          expect(ran().some((c) => c.includes("--unset") && c.includes(RETIRED))).toBe(false)
+        })
+      })
+
+      describe("a hand restack of a multi-commit top-only remainder", () => {
+        const IDENT = "git log -1 --format=%an%x00%ae%x00%at%x00%B"
+        const handTop = {
+          ...two,
+          [`git merge-base --is-ancestor ${C2} HEAD`]: { code: 1 },
+          [`git merge-base --is-ancestor ${C1} feat/x`]: { code: 1 },
+          "git merge-base --is-ancestor feat/x~1 origin/main": { code: 1 },
+          "git rev-list --reverse origin/main..feat/x": { out: `${N1}\n${S3}\n` },
+          [`${IDENT} ${N1}`]: { out: "Ann\x00a@x\x00100\x00feat: top\n" },
+          [`${IDENT} ${C2}`]: { out: "Ann\x00a@x\x00100\x00feat: top\n" },
+        }
+        test("resumes: leased push, retarget, no rebase", async () => {
+          const { io, ran } = repo(handTop)
+          expect(await ship(io, false)).toMatchObject({ ok: true })
+          expect(ran()).toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
+          expect(ran()).toContain("gh pr edit 8 --base main")
+          expect(ran().some((c) => c.startsWith("git rebase"))).toBe(false)
+        })
+        test("an unrelated rebase of the same shape drops the record and force-pushes nothing", async () => {
+          const { io, ran } = repo({
+            ...handTop,
+            [`${IDENT} ${N1}`]: { out: "Bob\x00b@x\x00200\x00chore: other\n" },
+          })
+          await ship(io, false)
+          expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+          expect(ran()).toContain(`git config --local --unset ${KEYS}`)
+        })
+        test("a two-slice remainder is never taken as a hand restack", async () => {
+          const { io, ran } = repo({
+            ...three,
+            [`git merge-base --is-ancestor ${S3} HEAD`]: { code: 1 },
+            [`git merge-base --is-ancestor ${S1} feat/x-middle`]: { code: 1 },
+            "git merge-base --is-ancestor feat/x-middle~1 origin/main": { code: 1 },
+            "git rev-list --reverse origin/main..feat/x-middle": { out: `${N1}\n${S3}\n` },
+            [`${IDENT} ${N1}`]: { out: "Ann\x00a@x\x00100\x00feat: top\n" },
+            [`${IDENT} ${S3}`]: { out: "Ann\x00a@x\x00100\x00feat: top\n" },
+          })
+          await ship(io, false)
+          expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+          expect(ran()).toContain(`git config --local --unset ${KEYS}`)
+        })
+        test("two failed identity reads do not count as a match", async () => {
+          const { io, ran } = repo({
+            ...handTop,
+            [`${IDENT} ${N1}`]: { out: "" },
+            [`${IDENT} ${C2}`]: { out: "" },
+          })
+          await ship(io, false)
+          expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+          expect(ran()).toContain(`git config --local --unset ${KEYS}`)
+        })
+        test("a first commit whose parent is off origin drops the record too", async () => {
+          const { io, ran } = repo({
+            ...handTop,
+            [`git merge-base --is-ancestor ${N1}^ origin/main`]: { code: 1 },
+          })
+          await ship(io, false)
+          expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+        })
       })
     })
 
