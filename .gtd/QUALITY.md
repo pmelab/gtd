@@ -74,3 +74,45 @@ would close the gap.
   per lower slice, which `chain` already assumes; the retarget preview moved to
   `stackPreview` with a test pinning exactly one line. Load assumed: one person
   running `/gtd ship` in one repository.
+
+## test-audit: the scripted `git worktree list` never lists the current worktree
+
+`claude/hooks/ship.test.ts` "review round 1", and `three`/`two`.
+
+- Real git always lists the current worktree, with `branch refs/heads/feat/x`.
+  The fake answers an unscripted `git worktree list --porcelain` with empty
+  output, so every happy-path test runs the precheck against no worktrees at
+  all. The one fixture that lists any (`elsewhere`) also holds `feat/x-middle`,
+  which the loop finds first. So `restackOf`'s `l.branch !== branch` filter is
+  not pinned by the precheck tests: drop it and they all still pass. It is
+  caught only by accident, through the backstop and the fake's exit-0 default
+  for `merge-base --is-ancestor <from> refs/heads/feat/x`. Non-blocking. Give
+  `three` and `two` a default `[WT]` entry listing `/repo` on `feat/x`, so the
+  happy path checks the real shape.
+- The backstop's `(checked out in worktree <path>)` suffix has no case. Every
+  rollback test leaves `WT` unscripted. FYI.
+
+## test-audit: call-shape and duplicate assertions in "review round 1"
+
+- "a hand restack reads the recorded top once" counts
+  `git config --local --get <top>` calls. That is call shape, not behaviour: an
+  extra read changes nothing a user sees, and a refactor that reads twice should
+  not fail a test. Delete it.
+- "fetches an explicit refspec, never the bare form, then rebases onto
+  origin/main" repeats what is already pinned elsewhere. The updated order test
+  covers FETCH before the rebase, and "a failed fetch refuses" pins the argv
+  with `toEqual`. Delete it, or fold the `not.toContain` into the order test.
+- "a diverged local merged slice branch is never the rebase base" is carried by
+  its rebase-argv assertion. The second assertion, that no command mentions
+  `refs/heads/feat/x-refactor`, pins how the code reads refs, not what it does.
+  The same goes for "a stale local merged branch does not stop a hand restack".
+  Drop the `refs/heads/feat/x-refactor` greps.
+- "recordedRefusal's dry call plans no restack" names an internal function and
+  promises "no … worktree list". The `two` fixture has no lower branch, so the
+  worktree read is unreachable whatever `planRestack` says. The ls-remote half
+  does guard the change: without `planRestack=false`, the offline `lsTop` would
+  surface. Rename it after the behaviour ("a live record refuses even when
+  origin is unreachable") and drop `worktree` from the regex, or use `three`.
+- The rollback-restore weakness (S2 before and after, so swapped `update-ref`
+  arguments still pass) is already raised under correctness. This lens agrees,
+  and holds that the `update-ref … S2 S2` assertion pins no restore.
