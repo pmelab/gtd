@@ -564,25 +564,27 @@ async function takenSlice(git: Git, ok: Ok, branch: string, groups: Group[], dea
   return undefined
 }
 
-// Before the history push: a refusal leaves the repository exactly as it was.
-async function stackPrecheck(
+async function recordedRefusal(
   io: ShipIo,
   git: Git,
   ok: Ok,
   branch: string,
+  recorded: string[],
+): Promise<string | undefined> {
+  // The staleness test a resume uses: a dead record is not a live stack.
+  const quiet = { ...io, log: () => {} }
+  const found = await resumable(quiet, git, ok, branch, true, "HEAD")
+  if (typeof found === "string") return found
+  if (!found.forget)
+    return `${branch} already has a recorded stack (${recorded.join(", ")}); nothing changed. Ship with GTD_SHIP_MODE=commits, or run git config --local --unset branch.${branch}.gtdStack and git config --local --unset branch.${branch}.gtdStackTop, delete or rename the ${branch}-<slice> branches, then ship again.`
+  return undefined
+}
+
+async function prStateRefusal(
+  io: ShipIo,
+  branch: string,
   groups: Group[],
 ): Promise<string | undefined> {
-  const recorded = names(await git("config", "--local", "--get", STACK_KEY(branch)))
-  if (recorded.length) {
-    // The staleness test a resume uses: a dead record is not a live stack.
-    const quiet = { ...io, log: () => {} }
-    const found = await resumable(quiet, git, ok, branch, true, "HEAD")
-    if (typeof found === "string") return found
-    if (!found.forget)
-      return `${branch} already has a recorded stack (${recorded.join(", ")}); nothing changed. Ship with GTD_SHIP_MODE=commits, or run git config --local --unset branch.${branch}.gtdStack and git config --local --unset branch.${branch}.gtdStackTop, delete or rename the ${branch}-<slice> branches, then ship again.`
-  }
-  const taken = await takenSlice(git, ok, branch, groups, recorded)
-  if (taken) return taken
   for (const [i, g] of groups.entries()) {
     const top = i === groups.length - 1
     const b = top ? branch : `${branch}-${g.name}`
@@ -593,6 +595,24 @@ async function stackPrecheck(
       return `The pull request for slice ${g.name} (#${view.number}, ${b}) is ${view.state}, not open; nothing changed. ${top ? "Rename the branch" : "Ship with GTD_SHIP_MODE=commits, or rename the branch"}.`
   }
   return undefined
+}
+
+// Before the history push: a refusal leaves the repository exactly as it was.
+async function stackPrecheck(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  groups: Group[],
+): Promise<string | undefined> {
+  const recorded = names(await git("config", "--local", "--get", STACK_KEY(branch)))
+  if (recorded.length) {
+    const refused = await recordedRefusal(io, git, ok, branch, recorded)
+    if (refused) return refused
+  }
+  const taken = await takenSlice(git, ok, branch, groups, recorded)
+  if (taken) return taken
+  return prStateRefusal(io, branch, groups)
 }
 
 // A missing branch is read off the recorded top, not HEAD: the top slice may span
