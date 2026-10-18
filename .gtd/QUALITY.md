@@ -77,3 +77,20 @@ Fix: add the unset line only when git reports a lease rejection (`stale info` or
 a kept-lease push fails with an unrelated error (for example
 `Permission denied`) and check that the unset line is absent. Right now no test
 would fail if the line were added on every failure.
+
+## ponytail-review: Nit: the retired-name union is written twice
+
+`retireStack` and the new tail of `restacked` (`claude/hooks/ship.ts`) both read
+`branch.<b>.gtdStackRetired`, union it with new names, and write it back. They
+must change together. For example, if the separator or the dedupe rule changes,
+one copy drifts, and `takenSlice` then reads names that one writer formats
+differently.
+
+Fix: one helper, `addRetired(io, branch, more)`, which returns the `git config`
+result. `retireStack` checks its code. `restacked` ignores it on purpose, as it
+already does. That is about -6 lines. Nothing else changes.
+
+Load assumed: one developer running `/gtd ship` on their own clone, so there are
+no scale findings. Other issues this lens saw (merged-name reuse refused by
+`prStateRefusal`, the lease dead end after a reconcile, the unset hint on
+unrelated push errors, stale retired names) are already in the chunks above.
