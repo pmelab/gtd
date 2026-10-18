@@ -111,3 +111,24 @@ restore group) holds for every case I traced. Lean: about -35 lines possible.
   for no real reason. The positive checks for the three bold rule heads already
   pin that the rules are written flat. Drop the word bans, or keep at most one
   with a comment saying why "otherwise" misled builders.
+
+## conventions (nit): the lookup-count test relies on how `src/flows/` builds `Changes` internally
+
+`src/workflows/feature/packages.test.ts`, the `run` helper and "looks each
+declared path up once":
+
+- AGENTS.md, Import rules: "a test may reach a neighbouring module only through
+  its boundary's `index.ts` — if a symbol is not worth publishing there, the
+  test wanting it is testing the wrong thing."
+- The test imports only through `../../flows/index.js`, so the letter of the
+  rule holds. But the comment `// runtime's \`get\` is \`list.find\`: one find
+  per
+  lookup`says outright that the count depends on a private detail of the runtime (that`toChanges`closes over the array and calls`find`). Nothing in `flows/index.ts`
+  makes that promise. This is the coupling the rule is meant to stop.
+- Fix: the same as the correctness and ponytail-review chunks above. Delete the
+  test, the `lookups` counter, the `list.find` patch and the comment. Nothing
+  else in the change breaks a rule from AGENTS.md or CLAUDE.md. The new
+  `[ \t]`-vs-`\s` comment in `packages.ts` is the kind the Comments rule asks
+  for. The new scenario is under the feature's `@inmem` tag and uses generic
+  Given steps. README line 424 already covers a test-less package closing on
+  evidence.
