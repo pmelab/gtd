@@ -62,8 +62,8 @@ export function planStates(registry: readonly FlagDeclaration[], env: Env): read
 // toward "distinct": a random temp path keeps two states apart.
 export function failureSignature(stdout: string, tasks: readonly string[]): string {
   const byTask = new Map<string, string[]>()
-  // Remaining turbo `> ` echo lines per task, opened by its cache line. Position-based so a
-  // task's own `> ` output after the echoes survives.
+  // Remaining npm `> ` script-echo lines per task, opened by turbo's cache line. Position-based so
+  // a task's own `> ` output after the echoes survives.
   const echoes = new Map<string, number>()
   for (const raw of stdout.split("\n")) {
     const line = raw
@@ -73,6 +73,8 @@ export function failureSignature(stdout: string, tasks: readonly string[]): stri
     const task = tasks.find((t) => line.startsWith(`${t}: `))
     if (task === undefined) continue
     const body = line.slice(task.length + 2)
+    // A block's presence is evidence the task failed, even when all its lines are boilerplate.
+    if (!byTask.has(task)) byTask.set(task, [])
     if (/^\s*cache (miss, executing|bypass, force executing|hit, replaying logs) /.test(body)) {
       echoes.set(task, 2)
       continue
@@ -82,20 +84,18 @@ export function failureSignature(stdout: string, tasks: readonly string[]): stri
       echoes.set(task, echoes.get(task)! - 1)
       continue
     }
-    if (/^\s*ERROR\s+command \(.*\) .* exited \(\d+\)$/.test(body)) continue
     echoes.set(task, 0)
     const norm = line
       .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?/g, "<ts>")
       .replace(/\d{1,2}:\d{2}:\d{2}/g, "<time>")
       .replace(/\b[0-9a-f]{16}\b/gi, "<hex>")
       .replace(/\d+(\.\d+)?\s?(ms|s|m|h)\b/g, "<dur>")
-    const lines = byTask.get(task) ?? []
-    lines.push(norm)
-    byTask.set(task, lines)
+    byTask.get(task)!.push(norm)
   }
+  if ([...byTask.values()].every((lines) => lines.length === 0)) return ""
   return [...byTask.keys()]
     .sort()
-    .map((t) => byTask.get(t)!.join("\n"))
+    .map((t) => [`${t}:`, ...byTask.get(t)!].join("\n"))
     .join("\n")
 }
 

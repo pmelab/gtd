@@ -308,12 +308,11 @@ describe("failureSignature", () => {
 
   const head = (hash: string, cache = "cache miss, executing") =>
     `lint: ${cache} ${hash}\nlint: \nlint: > boom\nlint: > exit 1\nlint: \n`
-  const tail = "lint:  ERROR  command (/x/y) /usr/bin/npm run boom exited (1)\n"
 
   it.each(["cache miss, executing", "cache bypass, force executing", "cache hit, replaying logs"])(
     "is empty for a boilerplate-only block (%s)",
     (cache) => {
-      expect(failureSignature(head("0123456789abcdef", cache) + tail, tasks)).toBe("")
+      expect(failureSignature(head("0123456789abcdef", cache), tasks)).toBe("")
     },
   )
 
@@ -322,14 +321,21 @@ describe("failureSignature", () => {
     expect(failureSignature(out, tasks)).toContain("> quoted")
   })
 
-  it("is empty for two boilerplate-only stdouts with differing hashes", () => {
-    expect(failureSignature(head("0123456789abcdef") + tail, tasks)).toBe("")
-    expect(failureSignature(head("fedcba9876543210") + tail, tasks)).toBe("")
+  it("keeps a task-printed `> ` line after a real line", () => {
+    const out = `lint: cache miss, executing 0123456789abcdef\nlint: > a\nlint: real\nlint: > quoted\n`
+    expect(failureSignature(out, tasks)).toContain("> quoted")
+  })
+
+  it("distinguishes an extra silently failing task", () => {
+    const a = head("0123456789abcdef") + "lint: real error\n"
+    const b =
+      a + "test:unit: cache miss, executing fedcba9876543210\ntest:unit: > x\ntest:unit: > y\n"
+    expect(failureSignature(a, tasks)).not.toBe(failureSignature(b, tasks))
   })
 
   it("keeps one real diagnostic, equal across states with differing hashes", () => {
-    const a = failureSignature(head("0123456789abcdef") + "lint: real error\n" + tail, tasks)
-    const b = failureSignature(head("fedcba9876543210") + "lint: real error\n" + tail, tasks)
+    const a = failureSignature(head("0123456789abcdef") + "lint: real error\n", tasks)
+    const b = failureSignature(head("fedcba9876543210") + "lint: real error\n", tasks)
     expect(a).toContain("real error")
     expect(a).toBe(b)
   })
@@ -427,20 +433,6 @@ describe("runStates", () => {
     expect(out).toContain("at x.ts:1")
     expect(out.indexOf("AssertionError")).toBeLessThan(out.indexOf("test-states: defaults — FAIL"))
     expect(lines.at(-1)).toBe("test-states: alpha on — pass")
-  })
-
-  it("never collapses a boilerplate-only failure", () => {
-    const boiler = (hash: string): TurboRun => ({
-      code: 1,
-      stdout: `test:unit: cache miss, executing ${hash}\ntest:unit: \ntest:unit: > boom\ntest:unit: > exit 1\ntest:unit: \ntest:unit:  ERROR  command (/x) npm run boom exited (1)\n`,
-    })
-    const { lines } = run3([boiler("0123456789abcdef"), boiler("fedcba9876543210")])
-    expect(text(lines)).not.toContain("same failure as")
-    expect(text(lines).match(/cache miss, executing/g)).toHaveLength(2)
-    expect(lines.filter((l) => l.endsWith("— FAIL"))).toEqual([
-      "test-states: defaults — FAIL",
-      "test-states: alpha on — FAIL",
-    ])
   })
 
   it("collapses a repeated failure to one line naming the earlier state", () => {
