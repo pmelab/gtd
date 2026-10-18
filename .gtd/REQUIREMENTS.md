@@ -11,7 +11,7 @@ The refusal is settled (see below). Still open: is `gtd abandon` the only exit,
 or does the human get a rest where they can drop the note and sign off on
 purpose.
 
-- [ ] Refuse the collecting turn's landing; the only way out is `gtd abandon`
+- [x] Refuse the collecting turn's landing; the only way out is `gtd abandon`
   - matches the current docs ("abandon and restart")
   - the driver re-prompts once, then the process shows as blocked
   - **abandoning throws away the naive pass, the refactor and its review**
