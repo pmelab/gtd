@@ -99,3 +99,17 @@ In `src/workflows/shared/text.test.ts`, the checks
 positive `toContain` checks beside them already pin the new contract, so these
 lines are change-history assertions that no plausible regression would trip.
 Delete them.
+
+## conventions: the squash message must follow the breaking-change tiers unless `turn` gets a default
+
+AGENTS.md: "Whether a change is breaking (`!`) is decided by the tiers in
+COMPATIBILITY.md". COMPATIBILITY.md puts "Entrypoint exports — every subpath of
+the one package, each export's name, type and behaviour" under "Follows package
+SemVer". `requireDeclaredTests` reaches `@pmelab/gtd/workflows/feature` through
+`export * from "./packages.js"`, and its new required `turn` parameter is an
+incompatible type change. This is the same issue as the ponytail-review chunk
+above, seen from the conventions side: either default `turn` to `"fix"` (the old
+behaviour), or the squash title needs `!` plus a `BREAKING CHANGE:` footer as
+docs/commits.md requires. No other AGENTS.md / CLAUDE.md rule is broken. The
+README was updated, the new scenarios are `@inmem` with their file content
+written out, and no doc names a `src/*.ts` module.
