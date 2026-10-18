@@ -245,6 +245,22 @@ const settledAfter = (
     !notedSince(p, collectedAt),
 })
 
+const settledRequest = async (
+  p: ReviewPolicy,
+  since: ReturnType<typeof changesSince>,
+  edited: readonly Change[],
+): Promise<Requested> => {
+  const noted = since.some((c) => c.path === p.file)
+  // An unchanged review file has no baseline entry, which would read as all-new.
+  const all = noted ? reviewNotes(since.get(p.file)?.before ?? "", read(p.file) ?? "") : []
+  const verdicts = all.length > 0 ? await p.triage(all) : new Map<string, Verdict>()
+  const notes = all.filter((n) => ["edit", "nit", "defer"].includes(verdicts.get(n.id) ?? "edit"))
+  return { notes, paths: edited.map((c) => c.path) }
+}
+
+const captureFor = (p: ReviewPolicy, round: string, req: Requested): string =>
+  req.paths.length > 0 ? p.captures.edits(round) : p.captures.editNotes(round, req.notes, undefined)
+
 const finish = async (
   p: ReviewPolicy,
   reviewed: string,
@@ -255,8 +271,6 @@ const finish = async (
   const round = head()
   const since = changesSince(reviewed)
   const edited = since.filter((c) => isCodeEdit(p, c))
-  const baselineText = since.get(p.file)?.before ?? ""
-  const record = read(p.file) ?? ""
   const { folded, settled } = afterCollect(p, collectedAt)
   // The review gate clears every tick before its commit, so a changed
   // review file is a note, never a tick.
@@ -276,27 +290,29 @@ const finish = async (
   if (settled && !folded && p.refusals.dropped !== undefined) {
     // Thread-only edits settled the round, but a change note or hand-edit
     // since `reviewed` must still reach a collecting turn.
-    // An unchanged review file has no baseline entry, which would read as all-new.
-    const notes = noted ? reviewNotes(baselineText, record) : []
-    const verdicts = notes.length > 0 ? await p.triage(notes) : new Map<string, Verdict>()
-    const changeNotes = notes.filter((n) =>
-      ["edit", "nit", "defer"].includes(verdicts.get(n.id) ?? "edit"),
-    )
-    const paths = edited.map((c) => c.path)
-    if (changeNotes.length === 0 && paths.length === 0) return unfolded()
-    return collectWith(
-      paths.length > 0
-        ? p.captures.edits(round)
-        : p.captures.editNotes(round, changeNotes, undefined),
-      { notes: changeNotes, paths },
-    )
+    const req = await settledRequest(p, since, edited)
+    if (req.notes.length + req.paths.length === 0) return unfolded()
+    return collectWith(captureFor(p, round, req), req)
   }
   if (settled || (edited.length === 0 && !noted)) return unfolded()
-  const notes = reviewNotes(baselineText, record)
+  return openRound(p, since, edited, round, collectWith, (notes) =>
+    routeNotes(p, notes, { round, close, outcome, unfolded }),
+  )
+}
+
+const openRound = (
+  p: ReviewPolicy,
+  since: ReturnType<typeof changesSince>,
+  edited: readonly Change[],
+  round: string,
+  collectWith: (capture: string, requested?: Requested) => Promise<Finish>,
+  route: (notes: readonly ReviewNote[]) => Promise<Finish>,
+): Promise<Finish> => {
+  const notes = reviewNotes(since.get(p.file)?.before ?? "", read(p.file) ?? "")
   if (edited.length > 0)
     return collectWith(p.captures.edits(round), { notes: [], paths: edited.map((c) => c.path) })
   if (notes.length === 0) return collectWith(p.captures.notes(round))
-  return routeNotes(p, notes, { round, close, outcome, unfolded })
+  return route(notes)
 }
 
 /** Write the review; if it marks risks, fix them, keep green, and write it again — once, so the re-review's own risks reach the human unfixed. */
