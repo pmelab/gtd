@@ -84,18 +84,37 @@ export function failureSignature(stdout: string, tasks: readonly string[]): stri
     .join("\n")
 }
 
+const printOut = (log: (line: string) => void, stdout: string) => {
+  if (stdout.length > 0) log(stdout.replace(/\n$/, ""))
+}
+
+function reportFailure(
+  state: TestState,
+  stdout: string,
+  seen: Map<string, string>,
+  log: (line: string) => void,
+  full: boolean,
+): void {
+  const sig = full ? "" : failureSignature(stdout, state.tasks)
+  const earlier = sig === "" ? undefined : seen.get(sig)
+  if (earlier !== undefined) {
+    log(`test-states: ${state.label} — FAIL (same failure as ${earlier})`)
+    return
+  }
+  if (sig !== "") seen.set(sig, state.label)
+  printOut(log, stdout)
+  log(`test-states: ${state.label} — FAIL`)
+}
+
 export function runStates(
   states: readonly TestState[],
   run: RunTasks,
   log: (line: string) => void,
   full = false,
 ): number {
-  const print = (stdout: string) => {
-    if (stdout.length > 0) log(stdout.replace(/\n$/, ""))
-  }
   if (states.length === 1) {
     const { code, stdout } = run(states[0]!.tasks, states[0]!.env)
-    print(stdout)
+    printOut(log, stdout)
     return code ?? 1
   }
   let failed = false
@@ -103,20 +122,12 @@ export function runStates(
   for (const state of states) {
     const { code, stdout } = run(state.tasks, state.env)
     if (code === 0) {
-      if (full) print(stdout)
+      if (full) printOut(log, stdout)
       log(`test-states: ${state.label} — pass`)
       continue
     }
     failed = true
-    const sig = full ? "" : failureSignature(stdout, state.tasks)
-    const earlier = sig === "" ? undefined : seen.get(sig)
-    if (earlier !== undefined) {
-      log(`test-states: ${state.label} — FAIL (same failure as ${earlier})`)
-      continue
-    }
-    if (sig !== "") seen.set(sig, state.label)
-    print(stdout)
-    log(`test-states: ${state.label} — FAIL`)
+    reportFailure(state, stdout, seen, log, full)
   }
   return failed ? 1 : 0
 }
