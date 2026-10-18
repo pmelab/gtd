@@ -133,3 +133,48 @@ LLM01 Prompt Injection)
   escaped, and it is gone in this change.
 - Confidence: Likely. Git allows such names. Whether `changes()` keeps them raw
   was not verified.
+
+## ponytail-review: `seamBuild` changes meaning under the same public name
+
+`seamBuild` is exported from `@pmelab/gtd/workflows`, and COMPATIBILITY.md
+promises each export's name, type and behaviour. Before this change,
+`seamBuild(tier)` judged the naive pass, ran the refactor and then built the
+feature (`implement`). Now `seamBuild(base)` stops after the refactor and
+returns `{ reference, base }`; the caller must call `implement` itself.
+
+Concrete case: a `gtd.config.ts` that composes
+`await design(b); await seamBuild(tier); await buildTail(false, b, true)` still
+loads (configs are not type-checked at load), but the feature is never built.
+The review then runs over a tree with no implementation, and nothing says why.
+
+Fix: keep the old behaviour under the old name and give the new split a new name
+(for example `seamDecide`), or record the change as breaking (`!`) per
+COMPATIBILITY.md, next to the `seam.approve` step that this change also removes.
+
+## ponytail-review: `refactor.build.*` skill lists are hand copies of `build.*`
+
+`src/workflows/shared/skills.ts` adds six `refactor.build.*` entries that repeat
+the six `build.*` lists word for word. `skills.test.ts` then pins that they stay
+equal ("gives each refactor.build.\* scope its build.\* counterpart's list").
+That is two copies plus a test whose only job is to catch them drifting apart.
+
+Concrete case: someone adds a skill to `build.review` and forgets
+`refactor.build.review`. The test catches it, but only after the edit; the code
+could make the drift impossible instead.
+
+Fix: build the `build.*` lists once and spread them a second time under the
+`refactor.` prefix, e.g.
+`...Object.fromEntries(Object.entries(build).map(([k, v]) => ["refactor." + k, v]))`.
+Drop the equality test. Lean: about -15 lines.
+
+## ponytail-review: dead branch in `seamBuild` after `reviewedRefactor`
+
+In `src/workflows/feature/seam.ts`, `seamBuild` returns early when `shape` is
+undefined and when `shape.unreadable` is non-empty. At the
+`slice("refactor", () => reviewedRefactor(shape, …))` call, `shape.choice` is
+always `refactor-first` and nothing is unreadable, so `reviewedRefactor` can
+only return `true` (or throw on a bad flag pattern). The
+`refactored ? head() : base` fallback can never pick `base`.
+
+Fix: `await slice(...)` and return `{ reference, base: head() }`. One line less,
+and the reader no longer wonders when the refactor is skipped.
