@@ -374,17 +374,17 @@ falls back to the `gtd` on your `PATH`.
   history push fails the ship with nothing squashed; a push that did not finish
   says so, and retrying is safe), pushes the branch, and opens its pull request,
   or appends to the open one's description when something changed at the level
-  of its motivation, solution or decisions. A subagent writes the commit message
-  (from `gtd summary`) and the pull-request text; nothing reviews them before
-  they are published. Ship refuses while the process is still underway. The
-  commit message keeps a `BREAKING CHANGE:` footer when the change is breaking,
-  and the writer may run only read-only `git` commands and write only its own
-  answer, since it reads commit messages anyone on the branch wrote.
-  `/gtd ship -n` prints the commit message and what would happen to the pull
-  request, and writes nothing. It needs `gh`, a clean tree, and a branch other
-  than the default. When a process finishes on such a branch, Claude offers to
-  open the pull request. On a thrown draft, ship writes the title and
-  description properly and marks the pull request ready for review.
+  of its motivation, solution or decisions. A subagent writes each slice's
+  commit message (from `gtd summary --slice=<name>`) and the pull-request text;
+  nothing reviews them before they are published. Ship refuses while the process
+  is still underway. The commit message keeps a `BREAKING CHANGE:` footer when
+  the change is breaking, and the writer may run only read-only `git` commands
+  and write only its own answer, since it reads commit messages anyone on the
+  branch wrote. `/gtd ship -n` prints each slice's commit message and what would
+  happen to its pull request, and writes nothing. It needs `gh`, a clean tree,
+  and a branch other than the default. When a process finishes on such a branch,
+  Claude offers to open the pull request. On a thrown draft, ship writes the
+  title and description properly and marks the pull request ready for review.
   `GTD_SHIP_MODE` picks how a multi-slice process ships: `stack` (the default)
   puts each slice's commit on its own branch, `<branch>-<slice>` (the last slice
   keeps `<branch>`), and opens one pull request per slice, each on the one below
@@ -396,8 +396,11 @@ falls back to the `gtd` on your `PATH`.
   request in either mode, a slice that changed only `.gtd/` lands nothing, and a
   slice still open refuses the ship. A pull request that is merged or closed, or
   an existing `<branch>-<slice>` branch the stack did not build, refuses before
-  anything changes. A failure part-way keeps what landed and names the slice and
-  step; run `/gtd ship` again to resume.
+  anything changes (use `GTD_SHIP_MODE=commits` or rename the branch). Slice
+  commits keep `commit.gpgSign` but run no `commit-msg` hook. A failure part-way
+  keeps what landed and names the slice and step; run `/gtd ship` again to
+  resume, and once a lower slice's pull request has merged, a resume skips it
+  and targets the default branch.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A

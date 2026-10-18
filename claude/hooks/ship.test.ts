@@ -366,6 +366,7 @@ describe("ship", () => {
     expect(await ship(io, false)).toEqual({
       ok: true,
       text: "Opened https://github.com/o/r/pull/7",
+      number: 7,
     })
     expect(ran()).toContain(`git reset --soft ${BASE}`)
     expect(calls.find((c) => c.argv.startsWith("git commit"))?.stdin).toBe(
@@ -513,7 +514,15 @@ describe("ship", () => {
   })
 
   test("the writer may only read git", () => {
-    for (const ok of ["git log --format=%B a..b", "git diff --stat a..b", "git show HEAD"]) {
+    for (const ok of [
+      "git log --format=%B a..b",
+      "git diff --stat a..b",
+      "git show HEAD",
+      "git branch",
+      "git branch --list -a",
+      "git branch --contains abc123",
+      "git log --oneline",
+    ]) {
       expect(READ_ONLY_GIT.test(ok)).toBe(true)
     }
     for (const bad of [
@@ -523,6 +532,14 @@ describe("ship", () => {
       "git log $(curl x)",
       "curl x",
       "git log\nrm x",
+      "git log -1 --format=%B abc --output=x",
+      "git log --output x",
+      "git diff --output=x",
+      "git show -ox",
+      "git branch -f a b",
+      "git branch -D a",
+      "git branch -m a",
+      "git branch newbranch",
     ]) {
       expect(READ_ONLY_GIT.test(bad)).toBe(false)
     }
@@ -702,7 +719,11 @@ describe("ship per slice", () => {
     expect(ran().filter((c) => c.startsWith("git commit "))).toHaveLength(1)
     expect(ran().some((c) => c.startsWith("git commit-tree"))).toBe(false)
     expect(ran()).toContain(`git log --format=%B%n ${A}..${C}`)
-    expect(ran().some((c) => /^git push .*refs\/heads/.test(c))).toBe(false)
+    expect(
+      ran().some((c) =>
+        /^git branch -f|origin feat\/x-refactor|^gh pr view feat\/x-refactor/.test(c),
+      ),
+    ).toBe(false)
   })
 
   test("a .gtd/-only middle slice's cost trailers fold into the next commit", async () => {
@@ -889,6 +910,7 @@ describe("ship stack", () => {
     [`git commit-tree ${B}^{tree} -p ${A} -F -`]: { out: C1 + "\n" },
     [`git commit-tree ${C}^{tree} -p ${C1} -F -`]: { out: C2 + "\n" },
     "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { code: 1 },
+    "git rev-parse refs/heads/feat/x-refactor": { out: C1 },
     "git rev-parse --verify --quiet origin/feat/x-refactor": { code: 1 },
     [view("feat/x-refactor")]: { code: 1 },
     [view("feat/x")]: { code: 1 },
@@ -1046,6 +1068,13 @@ describe("ship stack", () => {
     expect(out.text).toContain("/gtd ship")
     expect(first.ran().some((c) => c.startsWith("git reset --hard"))).toBe(false)
     expect(first.ran()).toContain(create("feat/x-refactor", "main"))
+    const before = [
+      `git config --local ${KEY} refactor feature`,
+      `git branch -f feat/x-refactor ${C1}`,
+      "git push --set-upstream origin feat/x-refactor",
+    ].map((c) => first.ran().indexOf(c))
+    expect(before.every((i) => i >= 0)).toBe(true)
+    expect([...before].sort((a, b) => a - b)).toEqual(before)
 
     const second = repo(
       {
@@ -1054,6 +1083,7 @@ describe("ship stack", () => {
         "git rev-parse HEAD": { out: C2 },
         [`git config --local --get ${KEY}`]: { out: "refactor feature\n" },
         "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { out: C1 },
+        "git rev-parse --verify --quiet origin/feat/x-refactor": { out: C1 },
         [view("feat/x-refactor")]: pr(7, { body: "lower" }),
         "git config --local --get branch.feat/x-refactor.prSyncHead": { out: C1 },
         [`git rev-list --count ${C1}..${C1}`]: { out: "0" },
@@ -1061,6 +1091,7 @@ describe("ship stack", () => {
       ["feat: add x\n\nupper"],
     )
     expect(await ship(second.io, false)).toMatchObject({ ok: true })
+    expect(second.ran().some((c) => /^git push .*feat\/x-refactor/.test(c))).toBe(false)
     expect(second.ran()).toContain("git push --set-upstream origin feat/x")
     expect(second.ran()).toContain(create("feat/x", "feat/x-refactor"))
     expect(second.ran().some((c) => c.startsWith("gh pr edit"))).toBe(false)
@@ -1120,6 +1151,203 @@ describe("ship stack", () => {
     )
     await ship(io, false, "commits")
     expect(ran().some((c) => c.startsWith("git branch -f"))).toBe(false)
-    expect(ran().some((c) => c.includes(KEY))).toBe(false)
+    expect(ran().some((c) => c.startsWith(`git config --local ${KEY} `))).toBe(false)
+    expect(ran()).toContain(`git config --local --unset ${KEY}`)
+  })
+
+  const resume: Record<string, Scripted> = {
+    ...sbase,
+    "gtd summary": { code: 1 },
+    "git rev-parse HEAD": { out: C2 },
+    [`git config --local --get ${KEY}`]: { out: "refactor feature\n" },
+    "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { out: C1 },
+    "git rev-parse --verify --quiet origin/feat/x-refactor": { out: C1 },
+  }
+  const pushes = (ran: () => string[]) => ran().filter((c) => c.startsWith("git push"))
+
+  test("a failed git branch -f leaves a record that a second run rebuilds from HEAD", async () => {
+    const first = repo(
+      { ...sbase, [`git branch -f feat/x-refactor ${C1}`]: { code: 1 } },
+      writers(),
+    )
+    const out = await ship(first.io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain("git branch -f feat/x-refactor failed")
+    expect(first.ran().some((c) => /^git push|^gh pr (create|edit)/.test(c))).toBe(false)
+
+    const second = repo(
+      {
+        ...resume,
+        "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { code: 1 },
+        "git rev-parse --verify --quiet HEAD~1": { out: C1 },
+        "git rev-parse --verify --quiet origin/feat/x-refactor": { code: 1 },
+        [view("feat/x-refactor")]: { code: 1 },
+      },
+      ["feat: add x\n\nlower", "feat: add x\n\nupper"],
+    )
+    expect(await ship(second.io, false)).toMatchObject({ ok: true })
+    expect(second.ran()).toContain(`git branch -f feat/x-refactor ${C1}`)
+    expect(second.ran()).toContain(create("feat/x-refactor", "main"))
+    expect(second.ran()).toContain(create("feat/x", "feat/x-refactor"))
+  })
+
+  test("a failed git config puts the process back instead of keeping an unrecorded squash", async () => {
+    const { io, ran } = repo(
+      { ...sbase, [`git config --local ${KEY} refactor feature`]: { code: 1, err: "locked" } },
+      writers(),
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain("undone")
+    expect(ran()).toContain("git reset --soft ORIG_HEAD")
+    expect(ran().some((c) => /^git (branch|push)|^gh pr (create|edit)/.test(c))).toBe(false)
+  })
+
+  test("a merged lower slice drops out of a resumed stack before any push", async () => {
+    const { io, ran } = repo({ ...resume, [view("feat/x-refactor")]: pr(7, { state: "MERGED" }) }, [
+      "feat: add x\n\nupper",
+    ])
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(pushes(ran)).toEqual(["git push --set-upstream origin feat/x"])
+    expect(ran()).toContain(create("feat/x", "main"))
+    expect(ran()).toContain(`git log --no-merges --reverse --format=%H%n%B%n--- ${C1}..${C2}`)
+  })
+
+  test("a closed lower slice refuses a resume before any push and names the unset", async () => {
+    const { io, ran } = repo({ ...resume, [view("feat/x-refactor")]: pr(7, { state: "CLOSED" }) })
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain(`git config --local --unset ${KEY}`)
+    expect(ran().some((c) => /^git push|^gh pr (create|edit)/.test(c))).toBe(false)
+  })
+
+  test("a dry run never unsets a stack record that no longer chains", async () => {
+    const { io, ran } = repo(
+      { ...resume, [`git merge-base --is-ancestor ${C1} HEAD`]: { code: 1 } },
+      ["feat: add x\n\nbody"],
+    )
+    await ship(io, true)
+    expect(ran().some((c) => mutating.test(c))).toBe(false)
+  })
+
+  test("a merged lower slice of a fresh stack refuses and names the way out", async () => {
+    const { io, ran } = repo(
+      { ...sbase, [view("feat/x-refactor")]: pr(7, { state: "MERGED" }) },
+      writers(),
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain("GTD_SHIP_MODE=commits")
+    expect(ran().some((c) => /^git (reset|push)/.test(c))).toBe(false)
+  })
+
+  test("a slice branch moved by a writer turn is not pushed", async () => {
+    const { io, ran } = repo(
+      { ...sbase, "git rev-parse refs/heads/feat/x-refactor": { out: "9".repeat(40) } },
+      writers(),
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain("no longer points")
+    expect(ran().some((c) => c.startsWith("git push"))).toBe(false)
+  })
+
+  test("a lower PR whose number cannot be read stops before the upper one", async () => {
+    const { io, ran } = repo(
+      { ...sbase, [create("feat/x-refactor", "main")]: { out: "created\n" } },
+      writers(),
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain("pull request")
+    expect(ran()).not.toContain(create("feat/x", "feat/x-refactor"))
+    expect(ran()).not.toContain("git push --set-upstream origin feat/x")
+  })
+
+  test("a failing commit-tree builds nothing: no reset, branch or gh call", async () => {
+    const { io, ran } = repo(
+      { ...sbase, [`git commit-tree ${C}^{tree} -p ${C1} -F -`]: { code: 1, err: "boom" } },
+      ["feat: refactor", "feat: feature"],
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain("commit-tree")
+    expect(ran().some((c) => /^git (reset|branch)|^gh pr (create|edit)/.test(c))).toBe(false)
+  })
+
+  test("an empty commit-tree reply is a failure, never a reset to ''", async () => {
+    const { io, ran } = repo(
+      { ...sbase, [`git commit-tree ${B}^{tree} -p ${A} -F -`]: { out: "\n" } },
+      ["feat: refactor", "feat: feature"],
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: false })
+    expect(ran().some((c) => c.startsWith("git reset"))).toBe(false)
+  })
+
+  test("a failed retarget stops before the body is edited", async () => {
+    const { io, ran } = repo(
+      {
+        ...sbase,
+        [view("feat/x")]: pr(6, { baseRefName: "main" }),
+        "gh pr edit 6 --base feat/x-refactor": { code: 1, err: "nope" },
+      },
+      writers(),
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain("retarget")
+    expect(ran().some((c) => c.startsWith("gh pr edit 6 --body-file"))).toBe(false)
+  })
+
+  test("commit.gpgSign signs every slice commit", async () => {
+    const signed = (tip: string, prev: string) => `git commit-tree ${tip}^{tree} -S -p ${prev} -F -`
+    const { io, ran } = repo(
+      {
+        ...sbase,
+        "git config --type=bool --get commit.gpgSign": { out: "true\n" },
+        [signed(B, A)]: { out: C1 + "\n" },
+        [signed(C, C1)]: { out: C2 + "\n" },
+      },
+      writers(),
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(ran()).toContain(signed(B, A))
+    expect(ran()).toContain(signed(C, C1))
+  })
+
+  test("a slice commit carries HEAD's .gtd/, not the steering files its tip held", async () => {
+    const T = "7".repeat(40)
+    const { io, calls, ran } = repo(
+      {
+        ...sbase,
+        [`git rev-parse --verify --quiet ${B}:.gtd`]: { out: "g1" },
+        "git rev-parse --verify --quiet HEAD:.gtd": { out: "g2" },
+        [`git rev-parse --verify --quiet ${C}:.gtd`]: { out: "g2" },
+        [`git ls-tree -z ${B}`]: {
+          out: "100644 blob aaa\tREADME\x00040000 tree g1\t.gtd\x00040000 tree bbb\tsrc\x00",
+        },
+        "git ls-tree -z HEAD .gtd": { out: "040000 tree g2\t.gtd\x00" },
+        "git mktree -z": { out: T + "\n" },
+        [`git commit-tree ${T} -p ${A} -F -`]: { out: C1 + "\n" },
+      },
+      writers(),
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(ran()).toContain(`git commit-tree ${T} -p ${A} -F -`)
+    const stdin = calls.find((c) => c.argv === "git mktree -z")?.stdin
+    expect(stdin).toContain("tree g2\t.gtd")
+    expect(stdin).not.toContain("tree g1")
+    expect(stdin).toContain("README")
+  })
+
+  test("a gtd summary --slice that fails refuses with its stderr, nothing changed", async () => {
+    const { io, ran } = repo(
+      { ...sbase, "gtd summary --slice=feature": { code: 1, err: "config changed" } },
+      writers(),
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false })
+    expect(out.text).toContain("config changed")
+    expect(ran().some((c) => /^git (reset|push|commit)|^gh pr (create|edit)/.test(c))).toBe(false)
   })
 })
