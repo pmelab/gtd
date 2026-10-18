@@ -143,3 +143,44 @@ A08:2025)
   closes this path.
 - Confidence: Likely. This depends on the injected `git branch -f` getting
   through, which the regex allows.
+
+## ponytail-review: a follow-up process on a branch whose bottom PR merged can never ship as a stack
+
+What this change does: `/gtd ship` now squashes a finished process into one
+commit per slice and, by default, opens one stacked pull request per slice on
+`<branch>-<slice>` branches. Load assumed: one person shipping one branch at a
+time. (The earlier chunks' findings are not repeated here.)
+
+1. **Should fix — merged bottom slice blocks every later stack ship**
+   (`claude/hooks/ship.ts` `stackPrecheck` L450-456)
+   - **What this is:** before anything changes, the precheck reads the PR of
+     every slice branch (`gh pr view <branch>-<slice>`) and refuses unless it is
+     open.
+   - **Problem:** slice names come from the workflow (`build`, …), so a second
+     process on the same branch reuses them. The normal flow merges the bottom
+     PR first. `gh pr view <branch>` with a branch name also finds merged PRs,
+     so after that merge every multi-slice follow-up process on the branch hits
+     "The pull request for slice build (#N, …) is MERGED, not open; nothing
+     changed". Nothing the user can do on that branch changes the answer, and
+     the message names no way out (`GTD_SHIP_MODE=commits` would skip the check,
+     but nobody is told).
+   - **Fix:** when a lower slice's PR is MERGED and its recorded branch commit
+     is already an ancestor of `baseRef`, treat that slice as done: drop it from
+     the links and let the next slice target the default branch. Smallest
+     version: at least say in the refusal how to proceed. Add a test: a fresh
+     two-slice process, recorded stack, lower PR MERGED.
+   - **If we skip it:** the stack mode works for exactly one process per branch;
+     review follow-ups have to move to a new branch by hand.
+
+2. **Nice to have — `pullRequest` is a wrapper that only drops a field**
+   (`claude/hooks/ship.ts` L740-750)
+   - **What this is:** `pullRequest` calls `pullRequestOf` and returns
+     `{ ok, text }`.
+   - **Problem:** `Shipped` already accepts the extra `number` field, and
+     `pullRequestOf` has no other caller. It is one extra function to read.
+   - **Fix:** delete `pullRequest`, rename `pullRequestOf` to `pullRequest`.
+   - **If we skip it:** nothing breaks; 10 lines stay.
+
+Verdict: fix 1 first (with the earlier chunks' must-fixes). Lean: -10 lines
+possible. Not checked: `gh pr view <branch>` returning merged PRs was taken from
+gh's documented branch lookup, not run against GitHub.
