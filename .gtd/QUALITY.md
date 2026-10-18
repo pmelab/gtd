@@ -207,3 +207,52 @@ here.
    through `links.at(-1)`. It would also pass if the `l.commit === stopped`
    match were broken for every slice. The middle-slice test is the one that owns
    the match, and it does.
+
+## conventions: the restack ships with no scenario, no port twin, and one stale comment
+
+I read `CLAUDE.md` (which pulls in `@AGENTS.md`), `AGENTS.md`, `CONTEXT.md`, the
+user's global `CLAUDE.md`, and `COMPATIBILITY.md`/`docs/commits.md` (linked from
+`AGENTS.md`). The README rule is met: the README mentions the re-ship restack.
+The docs prose names no `src/*.ts` module. No new imports cross a boundary. The
+claude mod is in no compatibility tier, so `!` is not in question. These things
+break the rules:
+
+1. **No `@inmem` scenario for a new feature.** Rule (AGENTS.md, Testing):
+   "create cucumber.js scenarios for each new feature, tagged `@inmem`". The
+   restack is a new user-facing behaviour of `/gtd ship`, with new text in the
+   README and docs/driver.md. All of its coverage is vitest cases in
+   `claude/hooks/ship.test.ts`. No `.feature` file covers ship at all, so this
+   follows the mod's existing habit. It is still a gap against the written rule.
+   Either add an `@inmem` scenario (a squash-merged lower slice, then a re-ship
+   restacks and shrinks the stack), or say in the PR why `claude/` is exempt.
+
+2. **The restack reaches git through a port with no in-memory twin and no
+   contract test.** Rule (AGENTS.md, Testing): "reach every external resource
+   (git, …) through a port with a live and an in-memory implementation, and hold
+   the two together with a contract test that runs the same cases against both".
+   `rebase --update-refs`, `ls-remote` parsing and the `REBASE_HEAD` probe go
+   through `io.run`. They are tested only against scripted output in the
+   `repo()` map. The correctness chunk "mock/live drift" already gives the fix;
+   it is listed here because it breaks an explicit rule, not only because it is
+   a risk.
+
+3. **A comment says something the code does not do.** Rule (AGENTS.md,
+   Comments): a comment is "where a non-obvious invariant lives… keep it to the
+   decision and its reason". The doc comment on `handRestack` says "the
+   remaining slice branches already sit on the default branch" and "Every
+   condition must hold, or an unrelated rebase would turn into a force push". No
+   condition checks that the branches sit on the default branch (see the
+   correctness chunk on the hand-restack path). The README and docs/driver.md
+   repeat the same claim: "the remaining slice branches now sit on the default
+   branch… pushes each with a lease". A reader who trusts the comment is worse
+   off than one who reads the code. Make the code match the comment, as the
+   correctness fix does, or cut the comment down to what is actually checked.
+
+4. **Nit: glossary words.** Rule (AGENTS.md): "`CONTEXT.md` … Read it before
+   naming anything". CONTEXT.md lists "resume" as a word to avoid (under Replay)
+   and "run" as a word to avoid for a process. The change adds the names
+   `resumeAlone` and `finishResume`, and docs/driver.md says "in one run" and "a
+   same-run squash". The ship code already used "resume" before this change, and
+   here it means picking up a stack again, not replaying. So this is cosmetic.
+   In the docs, "in the same `/gtd ship`" would avoid using "run" loosely next
+   to the glossary's Process and Episode.
