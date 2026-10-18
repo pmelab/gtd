@@ -41,8 +41,7 @@ export const requireWithin = (allowed: readonly string[]): void => {
 }
 
 // A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
-export const isTestFile = (path: string): boolean =>
-  testFileGlobs.some((glob) => matches(path, glob))
+const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
 
 export const requireNoTestFiles = (): void => {
   const tests = changes()

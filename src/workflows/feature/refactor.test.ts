@@ -10,7 +10,6 @@ import { fixtureContext, type TextContext } from "../shared/text.fixture.js"
 import { globMatches } from "../../wire/index.js"
 import {
   refactorFirst,
-  isTestFile,
   refactorStrays,
   requireNoNewFlags,
   requireNoTestFiles,
@@ -132,14 +131,7 @@ describe("requireNoTestFiles", () => {
   })
 })
 
-describe("isTestFile / refactorStrays", () => {
-  it("isTestFile is true for a test glob match only", () => {
-    installContext(fixtureContext({}, { matches: globMatches }))
-    expect(isTestFile("src/a.test.ts")).toBe(true)
-    expect(isTestFile("tests/unit/b.ts")).toBe(true)
-    expect(isTestFile("src/a.ts")).toBe(false)
-  })
-
+describe("refactorStrays", () => {
   it("refactorStrays drops test files, keeps the rest and ignores a narrowed seamAllow", () => {
     installContext(fixtureContext({ vars: { seamAllow: "docs/**" } }, { matches: globMatches }))
     expect(

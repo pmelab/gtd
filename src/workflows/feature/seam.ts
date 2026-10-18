@@ -108,7 +108,7 @@ export interface SeamOutcome {
 
 export const seamBuild = async (base: string): Promise<SeamOutcome> => {
   const { reference, shape } = await decide()
-  if (shape === undefined || refactorStrays(shape).length === 0) return { reference, base }
+  if (shape === undefined) return { reference, base }
   if (shape.unreadable.length > 0) {
     await scope("seam", () =>
       human("by-hand", {
@@ -119,6 +119,7 @@ export const seamBuild = async (base: string): Promise<SeamOutcome> => {
     )
     return { reference, base }
   }
+  if (refactorStrays(shape).length === 0) return { reference, base }
   await slice("refactor", () => reviewedRefactor(shape, { reference }))
   return { reference, base: head() }
 }

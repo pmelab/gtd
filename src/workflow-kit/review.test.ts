@@ -178,6 +178,7 @@ const driveRound = async (
 ) => {
   const triaged: string[][] = []
   const captured: string[] = []
+  const editRanges: (string | undefined)[] = []
   const dropped: Requested[] = []
   const rounds: string[] = []
   let awaits = 0
@@ -223,7 +224,11 @@ const driveRound = async (
     defer: async () => {},
     close: async () => {},
     captures: {
-      edits: () => (captured.push("edits"), "edits"),
+      edits: (_round: string, from?: string) => (
+        captured.push("edits"),
+        editRanges.push(from),
+        "edits"
+      ),
       notes: () => (captured.push("notes"), "notes"),
       editNotes: () => (captured.push("editNotes"), "editNotes"),
     },
@@ -241,7 +246,7 @@ const driveRound = async (
     },
   } as unknown as ReviewPolicy
   const result = await review("base", p).catch((e: Error) => e)
-  return { result, triaged, dropped, captured, rounds }
+  return { result, triaged, dropped, captured, rounds, editRanges }
 }
 
 describe("a one-shot footnote is a note, a thread footnote is not", () => {
@@ -348,6 +353,19 @@ describe("a settled round with an unfolded change", () => {
     expect(r.captured).toEqual(["edits", "edits"])
     expect(r.rounds).toEqual(["reply", "edits"])
     expect(r.dropped).toEqual([{ notes: [], paths: ["a.ts"] }])
+    // the in-gate reply capture has no range; the settled round's starts at `reviewed`
+    expect(r.editRanges).toEqual([undefined, "h1"])
+  })
+
+  it("a nit-only note is fixed without a collecting turn or a refusal", async () => {
+    const r = await driveRound(base, withNote("typo"), {
+      inGate: replied,
+      settled: true,
+      silent: true,
+      verdicts: { "note-1": "nit" },
+    })
+    expect(r.rounds).toEqual(["reply"])
+    expect(r.dropped).toEqual([])
   })
 
   it("a closed collecting turn that writes the feedback file turns the round into feedback", async () => {

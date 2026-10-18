@@ -29,7 +29,7 @@ export { reUnwind }
 /** Plan, build and review until a review round signs off; feedback re-plans from scratch. */
 export const planAndBuild = async (
   firstBase: string,
-  firstLap: t.ReviewLap = "first",
+  firstLap: t.ReviewRange = "first",
 ): Promise<void> => {
   // GTD_FLAG_NAIVE_PASS: the record is pinned at the process start, so a mid-process flip never moves a process.
   if (vars.flag_naive_pass === "1") return naivePlanAndBuild(firstBase)
