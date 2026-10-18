@@ -64,7 +64,7 @@ const feature: Record<string, Scripted> = {
   },
   "git merge-base main HEAD": { out: "m".repeat(40) },
   "git rev-parse --verify --quiet origin/feat/x": { code: 1 },
-  "gh pr view --json number,title,body,url,state,baseRefName": { code: 1 },
+  "gh pr view feat/x --json number,title,body,url,state,baseRefName": { code: 1 },
   "gh pr create --head feat/x --base main --title feat: add x --body-file -": {
     out: "https://github.com/o/r/pull/7\n",
   },
@@ -400,7 +400,9 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view --json number,title,body,url,state,baseRefName": { out: JSON.stringify(pr) },
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName": {
+          out: JSON.stringify(pr),
+        },
         [`git rev-list --count ${"m".repeat(40)}..HEAD`]: { out: "2" },
       },
       ["NO-UPDATE"],
@@ -445,7 +447,9 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view --json number,title,body,url,state,baseRefName": { out: JSON.stringify(pr) },
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName": {
+          out: JSON.stringify(pr),
+        },
         "gh pr ready 9": { code: 1, err: "nope" },
       },
       ["feat: add x\n\nwhy"],
@@ -464,7 +468,9 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view --json number,title,body,url,state,baseRefName": { out: JSON.stringify(pr) },
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName": {
+          out: JSON.stringify(pr),
+        },
         "gh pr edit 9 --title feat: add x --body-file -": { code: 1, err: "nope" },
       },
       ["feat: add x\n\nwhy"],
@@ -522,6 +528,8 @@ describe("ship", () => {
       "git branch --list -a",
       "git branch --contains abc123",
       "git log --oneline",
+      "git log --format='%h %s'",
+      'git log --format="%H%n%B" a..b',
     ]) {
       expect(READ_ONLY_GIT.test(ok)).toBe(true)
     }
@@ -540,6 +548,12 @@ describe("ship", () => {
       "git branch -D a",
       "git branch -m a",
       "git branch newbranch",
+      'git log "--output=x"',
+      "git log '--output' x",
+      "git log \\--output=x",
+      'git show "-ox"',
+      'git log -"-"output=x',
+      "git diff ''--output=x",
     ]) {
       expect(READ_ONLY_GIT.test(bad)).toBe(false)
     }
@@ -1181,7 +1195,7 @@ describe("ship stack", () => {
       {
         ...resume,
         "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { code: 1 },
-        "git rev-parse --verify --quiet HEAD~1": { out: C1 },
+        [`git rev-parse --verify --quiet ${C2}~1`]: { out: C1 },
         [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
         "git rev-parse --verify --quiet origin/feat/x-refactor": { code: 1 },
         [view("feat/x-refactor")]: { code: 1 },
@@ -1208,9 +1222,15 @@ describe("ship stack", () => {
   })
 
   test("a merged lower slice drops out of a resumed stack before any push", async () => {
-    const { io, ran } = repo({ ...resume, [view("feat/x-refactor")]: pr(7, { state: "MERGED" }) }, [
-      "feat: add x\n\nupper",
-    ])
+    const { io, ran } = repo(
+      {
+        ...resume,
+        [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
+        [`git rev-parse --verify --quiet ${C2}~1`]: { out: C1 },
+        [view("feat/x-refactor")]: pr(7, { state: "MERGED" }),
+      },
+      ["feat: add x\n\nupper"],
+    )
     expect(await ship(io, false)).toMatchObject({ ok: true })
     expect(pushes(ran)).toEqual(["git push --set-upstream origin feat/x"])
     expect(ran()).toContain(create("feat/x", "main"))
@@ -1261,7 +1281,7 @@ describe("ship stack", () => {
     ...feature,
     [`git config --local --get ${KEY}`]: { out: "refactor feature\n" },
     "gtd summary": { code: 1 },
-    "gh pr view --json number,title,body,url,state,baseRefName": pr(8, {
+    "gh pr view feat/x --json number,title,body,url,state,baseRefName": pr(8, {
       baseRefName: "feat/x-refactor",
       body,
     }),
@@ -1302,7 +1322,7 @@ describe("ship stack", () => {
       {
         ...reshipped("2", "Stacked on #7 — merge that first\n\nstanding"),
         [`git config --local --get ${KEY}`]: { out: record },
-        "gh pr view --json number,title,body,url,state,baseRefName": pr(8, {
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName": pr(8, {
           baseRefName: base,
           body: "Stacked on #7 — merge that first\n\nstanding",
         }),
@@ -1318,7 +1338,7 @@ describe("ship stack", () => {
     const { io, ran } = repo(
       {
         ...reshipped("0", "Stacked on #7 — merge that first\n\nstanding"),
-        "gh pr view --json number,title,body,url,state,baseRefName": pr(8, {
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName": pr(8, {
           baseRefName: "main",
           body: "Stacked on #7 — merge that first\n\nstanding",
         }),
@@ -1357,7 +1377,7 @@ describe("ship stack", () => {
       },
       ["feat: add x\n\nwhy", "NO-UPDATE"],
     )
-    await ship(io, false)
+    await ship(io, false, "commits")
     const at = (c: string) => ran().indexOf(c)
     expect(at("gh pr edit 8 --base main")).toBeGreaterThan(-1)
     expect(at(`git config --local --unset ${RETIRED}`)).toBeGreaterThan(
@@ -1429,7 +1449,7 @@ describe("ship stack", () => {
       },
       ["feat: add x\n\nwhy", "NO-UPDATE"],
     )
-    expect(await ship(first.io, false)).toMatchObject({ ok: false })
+    expect(await ship(first.io, false, "commits")).toMatchObject({ ok: false })
     expect(first.ran()).toContain(`git config --local ${RETIRED} refactor feature`)
     expect(first.ran().some((c) => c === `git config --local --unset ${RETIRED}`)).toBe(false)
     const second = repo(
@@ -1465,13 +1485,19 @@ describe("ship stack", () => {
     const gone = {
       ...resume,
       "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { code: 1 },
-      "git rev-parse --verify --quiet HEAD~1": { out: C1 },
+      [`git rev-parse --verify --quiet ${C2}~1`]: { out: C1 },
     }
     const refused = (ran: () => string[]) =>
       ran().some((c) => /^git (branch|push)|^gh pr (create|edit)|--unset/.test(c))
 
     test.each([
-      ["HEAD moved", { [`git config --local --get ${TOP}`]: { out: "9".repeat(40) + "\n" } }],
+      [
+        "HEAD no longer contains the top",
+        {
+          [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
+          [`git merge-base --is-ancestor ${C2} HEAD`]: { code: 1 },
+        },
+      ],
       ["no top recorded", {}],
     ])("%s: refuses naming the branch and commits mode", async (_n, extra) => {
       const { io, ran } = repo({ ...gone, ...extra })
@@ -1508,6 +1534,221 @@ describe("ship stack", () => {
       )
       expect(await ship(io, false)).toMatchObject({ ok: true })
       expect(ran()).toContain(create("feat/x", "main"))
+    })
+  })
+
+  const X = "5".repeat(40)
+  const lowerGone = {
+    ...resume,
+    "git rev-parse HEAD": { out: X },
+    "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { code: 1 },
+    [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
+    [`git rev-parse --verify --quiet ${C2}~1`]: { out: C1 },
+    "git rev-parse --verify --quiet HEAD~1": { out: "9".repeat(40) },
+  }
+
+  describe("a recorded stack resumed by a one-slice ship", () => {
+    const reship: Record<string, Scripted> = {
+      ...feature,
+      [`git config --local --get ${KEY}`]: { out: "refactor feature\n" },
+      [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
+      "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { out: C1 },
+      "git rev-parse refs/heads/feat/x-refactor": { out: C1 },
+      [view("feat/x-refactor")]: pr(7, { body: "lower" }),
+      [view("feat/x")]: pr(8, { baseRefName: "feat/x-refactor" }),
+    }
+    const topWrites = (ran: () => string[]) =>
+      ran().filter(
+        (c) => c.startsWith("git config --local") && !c.includes("--get") && c.includes(TOP),
+      )
+
+    test("the squash lands on the top branch and the stack is kept untouched", async () => {
+      const { io, ran } = repo(reship, ["feat: add x\n\nwhy"])
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran()).toContain(`git reset --soft ${BASE}`)
+      expect(ran()).toContain(`git merge-base --is-ancestor ${C1} ${BASE}`)
+      expect(ran().some((c) => c.startsWith("git branch -f"))).toBe(false)
+      expect(ran().some((c) => c.startsWith("gh pr edit 8 --base"))).toBe(false)
+      expect(ran().some((c) => c.includes("--unset"))).toBe(false)
+      expect(topWrites(ran)).toEqual([])
+      expect(ran()).toContain("git push --set-upstream origin feat/x")
+    })
+
+    test("two re-ships in a row never move the top; a deleted lower branch is rebuilt at its own commit", async () => {
+      for (let i = 0; i < 2; i++) {
+        const again = repo(reship, ["feat: add x\n\nwhy"])
+        expect(await ship(again.io, false)).toMatchObject({ ok: true })
+        expect(topWrites(again.ran)).toEqual([])
+      }
+      const { io, ran } = repo(lowerGone, ["feat: add x\n\nlower", "feat: add x\n\nupper"])
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran()).toContain(`git branch -f feat/x-refactor ${C1}`)
+      expect(ran().some((c) => c.includes("HEAD~"))).toBe(false)
+    })
+
+    test("a lower branch deleted before a one-slice re-ship is revived after the squash at <top>~n", async () => {
+      const { io, ran } = repo(
+        {
+          ...reship,
+          "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { code: 1 },
+          [`git rev-parse --verify --quiet ${C2}~1`]: { out: C1 },
+        },
+        ["feat: add x\n\nwhy"],
+      )
+      await ship(io, false)
+      const at = (c: string) => ran().indexOf(c)
+      expect(at(`git branch -f feat/x-refactor ${C1}`)).toBeGreaterThan(
+        at(`git reset --soft ${BASE}`),
+      )
+    })
+
+    test("a record that no longer chains retires, ships one PR to the default branch and forgets after it", async () => {
+      const { io, ran } = repo(
+        {
+          ...reship,
+          [`git merge-base --is-ancestor ${C1} ${BASE}`]: { code: 1 },
+          [`git rev-list --count ${M}..HEAD`]: { out: "2" },
+        },
+        ["feat: add x\n\nwhy", "NO-UPDATE"],
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      const at = (c: string) => ran().indexOf(c)
+      expect(at(`git config --local ${RETIRED} refactor feature`)).toBeGreaterThan(-1)
+      expect(at("gh pr edit 8 --base main")).toBeGreaterThan(-1)
+      expect(at(`git config --local --unset ${RETIRED}`)).toBeGreaterThan(
+        at("gh pr edit 8 --base main"),
+      )
+      expect(ran().some((c) => c.startsWith("git branch -f"))).toBe(false)
+    })
+
+    test("commits mode never resumes: one commit, retarget, record forgotten", async () => {
+      const { io, ran } = repo({ ...reship, [`git rev-list --count ${M}..HEAD`]: { out: "2" } }, [
+        "feat: add x\n\nwhy",
+        "NO-UPDATE",
+      ])
+      expect(await ship(io, false, "commits")).toMatchObject({ ok: true })
+      expect(ran()).toContain("gh pr edit 8 --base main")
+      expect(ran()).toContain(`git config --local --unset ${KEY}`)
+      expect(ran().some((c) => c.startsWith("git branch -f"))).toBe(false)
+    })
+
+    test("a dry run lists every remaining slice, the message only under the top, and writes nothing", async () => {
+      const { io, ran } = repo(reship, ["feat: add x\n\nTHE-MESSAGE"])
+      const out = await ship(io, true)
+      expect(out.ok).toBe(true)
+      const [lower, upper] = out.text.split("\n\n---\n\n")
+      expect(lower).toContain("[refactor]")
+      expect(lower).not.toContain("Commit message")
+      expect(upper).toContain("[feature]")
+      expect(upper).toContain("THE-MESSAGE")
+      expect(ran().some((c) => mutating.test(c))).toBe(false)
+    })
+
+    test("a closed lower PR refuses before the history push, naming commits mode", async () => {
+      const { io, ran } = repo({
+        ...reship,
+        ...withHistory,
+        [view("feat/x-refactor")]: pr(7, { state: "CLOSED" }),
+        [`git config --local --get ${KEY}`]: { out: "refactor feature\n" },
+      })
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false })
+      expect(out.text).toContain("GTD_SHIP_MODE=commits")
+      expect(ran().some((c) => /^git (push|reset|commit)|^gh pr (create|edit)/.test(c))).toBe(false)
+    })
+  })
+
+  describe("resuming reads pull request states first", () => {
+    const merged = {
+      ...resume,
+      "git rev-parse HEAD": { out: X },
+      [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
+      [`git rev-parse --verify --quiet ${C2}~1`]: { out: C1 },
+      [view("feat/x-refactor")]: pr(7, { state: "MERGED" }),
+    }
+
+    test("every gh pr view precedes any ref probe", async () => {
+      const { io, ran } = repo(resume, ["feat: add x\n\nupper"])
+      await ship(io, true)
+      const views = [view("feat/x-refactor"), view("feat/x")].map((v) => ran().indexOf(v))
+      const probe = ran().findIndex((c) => /refs\/heads\/|--is-ancestor/.test(c))
+      expect(Math.min(...views)).toBeGreaterThan(-1)
+      expect(Math.max(...views)).toBeLessThan(probe)
+    })
+
+    test("a merged bottom slice with its branch gone and HEAD past the top needs no revive", async () => {
+      const { io, ran } = repo(
+        {
+          ...merged,
+          "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { code: 1 },
+        },
+        ["feat: add x\n\nupper"],
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran().some((c) => c.startsWith("git branch -f"))).toBe(false)
+      expect(ran()).toContain(create("feat/x", "main"))
+      expect(ran()).toContain(`git log --no-merges --reverse --format=%H%n%B%n--- ${C1}..${X}`)
+    })
+
+    test("every lower slice merged retargets the top PR to the default branch without dropping the stack", async () => {
+      const { io, ran } = repo(
+        {
+          ...merged,
+          [view("feat/x")]: pr(8, { baseRefName: "feat/x-refactor" }),
+          [`git rev-list --count ${C1}..${X}`]: { out: "0" },
+        },
+        [],
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran()).toContain("gh pr edit 8 --base main")
+      expect(ran().some((c) => c.includes("--unset"))).toBe(false)
+    })
+
+    test("a merged slice's commit is found off the recorded top, never its local ref", async () => {
+      const { io, ran } = repo(
+        { ...merged, "git rev-parse refs/heads/feat/x-refactor": { out: "9".repeat(40) } },
+        ["feat: add x\n\nupper"],
+      )
+      await ship(io, false)
+      expect(ran()).toContain(`git log --no-merges --reverse --format=%H%n%B%n--- ${C1}..${X}`)
+    })
+
+    test("a recorded top that is not an ancestor of HEAD refuses with nothing changed", async () => {
+      const { io, ran } = repo({
+        ...lowerGone,
+        [`git merge-base --is-ancestor ${C2} HEAD`]: { code: 1 },
+      })
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("no longer contains") })
+      expect(ran().some((c) => mutating.test(c))).toBe(false)
+    })
+
+    test("a top that is an ancestor of a later HEAD rebuilds from the top, not HEAD", async () => {
+      const { io, ran } = repo(lowerGone, ["feat: add x\n\nlower", "feat: add x\n\nupper"])
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran()).toContain(`git branch -f feat/x-refactor ${C1}`)
+    })
+  })
+
+  describe("a pull request read that is not JSON", () => {
+    const garbled = {
+      ...feature,
+      "gh pr view feat/x --json number,title,body,url,state,baseRefName": { out: "not json" },
+    }
+
+    test("a real single-branch ship names the branch, pushed, and edits nothing", async () => {
+      const { io, ran } = repo(garbled, ["feat: add x\n\nwhy"])
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("feat/x") })
+      expect(ran()).toContain("git push --set-upstream origin feat/x")
+      expect(ran().some((c) => /^gh pr (create|edit)/.test(c))).toBe(false)
+    })
+
+    test("a dry run names the branch and pushes nothing", async () => {
+      const { io, ran } = repo(garbled, ["feat: add x\n\nwhy"])
+      const out = await ship(io, true)
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("feat/x") })
+      expect(ran().some((c) => c.startsWith("git push"))).toBe(false)
     })
   })
 
