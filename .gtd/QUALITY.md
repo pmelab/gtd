@@ -246,3 +246,52 @@ the code …) gets deleted".
   if anything.
 
 Nice to have; delete or trim.
+
+## spec-challenge: required `lap` inserted before `carry` breaks the exported `reviewing`
+
+Decision (ARCHITECTURE "Concern 6", package 04): "A required `ReviewLap`
+argument on `buildReviewReviewingPrompt` and `reviewing`", signature
+`reviewing(base, lap, carry?)`.
+
+Invariant (COMPATIBILITY.md, "Follows package SemVer" → Entrypoint exports):
+every export of `@pmelab/gtd/workflows`, "each export's name, type and
+behaviour", is SemVer-covered. `src/workflows/index.ts` re-exports
+`./shared/steps.js` wholesale, and v28.2.0 ships
+`reviewing(base: string, carry?: string)`. This change already had to edit the
+repo's own consumer (`evals/gtd.config.ts`: `reviewing(start())` →
+`reviewing(start(), "first")`), which is exactly what every custom
+`gtd.config.ts` calling it must do. Worse for an untyped (`.js`/`any`) config:
+`reviewing(b, carry)` now passes the carry commit as `lap`, so `lapRange[carry]`
+renders the literal `undefined` into the prompt and the carried answers are
+silently dropped — no error.
+
+The PR is already a major, but `docs/configuration.md` **Upgrading** ("two
+migrations") and PR 390's `BREAKING CHANGE:` footer list only `seam.approve` and
+`seamBuild`; this third signature break is unannounced.
+
+Remedy: keep the released shape compatible — make `lap` optional and last
+(`reviewing(base, carry?, lap = "first")`), or an options bag — so existing
+callers keep working and only the refactor/feedback callers pass it. If the
+positional break is kept on purpose, add it as a third Upgrading migration and
+to the footer. (`refactorCollecting`'s new middle `round` parameter is new on
+this branch, not in v28.2.0, so it breaks nothing released.)
+
+## spec-challenge: two filed defects are planned decisions, not drift
+
+So the fixer does not treat the plan as binding where it contradicts an
+invariant:
+
+- ARCHITECTURE `seamBuild` contract says the empty-`refactorStrays` return is
+  "Checked before the unreadable branch" — the ponytail-review finding
+  (unreadable test-file stray skips `seam.by-hand`) is that decision. It
+  conflicts with the documented rule in `docs/configuration.md` ("a stray whose
+  content cannot be read goes to a human instead") and with `plan`/
+  `refactorFirst`, which check `unreadable` first. Override the plan: unreadable
+  first.
+- ARCHITECTURE Answered Question "Which verdicts count as change notes on a
+  settled round? `edit`, `nit` and `defer`", fed into `captures.editNotes(…)` +
+  round `"triaged"`, conflicts with the `triaged` prompt's own invariant ("Fold
+  each `edit` note the capture lists, no other note") and with `routeNotes`'
+  per-verdict dispatch (nit → `fixNits`, defer → `p.defer`). The correctness
+  finding on verdict routing is that decision; override it rather than widening
+  the `triaged` wording to match.
