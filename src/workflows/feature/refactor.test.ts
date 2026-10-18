@@ -799,5 +799,25 @@ describe("reviewedRefactor", () => {
       expect((h.result as Error).message).toContain("refactor-tests")
       expect(h.names.at(-1)).toBe("refactor.build.fix")
     })
+
+    it("never refuses a person's edit at the tail's health.stop", async () => {
+      const h = await driveReviewed(shape(), {
+        findings: true,
+        reds: 5,
+        turns: { "refactor.build.health.stop": [change("lib/human.test.ts", "a", "b")] },
+      })
+      expect(h.names).toContain("refactor.build.health.stop")
+      expect(h.result).toBe(true)
+    })
+
+    it("still refuses the tail's escalation describe turn outside the strays", async () => {
+      const h = await driveReviewed(shape(), {
+        findings: true,
+        reds: 5,
+        turns: { "refactor.build.health.describe": outside },
+      })
+      expect((h.result as Error).message).toContain("lib/other.ts")
+      expect(h.names.at(-1)).toBe("refactor.build.health.describe")
+    })
   })
 })

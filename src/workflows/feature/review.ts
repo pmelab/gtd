@@ -170,7 +170,7 @@ export const review = (
   escalations: EscalationCount = { rounds: 0 },
   options: BuildTailOptions = {},
 ): Promise<kit.ReviewOutcome> => {
-  const { guard } = options
+  const { guard, guardRests } = options
   const feedback: FeedbackTarget = options.feedback ?? {
     file: REQUIREMENTS,
     collecting,
@@ -190,7 +190,7 @@ export const review = (
       return reviewing(b, carry)
     },
     fixRisks: guarded(fixRisks, guard),
-    keepGreen: () => healthy(fixCheck, { escalations, guard }),
+    keepGreen: () => healthy(fixCheck, { escalations, guard, guardRests }),
     awaitReview: (b) => {
       const notes = deferred
       deferred = []
@@ -255,6 +255,8 @@ export interface FeedbackTarget {
 export interface BuildTailOptions {
   /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
   readonly guard?: Guard
+  /** `false`: `guard` skips the escalation's human rests. */
+  readonly guardRests?: boolean
   /** Quality-lap lenses; default `lensesOf(vars.qualityReviews)`. */
   readonly lenses?: readonly string[]
   readonly feedback?: FeedbackTarget
@@ -273,6 +275,7 @@ export const buildTail = (
     green,
     options.guard,
     options.lenses,
+    options.guardRests,
   )
 
 /**

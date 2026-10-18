@@ -223,7 +223,8 @@ export const refactorFirst = async (
 /**
  * `refactorFirst` plus its review, in the one `refactor` scope so the tail's
  * steps are `refactor.build.*`. A review edit re-runs the refactor, never a
- * re-plan: the collected notes ride the re-derived package.
+ * re-plan: the collected notes ride the re-derived package. Every round
+ * reviews the whole refactor since `entry`, since each lap rebuilds over it.
  */
 export const reviewedRefactor = async (
   shape: DiffShapeResult,
@@ -243,14 +244,19 @@ export const reviewedRefactor = async (
     let collected: string | undefined
     for (;;) {
       await refactorLap(p, guard, collected)
+      // A person's edit at an escalation rest is never refused, as in the lap.
       const outcome = await buildTail(false, entry, true, {
         guard,
+        guardRests: false,
         lenses: lensesOf(vars.refactorQualityReviews ?? ""),
         feedback,
       })
       if (outcome.verdict === "signoff") return true
       await reUnwind(outcome)
-      collected = read(REFACTOR_PACKAGE) ?? ""
+      // The kit returns `feedback` only once the collecting turn wrote the package.
+      collected = read(REFACTOR_PACKAGE)
+      if (collected === undefined)
+        throw new Error(`gtd: review feedback left no ${REFACTOR_PACKAGE}`)
     }
   })
 }

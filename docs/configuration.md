@@ -622,11 +622,13 @@ turn when:
   setting; moving a read passes, and so does a swap that leaves every per-name
   count flat. A changed file whose before or after cannot be read refuses.
 
-The human rests `refactor.health.stop` and `refactor.health.exhausted` are never
-guarded: a person's edit there is not refused. The flag count, though, spans
-every turn since the build: a flag read a person adds there refuses the next fix
-turn until it is removed, and that turn may not touch the file to remove it. Put
-no flag read in a person's edit at these rests.
+The human rests `refactor.health.stop` and `refactor.health.exhausted`, and
+their counterparts in the refactor's review tail (`refactor.build.health.*`,
+`refactor.build.review.health.*`), are never guarded: a person's edit there is
+not refused. The flag count, though, spans every turn since the build: a flag
+read a person adds there refuses the next fix turn until it is removed, and that
+turn may not touch the file to remove it. Put no flag read in a person's edit at
+these rests.
 
 A blank or invalid `refactorFlagPattern` throws before the first step, naming
 the setting. A pattern that produces a zero-length match (a lookahead-only

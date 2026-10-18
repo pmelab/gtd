@@ -572,7 +572,8 @@ change is refactored first, in its own slice with its own quality lap
 (`refactorQualityReviews`) and review, before the feature is implemented and
 reviewed; a wrong approach is retried twice, then rests for you to steer or
 overrule it. `gtd slices` lists the `refactor` and `feature` slices. Feedback at
-a review re-runs design and the implementation, never the naive pass. Details in
+the feature review re-runs design and the implementation, never the naive pass;
+feedback at the refactor review re-runs the refactor, never design. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
 **Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default, needs

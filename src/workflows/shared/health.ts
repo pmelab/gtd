@@ -38,11 +38,11 @@ export const guarded =
     guard?.()
   }
 
-const guardedSteps = (guard?: Guard, describeGuard?: Guard): kit.EscalationSteps => ({
+const guardedSteps = (guard?: Guard, describeGuard?: Guard, rests = true): kit.EscalationSteps => ({
   limit: escalationSteps.limit,
   describe: guarded(guarded(escalationSteps.describe, guard), describeGuard),
-  stop: guarded(escalationSteps.stop, guard),
-  exhausted: guarded(escalationSteps.exhausted, guard),
+  stop: guarded(escalationSteps.stop, rests ? guard : undefined),
+  exhausted: guarded(escalationSteps.exhausted, rests ? guard : undefined),
 })
 
 /**
@@ -50,8 +50,11 @@ const guardedSteps = (guard?: Guard, describeGuard?: Guard): kit.EscalationSteps
  * agent writes `.gtd/ESCALATION.md`, a human narrows it. From the third round
  * on, the human is told the budget is spent instead.
  */
-export const escalation = (count: kit.EscalationCount, guard?: Guard): Promise<void> =>
-  kit.escalation(count, guardedSteps(guard))
+export const escalation = (
+  count: kit.EscalationCount,
+  guard?: Guard,
+  guardRests = true,
+): Promise<void> => kit.escalation(count, guardedSteps(guard, undefined, guardRests))
 
 /** "Is this red round the same failure as the last one?" — asked of two reports, or of nothing when one is empty. */
 export const retryQuestion = (comparable: boolean): JudgeQuestion =>
@@ -100,6 +103,8 @@ export interface HealthOptions {
   readonly guard?: Guard | undefined
   /** Runs after the escalation's agent turn only; the human rests stay unguarded. */
   readonly describeGuard?: Guard | undefined
+  /** `false`: `guard` skips the human rests `health.stop` and `health.exhausted`. */
+  readonly guardRests?: boolean | undefined
 }
 
 const runSuite = (options: HealthOptions): Promise<boolean> =>
@@ -123,7 +128,7 @@ export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): 
     fixesSoFar: options.fixesSoFar ?? 0,
     sameFailure,
     escalations: options.escalations ?? { rounds: 0 },
-    escalation: guardedSteps(options.guard, options.describeGuard),
+    escalation: guardedSteps(options.guard, options.describeGuard, options.guardRests),
   })
 
 /**
