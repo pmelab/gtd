@@ -691,7 +691,10 @@ hand-edit round's refusal names the edited paths. A notes-only round's refusal
 names the notes judged `edit`, footnotes included, never praise or questions.
 The only way out is `gtd abandon`, which throws away the naive pass, the
 refactor and its review. A praise-only round still signs off; the feature review
-signs off on a round that changes nothing.
+signs off on a round that changes nothing. A settled round, one where the human
+only added thread replies after the in-gate reply turn, refuses the same way
+when anything since the review asked for a change: a note judged `edit`, `nit`
+or `defer`, or a hand-edited path. The refusal names them.
 
 Footnotes are judged like line notes. A `- H:` thread left in `.gtd/REVIEW.md`
 at the refactor review gets one `- A:` reply and the gate rests again; a thread

@@ -273,6 +273,24 @@ const finish = async (
     await close()
     return outcome(await collect(p, capture, requested))
   }
+  if (settled && !folded && p.refusals.dropped !== undefined) {
+    // Thread-only edits settled the round, but a change note or hand-edit
+    // since `reviewed` must still reach a collecting turn.
+    // An unchanged review file has no baseline entry, which would read as all-new.
+    const notes = noted ? reviewNotes(baselineText, record) : []
+    const verdicts = notes.length > 0 ? await p.triage(notes) : new Map<string, Verdict>()
+    const changeNotes = notes.filter((n) =>
+      ["edit", "nit", "defer"].includes(verdicts.get(n.id) ?? "edit"),
+    )
+    const paths = edited.map((c) => c.path)
+    if (changeNotes.length === 0 && paths.length === 0) return unfolded()
+    return collectWith(
+      paths.length > 0
+        ? p.captures.edits(round)
+        : p.captures.editNotes(round, changeNotes, undefined),
+      { notes: changeNotes, paths },
+    )
+  }
   if (settled || (edited.length === 0 && !noted)) return unfolded()
   const notes = reviewNotes(baselineText, record)
   if (edited.length > 0)

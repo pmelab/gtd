@@ -715,6 +715,238 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then driving the process is refused with "refactor-feedback"
       And driving the process is refused with "[^n1]"
 
+    Scenario: a change note left behind by a thread-only settled round refuses naming the note
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op - this should change behaviour, not just structure[^q]
+
+        [^q]:
+            - H: why a shared op?
+        """
+      And step "refactor.build.review.collecting" rewrites ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op - this should change behaviour, not just structure[^q]
+
+        [^q]:
+            - H: why a shared op?
+            - A: add and subtract differ only by sign.
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op - this should change behaviour, not just structure[^q]
+
+        [^q]:
+            - H: why a shared op?
+            - A: add and subtract differ only by sign.
+            - H: understood, thanks. No change needed.
+        """
+      And step "refactor.build.review.collecting" rewrites ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op - this should change behaviour, not just structure
+        """
+      And judge step "refactor.build.review.triage" answers:
+        """
+        [{"id":"note-1","answer":"edit","p":0.9}]
+        """
+      When gtd lands
+      Then driving the process is refused with "refactor-feedback"
+      And driving the process is refused with "note-1"
+      And driving the process is refused with "gtd abandon"
+
+    Scenario: a hand-edit made before the thread refuses a thread-only settled round naming the path
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        // TODO: rename op to adjust
+        """
+      And a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op[^q]
+
+        [^q]:
+            - H: why a shared op?
+        """
+      And step "refactor.build.review.collecting" rewrites ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op[^q]
+
+        [^q]:
+            - H: why a shared op?
+            - A: add and subtract differ only by sign.
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op[^q]
+
+        [^q]:
+            - H: why a shared op?
+            - A: add and subtract differ only by sign.
+            - H: understood, thanks. No change needed.
+        """
+      And step "refactor.build.review.collecting" rewrites ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op
+        """
+      When gtd lands
+      Then driving the process is refused with "refactor-feedback"
+      And driving the process is refused with "hand-edited src/calc.ts"
+
+    Scenario: a praise note and a concluded thread on a settled round sign off and the feature slice follows
+      Given step "implement.building" writes "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        export const subtract = (a: number, b: number) => op(a, b, -1)
+        """
+      And step "implement.health.check" changes nothing
+      And step "implement.closing" runs its script
+      And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op
+        """
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op, lovely work[^q]
+
+        [^q]:
+            - H: why a shared op?
+        """
+      And step "refactor.build.review.collecting" rewrites ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op, lovely work[^q]
+
+        [^q]:
+            - H: why a shared op?
+            - A: add and subtract differ only by sign.
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op, lovely work[^q]
+
+        [^q]:
+            - H: why a shared op?
+            - A: add and subtract differ only by sign.
+            - H: understood, thanks. No change needed.
+        """
+      And step "refactor.build.review.collecting" rewrites ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op, lovely work
+        """
+      And judge step "refactor.build.review.triage" answers:
+        """
+        [{"id":"note-1","answer":"praise","p":0.9}]
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "build.review.await-review"
+
     Scenario: a praise-only refactor review still signs off and the feature slice follows
       Given step "implement.building" writes "src/calc.ts" with:
         """
