@@ -1300,9 +1300,11 @@ describe("packagesItemBuildingPrompt", () => {
       "Any other package**: implement normally, write no `.gtd/SATISFIED.md`",
     )
   })
-  it("says an (unchanged) line needs only to exist", () => {
+  it("says an (unchanged) line must exist and stay untouched", () => {
     expect(prompt).toContain("(unchanged)")
-    expect(prompt).toContain("needs only to exist")
-    expect(prompt).toContain("leave that file alone")
+    expect(prompt).toContain("must exist and stay untouched")
+    expect(prompt).toContain("refuses the turn")
+    expect(prompt).not.toContain("needs only to exist")
+    expect(prompt).not.toContain("leave that file alone")
   })
 })

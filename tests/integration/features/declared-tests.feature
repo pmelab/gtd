@@ -4,7 +4,8 @@ Feature: A package's declared tests gate its build
   A package file lists its tests under `## Tests`, one line each. The build
   turn is refused unless every declared test is in the package's diff — or,
   when the builder writes `.gtd/SATISFIED.md`, already in the tree. A line
-  decompose marks `(unchanged)` needs only to exist in the tree. The
+  decompose marks `(unchanged)` must exist in the tree and stay untouched on
+  the build turn. The
   full suite runs right after; `.gtd/ARCHITECTURE.md` survives decompose.
 
   Background:
@@ -278,3 +279,98 @@ Feature: A package's declared tests gate its build
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): packages.item.closing → build.quality.correctness.reviewing"
+
+  Scenario: a build that edits a test marked (unchanged) is refused
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/existing.test.ts` (unchanged)
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And "lib/existing.test.ts" is modified to:
+      """
+      export const existingTest = 2
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "lib/existing.test.ts"
+    And stderr contains "revert"
+
+  Scenario: a build that edits a marked test is refused even with SATISFIED.md written
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/existing.test.ts` (unchanged)
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And "lib/existing.test.ts" is modified to:
+      """
+      export const existingTest = 2
+      """
+    And a file ".gtd/SATISFIED.md" with:
+      """
+      - [x] lib/existing.test.ts — already present
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "lib/existing.test.ts"
+    And stderr contains "revert"
+
+  Scenario: a suite fix that edits a marked test the build left alone advances to the health check
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/existing.test.ts` (unchanged)
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      lib/existing.test.ts failed
+      """
+    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix.suite.fixing"
+    And "lib/existing.test.ts" is modified to:
+      """
+      export const existingTest = 2
+      """
+    And the file ".gtd/FEEDBACK.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages.item.fix.suite.fixing → packages.item.health.check"
+
+  Scenario: a Tests entry oxfmt wrapped is guarded like a one-line entry
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit:
+        `lib/existing.test.ts`
+        (unchanged)
+      - unit:
+        `lib/widget.test.ts`
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "not in the package's diff"
+    And stderr contains "lib/widget.test.ts"
+    And stderr does not contain "lib/existing.test.ts"

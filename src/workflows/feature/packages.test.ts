@@ -87,6 +87,51 @@ describe("declaredTests", () => {
     ])
   })
 
+  it("reads an entry whose path or marker is wrapped, in any line-end style", () => {
+    const forms = [
+      "- unit: `a/long.test.ts` (unchanged)",
+      "- unit:\n  `a/long.test.ts` (unchanged)",
+      "- unit: `a/long.test.ts`\n  (unchanged)",
+      "- unit:\n  `a/long.test.ts`\n  (unchanged)",
+    ]
+    for (const form of forms) {
+      const lf = `## Tests\n${form}\n- e2e: \`b.feature\`\n`
+      const want = [
+        { level: "unit", path: "a/long.test.ts", unchanged: true },
+        { level: "e2e", path: "b.feature", unchanged: false },
+      ]
+      expect(declaredTests(lf)).toEqual(want)
+      expect(declaredTests(lf.replace(/\n/g, "\r\n"))).toEqual(want)
+      expect(declaredTests(lf.replace(/\n/g, "\r"))).toEqual(want)
+    }
+  })
+
+  it("keeps the heading and its entries when an indented marker follows `## Tests`", () => {
+    const text = "## Tests\n  (unchanged)\n- unit: `a.test.ts`\n"
+    expect(declaredTests(text)).toEqual([{ level: "unit", path: "a.test.ts", unchanged: false }])
+  })
+
+  it("never extends an entry across a new item or a heading", () => {
+    const text = [
+      "## Tests",
+      "- unit: `a.test.ts`",
+      "  - unit: `b.test.ts` (unchanged)",
+      "- unit: `c.test.ts`",
+      "## Notes",
+      "  (unchanged)",
+    ].join("\n")
+    expect(declaredTests(text).map((t) => [t.path, t.unchanged])).toEqual([
+      ["a.test.ts", false],
+      ["b.test.ts", true],
+      ["c.test.ts", false],
+    ])
+  })
+
+  it("closes an entry on an unindented line", () => {
+    const text = "## Tests\n- unit: `a.test.ts`\n(unchanged)\n"
+    expect(declaredTests(text).map((t) => t.unchanged)).toEqual([false])
+  })
+
   it("returns nothing without a Tests section", () => {
     expect(declaredTests("# Chore\n\n## Tasks\n- do it\n")).toEqual([])
   })
@@ -130,6 +175,7 @@ describe("requireDeclaredTests", () => {
     tree: readonly string[],
     changes: readonly Change[],
     satisfied = false,
+    turn: "build" | "fix" = "build",
   ) => {
     const pkg = ".gtd/packages/01-a.md"
     installContext(
@@ -164,7 +210,7 @@ describe("requireDeclaredTests", () => {
     )
     let message = ""
     try {
-      requireDeclaredTests(pkg, "c")
+      requireDeclaredTests(pkg, "c", turn)
     } catch (error) {
       message = String(error instanceof Error ? error.message : error)
     }
@@ -221,16 +267,55 @@ describe("requireDeclaredTests", () => {
     expect(done).not.toContain("restore")
   })
 
-  it("orders write, restore, missing and never says satisfied", () => {
+  const modified = (path: string): Change => ({
+    path,
+    status: "modified",
+    before: "x",
+    after: "y",
+  })
+
+  it("refuses a marked test the build modified, even with SATISFIED.md", () => {
+    const text = "## Tests\n- unit: `a.test.ts` (unchanged)"
+    for (const satisfied of [false, true]) {
+      const { message } = run(text, ["a.test.ts"], [modified("a.test.ts")], satisfied)
+      expect(message).toContain("marked (unchanged) but modified — revert them:\n  - a.test.ts")
+    }
+  })
+
+  it("lets a fix turn modify a marked test but not delete it", () => {
+    const text = "## Tests\n- unit: `a.test.ts` (unchanged)\n- unit: `b.test.ts` (unchanged)"
+    expect(run(text, ["a.test.ts"], [modified("a.test.ts")], false, "fix").message).toContain(
+      "missing from the tree:\n  - b.test.ts",
+    )
+    expect(run(text, ["a.test.ts"], [modified("a.test.ts")], false, "fix").message).not.toContain(
+      "revert",
+    )
+    const gone = run(text, [], [deleted("a.test.ts"), deleted("b.test.ts")], false, "fix").message
+    expect(gone).toContain("restore them:\n  - a.test.ts\n  - b.test.ts")
+    const clean = "## Tests\n- unit: `a.test.ts` (unchanged)"
+    expect(run(clean, ["a.test.ts"], [modified("a.test.ts")], false, "fix").message).toBe("")
+  })
+
+  it("does not call a marked test the build added modified", () => {
+    const added: Change = { path: "a.test.ts", status: "added", before: undefined, after: "x" }
+    const { message } = run("## Tests\n- unit: `a.test.ts` (unchanged)", ["a.test.ts"], [added])
+    expect(message).toBe("")
+  })
+
+  it("orders write, revert, restore, missing and never says satisfied", () => {
     const text = [
       "## Tests",
       "- unit: `w.test.ts`",
       "- unit: `r.test.ts` (unchanged)",
       "- unit: `m.test.ts` (unchanged)",
+      "- unit: `v.test.ts` (unchanged)",
     ].join("\n")
-    const { message } = run(text, [], [deleted("r.test.ts")])
+    const { message } = run(text, ["v.test.ts"], [deleted("r.test.ts"), modified("v.test.ts")])
     const w = message.indexOf("write them")
+    const v = message.indexOf("revert them")
+    expect(v).toBeGreaterThan(w)
     const r = message.indexOf("restore them")
+    expect(r).toBeGreaterThan(v)
     const m = message.indexOf("missing from the tree")
     expect(w).toBeGreaterThan(0)
     expect(r).toBeGreaterThan(w)
