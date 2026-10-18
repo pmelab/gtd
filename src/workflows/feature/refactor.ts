@@ -13,6 +13,7 @@ import {
   type DiffShapeResult,
 } from "../../flows/index.js"
 import { lensesOf } from "../../workflow-kit/index.js"
+import { markFenced } from "../shared/fences.js"
 import { healthy, type Guard } from "../shared/health.js"
 import { coder, FEEDBACK, REFACTOR } from "../shared/steps.js"
 import * as t from "../shared/text.js"
@@ -139,13 +140,11 @@ const packageLines = (
 
 // Nested under `## Review feedback`, so every heading of the collected text drops a level.
 const demoteHeadings = (text: string): string[] => {
-  const lines = text.trimEnd().split("\n")
-  let marker: string | undefined
-  const headings = lines.map((line) => {
-    const fence = /^\s*(```|~~~)/.exec(line)?.[1]
-    if (fence) marker = marker === undefined ? fence : marker === fence ? undefined : marker
-    return marker === undefined && !fence ? /^(#{1,6}) /.exec(line)?.[1]?.length : undefined
-  })
+  const marked = markFenced(text.trimEnd())
+  const lines = marked.map((m) => m.line)
+  const headings = marked.map((m) =>
+    m.fenced ? undefined : /^(#{1,6}) /.exec(m.line)?.[1]?.length,
+  )
   const shallowest = Math.min(...headings.filter((n): n is number => n !== undefined))
   // Collected headings nest under `## Review feedback`, so the shallowest lands at `###`.
   const shift = Math.max(1, 3 - shallowest)

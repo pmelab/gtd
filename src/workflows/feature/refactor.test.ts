@@ -814,6 +814,28 @@ describe("reviewedRefactor", () => {
       expect(body).toContain("#### Sub")
     })
 
+    it("keeps a heading fenced inside a four-backtick fence after an inner three-backtick line", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "## Top\n\n````\n```\n## code\n````\n\n## Sub",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("'## code'")
+      expect(body).not.toContain("'### code'")
+      expect(body).toContain("### Sub")
+    })
+
+    it("treats a three-backtick line indented four spaces as no fence, so the next heading is demoted", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "## Top\n\n    ```\n\n## Sub",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("### Sub")
+    })
+
     it("collects with the shared prompt's refactor block, naming .gtd/REFACTOR.md and the strays", async () => {
       const h = await run()
       const collecting = h.steps.find((s) => s.kind === "agent" && s.name === "review.collecting")
