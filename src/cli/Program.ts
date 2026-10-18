@@ -162,7 +162,7 @@ export type Command =
   | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "install" }
   | { readonly kind: "loop" }
-  | { readonly kind: "summary" }
+  | { readonly kind: "summary"; readonly slice?: string }
   | { readonly kind: "base" }
   | { readonly kind: "judge" }
   | { readonly kind: "judgeAnswer" }
@@ -326,13 +326,20 @@ const planLanding = (
  * closes or sits inside its own closing message. Writes nothing — no git, no
  * state transition, no file. Refuses (throws, mapped to the runtime-error
  * exit code) when the workflow declares no `summary` prompt, or the resolved
- * run has no commits to name.
+ * run has no commits to name. The edge never narrates: the CLI prints the
+ * version warning, before the unknown-slice refusal; a replay refusal carries
+ * it in its message.
  */
-const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
+const runSummaryCommand = (
+  out: ArtifactOut,
+  sliceName: string | undefined,
+): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const run = yield* summaryRun
-    const rendered = yield* summaryFor(run)
-    if (rendered === undefined) {
+    const { prompt, versionWarning, unknownSlice } = yield* summaryFor(run, sliceName)
+    if (versionWarning !== undefined) yield* (yield* Narrator).warn(versionWarning)
+    if (unknownSlice !== undefined) return yield* Effect.fail(new Error(unknownSlice))
+    if (prompt === undefined) {
       return yield* Effect.fail(
         new Error(
           `gtd summary: refused — either this workflow declares no "summary:" template, or ` +
@@ -340,7 +347,7 @@ const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, Command
         ),
       )
     }
-    out.write(rendered.endsWith("\n") ? rendered : rendered + "\n")
+    out.write(prompt.endsWith("\n") ? prompt : prompt + "\n")
   })
 
 /** Prints the review anchor hash bare, so an external tool can be pointed at the range under review. Nothing is written. Refuses when the run has no commits, where the hash would name a range with no review. */
@@ -1270,7 +1277,7 @@ const dispatchVoidCommand = (
     case "loop":
       return runLoopCommand()
     case "summary":
-      return runSummaryCommand(out)
+      return runSummaryCommand(out, command.slice)
     case "base":
       return runBaseCommand(out)
     case "judge":

@@ -694,7 +694,9 @@ listed in the
 `gtd slices` lists the spans a flow's `slice()` calls mark. It refuses (exit 1)
 when HEAD neither closes nor sits inside a process, or when today's config
 disagrees with history about the process; a version mismatch only warns on
-stderr.
+stderr. `gtd summary --slice <name>` prints the closing-message prompt for one
+of those slices — its own range, human commits and cost — and inherits those
+refusals; an unknown name is refused with every valid slice listed.
 
 ## License
 

@@ -235,6 +235,68 @@ Feature: gtd slices — list the slices of the process HEAD closes or sits insid
     And stderr contains "revert or stash the edit"
     And stderr does not contain "commit or"
 
+  Scenario: a config-edited refusal also warns when the closing commit came from another gtd version
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, slice } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await slice("build", async () => {
+          await agent("building", "build it")
+        })
+        await slice("verify", async () => {
+          await agent("checking", "check it")
+        })
+      }
+      """
+    And the working tree is committed as "chore: gtd config"
+    And a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And a file "a.txt" with:
+      """
+      a
+      """
+    And gtd lands "gtd(agent): building → checking"
+    And a file "b.txt" with:
+      """
+      b
+      """
+    And the working tree is committed with message:
+      """
+      gtd(agent): checking → idle
+
+      Gtd-Step: checking#1
+      Gtd-Version: 0.0.1
+      Gtd-Format: 1
+      """
+    And a file "gtd.config.ts" with:
+      """
+      import { agent, human, slice } from "@pmelab/gtd/flows"
+
+      // edited after the process finished
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await slice("build", async () => {
+          await agent("building", "build it")
+        })
+        await slice("verify", async () => {
+          await agent("checking", "check it")
+        })
+      }
+      """
+    When I run gtd with args "slices"
+    Then the exit code is 1
+    And stdout is empty
+    And stderr contains "gtd slices: refused"
+    And stderr contains "revert or stash the edit"
+    And stderr contains "recorded by gtd 0.0.1"
+    And stderr contains the gtd version under test
+
   Scenario: a non-gtd commit after a finished process refuses with empty stdout
     Given a test project
     And a gtd config file at "gtd.config.ts" with:

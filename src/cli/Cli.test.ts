@@ -962,6 +962,45 @@ describe("parseArgv — slices", () => {
   })
 })
 
+describe("parseArgv — summary --slice", () => {
+  const parse = (...args: string[]): CliPlan => parseArgv(["node", "gtd.js", ...args])
+  const usage = (plan: CliPlan): string => (plan.kind === "usage" ? plan.message : "")
+
+  it("`--slice build` and `--slice=build` parse to the slice name", () => {
+    for (const plan of [parse("summary", "--slice", "build"), parse("summary", "--slice=build")]) {
+      expect(plan).toMatchObject({ kind: "command", command: { kind: "summary", slice: "build" } })
+    }
+  })
+
+  it("plain `summary` carries no slice key", () => {
+    const plan = parse("summary")
+    expect(plan.kind === "command" && plan.command).toEqual({ kind: "summary" })
+  })
+
+  it("bare `--slice` is a usage error naming the value form", () => {
+    const plan = parse("summary", "--slice")
+    expect(plan.kind).toBe("usage")
+    expect(usage(plan)).toContain("--slice")
+    expect(usage(plan)).toContain("value")
+  })
+
+  it("`--slice` twice is a usage error", () => {
+    expect(parse("summary", "--slice", "a", "--slice", "b").kind).toBe("usage")
+  })
+
+  it("`--slice` on another command fails the scope check naming gtd summary", () => {
+    for (const command of ["slices", "next"]) {
+      const plan = parse(command, "--slice", "build")
+      expect(plan.kind).toBe("usage")
+      expect(usage(plan)).toContain("`gtd summary`")
+    }
+  })
+
+  it("help lists the flag", () => {
+    expect(renderHelp()).toContain("--slice=<name>")
+  })
+})
+
 describe("parseArgv — gtd history", () => {
   const parse = (...args: string[]) => parseArgv(["node", "gtd.js", ...args])
   const usage = (plan: CliPlan): string => (plan.kind === "usage" ? plan.message : "")

@@ -28,6 +28,14 @@ Given("gtd lands {string}", async (world: GtdWorld, subject: string) => {
   expectSubject(world, subject)
 })
 
+Given(
+  "gtd lands {string} with {string}",
+  async (world: GtdWorld, subject: string, args: string) => {
+    await world.runGtd("land", ...args.trim().split(/\s+/))
+    expectSubject(world, subject)
+  },
+)
+
 // A workflow's opening commit is subjected to its first step, which the
 // bundled workflows fix: the scenario names the workflow, not that step.
 const FIRST_STEP: Readonly<Record<string, string>> = {

@@ -124,10 +124,15 @@ Commands:
                    no state transition, no file, no session identity — the
                    driver pipes the output to a cold agent and does what it
                    wants with the result (a squash, an amend, a PR body).
-                   Refuses (exit 1) when the workflow declares no summary:
-                   template, or when the resolved run has no commits to name
-                   — runnable any time before the next thing lands on the
-                   branch
+                   --slice <name> prints it for one slice instead: its own
+                   range, human commits and cost (see `gtd slices`); it also
+                   refuses an unknown slice name, and a HEAD-closing process
+                   whose config files differ from the working tree or whose
+                   replay diverged; an open last slice is provisional. Refuses
+                   (exit 1) when the workflow declares no summary: template,
+                   or when the resolved run has no commits to name — plain
+                   gtd summary is runnable any time before the next thing
+                   lands on the branch
   base             Print the review anchor hash — the diff base an external
                    tool (a diff, a PR tool, another agent) should point at —
                    bare, newline-terminated, and nothing else. Writes nothing:
@@ -251,6 +256,10 @@ Options:
   --model=<name>   (gtd land, with --cost) tag that cost's model
                    (gtd judge run, llm answerer) the claude model; omitted:
                    GTD_JUDGE_MODEL, then judge.json, then sonnet
+  --slice=<name>   (gtd summary only) the closing-message prompt for one
+                   slice, named as `gtd slices` lists it: its own range, human
+                   commits and cost. An unknown name is refused (exit 1) with
+                   every valid slice listed
   --workflow <name>
                    (with no command at all) start a brand new process on
                    the named workflow — authenticated as human
@@ -421,8 +430,11 @@ carries none.
 
 Stderr carries three things beyond the `gtd: ` message line above: NARRATION,
 gated by `--verbose`/`-v`, REMEDIATION, unconditional, and a WARNING, which
-`gtd slices` and `gtd history show` print when a finished process was recorded
-by another gtd version (with `--json` too, for `gtd slices`).
+`gtd slices`, `gtd summary --slice` and `gtd history show` print when a finished
+process was recorded by another gtd version (with `--json` too, for
+`gtd slices`). When such a command refuses because of config drift or replay
+divergence, the warning is the last line of the refusal message (and of the
+`--json` `prompt`) instead of its own line.
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
 command's dispatch already computes — which rest resolved, and which
