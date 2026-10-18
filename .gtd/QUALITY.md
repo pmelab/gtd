@@ -102,3 +102,35 @@ cases in claude/hooks/ship.test.ts. Nothing under `claude/` has a `.feature`
 harness today, and these are guards on an existing command, not a new feature,
 so this is weak. If the mod's ship behaviour is meant to fall under the rule,
 add `@inmem` scenarios for the two refusals. Otherwise leave it.
+
+## spec-challenge: "refuse any live record" contradicts ship's own stale-record rule
+
+Decision (REQUIREMENTS concern 2, Answered Question "Does 'live recorded stack'
+include a stale record…? Yes"): `stackPrecheck` refuses a fresh multi-slice
+stack ship whenever `branch.<branch>.gtdStack` holds a name, with no staleness
+check.
+
+Invariant it conflicts with: ship already decides when a record is dead and
+drops it on its own. `resumable` (claude/hooks/ship.ts) forgets the record when
+it no longer chains to HEAD or when `topGuard` sees HEAD lost the recorded top
+(`rebased`), and `docs/driver.md` promises "a rebase ends the stack: ship then
+ships the branch alone". Nothing else clears `gtdStack` after a successful stack
+ship: `forgetStack` runs only on a `forget` path (commits mode, a single landed
+group, or that stale check), and the stale check is only reached by the
+single-slice and no-process paths. The multi-slice path now refuses before any
+such check.
+
+Effect: the normal lifecycle (ship a stack, merge its PRs, rebase onto main or
+keep working, finish a new multi-slice process, ship) refuses every time, even
+though the record is provably dead by ship's own rule. Before this change that
+case overwrote the record, which was right for a dead record. The user has to
+unset the config by hand. Then, because `takenSlice` lost its skip, they hit the
+collision refusal from the first correctness chunk when slice names repeat.
+
+Fix: in `stackPrecheck`, run the same stale test `resumable` uses (all-but-top
+slices MERGED, or `topGuard`/`chain` say the record no longer chains to HEAD).
+Refuse only a record that is still live by that test, and let a dead one be
+forgotten (or retired) the way the single-slice path already does it. Add a
+test: record set, recorded top not an ancestor of HEAD, two landed slices, stack
+mode. Assert it ships a fresh stack. Update the driver.md sentence to say "a
+still-live recorded stack".
