@@ -5,26 +5,6 @@ closes #372). **Each fix ships with a `tests/tooling/test-states.test.ts` case
 that fails before the fix.** `docs/development.md` and the PR description follow
 any changed behaviour.
 
-## Open Questions
-
-### What happens when the user passes their own `--log-prefix`?
-
-The runner now always adds `--log-prefix=task`, and turbo 2.10.9 refuses
-`--log-prefix` given twice. So `npm test -- --log-prefix=none` needs a defined
-outcome.
-
-- [x] User value replaces the default; collapsing turns off unless it is `task`
-  - mirrors how `--output-logs` already works
-  - `--log-prefix=none` prints every failing state's full log, no "same failure
-    as" lines
-- [ ] Runner refuses up front with a clear message, runs nothing
-  - prefix is pinned, never user-tunable
-  - one more error path to test
-- [ ] Runner drops the user's value silently, always uses `task`
-  - simplest code
-  - user's flag has no effect, with no warning
-- [ ] _your answer_
-
 ## 1. Always pass `--log-prefix=task` — TECHNICAL
 
 Turbo's default `--log-prefix=auto` switches to GitHub Actions log groups in CI
@@ -33,10 +13,19 @@ no lines, every signature is empty, and repeated failures never collapse.** The
 real-turbo test breaks there for the same reason.
 
 - **`turboArgv` always emits `--log-prefix=task`**, in every environment.
-- A user `--log-prefix` follows the answer to the open question above.
-- Tests: `turboArgv` and the shim-turbo argv case show `--log-prefix=task`; the
-  real-turbo test runs with `GITHUB_ACTIONS=true` in its env and still gets a
-  non-empty, stable signature.
+- **A user `--log-prefix` replaces the default** (turbo 2.10.9 refuses the flag
+  twice), in both the `--log-prefix=x` and `--log-prefix x` spelling — the same
+  shared helper as concern 2 detects it.
+- **Collapsing turns off unless the user value is `task`.** With
+  `--log-prefix=none` every failing state prints its full log and no "same
+  failure as" line appears. Passing states still print only their label — only
+  `--output-logs full` changes that.
+- `docs/development.md` states this next to the `--output-logs` rule.
+- Tests: `turboArgv` and the shim-turbo argv case show `--log-prefix=task`; a
+  user `--log-prefix=none` (and `none` as a separate arg) replaces it and turns
+  collapsing off; a user `--log-prefix=task` keeps collapsing on; the real-turbo
+  test runs with `GITHUB_ACTIONS=true` in its env and still gets a non-empty,
+  stable signature.
 
 ## 2. Only `--output-logs full` turns on full mode — TECHNICAL
 
@@ -92,3 +81,9 @@ edit that added this sketch; they are dropped, not folded.
 
 No. The runner's output behaviour is documented in `docs/development.md` only;
 the README does not describe it.
+
+### What happens when the user passes their own `--log-prefix`?
+
+The user value replaces the default; collapsing turns off unless it is `task`,
+mirroring `--output-logs`. `--log-prefix=none` prints every failing state's full
+log with no "same failure as" lines.
