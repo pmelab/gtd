@@ -81,7 +81,7 @@ Acceptance:
 - synced head between `from` and `to` → range is `synced..to` (unchanged).
 - synced head missing or not an ancestor of `to` → `from..to` (unchanged).
 
-## 4. Drop the deferred review notes — PRODUCT (settled)
+## 4. Drop the deferred review notes — PRODUCT (settled) [^keep-notes]
 
 **The entry commit deleted all three `## Deferred review notes` sections**
 (note-1 `runSummaryCommand` doc comment, note-2 `gtd history list` scenario,
@@ -109,3 +109,8 @@ No. The sketch asks for a refusal; ship's other gh failures refuse and leave
 ### Are the three deleted deferred review notes still to be built?
 
 No. The human deleted them in the entry commit; removal is the answer.
+
+[^keep-notes]:
+    - H: Wrong: the deletion was scratch from replacing TODO.md, not intent.
+      Those three notes came from main and must stay in `.gtd/TODO.md` verbatim.
+      Turn this concern into "keep them".
