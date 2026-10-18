@@ -351,3 +351,41 @@ Feature: A package's declared tests gate its build
     And stderr contains "not in the package's diff"
     And stderr contains "lib/widget.test.ts"
     And stderr does not contain "lib/existing.test.ts"
+
+  Scenario: a build that creates a test marked (unchanged) is refused
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/new.test.ts` (unchanged)
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And a file "lib/new.test.ts" with:
+      """
+      export const newTest = 1
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "lib/new.test.ts"
+    And stderr contains "stop and leave it to a person"
+
+  Scenario: a build that creates a test listed both unmarked and marked (unchanged) passes
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/new.test.ts`
+      - unit: `lib/new.test.ts` (unchanged)
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And a file "lib/new.test.ts" with:
+      """
+      export const newTest = 1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"

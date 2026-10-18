@@ -57,7 +57,7 @@ export const declaredTests = (packageText: string): readonly DeclaredTest[] => {
 
 export type DeclaredTestsTurn = "build" | "fix"
 
-type Unmet = "notInDiff" | "modifiedMarked" | "deletedMarked" | "notInTree"
+type Unmet = "notInDiff" | "modifiedMarked" | "addedMarked" | "deletedMarked" | "notInTree"
 
 type Declared = { path: string; unchanged: boolean }
 
@@ -67,8 +67,11 @@ const diffBucket = (
   turn: DeclaredTestsTurn,
   satisfied: boolean,
 ): Unmet | undefined => {
-  if (test.unchanged)
-    return turn === "build" && status === "modified" ? "modifiedMarked" : undefined
+  if (test.unchanged) {
+    if (turn !== "build") return undefined
+    if (status === "modified") return "modifiedMarked"
+    return status === "added" ? "addedMarked" : undefined
+  }
   return !satisfied && (status === undefined || status === "deleted") ? "notInDiff" : undefined
 }
 
@@ -90,33 +93,38 @@ const unmetBucket = (
  * diff since `since`. The package text is read as of `since`, so a builder
  * editing its own `## Tests` (or adding `(unchanged)`) cannot dodge the guard;
  * with `.gtd/SATISFIED.md` written, or the line marked, existing suffices. The
- * build turn must also leave a marked test unmodified; a fix turn may edit it.
+ * build turn must neither modify nor add a marked test; a fix turn may edit it.
  */
-export const requireDeclaredTests = (
-  pkg: string,
-  since: string,
-  turn: DeclaredTestsTurn = "fix",
-): void => {
+export const requireDeclaredTests = (pkg: string, since: string, turn: DeclaredTestsTurn): void => {
   const range = changesSince(since)
   const text = range.get(pkg)?.before ?? read(pkg) ?? ""
   const satisfied = read(".gtd/SATISFIED.md") !== undefined
   const buckets = {
     notInDiff: [] as string[],
     modifiedMarked: [] as string[],
+    addedMarked: [] as string[],
     deletedMarked: [] as string[],
     notInTree: [] as string[],
   }
   const entries = declaredTests(text)
+  const seen = new Set<string>()
   for (const test of entries) {
     // A file listed both ways is written by the package: the unmarked entry wins.
     if (test.unchanged && entries.some((e) => !e.unchanged && e.path === test.path)) continue
     const bucket = unmetBucket(test, range.get(test.path), turn, satisfied)
-    if (bucket) buckets[bucket].push(test.path)
+    if (bucket && !seen.has(test.path)) {
+      seen.add(test.path)
+      buckets[bucket].push(test.path)
+    }
   }
-  const { notInDiff, modifiedMarked, deletedMarked, notInTree } = buckets
+  const { notInDiff, modifiedMarked, addedMarked, deletedMarked, notInTree } = buckets
   const groups = [
     ["not in the package's diff — write them", notInDiff],
     ["marked (unchanged) but modified — revert them", modifiedMarked],
+    [
+      "marked (unchanged) but added by this turn — the marker promises an existing test; stop and leave it to a person",
+      addedMarked,
+    ],
     ["marked (unchanged) but deleted — restore them", deletedMarked],
     ["missing from the tree", notInTree],
   ] as const
