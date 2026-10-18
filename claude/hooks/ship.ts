@@ -1141,7 +1141,7 @@ async function handRestack(
   const onto = `origin/${baseBranch}`
   if (!(await ok("merge-base", "--is-ancestor", `${lowest}~1`, onto))) return undefined
   // A liveness probe needs only the shape: origin is not asked.
-  if (!c.plan) return { links: slices, forget: false }
+  if (!c.plan) return { links: slices, forget: slices.length === 1 }
   // The pre-rebase tips are gone: origin's copies are judged against the recorded
   // top, or pass as a former tip of the local branch. The top is stale once the
   // top branch is re-shipped or restacked with more than one commit above.

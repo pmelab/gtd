@@ -2760,6 +2760,19 @@ describe("ship stack", () => {
         expect(ran().some((c) => /^git (ls-remote|fetch|push)/.test(c))).toBe(false)
       })
 
+      test("a hand-restacked record with one slice left does not refuse a fresh stack", async () => {
+        const { io } = repo({
+          ...two,
+          "gtd summary": { out: "Describe the process." },
+          "git rev-parse HEAD": { out: C },
+          [`git merge-base --is-ancestor ${C2} HEAD`]: { code: 1 },
+          [`git merge-base --is-ancestor ${C1} feat/x`]: { code: 1 },
+          [lsTop]: { code: 1, err: "offline" },
+        })
+        const out = await ship(io, false)
+        expect(out.text).not.toContain("already has a recorded stack")
+      })
+
       test("a rollback restores the branch the rebase moved, from its pre-rebase sha", async () => {
         const MOVED = "6".repeat(40)
         const mid = "refs/heads/feat/x-mid2"
