@@ -173,3 +173,69 @@ uses `${t}: `, and task names contain no `": "`, so no task's prefix can also be
 a prefix of another task's. Sort order cannot change the result, so no test
 could pin it, and `TASKS` has no `test:e2e` anyway. Delete the sort and the
 comment instead of adding a test.
+
+## conventions: `condense_failures` is not a feature flag by the glossary's definition
+
+AGENTS.md: "`CONTEXT.md` ... the domain language this repo uses ... Read it
+before naming anything". CONTEXT.md defines **Feature flag** as "a flag gtd
+knows ... Distinct from a process or environment setting", and **Release flag**
+as a feature flag with `kind: "release"`, whose life is rollout then cleanup
+"keeping its flag-on path". `condense_failures` is neither. gtd itself never
+reads it. Only the test runner `scripts/test-states.main.ts` reads it, as a
+setting for how `npm test` prints output. Registering it in `FLAGS` with
+`kind: "release"` therefore:
+
+- names a runner setting with a term that means something else in this repo
+- puts it into the flag registry, which `rollout`/`cleanup` and the `GTD_FLAG_*`
+  docs in `docs/configuration.md` treat as gtd product flags
+- runs into AGENTS.md's own "each release flag adds a full vitest pass to every
+  gate". The cost side is in the ponytail finding above.
+
+SDLC.md also says to mark each flag branch with a literal `GTD_FLAG_<NAME>`
+comment so cleanup can find it. The read in `test-states.main.ts`
+(`resolveFlags(process.env).condense_failures`) has no such marker.
+
+Fix: make it a plain runner option, for example a `--condense` argument that
+`test-states.main.ts` consumes, or a non-`GTD_FLAG_` env var. Drop the `FLAGS`
+entry and reword the `docs/development.md` paragraph to match.
+
+## conventions: the widened `RunTasks` port has no contract test
+
+AGENTS.md: "reach every external resource (git, a shell, ... a spawned program)
+through a port with a live and an in-memory implementation, and hold the two
+together with a contract test that runs the same cases against both."
+
+This change grows the turbo port. `RunTasks` now returns captured `output` and
+takes a `live` switch, and `failuresOf` parses that output. The live side is
+`spawnTurbo`. The in-memory side is a set of one-off fakes (`stub`, `feed`,
+`turboOut`) that never run the same cases as `spawnTurbo`. The single shim test
+checks argv plus one `echo`. The correctness and test-audit findings above found
+exactly the drift a contract test would catch: the `Failed:` line lists one task
+without `--continue`, and the repo reporter's `FAIL` line has a different shape.
+
+Fix: write one case table, covering a failing run's `Failed:` line, `FAIL` lines
+on stderr, and live versus captured output. Run it against a shim (or real)
+turbo through `spawnTurbo` and against the in-memory fake, and assert that
+`failuresOf` gives the same result for both.
+
+## conventions (Nit): comments that only restate the code
+
+AGENTS.md: "Keep a comment ... only where it explains an important decision or
+genuinely unclear code ... Everything else (restatement of the code, history, a
+'what' with no 'why') gets deleted". These in `scripts/test-states.ts` say what
+the code does and give no reason:
+
+- `/** Stream the state's output to the terminal as it runs; otherwise it is only captured. */`
+  on the `live` parameter
+- `/** Receives the captured output a later failing state adds beyond what was already shown. */`
+  on `Condense.print`
+- `/** Print only what an earlier failing state has not already shown. */` on
+  `condenseFailure`
+- `/** Failed task -> sorted failing test names, read from turbo's ... */` on
+  `failuresOf`. Its return type and body already say this.
+- `// Longest first: ...` on `taskOf`. It guards nothing (see test-audit).
+
+Keep
+`// Always captured: a live state's failures are what later states are compared against.`,
+because it gives a reason. Keep `/** A bare status carries no output ... */`
+only while `asResult` exists.
