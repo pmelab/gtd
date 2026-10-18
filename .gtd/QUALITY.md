@@ -91,3 +91,14 @@ giving the shared fixtures a `noPr(branch)` helper (it is defined only inside
 this describe; sbase, feature and the missing-branch fixture each inline the
 literal). That also keeps the gh string in one place for the correctness drift
 chunk.
+
+## conventions: Consider: new ship refusals have unit tests only, no scenario
+
+AGENTS.md: "create cucumber.js scenarios for each new feature, tagged `@inmem`".
+The change adds two user-visible refusals, both documented in docs/driver.md: a
+fresh multi-slice stack ship over a live `gtdStack` record, and a `gh pr view`
+failure other than "no pull requests found". Both are covered only by vitest
+cases in claude/hooks/ship.test.ts. Nothing under `claude/` has a `.feature`
+harness today, and these are guards on an existing command, not a new feature,
+so this is weak. If the mod's ship behaviour is meant to fall under the rule,
+add `@inmem` scenarios for the two refusals. Otherwise leave it.
