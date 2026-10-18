@@ -83,3 +83,35 @@ The subset case is unavoidable. Later states run only `VITEST_TASKS`, so the
 `defaults` failures in `typecheck` or `lint` can never recur there. The log line
 still says `same failures as` when the earlier state failed more. Consider the
 wording `failures already seen in <state>`.
+
+## ponytail-review: the line-list fallback can never match in a later state
+
+`failuresOf` keeps a failed task's own lines when it prints no `FAIL` name, and
+`sameTests` compares those lists. Later states run only `VITEST_TASKS`. Those
+tasks declare `env: ["GTD_FLAG_*"]` in `turbo.json`, so their hash differs per
+state. Turbo prints that hash as a prefixed task line:
+
+    test:workflows: cache miss, executing b6d1ca9560161376
+
+(seen in a real `turbo run` here). So a vitest task with no `FAIL` names never
+equals its entry in an earlier state. The line fallback only ever means "always
+different". The test
+`prints a failure with no test names when it differs from the earlier one`
+passes only because its fixture has no hash line. Real output would print
+`beta on`'s lines, not log `same failures as defaults`. That test pins behaviour
+the runner cannot show.
+
+Fix: drop the line fallback. Map a task to its sorted `FAIL` names, and treat a
+task with none as always novel. This deletes `entry.lines` and its branch. It
+also closes the first correctness chunk's empty-list case in the same edit.
+Change that test to expect the TS2 lines printed for `alpha on`, and the TS1
+lines printed for `beta on` too.
+
+## ponytail-review: `condense` is optional, but only tests take the other path
+
+`test-states.main.ts` always passes `{ print }`. The `condense?` parameter,
+`!condense || i === 0`, `|| !condense`, and the test
+`streams every state live when not condensing` exist only for callers that do
+not exist. Make `print` a required parameter and delete the non-condensing
+branch. The older `runStates` tests then pass a no-op `print`. About -5 lines,
+one fewer mode to reason about.
