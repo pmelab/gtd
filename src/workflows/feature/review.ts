@@ -292,11 +292,18 @@ export function buildTail(
   third = false,
   fourth: Omit<BuildTailOptions, "fixFirst" | "green"> = {},
 ): Promise<kit.ReviewOutcome> {
-  const base = typeof first === "string" ? first : (second as string)
-  const options: BuildTailOptions =
+  // Before any step runs, so a bad call never leaves a half-walked flow.
+  if (typeof first !== "string" && typeof first !== "boolean" && typeof second !== "string") {
+    return Promise.reject(
+      new Error(
+        "buildTail takes buildTail(base, options?) or the deprecated buildTail(fixFirst, base, green?, options?); this call fits neither",
+      ),
+    )
+  }
+  const [base, options]: [string, BuildTailOptions] =
     typeof first === "string"
-      ? ((second as BuildTailOptions | undefined) ?? {})
-      : { ...fourth, fixFirst: first, green: third }
+      ? [first, (second as BuildTailOptions | undefined) ?? {}]
+      : [second as string, { ...fourth, fixFirst: first, green: third }]
   const { fixFirst, green, ...reviewOptions } = options
   return tail(
     fixFirst ?? false,

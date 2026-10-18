@@ -229,6 +229,7 @@ sign-off between the two:
 ```ts
 const planAndBuild = async (firstBase: string): Promise<void> => {
   let base = firstBase
+  let lap: "first" | "feedback" = "first"
   for (;;) {
     await design(base)
     await architecture()
@@ -239,10 +240,14 @@ const planAndBuild = async (firstBase: string): Promise<void> => {
       acceptClean: true,
     })
     await packages()
-    const outcome = await buildTail(base, { green: true })
+    const outcome = await buildTail(base, {
+      green: true,
+      ...(lap === "first" ? {} : { lap }),
+    })
     if (outcome.verdict === "signoff") return
     await reUnwind(outcome)
     base = outcome.base
+    lap = "feedback"
   }
 }
 ```

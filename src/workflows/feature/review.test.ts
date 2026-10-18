@@ -824,8 +824,10 @@ describe("BuildTailOptions.lensBase", () => {
   })
 
   describe("buildTail flags", () => {
-    const requestNames = async (call: () => Promise<unknown>): Promise<string[]> => {
-      const names: string[] = []
+    const requestNames = async (
+      call: () => Promise<unknown>,
+      names: string[] = [],
+    ): Promise<string[]> => {
       installContext(
         fixtureContext(
           {},
@@ -872,6 +874,32 @@ describe("BuildTailOptions.lensBase", () => {
       expect(await seq(false, true)).not.toEqual(base)
     })
 
+    for (const bad of [undefined, null, 1, {}]) {
+      it(`rejects naming both forms for sole first argument ${String(bad)}`, async () => {
+        const names: string[] = []
+        const rejected = expect(requestNames(() => buildTail(bad as never), names)).rejects
+        await rejected.toThrow("buildTail(base, options?)")
+        await rejected.toThrow("buildTail(fixFirst, base, green?, options?)")
+        expect(names).toEqual([])
+      })
+    }
+
+    it("rejects an undefined first argument followed by an options object", async () => {
+      const names: string[] = []
+      const rejected = expect(
+        requestNames(() => buildTail(undefined as never, { green: true } as never), names),
+      ).rejects
+      await rejected.toThrow("buildTail(base, options?)")
+      await rejected.toThrow("buildTail(fixFirst, base, green?, options?)")
+      expect(names).toEqual([])
+    })
+
+    it("still runs buildTail(undefined, base) as a legacy call", async () => {
+      const names: string[] = []
+      await requestNames(() => buildTail(undefined as never, "base"), names)
+      expect(names).not.toEqual([])
+    })
+
     // pins `| undefined` on BuildTailOptions under exactOptionalPropertyTypes (typecheck)
     it("explicitly undefined fixFirst and green default like omitted ones", async () => {
       expect(
@@ -881,8 +909,8 @@ describe("BuildTailOptions.lensBase", () => {
   })
 })
 
-// pins the public re-export from the feature entry point
-export type _PublicBuildTailOptions = PublicBuildTailOptions
+// pins the public re-exports from the feature entry point and the published workflows entry
+export type _PublicBuildTailOptions = [PublicBuildTailOptions, bundled.BuildTailOptions]
 
 describe("buildTail without rules", () => {
   const RULES = "Change only these paths"
