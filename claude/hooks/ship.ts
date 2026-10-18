@@ -1076,11 +1076,12 @@ export async function pushBranch(io: ShipIo, branch: string, head = "HEAD") {
 // The shell commands ship's writer may run: it reads commit messages anyone
 // on the branch wrote, so read-only git and no shell syntax to chain more on.
 // `--output` writes a file and `branch` with arguments moves refs, so neither is allowed.
-// Quotes and backslashes are transparent to the flag check: the shell strips them.
+// For diff, quotes and backslashes are refused outright: the `..` path check cannot see
+// through shell quoting. The other subcommands' flag check still sees through them.
 // git diff falls back to --no-index by itself when a path lies outside the work
 // tree, so diff refuses absolute, `~` and `..` paths.
 export const READ_ONLY_GIT =
-  /^git (?!diff\b[^;&|<>`$()\n{}*?[\]]*(?:\s["'\\]*(?:[/~]|\.\.(?![^\s/"'\\]))|\/\.\.(?![^\s/"'\\])))(?:(?:log|show|diff|status|rev-parse|rev-list|merge-base)\b(?![^;&|<>`$()\n{}*?[\]]*\s["'\\]*-["'\\]*(?:o|-["'\\]*(?:o["'\\]*u|n["'\\]*o-|e["'\\]*x|t["'\\]*e)))[^;&|<>`$()\n{}*?[\]]*|branch(?:\s+(?:--list|-a|-r|--show-current))*(?:\s+--contains\s+[\w./^~-]+)?)$/
+  /^git (?!diff\b.*["'\\])(?!diff\b[^;&|<>`$()\n{}*?[\]]*(?:\s["'\\]*(?:[/~]|\.\.(?![^\s/"'\\]))|\/\.\.(?![^\s/"'\\])))(?:(?:log|show|diff|status|rev-parse|rev-list|merge-base)\b(?![^;&|<>`$()\n{}*?[\]]*\s["'\\]*-["'\\]*(?:o|-["'\\]*(?:o["'\\]*u|n["'\\]*o-|e["'\\]*x|t["'\\]*e)))[^;&|<>`$()\n{}*?[\]]*|branch(?:\s+(?:--list|-a|-r|--show-current))*(?:\s+--contains\s+[\w./^~-]+)?)$/
 
 const TITLE = /^(feat|fix|refactor|perf|docs|test|build|ci|chore)(\([\w./-]+\))?!?: \S.{0,70}$/
 
