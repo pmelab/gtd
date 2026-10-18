@@ -771,7 +771,10 @@ describe("severity routing", () => {
 })
 
 describe("BuildTailOptions.lensBase", () => {
-  const lensPrompts = async (options: BuildTailOptions): Promise<string[]> => {
+  const lensPrompts = async (
+    options: BuildTailOptions,
+    call: () => Promise<unknown> = () => buildTail("base", { ...options, green: true }),
+  ): Promise<string[]> => {
     const prompts: string[] = []
     installContext(
       fixtureContext(
@@ -793,7 +796,7 @@ describe("BuildTailOptions.lensBase", () => {
         },
       ),
     )
-    await buildTail(false, "base", true, options).catch((error: unknown) => {
+    await call().catch((error: unknown) => {
       if (!(error instanceof Stop)) throw error
     })
     return prompts
@@ -809,6 +812,14 @@ describe("BuildTailOptions.lensBase", () => {
     const prompts = await lensPrompts({})
     expect(prompts).toHaveLength(2)
     for (const prompt of prompts) expect(prompt).toContain("from `START-SHA`")
+  })
+
+  it("the deprecated positional form runs the same tail as the options form", async () => {
+    const options = { lensBase: "SLICE-BASE" }
+    const modern = await lensPrompts(options)
+    const legacy = await lensPrompts(options, () => buildTail(false, "base", true, options))
+    expect(legacy).toEqual(modern)
+    expect(legacy).toHaveLength(2)
   })
 })
 
@@ -850,7 +861,7 @@ describe("buildTail without rules", () => {
         },
       ),
     )
-    await buildTail(true, "base", false, {}).catch((error: unknown) => {
+    await buildTail("base", { fixFirst: true }).catch((error: unknown) => {
       if (!(error instanceof Stop)) throw error
     })
     return prompts

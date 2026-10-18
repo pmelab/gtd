@@ -19,7 +19,7 @@ Feature: the review flags an existing scenario that lost an assertion
       // fix as feature's own tail, whose review lists removed assertions.
       export async function fix() {
         if (await baseline("fix-precheck")) return
-        await buildTail(true, start())
+        await buildTail(start(), { fixFirst: true })
       }
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""

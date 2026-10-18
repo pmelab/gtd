@@ -457,44 +457,19 @@ ${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
 
 const withRules = (rules?: string): string => (rules === undefined ? "" : `${rules}\n`)
 
-interface RefactorBuildingArgs {
-  pkg: string
-  strays: readonly string[]
-  pattern: string
-  reference?: string | undefined
-  feedback?: boolean | undefined
-}
-
-export function refactorBuildingPrompt(args: RefactorBuildingArgs): string
-/** @deprecated Pass `refactorBuildingPrompt({ pkg, strays, pattern, reference, feedback })`. */
-export function refactorBuildingPrompt(
-  pkg: string,
-  strays: readonly string[],
-  pattern: string,
-  reference?: string,
-  feedback?: boolean,
-): string
-export function refactorBuildingPrompt(
-  first: string | RefactorBuildingArgs,
-  strays?: readonly string[],
-  pattern?: string,
-  reference?: string,
-  feedback?: boolean,
-): string {
-  return refactorBuildingPromptOf(
-    typeof first === "string"
-      ? { pkg: first, strays: strays ?? [], pattern: pattern ?? "", reference, feedback }
-      : first,
-  )
-}
-
-const refactorBuildingPromptOf = ({
+export const refactorBuildingPrompt = ({
   pkg,
   strays,
   pattern,
   reference,
   feedback = false,
-}: RefactorBuildingArgs): string =>
+}: {
+  pkg: string
+  strays: readonly string[]
+  pattern: string
+  reference?: string | undefined
+  feedback?: boolean | undefined
+}): string =>
   `${stateFileRules}
 - The package to implement is \`${pkg}\`; never delete it
 ${
