@@ -24,6 +24,7 @@ turns still pass. Duplicate `## Tests` lines now report a path once.
       dedupes repeated paths; new refusal group sits between "revert" and
       "restore". Message gives no repair step on purpose: the package text is
       read as of `since`, so the only way out is a person (`gtd abandon`).
+      [^turn-default]
 - [ ] ./src/workflows/feature/packages.test.ts#286-358 — added-marked refusal
       (never phrased as revert/delete/restore), fix-turn exemption, unmarked
       entry winning over a marked duplicate, single listing of duplicated lines,
@@ -43,3 +44,8 @@ creating, editing or deleting it refuses the turn.
 - [ ] ./tests/integration/features/declared-tests.feature#4-8 — feature
       description reworded. Nit: line 8 now runs past the 80-column wrap of the
       surrounding prose.
+
+[^turn-default]:
+    `requireDeclaredTests` still declares `turn: DeclaredTestsTurn = "fix"`
+    (line ~101). The requirement was to make `turn` required with no default;
+    drop the default so every caller must name it.
