@@ -60,3 +60,15 @@ full. This errs toward "distinct", as the comment intends, so nothing is hidden
 wrongly. But the 1187-line case from #372 only shrinks when exactly one test is
 red. Sorting the FAIL blocks inside a task's lines (or having the reporter sort
 by `fullName`) would make the collapse work for that case too.
+
+## ponytail-review: per-line array copy in `failureSignature` (scripts/test-states.ts)
+
+Nice to have. `byTask.set(task, [...(byTask.get(task) ?? []), norm])` copies the
+task's whole line list on every line, so the work grows with the square of a
+task's log length. The 1187-line log from #372 costs nothing, but a red
+`test:e2e:*` run with tens of thousands of lines (the buffer allows 256 MiB)
+spends seconds here per failing state, after turbo already finished. Fix, one
+line and shorter: get-or-create the array once and `push(norm)` into it. Assumed
+load: one developer or one CI job running `npm test`; nothing else in the change
+crosses it. Verdict from this lens: ship once the earlier correctness chunks are
+settled; nothing here blocks.
