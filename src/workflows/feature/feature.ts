@@ -39,7 +39,7 @@ export const planAndBuild = async (
     await design(base)
     await architecture()
     await packages()
-    const outcome = await buildTail(false, base, true, lap === "first" ? {} : { lap })
+    const outcome = await buildTail(base, { green: true, ...(lap === "first" ? {} : { lap }) })
     if (outcome.verdict === "signoff") return
     await reUnwind(outcome)
     base = outcome.base
@@ -54,9 +54,9 @@ const naivePlanAndBuild = async (firstBase: string): Promise<void> => {
   const tier = riskTierOn() ? recordRisk() : undefined
   const seam = await seamBuild(firstBase)
   await slice("feature", async () => {
-    await implement(seam.reference, tier)
+    await implement({ reference: seam.reference, tier })
     await featureFeedback(
-      await buildTail(false, seam.base, true, { lensBase: seam.base }),
+      await buildTail(seam.base, { green: true, lensBase: seam.base }),
       seam.base,
     )
   })
@@ -68,8 +68,9 @@ const featureFeedback = async (first: ReviewOutcome, lensBase?: string): Promise
     await reUnwind(outcome)
     await design(outcome.base)
     const tier = riskTierOn() ? recordRisk() : undefined
-    await implement(undefined, tier, true)
-    outcome = await buildTail(false, outcome.base, true, {
+    await implement({ tier, amend: true })
+    outcome = await buildTail(outcome.base, {
+      green: true,
       lap: "feedback",
       ...(lensBase === undefined ? {} : { lensBase }),
     })
