@@ -340,7 +340,9 @@ rest. When the process finishes, Claude offers to squash it and open its pull
 request(s) (or run `/gtd ship`; `GTD_SHIP_MODE` picks one stacked pull request
 per slice or one commit per slice, see the [driver doc](docs/driver.md));
 re-running `/gtd ship` after a lower stacked pull request merged restacks the
-rest. A process can change hands at any gate: ask Claude to hand it off (or run
+rest (it refuses, with nothing changed, when that pull request merged into
+another slice branch or a slice branch is checked out in another worktree). A
+process can change hands at any gate: ask Claude to hand it off (or run
 `/gtd throw @dev`) and it opens a draft pull request assigned to them, and
 `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
 requirements can hand the architecture to someone else. Ship, hand-off and throw
