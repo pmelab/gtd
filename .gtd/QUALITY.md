@@ -190,3 +190,42 @@ it. Still, the rule has no exception for `claude/`. Either add an `@inmem`
 scenario for the top-guard refusal, the case most likely to surprise a user, or
 record in TODO.md that the mod's ship flow is deliberately left to unit tests.
 Non-blocking.
+
+## spec-challenge: "a rebase merge keeps the stack clean" is false on GitHub
+
+Concern 5 of the requirements, carried into package 02, has `docs/driver.md`
+(line ~407) say "a rebase merge or merge commit keeps the stack clean". GitHub's
+"Rebase and merge" always re-creates the commits with new SHAs on the base
+branch, just as a squash does. The upper slice's branch still holds the lower
+slice's original commit. Its merge-base with the default branch stays the old
+base, so its pull request shows the lower slice's changes again, the same
+symptom the sentence warns about for a squash merge. Only a merge commit keeps
+the lower commit's SHA on the default branch. Fix: say "only a merge commit
+keeps the stack clean" and treat a rebase merge like a squash merge.
+
+## spec-challenge: the doc's "rebased or resumed" way out conflicts with what a resume does and with the chain check
+
+The same caveat says the PR above a squash-merged slice shows that slice's
+changes "until it is rebased or resumed". Neither path does what the sentence
+promises:
+
+- **Resumed:** `settle` only drops merged slices and passes `floor` (the merged
+  slice's old commit) to `stackPullRequests`, where it sets the description
+  range. Nothing rebases or pushes a rewritten branch, so the upper PR's diff
+  against the default branch still holds the lower slice's changes. The resume
+  fixes the base and the description, not the diff
+- **Rebased:** rebasing the top onto the default branch moves HEAD. Resume
+  depends on the recorded slice branches still chaining to HEAD (`chain`) and,
+  after this change, on HEAD being `gtdStackTop` whenever a branch is missing
+  (`topGuard`). After the rebase, a 3+-slice stack with a remaining middle slice
+  fails the chain check. Ship then drops the record and ships the branch alone,
+  so the middle slice's PR stays open and its changes land in the top PR. If the
+  merged slice's local branch was deleted (`gh pr merge --delete-branch` deletes
+  it), ship refuses outright
+
+The documented recovery therefore conflicts with the stack-record invariants
+this change tightens. Fix: say the upper PR shows the lower slice's changes
+until its branch is rebased onto the default branch, and that a rebase ends the
+stack (ship then ships the branch alone). Or drop "or resumed" and say that only
+a merge commit keeps the stack clean. Doc-only, but it is the one place a user
+learns which merge method to pick.
