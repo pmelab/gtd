@@ -6,8 +6,7 @@ import {
   type ScopeOptions,
   type StepRequest,
 } from "../../flows/index.js"
-import { fixtureContext, renderText, type TextContext } from "../shared/text.fixture.js"
-import { buildReviewCollectingPrompt } from "../shared/text.js"
+import { fixtureContext, type TextContext } from "../shared/text.fixture.js"
 import { globMatches } from "../../wire/index.js"
 import {
   refactorFirst,
@@ -818,6 +817,9 @@ describe("reviewedRefactor", () => {
       expect(prompt).not.toContain(".gtd/REQUIREMENTS.md")
       expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
       expect(prompt).toContain("`.gtd/REFACTOR.md`'s `## Answered Questions`")
+      // End of round: the review file is already closed, so no thread reply.
+      expect(prompt).toContain("already closed")
+      expect(prompt).not.toContain("exactly one `- A:` reply")
     })
   })
 
@@ -896,24 +898,5 @@ describe("reviewedRefactor", () => {
       expect((h.result as Error).message).toContain("lib/other.ts")
       expect(h.names.at(-1)).toBe("refactor.build.health.describe")
     })
-  })
-})
-
-describe("the refactor collecting prompt", () => {
-  const strays = ["src/a.ts"]
-
-  it("in-gate asks for one - A: per waiting thread, leaves one-shot footnotes and notes untouched, never says closed", () => {
-    const prompt = renderText(() => buildReviewCollectingPrompt("capture", { strays, open: true }))
-    expect(prompt).toContain("exactly one `- A:` reply")
-    expect(prompt).toContain("Leave one-shot footnotes and notes untouched")
-    expect(prompt).toContain("gtd check review .gtd/REVIEW.md")
-    expect(prompt).not.toContain("already closed")
-  })
-
-  it("end-of-round still says the file is closed and must not be recreated", () => {
-    const prompt = renderText(() => buildReviewCollectingPrompt("capture", { strays, open: false }))
-    expect(prompt).toContain("already closed")
-    expect(prompt).toContain("do not\n  recreate it")
-    expect(prompt).not.toContain("exactly one `- A:` reply")
   })
 })
