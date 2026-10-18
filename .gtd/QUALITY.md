@@ -80,3 +80,37 @@ Findings (non-blocking):
    exist in the tree and stay untouched on the build turn". The new scenario
    adds "and must not be created by it", so align the wording with the README
    and the prompt ("must exist before the turn").
+
+## conventions: dropping `turn`'s default breaks a published export's type
+
+`src/workflows/feature/packages.ts` (`requireDeclaredTests` signature).
+
+Rule (AGENTS.md → COMPATIBILITY.md, "Follows package SemVer"): "Entrypoint
+exports — every subpath of the one package, each export's name, type and
+behaviour … an incompatible change, shipped as a major". AGENTS.md: "Whether a
+change is breaking (`!`) is decided by the tiers in COMPATIBILITY.md."
+
+`requireDeclaredTests` is published via `src/workflows/feature/index.ts`
+(`export * from "./packages.js"`) as `@pmelab/gtd/workflows/feature`. Released
+v29.1.0 has `(pkg: string, since: string)`. Commit 08eaee96 kept two-arg callers
+compiling with `turn: DeclaredTestsTurn = "fix"`; this change makes `turn`
+required, so any external `gtd.config.ts` calling it with two args stops
+type-checking. That is an incompatible change to an entrypoint export: it needs
+`!` / `BREAKING CHANGE` and a major, which the branch's `fix(workflows): …`
+commits do not carry. The only in-repo caller (`packageItem`, line ~150) already
+passes `kind`, so nothing here needed the default gone.
+
+Fix: restore `turn: DeclaredTestsTurn = "fix"` (the two-arg behaviour then stays
+what it was before this branch). Otherwise mark the squash commit breaking per
+docs/commits.md.
+
+## conventions: build prompt bullet reads as a comma splice and runs past the wrap
+
+`src/workflows/shared/text.ts` `packagesItemBuildingPrompt`, the `(unchanged)`
+bullet. Not an AGENTS.md rule — a nit. "the turn must not create, edit or delete
+it, that refuses the turn; if the marker is wrong because the package" is a
+comma splice on one ~110-column line while every neighbouring line wraps at ~66.
+oxfmt does not reflow template literals, so it stays. Suggest e.g. "which must
+exist before the turn and stay untouched — creating, editing or deleting it
+refuses the turn; if the marker is wrong…", rewrapped. (Folds in with the
+correctness lens's wording fix to the same bullet.)
