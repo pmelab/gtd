@@ -420,27 +420,29 @@ falls back to the `gtd` on your `PATH`.
   the recorded stack to the remaining slices (it ends when only the top branch
   remains). The restacked branches keep their pull requests, and the merged
   slice's `<branch>-<slice>` branch is left alone, locally and on origin. With
-  new work at HEAD the ship squashes it first, then restacks, in one run; `-n`
-  prints the planned rebase, pushes and retarget and writes nothing. A merge
-  commit keeps the slice's commit in the default branch, so that case only
-  retargets. If origin's copy of a branch the restack moves holds commits the
-  local branch lacks, the ship refuses before changing anything: pull or
-  reconcile that branch first. A conflicting rebase is aborted, leaving the tree
-  and refs as before the ship, and the failure names the slice and the step and
-  prints the
+  new work at HEAD the ship squashes it first, then restacks, in the same
+  `/gtd ship`; `-n` prints the planned rebase, pushes and retarget from the last
+  fetch of `origin/<default>` and writes nothing. A merge commit keeps the
+  slice's commit in the default branch, so that case only retargets. If origin's
+  copy of a branch the restack moves holds commits the local branch lacks, the
+  ship refuses before changing anything: pull or reconcile that branch first. A
+  conflicting rebase is aborted, leaving the tree and refs as before the ship,
+  and the failure names the slice and the step and prints the
   `git rebase --update-refs --onto origin/<default> <commit> <branch>` line to
-  run by hand (after a same-run squash the squash is kept, and the failure
-  prints the `git reset --soft` to undo it). The next `/gtd ship` spots that
-  hand restack (the remaining slice branches now sit on the default branch),
-  pushes each with a lease, retargets the lowest remaining pull request and
-  keeps the stack; a rebase that does not fit that shape drops the record and
-  ships the branch alone. A commits-mode re-ship of a stacked branch retargets
-  its pull request to the default branch and leaves the lower slices' pull
-  requests open; close them by hand. A pull request on a base that is not a
-  slice branch keeps its base, a thrown draft in a stack is retargeted like any
-  other, and a missing slice branch is rebuilt from the commits the stack was
-  built at while the branch still contains them, otherwise the ship refuses and
-  names `GTD_SHIP_MODE=commits` to ship the branch alone.
+  run by hand (after a squash in that same `/gtd ship` the squash is kept, and
+  the failure prints the `git reset --soft` to undo it). The next `/gtd ship`
+  spots that hand restack (`origin/<default>` is under the lowest remaining
+  slice branch, which no longer holds the merged slice's commit), pushes each
+  with a lease on origin's own commit (refusing if origin holds commits the
+  recorded top lacks), retargets the lowest remaining pull request and keeps the
+  stack; a rebase that does not fit that shape drops the record and ships the
+  branch alone. A commits-mode re-ship of a stacked branch retargets its pull
+  request to the default branch and leaves the lower slices' pull requests open;
+  close them by hand. A pull request on a base that is not a slice branch keeps
+  its base, a thrown draft in a stack is retargeted like any other, and a
+  missing slice branch is rebuilt from the commits the stack was built at while
+  the branch still contains them, otherwise the ship refuses and names
+  `GTD_SHIP_MODE=commits` to ship the branch alone.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A

@@ -220,9 +220,15 @@ describe("pushBranch with a lease", () => {
       "git push failed: origin/feat/x moved. Pull or reconcile feat/x, then ship.\nstale info",
     )
   })
-  test("no origin copy takes today's first push", async () => {
+  test("a lease without a tracking ref still force-pushes with the lease", async () => {
     const { io, ran } = repo({ "git rev-parse --verify --quiet origin/feat/x": { code: 1 } })
     await pushBranch(io, "feat/x", "abc", "f".repeat(40))
+    expect(ran()).toContain(`git push --force-with-lease=feat/x:${"f".repeat(40)} origin feat/x`)
+    expect(ran().some((c) => c.includes("--set-upstream"))).toBe(false)
+  })
+  test("no lease and no origin copy takes today's first push", async () => {
+    const { io, ran } = repo({ "git rev-parse --verify --quiet origin/feat/x": { code: 1 } })
+    await pushBranch(io, "feat/x", "abc")
     expect(ran()).toContain("git push --set-upstream origin feat/x")
     expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
   })
@@ -2300,14 +2306,40 @@ describe("ship stack", () => {
       expect(ran().some((c) => writes.test(c))).toBe(false)
     })
 
-    test("the lease is origin's ls-remote sha even when origin/<b> differs", async () => {
-      const { io, ran } = repo({
+    test("a failed ls-remote refuses with nothing changed", async () => {
+      const { io, ran } = repo({ ...two, [lsTop]: { code: 1, err: "offline" } })
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("ls-remote") })
+      expect(ran().some((c) => writes.test(c))).toBe(false)
+    })
+
+    test("a branch origin does not list pushes first, without a lease", async () => {
+      const unlisted = {
         ...two,
-        "git rev-parse --verify --quiet origin/feat/x": { out: "7".repeat(40) },
+        [lsTop]: { out: "" },
+        "git rev-parse --verify --quiet origin/feat/x": { code: 1 },
+      }
+      const { io, ran } = repo(unlisted)
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+      expect(ran()).toContain("git push --set-upstream origin feat/x")
+      const { io: dry } = repo(unlisted)
+      expect((await ship(dry, true)).text).toContain(
+        "Push: would run git push --set-upstream origin feat/x",
+      )
+    })
+
+    test("a failed second record write leaves the stack unchanged and pushes nothing", async () => {
+      const { io, ran } = repo({
+        ...three,
+        [`git config --local ${TOP} ${N1}`]: { code: 1, err: "locked" },
       })
-      await ship(io, false)
-      expect(ran()).toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
-      expect(ran().some((c) => c.includes("7".repeat(40)))).toBe(false)
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("locked") })
+      expect(at(ran, `git config --local ${KEY} middle feature`)).toBeLessThan(
+        at(ran, `git config --local ${TOP} ${N1}`),
+      )
+      expect(ran().some((c) => c.startsWith("git push"))).toBe(false)
     })
 
     describe("with a process at HEAD", () => {
@@ -2349,6 +2381,15 @@ describe("ship stack", () => {
           text: expect.stringContaining("Pull or reconcile feat/x"),
         })
         expect(ran().some((c) => writes.test(c))).toBe(false)
+      })
+
+      test("a rebase failing before it starts still names the pre-ship HEAD", async () => {
+        const { io } = repo(
+          { ...proc, [`git rebase --update-refs --onto origin/main ${C1} feat/x`]: { code: 129 } },
+          [...reply],
+        )
+        const out = await ship(io, false)
+        expect(out.text).toContain(`undo it with git reset --soft ${TIP}`)
       })
 
       test("a conflict keeps the squash, names the pre-ship HEAD and still aborts the rebase", async () => {
@@ -2428,15 +2469,40 @@ describe("ship stack", () => {
         const { io, ran } = repo(hand)
         expect(await ship(io, false)).toMatchObject({ ok: true })
         expect(ran().some((c) => /^git (rebase|fetch)/.test(c))).toBe(false)
-        expect(ran()).toContain("git push --force-with-lease origin feat/x-middle")
-        expect(ran()).toContain("git push --force-with-lease origin feat/x")
+        expect(ran()).toContain(
+          `git push --force-with-lease=feat/x-middle:${O2} origin feat/x-middle`,
+        )
+        expect(ran()).toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
         expect(ran()).toContain("gh pr edit 8 --base main")
         expect(ran()).toContain(`git config --local ${KEY} middle feature`)
         expect(ran()).toContain(`git config --local ${TOP} ${N1}`)
         expect(at(ran, `git config --local ${KEY} middle feature`)).toBeLessThan(
-          at(ran, "git push --force-with-lease origin feat/x-middle"),
+          at(ran, `git push --force-with-lease=feat/x-middle:${O2} origin feat/x-middle`),
         )
         expect(ran().some((c) => c.includes("--unset"))).toBe(false)
+      })
+
+      test("origin holding a commit the recorded top lacks refuses before any write", async () => {
+        const { io, ran } = repo({
+          ...hand,
+          [`git merge-base --is-ancestor ${O2} ${S3}`]: { code: 1 },
+        })
+        expect(await ship(io, false)).toEqual({
+          ok: false,
+          text: "origin/feat/x-middle holds commits feat/x-middle lacks; nothing changed. Pull or reconcile feat/x-middle, then ship.",
+        })
+        expect(ran().some((c) => writes.test(c))).toBe(false)
+      })
+
+      test("a lowest branch off origin/<default> is not a hand restack: the record drops", async () => {
+        const { io, ran } = repo({
+          ...hand,
+          "git merge-base --is-ancestor origin/main feat/x-middle": { code: 1 },
+        })
+        await ship(io, false)
+        expect(ran().some((c) => c.includes("force-with-lease"))).toBe(false)
+        expect(ran().some((c) => c.startsWith(`git config --local ${KEY} `))).toBe(false)
+        expect(ran()).toContain(`git config --local --unset ${KEY}`)
       })
 
       test("with the lowest branch still on the merged slice it is not a hand restack: the branch ships alone", async () => {
