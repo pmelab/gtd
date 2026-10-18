@@ -257,9 +257,9 @@ export interface FeedbackTarget {
 
 export interface BuildTailOptions {
   /** Fix first when entered red; default `false`. */
-  readonly fixFirst?: boolean
-  /** Skip keeping green; default `false`. */
-  readonly green?: boolean
+  readonly fixFirst?: boolean | undefined
+  /** Asserts the tree is already green, so the tail skips keep-green; default `false`. */
+  readonly green?: boolean | undefined
   /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
   readonly guard?: Guard
   /** `false`: `guard` skips the escalation's human rests. */
@@ -297,10 +297,11 @@ export function buildTail(
     typeof first === "string"
       ? ((second as BuildTailOptions | undefined) ?? {})
       : { ...fourth, fixFirst: first, green: third }
+  const { fixFirst, green, ...reviewOptions } = options
   return tail(
-    options.fixFirst ?? false,
-    (escalations) => review(base, escalations, options),
-    options.green ?? false,
+    fixFirst ?? false,
+    (escalations) => review(base, escalations, reviewOptions),
+    green ?? false,
     options.guard,
     options.lenses,
     options.guardRests,

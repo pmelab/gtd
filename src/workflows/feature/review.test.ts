@@ -16,6 +16,7 @@ import {
 } from "./review.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as bundled from "../index.js"
+import type { BuildTailOptions as PublicBuildTailOptions } from "./index.js"
 import { fixtureContext } from "../shared/text.fixture.js"
 
 afterEach(() => installContext(undefined))
@@ -822,7 +823,7 @@ describe("BuildTailOptions.lensBase", () => {
     expect(legacy).toHaveLength(2)
   })
 
-  describe("deprecated positional mapping", () => {
+  describe("buildTail flags", () => {
     const requestNames = async (call: () => Promise<unknown>): Promise<string[]> => {
       const names: string[] = []
       installContext(
@@ -870,8 +871,18 @@ describe("BuildTailOptions.lensBase", () => {
       expect(await seq(true, false)).not.toEqual(base)
       expect(await seq(false, true)).not.toEqual(base)
     })
+
+    // pins `| undefined` on BuildTailOptions under exactOptionalPropertyTypes (typecheck)
+    it("explicitly undefined fixFirst and green default like omitted ones", async () => {
+      expect(
+        await requestNames(() => buildTail("base", { fixFirst: undefined, green: undefined })),
+      ).toEqual(await requestNames(() => buildTail("base")))
+    })
   })
 })
+
+// pins the public re-export from the feature entry point
+export type _PublicBuildTailOptions = PublicBuildTailOptions
 
 describe("buildTail without rules", () => {
   const RULES = "Change only these paths"

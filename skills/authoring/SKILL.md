@@ -227,9 +227,10 @@ pass (which writes `.gtd/packages/`), then builds the packages. Add a human
 sign-off between the two:
 
 ```ts
-const planAndBuild = async (): Promise<void> => {
+const planAndBuild = async (firstBase: string): Promise<void> => {
+  let base = firstBase
   for (;;) {
-    await design()
+    await design(base)
     await architecture()
     await human("approve-plan", {
       message:
@@ -238,8 +239,10 @@ const planAndBuild = async (): Promise<void> => {
       acceptClean: true,
     })
     await packages()
-    if ((await buildTail(start())).verdict === "signoff") return
-    await reUnwind()
+    const outcome = await buildTail(base, { green: true })
+    if (outcome.verdict === "signoff") return
+    await reUnwind(outcome)
+    base = outcome.base
   }
 }
 ```
