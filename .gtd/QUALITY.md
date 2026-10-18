@@ -311,3 +311,79 @@ would happen to the pull request". A multi-slice dry run prints one message per
 slice and one PR plan per slice. It also says "A subagent writes the commit
 message (from `gtd summary`)", but each slice's message now comes from
 `gtd summary --slice=<name>`. Change both to the plural.
+
+## spec-challenge: slice commits snapshot mid-process `.gtd/` steering files onto the default branch
+
+Decision (ARCHITECTURE.md, "How are two or more slice commits built?"):
+`git commit-tree <tip>^{tree}` per slice, "each tree is one the step commits
+already landed". Answered question "How do `.gtd/`-only slices fold": "the
+`.gtd/` churn rides along with no extra step".
+
+Invariant it breaks: `.gtd/` steering state is process-private and never reaches
+the default branch. Today's single squash uses HEAD's tree at process end, where
+the workflow has already deleted its steering files. A slice tip in the middle
+of a process has not. Example from this very branch: `42f7aecc` (mid-process)
+carries `.gtd/ARCHITECTURE.md` and `.gtd/packages/01-…md`, `02-…md`. `main` and
+the process base carry only `.gtd/TODO.md`.
+
+Effect in `stack` mode (and in `commits` mode with a rebase merge):
+
+- The lowest PR, into the default branch, adds every steering file that existed
+  at its slice tip. The PR above deletes them again. Reviewers see them in the
+  lower diff.
+- Merge only the lower PR (the order ship tells people to use: "merge that
+  first"), or drop the upper one, and they stay on the default branch.
+- Leftovers have consequences. `src/workflows/feature/packages.ts`
+  `nextPackage()` globs `.gtd/packages/*.md` and builds them in name order, so a
+  later feature process on that base builds a stale package from this one.
+- The check that decides whether a slice is empty already excludes `.gtd/`
+  (`:(exclude).gtd/`). So the spec treats `.gtd/` as not deliverable when it
+  folds slices, and then ships it anyway when it builds them.
+
+No test catches it: the scripted io never inspects tree contents.
+
+Fix: build each slice's tree as `<tip>`'s tree with `.gtd/` taken from the final
+HEAD, or from the process base. For example, use a temp index
+(`GIT_INDEX_FILE=… git read-tree <tip>`, then `git rm -r --cached .gtd`,
+`git read-tree --prefix=.gtd/ HEAD:.gtd`, `git write-tree`), then `commit-tree`
+that. Add a test that the lower slice's tree has HEAD's `.gtd/`.
+
+## spec-challenge: "no `src/` change" leaves a src pin whose only reason this change deletes
+
+Decision (REQUIREMENTS §1, §9; ARCHITECTURE): delete the `git log <a>..<b>`
+regex over plain `gtd summary` prose, and make "no `src/` change".
+
+Invariant left behind: `src/workflows/shared/text.ts` L1082 ("Plain text stays
+byte for byte: claude/hooks/ship.ts regex-reads its `git log base..tip` line"),
+and the pinned literal test `src/workflows/shared/text.test.ts` L297 (same
+reason). After this change nothing in the repo reads that prose. The comment
+states a constraint that is false, and the test will block future prompt edits
+for a consumer that no longer exists.
+
+Fix, one of:
+
+- If older installed mods still parse it (see COMPATIBILITY.md tiers), say so in
+  both places.
+- Otherwise delete the comment and loosen the test.
+
+Either needs the `src/` touch the spec ruled out.
+
+## spec-challenge: two decisions contradict the behaviour the spec itself requires (root of earlier chunks)
+
+These are the spec-level roots of findings already filed above, listed so the
+fix goes to the decision, not only the code:
+
+- "What happens when a lower slice's PR is already merged or closed? Ship
+  refuses … a half-merged stack is out of scope" conflicts with requirement 4's
+  own stack line, `Stacked on #N — merge that first`. Ship tells the human to
+  merge the bottom PR first, and then refuses every later ship, resume included,
+  in the state that instruction creates. A stack that can never be refreshed
+  after its first merge is not "out of scope": it is the main path. This is the
+  root of the correctness "merged lower slice" chunk and of ponytail item 1.
+- "Hooks do not run, which is safe because each tree is one the step commits
+  already landed" checks only the tree. Signing (`commit.gpgSign`) and
+  `commit-msg` hooks are about the commit and its message, and the message is
+  newly written here, by the writer. Requirement 3 has the single-slice path
+  keep `git commit`, so the same repository's rules hold for one slice and
+  quietly do not for two. This is the root of the correctness `commit-tree`
+  chunk.
