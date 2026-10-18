@@ -1716,16 +1716,16 @@ export async function pushBranch(io: ShipIo, branch: string, head = "HEAD", leas
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
   // A rejected restack push persisted its lease: a fetch moves the tracking ref, so
   // only the stored sha still tells a collaborator's commit from ours.
-  let kept = (await io.run(["git", "config", "--local", "--get", LEASE_KEY(branch)])).out.trim()
-  if (lease || !kept) kept = ""
-  else {
+  let stored = (await io.run(["git", "config", "--local", "--get", LEASE_KEY(branch)])).out.trim()
+  let kept = lease ? "" : stored
+  if (kept) {
     // The key may be days old: origin's own sha decides whether it still applies.
     const read = await io.run(["git", "ls-remote", "origin", `refs/heads/${branch}`])
     const at = read.code === 0 ? read.out.trim().split(/\s+/)[0] : undefined
     if (read.code === 0 && !at) {
       // Origin lost the branch: nothing to lease on, so push it fresh.
       await io.run(["git", "config", "--local", "--unset", LEASE_KEY(branch)])
-      kept = ""
+      kept = stored = ""
     } else if (
       at &&
       (await ok("cat-file", "-e", at)) &&
@@ -1746,7 +1746,9 @@ export async function pushBranch(io: ShipIo, branch: string, head = "HEAD", leas
           ? `\nTo overwrite origin's copy on purpose, run git config --local --unset ${LEASE_KEY(branch)} first.`
           : "")
       )
-    if (kept) await io.run(["git", "config", "--local", "--unset", LEASE_KEY(branch)])
+    // Any success settles the key, the restack's own explicit-lease push included:
+    // a stale sha left behind would reject every later rewrite of the branch.
+    if (stored) await io.run(["git", "config", "--local", "--unset", LEASE_KEY(branch)])
     return undefined
   }
   // A restack rewrote the branch: lease on origin's sha (it exists, whatever the

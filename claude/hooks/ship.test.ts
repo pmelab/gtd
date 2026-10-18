@@ -3154,12 +3154,28 @@ describe("ship stack", () => {
           expect(ran()).not.toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
           expect(ran()).toContain(`git config --local --unset ${LEASE("feat/x")}`)
         })
-        test("forgetting the stack never touches the lease", async () => {
-          const { io, ran } = repo(two)
+        test("a successful restack push unsets the lease it persisted", async () => {
+          const { io, ran } = repo({
+            ...two,
+            [`git config --local --get ${LEASE("feat/x")}`]: { out: `${O}\n` },
+          })
           await ship(io, false)
-          expect(ran().some((c) => c === `git config --local --unset ${LEASE("feat/x")}`)).toBe(
-            false,
-          )
+          const push = `git push --force-with-lease=feat/x:${O} origin feat/x`
+          const unset = `git config --local --unset ${LEASE("feat/x")}`
+          expect(ran()).toContain(unset)
+          expect(at(ran, unset)).toBeGreaterThan(at(ran, push))
+        })
+        test("a rejected restack push keeps the lease it persisted", async () => {
+          const { io, ran } = repo({
+            ...two,
+            [`git config --local --get ${LEASE("feat/x")}`]: { out: `${O}\n` },
+            [`git push --force-with-lease=feat/x:${O} origin feat/x`]: {
+              code: 1,
+              err: "stale info",
+            },
+          })
+          await ship(io, false)
+          expect(ran()).not.toContain(`git config --local --unset ${LEASE("feat/x")}`)
         })
       })
 
