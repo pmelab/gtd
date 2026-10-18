@@ -70,3 +70,24 @@ no demonstrated exploit. Fix: the correctness chunk above already moves both
 refusals to `GTD_SHIP_MODE=commits`, which removes the interpolated command. If
 a command stays, single-quote the key (`'branch.<b>.gtdStack'`) or name the
 command without the branch.
+
+## ponytail-review: a PR GitHub already moved to the default branch keeps its stale "Stacked on" line
+
+`pullRequest` in `claude/hooks/ship.ts` now strips the stack line only when
+`onSlice` is true (`unstack`: `const body = onSlice ? stackLine(was) : was`).
+Before this change it stripped the line from every existing PR. Case: a stack
+`refactor feature` was shipped, and the lower PR #7 is merged with "delete
+branch". GitHub then retargets the top PR #8 to `main` on its own. Now the
+author ships again, either with `GTD_SHIP_MODE=commits` or with a new
+single-slice process (one group, so `commitSquash` → `pullRequest`). The base is
+`main`, so `onSlice` is false, the body is not edited, and `updatePr` (not
+stacked) does not touch it either. PR #8 keeps "Stacked on #7 — merge that
+first" for good, and the record is forgotten after this ship, so no later run
+fixes it. No test covers an existing PR on the default branch with a stack line:
+the old strip test and the new ones all use base `feat/x-refactor` or
+`release/1`. Fix: strip on the default branch too —
+`const body = onSlice || existing.baseRefName === baseBranch ? stackLine(was) : was`
+— the line is gtd's own exact marker, so stripping it there harms nothing. Add
+one test: base `main`, body `Stacked on #7 — merge that first\n\nstanding`,
+commits mode, expect a `--body-file` edit with stdin `standing` and no `--base`
+edit.
