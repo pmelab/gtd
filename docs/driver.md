@@ -365,26 +365,63 @@ falls back to the `gtd` on your `PATH`.
   assigns it to you, and Claude helps you through the gate it waits at; it never
   lands that gate before you have seen it. Agent conversations do not travel:
   each memory scope starts fresh for the catcher.
-- `/gtd ship` squashes the finished process into one commit (the process's turns
-  are already kept under `refs/gtd/history/`, written before the squash by the
-  landing that finished it), pushes that process's history ref before the squash
-  by force, so a retry after the tip changed replaces origin's copy of that one
-  ref (another clone shipping the same process replaces it), and records it as a
-  `Gtd-History: <ref>` trailer on the commit (a failed history push fails the
-  ship with nothing squashed; a push that did not finish says so, and retrying
-  is safe), pushes the branch, and opens its pull request, or appends to the
-  open one's description when something changed at the level of its motivation,
-  solution or decisions. A subagent writes the commit message (from
-  `gtd summary`) and the pull-request text; nothing reviews them before they are
-  published. Ship refuses while the process is still underway. The commit
-  message keeps a `BREAKING CHANGE:` footer when the change is breaking, and the
-  writer may run only read-only `git` commands and write only its own answer,
-  since it reads commit messages anyone on the branch wrote. `/gtd ship -n`
-  prints the commit message and what would happen to the pull request, and
-  writes nothing. It needs `gh`, a clean tree, and a branch other than the
-  default. When a process finishes on such a branch, Claude offers to open the
-  pull request. On a thrown draft, ship writes the title and description
-  properly and marks the pull request ready for review.
+- `/gtd ship` squashes the finished process, one commit per slice (the process's
+  turns are already kept under `refs/gtd/history/`, written before the squash by
+  the landing that finished it), pushes that process's history ref before the
+  squash by force, so a retry after the tip changed replaces origin's copy of
+  that one ref (another clone shipping the same process replaces it), and
+  records it as a `Gtd-History: <ref>` trailer on every slice commit (a failed
+  history push fails the ship with nothing squashed; a push that did not finish
+  says so, and retrying is safe), pushes the branch, and opens its pull request,
+  or appends to the open one's description when something changed at the level
+  of its motivation, solution or decisions. A subagent writes each slice's
+  commit message (from `gtd summary --slice=<name>`) and the pull-request text;
+  nothing reviews them before they are published. Ship refuses while the process
+  is still underway. The commit message keeps a `BREAKING CHANGE:` footer when
+  the change is breaking, and the writer may run only read-only `git` commands
+  and write only its own answer, since it reads commit messages anyone on the
+  branch wrote. `/gtd ship -n` prints each slice's commit message and what would
+  happen to its pull request, and writes nothing. It needs `gh`, a clean tree,
+  and a branch other than the default. When a process finishes on such a branch,
+  Claude offers to open the pull request. On a thrown draft, ship writes the
+  title and description properly and marks the pull request ready for review.
+  `GTD_SHIP_MODE` picks how a multi-slice process ships: `stack` (the default)
+  puts each slice's commit on its own branch, `<branch>-<slice>` (the last slice
+  keeps `<branch>`), and opens one pull request per slice, each on the one below
+  it and opening with `Stacked on #N — merge that first` (the lowest targets the
+  default branch); `commits` keeps every slice commit on `<branch>` under one
+  pull request, which needs a rebase merge to stay one commit per slice (ship
+  warns when it cannot confirm that; a squash merge still collapses it). Any
+  other value is refused. A single slice on a branch without a recorded stack
+  ships as one commit and one pull request; in `stack` mode a single slice on a
+  stacked branch lands on the top branch and keeps the stack, and
+  `GTD_SHIP_MODE=commits` ships it alone. A slice that changed only `.gtd/`
+  lands nothing, and a slice still open refuses the ship. A pull request that is
+  merged or closed, or an existing `<branch>-<slice>` branch the stack did not
+  build, refuses before anything changes: for a lower slice's pull request of a
+  fresh multi-slice stack, use `GTD_SHIP_MODE=commits` (a resume or a
+  single-slice re-ship skips a merged lower slice instead); a merged or closed
+  top pull request, or a branch the stack did not build, needs a renamed branch.
+  A fresh multi-slice stack ship on a branch whose recorded stack is still live
+  refuses too, naming `GTD_SHIP_MODE=commits` or unsetting
+  `branch.<branch>.gtdStack` and `gtdStackTop` and deleting or renaming the old
+  slice branches (a record that no longer chains to HEAD is dropped, not
+  refused). A `gh pr view` failure other than "no pull request" refuses before
+  that step's writes. Slice commits keep `commit.gpgSign` but run no
+  `commit-msg` hook. A failure part-way keeps what landed and names the slice
+  and step; run `/gtd ship` again to resume, and once a lower slice's pull
+  request has merged, a resume skips it and targets the default branch.
+  Squash-merging a lower stacked pull request rewrites its commit, and a rebase
+  merge does the same, so the pull request above shows that slice's changes
+  again until its branch is rebased onto the default branch (a rebase ends the
+  stack: ship then ships the branch alone); only a merge commit keeps the stack
+  clean. A commits-mode re-ship of a stacked branch retargets its pull request
+  to the default branch and leaves the lower slices' pull requests open; close
+  them by hand. A pull request on a base that is not a slice branch keeps its
+  base, a thrown draft in a stack is retargeted like any other, and a missing
+  slice branch is rebuilt from the commits the stack was built at while the
+  branch still contains them, otherwise the ship refuses and names
+  `GTD_SHIP_MODE=commits` to ship the branch alone.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A
