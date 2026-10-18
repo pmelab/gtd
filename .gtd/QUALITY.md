@@ -109,3 +109,24 @@ list if that refusal is intended.
   call happened. The behaviour is already pinned by "a record that no longer
   chains retires…", which fails `is-ancestor C1 BASE` and would break if `at`
   went back to `HEAD`. Delete the assertion.
+
+## conventions: the new one-slice-onto-stack behaviour has no `@inmem` scenario
+
+AGENTS.md, Testing: "create cucumber.js scenarios for each new feature, tagged
+`@inmem`". This change adds user-facing behaviour that `docs/driver.md` now
+documents: in `stack` mode, a single slice on a branch with a recorded stack
+lands on the top branch and keeps the stack. Before, it shipped alone. It is
+covered only by vitest cases in `claude/hooks/ship.test.ts`. No `.feature` file
+anywhere mentions `/gtd ship` or `GTD_SHIP_MODE`, so this follows existing
+practice for ship rather than starting a new gap. Non-blocking. Either add an
+`@inmem` scenario for the one-slice re-ship onto a recorded stack, or accept the
+precedent that the `claude/` ship path is tested in vitest only.
+
+Checked and clean: no `docs/` or README prose names a `src/*.ts` module or
+internal function; the README already defers `GTD_SHIP_MODE` detail to
+`docs/driver.md`, which this change updates; the added comments (`chain`,
+`topGuard`, `resumable`, `squashOntoStack`, `READ_ONLY_GIT`) each state a
+decision and its reason, not a restatement; the change has no new external
+resource outside the `ShipIo` port; and the squash subject
+`fix(ship): harden stacked-ship resume, retry and unstacking` fits
+`docs/commits.md`.
