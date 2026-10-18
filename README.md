@@ -336,16 +336,18 @@ questions one at a time, answers your own questions about the plan or the diff,
 records what you decide in the steering file the way the step asks, and moves
 the process on only when you say so; a review you leave untouched signs off.
 While a step runs you can keep asking; requests for changes wait for the next
-rest. When the process finishes, Claude offers to squash it into one commit and
-open its pull request (or run `/gtd ship`). A process can change hands at any
-gate: ask Claude to hand it off (or run `/gtd throw @dev`) and it opens a draft
-pull request assigned to them, and `/gtd catch <pr>` picks it up exactly where
-it waits, so whoever wrote the requirements can hand the architecture to someone
-else. Ship, hand-off and throw answer at once and run in the background, with
-progress on the status line; they report by waking Claude, a toast, a transcript
-line and a push notification, and a failed push or `gh` call reports as a
-failure. While a ship or hand-off runs or is queued, `/gtd catch`, the doors,
-`/gtd <requirements>` and bare `/gtd` wait for its report. See
+rest. When the process finishes, Claude offers to squash it and open its pull
+request(s) (or run `/gtd ship`; `GTD_SHIP_MODE` picks one stacked pull request
+per slice or one commit per slice, see the [driver doc](docs/driver.md)). A
+process can change hands at any gate: ask Claude to hand it off (or run
+`/gtd throw @dev`) and it opens a draft pull request assigned to them, and
+`/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
+requirements can hand the architecture to someone else. Ship, hand-off and throw
+answer at once and run in the background, with progress on the status line; they
+report by waking Claude, a toast, a transcript line and a push notification, and
+a failed push or `gh` call reports as a failure. While a ship or hand-off runs
+or is queued, `/gtd catch`, the doors, `/gtd <requirements>` and bare `/gtd`
+wait for its report. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own
@@ -623,9 +625,9 @@ When a process finishes, the landing that closes it also keeps the whole run
 behind a ref, `refs/gtd/history/<entry>`, so a squash or a deleted branch
 doesn't lose it. `/gtd ship` pushes this process's own ref to origin alongside
 the branch (never the others) and writes a `Gtd-History: <ref>` trailer on the
-squash commit. The push is forced, so it replaces origin's copy of that one ref.
-If that push fails, the ship fails and nothing is squashed. Recover the full
-trail with `gtd history fetch | sh`, then `gtd history show <ref>`.
+commit of every slice. The push is forced, so it replaces origin's copy of that
+one ref. If that push fails, the ship fails and nothing is squashed. Recover the
+full trail with `gtd history fetch | sh`, then `gtd history show <ref>`.
 
 ```sh
 gtd history list                 # one line per kept process

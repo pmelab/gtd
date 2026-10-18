@@ -119,7 +119,7 @@ function trouble(w: Wake) {
 function finished(w: Wake) {
   return [
     `gtd finished the process on branch ${w.branch}.`,
-    `Tell the person in two or three lines what was built (read the branch's commits), then ask whether to combine it into one commit and open its pull request. On yes, call ${TOOL.ship}.`,
+    `Tell the person in two or three lines what was built (read the branch's commits), then ask whether to squash it and open its pull request(s). On yes, call ${TOOL.ship}.`,
   ]
 }
 
