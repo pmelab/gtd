@@ -1,4 +1,4 @@
-# Review: e770bda
+# Review: 318c1ce
 
 <!-- base: daee504c125e136d3804421597da2db8a48ee217 -->
 
@@ -6,8 +6,8 @@
 half-done rebase.** No `.feature` scenario changed; the behaviour is pinned by
 vitest cases in `claude/hooks/ship.test.ts`.
 
-**One risk below: a hand-restacked record with one slice left now blocks a fresh
-stack ship.**
+**No open risk: the one-slice hand-restack risk from the last pass is fixed and
+pinned by a test that fails without the fix.**
 
 ## Merged-into-the-wrong-base refusal
 
@@ -42,9 +42,9 @@ shared by the hand-restack probe and `finishResume`.
 - [ ] ./claude/hooks/ship.test.ts#2635-2660 — diverged local merged branch is
       never the rebase base; stale local branch does not block a hand restack;
       missing floor commit refuses naming the slice.
-- [ ] ./claude/hooks/ship.test.ts#2798-2803 — `-n` prints exactly one
+- [ ] ./claude/hooks/ship.test.ts#2811-2816 — `-n` prints exactly one
       `Retarget:` line (was duplicated).
-- [ ] ./claude/hooks/ship.test.ts#2812-2815 — `-n` retarget wording now comes
+- [ ] ./claude/hooks/ship.test.ts#2825-2828 — `-n` retarget wording now comes
       from the stack preview line.
 
 ## Hand-restack detection and liveness probe
@@ -54,12 +54,10 @@ Hand restack now accepts a lowest branch whose parent sits anywhere in
 the stack. The liveness probe behind the fresh-stack refusal no longer touches
 origin.
 
-- [ ] ./claude/hooks/ship.ts#1123-1144 — Risk: with `plan` false `handRestack`
-      returns `forget: false` always, but the planned path returns
-      `forget: links.length === 1`. A hand-restacked record with one slice left
-      now makes `recordedRefusal` refuse a fresh multi-slice stack ("already has
-      a recorded stack"), where before it was dropped. Return
-      `forget: slices.length === 1` on the probe path too.
+- [ ] ./claude/hooks/ship.ts#1123-1144 — Fixed: the probe path (`plan` false)
+      now returns `forget: slices.length === 1`, matching the planned path, so a
+      hand-restacked record with one slice left is dropped instead of making
+      `recordedRefusal` refuse a fresh stack.
 - [ ] ./claude/hooks/ship.ts#621-640 — `recordedRefusal` calls `resumable` with
       `planRestack` false: no fetch, ls-remote or worktree list. `gh pr view`
       still runs.
@@ -72,6 +70,9 @@ origin.
 - [ ] ./claude/hooks/ship.test.ts#2738-2762 — live and hand-restacked records
       refuse a fresh stack with origin offline, never calling
       ls-remote/fetch/push.
+- [ ] ./claude/hooks/ship.test.ts#2763-2775 — new: a hand-restacked record with
+      one slice left does not refuse a fresh stack. Reverting the fix to
+      `forget: false` turns it red.
 
 ## Worktree guard and post-rebase rollback
 
@@ -98,7 +99,7 @@ without `from` triggers a rollback of every lower branch and HEAD.
 - [ ] ./claude/hooks/ship.test.ts#2702-2737 — unmoved branch (still holds merged
       commit, or lacks `origin/main`) rolls back with no push/config/retarget;
       after a same-run squash the undo line survives.
-- [ ] ./claude/hooks/ship.test.ts#2763-2797 — rollback restores a branch the
+- [ ] ./claude/hooks/ship.test.ts#2776-2810 — rollback restores a branch the
       rebase did move from its pre-rebase sha, using the moved sha as the CAS
       guard.
 
