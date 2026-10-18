@@ -111,3 +111,66 @@ reads `high` (fail-closed)". In the refactor caller, an unclosed fence means the
 rest of the text is never demoted, not that a tier is read. Reword it to the
 general fact: "an unclosed fence runs to end of file". Move the tier consequence
 to the `markFenced` call in `src/workflows/feature/tier.ts`.
+
+## test-audit: hand-edit refusal tests pin the dropped-notes bug, and one scenario is misnamed
+
+Non-blocking. This is the test side of the correctness finding "hand-edit round
+notes are neither triaged nor folded".
+
+- `src/workflow-kit/review.test.ts` "a hand-edit round names the edited paths
+  and no notes" sets the line note to `other rename it`, which is a plain edit
+  request. It then asserts `dropped` is `{ notes: [], paths: ["a.ts"] }`. The
+  test therefore requires an edit note to vanish from the refusal, which pins
+  the bug as the contract.
+- The scenario "a praise line note on a hand-edit round is never named by the
+  refusal" in `src/workflows/feature/refactor-review.feature` has the same
+  problem. No triage runs on that path, so nothing judges "lovely work" as
+  praise. The step passes because `finish` passes `notes: []` unconditionally.
+  An edit note in the same spot would also go unnamed and the scenario would
+  stay green. The name claims a praise filter that the code does not have.
+
+Fix: whichever fix the correctness finding gets, rewrite both tests to the
+intended contract. Use an edit note on a hand-edit round, and assert that the
+round either names the note or folds it. Keep a praise note only if a triage
+really runs on that path.
+
+## test-audit: `refused without` step passes on any unrelated refusal
+
+Nit. The new `src/testkit/steps.ts` step "driving the process is refused without
+{string}" only asserts that `drive()` rejects with some message that lacks the
+string. Used alone, it would pass if the process failed for a completely
+different reason. Its one use is guarded by a preceding "refused with" line in
+the same scenario, so the scenario is sound today. The step itself is a weak
+negative control that the next author can reuse unguarded. Fix: make the step
+take the expected refusal too, or document at the step that it must follow a
+"refused with" line. Better still, fold the negative into the "refused with"
+step as `refused with {string} and without {string}`.
+
+## test-audit: amend-lap tests cover only the flag wording that is safe
+
+Non-blocking. This is the test side of the correctness finding "amend lap tells
+a now-high-tier change to add no release flag".
+
+- `src/workflows/feature/seam.test.ts` renders `amend` only with tier
+  `undefined` and `low`, and asserts "Keep the release flag" / "add none". No
+  case renders amend with `high` after a `low` first lap, so nothing pins the
+  fail-open case.
+- The `src/workflows/feature/feature.test.ts` afterTail test "flag_naive_pass=1
+  rests at design.triage, then implement.building" now asserts "already exists".
+  That path never ran an `implement` lap, so the rendered "Keep the release flag
+  the earlier lap added" is false there. The test locks in the amend prompt on a
+  path where no earlier lap or flag exists, and it does not look at the flag
+  line.
+
+Fix: add a `building(undefined, "high", true)` case that asserts the prompt asks
+for a flag when none exists. Make the afterTail assertion cover the flag wording
+the fixed prompt should give on that path.
+
+## test-audit: refactor lap's own describe prompt is outside the new rules table
+
+Nit. In `src/workflows/feature/refactor.test.ts`, the table "reviewedRefactor's
+tail prompts" covers `refactor.build.health.describe`, which is the tail
+escalation. It does not cover the describe prompt that `refactorLap`'s own
+`healthy(..., { describeGuard })` renders. That is why the correctness nit (that
+prompt has no `rules`) got through. When that nit is fixed, add the refactor
+lap's describe step to the same table (reds before the tail).
