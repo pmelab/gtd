@@ -1093,6 +1093,44 @@ describe("ship stack", () => {
       expect(await ship(io, false)).toMatchObject({ ok: true })
     })
 
+    test("a dead record with a closed slice PR is dropped, not refused", async () => {
+      const { io } = repo(
+        {
+          ...sbase,
+          [`git config --local --get ${KEY}`]: { out: "old feature\n" },
+          "git rev-parse --verify --quiet refs/heads/feat/x-old": { out: C1 },
+          [`git merge-base --is-ancestor ${C1} HEAD`]: { code: 1 },
+          [view("feat/x-old")]: pr(4, { state: "CLOSED" }),
+        },
+        writers(),
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+    })
+
+    test("a dead record with a missing slice branch and a rebased-away top is dropped", async () => {
+      const { io } = repo(
+        {
+          ...sbase,
+          [`git config --local --get ${KEY}`]: { out: "old feature\n" },
+          "git rev-parse --verify --quiet refs/heads/feat/x-old": { code: 1 },
+          [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
+          [`git merge-base --is-ancestor ${C2} HEAD`]: { code: 1 },
+        },
+        writers(),
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+    })
+
+    test("a live record with a closed slice PR still refuses", async () => {
+      const { io, ran } = repo(
+        { ...withEntry, [view("feat/x-refactor")]: pr(5, { state: "CLOSED" }) },
+        writers(),
+      )
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("#5") })
+      expect(ran().some((c) => mutating.test(c))).toBe(false)
+    })
+
     test("following the remedy, the old slice branch is a collision to rename", async () => {
       const { io, ran } = repo(
         { ...sbase, "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { out: C1 } },

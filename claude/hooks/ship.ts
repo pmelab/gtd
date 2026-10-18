@@ -574,10 +574,19 @@ async function recordedRefusal(
   // The staleness test a resume uses: a dead record is not a live stack.
   const quiet = { ...io, log: () => {} }
   const found = await resumable(quiet, git, ok, branch, true, "HEAD")
-  if (typeof found === "string") return found
+  // resumable refuses (a missing branch, a closed slice PR) before it tests the
+  // chain; only a record that still chains to HEAD may refuse a fresh stack.
+  if (typeof found === "string")
+    return (await chainsToHead(git, ok, branch, recorded)) ? found : undefined
   if (!found.forget)
     return `${branch} already has a recorded stack (${recorded.join(", ")}); nothing changed. Ship with GTD_SHIP_MODE=commits, or run git config --local --unset branch.${branch}.gtdStack and git config --local --unset branch.${branch}.gtdStackTop, delete or rename the ${branch}-<slice> branches, then ship again.`
   return undefined
+}
+
+async function chainsToHead(git: Git, ok: Ok, branch: string, recorded: string[]) {
+  const top = await git("config", "--local", "--get", TOP_KEY(branch))
+  const held = top && (await ok("merge-base", "--is-ancestor", top, "HEAD")) ? top : ""
+  return (await chain(git, ok, branch, recorded, 0, held, "HEAD")).valid
 }
 
 async function prStateRefusal(
