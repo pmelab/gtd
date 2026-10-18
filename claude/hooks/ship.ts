@@ -469,11 +469,13 @@ async function stackPrecheck(
       return `Branch ${b} (slice ${g.name}) already exists and is not part of a stack gtd built; nothing changed. Rename or delete it, then ship.`
   }
   for (const [i, g] of groups.entries()) {
-    const b = i < groups.length - 1 ? `${branch}-${g.name}` : branch
+    const top = i === groups.length - 1
+    const b = top ? branch : `${branch}-${g.name}`
     const view = await viewPr(io, b)
     if (typeof view === "string") return `${view} Nothing changed.`
+    // Commits mode ships to the top branch too, so for it only a rename helps.
     if (view && view.state !== "OPEN")
-      return `The pull request for slice ${g.name} (#${view.number}, ${b}) is ${view.state}, not open; nothing changed. Ship with GTD_SHIP_MODE=commits, or rename the branch.`
+      return `The pull request for slice ${g.name} (#${view.number}, ${b}) is ${view.state}, not open; nothing changed. ${top ? "Rename the branch" : "Ship with GTD_SHIP_MODE=commits, or rename the branch"}.`
   }
   return undefined
 }
@@ -843,23 +845,46 @@ async function pullRequest(
   const pushed = await pushBranch(io, branch)
   if (pushed) return fail(pushed)
 
-  const view = await io.run(["gh", "pr", "view", "--json", "number,title,body,url,state"])
+  const view = await io.run([
+    "gh",
+    "pr",
+    "view",
+    "--json",
+    "number,title,body,url,state,baseRefName",
+  ])
   if (view.code !== 0)
     return createPr(io, git, branch, baseBranch, baseRef, { from: mergeBase, to: "HEAD" })
-  const existing = JSON.parse(view.out) as {
-    number: number
-    body?: string
-    url: string
-    state: string
-  }
+  const existing = JSON.parse(view.out) as View
   if (existing.state !== "OPEN")
     return fail(`The pull request for ${branch} is ${existing.state}, not open.`)
+  // A branch once shipped as a stack keeps the PR aimed at a slice branch.
+  let unstacked = false
+  if (existing.baseRefName && existing.baseRefName !== baseBranch) {
+    const moved = await io.run(["gh", "pr", "edit", String(existing.number), "--base", baseBranch])
+    if (moved.code !== 0)
+      return fail(
+        `gh pr edit --base ${baseBranch} failed; ${existing.url} is unchanged.\n${moved.err}`.trimEnd(),
+      )
+    unstacked = true
+  }
   const ctx: Ctx = { from: mergeBase, to: "HEAD" }
   // A thrown draft only ever described a hand-off: ship writes it properly.
   if (existing.body?.includes(THROWN)) {
     return createPr(io, git, branch, baseBranch, baseRef, ctx, existing)
   }
-  return updatePr(io, git, ok, branch, ctx, existing)
+  const body = stackLine(existing.body ?? "")
+  if (body !== (existing.body ?? "")) {
+    const edited = await io.run(
+      ["gh", "pr", "edit", String(existing.number), "--body-file", "-"],
+      body,
+    )
+    if (edited.code !== 0)
+      return fail(
+        `gh pr edit failed; the stale stack line of ${existing.url} is unchanged.\n${edited.err}`.trimEnd(),
+      )
+    unstacked = true
+  }
+  return updatePr(io, git, ok, branch, { ...ctx, unstacked }, { ...existing, body })
 }
 
 // A pull request describes what the remote branch holds. A squash rewrote the
@@ -899,7 +924,8 @@ const TITLE = /^(feat|fix|refactor|perf|docs|test|build|ci|chore)(\([\w./-]+\))?
 // Marks a draft pull request `/gtd throw` opened for a hand-off.
 export const THROWN = "<!-- gtd:thrown -->"
 
-type Ctx = { from: string; to: string; stacked?: boolean; below?: number }
+// unstacked: this run took the PR off a stack, so nothing new is still a success.
+type Ctx = { from: string; to: string; stacked?: boolean; below?: number; unstacked?: boolean }
 
 async function createPr(
   io: ShipIo,
@@ -1008,7 +1034,7 @@ async function updatePr(
   git: Git,
   ok: Ok,
   branch: string,
-  { from: mergeBase, to, stacked, below }: Ctx,
+  { from: mergeBase, to, stacked, below, unstacked }: Ctx,
   existing: { number: number; body?: string; url: string },
 ): Promise<Shipped & { number?: number }> {
   const restack = (body: string) => (stacked ? stackLine(body, below) : body)
@@ -1037,7 +1063,7 @@ async function updatePr(
     (await ok("merge-base", "--is-ancestor", synced, to))
   const since = isSynced ? synced : mergeBase
   const count = Number(await git("rev-list", "--count", `${since}..${to}`))
-  if (!count && stacked)
+  if (!count && (stacked || unstacked))
     return restacked(existing, `Nothing new since the last ship: ${existing.url}`)
   if (!count) return fail(`No commits since the last ship: ${existing.url}`)
   io.log(`#${existing.number}: weighing ${count} commit(s) against the standing description…`)

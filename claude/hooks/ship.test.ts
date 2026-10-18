@@ -64,7 +64,7 @@ const feature: Record<string, Scripted> = {
   },
   "git merge-base main HEAD": { out: "m".repeat(40) },
   "git rev-parse --verify --quiet origin/feat/x": { code: 1 },
-  "gh pr view --json number,title,body,url,state": { code: 1 },
+  "gh pr view --json number,title,body,url,state,baseRefName": { code: 1 },
   "gh pr create --head feat/x --base main --title feat: add x --body-file -": {
     out: "https://github.com/o/r/pull/7\n",
   },
@@ -400,7 +400,7 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view --json number,title,body,url,state": { out: JSON.stringify(pr) },
+        "gh pr view --json number,title,body,url,state,baseRefName": { out: JSON.stringify(pr) },
         [`git rev-list --count ${"m".repeat(40)}..HEAD`]: { out: "2" },
       },
       ["NO-UPDATE"],
@@ -445,7 +445,7 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view --json number,title,body,url,state": { out: JSON.stringify(pr) },
+        "gh pr view --json number,title,body,url,state,baseRefName": { out: JSON.stringify(pr) },
         "gh pr ready 9": { code: 1, err: "nope" },
       },
       ["feat: add x\n\nwhy"],
@@ -464,7 +464,7 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view --json number,title,body,url,state": { out: JSON.stringify(pr) },
+        "gh pr view --json number,title,body,url,state,baseRefName": { out: JSON.stringify(pr) },
         "gh pr edit 9 --title feat: add x --body-file -": { code: 1, err: "nope" },
       },
       ["feat: add x\n\nwhy"],
@@ -1239,6 +1239,54 @@ describe("ship stack", () => {
     expect(out).toMatchObject({ ok: false })
     expect(out.text).toContain("GTD_SHIP_MODE=commits")
     expect(ran().some((c) => /^git (reset|push)/.test(c))).toBe(false)
+  })
+
+  test.each(["MERGED", "CLOSED"])(
+    "a %s top PR refuses without pointing at commits mode, which ships to it too",
+    async (state) => {
+      const { io, ran } = repo({ ...sbase, [view("feat/x")]: pr(8, { state }) }, writers())
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("#8") })
+      expect(out.text).toContain("Rename the branch")
+      expect(out.text).not.toContain("GTD_SHIP_MODE=commits")
+      expect(ran().some((c) => mutating.test(c))).toBe(false)
+    },
+  )
+
+  const reshipped = (count: string, body: string): Record<string, Scripted> => ({
+    ...feature,
+    "gtd summary": { code: 1 },
+    "gh pr view --json number,title,body,url,state,baseRefName": pr(8, {
+      baseRefName: "feat/x-refactor",
+      body,
+    }),
+    [`git rev-list --count ${M}..HEAD`]: { out: count },
+  })
+
+  test("a stacked PR shipped as a single branch is retargeted and loses its stack line", async () => {
+    const { io, ran, calls } = repo(
+      reshipped("2", "Stacked on #7 — merge that first\n\nstanding"),
+      ["NO-UPDATE"],
+    )
+    expect(await ship(io, false, "commits")).toMatchObject({ ok: true })
+    expect(ran()).toContain("gh pr edit 8 --base main")
+    expect(calls.find((c) => c.argv === "gh pr edit 8 --body-file -")?.stdin).toBe("standing")
+  })
+
+  test("taking a PR off a stack with nothing new still succeeds", async () => {
+    const { io, ran } = repo(reshipped("0", "standing"))
+    expect(await ship(io, false, "commits")).toMatchObject({ ok: true })
+    expect(ran()).toContain("gh pr edit 8 --base main")
+    expect(ran().some((c) => c.startsWith("gh pr edit 8 --body-file"))).toBe(false)
+  })
+
+  test("a failed retarget of a once-stacked PR fails before its body is edited", async () => {
+    const { io, ran } = repo({
+      ...reshipped("2", "Stacked on #7 — merge that first\n\nstanding"),
+      "gh pr edit 8 --base main": { code: 1, err: "nope" },
+    })
+    expect(await ship(io, false, "commits")).toMatchObject({ ok: false })
+    expect(ran().some((c) => c.startsWith("gh pr edit 8 --body-file"))).toBe(false)
   })
 
   test("a slice branch moved by a writer turn is not pushed", async () => {
