@@ -178,3 +178,79 @@ only return `true` (or throw on a bad flag pattern). The
 
 Fix: `await slice(...)` and return `{ reference, base: head() }`. One line less,
 and the reader no longer wonders when the refactor is skipped.
+
+## test-audit: a feedback-target test is misnamed and cannot fail for the reason it names
+
+In `src/workflows/feature/review.test.ts`, the test "a collecting turn that
+wrote REQUIREMENTS but not file signs off unrefused with nothing changed" has a
+collecting stub that writes nothing. `.gtd/REQUIREMENTS.md` is never in the
+harness's files either. So the test never covers a turn that "wrote
+REQUIREMENTS".
+
+The regression it seems to guard is `review()` ignoring `feedback.file` and
+still testing `.gtd/REQUIREMENTS.md`. That regression also resolves `signoff`
+here, so the test stays green with it.
+
+The test also pins the behaviour that the correctness chunk "an unbuildable
+refactor concern quietly signs off" reports as a bug: a feedback round whose
+collecting turn folds nothing becomes a sign-off.
+
+Fix: seed `.gtd/REQUIREMENTS.md` in `files` (or have the stub write it), so the
+test fails when `file` is ignored. Rename it to match. Once the
+unbuildable-concern policy is decided, assert that outcome rather than
+`signoff`.
+
+## test-audit: tests that lock in known gaps as the intended contract
+
+- `src/workflows/shared/access.test.ts`, "keys one refactor lens scope per
+  refactorQualityReviews entry and no other refactor.build.\* scope". This pins
+  the missing `refactor.build.review` write restriction (see the first
+  correctness chunk). Fixing that gap turns this test red, so the test now
+  defends the bug.
+- `src/workflows/feature/refactor.test.ts`, "does not refuse other naming such
+  as \_test.go or test\_\*.py". The package rules and both refactor prompts now
+  say "never a test file", with no exceptions. This test says a refactor may
+  still change `pkg/a_test.go`. Nothing in the prompts or docs records that
+  exception, so the test fixes a disagreement between the rule and its guard in
+  place. Either state the limit (only the `testFileGlobs` shapes count) in
+  `refactorRules`, or drop this case and let the glob list grow.
+- `src/workflows/feature/refactor-review.feature`, "a human code edit at the
+  refactor review is reverted by refactor.re-unwind". The fixture folds and
+  builds `export const multiply`, which is a behaviour change, and the scenario
+  passes it as a refactor. This already appears in the third correctness chunk.
+  It is listed here only because the scenario will need a new fixture when that
+  is fixed.
+
+## test-audit: the same contract is replayed at several layers
+
+These are not blocking. Each removal keeps at least one test that fails on the
+regression.
+
+- **No re-run of the seam phase after feedback.** The new
+  `planAndBuild on the naive pass` test in
+  `src/workflows/feature/feature.test.ts` drives a real `testRepo` through land
+  → feedback → re-unwind → design and asserts that `seam.naive` runs once. That
+  repeats the renamed `seam.feature` scenario "review feedback after land
+  re-runs design and implement, never the seam phase", which pins the same
+  subjects in the tier the AGENTS.md rules give to features. The companion test
+  "planAndBuild without the naive pass" repeats the flag-off path that the
+  default-workflow features already drive. Drop both tests, or keep only an
+  assertion the scenarios lack.
+- **The test-file refusal for a stray.** Four places pin it:
+  - `refactor.test.ts`: "refuses a build turn changing a test file even when it
+    is a stray"
+  - `refactor.test.ts`: `requireNoTestFiles` "is not narrowed by a narrowed
+    seamAllow"
+  - `refactor-package.feature`: "a build turn changing a test file is refused
+    even when the test file is a stray"
+  - `refactor-review.feature`: "with a narrowed seamAllow a test-named stray
+    changed by the refactor is refused"
+
+  The two unit tests already own the guard and its wiring after `building`.
+  Neither scenario adds a transport or lifecycle risk that the unit tests miss.
+  Keep one scenario at most, as the end-to-end proof.
+
+- **The phrase "never a test file".** It is asserted three times: the
+  package-rules body (`refactor.test.ts`), both prompts (`text.test.ts`), and
+  `.gtd/REFACTOR.md` in `refactor-package.feature`. The scenario's `contains`
+  line adds nothing beyond the unit test of the deriving body.
