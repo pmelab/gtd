@@ -965,6 +965,55 @@ async function checkedOutElsewhere(
   return undefined
 }
 
+// --update-refs skips a branch it cannot move; leaving the rest rebased would
+// make the next ship see a broken chain and silently drop the stack.
+async function unmovedSlice(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  c: {
+    lower: string[]
+    onto: string
+    from: string
+    pre: Map<string, string>
+    preHead: string
+    undo: string | undefined
+  },
+): Promise<string | undefined> {
+  const { lower, onto, from, pre, preHead, undo } = c
+  for (const b of lower) {
+    const at = `refs/heads/${b}`
+    const moved =
+      (await ok("merge-base", "--is-ancestor", onto, at)) &&
+      !(await ok("merge-base", "--is-ancestor", from, at))
+    if (moved) continue
+    const failed: string[] = []
+    for (const [r, sha] of pre) {
+      const now = await git("rev-parse", `refs/heads/${r}`)
+      if (!(await ok("update-ref", `refs/heads/${r}`, sha, now)))
+        failed.push(`git update-ref refs/heads/${r} ${sha} ${now}`)
+    }
+    if (!(await ok("reset", "--keep", preHead))) failed.push(`git reset --keep ${preHead}`)
+    if (failed.length)
+      return [
+        `Slice branch ${b} was not restacked, and the rollback failed: slice branches stay rebased and nothing was pushed or recorded. Run by hand, then /gtd ship:`,
+        ...failed,
+        undo,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    const held = await checkedOutElsewhere(io, [b])
+    const where = typeof held === "object" ? ` (checked out in worktree ${held.path})` : ""
+    return [
+      `Slice branch ${b} was not restacked${where}; the slice branches and HEAD are restored and nothing was pushed or recorded.`,
+      undo,
+    ]
+      .filter(Boolean)
+      .join("\n")
+  }
+  return undefined
+}
+
 // The rebase target is origin's copy: the local default branch is never touched.
 async function restackOf(
   io: ShipIo,
@@ -1027,38 +1076,8 @@ async function restackOf(
         .filter(Boolean)
         .join("\n")
     }
-    // --update-refs skips a branch it cannot move; leaving the rest rebased would
-    // make the next ship see a broken chain and silently drop the stack.
-    for (const b of lower) {
-      const at = `refs/heads/${b}`
-      const moved =
-        (await ok("merge-base", "--is-ancestor", onto, at)) &&
-        !(await ok("merge-base", "--is-ancestor", from, at))
-      if (moved) continue
-      const failed: string[] = []
-      for (const [r, sha] of pre) {
-        const now = await git("rev-parse", `refs/heads/${r}`)
-        if (!(await ok("update-ref", `refs/heads/${r}`, sha, now)))
-          failed.push(`git update-ref refs/heads/${r} ${sha} ${now}`)
-      }
-      if (!(await ok("reset", "--keep", preHead))) failed.push(`git reset --keep ${preHead}`)
-      if (failed.length)
-        return [
-          `Slice branch ${b} was not restacked, and the rollback failed: slice branches stay rebased and nothing was pushed or recorded. Run by hand, then /gtd ship:`,
-          ...failed,
-          undo,
-        ]
-          .filter(Boolean)
-          .join("\n")
-      const held = await checkedOutElsewhere(io, [b])
-      const where = typeof held === "object" ? ` (checked out in worktree ${held.path})` : ""
-      return [
-        `Slice branch ${b} was not restacked${where}; the slice branches and HEAD are restored and nothing was pushed or recorded.`,
-        undo,
-      ]
-        .filter(Boolean)
-        .join("\n")
-    }
+    const failure = await unmovedSlice(io, git, ok, { lower, onto, from, pre, preHead, undo })
+    if (failure) return failure
     return restacked(io, git, branch, baseBranch, links)
   }
   return { preview, run }
