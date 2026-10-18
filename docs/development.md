@@ -22,6 +22,10 @@ parallel with the others. Caveat from the `test:e2e:live` task's `build`
 dependency: a bare `npm run test:e2e:live` skips the build, so use
 `npx turbo run test:e2e:live` to test against a fresh bundle.
 
+`npm test` runs once per release-flag state. The first state streams live; a
+later failing state prints one line naming the earlier state(s) whose failures
+it repeats, or only its own differing failing tasks' output.
+
 A pre-commit hook is installed automatically via the `prepare` script when you
 run `npm install` on a fresh clone — it runs
 [lint-staged](https://github.com/lint-staged/lint-staged) with
