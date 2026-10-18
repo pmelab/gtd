@@ -61,3 +61,41 @@ wrongly read as `MERGED`/`CLOSED`. A wrong `~n` count, for example after a
 suite unchanged. Consider adding a small real-git test of the `<top>~n` floor
 and revive, and pinning the `gh pr view <branch>` choice (or passing
 `OWNER:BRANCH`) with a comment on why the branch argument is safe.
+
+## owasp-security: brace expansion still gets `--output` past the shipper's read-only git allowlist
+
+[HIGH] Arbitrary file write from the shipper subagent (CWE-78, OWASP A05:2025
+Injection, LLM01 Prompt Injection, ASI02 Tool Misuse & Exploitation)
+
+`claude/hooks/ship.ts` `READ_ONLY_GIT` now lets quotes and backslashes through
+the `-o`/`--ou` lookahead, and the new comment says this is because "the shell
+strips them". But the shell does more than strip quotes, and the regex still
+allows `{ } * ? [ ]`. `register.tsx` tests the raw Bash command against the
+regex, and the Bash tool's shell (bash, zsh or fish) then expands it. Confirmed
+by running both the regex and the shells: `git log -1 {--output=OUT,--oneline}`
+and `git log -1 {,--output=OUT}` both match `READ_ONLY_GIT`, and both bash and
+fish then write `OUT`. A glob such as `-*utput=x` also gets through when a file
+with that name is in the cwd.
+
+Path: someone who can put a commit on the branch writes text in its message →
+the shipper reads it on purpose (that is why the allowlist exists) → an injected
+instruction gets `git log -1 <sha> --format=%B {--output=.git/config,HEAD}` past
+the PreToolUse check → the body the attacker controls lands in `.git/config`
+(e.g. `core.fsmonitor = <cmd>`). The user's next git command then runs `<cmd>`.
+That is code execution on the user's machine, from a commit message. The only
+step not proven is that the model follows the injection, so the confidence is
+Likely, not Confirmed.
+
+Fix: add the expansion characters to every excluded class
+(`[^;&|<>\`$()\n]`→ also`{}*?[]`) instead of trying to model quoting. Add the brace and glob forms to the `bad`list in`ship.test.ts`.
+No test there would fail today if the quote-transparency change were reverted to
+a weaker regex for these inputs, because none of the cases uses expansion.
+
+[MEDIUM] `git diff --no-index` reads any file the user can read (CWE-200, OWASP
+A01:2025 Broken Access Control, LLM02 Sensitive Information Disclosure). This
+predates the change, but it is the same control.
+`git diff --no-index ~/.ssh/id_ed25519 /dev/null` matches `READ_ONLY_GIT`, as
+confirmed above with `/etc/hosts`. An injected instruction can pull a secret
+into the shipper's context and then into the PR body that ship publishes. Fix:
+refuse `--no-index` (and `--ext-diff`/`--textconv`, which run configured
+programs) in the lookahead. Confidence: Likely, for the same reason as above.
