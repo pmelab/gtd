@@ -38,3 +38,45 @@ fail with the `addedMarked` branch or its `turn !== "build"` check removed. The
 `seen` dedupe cases fail without the set. Statuses are only
 `added|modified|deleted` (`src/flows/runtime.ts`), so a rename onto a marked
 path shows as `added` and is refused too — consistent.
+
+## test-audit: new guard is properly covered; one unit case pins an unreachable path, one e2e duplicates a unit contract
+
+`src/workflows/feature/packages.test.ts`,
+`tests/integration/features/declared-tests.feature`.
+
+Checked each new/changed test against "fails with the guarded behaviour
+removed":
+
+- "refuses a marked test the build added…" fails without the `addedMarked`
+  branch; old code returned `undefined` for `added`. Real coverage
+- order case fails if the `addedMarked` group moves. Real coverage
+- both dedupe cases ("lists a duplicated … once") fail without `seen`. Real
+- "lets an unmarked entry win over a marked one the build added" now actually
+  pins the `continue` for mixed entries. Before this change a marked `added`
+  returned `undefined`, so that `continue` could not be tested through `added`.
+  Real
+- e2e "a build that creates a test marked (unchanged) is refused" fails before
+  the fix (the file exists, so "existing suffices"). "stop and leave it to a
+  person" only reaches stderr from the refusal group, so the assertion is
+  specific. Real
+- `text.test.ts` checks prompt wording that is part of the contract. Fine
+
+Findings (non-blocking):
+
+1. "does not refuse a marked test a fix turn added" pins a path that cannot
+   happen. `packageItem` captures `from` once before the build and rechecks with
+   that same `from` after each fix. A marked test absent at `from` either makes
+   the build turn refuse (`addedMarked`) or, if the build leaves it out, refuse
+   (`notInTree`). So no fix turn ever sees a marked test with status `added`.
+   The test does fail without `turn !== "build"`, but it pins a choice nothing
+   can reach, and it reads as a supported scenario. Either delete it, or keep it
+   and note in its name that it guards the turn split, not a real fix-turn flow.
+2. e2e "a build that creates a test listed both unmarked and marked (unchanged)
+   passes" tests the same contract as the unit case "lets an unmarked entry win
+   over a marked one the build added". It runs on the same in-memory tier with
+   no extra transport or lifecycle risk. It is a duplicate owner, so drop one of
+   the two (keep the unit case).
+3. Feature preamble in `declared-tests.feature` still says a marked line "must
+   exist in the tree and stay untouched on the build turn". The new scenario
+   adds "and must not be created by it", so align the wording with the README
+   and the prompt ("must exist before the turn").
