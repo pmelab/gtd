@@ -1,30 +1,5 @@
 # Requirements
 
-## Open Questions
-
-### What does a run that is red in several flag states print?
-
-Today every state streams its full turbo output, so one test red in all three
-states lands in `.gtd/FEEDBACK.md` three times. The options differ in how much a
-reader learns about the second and later states.
-
-- [x] Full output for the first failing state; each later state prints one line
-      when its failures match an earlier state, and only its own failing tasks'
-      output when they differ
-  - a failure that is red everywhere costs one state's output
-  - a flag-specific failure still shows in full
-  - needs a rule for "same failures" (failing task plus failing test names)
-- [ ] Full output for the first failing state; later states print only their
-      failing task names
-  - smallest feedback, simplest to build
-  - a failure that exists only under a flag shows its name but no detail, so the
-    fix turn has to rerun that state to see it
-- [ ] Stop at the first failing state
-  - smallest and fastest run
-  - hides whether the other states pass, so a fix can go green in one state and
-    red in the next lap
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. Build #372(b): condense repeated failures across flag states (PRODUCT)
@@ -35,7 +10,15 @@ reader learns about the second and later states.
   the shipped health check and its `.gtd/FEEDBACK.md` writing stay as they are.
 - **Done when: one test red in all three states (defaults, `naive_pass` on,
   `risk_tier` on) produces a failure report the size of one state's output, not
-  three**, in the shape the open question picks.
+  three.**
+- **The first failing state prints its full output.** Every later failing state
+  is compared against the earlier failing states:
+  - **same failures (same failing tasks and same failing test names) → one
+    line** naming the earlier state it matches
+  - **different failures → only that state's own differing failing tasks'
+    output**, so a flag-specific failure still shows in full
+- **A later state that passes prints only its pass line.** Every state still
+  runs; the runner never stops at the first failure.
 - **The pass/FAIL line per state and the runner's exit status stay as today**
   (exit 1 when any state failed, 0 only when all passed).
 - **`npm test` keeps streaming live output to the terminal** for the first
@@ -125,3 +108,10 @@ repo's.
 #339 (turn durations in the closing summary) by default: it touches land and
 summary code, so a refactor is very likely. The restart is a fresh process, so
 the human can still pick another in its sketch.
+
+### What does a run that is red in several flag states print?
+
+Full output for the first failing state; each later failing state prints one
+line when its failing tasks and test names match an earlier state, and only its
+own differing failing tasks' output when they differ. A failure red everywhere
+costs one state's output, while a flag-specific failure still shows in full.
