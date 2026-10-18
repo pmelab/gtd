@@ -59,3 +59,43 @@ if nesting is the invariant. Separately, the fence toggle matches either marker
 headings after it are left undemoted (or a `#` line inside code is demoted).
 Track the opening marker. Tests cover `##`/`###` input only, so neither case is
 pinned.
+
+## owasp-security: on `refactor-first` the refactor's diff now escapes the security lens by default
+
+`lensBase` narrows the feature slice's quality lap to `seam.base`, which on
+`refactor-first` is `head()` after the refactor's sign-off
+(`src/workflows/feature/seam.ts` `seamBuild`), so the feature lap no longer sees
+the refactor's commits. The refactor's own lap covers them, but only through
+`refactorQualityReviews`, whose default
+(`correctness, ponytail-review, conventions` in `src/workflows/shared/vars.ts`)
+has no `owasp-security` (nor `test-audit`, `spec-challenge`). Before this change
+the feature lap ran from `start()` and reviewed the refactor's diff through
+every `qualityReviews` lens. With defaults, a refactor that changes a stray's
+escaping, validation or auth helper is never reviewed by the security lens; only
+the human refactor review sees it. The behaviour-neutral fence and the flag
+count do not substitute: they bound which files change and how many flag reads
+there are, not whether a rewritten sanitiser still sanitises. Low (lost review
+coverage, no direct exploit path). Fix: add `owasp-security` to the
+`refactorQualityReviews` default, or keep the feature lap's base at `start()`
+for lenses not in `refactorQualityReviews`. And say in `docs/configuration.md`
+that a lens left out of `refactorQualityReviews` never sees the refactor. No
+test pins the gap: the new lens-base tests check only that the base is
+`c0`/`seam.base`, not which lenses cover the refactor range.
+
+## owasp-security (low): refactor fix scopes pass raw stray paths as write globs; a test pins the widening
+
+`fixAccess: { write: [...p.strays, ".gtd/**"] }`
+(`src/workflows/feature/refactor.ts` `reviewedRefactor`) feeds stray paths
+straight into the access globs. A stray whose name has glob metacharacters (the
+new scenario "a nit fix in the refactor slice that changes a non-stray is
+refused, though a glob stray widens the write access" uses a file named
+`src/*.ts`) gives the nit and risk fix turns a `next --json` `access.write` that
+covers every `src/*.ts`. The literal `requireWithin(strays)` guard still refuses
+the landing (the scenario shows `refactor-scope`), so this is not exploitable in
+gtd. But a driver that sandboxes the agent by `access.write` lets it write files
+gtd later rejects, and the scenario asserts the wide glob is advertised
+(`contains "src/*.ts"`) instead of the literal path. Same root as the existing
+`refactor` scope entry. This change made fix turns tighter overall: they were
+`{}` (unrestricted) before. Fix: glob-escape each stray when building `access`
+(`[`, `]`, `*`, `?`, `{`, `}`, `!`), and make the scenario assert the escaped
+literal.
