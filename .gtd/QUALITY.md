@@ -75,3 +75,39 @@ a missing marked test in one refusal".
 Verdict (ponytail-review): ship once the two test-only cleanups are done. No
 must-fix. The guard logic (marker parse, CR normalisation, blank-line rejoin,
 restore group) holds for every case I traced. Lean: about -35 lines possible.
+
+## test-audit (should fix): the old marker test's name now contradicts what it asserts, and the new test repeats its cases
+
+`src/workflows/feature/packages.test.ts`, `declaredTests`:
+
+- "marks only the exact ` (unchanged)` suffix as unchanged" now expects
+  `d.test.ts (Unchanged)` to be `true`. That is case-insensitive, not exact. The
+  name no longer matches the behaviour it checks.
+- The new "accepts tabs, several spaces and any case before the boundary" test
+  checks the same two contracts again: any case (`(UNCHANGED)` against the old
+  `(Unchanged)`), and the boundary (`(unchanged)x` against the old `c.test.ts`
+  line). The same contract now has two owners, so one change has to edit both.
+- Fix: merge the two into one table under a true name, e.g. "marks a
+  whitespace-led, case-insensitive `(unchanged)` ending at a boundary". Keep one
+  row each for tab, several spaces, any case, no leading space, `x` after the
+  marker, trailing text, and the `Unit:` level. Delete the duplicate rows.
+
+## test-audit (nit): two prompt assertions cannot fail, and two pin wording history rather than a rule
+
+`src/workflows/shared/text.test.ts`, `packagesItemBuildingPrompt`:
+
+- `"commit"` in "carries the evidence kinds…" matches the prompt's own
+  "everything uncommitted" bullet. Drop `commit` from the evidence list and it
+  stays green.
+- `"change nothing else"` appears in both SATISFIED bullets. Remove it from
+  either one and the test still passes.
+- Fix: assert the evidence list as one phrase,
+  `"commit, file, symbol, issue URL, or command output"`, and pin "change
+  nothing else" next to the bullet it belongs to (for example
+  `"command output — and change nothing else"`).
+- "never says otherwise" and the `not.toContain` checks for the old wording ban
+  particular words. They do not check a rule the builder follows. A later
+  rewording that keeps the flat rules but uses "otherwise" would red these tests
+  for no real reason. The positive checks for the three bold rule heads already
+  pin that the rules are written flat. Drop the word bans, or keep at most one
+  with a comment saying why "otherwise" misled builders.
