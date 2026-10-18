@@ -207,7 +207,7 @@ describe("turboArgv", () => {
 })
 
 describe("failureSignature against real turbo", () => {
-  it("is non-empty and stable across two runs of a failing task", () => {
+  const realRun = (script: string) => {
     const dir = mkdtempSync(join(tmpdir(), "turbo-real-"))
     writeFileSync(
       join(dir, "package.json"),
@@ -215,7 +215,7 @@ describe("failureSignature against real turbo", () => {
         name: "scratch",
         private: true,
         packageManager: "npm@10.0.0",
-        scripts: { boom: "echo boom-line; exit 1" },
+        scripts: { boom: script },
       }),
     )
     writeFileSync(
@@ -227,15 +227,27 @@ describe("failureSignature against real turbo", () => {
     )
     writeFileSync(join(dir, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }))
     const turbo = fileURLToPath(new URL("../../node_modules/.bin/turbo", import.meta.url))
-    const run = () =>
+    return () =>
       spawnSync(turbo, turboArgv(["boom"], []), {
         cwd: dir,
         encoding: "utf8",
         env: { ...process.env, TURBO_TELEMETRY_DISABLED: "1", GITHUB_ACTIONS: "true" },
       }).stdout
+  }
+
+  it("is non-empty and stable across two runs of a failing task", () => {
+    const run = realRun("echo boom-line; exit 1")
     const a = failureSignature(run(), ["boom"])
     expect(a).toContain("boom-line")
     expect(failureSignature(run(), ["boom"])).toBe(a)
+  })
+
+  it("is empty when the task prints nothing and only turbo's own lines remain", () => {
+    expect(failureSignature(realRun("exit 1")(), ["boom"])).toBe("")
+  })
+
+  it("keeps a task-printed `> ` line", () => {
+    expect(failureSignature(realRun('echo "> quoted"; exit 1')(), ["boom"])).toContain("> quoted")
   })
 })
 
@@ -292,6 +304,40 @@ describe("failureSignature", () => {
     expect(failureSignature("lint: a\nlint: b\n", tasks)).not.toBe(
       failureSignature("lint: b\nlint: a\n", tasks),
     )
+  })
+
+  const head = (hash: string, cache = "cache miss, executing") =>
+    `lint: ${cache} ${hash}\nlint: \nlint: > boom\nlint: > exit 1\nlint: \n`
+
+  it.each(["cache miss, executing", "cache bypass, force executing", "cache hit, replaying logs"])(
+    "is empty for a boilerplate-only block (%s)",
+    (cache) => {
+      expect(failureSignature(head("0123456789abcdef", cache), tasks)).toBe("")
+    },
+  )
+
+  it("keeps a task-printed `> ` line after the two echo lines", () => {
+    const out = `lint: cache miss, executing 0123456789abcdef\nlint: > a\nlint: > b\nlint: > quoted\n`
+    expect(failureSignature(out, tasks)).toContain("> quoted")
+  })
+
+  it("keeps a task-printed `> ` line after a real line", () => {
+    const out = `lint: cache miss, executing 0123456789abcdef\nlint: > a\nlint: real\nlint: > quoted\n`
+    expect(failureSignature(out, tasks)).toContain("> quoted")
+  })
+
+  it("distinguishes an extra silently failing task", () => {
+    const a = head("0123456789abcdef") + "lint: real error\n"
+    const b =
+      a + "test:unit: cache miss, executing fedcba9876543210\ntest:unit: > x\ntest:unit: > y\n"
+    expect(failureSignature(a, tasks)).not.toBe(failureSignature(b, tasks))
+  })
+
+  it("keeps one real diagnostic, equal across states with differing hashes", () => {
+    const a = failureSignature(head("0123456789abcdef") + "lint: real error\n", tasks)
+    const b = failureSignature(head("fedcba9876543210") + "lint: real error\n", tasks)
+    expect(a).toContain("real error")
+    expect(a).toBe(b)
   })
 
   it("is empty with no task-prefixed line", () => {
