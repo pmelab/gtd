@@ -284,13 +284,13 @@ export function buildTail(
   fixFirst: boolean,
   base: string,
   green?: boolean,
-  options?: BuildTailOptions,
+  options?: Omit<BuildTailOptions, "fixFirst" | "green">,
 ): Promise<kit.ReviewOutcome>
 export function buildTail(
   first: boolean | string,
   second?: string | BuildTailOptions,
   third = false,
-  fourth: BuildTailOptions = {},
+  fourth: Omit<BuildTailOptions, "fixFirst" | "green"> = {},
 ): Promise<kit.ReviewOutcome> {
   const base = typeof first === "string" ? first : (second as string)
   const options: BuildTailOptions =
