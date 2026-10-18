@@ -1,6 +1,10 @@
-PR 390 fixes: 1) refactor review edit note the refactor cannot build must never
-sign off silently - refuse instead. 2) refactor.build.review.fix.nits/risks get
-strays+.gtd write, not {}. 3) fix configuration.md refactor.build access table,
-drop refactor.build.review.health. 4) afterTail on naive path skips seam. 5)
-each quality lap reviews from its slice base. 6) refactor collecting keeps
-answered questions, share prompt
+## Deferred review notes (836985b)
+
+- note-3 — flaky.[^stdout] (could): Restore `expect(captured().stdout).toBe("")`
+  in the garbled-flag CLI test; dropping it weakens the test with no reason.
+
+## Deferred review notes (daed27f)
+
+- note-2 — output.[^weak] (could): Please strengthen this scenario: finish a
+  process that kept a tip, then assert `gtd history list` shows only the
+  finished process and never the kept ref.
