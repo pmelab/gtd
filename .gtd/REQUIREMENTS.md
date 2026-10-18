@@ -8,7 +8,7 @@ into `.gtd/FEEDBACK.md` verbatim — and docs promise "verbatim". Fixing the
 runner helps only this repo; fixing the check step changes what every gtd user's
 fix turn reads.
 
-- [ ] This repo's runner only
+- [x] This repo's runner only
   - `npm test` prints failing tasks' logs only, and a flag state whose failure
     matches an earlier state's prints one "same failure as `defaults`" line
     instead of the log again
@@ -32,7 +32,7 @@ fix turn reads.
 Hiding passing logs is most of the cut, but a developer running `npm test` in a
 terminal loses the live progress they see today.
 
-- [ ] Always
+- [x] Always
   - one behaviour everywhere; a local run shows only failures and the per-state
     pass/FAIL lines
 - [ ] Only when stdout is not a terminal
