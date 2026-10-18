@@ -99,3 +99,21 @@ gtd later rejects, and the scenario asserts the wide glob is advertised
 `{}` (unrestricted) before. Fix: glob-escape each stray when building `access`
 (`[`, `]`, `*`, `?`, `{`, `}`, `!`), and make the scenario assert the escaped
 literal.
+
+## ponytail-review (lean): `fixNits` / `fixRisks` branch on `access` for nothing, and the refactor builds its write list twice
+
+`fixNits` (`src/workflows/feature/steps.ts`) and `fixRisks`
+(`src/workflows/shared/steps.ts`) each wrap the agent call in a closure and pick
+`fixing("review.fix.nits.fixing")` when `access` is undefined, else
+`scope({ name: "review.fix.nits", access }, () => fixing("fixing"))`. Both
+branches give the same full step name and the same memory scope (`memoryScopeOf`
+reads the full name), and `ScopeOptions.access` already takes `undefined`, which
+sets no own access, so resolution falls to the bundled `build.review.fix.nits` /
+`.risks` entry exactly as the unscoped call does. Fix: always call
+`scope({ name: "review.fix.nits", access }, () => t.agentWithSkills("fixing", …))`
+(same for risks) and drop the closure and ternary — about 8 lines across both,
+and one code path for the existing `review.test.ts` / `refactor.test.ts`
+step-name and scope assertions to pin. Separately, `reviewedRefactor`
+(`src/workflows/feature/refactor.ts`) spells
+`{ write: [...p.strays, ".gtd/**"] }` twice (the `refactor` scope and
+`fixAccess`); they must change together, so bind it once.
