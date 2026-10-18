@@ -41,11 +41,30 @@ export const naivePass = (rejection?: t.SeamRejection): Promise<void> =>
     system: t.builderSystem(),
   })
 
-export const implement = (
+export interface ImplementOptions {
+  readonly reference?: string | undefined
+  readonly tier?: RiskTier | undefined
+  readonly amend?: boolean | undefined
+}
+
+export function implement(options?: ImplementOptions): Promise<void>
+/** @deprecated Pass `implement({ reference, tier, amend })`. */
+export function implement(
   reference: string | undefined,
   tier?: RiskTier,
   amend?: boolean,
-): Promise<void> =>
+): Promise<void>
+export function implement(
+  first?: string | ImplementOptions,
+  tier?: RiskTier,
+  amend?: boolean,
+): Promise<void> {
+  return implementWith(
+    typeof first === "object" && first !== null ? first : { reference: first, tier, amend },
+  )
+}
+
+const implementWith = ({ reference, tier, amend }: ImplementOptions): Promise<void> =>
   scope("implement", async () => {
     await t.agentWithSkills("building", t.implementBuildingPrompt(reference, tier, amend), {
       label: "Implementing",
