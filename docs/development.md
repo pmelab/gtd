@@ -24,8 +24,12 @@ dependency: a bare `npm run test:e2e:live` skips the build, so use
 
 Only failing tasks' logs print. When a flag state fails the same way as an
 earlier one, it prints one `same failure as <state>` line instead of repeating
-the log. `npm test -- --output-logs=full` prints every state's full log, passes
-included, and never collapses.
+the log. `--log-prefix=task` is always passed; a `--log-prefix` of your own
+replaces it and turns collapsing off unless it is `task`.
+`npm test -- --output-logs=full` prints every state's full log, passes included,
+and never collapses; `--output-logs=hash-only` and `none` print no failure log,
+so they also turn collapsing off; `new-only` replaces the default and still
+collapses.
 
 A pre-commit hook is installed automatically via the `prepare` script when you
 run `npm install` on a fresh clone — it runs

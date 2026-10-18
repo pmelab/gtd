@@ -72,7 +72,7 @@ export function failureSignature(stdout: string, tasks: readonly string[]): stri
     const norm = line
       .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?/g, "<ts>")
       .replace(/\d{1,2}:\d{2}:\d{2}/g, "<time>")
-      .replace(/\b[0-9a-f]{12,}\b/gi, "<hex>")
+      .replace(/\b[0-9a-f]{16}\b/gi, "<hex>")
       .replace(/\d+(\.\d+)?\s?(ms|s|m|h)\b/g, "<dur>")
     const lines = byTask.get(task) ?? []
     lines.push(norm)
@@ -93,9 +93,9 @@ function reportFailure(
   stdout: string,
   seen: Map<string, string>,
   log: (line: string) => void,
-  full: boolean,
+  { full, collapse }: Required<RunOptions>,
 ): void {
-  const sig = full ? "" : failureSignature(stdout, state.tasks)
+  const sig = collapse && !full ? failureSignature(stdout, state.tasks) : ""
   const earlier = sig === "" ? undefined : seen.get(sig)
   if (earlier !== undefined) {
     log(`test-states: ${state.label} — FAIL (same failure as ${earlier})`)
@@ -106,12 +106,20 @@ function reportFailure(
   log(`test-states: ${state.label} — FAIL`)
 }
 
+export interface RunOptions {
+  /** Print passing states' logs too; never collapses. */
+  readonly full?: boolean
+  readonly collapse?: boolean
+}
+
 export function runStates(
   states: readonly TestState[],
   run: RunTasks,
   log: (line: string) => void,
-  full = false,
+  options: RunOptions = {},
 ): number {
+  const opts = { full: options.full ?? false, collapse: options.collapse ?? true }
+  const { full } = opts
   if (states.length === 1) {
     const { code, stdout } = run(states[0]!.tasks, states[0]!.env)
     printOut(log, stdout)
@@ -127,20 +135,45 @@ export function runStates(
       continue
     }
     failed = true
-    reportFailure(state, stdout, seen, log, full)
+    reportFailure(state, stdout, seen, log, opts)
   }
   return failed ? 1 : 0
+}
+
+/** Value of `--flag=x` or `--flag x`; "" when the flag ends args, undefined when absent. Stops at `--`. */
+export function flagValue(args: readonly string[], flag: string): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!
+    if (a === "--") return undefined
+    if (a === flag) return args[i + 1] ?? ""
+    if (a.startsWith(`${flag}=`)) return a.slice(flag.length + 1)
+  }
+  return undefined
 }
 
 export const turboArgv = (tasks: readonly string[], args: readonly string[]): string[] => [
   "run",
   ...tasks,
+  // turbo 2.10.9 rejects a flag twice, so a user's value replaces the default.
+  ...(flagValue(args, "--output-logs") === undefined ? ["--output-logs=errors-only"] : []),
+  // Turbo's default `auto` drops the "<task>: " prefix in GitHub Actions, which failureSignature needs.
+  ...(flagValue(args, "--log-prefix") === undefined ? ["--log-prefix=task"] : []),
+  // Defaults precede args so a `--` in args cannot hand them to the tasks.
   ...args,
-  // turbo 2.10.9 rejects --output-logs twice, so a user's value replaces the default.
-  ...(args.some((a) => a === "--output-logs" || a.startsWith("--output-logs="))
-    ? []
-    : ["--output-logs=errors-only"]),
 ]
+
+// hash-only and none print no failure log, so signatures would merge distinct failures.
+const LOG_VALUES_THAT_COLLAPSE = [undefined, "errors-only", "new-only"]
+
+export const runOptions = (args: readonly string[]): Required<RunOptions> => {
+  const outputLogs = flagValue(args, "--output-logs")
+  return {
+    full: outputLogs === "full",
+    collapse:
+      (flagValue(args, "--log-prefix") ?? "task") === "task" &&
+      LOG_VALUES_THAT_COLLAPSE.includes(outputLogs),
+  }
+}
 
 // args must be turbo options: a bare word would run as an extra task, and
 // --dry-run/--graph exit 0 without running anything.

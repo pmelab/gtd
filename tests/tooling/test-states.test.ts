@@ -2,12 +2,15 @@ import { spawnSync } from "node:child_process"
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { resolveFlags, type FlagDeclaration } from "../../src/flags/index.ts"
 import {
   TASKS,
   VITEST_TASKS,
   failureSignature,
+  flagValue,
+  runOptions,
   planStates,
   runStates,
   spawnTurbo,
@@ -138,8 +141,9 @@ describe("spawnTurbo against a shim turbo", () => {
       "run",
       "a",
       "b",
-      "--force",
       "--output-logs=errors-only",
+      "--log-prefix=task",
+      "--force",
     ])
   })
 
@@ -163,29 +167,43 @@ describe("spawnTurbo against a shim turbo", () => {
   })
 })
 
+describe("flagValue", () => {
+  it.each([
+    [["--output-logs=full"], "--output-logs", "full"],
+    [["--output-logs", "new-only"], "--output-logs", "new-only"],
+    [["--log-prefix=none"], "--log-prefix", "none"],
+    [["--log-prefix", "none"], "--log-prefix", "none"],
+    [["--force"], "--output-logs", undefined],
+    [["--output-logs"], "--output-logs", ""],
+    [["--", "--output-logs=full"], "--output-logs", undefined],
+  ])("%j reads %s as %j", (args, flag, expected) => expect(flagValue(args, flag)).toBe(expected))
+})
+
+describe("runOptions", () => {
+  it.each([
+    [[], { full: false, collapse: true }],
+    [["--output-logs", "full"], { full: true, collapse: false }],
+    [["--output-logs=new-only"], { full: false, collapse: true }],
+    [["--output-logs=errors-only"], { full: false, collapse: true }],
+    [["--output-logs=hash-only"], { full: false, collapse: false }],
+    [["--output-logs=none"], { full: false, collapse: false }],
+    [["--log-prefix=task"], { full: false, collapse: true }],
+    [["--log-prefix=none"], { full: false, collapse: false }],
+    [["--log-prefix", "none"], { full: false, collapse: false }],
+  ])("%j gives %j", (args, expected) => expect(runOptions(args)).toEqual(expected))
+})
+
 describe("turboArgv", () => {
-  it("puts forwarded args after the task names", () => {
-    expect(turboArgv(["a", "b"], ["--force"])).toEqual([
-      "run",
-      "a",
-      "b",
-      "--force",
-      "--output-logs=errors-only",
-    ])
-  })
-
-  it("keeps a user --output-logs=full and appends no default", () => {
-    expect(turboArgv(["a"], ["--output-logs=full"])).toEqual(["run", "a", "--output-logs=full"])
-  })
-
-  it("keeps a user --output-logs full (separate value) and appends no default", () => {
-    expect(turboArgv(["a"], ["--output-logs", "full"])).toEqual([
-      "run",
-      "a",
-      "--output-logs",
-      "full",
-    ])
-  })
+  const O = "--output-logs=errors-only"
+  const P = "--log-prefix=task"
+  it.each([
+    [["a", "b"], ["--force"], ["run", "a", "b", O, P, "--force"]],
+    [["a"], ["--output-logs=full"], ["run", "a", P, "--output-logs=full"]],
+    [["a"], ["--output-logs", "new-only"], ["run", "a", P, "--output-logs", "new-only"]],
+    [["a"], ["--log-prefix", "none"], ["run", "a", O, "--log-prefix", "none"]],
+    [["a"], ["--", "x"], ["run", "a", O, P, "--", "x"]],
+    [["a"], ["--", "--log-prefix=none"], ["run", "a", O, P, "--", "--log-prefix=none"]],
+  ])("%j with %j", (tasks, args, expected) => expect(turboArgv(tasks, args)).toEqual(expected))
 })
 
 describe("failureSignature against real turbo", () => {
@@ -208,12 +226,12 @@ describe("failureSignature against real turbo", () => {
       }),
     )
     writeFileSync(join(dir, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }))
-    const bin = join(process.cwd(), "node_modules", ".bin")
+    const turbo = fileURLToPath(new URL("../../node_modules/.bin/turbo", import.meta.url))
     const run = () =>
-      spawnSync(join(bin, "turbo"), ["run", "boom", "--output-logs=errors-only"], {
+      spawnSync(turbo, turboArgv(["boom"], []), {
         cwd: dir,
         encoding: "utf8",
-        env: { ...process.env, TURBO_TELEMETRY_DISABLED: "1" },
+        env: { ...process.env, TURBO_TELEMETRY_DISABLED: "1", GITHUB_ACTIONS: "true" },
       }).stdout
     const a = failureSignature(run(), ["boom"])
     expect(a).toContain("boom-line")
@@ -231,6 +249,24 @@ describe("failureSignature", () => {
       "test:unit: FAIL foo took 3.4 s at 11:59:59 on 2026-10-19T01:00:00Z hash fedcba9876543210\n"
     expect(failureSignature(a, tasks)).toBe(failureSignature(b, tasks))
     expect(failureSignature(a, tasks)).not.toBe("")
+  })
+
+  it("is equal for outputs differing only in a 16-char hash", () => {
+    expect(failureSignature("lint: id 0123456789ABCDEF\n", tasks)).toBe(
+      failureSignature("lint: id fedcba9876543210\n", tasks),
+    )
+  })
+
+  it("differs for 40-char shas", () => {
+    expect(failureSignature(`lint: at ${"a".repeat(40)}\n`, tasks)).not.toBe(
+      failureSignature(`lint: at ${"b".repeat(40)}\n`, tasks),
+    )
+  })
+
+  it("differs for 12-char abbreviated shas", () => {
+    expect(failureSignature("lint: at aaaaaaaaaaaa\n", tasks)).not.toBe(
+      failureSignature("lint: at bbbbbbbbbbbb\n", tasks),
+    )
   })
 
   it("differs when assertion text differs", () => {
@@ -311,10 +347,28 @@ describe("runStates", () => {
       ...stateOf(l),
       tasks: ["test:unit"],
     }))
-    runStates(states, stub(runs).run, (l) => lines.push(l), true)
+    runStates(states, stub(runs).run, (l) => lines.push(l), { full: true })
     expect(text(lines)).toContain("noisy pass")
     expect(text(lines).match(/same boom/g)).toHaveLength(2)
     expect(text(lines)).not.toContain("same failure")
+  })
+
+  it("with collapse off, prints identical failures in full and passes only a label", () => {
+    const lines: string[] = []
+    const runs = [
+      { code: 0, stdout: "test:unit: noisy pass\n" },
+      fail("same boom"),
+      fail("same boom"),
+    ]
+    const states = ["defaults", "alpha on", "beta on"].map((l) => ({
+      ...stateOf(l),
+      tasks: ["test:unit"],
+    }))
+    runStates(states, stub(runs).run, (l) => lines.push(l), { collapse: false })
+    expect(text(lines).match(/same boom/g)).toHaveLength(2)
+    expect(text(lines)).not.toContain("same failure")
+    expect(text(lines)).not.toContain("noisy pass")
+    expect(lines[0]).toBe("test-states: defaults — pass")
   })
 
   it("prints the first failure in full, then its FAIL line", () => {
