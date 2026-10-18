@@ -406,14 +406,28 @@ async function squash(
 
   const pushed = await pushHistory(io, history)
   if (pushed) return fail(pushed)
-  if (!many) {
+  return land(io, git, ok, branch, groups, fulls, stacked, await warn(), links)
+}
+
+async function land(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  groups: Group[],
+  fulls: string[],
+  stacked: boolean,
+  warning: string | undefined,
+  links: (commits: string[]) => Link[],
+): Promise<Awaited<ReturnType<typeof squash>>> {
+  if (groups.length === 1) {
     const one = await commitSquash(io, git, ok, groups[0]!.base, fulls[0]!)
     return one.ok ? { ...one, forget: true } : one
   }
   const built = await commitChain(io, git, ok, groups, fulls)
   if (!built.ok) return built
   // a record of an earlier stack must not outlive this ship
-  if (!stacked) return { ok: true, text: "", warning: await warn(), forget: true }
+  if (!stacked) return { ok: true, text: "", warning, forget: true }
   const stack = links(built.commits)
   const recorded = await recordStack(io, ok, branch, stack)
   return recorded ? fail(recorded) : { ok: true as const, text: "", stack }
