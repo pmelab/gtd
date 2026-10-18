@@ -100,14 +100,45 @@ export interface Condense {
   readonly print: (text: string) => void
 }
 
+type Seen = readonly { label: string; failures: ReadonlyMap<string, readonly string[]> }[]
+
+/** Print only what an earlier failing state has not already shown. */
+function condenseFailure(
+  state: TestState,
+  output: string,
+  mine: ReadonlyMap<string, readonly string[]>,
+  seen: Seen,
+  i: number,
+  condense: Condense,
+  log: (line: string) => void,
+): void {
+  if (i === 0) return
+  if (mine.size === 0) return condense.print(`${output}\n`)
+  const covering: string[] = []
+  const novel = new Set(mine.keys())
+  for (const earlier of seen) {
+    const hits = [...novel].filter((t) => sameTests(earlier.failures.get(t), mine.get(t)!))
+    if (hits.length > 0) covering.push(earlier.label)
+    hits.forEach((t) => novel.delete(t))
+  }
+  if (novel.size === 0)
+    return log(`test-states: ${state.label} — same failures as ${covering.join(", ")}`)
+  if (seen.length === 0) return condense.print(`${output}\n`)
+  const own = stripAnsi(output)
+    .split("\n")
+    .filter((l) => novel.has(taskOf(l, state.tasks) ?? ""))
+  condense.print(`${own.join("\n")}\n`)
+}
+
+const asResult = (r: number | null | RunResult): RunResult =>
+  typeof r === "object" && r !== null ? r : { status: r, output: "" }
+
 export async function runStates(
   states: readonly TestState[],
   run: RunTasks,
   log: (line: string) => void,
   condense?: Condense,
 ): Promise<number> {
-  const asResult = (r: number | null | RunResult): RunResult =>
-    typeof r === "object" && r !== null ? r : { status: r, output: "" }
   if (states.length === 1)
     return asResult(await run(states[0]!.tasks, states[0]!.env, true)).status ?? 1
   let failed = false
@@ -119,27 +150,7 @@ export async function runStates(
     log(`test-states: ${state.label} — ${ok ? "pass" : "FAIL"}`)
     if (ok || !condense) continue
     const mine = failuresOf(output, state.tasks)
-    if (i > 0 && mine.size === 0) {
-      condense.print(`${output}\n`)
-    } else if (i > 0) {
-      const covering: string[] = []
-      const novel = new Set(mine.keys())
-      for (const earlier of seen) {
-        const hits = [...novel].filter((t) => sameTests(earlier.failures.get(t), mine.get(t)!))
-        if (hits.length > 0) covering.push(earlier.label)
-        hits.forEach((t) => novel.delete(t))
-      }
-      if (novel.size === 0) {
-        log(`test-states: ${state.label} — same failures as ${covering.join(", ")}`)
-      } else if (seen.length === 0) {
-        condense.print(`${output}\n`)
-      } else {
-        const own = stripAnsi(output)
-          .split("\n")
-          .filter((l) => novel.has(taskOf(l, state.tasks) ?? ""))
-        condense.print(`${own.join("\n")}\n`)
-      }
-    }
+    condenseFailure(state, output, mine, seen, i, condense, log)
     seen.push({ label: state.label, failures: mine })
   }
   return failed ? 1 : 0
