@@ -1,11 +1,16 @@
-# Review: 213cae2
+# Review: 80d9fec
 
 <!-- base: 7ec474802711a0a93023ed7699dc3842f9dc0367 -->
 
-**Verdict: approve after one doc fix.** The branch closes the refactor-review
-gaps (footnotes, in-gate thread replies, stray rules on every tail turn, amend
-wording on feature feedback laps). One risk: the upgrade note names only 28.0.0,
-but `seam.approve` also shipped in 28.1.0.
+**Verdict: approve.** The branch closes the refactor-review gaps (footnotes,
+in-gate thread replies, stray rules on every tail turn, amend wording on feature
+feedback laps). **The risk fix resolved the 28.0.0-only upgrade wording; no risk
+remains.** Two nits stay open (a test title, a stray comment clause).
+
+**FYI: this branch must ship as a major (29.0.0).** It removes the
+`seam.approve` step and changes the exported `seamBuild` signature, both
+SemVer-tier surfaces in COMPATIBILITY.md. "Any 28.x" in the upgrade notes is
+correct only under that release.
 
 ## Scenarios
 
@@ -163,12 +168,11 @@ be bare.
 replay and must `gtd abandon`. The test forges `Gtd-Step:` trails and checks
 that every rest replays, except the ones from the `refactor-first` verdict on.
 
-- [ ] ./README.md#578-580 — Risk: **says "A 28.0.0 process" must abandon, but
-      `seam.approve` also shipped in v28.1.0 (and on main).** A 28.1.x user
-      reads this as not their problem. Say "28.x" or "any process from before
-      this release".
-- [ ] ./docs/configuration.md#687-708 — Risk: **the same "from 28.0.0" wording
-      in the Upgrading list misses 28.1.0.** The rest of the hunk is accurate:
+- [ ] ./README.md#578-580 — **fix: "A 28.0.0 process" now reads "A 28.x
+      process".** Covers 28.0.0 and 28.1.x, both of which shipped
+      `seam.approve`.
+- [ ] ./docs/configuration.md#687-708 — **fix: the Upgrading list now says "from
+      any 28.x release".** Text reflowed only. The rest of the hunk is accurate:
       refusal contents, footnote judging, the in-gate thread reply, and the
       `seamBuild(base)` signature change.
 - [ ] ./docs/configuration.md#596-598 — notes that the review tail's turns carry
