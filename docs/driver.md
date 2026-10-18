@@ -460,14 +460,14 @@ falls back to the `gtd` on your `PATH`.
   commit, same author, date and message), pushes each with a lease on origin's
   own commit (refusing if origin holds commits the recorded top lacks),
   retargets the lowest remaining pull request and keeps the stack; a rebase that
-  does not fit that shape drops the record and ships the branch alone. A merged
-  slice's name may be reused by a later stack. A commits-mode re-ship of a
-  stacked branch retargets its pull request to the default branch and leaves the
-  lower slices' pull requests open; close them by hand. A pull request on a base
-  that is not a slice branch keeps its base, a thrown draft in a stack is
-  retargeted like any other, and a missing slice branch is rebuilt from the
-  commits the stack was built at while the branch still contains them, otherwise
-  the ship refuses and names `GTD_SHIP_MODE=commits` to ship the branch alone.
+  does not fit that shape drops the record and ships the branch alone. A
+  commits-mode re-ship of a stacked branch retargets its pull request to the
+  default branch and leaves the lower slices' pull requests open; close them by
+  hand. A pull request on a base that is not a slice branch keeps its base, a
+  thrown draft in a stack is retargeted like any other, and a missing slice
+  branch is rebuilt from the commits the stack was built at while the branch
+  still contains them, otherwise the ship refuses and names
+  `GTD_SHIP_MODE=commits` to ship the branch alone.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A

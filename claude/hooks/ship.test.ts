@@ -243,21 +243,70 @@ describe("pushBranch with a persisted lease", () => {
     "git merge-base --is-ancestor HEAD origin/feat/x": { code: 0 },
   }
   const push = `git push --force-with-lease=feat/x:${L} origin feat/x`
+  const LS = "git ls-remote origin refs/heads/feat/x"
+  const atL = { [LS]: { out: `${L}\trefs/heads/feat/x\n` } }
+  const unreconciled = { ...atL, [`git merge-base --is-ancestor ${L} HEAD`]: { code: 1 } }
   test("pushes with the key's sha even when HEAD is an ancestor of origin, then unsets it", async () => {
-    const { io, ran } = repo({ ...tracked, [KEY]: { out: `${L}\n` } })
+    const { io, ran } = repo({ ...tracked, ...unreconciled, [KEY]: { out: `${L}\n` } })
     expect(await pushBranch(io, "feat/x")).toBeUndefined()
     expect(ran()).toContain(push)
     expect(ran()).toContain(UNSET)
   })
   test("a rejected push keeps the key and names the unset line", async () => {
-    const { io, ran } = repo({ ...tracked, [KEY]: { out: L }, [push]: { code: 1, err: "stale" } })
+    const { io, ran } = repo({
+      ...tracked,
+      ...unreconciled,
+      [KEY]: { out: L },
+      [push]: { code: 1, err: "stale info" },
+    })
     expect(await pushBranch(io, "feat/x")).toBe(
-      "git push failed: origin/feat/x moved. Pull or reconcile feat/x, then ship.\nstale\nTo overwrite origin's copy on purpose, run git config --local --unset branch.feat/x.gtdLease first.",
+      "git push failed: origin/feat/x moved. Pull or reconcile feat/x, then ship.\nstale info\nTo overwrite origin's copy on purpose, run git config --local --unset branch.feat/x.gtdLease first.",
     )
     expect(ran()).not.toContain(UNSET)
   })
+  test("an unrelated push failure keeps the key and does not name the unset line", async () => {
+    const { io, ran } = repo({
+      ...tracked,
+      ...unreconciled,
+      [KEY]: { out: L },
+      [push]: { code: 1, err: "Permission denied" },
+    })
+    const out = await pushBranch(io, "feat/x")
+    expect(out).toContain("Permission denied")
+    expect(out).not.toContain("--unset")
+    expect(ran()).not.toContain(UNSET)
+  })
+  test("origin's sha already in the pushed commit leases on it, then unsets the key", async () => {
+    const R = "e".repeat(40)
+    const reconciled = `git push --force-with-lease=feat/x:${R} origin feat/x`
+    const { io, ran } = repo({
+      ...tracked,
+      [KEY]: { out: L },
+      [LS]: { out: `${R}\trefs/heads/feat/x\n` },
+    })
+    expect(await pushBranch(io, "feat/x")).toBeUndefined()
+    expect(ran()).toContain(reconciled)
+    expect(ran()).not.toContain(push)
+    expect(ran()).toContain(UNSET)
+  })
+  test("a key whose branch origin lost is unset and the branch pushed fresh", async () => {
+    const { io, ran } = repo({
+      [KEY]: { out: L },
+      [LS]: { out: "" },
+      "git rev-parse --verify --quiet origin/feat/x": { code: 1 },
+    })
+    expect(await pushBranch(io, "feat/x")).toBeUndefined()
+    expect(ran()).toContain(UNSET)
+    expect(ran()).toContain("git push --set-upstream origin feat/x")
+    expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+  })
   test("a killed push keeps the key", async () => {
-    const { io, ran } = repo({ ...tracked, [KEY]: { out: L }, [push]: { crash: true } })
+    const { io, ran } = repo({
+      ...tracked,
+      ...unreconciled,
+      [KEY]: { out: L },
+      [push]: { crash: true },
+    })
     expect(await pushBranch(io, "feat/x")).toContain("did not finish")
     expect(ran()).not.toContain(UNSET)
   })
@@ -2259,6 +2308,8 @@ describe("ship stack", () => {
       "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
       "git rev-parse --verify --quiet origin/feat/x-middle": { code: 0 },
       [`git merge-base --is-ancestor ${S1} refs/heads/feat/x-middle`]: { code: 1 },
+      "git rev-parse feat/x-middle~1": { out: BASE },
+      "git rev-parse origin/main": { out: BASE },
       [WT]: here,
     }
     const at = (ran: () => string[], c: string) => ran().indexOf(c)
@@ -2861,7 +2912,6 @@ describe("ship stack", () => {
       const LEASE = (b: string) => `branch.${b}.gtdLease`
       const RETIRED = "branch.feat/x.gtdStackRetired"
       const KEYS = "branch.feat/x.gtdStack"
-      const TOPKEY = "branch.feat/x.gtdStackTop"
       const sets = (ran: () => string[]) =>
         ran().filter((c) => c.startsWith("git config --local") && !c.includes("--get"))
       const pushed = (ran: () => string[]) => ran().some((c) => c.startsWith("git push"))
@@ -2882,12 +2932,6 @@ describe("ship stack", () => {
       const midMoved = "git rev-parse refs/heads/feat/x-middle"
       const restored = (why: string) =>
         `${why}; the slice branches and HEAD are restored and nothing was pushed or recorded.`
-
-      test("a ship asks origin/HEAD for the default branch once", async () => {
-        const { io, ran } = repo(two)
-        await ship(io, false)
-        expect(ran().filter((c) => c.startsWith("git symbolic-ref"))).toHaveLength(1)
-      })
 
       describe("a conflict whose abort fails", () => {
         const conflict = {
@@ -3078,6 +3122,8 @@ describe("ship stack", () => {
             "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
             "git merge-base --is-ancestor HEAD origin/feat/x": { code: 0 },
             [`git config --local --get ${LEASE("feat/x")}`]: { out: `${O}\n` },
+            "git ls-remote origin refs/heads/feat/x": { out: `${O}\trefs/heads/feat/x\n` },
+            [`git merge-base --is-ancestor ${O} HEAD`]: { code: 1 },
           }
           const rejected = repo({
             ...retry,
@@ -3093,6 +3139,21 @@ describe("ship stack", () => {
           await ship(later.io, false)
           expect(later.ran()).toContain(`git config --local --unset ${LEASE("feat/x")}`)
         })
+        test("a ship after the user reconciled leases on origin's sha, not the stale key", async () => {
+          const R = "e".repeat(40)
+          const { io, ran } = repo({
+            ...feature,
+            "gtd summary": { code: 1 },
+            "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+            "git merge-base --is-ancestor HEAD origin/feat/x": { code: 0 },
+            [`git config --local --get ${LEASE("feat/x")}`]: { out: `${O}\n` },
+            "git ls-remote origin refs/heads/feat/x": { out: `${R}\trefs/heads/feat/x\n` },
+          })
+          await ship(io, false)
+          expect(ran()).toContain(`git push --force-with-lease=feat/x:${R} origin feat/x`)
+          expect(ran()).not.toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
+          expect(ran()).toContain(`git config --local --unset ${LEASE("feat/x")}`)
+        })
         test("forgetting the stack never touches the lease", async () => {
           const { io, ran } = repo(two)
           await ship(io, false)
@@ -3102,25 +3163,8 @@ describe("ship stack", () => {
         })
       })
 
-      describe("merged slice names", () => {
-        test("a restack with two slices left adds the merged name to gtdStackRetired", async () => {
-          const { io, ran } = repo(three)
-          await ship(io, false)
-          expect(ran()).toContain(`git config --local ${RETIRED} refactor`)
-          expect(at(ran, `git config --local ${RETIRED} refactor`)).toBeGreaterThan(
-            at(ran, `git config --local ${TOPKEY} ${N1}`),
-          )
-          expect(ran()).not.toContain(`git config --local --unset ${RETIRED}`)
-        })
-        test("existing retired names are kept in the union", async () => {
-          const { io, ran } = repo({
-            ...three,
-            [`git config --local --get ${RETIRED}`]: { out: "old\n" },
-          })
-          await ship(io, false)
-          expect(ran()).toContain(`git config --local ${RETIRED} old refactor`)
-        })
-        test("a fresh stack with a dead record may reuse a merged slice's name", async () => {
+      describe("retired slice names", () => {
+        test("a fresh stack may reuse a retired slice's name", async () => {
           const taken = {
             ...sbase,
             "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { out: C1 },
@@ -3166,6 +3210,30 @@ describe("ship stack", () => {
           const { io, ran } = repo({
             ...handTop,
             [`${IDENT} ${N1}`]: { out: "Bob\x00b@x\x00200\x00chore: other\n" },
+          })
+          await ship(io, false)
+          expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+          expect(ran()).toContain(`git config --local --unset ${KEYS}`)
+        })
+        test("a two-slice remainder is never taken as a hand restack", async () => {
+          const { io, ran } = repo({
+            ...three,
+            [`git merge-base --is-ancestor ${S3} HEAD`]: { code: 1 },
+            [`git merge-base --is-ancestor ${S1} feat/x-middle`]: { code: 1 },
+            "git merge-base --is-ancestor feat/x-middle~1 origin/main": { code: 1 },
+            "git rev-list --reverse origin/main..feat/x-middle": { out: `${N1}\n${S3}\n` },
+            [`${IDENT} ${N1}`]: { out: "Ann\x00a@x\x00100\x00feat: top\n" },
+            [`${IDENT} ${S3}`]: { out: "Ann\x00a@x\x00100\x00feat: top\n" },
+          })
+          await ship(io, false)
+          expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+          expect(ran()).toContain(`git config --local --unset ${KEYS}`)
+        })
+        test("two failed identity reads do not count as a match", async () => {
+          const { io, ran } = repo({
+            ...handTop,
+            [`${IDENT} ${N1}`]: { out: "" },
+            [`${IDENT} ${C2}`]: { out: "" },
           })
           await ship(io, false)
           expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)

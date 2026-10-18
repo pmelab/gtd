@@ -217,7 +217,7 @@ export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promis
     : await pullRequest(io, git, ok, branch, baseBranch, baseRef, recorded)
   // A stale retired record must not take a stack this ship just recorded with it.
   if (opened.ok && squashed.forget) await forgetStack(io, branch)
-  else if (opened.ok && retired.length && !live.length)
+  else if (opened.ok && retired.length && (!live.length || squashed.recorded))
     await io.run(["git", "config", "--local", "--unset", RETIRED_KEY(branch)])
   return withWarning(opened, squashed.warning)
 }
@@ -310,8 +310,7 @@ const STACK_KEY = (branch: string) => `branch.${branch}.gtdStack`
 // commit per lower slice beneath it.
 const TOP_KEY = (branch: string) => `branch.${branch}.gtdStackTop`
 
-// Slice names gtd built that no live record holds: a moved-aside record awaiting
-// PR success, and the merged slices a restack dropped from a live one.
+// Slice names of a moved-aside record, awaiting PR success.
 const RETIRED_KEY = (branch: string) => `branch.${branch}.gtdStackRetired`
 // Origin's sha before a restack moved the branch; outlives the record so a rejected
 // push keeps its lease, and is never cleared by forgetStack.
@@ -433,6 +432,7 @@ async function squash(
     floor?: string
     forget?: boolean
     restack?: Restack
+    recorded?: boolean
   }
 > {
   const planned = await plan(io, git, ok, branch, baseBranch, isDry, mode)
@@ -485,7 +485,7 @@ async function land(
   if (!stacked) return { ok: true, text: "", warning, forget: true }
   const stack = sliceLinks(branch, groups, built.commits)
   const recorded = await recordStack(io, ok, branch, stack)
-  return recorded ? fail(recorded) : { ok: true as const, text: "", stack }
+  return recorded ? fail(recorded) : { ok: true as const, text: "", stack, recorded: true }
 }
 
 const sliceLinks = (branch: string, groups: Group[], commits: string[]): Link[] =>
@@ -1146,7 +1146,6 @@ async function rebaseFailed(
   )
 }
 
-// The refusal for a clean rebase that left a slice without a commit of its own.
 async function shapeRefusal(
   git: Git,
   ok: Ok,
@@ -1216,21 +1215,14 @@ async function restackOf(
     if (failure) return failure
     const broken = await shapeRefusal(git, ok, { ...x, onto })
     if (broken) return broken
-    return restacked(io, git, branch, baseBranch, links, c.merged)
+    return restacked(io, git, branch, baseBranch, links)
   }
   return { preview, run }
 }
 
 // The record shrinks to the remaining slices, before any push: a failed push then
 // resumes from a record that matches the rebased refs.
-async function restacked(
-  io: ShipIo,
-  git: Git,
-  branch: string,
-  baseBranch: string,
-  links: Link[],
-  merged: string[],
-) {
+async function restacked(io: ShipIo, git: Git, branch: string, baseBranch: string, links: Link[]) {
   // Before the record shrinks: a push rejected after it must keep its lease on
   // retry, or a fetch + re-ship overwrites a collaborator's commit.
   for (const l of links) {
@@ -1265,15 +1257,6 @@ async function restacked(
       : await io.run(["git", "config", "--local", TOP_KEY(branch), first])
   if (set.code !== 0)
     return `git config failed after the restack; the branches are rebased and /gtd ship picks that up.\n${set.err}`.trimEnd()
-  // Best effort: a failed write only over-refuses a later stack reusing the name.
-  const had = names(await git("config", "--local", "--get", RETIRED_KEY(branch)))
-  await io.run([
-    "git",
-    "config",
-    "--local",
-    RETIRED_KEY(branch),
-    [...new Set([...had, ...merged])].join(" "),
-  ])
   return { links: moved, floor, forget: false }
 }
 
@@ -1341,7 +1324,7 @@ async function handRestack(
       `Restack: spotted a hand restack of ${links.map((l) => l.branch).join(", ")}; no rebase`,
       ...pushLines(links),
     ],
-    run: () => restacked(io, git, branch, baseBranch, links, c.merged),
+    run: () => restacked(io, git, branch, baseBranch, links),
   }
   const floor = (await git("merge-base", onto, links[0]!.branch)) || undefined
   return { links, floor, forget: links.length === 1, restack }
@@ -1723,7 +1706,24 @@ export async function pushBranch(io: ShipIo, branch: string, head = "HEAD", leas
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
   // A rejected restack push persisted its lease: a fetch moves the tracking ref, so
   // only the stored sha still tells a collaborator's commit from ours.
-  const kept = (await io.run(["git", "config", "--local", "--get", LEASE_KEY(branch)])).out.trim()
+  let kept = (await io.run(["git", "config", "--local", "--get", LEASE_KEY(branch)])).out.trim()
+  if (lease || !kept) kept = ""
+  else {
+    // The key may be days old: origin's own sha decides whether it still applies.
+    const read = await io.run(["git", "ls-remote", "origin", `refs/heads/${branch}`])
+    const at = read.code === 0 ? read.out.trim().split(/\s+/)[0] : undefined
+    if (read.code === 0 && !at) {
+      // Origin lost the branch: nothing to lease on, so push it fresh.
+      await io.run(["git", "config", "--local", "--unset", LEASE_KEY(branch)])
+      kept = ""
+    } else if (
+      at &&
+      (await ok("cat-file", "-e", at)) &&
+      (await ok("merge-base", "--is-ancestor", at, head))
+    )
+      // Reconciled: origin's commit is already in what is pushed.
+      lease = at
+  }
   lease ??= kept || undefined
   const push = async (args: string[], failure: string) => {
     const r = await attempt(io, ["git", "push", ...args])
@@ -1732,7 +1732,7 @@ export async function pushBranch(io: ShipIo, branch: string, head = "HEAD", leas
     if (r.code !== 0)
       return (
         `${failure}\n${r.err}`.trimEnd() +
-        (kept
+        (kept && /stale info|rejected/.test(r.err)
           ? `\nTo overwrite origin's copy on purpose, run git config --local --unset ${LEASE_KEY(branch)} first.`
           : "")
       )
