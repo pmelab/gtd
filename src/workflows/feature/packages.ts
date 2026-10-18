@@ -57,6 +57,34 @@ export const declaredTests = (packageText: string): readonly DeclaredTest[] => {
 
 export type DeclaredTestsTurn = "build" | "fix"
 
+type Unmet = "notInDiff" | "modifiedMarked" | "deletedMarked" | "notInTree"
+
+type Declared = { path: string; unchanged: boolean }
+
+const diffBucket = (
+  test: Declared,
+  status: string | undefined,
+  turn: DeclaredTestsTurn,
+  satisfied: boolean,
+): Unmet | undefined => {
+  if (test.unchanged)
+    return turn === "build" && status === "modified" ? "modifiedMarked" : undefined
+  return !satisfied && (status === undefined || status === "deleted") ? "notInDiff" : undefined
+}
+
+const treeBucket = (test: Declared, status: string | undefined): Unmet | undefined => {
+  if (read(test.path) !== undefined) return undefined
+  return test.unchanged && status === "deleted" ? "deletedMarked" : "notInTree"
+}
+
+const unmetBucket = (
+  test: Declared,
+  change: { status: string } | undefined,
+  turn: DeclaredTestsTurn,
+  satisfied: boolean,
+): Unmet | undefined =>
+  diffBucket(test, change?.status, turn, satisfied) ?? treeBucket(test, change?.status)
+
 /**
  * Refuse a build or fix turn unless every test `pkg` declares exists and is in the
  * diff since `since`. The package text is read as of `since`, so a builder
@@ -72,22 +100,20 @@ export const requireDeclaredTests = (
   const range = changesSince(since)
   const text = range.get(pkg)?.before ?? read(pkg) ?? ""
   const satisfied = read(".gtd/SATISFIED.md") !== undefined
-  const notInDiff: string[] = []
-  const modifiedMarked: string[] = []
-  const deletedMarked: string[] = []
-  const notInTree: string[] = []
+  const buckets = {
+    notInDiff: [] as string[],
+    modifiedMarked: [] as string[],
+    deletedMarked: [] as string[],
+    notInTree: [] as string[],
+  }
   const entries = declaredTests(text)
   for (const test of entries) {
     // A file listed both ways is written by the package: the unmarked entry wins.
     if (test.unchanged && entries.some((e) => !e.unchanged && e.path === test.path)) continue
-    const change = range.get(test.path)
-    const inDiff = change !== undefined && change.status !== "deleted"
-    if (turn === "build" && test.unchanged && change?.status === "modified")
-      modifiedMarked.push(test.path)
-    else if (!satisfied && !test.unchanged && !inDiff) notInDiff.push(test.path)
-    else if (read(test.path) === undefined)
-      (test.unchanged && change?.status === "deleted" ? deletedMarked : notInTree).push(test.path)
+    const bucket = unmetBucket(test, range.get(test.path), turn, satisfied)
+    if (bucket) buckets[bucket].push(test.path)
   }
+  const { notInDiff, modifiedMarked, deletedMarked, notInTree } = buckets
   const groups = [
     ["not in the package's diff — write them", notInDiff],
     ["marked (unchanged) but modified — revert them", modifiedMarked],
