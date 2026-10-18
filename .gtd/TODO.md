@@ -1,17 +1,3 @@
-## Deferred review notes (836985b)
-
-- note-3 — flaky.[^stdout] (could): Restore `expect(captured().stdout).toBe("")`
-  in the garbled-flag CLI test; dropping it weakens the test with no reason.
-
-## Deferred review notes (daed27f)
-
-- note-2 — output.[^weak] (could): Please strengthen this scenario: finish a
-  process that kept a tip, then assert `gtd history list` shows only the
-  finished process and never the kept ref.
-
-## Deferred review notes (eda53bb)
-
-- note-1 — warning comes before any refusal.[^jsdoc] (could): The
-  `runSummaryCommand` doc comment still lists only the two plain refusals. Add
-  the `--slice` ones, short: unknown slice name (valid slices listed), config
-  edited since a closed process, diverged replay.
+Fix the PR 392 review round 2 findings listed in
+/private/tmp/claude-501/-Users-pmelab--herdr-worktrees-gtd-feat-383-ship-restack/73fe43e3-34e2-4aeb-abbc-de4bd0f8ae9d/scratchpad/review-r2.md,
+each with a ship.test.ts case.
