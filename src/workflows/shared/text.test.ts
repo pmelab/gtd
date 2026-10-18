@@ -1270,11 +1270,14 @@ describe("buildReviewReviewingPrompt lap wording", () => {
 })
 
 describe("architectureDecomposePrompt tests rule", () => {
-  it("lists only tests the package changes and names the (unchanged) marker", () => {
+  it("states one rule: write-or-change, relied-on marked (unchanged), no other untouched", () => {
     const prompt = renderText(() => architectureDecomposePrompt()).replace(/\s+/g, " ")
-    expect(prompt).toContain("List only tests the package writes or changes")
-    expect(prompt).toContain("never one it leaves untouched")
-    expect(prompt).toContain("(unchanged)")
+    expect(prompt).toContain("List every test the package writes or changes")
+    expect(prompt).toContain("also list an existing test a criterion relies on")
+    expect(prompt).toContain("list no other untouched test")
+    expect(prompt).not.toContain("never one it leaves untouched")
+    expect(prompt).toContain("- unit: \\`<path>\\` (unchanged)")
+    expect(prompt).toContain("- e2e: \\`<path>\\` (unchanged)")
     expect(prompt).toContain("only decompose places the marker")
   })
 })

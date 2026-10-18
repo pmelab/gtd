@@ -376,9 +376,11 @@ ${stateFileRules}
 - Every package with tests has a \`## Tests\` section, one line per
   declared test, copied from the architecture entries:
   \`- unit: \\\`<path>\\\`\` or \`- e2e: \\\`<path>\\\`\`. Chore packages have
-  none. List only tests the package writes or changes, never one it
-  leaves untouched; an existing unchanged test a criterion must name
-  is written \`- unit: \\\`<path>\\\` (unchanged)\` — only decompose places the marker
+  none. List every test the package writes or changes; also list an
+  existing test a criterion relies on, marked \`(unchanged)\` —
+  \`- unit: \\\`<path>\\\` (unchanged)\` or
+  \`- e2e: \\\`<path>\\\` (unchanged)\`; list no other untouched test;
+  only decompose places the marker
 - Leave everything uncommitted and finish
 `
 
