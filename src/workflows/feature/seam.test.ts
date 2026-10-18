@@ -112,6 +112,7 @@ interface Seamed {
 const driveSeam = async (
   answer: string,
   stray: Change = change("src/a.ts", "modified"),
+  vars: Record<string, string> = {},
 ): Promise<Seamed> => {
   const names: string[] = []
   const slices: string[] = []
@@ -130,7 +131,7 @@ const driveSeam = async (
     },
   }
   installContext({
-    ...fixtureContext({ vars: { refactorQualityReviews: "" } }),
+    ...fixtureContext({ vars: { refactorQualityReviews: "", ...vars } }),
     matches: globMatches,
     refuse: (message: string) => {
       throw new Error(message)
@@ -184,6 +185,26 @@ describe("seamBuild", () => {
     expect(h.inside.refactor).toContain("refactor.build.review.closing")
     expect(h.names.some((n) => n.includes("approve"))).toBe(false)
     expect(h.names.some((n) => n.startsWith("implement"))).toBe(false)
+  })
+
+  it("refactor-first with only test-file strays resolves the caller's base with no slice and no by-hand", async () => {
+    const h = await driveSeam("refactor-first", change("src/a.test.ts", "modified"), {
+      seamAllow: ".gtd/**",
+    })
+    expect(h.outcome).toEqual({ reference: "abc", base: "c-base" })
+    expect(h.slices).toEqual([])
+    expect(h.names).not.toContain("seam.by-hand")
+    expect(h.names.some((n) => n.startsWith("refactor"))).toBe(false)
+  })
+
+  it("rests an unreadable test-file stray at seam.by-hand", async () => {
+    const h = await driveSeam(
+      "refactor-first",
+      { path: "src/a.test.ts", status: "modified", before: undefined, after: "b" },
+      { seamAllow: ".gtd/**" },
+    )
+    expect(h.slices).toEqual([])
+    expect(h.names).toContain("seam.by-hand")
   })
 
   it("rests unreadable strays at seam.by-hand and enters no refactor slice", async () => {

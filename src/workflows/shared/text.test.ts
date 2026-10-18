@@ -731,7 +731,7 @@ describe("code threads in prompts", () => {
 
 describe("buildReviewReviewingPrompt risk marking", () => {
   it("states the Risk: marker rule and the re-review rule", () => {
-    const prompt = renderText(() => buildReviewReviewingPrompt("base"))
+    const prompt = renderText(() => buildReviewReviewingPrompt("base", "first"))
     expect(prompt).toContain("Open a hunk's note with `Risk:` only for a concrete defect")
     expect(prompt).toContain("never a style remark")
     expect(prompt).toContain("describe what the fix changed under the")
@@ -841,7 +841,7 @@ describe("deferNotesScript — the in-memory recognizer agrees with the real sh 
 describe("buildReviewReviewingPrompt scenarios", () => {
   it("names each removed assertion and asks for a Weakened: note", () => {
     const prompt = renderText(() =>
-      buildReviewReviewingPrompt("base", undefined, [
+      buildReviewReviewingPrompt("base", "first", undefined, [
         {
           path: "e2e/a.feature",
           lines: [{ scenario: "Scenario: shown", line: "Then it is shown" }],
@@ -853,7 +853,7 @@ describe("buildReviewReviewingPrompt scenarios", () => {
   })
 
   it("asks for no Weakened: note when nothing was removed", () => {
-    const prompt = renderText(() => buildReviewReviewingPrompt("base"))
+    const prompt = renderText(() => buildReviewReviewingPrompt("base", "first"))
     expect(prompt).toContain("## Scenarios")
     expect(prompt).not.toContain("Weakened:")
   })
@@ -956,7 +956,7 @@ describe("the refactor prompts", () => {
 
   describe("the review collecting prompt", () => {
     const prompt = renderText(() =>
-      buildReviewCollectingPrompt("capture-text", { strays, open: false }),
+      buildReviewCollectingPrompt("capture-text", { strays, round: "triaged" }),
     )
 
     it("folds into .gtd/REFACTOR.md and never names .gtd/REQUIREMENTS.md", () => {
@@ -979,8 +979,8 @@ describe("the refactor prompts", () => {
       expect(prompt).toContain("`.gtd/REFACTOR.md`'s `## Answered Questions`")
     })
 
-    it("keeps the thread rules but not the closed review file's check or replies", () => {
-      expect(prompt).toContain("- A: <reply>")
+    it("drops the reply rules and the closed review file's check", () => {
+      expect(prompt).not.toContain("- A: <reply>")
       expect(prompt).not.toContain("gtd check review .gtd/REVIEW.md")
       expect(prompt).toContain("is already closed")
     })
@@ -1017,15 +1017,66 @@ describe("the refactor collecting prompt", () => {
   const strays = ["src/a.ts"]
 
   it("in-gate asks for one - A: per waiting thread, leaves one-shot footnotes and notes untouched, never says closed", () => {
-    const prompt = renderText(() => buildReviewCollectingPrompt("capture", { strays, open: true }))
+    const prompt = renderText(() =>
+      buildReviewCollectingPrompt("capture", { strays, round: "reply" }),
+    )
     expect(prompt).toContain("exactly one `- A:` reply")
     expect(prompt).toContain("Fold each one-shot footnote and note")
     expect(prompt).toContain("gtd check review .gtd/REVIEW.md")
     expect(prompt).not.toContain("already closed")
   })
 
+  const closed = (round: "edits" | "notes" | "triaged", threads = false) =>
+    renderText(() => buildReviewCollectingPrompt("capture", { strays, round }), {
+      codeThreads: threads
+        ? [{ path: "src/a.ts", line: 4, waitingOn: "agent", first: "why?", faults: [] }]
+        : [],
+    })
+
+  it('closed "edits" folds every hand-edit and every note the human left that round', () => {
+    expect(closed("edits")).toContain(
+      "Fold every hand-edit and every note the human left that round",
+    )
+  })
+
+  it('closed "notes" folds each note that asks for a change', () => {
+    expect(closed("notes")).toContain("Fold each note that asks for a change")
+  })
+
+  it('closed "triaged" folds each edit note the capture lists, no other note', () => {
+    expect(closed("triaged")).toContain("Fold each `edit` note the capture lists, no other note")
+  })
+
+  it.each(["edits", "notes", "triaged"] as const)(
+    "closed %s keeps the fence and must-write rule, drops both reply rules",
+    (round) => {
+      const prompt = closed(round, true)
+      expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+      expect(prompt).toContain("MUST write")
+      expect(prompt).not.toContain("A one-shot footnote needs no reply")
+      expect(prompt).not.toContain("Code threads waiting on you")
+      expect(prompt).not.toContain("src/a.ts:4: why?")
+    },
+  )
+
+  it("the open variant and the feature prompt keep both reply rules", () => {
+    const threads = [{ path: "src/a.ts", line: 4, waitingOn: "agent", first: "why?", faults: [] }]
+    for (const prompt of renderText(
+      () => [
+        buildReviewCollectingPrompt("capture", { strays, round: "reply" }),
+        buildReviewCollectingPrompt("capture"),
+      ],
+      { codeThreads: threads as never },
+    )) {
+      expect(prompt).toContain("A one-shot footnote needs no reply")
+      expect(prompt).toContain("src/a.ts:4: why?")
+    }
+  })
+
   it("end-of-round still says the file is closed and must not be recreated", () => {
-    const prompt = renderText(() => buildReviewCollectingPrompt("capture", { strays, open: false }))
+    const prompt = renderText(() =>
+      buildReviewCollectingPrompt("capture", { strays, round: "triaged" }),
+    )
     expect(prompt).toContain("already closed")
     expect(prompt).toContain("do not\n  recreate it")
     expect(prompt).not.toContain("exactly one `- A:` reply")
@@ -1072,4 +1123,22 @@ describe("the rules-taking fix prompts", () => {
     expect(plain).toContain("add a test")
     expect(ruled).not.toContain("add a test")
   })
+})
+
+describe("buildReviewReviewingPrompt lap wording", () => {
+  const ranges = {
+    first: "it covers everything since the base",
+    feedback: "it covers only what is new since the previous review",
+    refactor: "it covers the whole refactor since it started, on every round",
+  } as const
+  it.each(Object.keys(ranges) as (keyof typeof ranges)[])(
+    "%s renders its own range wording and neither of the other two",
+    (lap) => {
+      const prompt = renderText(() => buildReviewReviewingPrompt("base", lap))
+      for (const [other, wording] of Object.entries(ranges)) {
+        if (other === lap) expect(prompt).toContain(wording)
+        else expect(prompt).not.toContain(wording)
+      }
+    },
+  )
 })

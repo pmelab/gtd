@@ -581,13 +581,15 @@ the same name as occurrence `#2`.
 ### `refactorFirst`
 
 `refactorFirst(shape, { reference? })` turns a `judgeDiffShape` result into a
-behaviour-neutral refactor of exactly its `strays`, and resolves `true` once the
-refactor has closed. It resolves `false`, running no step, unless `shape.choice`
-is `refactor-first` and `shape.unreadable` is empty — a stray whose content
-cannot be read goes to a human instead. `reference` is the naive pass's kept tip
-(`kept(name)?.hash`; blank counts as none): the building prompt names
-`git show <reference> -- <strays>` as reading material only and forbids applying
-it; omitted, it carries no reference line.
+behaviour-neutral refactor of its `strays`, minus any test file, and resolves
+`true` once the refactor has closed. It resolves `false`, running no step,
+unless `shape.choice` is `refactor-first`, `shape.unreadable` is empty and a
+non-test stray remains — a stray whose content cannot be read goes to a human
+instead, and a `refactor-first` whose strays are all test files goes straight to
+`implement.*`, since a refactor never changes a test file. `reference` is the
+naive pass's kept tip (`kept(name)?.hash`; blank counts as none): the building
+prompt names `git show <reference> -- <strays>` as reading material only and
+forbids applying it; omitted, it carries no reference line.
 
 `refactorFirst` is the refactor alone. The shipped flow runs `reviewedRefactor`,
 which is `refactorFirst` plus the refactor's quality lap and review inside the
@@ -596,6 +598,12 @@ same `refactor` scope, so the tail's steps are `refactor.build.*`; it resolves
 `refactorFirst` rejects. The review tail's fix-check, quality-fix, risk-fix,
 nit-fix and describe turns (`refactor.build.*`) are guarded and prompted with
 the same rules as the refactor's own turns below.
+
+The refactor review's closed collecting turn (after the review file is closed)
+folds into `.gtd/REFACTOR.md` what that round left: every hand-edit and every
+note after a hand-edit round, each note that asks for a change after a notes
+round, each `edit`-judged note after a triaged round. It carries no
+reply-in-place rules; those belong to the in-gate reply turn.
 
 It runs inside the scope `refactor`, whose write access is the strays plus
 `.gtd/**`, in these steps: `refactor.deriving` (writes `.gtd/REFACTOR.md`, a
@@ -611,9 +619,11 @@ narrows nothing. After the building turn, after every fix turn and after the
 escalation describe turn (`refactor.health.describe`), `gtd land` refuses the
 turn when:
 
-- it changed a test file (`refactor-tests`): any changed path matching
-  `**/*.test.*`, `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**` or
-  `**/__tests__/**`, strays included. The list is fixed — `seamAllow` does not
+- it changed a test file: any changed path matching `**/*.test.*`,
+  `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**` or
+  `**/__tests__/**`. A test file the judge listed as a stray is never in the
+  refactor's write access, so the refusal is the write-access one ("this turn
+  wrote outside its write access"). The list is fixed — `seamAllow` does not
   narrow it — and `*_test.go`, `test_*.py` and other namings are not refused, or
 - it changed a path outside `.gtd/` that is not exactly one of the strays
   (`refactor-scope`; a fix turn is judged on its own changes, so a person's edit
@@ -689,7 +699,10 @@ hand-edit round's refusal names the edited paths. A notes-only round's refusal
 names the notes judged `edit`, footnotes included, never praise or questions.
 The only way out is `gtd abandon`, which throws away the naive pass, the
 refactor and its review. A praise-only round still signs off; the feature review
-signs off on a round that changes nothing.
+signs off on a round that changes nothing. A settled round, one where the human
+only added thread replies after the in-gate reply turn, refuses the same way
+when anything since the review asked for a change: a note judged `edit`, `nit`
+or `defer`, or a hand-edited path. The refusal names them.
 
 Footnotes are judged like line notes. A `- H:` thread left in `.gtd/REVIEW.md`
 at the refactor review gets one `- A:` reply and the gate rests again; a thread
@@ -698,7 +711,7 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
 **Upgrading:** two migrations.
 
 - `seam.approve` is gone; the refactor's review sign-off is the approval. A
-  `GTD_FLAG_NAIVE_PASS` process from any 28.x release whose judge ruled
+  `GTD_FLAG_NAIVE_PASS` process from 27.5.0 or later whose judge ruled
   `refactor-first` no longer replays at any rest from that verdict on —
   `seam.approve`, every `refactor.*` step, and every `implement.*` and `build.*`
   step after the refactor — and must `gtd abandon`. Processes that rest at

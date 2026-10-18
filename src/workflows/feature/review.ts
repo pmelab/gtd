@@ -188,7 +188,7 @@ export const review = (
     isCode,
     reviewing: (b, carry) => {
       deferred = []
-      return reviewing(b, carry)
+      return reviewing(b, carry, options.lap)
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
@@ -249,7 +249,7 @@ export const review = (
 
 export interface FeedbackTarget {
   readonly file: string
-  readonly collecting: (capture: string) => Promise<void>
+  readonly collecting: (capture: string, round: kit.CollectRound) => Promise<void>
   /** Refusal when the collecting turn changed something but not `file`. */
   readonly unmatched: string
   readonly dropped?: (requested: kit.Requested) => string
@@ -269,6 +269,8 @@ export interface BuildTailOptions {
   readonly lensBase?: string
   /** Appended to every fix and describe prompt of the tail. */
   readonly rules?: string
+  /** Absent: "first". */
+  readonly lap?: t.ReviewRange
 }
 
 /** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */

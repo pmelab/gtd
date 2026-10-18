@@ -6,17 +6,22 @@ const state = vi.hoisted(() => ({
   pending: [] as unknown[],
   files: {} as Record<string, string | undefined>,
   since: [] as { path: string; status: string; before?: string; after?: string }[],
+  sinceAfter: undefined as
+    | { path: string; status: string; before?: string; after?: string }[]
+    | undefined,
   agentThread: false,
   humanThread: false,
 }))
 
 vi.mock("../flows/index.js", () => ({
   changes: () => state.pending,
-  changesSince: () =>
-    Object.assign([...state.since], {
-      paths: state.since.map((c) => c.path),
-      get: (path: string) => state.since.find((c) => c.path === path),
-    }),
+  changesSince: (commit: string) => {
+    const list = commit === "h2" && state.sinceAfter ? state.sinceAfter : state.since
+    return Object.assign([...list], {
+      paths: list.map((c) => c.path),
+      get: (path: string) => list.find((c) => c.path === path),
+    })
+  },
   hasThreadFor: (who: string) => (who === "agent" ? state.agentThread : state.humanThread),
   head: () => state.head,
   read: (path: string) => (path === "f.md" ? state.feedback : state.files[path]),
@@ -86,6 +91,8 @@ beforeEach(() => {
   state.pending = []
   state.files = {}
   state.since = []
+  state.sinceAfter = undefined
+  state.head = "h1"
   state.agentThread = false
   state.humanThread = false
 })
@@ -164,10 +171,16 @@ const driveRound = async (
     inGate?: string
     handEdit?: boolean
     silent?: boolean
+    /** Nothing but thread edits lands after the in-gate collecting turn. */
+    settled?: boolean
+    noDropped?: boolean
   } = {},
 ) => {
   const triaged: string[][] = []
+  const captured: string[] = []
+  const editRanges: (string | undefined)[] = []
   const dropped: Requested[] = []
+  const rounds: string[] = []
   let awaits = 0
   const p = {
     file: "r.md",
@@ -190,11 +203,14 @@ const driveRound = async (
         state.since.push({ path: "a.ts", status: "modified", before: "a", after: "b" })
     },
     reviewMissing: async () => {},
-    collecting: async () => {
+    collecting: async (_capture: string, round: string) => {
+      rounds.push(round)
       if (opts.inGate !== undefined && state.agentThread) {
         state.agentThread = false
         state.humanThread = true
         state.files["r.md"] = opts.inGate
+        state.head = "h2"
+        if (opts.settled) state.sinceAfter = []
         return
       }
       if (!opts.silent) state.feedback = "x"
@@ -208,21 +224,29 @@ const driveRound = async (
     defer: async () => {},
     close: async () => {},
     captures: {
-      edits: () => "edits",
-      notes: () => "notes",
-      editNotes: () => "editNotes",
+      edits: (_round: string, from?: string) => (
+        captured.push("edits"),
+        editRanges.push(from),
+        "edits"
+      ),
+      notes: () => (captured.push("notes"), "notes"),
+      editNotes: () => (captured.push("editNotes"), "editNotes"),
     },
     refusals: {
       deleted: "deleted",
       unmatched: "unmatched",
-      dropped: (r: Requested) => {
-        dropped.push(r)
-        return "dropped"
-      },
+      ...(opts.noDropped
+        ? {}
+        : {
+            dropped: (r: Requested) => {
+              dropped.push(r)
+              return "dropped"
+            },
+          }),
     },
   } as unknown as ReviewPolicy
   const result = await review("base", p).catch((e: Error) => e)
-  return { result, triaged, dropped }
+  return { result, triaged, dropped, captured, rounds, editRanges }
 }
 
 describe("a one-shot footnote is a note, a thread footnote is not", () => {
@@ -262,6 +286,17 @@ describe("the dropped refusal lists edit notes only", () => {
     expect(r.dropped).toEqual([{ notes: [], paths: ["a.ts"] }])
   })
 
+  it('a round with unparsed notes collects as "notes", a triaged one as "triaged"', async () => {
+    const unparsed = await driveRound(before, `${before}\n\nstray prose`, { silent: true })
+    expect(unparsed.rounds).toEqual(["notes"])
+    const praise = doc(`${POINTER}[^n1]`, "- [ ] ./a.ts#2-2 other", "", oneShot("n1", "rename it"))
+    const triaged = await driveRound(before, praise, {
+      verdicts: { "note-1": "edit" },
+      silent: true,
+    })
+    expect(triaged.rounds).toEqual(["triaged"])
+  })
+
   it("a notes-only round names the notes judged edit, footnotes included", async () => {
     const praise = doc(
       `${POINTER}[^n1]`,
@@ -281,6 +316,100 @@ describe("the dropped refusal lists edit notes only", () => {
     expect(r.dropped[0]!.paths).toEqual([])
     expect(r.dropped[0]!.notes).toHaveLength(1)
     expect(r.dropped[0]!.notes[0]!.anchor).toContain("[^n2]")
+  })
+})
+
+describe("a settled round with an unfolded change", () => {
+  const base = doc(`${POINTER}[^t]`, "", thread("H: why?"))
+  const replied = doc(`${POINTER}[^t]`, "", thread("H: why?", "A: because"))
+  const withNote = (text: string) =>
+    doc(`${POINTER} ${text}[^t]`, "", thread("H: why?", "A: because", "H: ok"))
+
+  it("an edit note since reviewed with an empty collecting turn refuses naming the note", async () => {
+    const r = await driveRound(base, withNote("rename it"), {
+      inGate: replied,
+      settled: true,
+      silent: true,
+      verdicts: { "note-1": "edit" },
+    })
+    expect(r.result).toBeInstanceOf(Error)
+    expect(r.triaged).toHaveLength(1)
+    expect(r.captured).toEqual(["edits", "editNotes"])
+    expect(r.rounds).toEqual(["reply", "triaged"])
+    expect(r.dropped).toHaveLength(1)
+    expect(r.dropped[0]!.notes).toHaveLength(1)
+    expect(r.dropped[0]!.paths).toEqual([])
+  })
+
+  it("a code hand-edit since reviewed names the path", async () => {
+    const r = await driveRound(base, replied, {
+      inGate: replied,
+      settled: true,
+      silent: true,
+      handEdit: true,
+    })
+    expect(r.result).toBeInstanceOf(Error)
+    expect(r.triaged).toEqual([])
+    expect(r.captured).toEqual(["edits", "edits"])
+    expect(r.rounds).toEqual(["reply", "edits"])
+    expect(r.dropped).toEqual([{ notes: [], paths: ["a.ts"] }])
+    // the in-gate reply capture has no range; the settled round's starts at `reviewed`
+    expect(r.editRanges).toEqual([undefined, "h1"])
+  })
+
+  it("a nit-only note is fixed without a collecting turn or a refusal", async () => {
+    const r = await driveRound(base, withNote("typo"), {
+      inGate: replied,
+      settled: true,
+      silent: true,
+      verdicts: { "note-1": "nit" },
+    })
+    expect(r.rounds).toEqual(["reply"])
+    expect(r.dropped).toEqual([])
+  })
+
+  it("a closed collecting turn that writes the feedback file turns the round into feedback", async () => {
+    const r = await driveRound(base, withNote("rename it"), {
+      inGate: replied,
+      settled: true,
+      verdicts: { "note-1": "edit" },
+    })
+    expect(r.result).toMatchObject({ verdict: "feedback" })
+    expect(r.dropped).toEqual([])
+  })
+
+  it("praise-only notes sign off", async () => {
+    const r = await driveRound(base, withNote("lovely"), {
+      inGate: replied,
+      settled: true,
+      verdicts: { "note-1": "praise" },
+    })
+    expect(r.triaged).toHaveLength(1)
+    expect(r.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("only thread replies sign off without triage", async () => {
+    const r = await driveRound(
+      base,
+      doc(`${POINTER}[^t]`, "", thread("H: why?", "A: because", "H: ok")),
+      {
+        inGate: replied,
+        settled: true,
+      },
+    )
+    expect(r.triaged).toEqual([])
+    expect(r.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("without a dropped refusal an edit note signs off unjudged", async () => {
+    const r = await driveRound(base, withNote("rename it"), {
+      inGate: replied,
+      settled: true,
+      noDropped: true,
+      verdicts: { "note-1": "edit" },
+    })
+    expect(r.triaged).toEqual([])
+    expect(r.result).toEqual({ verdict: "signoff" })
   })
 })
 

@@ -1,4 +1,5 @@
-import { human, read, run, scope, type ScopeAccess } from "../../flows/index.js"
+import { human, run, scope, type ScopeAccess } from "../../flows/index.js"
+import type { CollectRound } from "../../workflow-kit/index.js"
 import * as t from "../shared/text.js"
 import { riskTierOn } from "./tier.js"
 import {
@@ -110,10 +111,14 @@ export const collecting = (capture: string): Promise<void> =>
   })
 
 /** Turn the refactor review round `capture` describes into `.gtd/REFACTOR.md`, or change nothing. */
-export const refactorCollecting = (capture: string, strays: readonly string[]): Promise<void> =>
+export const refactorCollecting = (
+  capture: string,
+  round: CollectRound,
+  strays: readonly string[],
+): Promise<void> =>
   t.agentWithSkills(
     "review.collecting",
-    t.buildReviewCollectingPrompt(capture, { strays, open: read(REVIEW) !== undefined }),
+    t.buildReviewCollectingPrompt(capture, { strays, round }),
     {
       label: "Collecting your refactor feedback",
       file: REFACTOR,

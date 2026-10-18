@@ -16,7 +16,7 @@ import { healthy } from "../shared/health.js"
 import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
-import { reviewedRefactor } from "./refactor.js"
+import { refactorStrays, reviewedRefactor } from "./refactor.js"
 import type { RiskTier } from "./tier.js"
 
 /** Naive-pass retries after a `reject`; the next `reject` rests at `seam.steer`. */
@@ -119,6 +119,7 @@ export const seamBuild = async (base: string): Promise<SeamOutcome> => {
     )
     return { reference, base }
   }
+  if (refactorStrays(shape).length === 0) return { reference, base }
   await slice("refactor", () => reviewedRefactor(shape, { reference }))
   return { reference, base: head() }
 }

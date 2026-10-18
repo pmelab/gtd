@@ -41,10 +41,12 @@ export const requireWithin = (allowed: readonly string[]): void => {
 }
 
 // A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
+const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
+
 export const requireNoTestFiles = (): void => {
   const tests = changes()
     .map((c) => c.path)
-    .filter((path) => isCode(path) && testFileGlobs.some((glob) => matches(path, glob)))
+    .filter((path) => isCode(path) && isTestFile(path))
   if (tests.length === 0) return
   refuse(
     `gtd land: refactor-tests: the refactor may not change a test file — revert these:\n${tests.map((path) => `  - ${path}`).join("\n")}`,
@@ -111,6 +113,10 @@ export const requireNoNewFlags = (pattern: string, since: string): void => {
   )
 }
 
+/** A test-file stray is never refactored: the implement turn still reads it in the naive tip. */
+export const refactorStrays = (shape: DiffShapeResult): readonly string[] =>
+  shape.strays.filter((path) => !isTestFile(path))
+
 const packageLines = (
   strays: readonly string[],
   pattern: string,
@@ -147,8 +153,13 @@ const demoteHeadings = (text: string): string[] => {
   )
   const shallowest = Math.min(...headings.filter((n): n is number => n !== undefined))
   // Collected headings nest under `## Review feedback`, so the shallowest lands at `###`.
-  const shift = Math.max(1, 3 - shallowest)
-  return lines.map((line, i) => (headings[i] === undefined ? line : "#".repeat(shift) + line))
+  const shift = 3 - shallowest
+  return lines.map((line, i) => {
+    const depth = headings[i]
+    if (depth === undefined) return line
+    // Markdown has no heading past `######`.
+    return "#".repeat(Math.min(6, depth + shift)) + line.slice(depth)
+  })
 }
 
 const deriveScript = (lines: readonly string[]): string =>
@@ -167,7 +178,8 @@ const plan = (shape: DiffShapeResult, options: RefactorOptions): Plan | undefine
   if (shape.choice !== "refactor-first" || shape.unreadable.length > 0) return undefined
   const pattern = vars.refactorFlagPattern ?? defaults.refactorFlagPattern!
   const expression = flagExpression(pattern)
-  const { strays } = shape
+  const strays = refactorStrays(shape)
+  if (strays.length === 0) return undefined
   const zeroLength = strays.filter((path) => countFlags(read(path) ?? "", expression, new Map()))
   if (zeroLength.length > 0)
     throw new Error(
@@ -183,9 +195,10 @@ const plan = (shape: DiffShapeResult, options: RefactorOptions): Plan | undefine
 const guardOf =
   ({ pattern, strays }: Plan, entry: string): Guard =>
   () => {
+    // Tests first: a test file is never a stray here, so the scope refusal would mask it.
+    requireNoTestFiles()
     requireWithin(strays)
     requireNoNewFlags(pattern, entry)
-    requireNoTestFiles()
   }
 
 /** Derive, build, check and close one refactor lap; `feedback` is the collected review text of the lap before. */
@@ -253,7 +266,7 @@ export const reviewedRefactor = async (
     const guard = guardOf(p, entry)
     const feedback: FeedbackTarget = {
       file: REFACTOR_PACKAGE,
-      collecting: (capture: string) => refactorCollecting(capture, p.strays),
+      collecting: (capture, round) => refactorCollecting(capture, round, p.strays),
       unmatched:
         "gtd land: refactor-feedback: the review feedback changed files but wrote no .gtd/REFACTOR.md — a refactor cannot act on it; revert the change, or `gtd abandon` and restart",
       dropped: t.refactorDroppedRefusal,
@@ -270,6 +283,7 @@ export const reviewedRefactor = async (
         fixAccess: strayAccess(p.strays),
         lensBase: entry,
         rules: t.refactorRules(p.strays, p.pattern),
+        lap: "refactor",
       })
       if (outcome.verdict === "signoff") return true
       await reUnwind(outcome)

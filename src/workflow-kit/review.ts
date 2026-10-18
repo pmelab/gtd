@@ -30,6 +30,8 @@ export type ReviewOutcome =
       readonly edited: readonly Change[]
     }
 
+export type CollectRound = "reply" | "edits" | "notes" | "triaged"
+
 /** What a round asked to change: the notes judged `edit` and the code paths the human hand-edited. */
 export interface Requested {
   /** Empty on a hand-edit round: that path runs no triage. */
@@ -57,7 +59,7 @@ export interface ReviewPolicy {
   /** The round at commit `round` left no `file`. */
   readonly reviewMissing: (round: string) => Promise<void>
   /** Turn the round `capture` describes into `feedback`, or change nothing. */
-  readonly collecting: (capture: string) => Promise<void>
+  readonly collecting: (capture: string, round: CollectRound) => Promise<void>
   /** One verdict per note, keyed by note id; a note without one is an edit. */
   readonly triage: (notes: readonly ReviewNote[]) => Promise<ReadonlyMap<string, Verdict>>
   readonly answerQuestions: (notes: readonly ReviewNote[]) => Promise<void>
@@ -68,7 +70,8 @@ export interface ReviewPolicy {
   readonly close: (round: string) => Promise<void>
   /** What a collecting turn reads. */
   readonly captures: {
-    readonly edits: (round: string) => string
+    /** `from` set: the hand-edits landed in an earlier commit than `round`, so name the range. */
+    readonly edits: (round: string, from?: string) => string
     readonly notes: (round: string) => string
     readonly editNotes: (
       round: string,
@@ -92,9 +95,10 @@ export interface ReviewPolicy {
 const collect = async (
   p: ReviewPolicy,
   capture: string,
+  round: CollectRound,
   requested?: Requested,
 ): Promise<"signoff" | "feedback"> => {
-  await p.collecting(capture)
+  await p.collecting(capture, round)
   if (read(p.feedback) !== undefined) return "feedback"
   if (changes().length === 0) {
     if (
@@ -152,7 +156,7 @@ const converse = async (
     }
     requireThreadsClosed(p.file)
     if (!hasThreadFor("agent", p.file)) return collectedAt
-    await p.collecting(p.captures.edits(head()))
+    await p.collecting(p.captures.edits(head()), "reply")
     collectedAt = head()
     requireReplies(p.file)
     if (!hasThreadFor("human", p.file)) return collectedAt
@@ -197,7 +201,7 @@ export const routeNotes = async (
   if (edits.length > 0) {
     await r.close()
     return r.outcome(
-      await collect(p, p.captures.editNotes(r.round, edits, answeredAt), {
+      await collect(p, p.captures.editNotes(r.round, edits, answeredAt), "triaged", {
         notes: edits,
         paths: [],
       }),
@@ -245,6 +249,28 @@ const settledAfter = (
     !notedSince(p, collectedAt),
 })
 
+const finishNotes = async (
+  p: ReviewPolicy,
+  before: string,
+  reopened: boolean,
+  ctx: Parameters<typeof routeNotes>[2],
+): Promise<Finish> => {
+  // An unchanged review file has no baseline entry, which would read as all-new.
+  const notes = reviewNotes(before, read(p.file) ?? "")
+  if (notes.length > 0) return routeNotes(p, notes, ctx)
+  if (reopened) return ctx.unfolded()
+  await ctx.close()
+  return ctx.outcome(await collect(p, p.captures.notes(ctx.round), "notes"))
+}
+
+const toOutcome = (
+  verdict: "signoff" | "feedback",
+  rest: { base: string; restoreFrom: string; edited: ReadonlyArray<Change> },
+): ReviewOutcome => (verdict === "signoff" ? { verdict } : { verdict, ...rest })
+
+const isReopened = (p: ReviewPolicy, r: { settled: boolean; folded: boolean }): boolean =>
+  r.settled && !r.folded && p.refusals.dropped !== undefined
+
 const finish = async (
   p: ReviewPolicy,
   reviewed: string,
@@ -255,30 +281,37 @@ const finish = async (
   const round = head()
   const since = changesSince(reviewed)
   const edited = since.filter((c) => isCodeEdit(p, c))
-  const baselineText = since.get(p.file)?.before ?? ""
-  const record = read(p.file) ?? ""
   const { folded, settled } = afterCollect(p, collectedAt)
   // The review gate clears every tick before its commit, so a changed
   // review file is a note, never a tick.
   const noted = since.some((c) => c.path === p.file)
   const close = (): Promise<void> => p.close(round)
   const outcome = (verdict: "signoff" | "feedback"): ReviewOutcome =>
-    verdict === "signoff" ? { verdict } : { verdict, base: round, restoreFrom: reviewed, edited }
+    toOutcome(verdict, { base: round, restoreFrom: reviewed, edited })
   const unfolded = async (): Promise<Finish> => {
     await close()
     return outcome(folded ? "feedback" : "signoff")
   }
 
-  const collectWith = async (capture: string, requested?: Requested): Promise<Finish> => {
+  // Thread-only edits settled the round, but a change note or hand-edit since
+  // `reviewed` must still reach a collecting turn when a dropped edit is refused.
+  const reopened = isReopened(p, { settled, folded })
+  if ((settled && !reopened) || (edited.length === 0 && !noted)) return unfolded()
+  if (edited.length > 0) {
     await close()
-    return outcome(await collect(p, capture, requested))
+    return outcome(
+      await collect(p, p.captures.edits(round, reopened ? reviewed : undefined), "edits", {
+        notes: [],
+        paths: edited.map((c) => c.path),
+      }),
+    )
   }
-  if (settled || (edited.length === 0 && !noted)) return unfolded()
-  const notes = reviewNotes(baselineText, record)
-  if (edited.length > 0)
-    return collectWith(p.captures.edits(round), { notes: [], paths: edited.map((c) => c.path) })
-  if (notes.length === 0) return collectWith(p.captures.notes(round))
-  return routeNotes(p, notes, { round, close, outcome, unfolded })
+  return finishNotes(p, since.get(p.file)?.before ?? "", reopened, {
+    round,
+    close,
+    outcome,
+    unfolded,
+  })
 }
 
 /** Write the review; if it marks risks, fix them, keep green, and write it again — once, so the re-review's own risks reach the human unfixed. */

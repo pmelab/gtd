@@ -117,7 +117,7 @@ export const handOffReview = (
 ): Promise<void> =>
   kit.reviewToHandOff(base, {
     file: REVIEW,
-    reviewing: guarded(reviewing, guard),
+    reviewing: guarded((b, carry) => reviewing(b, carry), guard),
     fixRisks: guarded(fixRisks, guard),
     keepGreen: () => healthy(fixCheck, { escalations, guard }),
     awaitReview: (b) => awaitReview(b, t.handOffAwaitReviewMessage(b)),

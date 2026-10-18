@@ -146,6 +146,17 @@ Given(
   },
 )
 
+// A closing step deletes the file before its collecting turn runs, so this edit
+// leaves a closed turn changing nothing while still answering an in-gate one.
+Given(
+  "step {string} rewrites {string} with:",
+  (world: TestkitWorld, step: string, path: string, content: string) => {
+    world.act(step, (_, repo) => {
+      if (repo.read(path) !== undefined) repo.write(path, withNewline(content))
+    })
+  },
+)
+
 Given("step {string} runs its script", (world: TestkitWorld, step: string) => {
   world.act(step, runsItsScript)
 })

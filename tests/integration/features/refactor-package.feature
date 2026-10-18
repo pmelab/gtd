@@ -374,7 +374,7 @@ Feature: refactorFirst derives a behaviour-neutral refactor package from a stray
     Then it succeeds
     And the last commit subject is "gtd(human): refactor.health.stop → refactor.fix.suite.fixing"
 
-  Scenario: a build turn changing a test file is refused even when the test file is a stray
+  Scenario: a build turn changing a test file is refused even when the shape named it a stray
     Given a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
@@ -407,6 +407,6 @@ Feature: refactorFirst derives a behaviour-neutral refactor package from a stray
       """
     When I run gtd land
     Then it fails
-    And stderr contains "refactor-tests"
+    And stderr contains "outside its write access"
     And stderr contains "src/a.test.ts"
     And the last commit subject is "gtd(check): refactor.deriving → refactor.building"
