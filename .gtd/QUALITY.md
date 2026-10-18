@@ -52,3 +52,28 @@ The effect is small: `takenSlice` stays lenient for those names. But it
 contradicts the comment "A stale retired record must not take a stack this ship
 just recorded with it". Fix: clear the key whenever this ship wrote a new
 record, meaning `land` recorded a stack. Do not tie it to the pre-squash `live`.
+
+## owasp-security: Low: every failed leased push suggests switching off the collaborator guard
+
+Not exploitable by an outside attacker. This is a fail-open nudge in the guard
+that stops a force push from overwriting a collaborator's commit (CWE-636, OWASP
+A06:2025 Insecure Design).
+
+`pushBranch` (`claude/hooks/ship.ts`, the `push` closure) adds "To overwrite
+origin's copy on purpose, run git config --local --unset branch.<b>.gtdLease
+first." to every non-killed failure whenever a stored lease exists. That
+includes failures that have nothing to do with the lease: an auth error, a
+network error, a pre-receive hook, or a protected branch. Once the key is unset,
+the next ship falls back to a bare `--force-with-lease`, which leases on the
+tracking ref. The new comment above it says a fetch defeats exactly that. So
+someone who fetched, hit an unrelated push error and followed the hint silently
+overwrites any collaborator commit that origin now holds.
+
+The correctness finding "the persisted lease turns pull or reconcile into a dead
+end" sends users to the same hint, which makes this worse.
+
+Fix: add the unset line only when git reports a lease rejection (`stale info` or
+`rejected` in `r.err`). Otherwise keep the plain failure text. Add a test where
+a kept-lease push fails with an unrelated error (for example
+`Permission denied`) and check that the unset line is absent. Right now no test
+would fail if the line were added on every failure.
