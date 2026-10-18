@@ -256,3 +256,69 @@ break the rules:
    here it means picking up a stack again, not replaying. So this is cosmetic.
    In the docs, "in the same `/gtd ship`" would avoid using "run" loosely next
    to the glossary's Process and Episode.
+
+## spec-challenge: moving `gtdStackTop` breaks the "never moved" invariant the rebuild relies on
+
+Spec decision (ARCHITECTURE "Record", Task 2/6): after a restack, `gtdStackTop`
+becomes the rebased top-slice commit. Invariant it overrides: `gtdStackTop` is
+"the commit the stack was built at, never moved" (comment on `TOP_KEY` in
+claude/hooks/ship.ts), and `topGuard` rebuilds a missing slice branch from
+`<top>~n` only because "the recorded top … is never moved after the stack was
+built". `squashOntoStack`'s comment ("the recorded top … stays") and
+docs/driver.md ("a missing slice branch is rebuilt from the commits the stack
+was built at") say the same. All four are now false, and none was updated.
+
+The rebuild's real precondition is "every lower slice is exactly one commit
+directly under the top". gtd held that by building those commits itself. After a
+restack it no longer owns them. A hand restack takes the user's commits as they
+are. Any rebase, including ship's own, drops a slice commit that becomes empty
+(its change already upstream). In either case `<new top>~n` lands on the wrong
+commit, and a later missing-branch rebuild would `branch -f` a slice onto it.
+Fix: restate the invariant at `TOP_KEY`/`topGuard` ("moved only by a restack, to
+a top with one commit per lower slice beneath it"). Have `restacked` check that
+`<new top>~k` equals each remaining slice branch before writing the record, and
+refuse or drop the record otherwise. Update the docs/driver.md sentence.
+
+## spec-challenge: not remapping `prSyncHead` contradicts the description writer's contract
+
+Spec decision (ARCHITECTURE answered question "Does ship remap `prSyncHead`"):
+no remap; "the writer's usual answer is NO-UPDATE". Invariant: `updatePr` gives
+the model `since..to` as "COMMITS ADDED SINCE IT WAS LAST CONSIDERED". Updates
+are append-only ("the standing text keeps saying what it said"). After a
+restack, `sinceHead` falls back to the merge base for every remaining slice PR.
+So `sliceStep` makes one completion per slice that presents the whole, unchanged
+slice as new work. Any answer except NO-UPDATE adds a permanent, dated "##
+Update" section that repeats the original description. No test checks the
+NO-UPDATE claim. The premise "a hand restack offers no old-to-new map" is also
+wrong for the automatic path. `restackOf` holds each link's pre-rebase commit
+and `restacked` knows its post-rebase commit. For the hand path, the ls-remote
+sha is the old tip. Fix: for each moved branch whose `prSyncHead` equals its
+pre-restack tip, set it to the post-restack tip. Leave the top branch alone
+after a same-run squash, since its new commits really are new.
+
+## spec-challenge: the architecture's hand-restack rule drops two requirement-level guarantees
+
+This is the spec-level root of the correctness chunk on the hand-restack path,
+so the fix belongs in the plan as well as the code. REQUIREMENTS concern 2 says
+"the lease must stay meaningful after the fetch … not whatever the fetch just
+wrote into `origin/<branch>`". Package Task 1 marks leasing on `origin/<b>` as
+the risk. Yet ARCHITECTURE ("Hand restack") and Task 6 specify "pushes each
+remaining branch with today's tracking-ref lease". Concern 3 defines a hand
+restack as "the remaining slice branches now sit on the default branch". The
+architecture's condition list leaves out exactly that check, and the
+architecture's own risk note ("a loose match turns an unrelated rebase into a
+force push") warns about the result. The plan contradicts its requirements in
+both places, and the code followed the plan.
+
+## spec-challenge: Nit: a kept merged-slice branch later refuses a fresh stack as "not built by gtd"
+
+Spec decision: the merged slice's `<branch>-<slice>` branch is left alone, and
+only its name leaves the record. Invariant: `takenSlice` exempts only names in
+the current record (`dead`), and its refusal says the branch "is not part of a
+stack gtd built". After the restack ends the stack (`forgetStack`), a later
+fresh stack on the same branch that reuses that slice name, such as the common
+`refactor`, is refused with that false text, pointing at gtd's own leftover. The
+same thing happened before with merge-commit merges. Now the spec guarantees the
+leftover, so either mention it in docs/driver.md ("delete the merged
+`<branch>-<slice>` branch before reusing its slice name") or keep dropped names
+in the retired record that `takenSlice` already exempts.
