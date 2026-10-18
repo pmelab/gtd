@@ -1,6 +1,10 @@
-PR 390 round 2: 1) refactor collecting prompt must allow A replies in REVIEW.md
-threads. 2) refactor tail fix prompts name strays, ban tests. 3) footnote-only
-refactor round with no REFACTOR.md refuses. 4) feedback implement amends
-existing code. 5) docs+footer: seamBuild change, in-flight naive processes. 6)
-dropped lists edit notes only. 7) fix stale refactorFirst doc. 8) demoteHeadings
-reuse markFenced
+## Deferred review notes (836985b)
+
+- note-3 — flaky.[^stdout] (could): Restore `expect(captured().stdout).toBe("")`
+  in the garbled-flag CLI test; dropping it weakens the test with no reason.
+
+## Deferred review notes (daed27f)
+
+- note-2 — output.[^weak] (could): Please strengthen this scenario: finish a
+  process that kept a tip, then assert `gtd history list` shows only the
+  finished process and never the kept ref.
