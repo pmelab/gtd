@@ -160,7 +160,7 @@ describe("requireDeclaredTests", () => {
     tree: readonly string[],
     changes: readonly Change[],
     satisfied = false,
-    turn: "build" | "fix" = "build",
+    turn: "build" | "fix" | "default" = "build",
   ) => {
     const pkg = ".gtd/packages/01-a.md"
     installContext(
@@ -195,7 +195,8 @@ describe("requireDeclaredTests", () => {
     )
     let message = ""
     try {
-      requireDeclaredTests(pkg, "c", turn)
+      if (turn === "default") requireDeclaredTests(pkg, "c")
+      else requireDeclaredTests(pkg, "c", turn)
     } catch (error) {
       message = String(error instanceof Error ? error.message : error)
     }
@@ -286,26 +287,78 @@ describe("requireDeclaredTests", () => {
     expect(run(text, ["x.feature"], [modified("x.feature")]).message).toBe("")
   })
 
-  it("does not call a marked test the build added modified", () => {
-    const added: Change = { path: "a.test.ts", status: "added", before: undefined, after: "x" }
-    const { message } = run("## Tests\n- unit: `a.test.ts` (unchanged)", ["a.test.ts"], [added])
-    expect(message).toBe("")
+  const added = (path: string): Change => ({
+    path,
+    status: "added",
+    before: undefined,
+    after: "x",
+  })
+  const addedGroup =
+    "marked (unchanged) but added by this turn — the marker promises an existing test; stop and leave it to a person"
+
+  it("refuses a marked test the build added, as added and never as modified", () => {
+    const { message } = run(
+      "## Tests\n- unit: `a.test.ts` (unchanged)",
+      ["a.test.ts"],
+      [added("a.test.ts")],
+    )
+    expect(message).toContain(`${addedGroup}:\n  - a.test.ts`)
+    expect(message).not.toContain("revert")
+    expect(message).not.toMatch(/delete|restore/i)
   })
 
-  it("orders write, revert, restore, missing and never says satisfied", () => {
+  it("only the build turn refuses an added marked test (turn split, not a fix-turn flow)", () => {
+    const text = "## Tests\n- unit: `a.test.ts` (unchanged)"
+    expect(run(text, ["a.test.ts"], [added("a.test.ts")], false, "fix").message).toBe("")
+  })
+
+  it.each([
+    ["modified", modified("a.test.ts")],
+    ["added", added("a.test.ts")],
+  ] as [string, Change][])("defaults to the fix turn with two arguments (%s)", (_label, change) => {
+    const text = "## Tests\n- unit: `a.test.ts` (unchanged)"
+    expect(run(text, ["a.test.ts"], [change], false, "default").message).toBe("")
+    expect(run(text, ["a.test.ts"], [change], false, "build").message).not.toBe("")
+  })
+
+  it("lets an unmarked entry win over a marked one the build added", () => {
+    const text = "## Tests\n- unit: `a.test.ts`\n- unit: `a.test.ts` (unchanged)"
+    expect(run(text, ["a.test.ts"], [added("a.test.ts")]).message).toBe("")
+  })
+
+  it("lists a duplicated unwritten line once", () => {
+    const text = "## Tests\n- unit: `a.test.ts`\n- unit: `a.test.ts`"
+    const { message } = run(text, [], [])
+    expect(message.split("a.test.ts").length - 1).toBe(1)
+  })
+
+  it("lists a duplicated marked line missing from the tree once", () => {
+    const text = "## Tests\n- unit: `a.test.ts` (unchanged)\n- unit: `a.test.ts` (unchanged)"
+    const { message } = run(text, [], [])
+    expect(message.split("a.test.ts").length - 1).toBe(1)
+  })
+
+  it("orders write, revert, added, restore, missing and never says satisfied", () => {
     const text = [
       "## Tests",
       "- unit: `w.test.ts`",
       "- unit: `r.test.ts` (unchanged)",
       "- unit: `m.test.ts` (unchanged)",
       "- unit: `v.test.ts` (unchanged)",
+      "- unit: `a.test.ts` (unchanged)",
     ].join("\n")
-    const { message } = run(text, ["v.test.ts"], [deleted("r.test.ts"), modified("v.test.ts")])
+    const { message } = run(
+      text,
+      ["v.test.ts", "a.test.ts"],
+      [deleted("r.test.ts"), modified("v.test.ts"), added("a.test.ts")],
+    )
     const w = message.indexOf("write them")
     const v = message.indexOf("revert them")
     expect(v).toBeGreaterThan(w)
+    const ad = message.indexOf("added by this turn")
+    expect(ad).toBeGreaterThan(v)
     const r = message.indexOf("restore them")
-    expect(r).toBeGreaterThan(v)
+    expect(r).toBeGreaterThan(ad)
     const m = message.indexOf("missing from the tree")
     expect(w).toBeGreaterThan(0)
     expect(r).toBeGreaterThan(w)

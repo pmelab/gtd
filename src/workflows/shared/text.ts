@@ -433,9 +433,11 @@ export const packagesItemBuildingPrompt = (pkg: string): string =>
 - Write the tests the package declares under \`## Tests\` first,
   then the code that makes them pass; the turn is refused unless
   every declared test is in your diff — except a line marked
-  \`(unchanged)\`, which must exist and stay untouched: editing
-  that file refuses the turn; if the marker is wrong because the package
-  must change that test, stop and leave it to a person
+  \`(unchanged)\`, which must exist before the turn and stay
+  untouched — creating, editing or deleting it refuses the turn. If
+  it does not exist yet, or the marker is wrong because the package
+  must change that test, stop without creating it and leave it to
+  a person
 - A declared e2e test is a scenario in the repository's own e2e
   framework for the behaviour its \`## E2E Scenarios\` entry names.
   Word it to fit the existing steps — reuse and generalise them

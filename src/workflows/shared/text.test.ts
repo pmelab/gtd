@@ -1304,7 +1304,9 @@ describe("packagesItemBuildingPrompt", () => {
   })
   it("says an (unchanged) line must exist and stay untouched", () => {
     expect(prompt).toContain("(unchanged)")
-    expect(prompt).toContain("must exist and stay untouched")
-    expect(prompt).toContain("refuses the turn")
+    expect(prompt).toContain("stay untouched")
+    expect(prompt).toContain("creating, editing or deleting it refuses the turn")
+    expect(prompt).toContain("must exist before the turn")
+    expect(prompt).toContain("stop without creating it")
   })
 })
