@@ -78,3 +78,31 @@ real why, so keep both.
 No other rule is broken. `docs/development.md` names only flags and npm scripts,
 no `src/*.ts` module or internal function. Code comments are allowed to name
 `failureSignature`.
+
+## spec-challenge: `--output-logs=hash-only` keeps collapsing on, so different failures get merged
+
+The spec decision in REQUIREMENTS §2 / ARCHITECTURE: "Any other user value
+(`errors-only`, `new-only`, `hash-only`, `none`) … collapsing stays on". It
+names `hash-only` on purpose. This clashes with a rule `scripts/test-states.ts`
+already states (the comment above `failureSignature`, and §3 of the same spec):
+normalisation errs toward "distinct". A signature must never merge two different
+failures.
+
+Under `hash-only`, turbo prints none of a failing task's output. It prints only
+`<task>: cache bypass, force executing <16-hex>` (or
+`cache miss, executing <16-hex>`). I checked against real turbo with two scratch
+tasks that echo different text and both fail. Both gave the same prefixed line,
+apart from a 16-char hash that `failureSignature` turns into `<hex>`. Every flag
+state runs the same tasks, so every failing state after the first prints
+`FAIL (same failure as defaults)` and no log, whatever actually broke. Under
+`none` there are no prefixed lines, so the signature is `""` and nothing
+collapses. That case is safe, which shows the merging comes only from
+`hash-only`.
+
+Fix: decide collapse from whether the output carries failure logs, not only from
+whether the value is `full`. Turn collapsing off for `hash-only` (and `none`, to
+keep it symmetric). One way is to make `collapse` require `--output-logs` ∈
+{absent, `errors-only`, `new-only`}. Add a `runOptions` case for it. Then
+`docs/development.md`'s new "any other `--output-logs` value replaces the
+default but still collapses" is wrong for `hash-only`, and the PR #393
+"Decisions" bullet repeats the same claim. Both need correcting.
