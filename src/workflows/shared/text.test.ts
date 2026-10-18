@@ -951,7 +951,9 @@ describe("the refactor prompts", () => {
   })
 
   describe("the review collecting prompt", () => {
-    const prompt = renderText(() => buildReviewCollectingPrompt("capture-text", { strays }))
+    const prompt = renderText(() =>
+      buildReviewCollectingPrompt("capture-text", { strays, open: false }),
+    )
 
     it("folds into .gtd/REFACTOR.md and never names .gtd/REQUIREMENTS.md", () => {
       expect(prompt).toContain(".gtd/REFACTOR.md")

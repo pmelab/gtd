@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { installContext, type ScopeOptions, type StepRequest } from "../../flows/index.js"
 import { captureStep, fixtureContext } from "../shared/text.fixture.js"
@@ -43,6 +44,30 @@ describe("the feature workflow's own steps declare skills — a step's rendered 
   it("collecting carries build.review.collecting's bundled skills", async () => {
     const prompt = agentPrompt(await capture(() => steps.collecting("capture"), "build"))
     expect(prompt).toContain("code-review-and-quality")
+  })
+
+  it("collecting's prompt is the pinned feature fixture", async () => {
+    const prompt = agentPrompt(await capture(() => steps.collecting("capture-text"), "build"))
+    expect(prompt).toContain(
+      readFileSync(
+        new URL("../shared/__fixtures__/feature-collecting-prompt.txt", import.meta.url),
+        "utf8",
+      ),
+    )
+  })
+
+  it("refactorCollecting renders the open variant while .gtd/REVIEW.md is present, the closed one when absent", async () => {
+    const at = (present: boolean): Promise<StepRequest> =>
+      captureStep(() => steps.refactorCollecting("capture", ["src/a.ts"]), {
+        scope: "refactor.build",
+        read: (path) => (present && path === ".gtd/REVIEW.md" ? "# Review" : undefined),
+      })
+    const open = agentPrompt(await at(true))
+    const closed = agentPrompt(await at(false))
+    expect(open).toContain("exactly one `- A:` reply")
+    expect(open).not.toContain("already closed")
+    expect(closed).toContain("already closed")
+    expect(closed).not.toContain("exactly one `- A:` reply")
   })
 
   it("answerReviewQuestions answers inline in .gtd/REVIEW.md as the reviewer, with its bundled skills", async () => {

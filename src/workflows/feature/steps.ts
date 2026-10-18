@@ -1,4 +1,4 @@
-import { human, run, scope, type ScopeAccess } from "../../flows/index.js"
+import { human, read, run, scope, type ScopeAccess } from "../../flows/index.js"
 import * as t from "../shared/text.js"
 import { riskTierOn } from "./tier.js"
 import {
@@ -107,13 +107,17 @@ export const collecting = (capture: string): Promise<void> =>
 
 /** Turn the refactor review round `capture` describes into `.gtd/REFACTOR.md`, or change nothing. */
 export const refactorCollecting = (capture: string, strays: readonly string[]): Promise<void> =>
-  t.agentWithSkills("review.collecting", t.buildReviewCollectingPrompt(capture, { strays }), {
-    label: "Collecting your refactor feedback",
-    file: REFACTOR,
-    model: planner(),
-    system: t.reviewerSystem(),
-    allowEmpty: true,
-  })
+  t.agentWithSkills(
+    "review.collecting",
+    t.buildReviewCollectingPrompt(capture, { strays, open: read(REVIEW) !== undefined }),
+    {
+      label: "Collecting your refactor feedback",
+      file: REFACTOR,
+      model: planner(),
+      system: t.reviewerSystem(),
+      allowEmpty: true,
+    },
+  )
 
 /** `build.review.defer`: append `notes` to `.gtd/TODO.md` as one section; the step's landing is the commit. */
 export const deferNotes = (notes: readonly t.NoteInput[], round: string): Promise<void> =>

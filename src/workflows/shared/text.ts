@@ -871,7 +871,11 @@ Also judge each note's severity, one id per note: \`note-<n>.security\`,
 /** `refactor` retargets the prompt at `.gtd/REFACTOR.md` and fences it to the strays. A concern outside the fence is not folded; if nothing at all is written the landing is refused, but a partly buildable round drops the rest silently. */
 export const buildReviewCollectingPrompt = (
   capture: string,
-  refactor?: { readonly strays: readonly string[] },
+  refactor?: {
+    readonly strays: readonly string[]
+    /** `.gtd/REVIEW.md` is still in the tree: an in-gate reply turn, not the end of the round. */
+    readonly open: boolean
+  },
 ): string => {
   const target = refactor ? ".gtd/REFACTOR.md" : ".gtd/REQUIREMENTS.md"
   const fence = refactor
@@ -938,7 +942,18 @@ ${stateFileRules}
 ${footnoteFoldIn}${codeThreadReplies()}
 ${
   refactor
-    ? `- This turn writes \`${target}\` (the folded concerns) — you classify,
+    ? refactor.open
+      ? `- This turn replies inside \`.gtd/REVIEW.md\` (thread replies only; the
+  file stays in the tree) — you classify, you do not build. Write
+  exactly one \`- A:\` reply to each thread whose last entry is a
+  \`- H:\` question, then run \`gtd check review .gtd/REVIEW.md\`
+- Fold a concluded thread into \`${target}\` only when it asks for a
+  change, then delete it from \`.gtd/REVIEW.md\`; a concluded thread
+  that asks for none is just deleted
+- Leave one-shot footnotes and notes untouched: the round's triage
+  judges them
+`
+      : `- This turn writes \`${target}\` (the folded concerns) — you classify,
   you do not build. \`.gtd/REVIEW.md\` is already closed: do not
   recreate it or reply in it
 - Fold each \`edit\` note the capture lists, no other note, and every

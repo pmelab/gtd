@@ -681,10 +681,16 @@ a new flag read cannot be built: abandon and restart.
 
 A refactor-review round carrying an `edit` note or a code hand-edit whose
 collecting turn writes no `.gtd/REFACTOR.md` and changes nothing is never signed
-off: `gtd land` refuses the collecting landing (`refactor-feedback`), naming
-every left-out note and edited path. The only way out is `gtd abandon`, which
-throws away the naive pass, the refactor and its review. A praise-only round
-still signs off; the feature review signs off on a round that changes nothing.
+off: `gtd land` refuses the collecting landing (`refactor-feedback`). A
+hand-edit round's refusal names the edited paths. A notes-only round's refusal
+names the notes judged `edit`, footnotes included, never praise or questions.
+The only way out is `gtd abandon`, which throws away the naive pass, the
+refactor and its review. A praise-only round still signs off; the feature review
+signs off on a round that changes nothing.
+
+Footnotes are judged like line notes. A `- H:` thread left in `.gtd/REVIEW.md`
+at the refactor review gets one `- A:` reply and the gate rests again; a thread
+folds into `.gtd/REFACTOR.md` only when it asks for a change.
 
 **Upgrading:** a process resting at `seam.approve` must `gtd abandon`; the step
 is gone.

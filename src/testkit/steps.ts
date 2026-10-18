@@ -207,6 +207,13 @@ Then(
   },
 )
 
+Then(
+  "driving the process is refused without {string}",
+  async (world: TestkitWorld, message: string) => {
+    await assert.rejects(world.drive(), (error: Error) => !error.message.includes(message))
+  },
+)
+
 Then("the process rests at {string}", async (world: TestkitWorld, step: string) => {
   assert.strictEqual((await world.repo().next()).state, step)
 })
