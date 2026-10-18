@@ -113,3 +113,58 @@ behaviour), or the squash title needs `!` plus a `BREAKING CHANGE:` footer as
 docs/commits.md requires. No other AGENTS.md / CLAUDE.md rule is broken. The
 README was updated, the new scenarios are `@inmem` with their file content
 written out, and no doc names a `src/*.ts` module.
+
+## spec-challenge: the marker is per file, but the decompose rule speaks of tests, so one file listed both ways blocks the build
+
+Decision (REQUIREMENTS concern 3, package 02): "list every test the package
+writes or changes; also list an existing test a criterion relies on, marked
+`(unchanged)`". Combined with concern 2, the build turn now refuses any marked
+entry whose file is `modified`.
+
+Invariant: a `DeclaredTest` is identified by its file path alone.
+`declaredTests` does not dedupe, and `requireDeclaredTests` checks each entry on
+its own. A "test" in the prompt's sense is a case or scenario, but the guard
+only sees files. A package that adds a scenario to `x.feature` and also relies
+on an existing scenario in that same file follows the new rule word for word:
+
+```
+- e2e: `x.feature`
+- e2e: `x.feature` (unchanged)
+```
+
+On the build turn the first entry passes because the file is in the diff. The
+second entry refuses with `revert them`, because the same file is `modified`. No
+build can satisfy both, and the package text is read as of `since`, so the
+builder can't fix the listing. This is the same dead end as the correctness
+chunk on wrong markers, but here the decompose prompt's own rule leads to it.
+The risk is real for shared files like `packages.test.ts` or one feature file
+per area. Fix it either way:
+
+- Add to the decompose rule: "never mark a file the package also writes or
+  changes; list it once, unmarked".
+- Or have `requireDeclaredTests` let an unmarked entry for the same path win
+  over a marked one.
+
+A unit case with both entries and one `modified` change would pin the choice.
+Not blocking.
+
+## spec-challenge: the "required union" answer conflicts with the SemVer tier for entrypoint exports
+
+ARCHITECTURE's answered question "What shape does the turn parameter take?"
+settles on "a required `"build" | "fix"` string union … both callers live in
+`packageItem`". That reasoning holds only inside the repo. COMPATIBILITY.md
+covers every export of `@pmelab/gtd/workflows/feature`, and that includes
+`requireDeclaredTests`, under "Follows package SemVer". So user configs are
+callers too. The spec decision is where the break the ponytail-review and
+conventions chunks report comes from. The fix is the one they give (default
+`turn` to `"fix"`, or `!` plus a `BREAKING CHANGE:` footer). The spec's premise
+"both callers live in `packageItem`" is the part that is wrong.
+
+## spec-challenge (nit): the `unchanged` field doc still states the old contract
+
+`src/workflows/feature/packages.ts:18`: "Decompose placed ` (unchanged)`: the
+test must exist, not be in the diff." Concern 2 changes this. On the build turn
+a marked test must exist and must not be modified, and an added file still
+passes. On a fix turn it may be modified. Reword it to "must exist; the build
+turn must not modify it", or delete it, since `requireDeclaredTests`' JSDoc
+already says this.
