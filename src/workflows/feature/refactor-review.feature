@@ -311,6 +311,59 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
         """
 
+    Scenario: a question answered at the refactor review reaches the re-derived package as ### Answered Questions
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-1
+          why a shared op?
+        - [ ] ./src/calc.ts#2-2
+          rename the helper to combine
+        """
+      And judge step "refactor.build.review.triage" answers:
+        """
+        [{"id":"note-1","answer":"question","p":0.9},{"id":"note-2","answer":"edit","p":0.9}]
+        """
+      And step "refactor.build.review.answer-review-questions" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-1
+          why a shared op?
+          A: add and subtract differ only by sign.
+        - [ ] ./src/calc.ts#2-2
+          rename the helper to combine
+        """
+      And step "refactor.build.review.collecting" writes ".gtd/REFACTOR.md" with:
+        """
+        ## Rename
+
+        Name the shared helper `combine`.
+
+        ## Answered Questions
+
+        ### why a shared op?
+
+        add and subtract differ only by sign.
+        """
+      And step "refactor.re-unwind" runs its script
+      And step "refactor.deriving" runs its script
+      When gtd lands
+      And the process is driven
+      Then ".gtd/REFACTOR.md" contains "## Review feedback"
+      And ".gtd/REFACTOR.md" contains "### Answered Questions"
+
     Scenario: a human code edit at the refactor review is reverted by refactor.re-unwind
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"

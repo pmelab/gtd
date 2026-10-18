@@ -107,7 +107,7 @@ export const collecting = (capture: string): Promise<void> =>
 
 /** Turn the refactor review round `capture` describes into `.gtd/REFACTOR.md`, or change nothing. */
 export const refactorCollecting = (capture: string, strays: readonly string[]): Promise<void> =>
-  t.agentWithSkills("review.collecting", t.refactorReviewCollectingPrompt(capture, strays), {
+  t.agentWithSkills("review.collecting", t.buildReviewCollectingPrompt(capture, { strays }), {
     label: "Collecting your refactor feedback",
     file: REFACTOR,
     model: planner(),

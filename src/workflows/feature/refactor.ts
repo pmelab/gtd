@@ -137,6 +137,18 @@ const packageLines = (
   "",
 ]
 
+// Nested under `## Review feedback`, so every heading of the collected text drops a level.
+const demoteHeadings = (text: string): string[] => {
+  let fenced = false
+  return text
+    .trimEnd()
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
+      return !fenced && /^#{1,5} /.test(line) ? `#${line}` : line
+    })
+}
+
 const deriveScript = (lines: readonly string[]): string =>
   `mkdir -p .gtd
 printf '%s\\n' ${lines.map(quote).join(" ")} > ${quote(REFACTOR_PACKAGE)}
@@ -183,7 +195,7 @@ const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<vo
       ...packageLines(strays, pattern, reference),
       ...(feedback === undefined
         ? []
-        : ["## Review feedback", "", ...feedback.trimEnd().split("\n"), ""]),
+        : ["## Review feedback", "", ...demoteHeadings(feedback), ""]),
     ]),
     { label: "Deriving the refactor package", file: REFACTOR_PACKAGE },
   )

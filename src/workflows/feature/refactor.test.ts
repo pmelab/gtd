@@ -584,6 +584,7 @@ interface ReviewedScript {
   readonly vars?: Readonly<Record<string, string>>
   /** The collecting turn writes no package. */
   readonly silentCollect?: boolean
+  readonly collected?: string
 }
 
 /** Runs `reviewedRefactor` against a scripted context; a third await-review stops the run. */
@@ -624,7 +625,8 @@ const driveReviewed = async (
     "review.reviewing": () => void files.set(REVIEW, reviewDoc("add")),
     "review.closing": () => void files.delete(REVIEW),
     "review.collecting": () => {
-      if (!script.silentCollect) files.set(REFACTOR_PACKAGE, "collected concern")
+      if (!script.silentCollect)
+        files.set(REFACTOR_PACKAGE, script.collected ?? "collected concern")
     },
     "fix.quality.fixing": () => void files.delete(QUALITY),
     "review.await-review": () => {
@@ -781,12 +783,28 @@ describe("reviewedRefactor", () => {
       expect(prompts[1]).toContain("## Review feedback")
     })
 
-    it("collects with the refactor prompt, naming .gtd/REFACTOR.md", async () => {
+    it("nests a collected ## Answered Questions as ### under ## Review feedback", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "## Rename\n\nrename it\n\n## Answered Questions\n\n### why?\n\nbecause",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("## Review feedback")
+      expect(body).toContain("### Rename")
+      expect(body).toContain("### Answered Questions")
+      expect(body).toContain("#### why?")
+      expect(body).not.toMatch(/^## Answered Questions/m)
+    })
+
+    it("collects with the shared prompt's refactor block, naming .gtd/REFACTOR.md and the strays", async () => {
       const h = await run()
       const collecting = h.steps.find((s) => s.kind === "agent" && s.name === "review.collecting")
       const prompt = collecting?.kind === "agent" ? collecting.prompt : ""
       expect(prompt).toContain(".gtd/REFACTOR.md")
       expect(prompt).not.toContain(".gtd/REQUIREMENTS.md")
+      expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+      expect(prompt).toContain("`.gtd/REFACTOR.md`'s `## Answered Questions`")
     })
   })
 

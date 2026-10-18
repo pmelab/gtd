@@ -869,50 +869,23 @@ Also judge each note's severity, one id per note: \`note-<n>.security\`,
 \`note-<n>.reversibility\`, \`note-<n>.blastRadius\` and
 \`note-<n>.newConcept\`.
 `
-
-/** `buildReviewCollectingPrompt`'s twin for the refactor review: concerns fold into `.gtd/REFACTOR.md`, and one the refactor cannot build is left out. */
-export const refactorReviewCollectingPrompt = (
+/** `refactor` retargets the prompt at `.gtd/REFACTOR.md` and fences it to the strays; a concern outside the fence is refused at landing, so the prompt only says not to fold it. */
+export const buildReviewCollectingPrompt = (
   capture: string,
-  strays: readonly string[],
-): string =>
-  `${styleBlock}
-
-${styleFormatContract}
-
-You are judging and classifying a round of review feedback on a
-behaviour-neutral refactor.
-
-${stateFileRules}
-${footnoteFoldIn}${codeThreadReplies()}
-- This turn writes \`.gtd/REFACTOR.md\` (the folded concerns) and
-  replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
-  in the tree) — you classify, you do not build
-- Fold every concluded thread, ticked answer and hand-edit — and each
-  \`edit\` note the capture lists, no other note — into
-  \`.gtd/REFACTOR.md\` as an ordered list of concerns, and delete the
-  folded threads from \`.gtd/REVIEW.md\`; append one \`- A:\` reply to
-  each thread whose last entry is a \`- H:\` question
-- Keep capture order, and carry each note's \`(tier: reason)\`
-  label into the concern folded from it
-- Nit notes were already fixed: never re-raise a fixed nit as a concern
-- The next refactor may change only these paths, and never a test file
+  refactor?: { readonly strays: readonly string[] },
+): string => {
+  const target = refactor ? ".gtd/REFACTOR.md" : ".gtd/REQUIREMENTS.md"
+  const fence = refactor
+    ? `- The next refactor may change only these paths, and never a test file
   or a flag read:
-${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
+${refactor.strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
   A concern needing any other path, a test file, a new or added flag
   read, or a change in behaviour (that belongs to the feature, not this
-  refactor) cannot be built: do not fold it. Say in the reply that the way
-  out is \`gtd abandon\` and a restart
-- Finish by running \`gtd check review .gtd/REVIEW.md\` and fix
-  what it reports
-
-The raw review material is:
-
-${capture}
-It names a commit. Work from what you already reviewed if you
-wrote today's review earlier this conversation; otherwise read
-that commit's diff yourself first.
-
-The round is actionable if the human left a note on
+  refactor) cannot be built: do not fold it
+`
+    : ""
+  const actionable = refactor
+    ? `The round is actionable if the human left a note on
 \`.gtd/REVIEW.md\`, added a code comment, or hand-edited code this
 round (a sketch of what they were reaching for, re-derived from
 scratch, never final).
@@ -922,41 +895,7 @@ scratch, never final).
 - If not: finish without writing anything — changing nothing is
   the sign-off
 `
-
-export const buildReviewCollectingPrompt = (capture: string): string =>
-  `${styleBlock}
-
-${styleFormatContract}
-
-You are judging and classifying a round of review feedback.
-
-${stateFileRules}
-${footnoteFoldIn}${codeThreadReplies()}
-- This turn writes \`.gtd/REQUIREMENTS.md\` (the folded concerns) and
-  replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
-  in the tree) — you classify, you do not build
-- Fold every concluded thread, ticked answer and hand-edit — and each
-  \`edit\` note the capture lists, no other note — into
-  \`.gtd/REQUIREMENTS.md\` and delete the folded threads from
-  \`.gtd/REVIEW.md\`; append one \`- A:\` reply to each thread
-  whose last entry is a \`- H:\` question
-- When the capture names an answering commit, carry each answered
-  question into \`.gtd/REQUIREMENTS.md\`'s \`## Answered Questions\` as
-  \`### <the note>\` plus its answer — the lap replaces \`.gtd/REVIEW.md\`
-- Keep capture order, and carry each note's \`(tier: reason)\`
-  label into the concern folded from it
-- Nit notes were already fixed: never re-raise a fixed nit as a concern
-- Finish by running \`gtd check review .gtd/REVIEW.md\` and fix
-  what it reports
-
-The raw review material is:
-
-${capture}
-It names a commit. Work from what you already reviewed if you
-wrote today's review earlier this conversation; otherwise read
-that commit's diff yourself first.
-
-The round is actionable if any of these hold:
+    : `The round is actionable if any of these hold:
 
 - The human left a note on \`.gtd/REVIEW.md\`. A note is a mandatory
   concern below
@@ -986,6 +925,40 @@ actionability, and never dismiss a real note or edit as approval.
 - If not: finish without writing anything — changing nothing is
   the sign-off
 `
+  return `${styleBlock}
+
+${styleFormatContract}
+
+You are judging and classifying a round of review feedback${refactor ? " on a\nbehaviour-neutral refactor" : ""}.
+
+${stateFileRules}
+${footnoteFoldIn}${codeThreadReplies()}
+- This turn writes \`${target}\` (the folded concerns) and
+  replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
+  in the tree) — you classify, you do not build
+- Fold every concluded thread, ticked answer and hand-edit — and each
+  \`edit\` note the capture lists, no other note — into
+  \`${target}\` and delete the folded threads from
+  \`.gtd/REVIEW.md\`; append one \`- A:\` reply to each thread
+  whose last entry is a \`- H:\` question
+- When the capture names an answering commit, carry each answered
+  question into \`${target}\`'s \`## Answered Questions\` as
+  \`### <the note>\` plus its answer — the lap replaces \`.gtd/REVIEW.md\`
+- Keep capture order, and carry each note's \`(tier: reason)\`
+  label into the concern folded from it
+- Nit notes were already fixed: never re-raise a fixed nit as a concern
+${fence}- Finish by running \`gtd check review .gtd/REVIEW.md\` and fix
+  what it reports
+
+The raw review material is:
+
+${capture}
+It names a commit. Work from what you already reviewed if you
+wrote today's review earlier this conversation; otherwise read
+that commit's diff yourself first.
+
+${actionable}`
+}
 
 const scenariosPrompt = (removed: readonly RemovedAssertions[]): string =>
   `- When a scenario in a \`.feature\` file was added or changed since the

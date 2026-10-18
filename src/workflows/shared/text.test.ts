@@ -24,7 +24,6 @@ import {
   refactorBuildingPrompt,
   refactorDroppedRefusal,
   refactorFixPrompt,
-  refactorReviewCollectingPrompt,
   seamByHandMessage,
   seamSteerMessage,
   summaryPrompt,
@@ -650,6 +649,18 @@ describe("summaryPrompt", () => {
   })
 })
 
+describe("buildReviewCollectingPrompt without a refactor", () => {
+  it("is the feature prompt verbatim", () => {
+    const prompt = renderText(() => buildReviewCollectingPrompt("capture-text"))
+    expect(prompt).toBe(
+      readFileSync(
+        new URL("./__fixtures__/feature-collecting-prompt.txt", import.meta.url),
+        "utf8",
+      ),
+    )
+  })
+})
+
 describe("the thread rules", () => {
   it("are in all three answering prompts and no longer say a footnote is human input only", () => {
     const prompts = renderText(() => [
@@ -940,7 +951,7 @@ describe("the refactor prompts", () => {
   })
 
   describe("the review collecting prompt", () => {
-    const prompt = renderText(() => refactorReviewCollectingPrompt("capture-text", strays))
+    const prompt = renderText(() => buildReviewCollectingPrompt("capture-text", { strays }))
 
     it("folds into .gtd/REFACTOR.md and never names .gtd/REQUIREMENTS.md", () => {
       expect(prompt).toContain(".gtd/REFACTOR.md")
@@ -954,7 +965,12 @@ describe("the refactor prompts", () => {
       expect(prompt).toMatch(/cannot be built/)
       expect(prompt).toMatch(/test file/)
       expect(prompt).toMatch(/flag/)
-      expect(prompt).toContain("gtd abandon")
+      expect(prompt).toMatch(/behaviour/)
+      expect(prompt).not.toMatch(/say in the reply/i)
+    })
+
+    it("carries answered questions into the target's ## Answered Questions", () => {
+      expect(prompt).toContain("`.gtd/REFACTOR.md`'s `## Answered Questions`")
     })
 
     it("keeps the review check and thread rules", () => {
