@@ -57,3 +57,20 @@ the relative `.git/rebase-merge` resolved from the root `cwd`, and the skip, so
 nothing drifts today. Nothing would flag it if a later git changed any of these.
 A small real-git contract case covering the skip, the backstop and the rollback
 would close the gap.
+
+## ponytail-review: the worktree refusal prints an unquoted path
+
+`claude/hooks/ship.ts` `restackOf`, the `checkedOutElsewhere` refusal (~l.993).
+
+- Nice to have. The refusal tells the user to run
+  `git -C ${held.path} switch --detach`, with the worktree path pasted in bare.
+  A worktree at `/Users/me/My Projects/x` gives
+  `git -C /Users/me/My Projects/x switch --detach`, which fails when copied as
+  is. Quote the path in the message (`git -C '<path>' switch --detach`); the
+  test's expected string changes with it.
+- Otherwise this lens agrees with the correctness notes above and adds nothing:
+  `from` read off the recorded top is safe because `recordStack` writes the top
+  before the names; the hand-restack `<lowest>~1` test only assumes one commit
+  per lower slice, which `chain` already assumes; the retarget preview moved to
+  `stackPreview` with a test pinning exactly one line. Load assumed: one person
+  running `/gtd ship` in one repository.
