@@ -144,3 +144,41 @@ cause), and the inline `Changes` shape will drift silently from the real one.
 Fix: let `read` answer only for paths the test lists (absent otherwise), and if
 another test needs a `Changes` stub, lift it into `text.fixture.ts` rather than
 copying it.
+
+## conventions — CONTEXT.md "Satisfied package" now contradicts the prompt (Should)
+
+Rule (AGENTS.md): "`CONTEXT.md` is the one exception, and it is a GLOSSARY … the
+domain language this repo uses … Read it before naming anything".
+
+`CONTEXT.md` defines **Satisfied package** as one "whose acceptance criteria are
+already met before its build turn runs". `src/workflows/shared/text.ts`
+`packagesItemBuildingPrompt` now also sends a package whose criteria are "met by
+work outside the tree (issues filed, commands run)" — done DURING the build turn
+— to `.gtd/SATISFIED.md`. The glossary term no longer matches how the change
+uses it.
+
+Fix: widen the definition to "met before its build turn runs, or met by that
+turn's work outside the tree — recorded as evidence in `.gtd/SATISFIED.md` …".
+If the ` (unchanged)` marker is meant as domain language (decompose writes it,
+the builder and guard read it), give it a one-line glossary entry too; otherwise
+leave it.
+
+## conventions — README's declared-test sentence not updated (Should, nit)
+
+Rule (user's global CLAUDE.md): "always make sure every significant change is
+also reflected in the readme".
+
+`README.md` step 3 ("You wait.") is the only user-facing description of the
+guard: "each one starting from the unit and e2e tests it declares (a build turn
+missing one is refused)". The change adds two user-visible behaviours that
+sentence no longer covers: a declared test marked ` (unchanged)` only has to
+exist, and a package whose work is out-of-tree (e.g. filing issues) closes via
+`.gtd/SATISFIED.md` evidence instead of stalling (#373). Neither is in
+`README.md` or `docs/`.
+
+Fix: extend the parenthesis, e.g. "(a build turn missing one is refused; a test
+the package only relies on is marked `(unchanged)` and need only exist, and a
+package whose work lies outside the repository, such as filing issues, closes on
+recorded evidence)". Keep it to user terms — no module or function names
+(AGENTS.md: prose "must not name a `src/*.ts` module, an internal function, or a
+private type").
