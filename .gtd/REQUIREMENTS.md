@@ -8,7 +8,7 @@ The issue says "stop and print the rebase command". It leaves open what state
 the repository is left in, and whether a hand-resolved rebase keeps the stack or
 ends it. Today any rebase ends the stack.
 
-- [ ] Abort the rebase, print the command; the next ship picks up the
+- [x] Abort the rebase, print the command; the next ship picks up the
       hand-rebased branches and finishes the restack
   - tree and refs stay exactly as before the ship; no half-done rebase is left
     behind
@@ -33,7 +33,7 @@ ends it. Today any rebase ends the stack.
 The merged lower slice's `<branch>-<slice>` branch is dead once restacked.
 Choose whether ship cleans it up or leaves it alone.
 
-- [ ] Leave it alone; only drop it from the recorded stack
+- [x] Leave it alone; only drop it from the recorded stack
   - ship never deletes a ref, and nothing that may be wanted is lost
   - stale `<branch>-<slice>` branches pile up locally and possibly on origin
 - [ ] Delete the local branch; leave origin alone
