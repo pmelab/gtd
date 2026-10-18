@@ -15,7 +15,7 @@ merged first and its branch was kept (auto-delete off), b's later merge into
 `<branch>-a` never reaches the default branch. Ship still counts b as landed and
 drops it from the stack, so b's change silently misses the default branch.**
 
-- [ ] Add a merge-order check: b counts only if it merged no later than a
+- [x] Add a merge-order check: b counts only if it merged no later than a
   - `viewPr` asks for `mergedAt` too, and `View` gains `mergedAt?: string`
   - every scripted `gh pr view … --json` key in `ship.test.ts` changes, which is
     wide test churn
