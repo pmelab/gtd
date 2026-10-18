@@ -308,7 +308,7 @@ const turboOut = (tasks: Record<string, readonly string[]>): string =>
 describe("failuresOf", () => {
   const tasks = ["typecheck", "test:unit", "test:e2e:inmem"]
 
-  it("maps each failed task to its failing test names, ignoring ansi and timing", () => {
+  it("maps each failed task to its ansi-stripped FAIL names, or its raw lines when it has none", () => {
     const out = turboOut({
       "test:unit": ["FAIL a > one", "\u001b[31mFAIL a > two\u001b[0m"],
       typecheck: ["error TS1"],
