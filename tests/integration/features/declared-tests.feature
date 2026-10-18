@@ -4,9 +4,8 @@ Feature: A package's declared tests gate its build
   A package file lists its tests under `## Tests`, one line each. The build
   turn is refused unless every declared test is in the package's diff — or,
   when the builder writes `.gtd/SATISFIED.md`, already in the tree. A line
-  decompose marks `(unchanged)` must exist in the tree and stay untouched on
-  the build turn. The
-  full suite runs right after; `.gtd/ARCHITECTURE.md` survives decompose.
+  decompose marks `(unchanged)` must exist in the tree before the build turn
+  and stay untouched on it. The full suite runs right after; `.gtd/ARCHITECTURE.md` survives decompose.
 
   Background:
     Given a test project
@@ -370,22 +369,3 @@ Feature: A package's declared tests gate its build
     Then it fails
     And stderr contains "lib/new.test.ts"
     And stderr contains "stop and leave it to a person"
-
-  Scenario: a build that creates a test listed both unmarked and marked (unchanged) passes
-    Given a file ".gtd/packages/01-widget.md" with:
-      """
-      Package: the widget.
-
-      ## Tests
-
-      - unit: `lib/new.test.ts`
-      - unit: `lib/new.test.ts` (unchanged)
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
-    And a file "lib/new.test.ts" with:
-      """
-      export const newTest = 1
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"

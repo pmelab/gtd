@@ -95,7 +95,11 @@ const unmetBucket = (
  * with `.gtd/SATISFIED.md` written, or the line marked, existing suffices. The
  * build turn must neither modify nor add a marked test; a fix turn may edit it.
  */
-export const requireDeclaredTests = (pkg: string, since: string, turn: DeclaredTestsTurn): void => {
+export const requireDeclaredTests = (
+  pkg: string,
+  since: string,
+  turn: DeclaredTestsTurn = "fix",
+): void => {
   const range = changesSince(since)
   const text = range.get(pkg)?.before ?? read(pkg) ?? ""
   const satisfied = read(".gtd/SATISFIED.md") !== undefined

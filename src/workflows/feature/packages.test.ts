@@ -306,7 +306,7 @@ describe("requireDeclaredTests", () => {
     expect(message).not.toMatch(/delete|restore/i)
   })
 
-  it("does not refuse a marked test a fix turn added", () => {
+  it("only the build turn refuses an added marked test (turn split, not a fix-turn flow)", () => {
     const text = "## Tests\n- unit: `a.test.ts` (unchanged)"
     expect(run(text, ["a.test.ts"], [added("a.test.ts")], false, "fix").message).toBe("")
   })
