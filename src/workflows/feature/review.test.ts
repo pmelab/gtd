@@ -3,6 +3,7 @@ import {
   installContext,
   type Change,
   type JudgeAnswer,
+  type ScopeOptions,
   type StepRequest,
 } from "../../flows/index.js"
 import {
@@ -67,6 +68,8 @@ interface Run {
   readonly gateMessages: readonly string[]
   /** Every `changesSince` argument, in order. */
   readonly since: readonly string[]
+  /** Every scope opened, in order. */
+  readonly scopes: readonly ScopeOptions[]
 }
 
 /** Run `review` against a scripted context; a second pass at the gate or a fresh review stops the run. */
@@ -77,6 +80,7 @@ const drive = async (d: Drive): Promise<Run> => {
   const gates: boolean[] = []
   const gateMessages: string[] = []
   const since: string[] = []
+  const scopes: ScopeOptions[] = []
   const files = new Map<string, string>([
     [REVIEW, d.after ?? doc(d.notes)],
     ...Object.entries(d.files ?? {}),
@@ -124,7 +128,7 @@ const drive = async (d: Drive): Promise<Run> => {
       refuse: (message: string): never => {
         throw new Error(message)
       },
-      pushScope: () => undefined,
+      pushScope: (scope) => void scopes.push(scope),
       popScope: () => undefined,
       read: (path) => files.get(path),
       changes: (): readonly Change[] => d.pending ?? [],
@@ -153,7 +157,7 @@ const drive = async (d: Drive): Promise<Run> => {
     if (!(error instanceof Stop)) throw error
     result = "stopped"
   }
-  return { log, prompts, result, judged, gates, gateMessages, since }
+  return { log, prompts, result, judged, gates, gateMessages, since, scopes }
 }
 
 const verdict = (answer: string, p = 0.9): JudgeAnswer => ({ answer, p })
@@ -186,6 +190,28 @@ describe("the risk-fix pass", () => {
       "review.reviewing",
       "review.await-review",
     ])
+  })
+
+  it("fixAccess wraps both fix turns in their own scope, the step names unchanged", async () => {
+    const fixAccess = { write: ["src/a.ts", ".gtd/**"] }
+    const run = await drive({
+      notes: ["add — typo", "sub", "mul"],
+      answers: { "note-1": verdict("nit") },
+      reviewDocs: [risky, clean],
+      options: { fixAccess },
+    })
+    expect(run.scopes).toEqual([
+      { name: "review.fix.risks", access: fixAccess },
+      { name: "review.fix.nits", access: fixAccess },
+    ])
+    // The harness pushes no scope names, so the step is relative to its own fix scope.
+    expect(run.log.filter((n) => n === "fixing")).toHaveLength(2)
+  })
+
+  it("without fixAccess the fix turns open no scope", async () => {
+    const run = await drive({ notes: [], reviewDocs: [risky, clean] })
+    expect(run.log).toContain("review.fix.risks.fixing")
+    expect(run.scopes).toEqual([])
   })
 
   it("no marker means no fix-risks step", async () => {

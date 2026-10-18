@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import type { StepRequest } from "../../flows/index.js"
-import { captureStep } from "../shared/text.fixture.js"
+import { installContext, type ScopeOptions, type StepRequest } from "../../flows/index.js"
+import { captureStep, fixtureContext } from "../shared/text.fixture.js"
 import * as steps from "./steps.js"
 
 const capture = (
@@ -78,6 +78,33 @@ describe("the feature workflow's own steps declare skills — a step's rendered 
     expect(request.prompt).toContain("typo")
     expect(request.prompt).toContain("semicolon")
     expect(request.prompt).toContain("Leave `.gtd/REVIEW.md` untouched")
+  })
+
+  it("fixNits with access runs in a review.fix.nits scope, the step named fixing inside it", async () => {
+    const scopes: ScopeOptions[] = []
+    const steps_: StepRequest[] = []
+    const access = { write: ["src/a.ts", ".gtd/**"] }
+    installContext(
+      fixtureContext(
+        { scope: "refactor.build" },
+        {
+          step: (request) => {
+            steps_.push(request)
+            return Promise.resolve()
+          },
+          pushScope: (s) => void scopes.push(s),
+          popScope: () => undefined,
+          changesSince: () => [],
+        },
+      ),
+    )
+    try {
+      await steps.fixNits([], access)
+    } finally {
+      installContext(undefined)
+    }
+    expect(scopes).toEqual([{ name: "review.fix.nits", access }])
+    expect(steps_.map((r) => ("name" in r ? r.name : ""))).toEqual(["fixing"])
   })
 
   it("deferNotes rests at build.review.defer as a script writing .gtd/TODO.md", async () => {

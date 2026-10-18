@@ -567,6 +567,7 @@ interface Reviewed {
   /** Full step names, scope-qualified like the live replay. */
   readonly names: string[]
   readonly steps: StepRequest[]
+  readonly scopes: ScopeOptions[]
   readonly result: boolean | Error
 }
 
@@ -593,6 +594,7 @@ const driveReviewed = async (
   const names: string[] = []
   const steps: StepRequest[] = []
   const stack: string[] = []
+  const scopes: ScopeOptions[] = []
   const files = new Map<string, string>()
   let last = ""
   let awaits = 0
@@ -646,7 +648,10 @@ const driveReviewed = async (
         refuse: (message) => {
           throw new Error(message)
         },
-        pushScope: (scope) => void stack.push(scope.name ?? ""),
+        pushScope: (scope) => {
+          scopes.push(scope)
+          stack.push(scope.name ?? "")
+        },
         popScope: () => void stack.pop(),
         read: (path) => files.get(path),
         changes: () =>
@@ -669,7 +674,7 @@ const driveReviewed = async (
   } catch (error) {
     pending = error as Error
   }
-  return { names, steps, result: pending }
+  return { names, steps, scopes, result: pending }
 }
 
 describe("reviewedRefactor", () => {
@@ -802,6 +807,16 @@ describe("reviewedRefactor", () => {
       })
       expect((h.result as Error).message).toContain("refactor-tests")
       expect(h.names.at(-1)).toBe("refactor.build.review.fix.nits.fixing")
+    })
+
+    it("runs the nit-fix turn under the strays plus .gtd/** as its write access", async () => {
+      const write = ["src/a.test.ts", ".gtd/**"]
+      const h = await driveReviewed(shape({ strays: ["src/a.test.ts"] }), {
+        notes: ["add — typo"],
+        answers: { "note-1": { answer: "nit", p: 0.9 } },
+      })
+      expect(h.scopes).toContainEqual({ name: "review.fix.nits", access: { write } })
+      expect(h.names).toContain("refactor.build.review.fix.nits.fixing")
     })
 
     it("runs after a fix-check turn", async () => {

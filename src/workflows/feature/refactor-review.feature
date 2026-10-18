@@ -591,6 +591,34 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       When gtd lands
       Then driving the process is refused with "refactor-scope"
 
+    Scenario: the nit-fix turn in the refactor slice may write the strays and .gtd/** only
+      Given step "seam.naive" writes "src/*.ts" with:
+        """
+        export const literalGlobName = 2
+        """
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op — rename `sign` to `direction`
+        """
+      And judge step "refactor.build.review.triage" answers:
+        """
+        [{"id":"note-1","answer":"nit","p":0.9}]
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.build.review.fix.nits.fixing"
+      And the output of gtd "next --json=access.write" contains "src/*.ts"
+      And the output of gtd "next --json=access.write" contains ".gtd/**"
+
     Scenario: a blank refactorQualityReviews runs no refactor quality lap
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"

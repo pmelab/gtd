@@ -6,7 +6,8 @@ import { lensesOf, lensScopes } from "../../workflow-kit/index.js"
 // are restricted, and only on writes; no scope restricts reads. `refactor`'s
 // write restriction lives in its own `scope()` option, not here. A step's own
 // steering file is folded in per step, so it is not listed here. Build and fix
-// scopes carry no entry: no project layout is assumed.
+// scopes carry no entry: no project layout is assumed. `refactor.build.review`'s
+// fix scopes carry none either: `reviewedRefactor` sets their write limit at run time.
 export const access = (
   vars: Readonly<Record<string, string>>,
 ): Readonly<Record<string, ScopeAccess>> => ({
@@ -20,8 +21,6 @@ export const access = (
   "build.review.fix.risks": {},
   "refactor.build.review": { write: [".gtd/REVIEW.md"] },
   "refactor.build.review.defer": { write: [".gtd/TODO.md"] },
-  "refactor.build.review.fix.nits": {},
-  "refactor.build.review.fix.risks": {},
   ...lensScopes("build.quality", lensesOf(vars.qualityReviews ?? ""), () => ({ write: [] })),
   ...lensScopes("refactor.build.quality", lensesOf(vars.refactorQualityReviews ?? ""), () => ({
     write: [],

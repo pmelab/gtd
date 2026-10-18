@@ -623,12 +623,11 @@ turn when:
   count flat. A changed file whose before or after cannot be read refuses.
 
 The human rests `refactor.health.stop` and `refactor.health.exhausted`, and
-their counterparts in the refactor's review tail (`refactor.build.health.*`,
-`refactor.build.review.health.*`), are never guarded: a person's edit there is
-not refused. The flag count, though, spans every turn since the build: a flag
-read a person adds there refuses the next fix turn until it is removed, and that
-turn may not touch the file to remove it. Put no flag read in a person's edit at
-these rests.
+their counterparts in the refactor's review tail (`refactor.build.health.*`),
+are never guarded: a person's edit there is not refused. The flag count, though,
+spans every turn since the build: a flag read a person adds there refuses the
+next fix turn until it is removed, and that turn may not touch the file to
+remove it. Put no flag read in a person's edit at these rests.
 
 A blank or invalid `refactorFlagPattern` throws before the first step, naming
 the setting. A pattern that produces a zero-length match (a lookahead-only
@@ -1331,18 +1330,25 @@ Only planning and review scopes are restricted, and only on writes; no bundled
 scope restricts reads. Build and fix scopes carry no entry, except `refactor`:
 `refactorFirst` restricts its writes to the strays and `.gtd/**` itself, and a
 `config.access.refactor` entry replaces that wholesale. Every `refactor.build.*`
-scope inherits that restriction, except the lens scopes below.
+scope inherits that restriction, except the scopes below that set their own.
+`refactor.build.review.fix.nits` and `refactor.build.review.fix.risks` carry the
+same strays-plus-`.gtd/**` limit, set at run time; a `config.access` entry on
+the fix scope outranks it, while a `config.access.refactor` entry does not reach
+it.
 
-| Scope                                             | `write`                                    |
-| ------------------------------------------------- | ------------------------------------------ |
-| `design`                                          | `[]`                                       |
-| `architecture`                                    | `.gtd/REQUIREMENTS.md`                     |
-| `architecture.decompose`                          | `.gtd/packages/**`, `.gtd/ARCHITECTURE.md` |
-| `build.review`                                    | `.gtd/REVIEW.md`                           |
-| `build.review.defer`                              | `.gtd/TODO.md`                             |
-| `build.review.fix.nits`, `build.review.fix.risks` | `{}` (reopened: fixes edit code)           |
-| `build.quality.<lens>`                            | `[]`                                       |
-| `refactor.build.quality.<lens>`                   | `[]`                                       |
+| Scope                                                               | `write`                                    |
+| ------------------------------------------------------------------- | ------------------------------------------ |
+| `design`                                                            | `[]`                                       |
+| `architecture`                                                      | `.gtd/REQUIREMENTS.md`                     |
+| `architecture.decompose`                                            | `.gtd/packages/**`, `.gtd/ARCHITECTURE.md` |
+| `build.review`                                                      | `.gtd/REVIEW.md`                           |
+| `build.review.defer`                                                | `.gtd/TODO.md`                             |
+| `build.review.fix.nits`, `build.review.fix.risks`                   | `{}` (reopened: fixes edit code)           |
+| `build.quality.<lens>`                                              | `[]`                                       |
+| `refactor.build.quality.<lens>`                                     | `[]`                                       |
+| `refactor.build.review`                                             | `.gtd/REVIEW.md`                           |
+| `refactor.build.review.defer`                                       | `.gtd/TODO.md`                             |
+| `refactor.build.review.fix.nits`, `refactor.build.review.fix.risks` | the strays, `.gtd/**` (run time)           |
 
 ### Validation and errors
 
