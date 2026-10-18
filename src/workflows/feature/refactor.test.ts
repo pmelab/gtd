@@ -585,6 +585,8 @@ interface ReviewedScript {
   /** The collecting turn writes no package. */
   readonly silentCollect?: boolean
   readonly collected?: string
+  /** The note the first `review.reviewing` turn writes; later ones write `add`. */
+  readonly firstReviewNote?: string
 }
 
 /** Runs `reviewedRefactor` against a scripted context; a third await-review stops the run. */
@@ -599,6 +601,7 @@ const driveReviewed = async (
   const files = new Map<string, string>()
   let last = ""
   let awaits = 0
+  let reviews = 0
   let reds = script.reds ?? 0
   let checking = false
   let pending: boolean | Error = false
@@ -622,7 +625,9 @@ const driveReviewed = async (
     ...Object.fromEntries(lensEffects),
     deriving: () => void files.set(REFACTOR_PACKAGE, "package"),
     closing: () => void files.delete(REFACTOR_PACKAGE),
-    "review.reviewing": () => void files.set(REVIEW, reviewDoc("add")),
+    "review.reviewing": () => {
+      files.set(REVIEW, reviewDoc(reviews++ === 0 ? (script.firstReviewNote ?? "add") : "add"))
+    },
     "review.closing": () => void files.delete(REVIEW),
     "review.collecting": () => {
       if (!script.silentCollect)
@@ -899,4 +904,37 @@ describe("reviewedRefactor", () => {
       expect(h.names.at(-1)).toBe("refactor.build.health.describe")
     })
   })
+})
+
+describe("reviewedRefactor's tail prompts", () => {
+  const strays = ["src/a.ts", "src/b.ts"]
+
+  const promptAt = async (name: string, script: ReviewedScript): Promise<string> => {
+    const h = await driveReviewed(shape({ strays }), script)
+    const step = h.steps.find((s, i) => s.kind === "agent" && h.names[i] === name)
+    if (step?.kind !== "agent") throw new Error(`no agent step ${name} in ${h.names.join(", ")}`)
+    return step.prompt
+  }
+
+  it.each([
+    ["refactor.build.fix", { findings: true, reds: 2 }],
+    ["refactor.build.fix.quality.fixing", { findings: true }],
+    [
+      "refactor.build.review.fix.risks.fixing",
+      { firstReviewNote: "Risk: drops the carry", notes: [undefined] },
+    ],
+    [
+      "refactor.build.review.fix.nits.fixing",
+      { notes: ["nit"], answers: { "note-1": { answer: "nit", p: 0.9 } } },
+    ],
+    ["refactor.build.health.describe", { findings: true, reds: 6 }],
+  ] as const)(
+    "%s names every stray and bans test files and new flag reads",
+    async (name, script) => {
+      const prompt = await promptAt(name, script as ReviewedScript)
+      for (const stray of strays) expect(prompt).toContain(`\`${stray}\``)
+      expect(prompt).toContain("never a test file")
+      expect(prompt).toContain("no new flag read")
+    },
+  )
 })

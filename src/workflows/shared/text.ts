@@ -446,13 +446,15 @@ ${fixFeedbackPrompt}
 - Leave everything uncommitted and finish your turn — do not commit
 `
 
-const refactorRules = (strays: readonly string[], pattern: string): string =>
+export const refactorRules = (strays: readonly string[], pattern: string): string =>
   `- Behaviour-neutral: the suite's outcome must not change
 - Change only these paths, nothing else, and never a test file even
   when it is one of them:
 ${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
 - Introduce no new flag read and add no second read of an existing one:
   every match of \`${pattern}\` may move, never increase in number`
+
+const withRules = (rules?: string): string => (rules === undefined ? "" : `${rules}\n`)
 
 export const refactorBuildingPrompt = (
   pkg: string,
@@ -497,7 +499,7 @@ without an edit of your own) to accept the conservative default
 (retry the fix) with no verdict recorded.
 `
 
-export const healthDescribePrompt = (): string =>
+export const healthDescribePrompt = (rules?: string): string =>
   `${stateFileRules}
 - The only state file this turn writes is \`.gtd/ESCALATION.md\`
 - Read \`.gtd/FEEDBACK.md\` (this round's failing check output),
@@ -508,7 +510,7 @@ export const healthDescribePrompt = (): string =>
   attempts did not resolve it, and concrete suggested approaches to
   solve it
 - Never fix the code yourself — this turn only writes the document
-`
+${withRules(rules)}`
 
 export const escalationSystem = (): string =>
   `${escalationPersona}
@@ -535,10 +537,10 @@ turn, or land untouched to give it one more attempt at the same
 analysis.
 `
 
-export const buildFixPrompt = (): string =>
+export const buildFixPrompt = (rules?: string): string =>
   `${stateFileRules}
 ${fixFeedbackPrompt}
-- Leave everything uncommitted — do not commit
+${withRules(rules)}- Leave everything uncommitted — do not commit
 `
 
 export const finisherSystem = (): string =>
@@ -546,7 +548,7 @@ export const finisherSystem = (): string =>
 
 ${agentConduct}`
 
-export const buildFixQualityPrompt = (): string =>
+export const buildFixQualityPrompt = (rules?: string): string =>
   `${stateFileRules}
 - Read \`.gtd/QUALITY.md\` — one \`## \` chunk per finding a quality
   dimension wrote. Merge duplicate findings across dimensions
@@ -554,7 +556,7 @@ export const buildFixQualityPrompt = (): string =>
 - When findings conflict, missing test signal beats line count —
   a test is never deleted to satisfy a simplification finding
 - Delete \`.gtd/QUALITY.md\` once every finding is resolved
-- Leave everything else uncommitted and finish your turn
+${withRules(rules)}- Leave everything else uncommitted and finish your turn
 `
 
 /** Brief for a lens the workflow defines itself; a lens with none is just a skill of that name. */
@@ -751,22 +753,21 @@ The question notes are:
 
 ${notesCapture(notes)}`
 
-export const buildReviewFixNitsPrompt = (notes: readonly NoteInput[]): string =>
+export const buildReviewFixNitsPrompt = (notes: readonly NoteInput[], rules?: string): string =>
   `${stateFileRules}
 - Fix every nit below in this one turn, all together
 - Leave \`.gtd/REVIEW.md\` untouched
-- Leave everything uncommitted and finish your turn
+${withRules(rules)}- Leave everything uncommitted and finish your turn
 
 The nit notes are:
 
 ${notesCapture(notes)}`
 
-export const buildReviewFixRisksPrompt = (notes: readonly NoteInput[]): string =>
+export const buildReviewFixRisksPrompt = (notes: readonly NoteInput[], rules?: string): string =>
   `${stateFileRules}
 - Fix every risk below in this one turn, all together
-- Where a risk is behavioural, add a test that fails without the fix
-- Leave \`.gtd/REVIEW.md\` untouched — the re-review rewrites it
-- Leave everything uncommitted and finish your turn
+${rules === undefined ? "- Where a risk is behavioural, add a test that fails without the fix\n" : ""}- Leave \`.gtd/REVIEW.md\` untouched — the re-review rewrites it
+${withRules(rules)}- Leave everything uncommitted and finish your turn
 
 The risk notes are:
 

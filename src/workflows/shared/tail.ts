@@ -45,12 +45,13 @@ export const fixQualityFindings = (
   escalations: EscalationCount,
   guard?: Guard,
   guardRests = true,
+  rules?: string,
 ): Promise<boolean> =>
   kit.fixFindings({
-    fix: guarded(fixQuality, guard),
+    fix: guarded(() => fixQuality(rules), guard),
     findings: QUALITY,
     cap: FIX_CAP,
-    escalate: () => escalation(escalations, guard, guardRests),
+    escalate: () => escalation(escalations, guard, guardRests, rules),
   })
 
 /** `.gtd/REVIEW.md` removed at the end of a round at commit `round`. */
@@ -83,21 +84,22 @@ export const tail = <T>(
   lenses?: readonly string[],
   guardRests = true,
   lensBase?: string,
+  rules?: string,
 ): Promise<T> =>
   scope("build", async () => {
     const escalations: EscalationCount = { rounds: 0 }
-    const fix = fixCheck
+    const fix = () => fixCheck(rules)
     const repair = async () => {
       await guarded(fix, guard)()
-      await healthy(fix, { fixesSoFar: 1, escalations, guard, guardRests })
+      await healthy(fix, { fixesSoFar: 1, escalations, guard, guardRests, rules })
     }
     // fixFirst's own fix + healthy below already is the full run.
     if (fixFirst) await repair()
-    else if (!green) await healthy(fix, { escalations, guard, guardRests })
+    else if (!green) await healthy(fix, { escalations, guard, guardRests, rules })
     // The lap runs once a tail: after its findings are fixed, review follows.
     if ((await qualityLap(guard, lenses, lensBase)) === "findings") {
-      if (await fixQualityFindings(escalations, guard, guardRests)) {
-        await healthy(fix, { escalations, guard, guardRests })
+      if (await fixQualityFindings(escalations, guard, guardRests, rules)) {
+        await healthy(fix, { escalations, guard, guardRests, rules })
       } else await repair()
     }
     return finish(escalations)

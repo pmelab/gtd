@@ -20,16 +20,16 @@ export const coder = (): string => env.coderModel ?? ""
 
 // ── Keeping the suite green ─────────────────────────────────────────────────
 
-export const fixCheck = (): Promise<void> =>
-  t.agentWithSkills("fix", t.buildFixPrompt(), {
+export const fixCheck = (rules?: string): Promise<void> =>
+  t.agentWithSkills("fix", t.buildFixPrompt(rules), {
     label: "Fixing the check",
     file: FEEDBACK,
     model: coder(),
     system: t.finisherSystem(),
   })
 
-export const describeEscalation = (): Promise<void> =>
-  t.agentWithSkills("health.describe", t.healthDescribePrompt(), {
+export const describeEscalation = (rules?: string): Promise<void> =>
+  t.agentWithSkills("health.describe", t.healthDescribePrompt(rules), {
     label: "Describing the escalation",
     file: FEEDBACK,
     model: coder(),
@@ -81,8 +81,8 @@ export const reviewQuality = (lens: string, base?: string): Promise<void> =>
     },
   )
 
-export const fixQuality = (): Promise<void> =>
-  t.agentWithSkills("fix.quality.fixing", t.buildFixQualityPrompt(), {
+export const fixQuality = (rules?: string): Promise<void> =>
+  t.agentWithSkills("fix.quality.fixing", t.buildFixQualityPrompt(rules), {
     label: "Fixing quality findings",
     file: QUALITY,
     model: coder(),
@@ -106,9 +106,13 @@ export const reviewing = (base: string, carry?: string): Promise<void> =>
   )
 
 /** Fix the `Risk:`-marked notes the reviewer named; an empty turn means the risk was judged false. */
-export const fixRisks = (notes: readonly t.NoteInput[], access?: ScopeAccess): Promise<void> => {
+export const fixRisks = (
+  notes: readonly t.NoteInput[],
+  access?: ScopeAccess,
+  rules?: string,
+): Promise<void> => {
   const fixing = (name: string): Promise<void> =>
-    t.agentWithSkills(name, t.buildReviewFixRisksPrompt(notes), {
+    t.agentWithSkills(name, t.buildReviewFixRisksPrompt(notes, rules), {
       label: "Fixing the reviewer's risks",
       file: REVIEW,
       model: planner(),

@@ -12,6 +12,10 @@ import {
   architectureGateAnswerMessage,
   buildFixPrompt,
   buildFixQualityPrompt,
+  buildReviewFixNitsPrompt,
+  buildReviewFixRisksPrompt,
+  healthDescribePrompt,
+  refactorRules,
   buildQualityReviewingPrompt,
   specChallengeBrief,
   buildReviewAwaitReviewMessage,
@@ -1025,5 +1029,47 @@ describe("the refactor collecting prompt", () => {
     expect(prompt).toContain("already closed")
     expect(prompt).toContain("do not\n  recreate it")
     expect(prompt).not.toContain("exactly one `- A:` reply")
+  })
+})
+
+describe("the rules-taking fix prompts", () => {
+  const strays = ["src/a.ts", "src/b.ts"]
+  const pattern = "\\bGTD_FLAG_\\w+"
+  const notes = [{ id: "n1", anchor: "src/a.ts#1-1", text: "Risk: x" }]
+  const prompts: Record<string, (rules?: string) => string> = {
+    fix: (rules) => buildFixPrompt(rules),
+    quality: (rules) => buildFixQualityPrompt(rules),
+    risks: (rules) => buildReviewFixRisksPrompt(notes, rules),
+    nits: (rules) => buildReviewFixNitsPrompt(notes, rules),
+    describe: (rules) => healthDescribePrompt(rules),
+  }
+
+  it.each(Object.keys(prompts))(
+    "%s renders without the refactor block when no rules are given",
+    (k) => {
+      const [bare] = renderText(() => [prompts[k]!()])
+      expect(bare).not.toContain("Change only these paths")
+      expect(bare).not.toContain("never a test file")
+    },
+  )
+
+  it.each(Object.keys(prompts))("%s lists the strays and both bans when rules are given", (k) => {
+    const [rules, prompt] = renderText(() => {
+      const r = refactorRules(strays, pattern)
+      return [r, prompts[k]!(r)]
+    })
+    expect(prompt).toContain(rules)
+    for (const stray of strays) expect(prompt).toContain(`\`${stray}\``)
+    expect(prompt).toContain("never a test file")
+    expect(prompt).toContain("no new flag read")
+  })
+
+  it("the risks prompt drops its add-a-test line when rules are given", () => {
+    const [plain, ruled] = renderText(() => [
+      buildReviewFixRisksPrompt(notes),
+      buildReviewFixRisksPrompt(notes, refactorRules(strays, pattern)),
+    ])
+    expect(plain).toContain("add a test")
+    expect(ruled).not.toContain("add a test")
   })
 })

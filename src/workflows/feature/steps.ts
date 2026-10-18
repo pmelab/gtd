@@ -81,9 +81,13 @@ export const answerReviewQuestions = (notes: readonly t.NoteInput[]): Promise<vo
   })
 
 /** Fix every `nit` note in one turn. */
-export const fixNits = (notes: readonly t.NoteInput[], access?: ScopeAccess): Promise<void> => {
+export const fixNits = (
+  notes: readonly t.NoteInput[],
+  access?: ScopeAccess,
+  rules?: string,
+): Promise<void> => {
   const fixing = (name: string): Promise<void> =>
-    t.agentWithSkills(name, t.buildReviewFixNitsPrompt(notes), {
+    t.agentWithSkills(name, t.buildReviewFixNitsPrompt(notes, rules), {
       label: "Fixing your nits",
       file: REVIEW,
       model: planner(),
