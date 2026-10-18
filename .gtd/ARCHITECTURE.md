@@ -1,30 +1,5 @@
 # Architecture: `/gtd ship` restacks after a lower slice merges (pmelab/gtd#383)
 
-## Open Questions
-
-### A restack conflicts in a run that squashed a process first: does the squash stay?
-
-With a process at HEAD, ship squashes, then restacks. On a conflict the rebase
-is aborted either way; the fork is whether HEAD ends on the squash or on the
-process's step commits.
-
-- [x] Keep the squash: refs as before the restack, not before the ship
-  - the printed `git rebase --onto` moves one squashed commit per slice — the
-    hand rebase the human expects
-  - the next ship finds no process at HEAD and only restacks
-  - breaks the bolded "tree and refs exactly as before the ship" in this one
-    case; the failure text says the squash was kept and how to undo it
-    (`git reset --soft ORIG_HEAD`)
-- [ ] Undo the squash too: `git reset --soft <pre-ship HEAD>` (same tree, so the
-      tree stays clean) and delete slice branches this run rebuilt
-  - honours "exactly as before the ship" literally
-  - the printed command then rebases every gtd step commit of the process; gtd
-    must still find its process after its commits were rewritten — untested,
-    likely to refuse `The process tip … is not HEAD`
-  - the history ref already pushed to origin stays (a later ship re-pushes it,
-    forced)
-- [ ] _your answer_
-
 ## Interfaces
 
 All in `claude/hooks/ship.ts`. `ship()` keeps its signature; its new behaviour
@@ -108,6 +83,12 @@ Rules the code holds:
   `git rebase --update-refs --onto origin/<default> <from> <branch>` line and
   `then /gtd ship`. `<name>` is the slice whose commit `REBASE_HEAD` names (a
   lower slice is one commit; anything else is the top slice).
+- **Conflict after a same-run squash keeps the squash**: refs end as before the
+  restack, not before the ship; the history push stays on origin. The failure
+  text adds `the squash was kept; undo it with git reset --soft <pre-ship sha>`,
+  naming the HEAD sha ship read before squashing — never `ORIG_HEAD`, which the
+  aborted rebase leaves on the squash. The next ship finds no process at HEAD
+  and only restacks.
 - **Hand restack**: merged bottom slice(s), `gtdStackTop` not an ancestor of
   HEAD, every remaining slice branch present, the remaining chain valid to HEAD,
   and `<from>` not an ancestor of the lowest remaining branch. Ship then skips
@@ -181,8 +162,10 @@ scripted repository is ship's whole suite and stands in, as concern 5 allows.
   names the slice from `REBASE_HEAD` and step `restack` and carries the exact
   `git rebase --update-refs --onto …` line; no push, config write or gh write
   (covers 3, 5)
-- unit: claude/hooks/ship.test.ts — conflict after a same-run squash ends per
-  the open question's answer (covers 3)
+- unit: claude/hooks/ship.test.ts — conflict after a same-run squash: HEAD stays
+  on the squash commit, `rebase --abort` runs, the text says the squash was kept
+  and prints `git reset --soft <pre-ship sha>` with the real pre-ship HEAD; a
+  follow-up ship after the printed hand rebase only restacks (covers 3)
 - unit: claude/hooks/ship.test.ts — a rebase failing with no rebase in progress
   (old git) reports stderr, runs no abort (covers 4)
 - unit: claude/hooks/ship.test.ts — hand restack of a three-slice stack: no
@@ -364,3 +347,9 @@ in progress, and ship reports that stderr with refs unchanged.
 
 No: the mod has no cucumber tier; `claude/hooks/ship.test.ts`'s scripted
 repository stands in, as concern 5 allows.
+
+### A restack conflicts in a run that squashed a process first: does the squash stay?
+
+Keep the squash: refs end as before the restack, so the printed rebase moves one
+squashed commit per slice; the failure text names the pre-ship sha to undo the
+squash by hand.
