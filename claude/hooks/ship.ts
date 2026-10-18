@@ -865,12 +865,12 @@ async function finishResume(
 
 // The lease is origin's sha as read here, never origin/<b>: a fetch rewrites
 // that. Checked before any rebase, squash or push, so a refusal changes
-// nothing; `known(l)` is a commit of the branch before it was restacked.
+// nothing; `known(l, sha)` is a commit of the branch before it was restacked.
 async function originLeases(
   io: ShipIo,
   ok: Ok,
   links: Link[],
-  known: (l: Link) => string,
+  known: (l: Link, sha: string) => string,
 ): Promise<Link[] | string> {
   const read = await io.run([
     "git",
@@ -890,7 +890,7 @@ async function originLeases(
       sha &&
       !(
         (await ok("cat-file", "-e", sha)) &&
-        (await ok("merge-base", "--is-ancestor", sha, known(l)))
+        (await ok("merge-base", "--is-ancestor", sha, known(l, sha)))
       )
     )
       return `origin/${l.branch} holds commits ${l.branch} lacks; nothing changed. Pull or reconcile ${l.branch}, then ship.`
@@ -1028,8 +1028,18 @@ async function handRestack(
     branch: branchOf(done + j),
     commit: commits[j] ?? head,
   }))
-  // The pre-rebase tips are gone: origin's copies are judged against the top.
-  const links = await originLeases(io, ok, slices, () => top)
+  // The pre-rebase tips are gone: origin's copies are judged against the recorded
+  // top, or pass as a former tip of the local branch. The top is stale once the
+  // top branch is re-shipped or restacked with more than one commit above.
+  const tips = new Map<string, string[]>()
+  for (const s of slices)
+    tips.set(
+      s.branch,
+      (await git("reflog", "show", "--format=%H", `refs/heads/${s.branch}`)).split("\n"),
+    )
+  const links = await originLeases(io, ok, slices, (l, sha) =>
+    tips.get(l.branch)!.includes(sha) ? sha : top,
+  )
   if (typeof links === "string") return links
   const restack: Restack = {
     preview: [

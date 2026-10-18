@@ -2494,6 +2494,30 @@ describe("ship stack", () => {
         expect(ran().some((c) => writes.test(c))).toBe(false)
       })
 
+      test("a top branch re-shipped since the recorded top passes as a former local tip", async () => {
+        const { io, ran } = repo({
+          ...hand,
+          [`git merge-base --is-ancestor ${O} ${S3}`]: { code: 1 },
+          "git reflog show --format=%H refs/heads/feat/x": { out: `${N1}\n${O}\n${S3}\n` },
+        })
+        expect(await ship(io, false)).toMatchObject({ ok: true })
+        expect(ran()).toContain(`git merge-base --is-ancestor ${O} ${O}`)
+        expect(ran()).toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
+      })
+
+      test("a top branch origin holds unseen commits on still refuses", async () => {
+        const { io, ran } = repo({
+          ...hand,
+          [`git merge-base --is-ancestor ${O} ${S3}`]: { code: 1 },
+          "git reflog show --format=%H refs/heads/feat/x": { out: `${N1}\n${S3}\n` },
+        })
+        expect(await ship(io, false)).toEqual({
+          ok: false,
+          text: "origin/feat/x holds commits feat/x lacks; nothing changed. Pull or reconcile feat/x, then ship.",
+        })
+        expect(ran().some((c) => writes.test(c))).toBe(false)
+      })
+
       test("a lowest branch off origin/<default> is not a hand restack: the record drops", async () => {
         const { io, ran } = repo({
           ...hand,
