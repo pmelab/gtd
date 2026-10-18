@@ -325,6 +325,36 @@ async function retireStack(io: ShipIo, branch: string, live: string[]) {
 
 const names = (raw: string) => raw.split(/\s+/).filter(Boolean)
 
+// No gtd process at HEAD: nothing to squash, so only a recorded stack can resume.
+async function resumeAlone(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  isDry: boolean,
+  mode: ShipMode,
+): Promise<Shipped & { stack?: Link[]; floor?: string; forget?: boolean; restack?: Restack }> {
+  io.log(`No gtd process at HEAD, so nothing is squashed; ${branch} is described as it stands.`)
+  if (mode !== "stack") return { ok: true, text: "", forget: true }
+  const found = await resumable(io, git, ok, branch, isDry, "HEAD")
+  if (typeof found === "string") return fail(found)
+  const failed = await found.revive?.()
+  if (failed) return fail(failed)
+  if (found.restack && !isDry) {
+    const moved = await found.restack.run()
+    if (typeof moved === "string") return fail(moved)
+    return { ok: true, text: "", stack: moved.links, floor: moved.floor, forget: moved.forget }
+  }
+  return {
+    ok: true,
+    text: "",
+    stack: found.links,
+    floor: found.floor,
+    forget: found.forget,
+    restack: found.restack,
+  }
+}
+
 async function plan(
   io: ShipIo,
   git: Git,
@@ -336,27 +366,7 @@ async function plan(
   Plan | (Shipped & { stack?: Link[]; floor?: string; forget?: boolean; restack?: Restack })
 > {
   const probe = await io.run(["gtd", "summary"])
-  if (probe.code !== 0) {
-    io.log(`No gtd process at HEAD, so nothing is squashed; ${branch} is described as it stands.`)
-    if (mode !== "stack") return { ok: true, text: "", forget: true }
-    const found = await resumable(io, git, ok, branch, isDry, "HEAD")
-    if (typeof found === "string") return fail(found)
-    const failed = await found.revive?.()
-    if (failed) return fail(failed)
-    if (found.restack && !isDry) {
-      const moved = await found.restack.run()
-      if (typeof moved === "string") return fail(moved)
-      return { ok: true, text: "", stack: moved.links, floor: moved.floor, forget: moved.forget }
-    }
-    return {
-      ok: true,
-      text: "",
-      stack: found.links,
-      floor: found.floor,
-      forget: found.forget,
-      restack: found.restack,
-    }
-  }
+  if (probe.code !== 0) return resumeAlone(io, git, ok, branch, isDry, mode)
   const listed = await io.run(["gtd", "slices", "--json"])
   if (listed.code !== 0) return fail(`gtd slices failed; nothing changed.\n${listed.err}`.trimEnd())
   const slices = readSlices(listed.out)
@@ -786,6 +796,37 @@ async function resumable(
     )
     return { forget: true }
   }
+  return finishResume(io, git, ok, {
+    branch,
+    recorded,
+    done,
+    views,
+    top,
+    commits,
+    missing,
+    isDry,
+    branchOf,
+  })
+}
+
+async function finishResume(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  c: {
+    branch: string
+    recorded: string[]
+    done: number
+    views: (View | undefined)[]
+    top: string
+    commits: string[]
+    missing: number[]
+    isDry: boolean
+    branchOf: (i: number) => string
+  },
+): Promise<Resumed | string> {
+  const { branch, recorded, done, views, top, commits, missing, isDry, branchOf } = c
+  const last = recorded.length - 1
   const floor = done
     ? await git("rev-parse", "--verify", "--quiet", `${top}~${last - (done - 1)}`)
     : undefined
