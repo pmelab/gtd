@@ -8,7 +8,7 @@ step trailers exist (`772d69db`), on a branch and its `refs/gtd/history/*` ref
 only, not on `main`. **No `Gtd-Mark: risk-tier` trailer exists anywhere.** The
 options differ in whether this branch ships a run, a doc change, or both.
 
-- [ ] Scope the acceptance line to default-flag gates
+- [x] Scope the acceptance line to default-flag gates
   - SDLC.md's #371 line becomes a stated scope: flag-gated gates (`seam.judge`,
     risk tier) leave trailers only when their flag is on
   - Docs-only change; closes #371 now
