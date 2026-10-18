@@ -239,3 +239,67 @@ Keep
 `// Always captured: a live state's failures are what later states are compared against.`,
 because it gives a reason. Keep `/** A bare status carries no output ... */`
 only while `asResult` exists.
+
+## spec-challenge: shipping a runner change "behind a release flag" breaks the flag invariants the spec never addressed
+
+REQUIREMENTS.md concern 1 says `npm test` stops repeating a failure, and that it
+is done when one test red in all three states gives one state's output. It does
+not say how a change to the test runner fits SDLC.md's "Work merges to `main`
+behind a release flag". The build settled that by adding `condense_failures` to
+`FLAGS` with `kind: "release"`. That choice conflicts with invariants other code
+and docs rely on:
+
+- **The cleanup guard misses this flag's read.** SDLC.md says to branch on the
+  pinned `flag_<name>` setting and to mark the branch with a literal
+  `GTD_FLAG_<NAME>`, because "the cleanup refusal sees only the literal". The
+  `cleanup` flow only scans `src/**/*.ts(x)` for that literal. The flag's one
+  reader is `scripts/test-states.main.ts`
+  (`resolveFlags(process.env).condense_failures`), which is outside `src/` and
+  has no marker. So `gtd cleanup --var flag=condense_failures` passes its guard
+  and lands. Then `typecheck` goes red, because tsconfig includes `scripts` and
+  `Flags<typeof FLAGS>` rejects a name that was removed. The stale
+  `GTD_FLAG_CONDENSE_FAILURES` paragraph in `docs/development.md` also survives.
+- **The read is not at a composition point, and nothing pins it at process
+  start.** SDLC.md says a flag is read "only at the composition point" and
+  "pinned at process start". The runner reads the ambient env directly. It does
+  not use the per-state env that `planStates` builds. That is why the
+  `condense_failures on` state differs from `defaults` only in a variable that
+  nobody reads.
+- **`planStates` gives every release flag its own state.** AGENTS.md: "each
+  release flag adds a full vitest pass to every gate". The spec's done-when
+  names exactly three states (defaults, `naive_pass` on, `risk_tier` on), so it
+  assumed no new flag state. Now there are four. (The cost is in the ponytail
+  finding.)
+- **With the flag off by default, the done-when is not met by what the gates
+  run.** `start-gate`, `review-gate` and the health check run plain `npm test`
+  without `GTD_FLAG_CONDENSE_FAILURES`. So the repeated output that #372(b)
+  complained about still appears until a `rollout`. The closing comment the spec
+  plans for #372 ("(b) is done") would then be wrong.
+
+Fix: amend the spec to say that a tooling-only change in `scripts/` is not
+product work and needs no release flag (it ships no gtd behaviour to users).
+Then make condensing either the runner's unconditional behaviour or a plain
+runner option (a `--condense` arg or a non-`GTD_FLAG_` env var) that `npm test`
+turns on. Drop the `FLAGS` entry. If a flag must stay, the spec has to say how
+cleanup reaches `scripts/` and how the gates run with it on.
+
+## spec-challenge: the spec's "same failures" test cannot be computed from what `npm test` emits
+
+The spec defines a match as "same failing tasks and same failing test names".
+Two existing facts make that unanswerable as written:
+
+- `turboArgv` (pinned by `turboArgv puts forwarded args after the task names` to
+  `["run", ...tasks, ...args]`) passes no `--continue`. Turbo stops at the first
+  failed task, so the "failing tasks" set holds only one task.
+- The repo's own reporter (`tests/vitest.reporter.ts`, set in
+  `vitest.config.ts`) prints `FAIL <fullName>` with no file. Non-vitest tasks
+  print no test names at all.
+
+So the spec's equality is under-specified for most failures, which come out as
+empty name lists or truncated task sets. The build resolved that silently, as
+"equal". See the correctness findings above for what that does.
+
+Fix: amend the spec to say that condensing runs turbo with `--continue`, which
+changes the argv invariant and its test on purpose. It should also define the
+match for a task with no test names (never equal, or equal only on matching
+normalised output) instead of leaving it to the implementation.
