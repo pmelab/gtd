@@ -176,3 +176,30 @@ Fix: build the fixture states with
 `planStates([flag("alpha"), flag("beta")], {})`. Have `turboOut` emit a hash
 line per task that differs per state. Move the flag-specific novel failure into
 a second vitest task, for example `test:workflows`.
+
+## conventions: live streaming reaches the terminal outside the port
+
+AGENTS.md: "reach every external resource (git, a shell, a file outside the
+repository, the network, a spawned program) through a port with a live and an
+in-memory implementation, and hold the two together with a contract test that
+runs the same cases against both."
+
+`runStates` gets its output sink injected (`condense.print`), but `spawnTurbo`
+writes a live state straight to `process.stdout`/`process.stderr` and decides
+`--color` from `process.stdout.isTTY`. So the terminal is reached two ways: one
+injected, one global. The tests pay for it. `passes --color=…` redefines
+`process.stdout.isTTY` with `Object.defineProperty`, and
+`captures both streams, and streams them only when live` spies on
+`process.stdout.write` and `process.stderr.write` (global mutation inside a
+parallel vitest worker). `returns null and reports…` swaps `console.error` by
+hand for the same reason.
+
+The "contract test"
+(`parses the same through spawnTurbo and the in-memory output`) does not meet
+the rule's bar either: it never runs the `stub`/`feed` fakes that `runStates`
+tests use. See the test-audit chunk above.
+
+Fix: pass the sinks and the TTY bit into `spawnTurbo` (for example
+`{ out, err, tty }`, defaulting to `process.*` only in `test-states.main.ts`),
+the same way `print` is passed to `runStates`. The tests then pass recording
+sinks and drop the `defineProperty`/`spyOn` patching.
