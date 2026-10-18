@@ -1,28 +1,5 @@
 # Requirements: PR 401 review 3 — declared-tests guard follow-ups
 
-## Open Questions
-
-### What should the refusal tell a builder who created a test marked (unchanged)?
-
-The marker promises the test already exists, so a test the build turn added
-means decompose marked it wrongly. The builder cannot edit the package text, so
-the fix it is told to make decides whether the turn can ever pass.
-
-- [x] Name the broken promise and say to stop and leave it to a person
-  - matches the build prompt's existing rule: "if the marker is wrong … stop and
-    leave it to a person"
-  - the turn stays refused until a human fixes the package
-  - no bouncing between two refusals
-- [ ] Tell it to delete the added test
-  - mirrors the "revert them" / "restore them" wording
-  - **risk: deleting it trips "missing from the tree" next turn — the builder
-    ping-pongs between two refusals, a new #373-style loop**
-- [ ] List it under the existing "missing from the tree" group, worded as
-      "absent when the package started"
-  - no new group; one message covers every marked test that never existed
-  - less precise: hides that the turn wrote the file
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. Refuse a build turn that adds a test marked (unchanged) — PRODUCT
@@ -35,7 +12,11 @@ passes because it exists in the tree.
 - Scope: **build turn only**; fix turns keep today's behaviour
 - **The unmarked entry still wins** when a path is listed both marked and
   unmarked — that file is written by the package, adding it is fine
-- The refusal gets its own wording (see the open question)
+- **The refusal names the broken promise and tells the builder to stop and leave
+  it to a person** — its own group, never "delete it": deleting trips "missing
+  from the tree" next turn, a #373-style ping-pong. The turn stays refused until
+  a human fixes the package; wording matches the build prompt's "if the marker
+  is wrong … stop and leave it to a person"
 - The build prompt and README state the new rule: a marked test must exist
   before the turn, and the turn must not create, edit or delete it
 - New `@inmem` scenario in `tests/integration/features/declared-tests.feature`:
@@ -79,3 +60,9 @@ the only way one path reaches the list twice, so a single dedupe settles it.
 
 No — deleting them alongside a narrowly scoped directive is a dismissal; they
 concern unrelated code (CLI stdout test, `gtd history list`, a doc comment).
+
+### What should the refusal tell a builder who created a test marked (unchanged)?
+
+Name the broken promise and say to stop and leave it to a person, in its own
+group — the human's pick; it matches the build prompt's rule and avoids bouncing
+between the "added" and "missing" refusals.
