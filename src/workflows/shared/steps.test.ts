@@ -75,7 +75,7 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
   })
 
   it("reviewing carries build.review.reviewing's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.reviewing("base"), "build"))
+    const prompt = agentPrompt(await capture(() => steps.reviewing("base", "first"), "build"))
     expect(prompt).toContain("code-review-and-quality")
   })
 
@@ -100,8 +100,8 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
   })
 
   it("reviewing names the carry-over commit only when given one", async () => {
-    const bare = await capture(() => steps.reviewing("base"), "build")
-    const carried = await capture(() => steps.reviewing("base", "abc1234"), "build")
+    const bare = await capture(() => steps.reviewing("base", "first"), "build")
+    const carried = await capture(() => steps.reviewing("base", "first", "abc1234"), "build")
     if (bare.kind !== "agent" || carried.kind !== "agent") throw new Error("unreachable")
     expect(bare.prompt).not.toContain("Carry-over")
     expect(carried.prompt).toContain("Carry-over: commit `abc1234`")

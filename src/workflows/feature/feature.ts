@@ -27,18 +27,23 @@ export const unwind = (): Promise<void> => {
 export { reUnwind }
 
 /** Plan, build and review until a review round signs off; feedback re-plans from scratch. */
-export const planAndBuild = async (firstBase: string): Promise<void> => {
+export const planAndBuild = async (
+  firstBase: string,
+  firstLap: t.ReviewLap = "first",
+): Promise<void> => {
   // GTD_FLAG_NAIVE_PASS: the record is pinned at the process start, so a mid-process flip never moves a process.
   if (vars.flag_naive_pass === "1") return naivePlanAndBuild(firstBase)
   let base = firstBase
+  let lap = firstLap
   for (;;) {
     await design(base)
     await architecture()
     await packages()
-    const outcome = await buildTail(false, base, true)
+    const outcome = await buildTail(false, base, true, lap === "first" ? {} : { lap })
     if (outcome.verdict === "signoff") return
     await reUnwind(outcome)
     base = outcome.base
+    lap = "feedback"
   }
 }
 
@@ -64,7 +69,10 @@ const featureFeedback = async (first: ReviewOutcome, lensBase?: string): Promise
     await design(outcome.base)
     const tier = riskTierOn() ? recordRisk() : undefined
     await implement(undefined, tier, true)
-    outcome = await buildTail(false, outcome.base, true, lensBase === undefined ? {} : { lensBase })
+    outcome = await buildTail(false, outcome.base, true, {
+      lap: "feedback",
+      ...(lensBase === undefined ? {} : { lensBase }),
+    })
   }
 }
 
@@ -73,7 +81,7 @@ export const afterTail = async (outcome: ReviewOutcome): Promise<void> => {
   if (outcome.verdict === "signoff") return
   if (vars.flag_naive_pass === "1") return featureFeedback(outcome)
   await reUnwind(outcome)
-  await planAndBuild(outcome.base)
+  await planAndBuild(outcome.base, "feedback")
 }
 
 /** An ordinary start: wait at `idle`, unwind the sketch, check the baseline, then plan and build. */

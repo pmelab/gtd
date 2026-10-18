@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { runsItsScript, testRepo } from "../../testkit/index.js"
+import type { Actor } from "../../testkit/TestRepo.js"
 import { CONFIG_SCAFFOLD } from "../../install/index.js"
 import { reviewDoc } from "../shared/config.fixture.js"
 
@@ -135,7 +136,10 @@ describe("afterTail feedback lap", () => {
     `}`,
   ].join("\n")
 
+  const prompts: string[] = []
+
   const feedbackLap = async (flag: "0" | "1") => {
+    prompts.length = 0
     const repo = testRepo({
       workflow: TAIL,
       env: { GTD_QUALITYREVIEWS: "", GTD_FLAG_NAIVE_PASS: flag, GTD_FLAG_RISK_TIER: "0" },
@@ -146,7 +150,10 @@ describe("afterTail feedback lap", () => {
     await repo.drive({
       "review-gate.check": () => undefined,
       "build.health.check": () => undefined,
-      "build.review.reviewing": (_: unknown, r: typeof repo) => r.write(".gtd/REVIEW.md", review()),
+      "build.review.reviewing": (beat, r) => {
+        prompts.push(beat.content)
+        r.write(".gtd/REVIEW.md", review())
+      },
     })
     repo.write(".gtd/REVIEW.md", review("also export multiply"))
     await repo.land()
@@ -187,6 +194,41 @@ describe("afterTail feedback lap", () => {
     const rest = await repo.drive(afterFeedback)
     expect(rest.state).toBe("architecture.author")
   })
+
+  it.each(["0", "1"] as const)(
+    "flag_naive_pass=%s: the first review says everything since base, the one after feedback only what is new",
+    async (flag) => {
+      const repo = await feedbackLap(flag)
+      expect(prompts[0]).toContain("it covers everything since the base")
+      expect(prompts[0]).not.toContain("only what is new since the previous review")
+      const writes: Record<string, () => [string, string]> = {
+        "design.triage": () => [".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply, designed\n"],
+        "implement.building": () => ["src/calc.ts", `${CALC}// again\n`],
+        "packages.item.building": () => ["src/calc.ts", `${CALC}// package\n`],
+        "architecture.author": () => [".gtd/ARCHITECTURE.md", "# Architecture\n\nmultiply\n"],
+        "architecture.decompose.decomposing": () => [
+          ".gtd/packages/01-multiply.md",
+          "# 01 multiply\n",
+        ],
+      }
+      const actors = new Proxy({} as Record<string, Actor>, {
+        get: (_, state: string): Actor | undefined =>
+          state === "build.review.await-review" || state === "idle"
+            ? undefined
+            : (beat, r) => {
+                if (state === "build.review.reviewing") {
+                  prompts.push(beat.content)
+                  r.write(".gtd/REVIEW.md", review())
+                } else if (writes[state]) r.write(...writes[state]())
+                else if (state.endsWith("closing") || state === "re-unwind")
+                  r.runScript(beat.content)
+              },
+      })
+      await repo.drive(actors, { maxBeats: 80 })
+      expect(prompts[1]).toContain("it covers only what is new since the previous review")
+      expect(prompts[1]).not.toContain("everything since the base")
+    },
+  )
 })
 
 describe("an in-flight 28.0.0 naive-pass process", () => {

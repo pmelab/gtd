@@ -311,6 +311,158 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
         """
 
+    Scenario: the refactor review says the whole refactor on its second round, the feature's feedback review only what is new
+      Given step "refactor.build.review.reviewing" is prompted with "it covers the whole refactor since it started, on every round"
+      And step "implement.building" writes "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        export const subtract = (a: number, b: number) => op(a, b, -1)
+        """
+      And step "implement.health.check" changes nothing
+      And step "implement.closing" runs its script
+      And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op
+        """
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op[^why]
+
+        [^why]:
+            - H: name the helper `combine`
+        """
+      And step "refactor.build.review.collecting" writes ".gtd/REFACTOR.md" with:
+        """
+        Name the shared helper `combine`.
+        """
+      And step "refactor.build.review.collecting" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op[^why]
+
+        [^why]:
+            - H: name the helper `combine`
+            - A: noted in the refactor package.
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op
+        """
+      And step "refactor.re-unwind" runs its script
+      And step "refactor.deriving" runs its script
+      And step "refactor.building" writes "src/calc.ts" with:
+        """
+        export const combine = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => combine(a, b, 1)
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      When gtd lands
+      And the process is driven
+      Then the process rests at "build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op[^m]
+
+        [^m]:
+            - H: also export multiply
+        """
+      And step "build.review.collecting" writes ".gtd/REQUIREMENTS.md" with:
+        """
+        # Requirements
+
+        - multiply
+        """
+      And step "build.review.collecting" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op[^m]
+
+        [^m]:
+            - H: also export multiply
+            - A: noted.
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-3
+          subtract built on the shared op
+        """
+      And step "build.review.closing" runs its script
+      And step "re-unwind" runs its script
+      And step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
+        """
+        # Requirements
+
+        - multiply, designed
+        """
+      And step "implement.building" writes "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        export const subtract = (a: number, b: number) => op(a, b, -1)
+        export const multiply = (a: number, b: number) => a * b
+        """
+      And step "build.review.reviewing" is prompted with "it covers only what is new since the previous review"
+      When gtd lands
+      And the process is driven
+      Then the process rests at "build.review.await-review"
+
     Scenario: a question answered at the refactor review reaches the re-derived package as ### Answered Questions
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"

@@ -26,7 +26,7 @@ const inPackage = (step: () => Promise<void>) => () => scope("packages", () => s
 // first queued package; collecting reads its capture from
 // `.gtd/REVIEW_RAW.md`, where an eval fixture puts it. `evals/fixture.mjs`
 // derives the name from the case's `state`.
-export const buildReviewReviewing = () => scope("build", () => reviewing(start()))
+export const buildReviewReviewing = () => scope("build", () => reviewing(start(), "first"))
 export const buildReviewCollecting = () =>
   scope("build", () => collecting(read(".gtd/REVIEW_RAW.md") ?? ""))
 export const designTriage = () => scope("design", () => triage(start()))

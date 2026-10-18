@@ -188,7 +188,7 @@ export const review = (
     isCode,
     reviewing: (b, carry) => {
       deferred = []
-      return reviewing(b, carry)
+      return reviewing(b, options.lap ?? "first", carry)
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
@@ -269,6 +269,8 @@ export interface BuildTailOptions {
   readonly lensBase?: string
   /** Appended to every fix and describe prompt of the tail. */
   readonly rules?: string
+  /** Which review round the reviewer writes; absent: "first". */
+  readonly lap?: t.ReviewLap
 }
 
 /** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */

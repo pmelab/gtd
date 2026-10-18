@@ -1013,8 +1013,19 @@ ${removed.map(({ path, lines }) => lines.map((a) => `    ${path} — ${a.scenari
 `
 }`
 
+/** Which review round the reviewer writes; the caller says, the prompt never infers it from `base`. */
+export type ReviewLap = "first" | "feedback" | "refactor"
+
+const lapRange: Record<ReviewLap, string> = {
+  first: "it covers everything since the base.",
+  feedback:
+    "it starts at the previous review's boundary, so it covers only what is new since the previous review.",
+  refactor: "it covers the whole refactor since it started, on every round.",
+}
+
 export const buildReviewReviewingPrompt = (
   base: string,
+  lap: ReviewLap,
   carry?: string,
   removed: readonly RemovedAssertions[] = [],
 ): string =>
@@ -1062,8 +1073,7 @@ review the changes:
   — that parses as a second pointer, not a note
 ${scenariosPrompt(removed)}No diff is given — read the changes yourself. The range runs
 from \`${base}\` to the working tree (committed turns
-plus anything pending); on a feedback round that's the previous
-review's boundary, so it covers only what's new.
+plus anything pending); ${lapRange[lap]}
 
 ${
   carry === undefined

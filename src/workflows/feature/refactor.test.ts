@@ -1048,3 +1048,17 @@ describe("reviewedRefactor's tail prompts", () => {
     },
   )
 })
+
+describe("reviewedRefactor's review lap wording", () => {
+  it("says the whole refactor since it started on the first and the second round", async () => {
+    const h = await driveReviewed(shape(), { notes: ["add — rename it", undefined] })
+    const prompts = h.steps.flatMap((s) =>
+      s.kind === "agent" && s.name === "review.reviewing" ? [s.prompt] : [],
+    )
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) {
+      expect(prompt).toContain("it covers the whole refactor since it started, on every round")
+      expect(prompt).not.toContain("only what is new since the previous review")
+    }
+  })
+})

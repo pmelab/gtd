@@ -731,7 +731,7 @@ describe("code threads in prompts", () => {
 
 describe("buildReviewReviewingPrompt risk marking", () => {
   it("states the Risk: marker rule and the re-review rule", () => {
-    const prompt = renderText(() => buildReviewReviewingPrompt("base"))
+    const prompt = renderText(() => buildReviewReviewingPrompt("base", "first"))
     expect(prompt).toContain("Open a hunk's note with `Risk:` only for a concrete defect")
     expect(prompt).toContain("never a style remark")
     expect(prompt).toContain("describe what the fix changed under the")
@@ -841,7 +841,7 @@ describe("deferNotesScript — the in-memory recognizer agrees with the real sh 
 describe("buildReviewReviewingPrompt scenarios", () => {
   it("names each removed assertion and asks for a Weakened: note", () => {
     const prompt = renderText(() =>
-      buildReviewReviewingPrompt("base", undefined, [
+      buildReviewReviewingPrompt("base", "first", undefined, [
         {
           path: "e2e/a.feature",
           lines: [{ scenario: "Scenario: shown", line: "Then it is shown" }],
@@ -853,7 +853,7 @@ describe("buildReviewReviewingPrompt scenarios", () => {
   })
 
   it("asks for no Weakened: note when nothing was removed", () => {
-    const prompt = renderText(() => buildReviewReviewingPrompt("base"))
+    const prompt = renderText(() => buildReviewReviewingPrompt("base", "first"))
     expect(prompt).toContain("## Scenarios")
     expect(prompt).not.toContain("Weakened:")
   })
@@ -1123,4 +1123,22 @@ describe("the rules-taking fix prompts", () => {
     expect(plain).toContain("add a test")
     expect(ruled).not.toContain("add a test")
   })
+})
+
+describe("buildReviewReviewingPrompt lap wording", () => {
+  const ranges = {
+    first: "it covers everything since the base",
+    feedback: "it covers only what is new since the previous review",
+    refactor: "it covers the whole refactor since it started, on every round",
+  } as const
+  it.each(Object.keys(ranges) as (keyof typeof ranges)[])(
+    "%s renders its own range wording and neither of the other two",
+    (lap) => {
+      const prompt = renderText(() => buildReviewReviewingPrompt("base", lap))
+      for (const [other, wording] of Object.entries(ranges)) {
+        if (other === lap) expect(prompt).toContain(wording)
+        else expect(prompt).not.toContain(wording)
+      }
+    },
+  )
 })

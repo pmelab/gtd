@@ -91,10 +91,10 @@ export const fixQuality = (rules?: string): Promise<void> =>
   })
 
 /** Write `.gtd/REVIEW.md` over everything since `base`, carrying the answers of commit `carry` when given. */
-export const reviewing = (base: string, carry?: string): Promise<void> =>
+export const reviewing = (base: string, lap: t.ReviewLap, carry?: string): Promise<void> =>
   t.agentWithSkills(
     "review.reviewing",
-    t.buildReviewReviewingPrompt(base, carry, removedAssertions(changesSince(base))),
+    t.buildReviewReviewingPrompt(base, lap, carry, removedAssertions(changesSince(base))),
     {
       label: "Reviewing",
       file: REVIEW,
