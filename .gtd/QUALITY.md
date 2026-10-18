@@ -96,3 +96,29 @@ change touches either. Drop the loop, or replace it with an assertion that would
 catch a credible regression (e.g. `workflowNamed(name)?.name === name`). The
 regex derivation is fine for #372 (a). It is coupled to the
 `export const x = f(` shape, and the comment says so.
+
+## conventions: `TurboRun` JSDoc mostly restates its fields (scripts/test-states.ts)
+
+Nit. AGENTS.md, Comments: "Keep a comment ... only where it explains an
+important decision or genuinely unclear code ... Everything else (restatement of
+the code ...) gets deleted".
+`/** One turbo run: exit status and captured stdout (stderr stays inherited). */`
+repeats what `code` and `stdout` already say. Only the "stderr stays inherited"
+part tells the reader something, and `spawnTurbo`'s `stdio` line already shows
+it. Delete the JSDoc. If the stderr point should stay, put it as a short "why"
+at the `stdio` line: stderr stays live so turbo's error banner is never
+buffered.
+
+## conventions: `RunTasks` port gained a stdout contract with no contract test (scripts/test-states.ts, tests/tooling/test-states.test.ts)
+
+AGENTS.md, Testing: "reach every external resource (... a spawned program)
+through a port with a live and an in-memory implementation, and hold the two
+together with a contract test that runs the same cases against both." This
+change widens `RunTasks` from an exit code to `{ code, stdout }`, and every
+`runStates` behaviour it adds (collapse, print-on-fail) depends on what `stdout`
+holds. The in-memory side is the hand-written `stub`, and the live side is
+`spawnTurbo`. No shared case pins them together: the shim tests check only raw
+capture, never that the output carries the `<task>: ` lines `failureSignature`
+needs. This is the convention behind the mock/live drift chunk under
+correctness. The fix suggested there (one real-turbo case asserting a non-empty,
+stable signature) also satisfies this rule, so no separate work is needed.
