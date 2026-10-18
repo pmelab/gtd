@@ -14,7 +14,7 @@ re-ship the top slice is two, so `HEAD~1` is the old top commit, the ancestry
 check still passes, and `git branch -f` silently points the lower branch there.
 The same hits a retry after a `git branch -f` failure inside the re-ship itself.
 
-- [ ] Keep `gtdStackTop` at the commit the stack was built at; guard becomes
+- [x] Keep `gtdStackTop` at the commit the stack was built at; guard becomes
       "recorded top is an ancestor of HEAD", rebuild reads `<top>~n`
   - drops concern 2's literal "recorded top moves to the new HEAD"; the goal (a
     later resume's top check passes) still holds
