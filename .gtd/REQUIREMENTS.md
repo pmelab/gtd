@@ -8,7 +8,7 @@ The sketch says to pick one. It must edit an existing file outside `seamAllow`
 (tests, `.feature` files and `.gtd/**` don't count), or seam.judge has nothing
 to rule refactor-first on.
 
-- [ ] #372(b): dedupe health-check feedback across release-flag states
+- [x] #372(b): dedupe health-check feedback across release-flag states
   - edits the existing `scripts/test-states.ts` runner, which is a likely
     refactor seam
   - fixes real friction: one red test currently writes a 1187-line
@@ -34,7 +34,7 @@ isn't.
 - [ ] Ship whatever path ran, file the miss as `track:dogfood` friction, and
       leave #384 open
   - one run; #384 needs a second dogfood later
-- [ ] Unwind and restart the process with a change more clearly shaped as
+- [x] Unwind and restart the process with a change more clearly shaped as
       refactor-first
   - acceptance stays in reach in this branch; costs a full extra run
 - [ ] _your answer_
@@ -48,7 +48,7 @@ the file".
 
 - [ ] Drop them
   - nothing tracks them any more
-- [ ] File them as one GitHub issue and keep them out of this process
+- [x] File them as one GitHub issue and keep them out of this process
   - the dogfood diff stays focused on the chosen change
 - [ ] Fold them into this process as extra concerns
   - they touch only tests and a comment, so they land in the feature slice, not
