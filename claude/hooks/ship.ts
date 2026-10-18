@@ -216,10 +216,20 @@ export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promis
     ? await stackPullRequests(io, git, ok, stack, baseBranch, baseRef, floor)
     : await pullRequest(io, git, ok, branch, baseBranch, baseRef, recorded)
   // A stale retired record must not take a stack this ship just recorded with it.
-  if (opened.ok && squashed.forget) await forgetStack(io, branch)
-  else if (opened.ok && retired.length && (!live.length || squashed.recorded))
-    await io.run(["git", "config", "--local", "--unset", RETIRED_KEY(branch)])
+  if (opened.ok) await settleRecords(io, branch, squashed, live.length > 0, retired.length > 0)
   return withWarning(opened, squashed.warning)
+}
+
+async function settleRecords(
+  io: ShipIo,
+  branch: string,
+  squashed: { forget?: boolean; recorded?: boolean },
+  hadLive: boolean,
+  hadRetired: boolean,
+): Promise<void> {
+  if (squashed.forget) return forgetStack(io, branch)
+  if (hadRetired && (!hadLive || squashed.recorded))
+    await io.run(["git", "config", "--local", "--unset", RETIRED_KEY(branch)])
 }
 
 function withWarning(r: Shipped, warning?: string): Shipped {
