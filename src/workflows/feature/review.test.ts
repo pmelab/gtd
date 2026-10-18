@@ -821,6 +821,56 @@ describe("BuildTailOptions.lensBase", () => {
     expect(legacy).toEqual(modern)
     expect(legacy).toHaveLength(2)
   })
+
+  describe("deprecated positional mapping", () => {
+    const requestNames = async (call: () => Promise<unknown>): Promise<string[]> => {
+      const names: string[] = []
+      installContext(
+        fixtureContext(
+          {},
+          {
+            step: (request: StepRequest) => {
+              if (request.kind === "restart") return Promise.resolve()
+              names.push(`${request.kind}:${request.name}`)
+              if (names.length >= 4) throw new Stop()
+              return Promise.resolve()
+            },
+            pushScope: () => undefined,
+            popScope: () => undefined,
+            changesSince: () => {
+              throw new Stop()
+            },
+            start: () => "START-SHA",
+          },
+        ),
+      )
+      await call().catch((error: unknown) => {
+        if (!(error instanceof Stop)) throw error
+      })
+      return names
+    }
+
+    for (const [fixFirst, green] of [
+      [true, false],
+      [true, true],
+      [false, true],
+      [false, false],
+    ] as const) {
+      it(`fixFirst ${fixFirst}, green ${green} match the options form`, async () => {
+        const modern = await requestNames(() => buildTail("base", { fixFirst, green }))
+        const legacy = await requestNames(() => buildTail(fixFirst, "base", green))
+        expect(legacy).toEqual(modern)
+      })
+    }
+
+    it("fixFirst and green each change the request sequence", async () => {
+      const seq = (fixFirst: boolean, green: boolean) =>
+        requestNames(() => buildTail(fixFirst, "base", green))
+      const base = await seq(false, false)
+      expect(await seq(true, false)).not.toEqual(base)
+      expect(await seq(false, true)).not.toEqual(base)
+    })
+  })
 })
 
 describe("buildTail without rules", () => {

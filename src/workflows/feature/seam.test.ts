@@ -249,9 +249,14 @@ describe("implement", () => {
   }
 
   it("the deprecated positional form renders the same prompt as the options form", async () => {
-    const modern = await building("abc", "high", true)
-    const legacy = await building("abc", "high", true, () => implement("abc", "high", true))
+    const modern = await building("abc", "low")
+    const legacy = await building("abc", "low", undefined, () => implement("abc", "low"))
     expect(legacy).toBe(modern)
+    expect(legacy).toContain("git show abc")
+    const amended = await building(undefined, undefined, true)
+    expect(
+      await building(undefined, undefined, undefined, () => implement(undefined, undefined, true)),
+    ).toBe(amended)
     const bare = await building(undefined, undefined, undefined, () => implement())
     expect(bare).toBe(await building(undefined))
   })
