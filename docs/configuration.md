@@ -593,7 +593,9 @@ it; omitted, it carries no reference line.
 which is `refactorFirst` plus the refactor's quality lap and review inside the
 same `refactor` scope, so the tail's steps are `refactor.build.*`; it resolves
 `true` on sign-off and `false`, running no step, on exactly the shapes
-`refactorFirst` rejects.
+`refactorFirst` rejects. The review tail's fix-check, quality-fix, risk-fix,
+nit-fix and describe turns (`refactor.build.*`) are guarded and prompted with
+the same rules as the refactor's own turns below.
 
 It runs inside the scope `refactor`, whose write access is the strays plus
 `.gtd/**`, in these steps: `refactor.deriving` (writes `.gtd/REFACTOR.md`, a
@@ -633,10 +635,11 @@ A blank or invalid `refactorFlagPattern` throws before the first step, naming
 the setting. A pattern that produces a zero-length match (a lookahead-only
 pattern such as `(?=GTD_FLAG_\w+)`) on a stray throws before the first step, and
 on text a turn introduces refuses the landing, naming the setting. The shipped
-`feature` flow runs `refactorFirst` only on the
-[naive-pass path](#the-naive-pass-path); call it from your own workflow after
-`judgeDiffShape`, with a suite that is already green: the fix turns may touch
-only the strays, so they cannot repair a failure outside them.
+`feature` flow runs `reviewedRefactor` on the
+[naive-pass path](#the-naive-pass-path); call `refactorFirst` or
+`reviewedRefactor` from your own workflow after `judgeDiffShape`, with a suite
+that is already green: the fix turns may touch only the strays, so they cannot
+repair a failure outside them.
 
 ### The naive-pass path
 
@@ -681,13 +684,28 @@ a new flag read cannot be built: abandon and restart.
 
 A refactor-review round carrying an `edit` note or a code hand-edit whose
 collecting turn writes no `.gtd/REFACTOR.md` and changes nothing is never signed
-off: `gtd land` refuses the collecting landing (`refactor-feedback`), naming
-every left-out note and edited path. The only way out is `gtd abandon`, which
-throws away the naive pass, the refactor and its review. A praise-only round
-still signs off; the feature review signs off on a round that changes nothing.
+off: `gtd land` refuses the collecting landing (`refactor-feedback`). A
+hand-edit round's refusal names the edited paths. A notes-only round's refusal
+names the notes judged `edit`, footnotes included, never praise or questions.
+The only way out is `gtd abandon`, which throws away the naive pass, the
+refactor and its review. A praise-only round still signs off; the feature review
+signs off on a round that changes nothing.
 
-**Upgrading:** a process resting at `seam.approve` must `gtd abandon`; the step
-is gone.
+Footnotes are judged like line notes. A `- H:` thread left in `.gtd/REVIEW.md`
+at the refactor review gets one `- A:` reply and the gate rests again; a thread
+folds into `.gtd/REFACTOR.md` only when it asks for a change.
+
+**Upgrading:** two migrations.
+
+- `seam.approve` is gone; the refactor's review sign-off is the approval. A
+  `GTD_FLAG_NAIVE_PASS` process from any 28.x release whose judge ruled
+  `refactor-first` no longer replays at any rest from that verdict on —
+  `seam.approve`, every `refactor.*` step, and every `implement.*` and `build.*`
+  step after the refactor — and must `gtd abandon`. Processes that rest at
+  `design.*`, `seam.naive`, `seam.judge`, `seam.steer`, or past a `land` verdict
+  (including after a feature feedback lap) keep replaying.
+- `seamBuild(tier)` became `seamBuild(base)` and resolves `{ reference, base }`.
+  It no longer runs `implement`; a custom workflow calls `implement` itself.
 
 With `GTD_FLAG_RISK_TIER` also on, `design.triage` proposes a risk tier (`low`
 or `high`, with a one-line reason) under `## Risk Tier` and the signals to watch

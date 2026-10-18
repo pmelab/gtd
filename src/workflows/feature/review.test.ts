@@ -811,3 +811,77 @@ describe("BuildTailOptions.lensBase", () => {
     for (const prompt of prompts) expect(prompt).toContain("from `START-SHA`")
   })
 })
+
+describe("buildTail without rules", () => {
+  const RULES = "Change only these paths"
+
+  const tailPrompts = async (reds: number): Promise<Map<string, string>> => {
+    const prompts = new Map<string, string>()
+    let checks = 0
+    const files = new Map<string, string>([[".gtd/QUALITY.md", "- finding"]])
+    installContext(
+      fixtureContext(
+        { vars: { qualityReviews: "conventions" } },
+        {
+          step: (request: StepRequest) => {
+            if (request.kind === "restart") return Promise.resolve()
+            if (request.kind === "agent") prompts.set(request.name, request.prompt)
+            if (request.name === "health.check") checks++
+            if (request.name === "fix.quality.fixing") files.delete(".gtd/QUALITY.md")
+            if (request.name === "review.reviewing" || request.name === "health.stop")
+              throw new Stop()
+            return Promise.resolve(
+              request.kind === "judge" ? { answers: {}, truncated: [] } : undefined,
+            )
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          read: (path) =>
+            path === ".gtd/FEEDBACK.md" ? (checks <= reds ? "red" : undefined) : files.get(path),
+          changes: () =>
+            checks <= reds
+              ? [{ path: ".gtd/FEEDBACK.md", status: "added", before: undefined, after: "red" }]
+              : [],
+          matches: (path, pattern) => path === pattern,
+          changesSince: () => {
+            throw new Stop()
+          },
+          start: () => "c0",
+        },
+      ),
+    )
+    await buildTail(true, "base", false, {}).catch((error: unknown) => {
+      if (!(error instanceof Stop)) throw error
+    })
+    return prompts
+  }
+
+  it("renders the feature tail's fix and describe prompts unchanged", async () => {
+    const prompts = await tailPrompts(6)
+    expect(prompts.get("fix")).toMatch(/- Leave everything uncommitted — do not commit\n$/)
+    expect(prompts.get("health.describe")).toMatch(/this turn only writes the document\n$/)
+    for (const prompt of prompts.values()) expect(prompt).not.toContain(RULES)
+  })
+
+  it("renders the feature tail's quality-fix prompt unchanged", async () => {
+    const prompts = await tailPrompts(0)
+    expect(prompts.get("fix.quality.fixing")).toMatch(
+      /- Leave everything else uncommitted and finish your turn\n$/,
+    )
+    expect(prompts.get("fix.quality.fixing")).not.toContain(RULES)
+  })
+
+  it("renders the risk-fix and nit-fix prompts unchanged", async () => {
+    const run = await drive({
+      notes: [],
+      reviewDocs: [doc(["Risk: x", "sub"]), doc(["add", "sub"])],
+    })
+    expect(run.prompts.get("review.fix.risks.fixing")).toContain("add a test that fails")
+    expect(run.prompts.get("review.fix.risks.fixing")).not.toContain(RULES)
+    const nits = await drive({
+      notes: ["add — typo", "sub", "mul"],
+      answers: { "note-1": verdict("nit") },
+    })
+    expect(nits.prompts.get("review.fix.nits.fixing")).not.toContain(RULES)
+  })
+})

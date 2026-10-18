@@ -575,8 +575,9 @@ overrule it. `gtd slices` lists the `refactor` and `feature` slices. Feedback at
 the feature review re-runs design and the implementation, never the naive pass;
 feedback at the refactor review re-runs the refactor, never design; a
 refactor-review change the refactor cannot build is refused, and the only way
-out is `gtd abandon`. Each slice's quality lap reviews only that slice. Details
-in [the naive-pass path](docs/configuration.md#the-naive-pass-path).
+out is `gtd abandon`. A 28.x process whose judge ruled `refactor-first` must
+`gtd abandon` too. Each slice's quality lap reviews only that slice. Details in
+[the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
 **Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default, needs
 `GTD_FLAG_NAIVE_PASS=1`).** Triage proposes a risk tier, `low` or `high`, and

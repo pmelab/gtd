@@ -9,7 +9,13 @@ import {
   requireThreadsClosed,
   type Change,
 } from "../flows/index.js"
-import { reviewNotes, reviewRisks, stripCodeThreads, type ReviewNote } from "../steering/index.js"
+import {
+  parseThreads,
+  reviewNotes,
+  reviewRisks,
+  stripCodeThreads,
+  type ReviewNote,
+} from "../steering/index.js"
 
 /** How a review round ended. `feedback` carries what the human edited, for the re-unwind to undo. */
 export type ReviewOutcome =
@@ -24,8 +30,9 @@ export type ReviewOutcome =
       readonly edited: readonly Change[]
     }
 
-/** What a round asked to change: the round's notes (triage and all) and the code paths the human hand-edited. */
+/** What a round asked to change: the notes judged `edit` and the code paths the human hand-edited. */
 export interface Requested {
+  /** Empty on a hand-edit round: that path runs no triage. */
   readonly notes: readonly ReviewNote[]
   readonly paths: readonly string[]
 }
@@ -101,14 +108,28 @@ const collect = async (
   return refuse(p.refusals.unmatched)
 }
 
-/** A review with ticks, footnote markers and thread definitions removed: what is left is line notes. */
-const notesOf = (text: string): string =>
-  text
-    .replace(/^\[\^[^\]]+\]:[^\n]*(\n(?: {2,}|\t)[^\n]*|\n(?=\s*\n(?: {2,}|\t)))*/gm, "")
-    .replace(/\[\^[^\]]+\]/g, "")
-    .replace(/\[x\]/gi, "[ ]")
-    .replace(/\s+/g, " ")
-    .trim()
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+/**
+ * A review with ticks and THREAD footnotes (definition plus markers) removed:
+ * what is left is line notes and one-shot footnotes, which the triage judges.
+ */
+const notesOf = (text: string): string => {
+  let out = text
+  for (const { name } of parseThreads(text)) {
+    const n = escapeRe(name)
+    out = out
+      .replace(
+        new RegExp(
+          `^\\[\\^${n}\\]:[^\\n]*(\\n(?: {2,}|\\t)[^\\n]*|\\n(?=\\s*\\n(?: {2,}|\\t)))*`,
+          "gim",
+        ),
+        "",
+      )
+      .replace(new RegExp(`\\[\\^${n}\\]`, "gi"), "")
+  }
+  return out.replace(/\[x\]/gi, "[ ]").replace(/\s+/g, " ").trim()
+}
 
 /**
  * The human gate and its reply rounds: a question gets an answer inside
@@ -255,7 +276,7 @@ const finish = async (
   if (settled || (edited.length === 0 && !noted)) return unfolded()
   const notes = reviewNotes(baselineText, record)
   if (edited.length > 0)
-    return collectWith(p.captures.edits(round), { notes, paths: edited.map((c) => c.path) })
+    return collectWith(p.captures.edits(round), { notes: [], paths: edited.map((c) => c.path) })
   if (notes.length === 0) return collectWith(p.captures.notes(round))
   return routeNotes(p, notes, { round, close, outcome, unfolded })
 }

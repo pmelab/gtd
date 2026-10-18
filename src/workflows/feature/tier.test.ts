@@ -77,6 +77,10 @@ describe("readRiskTier fences", () => {
     const text = "````\n```\n## Risk Tier\n\nlow\n````\n"
     expect(readRiskTier(text)).toBe("high")
   })
+
+  it("does not open a fence on a backtick line indented 4 spaces", () => {
+    expect(readRiskTier("    ```\n## Risk Tier\n\nlow\n")).toBe("low")
+  })
 })
 
 describe("readRiskTier fence closers", () => {

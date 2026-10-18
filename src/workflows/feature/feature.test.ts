@@ -100,6 +100,8 @@ describe("planAndBuild on the naive pass", () => {
       "design.gate.answer": () => undefined,
     })
     expect(rest.state).toBe("implement.building")
+    expect(rest.content).toContain("already exists")
+    expect(rest.content).not.toContain("write the change fresh")
     const subjects = repo.subjects()
     const reUnwind = subjects.findIndex((subject) => subject.endsWith("→ re-unwind"))
     expect(reUnwind).toBeGreaterThan(-1)
@@ -173,7 +175,10 @@ describe("afterTail feedback lap", () => {
       (await repo.drive({ "build.review.closing": runsItsScript, "re-unwind": runsItsScript }))
         .state,
     ).toBe("design.triage")
-    expect((await repo.drive(afterFeedback)).state).toBe("implement.building")
+    const rest = await repo.drive(afterFeedback)
+    expect(rest.state).toBe("implement.building")
+    expect(rest.content).toContain("already exists")
+    expect(rest.content).not.toContain("write the change fresh")
     expect(repo.subjects().some((subject) => subject.includes("seam."))).toBe(false)
   })
 
@@ -182,4 +187,117 @@ describe("afterTail feedback lap", () => {
     const rest = await repo.drive(afterFeedback)
     expect(rest.state).toBe("architecture.author")
   })
+})
+
+describe("an in-flight 28.0.0 naive-pass process", () => {
+  type Edge = readonly [actor: string, from: string, to: string, trailer?: string]
+  const verdict = (answer: string) => `Gtd-Judge: {"id":"shape","answer":"${answer}","p":0.9}`
+  const approved = 'Gtd-Approved: {"step":"seam.approve#1","name":"Test","email":"test@test.com"}'
+  const building: readonly Edge[] = [
+    ["agent", "implement.building", "implement.health.check"],
+    ["check", "implement.health.check", "implement.closing"],
+    ["check", "implement.closing", "build.review.reviewing"],
+    ["agent", "build.review.reviewing", "build.review.await-review"],
+  ]
+  const feedback: readonly Edge[] = [
+    ["human", "build.review.await-review", "build.review.collecting"],
+    ["agent", "build.review.collecting", "build.review.await-review"],
+    ["human", "build.review.await-review", "build.review.closing"],
+    ["check", "build.review.closing", "re-unwind"],
+    ["check", "re-unwind", "design.triage"],
+    ["agent", "design.triage", "design.gate.answer"],
+    ["human", "design.gate.answer", "implement.building"],
+  ]
+  const trails: Record<string, readonly Edge[]> = {
+    land: [["judge", "seam.judge", "implement.building", verdict("land")], ...building],
+    "land, then a feature feedback lap": [
+      ["judge", "seam.judge", "implement.building", verdict("land")],
+      ...building,
+      ...feedback,
+    ],
+    "rejected twice, steered, then landed": [
+      ["judge", "seam.judge", "seam.naive", verdict("reject")],
+      ["agent", "seam.naive", "seam.judge"],
+      ["judge", "seam.judge", "seam.naive", verdict("reject")],
+      ["agent", "seam.naive", "seam.judge"],
+      ["judge", "seam.judge", "seam.steer", verdict("reject")],
+      ["human", "seam.steer", "seam.naive"],
+      ["agent", "seam.naive", "seam.judge"],
+      ["judge", "seam.judge", "implement.building", verdict("land")],
+      ...building,
+    ],
+    "refactor-first": [
+      ["judge", "seam.judge", "seam.approve", verdict("refactor-first")],
+      ["human", "seam.approve", "refactor.deriving", approved],
+      ["check", "refactor.deriving", "refactor.building"],
+      ["agent", "refactor.building", "refactor.health.check"],
+      ["check", "refactor.health.check", "refactor.closing"],
+      ["check", "refactor.closing", "implement.building"],
+      ...building,
+    ],
+  }
+
+  const writeEdgeFiles = (
+    repo: { write: (path: string, content: string) => void },
+    from: string,
+    to: string,
+  ) => {
+    if (from === "seam.steer") repo.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- steered\n")
+    if (from === "build.review.reviewing") repo.write(".gtd/REVIEW.md", review())
+    if (to === "build.review.collecting")
+      repo.write(".gtd/REVIEW.md", review("also export multiply"))
+    if (from === "build.review.collecting") {
+      repo.write(".gtd/REVIEW.md", `${review("also export multiply")}    - A: noted.\n`)
+      repo.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply\n")
+    }
+    if (to === "build.review.closing") repo.write(".gtd/REVIEW.md", review())
+  }
+
+  /** The repo at the judge's rest, then `trail` forged edge by edge as `Gtd-Step:` commits. */
+  const forged = async (trail: readonly Edge[], upTo: number) => {
+    const repo = naivePlanned("1")
+    await repo.drive({
+      unwind: () => undefined,
+      "start-gate.check": () => undefined,
+      "design.triage": (_, r) =>
+        r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n"),
+      "design.gate.answer": () => undefined,
+      "seam.naive": (_, r) => r.write("src/calc.ts", `${CALC}// naive\n`),
+    })
+    const kept = /Gtd-Kept: (\w+)/.exec(repo.messages().at(-1)!)![1]!
+    const seen: Record<string, number> = {
+      "seam.naive": 1,
+      "design.triage": 1,
+      "design.gate.answer": 1,
+    }
+    for (const [actor, from, to, trailer] of trail.slice(0, upTo)) {
+      seen[from] = (seen[from] ?? 0) + 1
+      writeEdgeFiles(repo, from, to)
+      repo.commit(
+        [
+          `gtd(${actor}): ${from} → ${to}`,
+          "",
+          `Gtd-Step: ${from}#${seen[from]}`,
+          ...(trailer === undefined ? [] : [trailer]),
+          ...(actor === "agent" && from === "seam.naive" ? [`Gtd-Kept: ${kept}`] : []),
+          "Gtd-Format: 1",
+        ].join("\n"),
+      )
+    }
+    return repo
+  }
+
+  for (const [name, trail] of Object.entries(trails)) {
+    const replays = name !== "refactor-first"
+    it(`${name}: ${replays ? "every rest replays to itself" : "every rest from the verdict on fails replay"}`, async () => {
+      for (let upTo = 1; upTo <= trail.length; upTo++) {
+        const rest = trail[upTo - 1]![2]
+        const repo = await forged(trail, upTo)
+        if (replays) expect((await repo.next()).state, rest).toBe(rest)
+        else {
+          await expect(repo.next(), rest).rejects.toThrow("the workflow changed under this process")
+        }
+      }
+    })
+  }
 })

@@ -171,7 +171,7 @@ export const review = (
   escalations: EscalationCount = { rounds: 0 },
   options: BuildTailOptions = {},
 ): Promise<kit.ReviewOutcome> => {
-  const { guard, guardRests, fixAccess } = options
+  const { guard, guardRests, fixAccess, rules } = options
   const feedback: FeedbackTarget = options.feedback ?? {
     file: REQUIREMENTS,
     collecting,
@@ -190,8 +190,8 @@ export const review = (
       deferred = []
       return reviewing(b, carry)
     },
-    fixRisks: guarded((notes) => fixRisks(notes, fixAccess), guard),
-    keepGreen: () => healthy(fixCheck, { escalations, guard, guardRests }),
+    fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
+    keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
     awaitReview: (b) => {
       const notes = deferred
       deferred = []
@@ -212,7 +212,7 @@ export const review = (
       return deferNotes(deferred, head())
     },
     answerQuestions: answerReviewQuestions,
-    fixNits: guarded((notes) => fixNits(notes, fixAccess), guard),
+    fixNits: guarded((notes) => fixNits(notes, fixAccess, rules), guard),
     close: closeReview,
     captures: {
       edits: t.reviewEditsCapture,
@@ -267,6 +267,8 @@ export interface BuildTailOptions {
   readonly fixAccess?: ScopeAccess
   /** The commit the quality lap reviews from; absent: `start()`. */
   readonly lensBase?: string
+  /** Appended to every fix and describe prompt of the tail. */
+  readonly rules?: string
 }
 
 /** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */
@@ -284,6 +286,7 @@ export const buildTail = (
     options.lenses,
     options.guardRests,
     options.lensBase,
+    options.rules,
   )
 
 /**
