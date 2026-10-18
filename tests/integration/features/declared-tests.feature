@@ -3,7 +3,8 @@ Feature: A package's declared tests gate its build
 
   A package file lists its tests under `## Tests`, one line each. The build
   turn is refused unless every declared test is in the package's diff — or,
-  when the builder writes `.gtd/SATISFIED.md`, already in the tree. The
+  when the builder writes `.gtd/SATISFIED.md`, already in the tree. A line
+  decompose marks `(unchanged)` needs only to exist in the tree. The
   full suite runs right after; `.gtd/ARCHITECTURE.md` survives decompose.
 
   Background:
@@ -169,3 +170,79 @@ Feature: A package's declared tests gate its build
     Then it fails
     And stderr contains "declared-tests"
     And stderr contains "lib/widget.test.ts"
+
+  Scenario: a test marked (unchanged) needs only to exist in the tree
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/existing.test.ts` (unchanged)
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
+
+  Scenario: a test marked (unchanged) that the build deletes is refused
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/existing.test.ts` (unchanged)
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And the file "lib/existing.test.ts" is deleted
+    When I run gtd land
+    Then it fails
+    And stderr contains "declared-tests"
+    And stderr contains "lib/existing.test.ts"
+
+  Scenario: a builder adding the marker to its own Tests line cannot dodge the guard
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/widget.test.ts`
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And ".gtd/packages/01-widget.md" is modified to:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/widget.test.ts` (unchanged)
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "lib/widget.test.ts"
+
+  Scenario: an unmarked unwritten line is refused while its marked sibling passes
+    Given a file ".gtd/packages/01-widget.md" with:
+      """
+      Package: the widget.
+
+      ## Tests
+
+      - unit: `lib/existing.test.ts` (unchanged)
+      - unit: `lib/widget.test.ts`
+      """
+    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And a file "src/widget.ts" with:
+      """
+      export const widget = 1
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "lib/widget.test.ts"
+    And stderr does not contain "lib/existing.test.ts"

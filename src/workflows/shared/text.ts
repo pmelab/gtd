@@ -376,7 +376,9 @@ ${stateFileRules}
 - Every package with tests has a \`## Tests\` section, one line per
   declared test, copied from the architecture entries:
   \`- unit: \\\`<path>\\\`\` or \`- e2e: \\\`<path>\\\`\`. Chore packages have
-  none
+  none. List only tests the package writes or changes, never one it
+  leaves untouched; an existing unchanged test a criterion must name
+  is written \`- unit: \\\`<path>\\\` (unchanged)\` — only decompose places the marker
 - Leave everything uncommitted and finish
 `
 
@@ -415,13 +417,16 @@ export const packagesItemBuildingPrompt = (pkg: string): string =>
 - The package to implement is \`${pkg}\`
 - First check its acceptance criteria against the current tree —
   an earlier fix turn may already satisfy them. If **every**
-  criterion is met, implement nothing: write \`.gtd/SATISFIED.md\`
-  with each criterion's concrete evidence (commit, file, or
-  symbol), change nothing else, and finish. Otherwise implement
-  normally and skip that file
+  criterion was already met in the tree, or was met by work outside
+  the tree (issues filed, commands run), implement nothing more:
+  write \`.gtd/SATISFIED.md\` with evidence per criterion — commit,
+  file, symbol, issue URL, or command output. For out-of-tree work,
+  do the work first, then write the file, and change nothing else
+  in the tree. Otherwise implement normally and skip that file
 - Write the tests the package declares under \`## Tests\` first,
   then the code that makes them pass; the turn is refused unless
-  every declared test is in your diff
+  every declared test is in your diff — except a line marked
+  \`(unchanged)\`, which needs only to exist: leave that file alone
 - A declared e2e test is a scenario in the repository's own e2e
   framework for the behaviour its \`## E2E Scenarios\` entry names.
   Word it to fit the existing steps — reuse and generalise them

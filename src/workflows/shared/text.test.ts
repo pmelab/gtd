@@ -9,6 +9,8 @@ import {
   buildReviewReviewingPrompt,
   agentWithSkills,
   architectureAuthorPrompt,
+  architectureDecomposePrompt,
+  packagesItemBuildingPrompt,
   architectureGateAnswerMessage,
   buildFixPrompt,
   buildFixQualityPrompt,
@@ -1265,4 +1267,33 @@ describe("buildReviewReviewingPrompt lap wording", () => {
       }
     },
   )
+})
+
+describe("architectureDecomposePrompt tests rule", () => {
+  it("lists only tests the package changes and names the (unchanged) marker", () => {
+    const prompt = renderText(() => architectureDecomposePrompt()).replace(/\s+/g, " ")
+    expect(prompt).toContain("List only tests the package writes or changes")
+    expect(prompt).toContain("never one it leaves untouched")
+    expect(prompt).toContain("(unchanged)")
+    expect(prompt).toContain("only decompose places the marker")
+  })
+})
+
+describe("packagesItemBuildingPrompt", () => {
+  const prompt = renderText(() => packagesItemBuildingPrompt(".gtd/packages/01-a.md")).replace(
+    /\s+/g,
+    " ",
+  )
+  it("lets SATISFIED.md cover out-of-tree work, with evidence per criterion", () => {
+    expect(prompt).toContain("met by work outside the tree")
+    expect(prompt).toContain("evidence per criterion")
+    expect(prompt).toContain("issue URL")
+    expect(prompt).toContain("command output")
+    expect(prompt).toContain("do the work first, then write the file")
+  })
+  it("says an (unchanged) line needs only to exist", () => {
+    expect(prompt).toContain("(unchanged)")
+    expect(prompt).toContain("needs only to exist")
+    expect(prompt).toContain("leave that file alone")
+  })
 })
