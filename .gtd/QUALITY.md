@@ -81,3 +81,65 @@ changed" plus stderr). Add a test for it.
 - A second process on a branch that already shipped as a stack has a first slice
   whose `base` is the old top commit. Its lowest new PR targets the default
   branch, but it carries every old stack commit too.
+
+## owasp-security: the writer's "read-only git" guard allows writing files and moving branches
+
+[HIGH] Arbitrary file write and ref moves through `READ_ONLY_GIT`
+(CWE-78/CWE-73, OWASP A01:2025, LLM01 Prompt Injection, ASI02 Tool Misuse &
+Exploitation)
+
+- Location: `claude/hooks/ship.ts` L815-816 (`READ_ONLY_GIT`). It is the only
+  limit on the shipper's Bash (`register.tsx` `subagentDenial`).
+- Path: a commit message anyone on the branch wrote (or a PR body) → the
+  `commitMessages` / `createPr` / `updatePr` writer prompt → an injected
+  instruction → the Bash tool → the regex allows it.
+- Commands the regex accepts (checked):
+  - `git log -1 --format=%B <sha> --output=<path>` writes the attacker's commit
+    message, verbatim, to any path. `--output` works on log, show and diff.
+    Writing a git config with `core.fsmonitor = <cmd>` runs `<cmd>` on the next
+    `git status`, and ship runs `git` right after the turn. That is code
+    execution as the user.
+  - `git branch -f <b> <sha>`, `git branch -D <b>`, `git branch -m`.
+- The guard is older than this change. This change makes it matter more: there
+  is now one commit-message turn and one PR turn per slice, all reading
+  untrusted text, and the new `<branch>-<slice>` refs that resume trusts are
+  exactly what `git branch -f` moves (see the next chunk).
+- The doc text "the writer may run only read-only `git` commands" (driver.md) is
+  not true today.
+- Fix:
+  - Refuse any argument starting with `--output` or `-o`.
+  - Allow `branch` only with no args, or with `--list`, `-a`, `-r`,
+    `--show-current`, `--contains`.
+  - Add the bad cases to the `the writer may only read git` test:
+    `git log --output=x`, `git diff --output=x`, `git branch -f a b`,
+    `git branch -D a`.
+- Confidence: Confirmed. The regex accepts all three commands, and
+  `git log --format=%B --output=<file>` writes the message verbatim.
+
+## owasp-security: a slice push sends the branch name, not the commit ship built
+
+[MEDIUM] TOCTOU between the recorded commit and the pushed ref (CWE-367, OWASP
+A08:2025)
+
+- Location: `stackPullRequests` → `pushBranch(io, l.branch, l.commit)` (ship.ts
+  L586, L790-811).
+- `head` (the commit) is used only for the `--is-ancestor` check. The push
+  itself is `git push … origin <l.branch>`, which sends whatever
+  `refs/heads/<l.branch>` points at when the push runs.
+- Path: in a stack of 3 or more slices, the slice-0 PR writer turn (injectable,
+  as in the chunk above) runs `git branch -f <branch>-<slice1> <other sha>`.
+  Then the slice-1 push sends that sha. On the first push (`--set-upstream`) a
+  non-ancestor sha is still pushed. The PR text and `ctx.to` still describe
+  `l.commit`, so the PR's description no longer matches the branch it was opened
+  on. The top slice is safe, because git will not `branch -f` the checked-out
+  branch.
+- Impact: a contributor to the branch can get content published under a
+  description written for different commits. A reviewer still sees the real
+  diff, which limits the damage.
+- Fix: push the commit explicitly, for example
+  `git push [--force-with-lease=<b>:<expected>] origin <l.commit>:refs/heads/<b>`
+  (and `--set-upstream` on the first push). Or check `rev-parse refs/heads/<b>`
+  == `l.commit` right before the push. Fixing the guard in the chunk above also
+  closes this path.
+- Confidence: Likely. This depends on the injected `git branch -f` getting
+  through, which the regex allows.
