@@ -151,3 +151,59 @@ undo hint and the scripted-git drift; they are not repeated here.
    - **If we skip it:** The one path users on older git hit is unguarded.
 
 Verdict: fix 3 first; 1 and 2 are cheap cleanups. Lean: -12 lines possible.
+
+## test-audit: one test pins a bug, one is vacuous, two refusals are unguarded
+
+The correctness and ponytail chunks above already cover the scripted-git drift,
+the hand-restack lease test and the config write order. They are not repeated
+here.
+
+1. **A test pins a non-force push after a rebase** (`claude/hooks/ship.test.ts`,
+   "pushBranch with a lease" → "no origin copy takes today's first push")
+   - `pushBranch` checks `rev-parse --verify --quiet origin/<b>` before it looks
+     at `lease`. A lease only exists when `ls-remote` saw the branch on origin.
+     So when a lease is passed, origin has the branch by definition. If the
+     local tracking ref is missing (pruned or deleted by hand; `cat-file -e`
+     only proves the sha is local), the restacked branch goes out as a plain
+     `git push --set-upstream`. Origin then rejects it as non-fast-forward,
+     after the rebase and the record shrink.
+   - The test passes a lease, scripts the tracking ref as absent, and asserts
+     the non-force push with no `--force-with-lease`. That locks in the wrong
+     branch order.
+   - Fix: check `lease` before the tracking-ref probe, and change the test so a
+     lease with no tracking ref expects `--force-with-lease=<b>:<lease>`.
+
+2. **Two refusals in `restackOf` have no test**
+   - The `git ls-remote origin failed; nothing changed.` refusal: script
+     `ls-remote` with `code: 1` in `two`. Deleting the `read.code !== 0` check
+     leaves every test green. The ship would then go on with an empty origin
+     map: no lease, no "holds commits" refusal, and a weaker push.
+   - A link that `ls-remote` does not list (branch never pushed): the `-n`
+     preview's `--set-upstream` line and the no-lease push are never exercised.
+     Every fixture lists every link.
+   - Add one test for each, reusing `two`/`three`.
+
+3. **Vacuous negative control** ("the lease is origin's ls-remote sha even when
+   origin/<b> differs")
+   - Its only new input is a different stdout for
+     `rev-parse --verify --quiet origin/feat/x`. No code path reads that output,
+     only its exit code. So `not.some(c => c.includes("7777…"))` cannot fail,
+     whatever the lease logic does. The positive assertion repeats
+     `--force-with-lease=feat/x:${O}` from the first restack test.
+   - To guard what the name says, make the guard observable: give the fixture an
+     `origin/feat/x` sha that differs from `O`, and assert on the lease-bearing
+     push. Otherwise delete the test; the first test already owns the contract.
+
+4. **Correction to ponytail item 3:** the old-git path is tested. "a rebase
+   failing with none in progress (old git) reports stderr and aborts nothing"
+   (added in 7c59d849) leaves `REBASE_HEAD` unscripted. The `repo()` fixture
+   defaults to `out: ""`, so `stopped` is falsy. Removing the `!stopped` branch
+   would run `git rebase --abort` and fail its `not.toContain` assertion. No new
+   test is needed.
+
+5. **Nit: the top-slice conflict name passes via the fallback**: "a conflict on
+   the top slice names the top slice" sets `REBASE_HEAD` to `S3`. No link holds
+   that commit except the top, which the lookup excludes. So the test passes
+   through `links.at(-1)`. It would also pass if the `l.commit === stopped`
+   match were broken for every slice. The middle-slice test is the one that owns
+   the match, and it does.
