@@ -1,51 +1,5 @@
 # Requirements: `/gtd ship` restacks after a lower slice merges (pmelab/gtd#383)
 
-## Open Questions
-
-### After a restack conflict, what does the next `/gtd ship` do?
-
-The issue says "stop and print the rebase command". It leaves open what state
-the repository is left in, and whether a hand-resolved rebase keeps the stack or
-ends it. Today any rebase ends the stack.
-
-- [x] Abort the rebase, print the command; the next ship picks up the
-      hand-rebased branches and finishes the restack
-  - tree and refs stay exactly as before the ship; no half-done rebase is left
-    behind
-  - the next ship spots that the remaining slice branches now sit on the default
-    branch, then pushes with lease and retargets, and **the stack survives**
-  - needs a new rule for spotting a hand restack, plus tests for it
-- [ ] Leave the rebase stopped mid-way; the user resolves, runs
-      `git rebase --continue`, then `/gtd ship`
-  - the user is already in the conflict, so it saves one step
-  - **ship leaves the tree dirty and mid-rebase**, breaking ship's "a refusal
-    changes nothing" rule
-  - the next ship still needs the same rule for spotting a hand restack
-- [ ] Abort the rebase, print the command; a hand rebase ends the stack (today's
-      behaviour)
-  - nothing new to build after the conflict path
-  - **with three or more slices, the slices above the conflict lose their own
-    pull requests**: the branch then ships alone
-- [ ] _your answer_
-
-### What happens to the merged slice's branch after a restack?
-
-The merged lower slice's `<branch>-<slice>` branch is dead once restacked.
-Choose whether ship cleans it up or leaves it alone.
-
-- [x] Leave it alone; only drop it from the recorded stack
-  - ship never deletes a ref, and nothing that may be wanted is lost
-  - stale `<branch>-<slice>` branches pile up locally and possibly on origin
-- [ ] Delete the local branch; leave origin alone
-  - a tidy local repository; GitHub's own "delete branch on merge" setting
-    handles origin
-  - deleting a ref is a new kind of write for ship
-- [ ] Delete it locally and on origin
-  - fully tidy
-  - **a `git push --delete` against origin**; a colleague's branch of the same
-    name is gone too
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. PRODUCT: Restack on re-ship once a lower slice has merged
@@ -64,6 +18,8 @@ pull requests merged, restacks what is left.
   request to the default branch
 - **The restacked branches keep their own pull requests**; the stack record
   shrinks to the remaining slices, and it ends when only the top branch remains
+- **Leave the merged slice's `<branch>-<slice>` branch alone, locally and on
+  origin**: drop it from the recorded stack only; ship deletes no ref
 - With a process at HEAD (new work since the last ship), squash it first as
   today, then restack, in the same run
 - `/gtd ship -n` prints the planned restack (the rebase, the pushes, the
@@ -84,8 +40,14 @@ pull requests merged, restacks what is left.
 
 - **A conflicting rebase stops the ship and prints the exact
   `git rebase --onto …` command to run by hand**
-- What the repository looks like afterwards, and what the next `/gtd ship` does,
-  follows the first open question
+- **Abort the rebase before returning: tree and refs stay exactly as before the
+  ship**; no half-done rebase is left behind
+- The printed command moves the slice branches in between too, so one hand
+  rebase restacks the whole stack
+- **The next `/gtd ship` spots a hand restack** (the remaining slice branches
+  now sit on the default branch), then pushes each with a lease and retargets
+  the lowest remaining pull request; **the stack survives**
+- Spotting a hand restack is a new rule; it needs its own tests
 - The failure names the slice and the step, like other part-way failures
 
 ### 4. TECHNICAL: Fetch and the rebase target
@@ -101,6 +63,8 @@ pull requests merged, restacks what is left.
 
 - `claude/hooks/ship.test.ts` covers a clean restack, a conflict, and the lease
   refusal (all three named in the issue)
+- A conflict leaves tree and refs unchanged; a ship after the printed hand
+  rebase finishes the restack and keeps the stack
 - Plus a merge-commit merge that skips the rebase, a stack of three or more
   slices, and `-n`
 - An `@inmem` cucumber scenario for the restack, per AGENTS.md, unless ship's
@@ -146,3 +110,14 @@ No. Commits mode has one pull request and no stack to restack.
 
 They are dropped. The human deleted them in the entry commit, so they are not
 carried into this work.
+
+### After a restack conflict, what does the next `/gtd ship` do?
+
+Ship aborts the rebase and prints the command, leaving tree and refs as before;
+the next ship picks up the hand-rebased branches, pushes with a lease,
+retargets, and the stack survives.
+
+### What happens to the merged slice's branch after a restack?
+
+Ship leaves it alone, locally and on origin, and only drops it from the recorded
+stack.
