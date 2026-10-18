@@ -11,7 +11,7 @@ whatever it says, and `gtd abandon` is the only exit.
   - no judge call, smallest build
   - **a "looks good" footnote throws away the naive pass, the refactor and its
     review**
-- [ ] Judge footnotes like line notes; refuse only when one is judged `edit`
+- [x] Judge footnotes like line notes; refuse only when one is judged `edit`
   - praise and question footnotes sign off, matching line notes
   - one more judge question per footnote; the triage judge must learn footnote
     anchors
