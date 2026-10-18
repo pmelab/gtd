@@ -248,11 +248,13 @@ export const footnoteRules = `- Leave a footnote anywhere: mark the exact spot w
   file changed in this process (\`#\`, \`--\` or \`;\` by language); the phone UI does not show them,
   and \`gtd check --open-threads\` lists the open ones`
 
-export const footnoteFoldIn = `- A footnote (\`[^name]\` plus its \`[^name]:\` definition) is a comment on
+export const footnoteAnchor = `- A footnote (\`[^name]\` plus its \`[^name]:\` definition) is a comment on
   its exact anchor — fold it in as a mandatory concern described
   against that anchor's hunk or paragraph, never flattened into a
   whole-file remark
-- A one-shot footnote needs no reply: fold it in and DELETE it in this
+`
+
+export const footnoteFoldIn = `${footnoteAnchor}- A one-shot footnote needs no reply: fold it in and DELETE it in this
   same turn — marker and definition together. Never re-read a footnote
   already acted on. A one-shot footnote that asks a question becomes a
   thread instead: rewrite its definition as \`- H: <its body>\` then

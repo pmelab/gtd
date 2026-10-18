@@ -3,9 +3,17 @@ import {
   installContext,
   type Change,
   type JudgeAnswer,
+  type ScopeOptions,
   type StepRequest,
 } from "../../flows/index.js"
-import { review, severityOf, type ReviewOutcome } from "./review.js"
+import {
+  buildTail,
+  review,
+  reUnwind,
+  severityOf,
+  type BuildTailOptions,
+  type ReviewOutcome,
+} from "./review.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as bundled from "../index.js"
 import { fixtureContext } from "../shared/text.fixture.js"
@@ -41,6 +49,14 @@ interface Drive {
   readonly reviewDocs?: readonly (string | undefined)[]
   /** Let the run pass the second gate, stopping at the first range read after it. */
   readonly passSecondGate?: boolean
+  /** Options as `buildTail` passes them; `guard` is logged as `guard` when it runs. */
+  readonly options?: Omit<BuildTailOptions, "guard">
+  /** Install a guard that logs `guard` into the step log. */
+  readonly guarded?: boolean
+  /** The pending changes `changes()` reports at the collecting turn. */
+  readonly pending?: readonly Change[]
+  /** Files the harness holds from the start. */
+  readonly files?: Readonly<Record<string, string>>
 }
 
 interface Run {
@@ -53,6 +69,8 @@ interface Run {
   readonly gateMessages: readonly string[]
   /** Every `changesSince` argument, in order. */
   readonly since: readonly string[]
+  /** Every scope opened, in order. */
+  readonly scopes: readonly ScopeOptions[]
 }
 
 /** Run `review` against a scripted context; a second pass at the gate or a fresh review stops the run. */
@@ -63,7 +81,11 @@ const drive = async (d: Drive): Promise<Run> => {
   const gates: boolean[] = []
   const gateMessages: string[] = []
   const since: string[] = []
-  const files = new Map<string, string>([[REVIEW, d.after ?? doc(d.notes)]])
+  const scopes: ScopeOptions[] = []
+  const files = new Map<string, string>([
+    [REVIEW, d.after ?? doc(d.notes)],
+    ...Object.entries(d.files ?? {}),
+  ])
   let steps = 0
   let nitsFixed = false
   let awaits = 0
@@ -107,9 +129,10 @@ const drive = async (d: Drive): Promise<Run> => {
       refuse: (message: string): never => {
         throw new Error(message)
       },
-      pushScope: () => undefined,
+      pushScope: (scope) => void scopes.push(scope),
       popScope: () => undefined,
       read: (path) => files.get(path),
+      changes: (): readonly Change[] => d.pending ?? [],
       changesSince: (from: string): readonly Change[] => {
         since.push(from)
         if (d.passSecondGate && awaits === 2) throw new Stop()
@@ -127,12 +150,15 @@ const drive = async (d: Drive): Promise<Run> => {
   installContext(context)
   let result: ReviewOutcome | "stopped"
   try {
-    result = await review("base")
+    result = await review("base", undefined, {
+      ...d.options,
+      ...(d.guarded ? { guard: () => void log.push("guard") } : {}),
+    })
   } catch (error) {
     if (!(error instanceof Stop)) throw error
     result = "stopped"
   }
-  return { log, prompts, result, judged, gates, gateMessages, since }
+  return { log, prompts, result, judged, gates, gateMessages, since, scopes }
 }
 
 const verdict = (answer: string, p = 0.9): JudgeAnswer => ({ answer, p })
@@ -167,6 +193,28 @@ describe("the risk-fix pass", () => {
     ])
   })
 
+  it("fixAccess wraps both fix turns in their own scope, the step names unchanged", async () => {
+    const fixAccess = { write: ["src/a.ts", ".gtd/**"] }
+    const run = await drive({
+      notes: ["add — typo", "sub", "mul"],
+      answers: { "note-1": verdict("nit") },
+      reviewDocs: [risky, clean],
+      options: { fixAccess },
+    })
+    expect(run.scopes).toEqual([
+      { name: "review.fix.risks", access: fixAccess },
+      { name: "review.fix.nits", access: fixAccess },
+    ])
+    // The harness pushes no scope names, so the step is relative to its own fix scope.
+    expect(run.log.filter((n) => n === "fixing")).toHaveLength(2)
+  })
+
+  it("without fixAccess the fix turns open no scope", async () => {
+    const run = await drive({ notes: [], reviewDocs: [risky, clean] })
+    expect(run.log).toContain("review.fix.risks.fixing")
+    expect(run.scopes).toEqual([])
+  })
+
   it("no marker means no fix-risks step", async () => {
     const run = await drive({ notes: [], reviewDocs: [clean] })
     expect(run.log).not.toContain("review.fix.risks.fixing")
@@ -193,6 +241,159 @@ describe("the risk-fix pass", () => {
       "review.reviewing",
       "review.await-review",
     ])
+  })
+})
+
+describe("the guard", () => {
+  const risky = doc(["Risk: drops the carry", "sub"])
+  const clean = doc(["add — fine", "sub"])
+
+  it("runs right after the risk-fix turn", async () => {
+    const run = await drive({ notes: [], reviewDocs: [risky, clean], guarded: true })
+    expect(run.log.slice(0, 4)).toEqual([
+      "review.reviewing",
+      "review.fix.risks.fixing",
+      "guard",
+      "health.check",
+    ])
+  })
+
+  it("runs right after the nit-fix turn", async () => {
+    const run = await drive({
+      notes: ["add — typo", "sub", "mul"],
+      answers: { "note-1": verdict("nit") },
+      guarded: true,
+    })
+    expect(run.log.slice(2, 6)).toEqual([
+      "review.triage",
+      "review.fix.nits.fixing",
+      "guard",
+      "health.check",
+    ])
+  })
+})
+
+describe("the feedback target", () => {
+  const edit = ["add — rename it", "sub", "mul"]
+  const REFACTOR = ".gtd/REFACTOR.md"
+
+  it("defaults to .gtd/REQUIREMENTS.md via the review.collecting step", async () => {
+    const run = await drive({ notes: edit })
+    expect(run.log.at(-1)).toBe("review.collecting")
+    expect(run.result).toMatchObject({ verdict: "feedback" })
+  })
+
+  it("file replaces .gtd/REQUIREMENTS.md as the feedback test", async () => {
+    let collected = ""
+    const run = await drive({
+      notes: edit,
+      options: {
+        feedback: {
+          file: REFACTOR,
+          collecting: (capture) => {
+            collected = capture
+            return Promise.resolve()
+          },
+          unmatched: "unmatched: refactor",
+        },
+      },
+      files: { [REFACTOR]: "## Concern" },
+    })
+    expect(collected).toContain("rename it")
+    expect(run.log).not.toContain("review.collecting")
+    expect(run.result).toMatchObject({ verdict: "feedback" })
+  })
+
+  it("a collecting turn that wrote REQUIREMENTS but not file signs off unrefused with nothing changed", async () => {
+    const run = await drive({
+      notes: edit,
+      options: {
+        feedback: {
+          file: REFACTOR,
+          collecting: () => Promise.resolve(),
+          unmatched: "unmatched: refactor",
+        },
+      },
+    })
+    expect(run.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("a feature review edit note collected to nothing signs off", async () => {
+    const run = await drive({
+      notes: edit,
+      options: {
+        feedback: {
+          file: REQUIREMENTS,
+          collecting: () => Promise.resolve(),
+          unmatched: "unmatched",
+        },
+      },
+    })
+    expect(run.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("dropped is passed through as the refusal for a round collected to nothing", async () => {
+    await expect(
+      drive({
+        notes: edit,
+        options: {
+          feedback: {
+            file: REFACTOR,
+            collecting: () => Promise.resolve(),
+            unmatched: "unmatched: refactor",
+            dropped: (r) => `dropped: ${r.notes.map((n) => n.id).join(",")}`,
+          },
+        },
+      }),
+    ).rejects.toThrow("dropped: note-1")
+  })
+
+  it("refuses with unmatched when the collecting turn changed something but not file", async () => {
+    await expect(
+      drive({
+        notes: edit,
+        options: {
+          feedback: {
+            file: REFACTOR,
+            collecting: () => Promise.resolve(),
+            unmatched: "unmatched: refactor",
+          },
+        },
+        pending: [{ path: "src/x.ts", status: "modified", before: "a", after: "b" }],
+      }),
+    ).rejects.toThrow("unmatched: refactor")
+  })
+})
+
+describe("reUnwind", () => {
+  it("restores edited paths from restoreFrom and removes added ones, in the caller's scope", async () => {
+    const steps: StepRequest[] = []
+    installContext(
+      fixtureContext(
+        {},
+        {
+          step: (request) => {
+            steps.push(request)
+            return Promise.resolve()
+          },
+          read: (path) => (path === "src/a.ts" ? "old" : undefined),
+        },
+      ),
+    )
+    await reUnwind({
+      verdict: "feedback",
+      base: "b1",
+      restoreFrom: "r1",
+      edited: [
+        { path: "src/a.ts", status: "modified", before: "old", after: "new" },
+        { path: "src/new.ts", status: "added", before: undefined, after: "x" },
+      ],
+    })
+    const [step] = steps
+    expect(step).toMatchObject({ kind: "run", name: "re-unwind" })
+    const body = step?.kind === "run" ? step.body : ""
+    expect(body).toContain("git restore --source='r1' --worktree -- 'src/a.ts'")
+    expect(body).toContain("rm -f -- 'src/new.ts'")
   })
 })
 
@@ -566,5 +767,121 @@ describe("severity routing", () => {
     })
     expect(run.log).toContain("review.collecting")
     expect(run.log).not.toContain("review.defer")
+  })
+})
+
+describe("BuildTailOptions.lensBase", () => {
+  const lensPrompts = async (options: BuildTailOptions): Promise<string[]> => {
+    const prompts: string[] = []
+    installContext(
+      fixtureContext(
+        { vars: { qualityReviews: "conventions, correctness" } },
+        {
+          step: (request: StepRequest) => {
+            if (request.kind === "restart") return Promise.resolve()
+            if (request.kind === "agent" && request.name.startsWith("quality."))
+              prompts.push(request.prompt)
+            if (request.name === "review.reviewing") throw new Stop()
+            return Promise.resolve()
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          changesSince: () => {
+            throw new Stop()
+          },
+          start: () => "START-SHA",
+        },
+      ),
+    )
+    await buildTail(false, "base", true, options).catch((error: unknown) => {
+      if (!(error instanceof Stop)) throw error
+    })
+    return prompts
+  }
+
+  it("reaches every quality-lens prompt", async () => {
+    const prompts = await lensPrompts({ lensBase: "SLICE-BASE" })
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `SLICE-BASE`")
+  })
+
+  it("absent, the lens prompts name start()", async () => {
+    const prompts = await lensPrompts({})
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `START-SHA`")
+  })
+})
+
+describe("buildTail without rules", () => {
+  const RULES = "Change only these paths"
+
+  const tailPrompts = async (reds: number): Promise<Map<string, string>> => {
+    const prompts = new Map<string, string>()
+    let checks = 0
+    const files = new Map<string, string>([[".gtd/QUALITY.md", "- finding"]])
+    installContext(
+      fixtureContext(
+        { vars: { qualityReviews: "conventions" } },
+        {
+          step: (request: StepRequest) => {
+            if (request.kind === "restart") return Promise.resolve()
+            if (request.kind === "agent") prompts.set(request.name, request.prompt)
+            if (request.name === "health.check") checks++
+            if (request.name === "fix.quality.fixing") files.delete(".gtd/QUALITY.md")
+            if (request.name === "review.reviewing" || request.name === "health.stop")
+              throw new Stop()
+            return Promise.resolve(
+              request.kind === "judge" ? { answers: {}, truncated: [] } : undefined,
+            )
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          read: (path) =>
+            path === ".gtd/FEEDBACK.md" ? (checks <= reds ? "red" : undefined) : files.get(path),
+          changes: () =>
+            checks <= reds
+              ? [{ path: ".gtd/FEEDBACK.md", status: "added", before: undefined, after: "red" }]
+              : [],
+          matches: (path, pattern) => path === pattern,
+          changesSince: () => {
+            throw new Stop()
+          },
+          start: () => "c0",
+        },
+      ),
+    )
+    await buildTail(true, "base", false, {}).catch((error: unknown) => {
+      if (!(error instanceof Stop)) throw error
+    })
+    return prompts
+  }
+
+  it("renders the feature tail's fix and describe prompts unchanged", async () => {
+    const prompts = await tailPrompts(6)
+    expect(prompts.get("fix")).toMatch(/- Leave everything uncommitted — do not commit\n$/)
+    expect(prompts.get("health.describe")).toMatch(/this turn only writes the document\n$/)
+    for (const prompt of prompts.values()) expect(prompt).not.toContain(RULES)
+  })
+
+  it("renders the feature tail's quality-fix prompt unchanged", async () => {
+    const prompts = await tailPrompts(0)
+    expect(prompts.get("fix.quality.fixing")).toMatch(
+      /- Leave everything else uncommitted and finish your turn\n$/,
+    )
+    expect(prompts.get("fix.quality.fixing")).not.toContain(RULES)
+  })
+
+  it("renders the risk-fix and nit-fix prompts unchanged", async () => {
+    const run = await drive({
+      notes: [],
+      reviewDocs: [doc(["Risk: x", "sub"]), doc(["add", "sub"])],
+    })
+    expect(run.prompts.get("review.fix.risks.fixing")).toContain("add a test that fails")
+    expect(run.prompts.get("review.fix.risks.fixing")).not.toContain(RULES)
+    const nits = await drive({
+      notes: ["add — typo", "sub", "mul"],
+      answers: { "note-1": verdict("nit") },
+    })
+    expect(nits.prompts.get("review.fix.nits.fixing")).not.toContain(RULES)
   })
 })

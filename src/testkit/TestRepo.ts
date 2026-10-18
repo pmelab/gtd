@@ -72,6 +72,8 @@ export interface TestRepo {
   subjects(): readonly string[]
   /** Every commit's full message, subject and trailers, oldest first. */
   messages(): readonly string[]
+  /** Every commit's full hash, oldest first. */
+  hashes(): readonly string[]
 }
 
 const REGISTRY = Symbol.for("@pmelab/gtd/testkit:modules")
@@ -286,6 +288,7 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     },
     subjects: () => repo.commitHistory().map(({ message }) => message.split("\n")[0] ?? ""),
     messages: () => repo.commitHistory().map(({ message }) => message),
+    hashes: () => repo.commitHistory().map(({ hash }) => hash),
   }
   return self
 }

@@ -7,7 +7,16 @@ import {
   type StepRequest,
 } from "../../flows/index.js"
 import { fixtureContext, type TextContext } from "../shared/text.fixture.js"
-import { refactorFirst, requireNoNewFlags, requireWithin, REFACTOR_PACKAGE } from "./refactor.js"
+import { globMatches } from "../../wire/index.js"
+import {
+  refactorFirst,
+  refactorStrays,
+  requireNoNewFlags,
+  requireNoTestFiles,
+  requireWithin,
+  reviewedRefactor,
+  REFACTOR_PACKAGE,
+} from "./refactor.js"
 
 afterEach(() => installContext(undefined))
 
@@ -34,6 +43,7 @@ const withChanges = (list: readonly Change[], fn: () => void): string | undefine
       {
         changes: () => list,
         changesSince: () => list,
+        matches: globMatches,
         refuse: (message) => {
           throw new Error(message)
         },
@@ -59,6 +69,79 @@ describe("requireWithin", () => {
     expect(message).toContain("lib/x.ts")
     expect(message).toContain("lib/y.ts")
     expect(message).not.toContain("src/a.ts")
+  })
+})
+
+describe("requireNoTestFiles", () => {
+  it("refuses a changed test path, naming it, even when it is a stray", () => {
+    const list = [
+      change("src/a.test.ts", "a", "b"),
+      change("tests/unit/b.ts", undefined, "x", "added"),
+      change("src/__tests__/c.ts", "a", undefined, "deleted"),
+      change("features/d.feature", "a", "b"),
+    ]
+    const message = withChanges(list, () => requireNoTestFiles())
+    expect(message).toMatch(/^gtd land: refactor-tests: /)
+    for (const path of [
+      "src/a.test.ts",
+      "tests/unit/b.ts",
+      "src/__tests__/c.ts",
+      "features/d.feature",
+    ])
+      expect(message).toContain(`  - ${path}`)
+  })
+
+  it("passes non-test paths and .gtd/ paths", () => {
+    const list = [
+      change("src/a.ts", "a", "b"),
+      change(".gtd/tests/x.md", "", "x", "added"),
+      change(".gtd/REFACTOR.md", "", "x", "added"),
+    ]
+    expect(withChanges(list, () => requireNoTestFiles())).toBeUndefined()
+  })
+
+  it("names only the test paths", () => {
+    const message = withChanges(
+      [change("src/a.ts", "a", "b"), change("src/a.spec.ts", "a", "b")],
+      () => requireNoTestFiles(),
+    )
+    expect(message).toContain("src/a.spec.ts")
+    expect(message).not.toContain("src/a.ts")
+  })
+
+  it("is not narrowed by a narrowed seamAllow", () => {
+    installContext(
+      fixtureContext(
+        { vars: { seamAllow: "docs/**" } },
+        {
+          changes: () => [change("src/a.test.ts", "a", "b")],
+          matches: globMatches,
+          refuse: (message) => {
+            throw new Error(message)
+          },
+        },
+      ),
+    )
+    expect(refusal(() => requireNoTestFiles())).toContain("src/a.test.ts")
+  })
+
+  it("does not refuse other naming such as _test.go or test_*.py", () => {
+    const list = [change("pkg/a_test.go", "a", "b"), change("pkg/test_a.py", "a", "b")]
+    expect(withChanges(list, () => requireNoTestFiles())).toBeUndefined()
+  })
+})
+
+describe("refactorStrays", () => {
+  it("refactorStrays drops test files, keeps the rest and ignores a narrowed seamAllow", () => {
+    installContext(fixtureContext({ vars: { seamAllow: "docs/**" } }, { matches: globMatches }))
+    expect(
+      refactorStrays({
+        choice: "refactor-first",
+        strays: ["src/a.ts", "src/a.test.ts"],
+        unreadable: [],
+        judgment: undefined,
+      }),
+    ).toEqual(["src/a.ts"])
   })
 })
 
@@ -238,7 +321,7 @@ const drive = async (
         if (phase in turn) return turn[phase] ?? []
         return checks <= reds ? [change(".gtd/FEEDBACK.md", undefined, "red", "added")] : []
       },
-      matches: (path, pattern) => path === pattern,
+      matches: globMatches,
       head: () => "c0ffee0",
     }),
   )
@@ -261,6 +344,22 @@ describe("refactorFirst", () => {
     const h = await drive(given)
     expect(h.result).toBe(false)
     expect(h.steps).toEqual([])
+  })
+
+  it("resolves false with no step and no scope when every stray is a test file", async () => {
+    const h = await drive(shape({ strays: ["src/a.test.ts"] }))
+    expect(h.result).toBe(false)
+    expect(h.steps).toEqual([])
+    expect(h.scopes).toEqual([])
+  })
+
+  it("lists only the non-test strays in the package scope and write access", async () => {
+    const h = await drive(shape({ strays: ["src/a.ts", "src/a.test.ts"] }))
+    const derive = h.steps.find((s) => s.kind === "run" && s.name === "deriving")
+    const body = derive?.kind === "run" ? derive.body : ""
+    expect(body).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+    expect(body).not.toContain("a.test.ts")
+    expect(h.scopes[0]?.access).toEqual({ write: ["src/a.ts", ".gtd/**"] })
   })
 
   it("throws before any step when a stray holds a flag read the pattern matches zero-length", async () => {
@@ -338,6 +437,21 @@ describe("refactorFirst", () => {
     expect(h.result).toBeInstanceOf(Error)
     expect((h.result as Error).message).toContain("lib/other.ts")
     expect(names(h)).not.toContain("health.check")
+  })
+
+  it("refuses a build turn changing a test file even when it is a stray", async () => {
+    const h = await drive(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
+      build: [change("src/a.test.ts", "a", "b")],
+    })
+    expect((h.result as Error).message).toContain("refactor-tests")
+    expect((h.result as Error).message).toContain("src/a.test.ts")
+    expect(names(h)).not.toContain("health.check")
+  })
+
+  it("says never a test file in the package rules", async () => {
+    const h = await drive(shape())
+    expect(bodyOf(h, 0)).toContain("never a test file")
+    expect(bodyOf(h, 0)).not.toContain("only when it is one of them")
   })
 
   it("refuses a build turn adding a flag read", async () => {
@@ -462,5 +576,481 @@ describe("refactorFirst", () => {
       })
       expect((h.result as Error).message).toContain("GTD_FLAG_NEW")
     })
+  })
+})
+
+const REVIEW = ".gtd/REVIEW.md"
+const QUALITY = ".gtd/QUALITY.md"
+
+const reviewDoc = (note: string): string =>
+  [
+    "# Review: abc1234",
+    "",
+    "<!-- base: 0000000000000000000000000000000000000000 -->",
+    "",
+    "## calc",
+    "- [ ] ./src/a.ts#1-1",
+    note,
+    "",
+  ].join("\n")
+
+interface Reviewed {
+  /** Full step names, scope-qualified like the live replay. */
+  readonly names: string[]
+  readonly steps: StepRequest[]
+  readonly scopes: ScopeOptions[]
+  readonly result: boolean | Error
+}
+
+interface ReviewedScript {
+  /** The note the human leaves at each `review.await-review`, in order; `undefined` signs off. */
+  readonly notes?: readonly (string | undefined)[]
+  readonly answers?: Readonly<Record<string, { answer: string; p: number }>>
+  /** Findings every quality lens leaves behind, until the fix turn removes them. */
+  readonly findings?: boolean
+  /** Red checks before green. */
+  readonly reds?: number
+  /** The turn's own changes by full step name. */
+  readonly turns?: Readonly<Record<string, readonly Change[]>>
+  readonly vars?: Readonly<Record<string, string>>
+  /** The collecting turn writes no package. */
+  readonly silentCollect?: boolean
+  readonly collected?: string
+  /** The note the first `review.reviewing` turn writes; later ones write `add`. */
+  readonly firstReviewNote?: string
+}
+
+/** Runs `reviewedRefactor` against a scripted context; a third await-review stops the run. */
+const driveReviewed = async (
+  given: DiffShapeResult,
+  script: ReviewedScript = {},
+): Promise<Reviewed> => {
+  const names: string[] = []
+  const steps: StepRequest[] = []
+  const stack: string[] = []
+  const scopes: ScopeOptions[] = []
+  const files = new Map<string, string>()
+  let last = ""
+  let awaits = 0
+  let reviews = 0
+  let reds = script.reds ?? 0
+  let checking = false
+  let pending: boolean | Error = false
+  const record = (request: Exclude<StepRequest, { kind: "restart" }>): void => {
+    last = [...stack, request.name].join(".")
+    names.push(last)
+    steps.push(request)
+    // Red checks apply to the tail's own runs, never the refactor lap's.
+    checking = request.name === "health.check" && stack.includes("build")
+    if (checking && reds > 0) reds--
+  }
+  const lensEffects = ["correctness", "ponytail-review", "conventions"].map(
+    (lens): [string, () => void] => [
+      `quality.${lens}.reviewing`,
+      () => {
+        if (script.findings) files.set(QUALITY, "- finding")
+      },
+    ],
+  )
+  const effects: Record<string, () => void> = {
+    ...Object.fromEntries(lensEffects),
+    deriving: () => void files.set(REFACTOR_PACKAGE, "package"),
+    closing: () => void files.delete(REFACTOR_PACKAGE),
+    "review.reviewing": () => {
+      files.set(REVIEW, reviewDoc(reviews++ === 0 ? (script.firstReviewNote ?? "add") : "add"))
+    },
+    "review.closing": () => void files.delete(REVIEW),
+    "review.collecting": () => {
+      if (!script.silentCollect)
+        files.set(REFACTOR_PACKAGE, script.collected ?? "collected concern")
+    },
+    "fix.quality.fixing": () => void files.delete(QUALITY),
+    "review.await-review": () => {
+      const note = script.notes?.[awaits]
+      if (++awaits > (script.notes?.length ?? 1)) throw new Error("stop")
+      files.set(REVIEW, reviewDoc(note ?? "add"))
+    },
+  }
+  installContext(
+    fixtureContext(
+      { scope: "refactor", vars: script.vars ?? {} },
+      {
+        step: (request: StepRequest) => {
+          if (request.kind === "restart") return Promise.resolve()
+          record(request)
+          effects[request.name]?.()
+          return Promise.resolve(
+            request.kind === "judge" ? { answers: script.answers ?? {}, truncated: [] } : undefined,
+          )
+        },
+        refuse: (message) => {
+          throw new Error(message)
+        },
+        pushScope: (scope) => {
+          scopes.push(scope)
+          stack.push(scope.name ?? "")
+        },
+        popScope: () => void stack.pop(),
+        read: (path) => files.get(path),
+        changes: () =>
+          checking && reds > 0
+            ? [change(".gtd/FEEDBACK.md", undefined, "red", "added")]
+            : [...(script.turns?.[last] ?? [])],
+        changesSince: () => {
+          const after = files.get(REVIEW)
+          return after === reviewDoc("add")
+            ? []
+            : [{ path: REVIEW, status: "modified", before: reviewDoc("add"), after }]
+        },
+        matches: globMatches,
+        head: () => `c${names.length}`,
+      },
+    ),
+  )
+  try {
+    pending = await reviewedRefactor(given)
+  } catch (error) {
+    pending = error as Error
+  }
+  return { names, steps, scopes, result: pending }
+}
+
+describe("reviewedRefactor", () => {
+  it.each([
+    ["land", shape({ choice: "land" })],
+    ["reject", shape({ choice: "reject" })],
+    ["refactor-first with unreadable strays", shape({ unreadable: ["src/a.ts"] })],
+  ])("resolves false with no step for %s", async (_label, given) => {
+    const h = await driveReviewed(given)
+    expect(h.result).toBe(false)
+    expect(h.steps).toEqual([])
+  })
+
+  it("drops test-file strays from scope, access and the collecting fence", async () => {
+    const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
+      notes: ["add — rename it", undefined],
+    })
+    const derive = h.steps.find((s) => s.kind === "run" && s.name === "deriving")
+    const body = derive?.kind === "run" ? derive.body : ""
+    expect(body).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+    expect(body).not.toContain("a.test.ts")
+    expect(h.scopes[0]?.access).toEqual({ write: ["src/a.ts", ".gtd/**"] })
+    const collecting = h.steps.find((s) => s.kind === "agent" && s.name === "review.collecting")
+    const prompt = collecting?.kind === "agent" ? collecting.prompt : ""
+    expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+    expect(prompt).not.toContain("a.test.ts")
+  })
+
+  it("resolves false with no step and no refactor scope when every stray is a test file", async () => {
+    const h = await driveReviewed(shape({ strays: ["src/a.test.ts"] }))
+    expect(h.result).toBe(false)
+    expect(h.steps).toEqual([])
+    expect(h.scopes).toEqual([])
+  })
+
+  it("closes the package, then runs the tail as refactor.build.* and signs off with true", async () => {
+    const h = await driveReviewed(shape())
+    expect(h.result).toBe(true)
+    expect(h.names).toEqual([
+      "refactor.deriving",
+      "refactor.building",
+      "refactor.health.check",
+      "refactor.closing",
+      "refactor.build.quality.correctness.reviewing",
+      "refactor.build.quality.ponytail-review.reviewing",
+      "refactor.build.quality.conventions.reviewing",
+      "refactor.build.review.reviewing",
+      "refactor.build.review.await-review",
+      "refactor.build.review.closing",
+    ])
+  })
+
+  it("reviews from HEAD at scope entry", async () => {
+    const h = await driveReviewed(shape())
+    const reviewing = h.steps.find((s) => s.kind === "agent" && s.name === "review.reviewing")
+    expect(reviewing?.kind === "agent" ? reviewing.prompt : "").toContain("base: c0")
+  })
+
+  it("names the entry commit in every lens prompt, on the first lap and after a feedback lap", async () => {
+    const lensPrompts = (h: Reviewed) =>
+      h.steps.flatMap((s) =>
+        s.kind === "agent" && s.name === "quality.correctness.reviewing" ? [s.prompt] : [],
+      )
+    const first = lensPrompts(await driveReviewed(shape()))
+    expect(first).toHaveLength(1)
+    expect(first[0]).toContain("from `c0`")
+    const after = lensPrompts(
+      await driveReviewed(shape(), { notes: ["add — rename it", undefined] }),
+    )
+    expect(after).toHaveLength(2)
+    for (const prompt of after) expect(prompt).toContain("from `c0`")
+  })
+
+  it("takes its quality lenses from refactorQualityReviews, none when blank", async () => {
+    const one = await driveReviewed(shape(), { vars: { refactorQualityReviews: "correctness" } })
+    expect(one.names.filter((n) => n.includes(".quality."))).toEqual([
+      "refactor.build.quality.correctness.reviewing",
+    ])
+    const none = await driveReviewed(shape(), {
+      vars: { refactorQualityReviews: "", qualityReviews: "correctness" },
+    })
+    expect(none.names.filter((n) => n.includes(".quality."))).toEqual([])
+  })
+
+  describe("on review feedback", () => {
+    const run = () =>
+      driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+      })
+
+    it("collects into the refactor package, re-unwinds, then derives and builds again, never a re-plan", async () => {
+      const h = await run()
+      const i = h.names.indexOf("refactor.build.review.collecting")
+      expect(i).toBeGreaterThan(-1)
+      expect(h.names.slice(i - 2, i + 6)).toEqual([
+        "refactor.build.review.triage",
+        "refactor.build.review.closing",
+        "refactor.build.review.collecting",
+        "refactor.re-unwind",
+        "refactor.deriving",
+        "refactor.building",
+        "refactor.health.check",
+        "refactor.closing",
+      ])
+      expect(h.names.some((n) => n.startsWith("design"))).toBe(false)
+    })
+
+    it("re-derives a package with the collected text under ## Review feedback and the strays fixed", async () => {
+      const h = await run()
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      expect(derivings).toHaveLength(2)
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("Review feedback")
+      expect(body).toContain("collected concern")
+      expect(body).toContain("- `src/a.ts`") // gtd-path-exempt: fixture paths
+      expect(body).toContain("- `src/b.ts`") // gtd-path-exempt: fixture paths
+      const first = derivings[0]?.kind === "run" ? derivings[0].body : ""
+      expect(first).not.toContain("Review feedback")
+    })
+
+    it("builds with the feedback line on the second lap only", async () => {
+      const h = await run()
+      const builds = h.steps.filter((s) => s.kind === "agent" && s.name === "building")
+      const prompts = builds.map((s) => (s.kind === "agent" ? s.prompt : ""))
+      expect(prompts[0]).not.toContain("## Review feedback")
+      expect(prompts[1]).toContain("## Review feedback")
+    })
+
+    it("nests a collected ## Answered Questions as ### under ## Review feedback", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "## Rename\n\nrename it\n\n## Answered Questions\n\n### why?\n\nbecause",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("## Review feedback")
+      expect(body).toContain("### Rename")
+      expect(body).toContain("### Answered Questions")
+      expect(body).toContain("#### why?")
+      expect(body).not.toMatch(/^## Answered Questions/m)
+    })
+
+    it("nests a collected h1 under ## Review feedback and tracks the opening fence marker", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "# Top\n\n```\n~~~\n# code\n```\n\n## Sub",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("### Top")
+      expect(body).toContain("'# code'")
+      expect(body).toContain("#### Sub")
+    })
+
+    it("caps demoted headings at ###### and shifts the shallowest to ###", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "# Top\n\n##### Deep\n\n```\n# code\n```\n\nprose # not a heading",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("'### Top'")
+      expect(body).toContain("'###### Deep'")
+      expect(body).not.toContain("#######")
+      expect(body).toContain("'# code'")
+      expect(body).toContain("'prose # not a heading'")
+    })
+
+    it("keeps a heading fenced inside a four-backtick fence after an inner three-backtick line", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "## Top\n\n````\n```\n## code\n````\n\n## Sub",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("'## code'")
+      expect(body).not.toContain("'### code'")
+      expect(body).toContain("### Sub")
+    })
+
+    it("treats a three-backtick line indented four spaces as no fence, so the next heading is demoted", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "## Top\n\n    ```\n\n## Sub",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("### Sub")
+    })
+
+    it("collects with the shared prompt's refactor block, naming .gtd/REFACTOR.md and the strays", async () => {
+      const h = await run()
+      const collecting = h.steps.find((s) => s.kind === "agent" && s.name === "review.collecting")
+      const prompt = collecting?.kind === "agent" ? collecting.prompt : ""
+      expect(prompt).toContain(".gtd/REFACTOR.md")
+      expect(prompt).not.toContain(".gtd/REQUIREMENTS.md")
+      expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+      expect(prompt).toContain("`.gtd/REFACTOR.md`'s `## Answered Questions`")
+      // End of round: the review file is already closed, so no thread reply.
+      expect(prompt).toContain("already closed")
+      expect(prompt).not.toContain("exactly one `- A:` reply")
+    })
+  })
+
+  describe("the collecting prompt variant", () => {
+    it("is decided by the round, never by .gtd/REVIEW.md's presence", async () => {
+      // The review file is in the tree at the closed round (it is closed only
+      // after the collecting capture), yet the closed variant renders.
+      const h = await driveReviewed(shape(), { notes: ["add — rename it"], collected: "x" })
+      const collecting = h.steps.find((s) => s.kind === "agent" && s.name === "review.collecting")
+      const prompt = collecting?.kind === "agent" ? collecting.prompt : ""
+      expect(prompt).toContain("already closed")
+      expect(prompt).not.toContain("exactly one `- A:` reply")
+      expect(prompt).not.toContain("A one-shot footnote needs no reply")
+    })
+  })
+
+  describe("a note the collecting turn leaves out", () => {
+    it("refuses the landing naming the note and gtd abandon, never signing off", async () => {
+      const h = await driveReviewed(shape(), { notes: ["add — rename it"], silentCollect: true })
+      const message = (h.result as Error).message
+      expect(h.result).toBeInstanceOf(Error)
+      expect(message).toContain("refactor-feedback")
+      expect(message).toContain("note-1")
+      expect(message).toContain("rename it")
+      expect(message).toContain("gtd abandon")
+    })
+  })
+
+  describe("the guard", () => {
+    const outside = [change("lib/other.ts", "a", "b")]
+
+    it("runs after a quality-fix turn", async () => {
+      const h = await driveReviewed(shape(), {
+        findings: true,
+        turns: { "refactor.build.fix.quality.fixing": outside },
+      })
+      expect((h.result as Error).message).toContain("lib/other.ts")
+      expect(h.names.at(-1)).toBe("refactor.build.fix.quality.fixing")
+    })
+
+    it("runs after a nit-fix turn", async () => {
+      const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
+        notes: ["add — typo"],
+        answers: { "note-1": { answer: "nit", p: 0.9 } },
+        turns: { "refactor.build.review.fix.nits.fixing": [change("src/a.test.ts", "a", "b")] },
+      })
+      expect((h.result as Error).message).toContain("refactor-tests")
+      expect(h.names.at(-1)).toBe("refactor.build.review.fix.nits.fixing")
+    })
+
+    it("runs the nit-fix turn under the strays plus .gtd/** as its write access", async () => {
+      const write = ["src/a.ts", ".gtd/**"]
+      const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
+        notes: ["add — typo"],
+        answers: { "note-1": { answer: "nit", p: 0.9 } },
+      })
+      expect(h.scopes).toContainEqual({ name: "review.fix.nits", access: { write } })
+      expect(h.names).toContain("refactor.build.review.fix.nits.fixing")
+    })
+
+    it("runs after a fix-check turn", async () => {
+      const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
+        notes: ["add — typo"],
+        answers: { "note-1": { answer: "nit", p: 0.9 } },
+        reds: 2,
+        turns: { "refactor.build.fix": [change("src/a.test.ts", "x", "y")] },
+      })
+      expect(h.names).toContain("refactor.build.fix")
+      expect((h.result as Error).message).toContain("refactor-tests")
+      expect(h.names.at(-1)).toBe("refactor.build.fix")
+    })
+
+    it("never refuses a person's edit at the tail's health.stop", async () => {
+      const h = await driveReviewed(shape(), {
+        findings: true,
+        reds: 5,
+        turns: { "refactor.build.health.stop": [change("lib/human.test.ts", "a", "b")] },
+      })
+      expect(h.names).toContain("refactor.build.health.stop")
+      expect(h.result).toBe(true)
+    })
+
+    it("still refuses the tail's escalation describe turn outside the strays", async () => {
+      const h = await driveReviewed(shape(), {
+        findings: true,
+        reds: 5,
+        turns: { "refactor.build.health.describe": outside },
+      })
+      expect((h.result as Error).message).toContain("lib/other.ts")
+      expect(h.names.at(-1)).toBe("refactor.build.health.describe")
+    })
+  })
+})
+
+describe("reviewedRefactor's tail prompts", () => {
+  const strays = ["src/a.ts", "src/b.ts"]
+
+  const promptAt = async (name: string, script: ReviewedScript): Promise<string> => {
+    const h = await driveReviewed(shape({ strays }), script)
+    const step = h.steps.find((s, i) => s.kind === "agent" && h.names[i] === name)
+    if (step?.kind !== "agent") throw new Error(`no agent step ${name} in ${h.names.join(", ")}`)
+    return step.prompt
+  }
+
+  it.each([
+    ["refactor.build.fix", { findings: true, reds: 2 }],
+    ["refactor.build.fix.quality.fixing", { findings: true }],
+    [
+      "refactor.build.review.fix.risks.fixing",
+      { firstReviewNote: "Risk: drops the carry", notes: [undefined] },
+    ],
+    [
+      "refactor.build.review.fix.nits.fixing",
+      { notes: ["nit"], answers: { "note-1": { answer: "nit", p: 0.9 } } },
+    ],
+    ["refactor.build.health.describe", { findings: true, reds: 6 }],
+  ] as const)(
+    "%s names every stray and bans test files and new flag reads",
+    async (name, script) => {
+      const prompt = await promptAt(name, script as ReviewedScript)
+      for (const stray of strays) expect(prompt).toContain(`\`${stray}\``)
+      expect(prompt).toContain("never a test file")
+      expect(prompt).toContain("no new flag read")
+    },
+  )
+})
+
+describe("reviewedRefactor's review lap wording", () => {
+  it("says the whole refactor since it started on the first and the second round", async () => {
+    const h = await driveReviewed(shape(), { notes: ["add — rename it", undefined] })
+    const prompts = h.steps.flatMap((s) =>
+      s.kind === "agent" && s.name === "review.reviewing" ? [s.prompt] : [],
+    )
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) {
+      expect(prompt).toContain("it covers the whole refactor since it started, on every round")
+      expect(prompt).not.toContain("only what is new since the previous review")
+    }
   })
 })

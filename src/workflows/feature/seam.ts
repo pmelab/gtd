@@ -1,12 +1,13 @@
 import {
   changes,
+  head,
   human,
   judgeDiffShape,
   kept,
   removeScript,
   run,
   scope,
-  seamGate,
+  slice,
   vars,
   type DiffShapeResult,
   type KeptTip,
@@ -15,7 +16,7 @@ import { healthy } from "../shared/health.js"
 import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
-import { refactorFirst } from "./refactor.js"
+import { refactorStrays, reviewedRefactor } from "./refactor.js"
 import type { RiskTier } from "./tier.js"
 
 /** Naive-pass retries after a `reject`; the next `reject` rests at `seam.steer`. */
@@ -40,9 +41,13 @@ export const naivePass = (rejection?: t.SeamRejection): Promise<void> =>
     system: t.builderSystem(),
   })
 
-export const implement = (reference: string, tier?: RiskTier): Promise<void> =>
+export const implement = (
+  reference: string | undefined,
+  tier?: RiskTier,
+  amend?: boolean,
+): Promise<void> =>
   scope("implement", async () => {
-    await t.agentWithSkills("building", t.implementBuildingPrompt(reference, tier), {
+    await t.agentWithSkills("building", t.implementBuildingPrompt(reference, tier, amend), {
       label: "Implementing",
       model: coder(),
       system: t.builderSystem(),
@@ -74,7 +79,6 @@ const decide = (): Promise<Decision> =>
       const shape = await judgeSeam(tip)
       if (shape.choice === "land") return { reference: tip.hash }
       if (shape.choice === "refactor-first") {
-        await seamGate("approve", shape)
         return { reference: tip.hash, shape }
       }
       rejection = { strays: shape.strays, p: shape.judgment?.answers.shape?.p ?? 0 }
@@ -95,10 +99,17 @@ const decide = (): Promise<Decision> =>
     }
   })
 
-export const seamBuild = async (tier?: RiskTier): Promise<void> => {
+export interface SeamOutcome {
+  /** The naive pass's kept tip: the first implement turn's reading material. */
+  readonly reference: string
+  /** The feature review's base: HEAD after the refactor on refactor-first, else the caller's base. */
+  readonly base: string
+}
+
+export const seamBuild = async (base: string): Promise<SeamOutcome> => {
   const { reference, shape } = await decide()
-  if (shape !== undefined && !(await refactorFirst(shape, { reference }))) {
-    // Unreadable strays were never judged, and no refactor runs: a person reads the diff.
+  if (shape === undefined) return { reference, base }
+  if (shape.unreadable.length > 0) {
     await scope("seam", () =>
       human("by-hand", {
         message: t.seamByHandMessage(shape.strays, shape.unreadable, reference),
@@ -106,6 +117,9 @@ export const seamBuild = async (tier?: RiskTier): Promise<void> => {
         acceptClean: true,
       }),
     )
+    return { reference, base }
   }
-  await implement(reference, tier)
+  if (refactorStrays(shape).length === 0) return { reference, base }
+  await slice("refactor", () => reviewedRefactor(shape, { reference }))
+  return { reference, base: head() }
 }

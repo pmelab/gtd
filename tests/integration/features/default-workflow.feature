@@ -250,6 +250,11 @@ Feature: The bundled unified workflow — one flow, end to end
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"idle\":true"
+    When I run gtd with "slices"
+    Then it succeeds
+    And stdout contains "main "
+    And stdout does not contain "feature"
+    And stdout does not contain "refactor"
     And the commit subjects from oldest to newest are:
       """
       chore: initial commit

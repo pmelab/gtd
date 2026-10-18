@@ -222,7 +222,7 @@ Feature: the naive pass and seam judge replace architecture behind GTD_FLAG_NAIV
       gtd(human): seam.steer → implement.building
       """
 
-  Scenario: review feedback re-runs design and the whole seam phase
+  Scenario: review feedback after land re-runs design and implement, never the seam phase
     Given step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => b + a
@@ -311,10 +311,9 @@ Feature: the naive pass and seam judge replace architecture behind GTD_FLAG_NAIV
     Then the process rests at "implement.building"
     And the commit subjects end with:
       """
+      gtd(check): build.review.closing → re-unwind
       gtd(check): re-unwind → design.triage
       gtd(agent): design.triage → design.gate.answer
-      gtd(human): design.gate.answer → seam.naive
-      gtd(agent): seam.naive → seam.judge
-      gtd(judge): seam.judge → implement.building
+      gtd(human): design.gate.answer → implement.building
       gtd(agent): implement.building
       """

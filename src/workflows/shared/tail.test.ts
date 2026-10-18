@@ -6,7 +6,7 @@ import {
   type StepRequest,
 } from "../../flows/index.js"
 import type { Guard } from "./health.js"
-import { handOffReview, REVIEW_ORIG } from "./tail.js"
+import { handOffReview, qualityLap, REVIEW_ORIG, tail } from "./tail.js"
 import { fixtureContext } from "./text.fixture.js"
 
 afterEach(() => installContext(undefined))
@@ -204,5 +204,88 @@ describe("the hand-off review", () => {
       // the fixture aborts the second reviewing turn: only the first was guarded
       expect(calls).toBe(1)
     })
+  })
+})
+
+const prompts: string[] = []
+
+describe("the quality lap's lenses", () => {
+  const lap = async (run: () => Promise<unknown>, vars: Record<string, string> = {}) => {
+    const log: string[] = []
+    prompts.length = 0
+    installContext(
+      fixtureContext(
+        { vars },
+        {
+          step: (request: StepRequest) => {
+            if (request.kind !== "restart") log.push(request.name)
+            if (request.kind === "agent") prompts.push(request.prompt)
+            return Promise.resolve()
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          start: () => "START-SHA",
+        },
+      ),
+    )
+    await run()
+    return log
+  }
+
+  it("default to the qualityReviews setting", async () => {
+    const log = await lap(() => qualityLap(), { qualityReviews: "correctness, conventions" })
+    expect(log).toEqual(["quality.correctness.reviewing", "quality.conventions.reviewing"])
+  })
+
+  it("lenses override qualityReviews", async () => {
+    const log = await lap(() => qualityLap(undefined, ["ponytail-review"]), {
+      qualityReviews: "correctness, conventions",
+    })
+    expect(log).toEqual(["quality.ponytail-review.reviewing"])
+  })
+
+  it("an empty list runs no lens turn", async () => {
+    const log = await lap(() => qualityLap(undefined, []), { qualityReviews: "correctness" })
+    expect(log).toEqual([])
+  })
+
+  it("lensBase reaches every lens turn's prompt; absent, they name start()", async () => {
+    await lap(() => qualityLap(undefined, ["conventions", "correctness"], "BASE-SHA"))
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `BASE-SHA`")
+    await lap(() => qualityLap(undefined, ["conventions", "correctness"]))
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `START-SHA`")
+  })
+
+  it("tail threads lensBase to every lens turn", async () => {
+    await lap(() =>
+      tail(
+        false,
+        () => Promise.resolve(),
+        true,
+        undefined,
+        ["conventions", "correctness"],
+        true,
+        "BASE-SHA",
+      ),
+    )
+    expect(prompts).toHaveLength(2)
+    for (const prompt of prompts) expect(prompt).toContain("from `BASE-SHA`")
+  })
+
+  it("tail passes lenses to its lap and a guard after each lens turn", async () => {
+    let guards = 0
+    const log = await lap(() =>
+      tail(
+        false,
+        () => Promise.resolve(),
+        true,
+        () => void guards++,
+        ["conventions"],
+      ),
+    )
+    expect(log).toEqual(["quality.conventions.reviewing"])
+    expect(guards).toBe(1)
   })
 })

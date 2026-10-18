@@ -121,6 +121,11 @@ Given("step {string} from now on changes nothing", (world: TestkitWorld, step: s
   world.actions.set(step, [() => undefined])
 })
 
+// Lets a later visit rest at a step an earlier one had scripted.
+Given("step {string} is no longer scripted", (world: TestkitWorld, step: string) => {
+  world.actions.delete(step)
+})
+
 Given(
   "step {string} writes {string} with:",
   (world: TestkitWorld, step: string, path: string, content: string) => {
@@ -137,6 +142,17 @@ Given(
       if (!beat.content.includes(text)) {
         throw new Error(`step "${step}" was not prompted with "${text}":\n${beat.content}`)
       }
+    })
+  },
+)
+
+// A closing step deletes the file before its collecting turn runs, so this edit
+// leaves a closed turn changing nothing while still answering an in-gate one.
+Given(
+  "step {string} rewrites {string} with:",
+  (world: TestkitWorld, step: string, path: string, content: string) => {
+    world.act(step, (_, repo) => {
+      if (repo.read(path) !== undefined) repo.write(path, withNewline(content))
     })
   },
 )
@@ -202,6 +218,13 @@ Then(
   },
 )
 
+Then(
+  "driving the process is refused without {string}",
+  async (world: TestkitWorld, message: string) => {
+    await assert.rejects(world.drive(), (error: Error) => !error.message.includes(message))
+  },
+)
+
 Then("the process rests at {string}", async (world: TestkitWorld, step: string) => {
   assert.strictEqual((await world.repo().next()).state, step)
 })
@@ -210,6 +233,17 @@ Then("the resting step's content contains {string}", async (world: TestkitWorld,
   const { content } = await world.repo().next()
   assert.ok(content.includes(text), content)
 })
+
+Then(
+  "the resting step's content contains the hash of the commit {string}",
+  async (world: TestkitWorld, subject: string) => {
+    const repo = world.repo()
+    const hash = repo.hashes()[repo.subjects().lastIndexOf(subject)]
+    assert.ok(hash !== undefined, `no commit "${subject}"`)
+    const { content } = await repo.next()
+    assert.ok(content.includes(hash), content)
+  },
+)
 
 Then(
   "the resting step's content does not contain {string}",
@@ -247,6 +281,16 @@ Then(
   async (world: TestkitWorld, list: string, text: string) => {
     const out = await outputOf(world, list)
     assert.ok(!out.includes(text), out)
+  },
+)
+
+Then(
+  "the output lines of gtd {string} start with:",
+  async (world: TestkitWorld, list: string, prefixes: string) => {
+    const out = (await outputOf(world, list)).split("\n").filter((line) => line !== "")
+    const expected = prefixes.split("\n").filter((line) => line.trim() !== "")
+    assert.strictEqual(out.length, expected.length, out.join("\n"))
+    out.forEach((line, i) => assert.ok(line.startsWith(expected[i]!), out.join("\n")))
   },
 )
 

@@ -12,7 +12,12 @@ import {
   architectureGateAnswerMessage,
   buildFixPrompt,
   buildFixQualityPrompt,
+  buildReviewFixNitsPrompt,
+  buildReviewFixRisksPrompt,
+  healthDescribePrompt,
+  refactorRules,
   buildQualityReviewingPrompt,
+  specChallengeBrief,
   buildReviewAwaitReviewMessage,
   buildReviewCollectingPrompt,
   designGateAnswerMessage,
@@ -20,6 +25,9 @@ import {
   implementBuildingPrompt,
   implementFixPrompt,
   naivePassPrompt,
+  refactorBuildingPrompt,
+  refactorDroppedRefusal,
+  refactorFixPrompt,
   seamByHandMessage,
   seamSteerMessage,
   summaryPrompt,
@@ -258,6 +266,29 @@ describe("buildQualityReviewingPrompt", () => {
     expect(renderText(() => buildQualityReviewingPrompt("x", "BRIEF-TEXT"))).toContain(
       "This lens's brief:\nBRIEF-TEXT",
     )
+  })
+  it("reviews from the process start by default", () => {
+    const start = "START-SHA"
+    const text = renderText(() => buildQualityReviewingPrompt("x"), { start })
+    expect(text).toContain("from `START-SHA`")
+  })
+  it("reviews from a given base and still names the process start", () => {
+    const text = renderText(() => buildQualityReviewingPrompt("x", undefined, "BASE-SHA"), {
+      start: "START-SHA",
+    })
+    expect(text).toContain("from `BASE-SHA`")
+    expect(text).not.toContain("from `START-SHA`")
+    expect(text).toContain("started at `START-SHA`")
+  })
+  it("the spec-challenge brief looks up planning documents from the process start", () => {
+    const text = renderText(
+      () => buildQualityReviewingPrompt("x", specChallengeBrief, "BASE-SHA"),
+      {
+        start: "START-SHA",
+      },
+    )
+    expect(text).toContain("started at `START-SHA`")
+    expect(text).toContain("NOT the review base")
   })
 })
 
@@ -746,6 +777,18 @@ Print the closing message and stop — this writes nothing itself.
   })
 })
 
+describe("buildReviewCollectingPrompt without a refactor", () => {
+  it("is the feature prompt verbatim", () => {
+    const prompt = renderText(() => buildReviewCollectingPrompt("capture-text"))
+    expect(prompt).toBe(
+      readFileSync(
+        new URL("./__fixtures__/feature-collecting-prompt.txt", import.meta.url),
+        "utf8",
+      ),
+    )
+  })
+})
+
 describe("the thread rules", () => {
   it("are in all three answering prompts and no longer say a footnote is human input only", () => {
     const prompts = renderText(() => [
@@ -812,7 +855,7 @@ describe("code threads in prompts", () => {
 
 describe("buildReviewReviewingPrompt risk marking", () => {
   it("states the Risk: marker rule and the re-review rule", () => {
-    const prompt = renderText(() => buildReviewReviewingPrompt("base"))
+    const prompt = renderText(() => buildReviewReviewingPrompt("base", "first"))
     expect(prompt).toContain("Open a hunk's note with `Risk:` only for a concrete defect")
     expect(prompt).toContain("never a style remark")
     expect(prompt).toContain("describe what the fix changed under the")
@@ -922,7 +965,7 @@ describe("deferNotesScript — the in-memory recognizer agrees with the real sh 
 describe("buildReviewReviewingPrompt scenarios", () => {
   it("names each removed assertion and asks for a Weakened: note", () => {
     const prompt = renderText(() =>
-      buildReviewReviewingPrompt("base", undefined, [
+      buildReviewReviewingPrompt("base", "first", undefined, [
         {
           path: "e2e/a.feature",
           lines: [{ scenario: "Scenario: shown", line: "Then it is shown" }],
@@ -934,7 +977,7 @@ describe("buildReviewReviewingPrompt scenarios", () => {
   })
 
   it("asks for no Weakened: note when nothing was removed", () => {
-    const prompt = renderText(() => buildReviewReviewingPrompt("base"))
+    const prompt = renderText(() => buildReviewReviewingPrompt("base", "first"))
     expect(prompt).toContain("## Scenarios")
     expect(prompt).not.toContain("Weakened:")
   })
@@ -975,6 +1018,14 @@ describe("the seam phase's texts", () => {
     expect(low).toContain("git show abc123")
   })
 
+  it("drops the git show line when there is no reference", () => {
+    const prompt = renderText(() => implementBuildingPrompt(undefined, "low"))
+    expect(prompt).not.toContain("git show")
+    expect(prompt).not.toContain("Reference only")
+    expect(prompt).toContain("Add no release flag")
+    expect(prompt).toContain("Implement them properly")
+  })
+
   it("keeps a fix turn to the feedback file's rules", () => {
     expect(renderText(() => implementFixPrompt())).toContain(".gtd/FEEDBACK.md")
   })
@@ -1002,4 +1053,216 @@ describe("the seam phase's texts", () => {
     expect(message).toContain('`"a\\nb.ts"`')
     expect(message).not.toContain("a\nb.ts")
   })
+})
+
+describe("the refactor prompts", () => {
+  const strays = ["src/a.ts", "src/b.ts"]
+  const pattern = "\\bGTD_FLAG_\\w+"
+
+  it("building and fix rules forbid every test file, with no stray exception", () => {
+    for (const prompt of renderText(() => [
+      refactorBuildingPrompt(".gtd/REFACTOR.md", strays, pattern),
+      refactorFixPrompt(strays, pattern),
+    ])) {
+      expect(prompt).toContain("never a test file")
+      expect(prompt).not.toContain("only when it is")
+    }
+  })
+
+  it("building adds the act-on-review-feedback line only when asked", () => {
+    const [plain, feedback] = renderText(() => [
+      refactorBuildingPrompt(".gtd/REFACTOR.md", strays, pattern),
+      refactorBuildingPrompt(".gtd/REFACTOR.md", strays, pattern, undefined, true),
+    ])
+    expect(plain).not.toContain("## Review feedback")
+    expect(feedback).toContain("## Review feedback")
+  })
+
+  describe("the review collecting prompt", () => {
+    const prompt = renderText(() =>
+      buildReviewCollectingPrompt("capture-text", { strays, round: "triaged" }),
+    )
+
+    it("folds into .gtd/REFACTOR.md and never names .gtd/REQUIREMENTS.md", () => {
+      expect(prompt).toContain(".gtd/REFACTOR.md")
+      expect(prompt).not.toContain(".gtd/REQUIREMENTS.md")
+      expect(prompt).toContain("capture-text")
+    })
+
+    it("lists the strays and says a non-stray, test-file or flag concern cannot be built", () => {
+      expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+      expect(prompt).toContain("`src/b.ts`") // gtd-path-exempt: fixture paths
+      expect(prompt).toMatch(/cannot be built/)
+      expect(prompt).toMatch(/test file/)
+      expect(prompt).toMatch(/flag/)
+      expect(prompt).toMatch(/behaviour/)
+      expect(prompt).not.toMatch(/say in the reply/i)
+    })
+
+    it("carries answered questions into the target's ## Answered Questions", () => {
+      expect(prompt).toContain("`.gtd/REFACTOR.md`'s `## Answered Questions`")
+    })
+
+    it("drops the reply rules and the closed review file's check", () => {
+      expect(prompt).not.toContain("- A: <reply>")
+      expect(prompt).not.toContain("gtd check review .gtd/REVIEW.md")
+      expect(prompt).toContain("is already closed")
+    })
+
+    it("says an edit note or hand-edit must write the package", () => {
+      expect(prompt).toContain("MUST write")
+      expect(prompt).toContain("gtd abandon")
+    })
+  })
+})
+
+describe("refactorDroppedRefusal", () => {
+  const message = refactorDroppedRefusal({
+    notes: [{ id: "note-2", anchor: "./src/a.ts#1-1", text: "rename it" }] as never,
+    paths: ["src/b.ts"], // gtd-path-exempt: fixture paths
+  })
+
+  it("starts with the refactor-feedback landing refusal", () => {
+    expect(message.startsWith("gtd land: refactor-feedback:")).toBe(true)
+  })
+
+  it("lists each note and each hand-edited path", () => {
+    expect(message).toContain("note-2 (./src/a.ts#1-1): rename it")
+    expect(message).toContain("src/b.ts") // gtd-path-exempt: fixture paths
+  })
+
+  it("names gtd abandon and what it throws away", () => {
+    expect(message).toContain("gtd abandon")
+    expect(message).toContain("the naive pass, the refactor and its review")
+  })
+})
+
+describe("the refactor collecting prompt", () => {
+  const strays = ["src/a.ts"]
+
+  it("in-gate asks for one - A: per waiting thread, leaves one-shot footnotes and notes untouched, never says closed", () => {
+    const prompt = renderText(() =>
+      buildReviewCollectingPrompt("capture", { strays, round: "reply" }),
+    )
+    expect(prompt).toContain("exactly one `- A:` reply")
+    expect(prompt).toContain("Fold each one-shot footnote and note")
+    expect(prompt).toContain("gtd check review .gtd/REVIEW.md")
+    expect(prompt).not.toContain("already closed")
+  })
+
+  const closed = (round: "edits" | "notes" | "triaged", threads = false) =>
+    renderText(() => buildReviewCollectingPrompt("capture", { strays, round }), {
+      codeThreads: threads
+        ? [{ path: "src/a.ts", line: 4, waitingOn: "agent", first: "why?", faults: [] }]
+        : [],
+    })
+
+  it('closed "edits" folds every hand-edit and every note the human left that round', () => {
+    expect(closed("edits")).toContain(
+      "Fold every hand-edit and every note the human left that round",
+    )
+  })
+
+  it('closed "notes" folds each note that asks for a change', () => {
+    expect(closed("notes")).toContain("Fold each note that asks for a change")
+  })
+
+  it('closed "triaged" folds each edit note the capture lists, no other note', () => {
+    expect(closed("triaged")).toContain("Fold each `edit` note the capture lists, no other note")
+  })
+
+  it.each(["edits", "notes", "triaged"] as const)(
+    "closed %s keeps the fence and must-write rule, drops both reply rules",
+    (round) => {
+      const prompt = closed(round, true)
+      expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+      expect(prompt).toContain("MUST write")
+      expect(prompt).not.toContain("A one-shot footnote needs no reply")
+      expect(prompt).not.toContain("Code threads waiting on you")
+      expect(prompt).not.toContain("src/a.ts:4: why?")
+    },
+  )
+
+  it("the open variant and the feature prompt keep both reply rules", () => {
+    const threads = [{ path: "src/a.ts", line: 4, waitingOn: "agent", first: "why?", faults: [] }]
+    for (const prompt of renderText(
+      () => [
+        buildReviewCollectingPrompt("capture", { strays, round: "reply" }),
+        buildReviewCollectingPrompt("capture"),
+      ],
+      { codeThreads: threads as never },
+    )) {
+      expect(prompt).toContain("A one-shot footnote needs no reply")
+      expect(prompt).toContain("src/a.ts:4: why?")
+    }
+  })
+
+  it("end-of-round still says the file is closed and must not be recreated", () => {
+    const prompt = renderText(() =>
+      buildReviewCollectingPrompt("capture", { strays, round: "triaged" }),
+    )
+    expect(prompt).toContain("already closed")
+    expect(prompt).toContain("do not\n  recreate it")
+    expect(prompt).not.toContain("exactly one `- A:` reply")
+  })
+})
+
+describe("the rules-taking fix prompts", () => {
+  const strays = ["src/a.ts", "src/b.ts"]
+  const pattern = "\\bGTD_FLAG_\\w+"
+  const notes = [{ id: "n1", anchor: "src/a.ts#1-1", text: "Risk: x" }]
+  const prompts: Record<string, (rules?: string) => string> = {
+    fix: (rules) => buildFixPrompt(rules),
+    quality: (rules) => buildFixQualityPrompt(rules),
+    risks: (rules) => buildReviewFixRisksPrompt(notes, rules),
+    nits: (rules) => buildReviewFixNitsPrompt(notes, rules),
+    describe: (rules) => healthDescribePrompt(rules),
+  }
+
+  it.each(Object.keys(prompts))(
+    "%s renders without the refactor block when no rules are given",
+    (k) => {
+      const [bare] = renderText(() => [prompts[k]!()])
+      expect(bare).not.toContain("Change only these paths")
+      expect(bare).not.toContain("never a test file")
+    },
+  )
+
+  it.each(Object.keys(prompts))("%s lists the strays and both bans when rules are given", (k) => {
+    const [rules, prompt] = renderText(() => {
+      const r = refactorRules(strays, pattern)
+      return [r, prompts[k]!(r)]
+    })
+    expect(prompt).toContain(rules)
+    for (const stray of strays) expect(prompt).toContain(`\`${stray}\``)
+    expect(prompt).toContain("never a test file")
+    expect(prompt).toContain("no new flag read")
+  })
+
+  it("the risks prompt drops its add-a-test line when rules are given", () => {
+    const [plain, ruled] = renderText(() => [
+      buildReviewFixRisksPrompt(notes),
+      buildReviewFixRisksPrompt(notes, refactorRules(strays, pattern)),
+    ])
+    expect(plain).toContain("add a test")
+    expect(ruled).not.toContain("add a test")
+  })
+})
+
+describe("buildReviewReviewingPrompt lap wording", () => {
+  const ranges = {
+    first: "it covers everything since the base",
+    feedback: "it covers only what is new since the previous review",
+    refactor: "it covers the whole refactor since it started, on every round",
+  } as const
+  it.each(Object.keys(ranges) as (keyof typeof ranges)[])(
+    "%s renders its own range wording and neither of the other two",
+    (lap) => {
+      const prompt = renderText(() => buildReviewReviewingPrompt("base", lap))
+      for (const [other, wording] of Object.entries(ranges)) {
+        if (other === lap) expect(prompt).toContain(wording)
+        else expect(prompt).not.toContain(wording)
+      }
+    },
+  )
 })

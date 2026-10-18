@@ -29,16 +29,29 @@ export const REVIEW_ORIG = ".gtd/REVIEW.orig.md"
  * finding to `.gtd/QUALITY.md`. Resolves `"findings"` when that file
  * has any.
  */
-export const qualityLap = (guard?: Guard): Promise<"clean" | "findings"> =>
-  kit.qualityLap(kit.lensesOf(vars.qualityReviews ?? ""), guarded(reviewQuality, guard), QUALITY)
+export const qualityLap = (
+  guard?: Guard,
+  lenses?: readonly string[],
+  base?: string,
+): Promise<"clean" | "findings"> =>
+  kit.qualityLap(
+    lenses ?? kit.lensesOf(vars.qualityReviews ?? ""),
+    guarded((lens: string) => reviewQuality(lens, base), guard),
+    QUALITY,
+  )
 
 /** Resolves `true` once `.gtd/QUALITY.md` is resolved, `false` when the fix cap escalated instead. */
-export const fixQualityFindings = (escalations: EscalationCount, guard?: Guard): Promise<boolean> =>
+export const fixQualityFindings = (
+  escalations: EscalationCount,
+  guard?: Guard,
+  guardRests = true,
+  rules?: string,
+): Promise<boolean> =>
   kit.fixFindings({
-    fix: guarded(fixQuality, guard),
+    fix: guarded(() => fixQuality(rules), guard),
     findings: QUALITY,
     cap: FIX_CAP,
-    escalate: () => escalation(escalations, guard),
+    escalate: () => escalation(escalations, guard, guardRests, rules),
   })
 
 /** `.gtd/REVIEW.md` removed at the end of a round at commit `round`. */
@@ -61,27 +74,32 @@ export const refusePendingHandOff = (): void => {
  * The build tail: fix (when entered red), keep green, the quality lap, then
  * `finish` — the human review, as the calling workflow runs it. `green`: the
  * caller just left the full suite green (the package loop), so no run opens it.
+ * `guardRests: false` leaves the escalation's human rests unguarded.
  */
 export const tail = <T>(
   fixFirst: boolean,
   finish: (escalations: EscalationCount) => Promise<T>,
   green = false,
   guard?: Guard,
+  lenses?: readonly string[],
+  guardRests = true,
+  lensBase?: string,
+  rules?: string,
 ): Promise<T> =>
   scope("build", async () => {
     const escalations: EscalationCount = { rounds: 0 }
-    const fix = fixCheck
+    const fix = () => fixCheck(rules)
     const repair = async () => {
       await guarded(fix, guard)()
-      await healthy(fix, { fixesSoFar: 1, escalations, guard })
+      await healthy(fix, { fixesSoFar: 1, escalations, guard, guardRests, rules })
     }
     // fixFirst's own fix + healthy below already is the full run.
     if (fixFirst) await repair()
-    else if (!green) await healthy(fix, { escalations, guard })
+    else if (!green) await healthy(fix, { escalations, guard, guardRests, rules })
     // The lap runs once a tail: after its findings are fixed, review follows.
-    if ((await qualityLap(guard)) === "findings") {
-      if (await fixQualityFindings(escalations, guard)) {
-        await healthy(fix, { escalations, guard })
+    if ((await qualityLap(guard, lenses, lensBase)) === "findings") {
+      if (await fixQualityFindings(escalations, guard, guardRests, rules)) {
+        await healthy(fix, { escalations, guard, guardRests, rules })
       } else await repair()
     }
     return finish(escalations)
@@ -99,7 +117,7 @@ export const handOffReview = (
 ): Promise<void> =>
   kit.reviewToHandOff(base, {
     file: REVIEW,
-    reviewing: guarded(reviewing, guard),
+    reviewing: guarded((b, carry) => reviewing(b, carry), guard),
     fixRisks: guarded(fixRisks, guard),
     keepGreen: () => healthy(fixCheck, { escalations, guard }),
     awaitReview: (b) => awaitReview(b, t.handOffAwaitReviewMessage(b)),

@@ -21,12 +21,12 @@ export const baseline = (name: string, label = "Checking the baseline"): Promise
 
 export type { EscalationCount } from "../../workflow-kit/index.js"
 
-const escalationSteps: kit.EscalationSteps = {
+const escalationSteps = (rules?: string): kit.EscalationSteps => ({
   limit: 2,
-  describe: describeEscalation,
+  describe: () => describeEscalation(rules),
   stop: escalate,
   exhausted: escalationExhausted,
-}
+})
 
 /** Runs after an agent or human turn; refuses it by throwing (`refuse`). */
 export type Guard = () => void
@@ -38,20 +38,32 @@ export const guarded =
     guard?.()
   }
 
-const guardedSteps = (guard?: Guard, describeGuard?: Guard): kit.EscalationSteps => ({
-  limit: escalationSteps.limit,
-  describe: guarded(guarded(escalationSteps.describe, guard), describeGuard),
-  stop: guarded(escalationSteps.stop, guard),
-  exhausted: guarded(escalationSteps.exhausted, guard),
-})
+const guardedSteps = (
+  guard?: Guard,
+  describeGuard?: Guard,
+  rests = true,
+  rules?: string,
+): kit.EscalationSteps => {
+  const steps = escalationSteps(rules)
+  return {
+    limit: steps.limit,
+    describe: guarded(guarded(steps.describe, guard), describeGuard),
+    stop: guarded(steps.stop, rests ? guard : undefined),
+    exhausted: guarded(steps.exhausted, rests ? guard : undefined),
+  }
+}
 
 /**
  * Hand a red suite that repeated attempts could not fix to a person: an
  * agent writes `.gtd/ESCALATION.md`, a human narrows it. From the third round
  * on, the human is told the budget is spent instead.
  */
-export const escalation = (count: kit.EscalationCount, guard?: Guard): Promise<void> =>
-  kit.escalation(count, guardedSteps(guard))
+export const escalation = (
+  count: kit.EscalationCount,
+  guard?: Guard,
+  guardRests = true,
+  rules?: string,
+): Promise<void> => kit.escalation(count, guardedSteps(guard, undefined, guardRests, rules))
 
 /** "Is this red round the same failure as the last one?" — asked of two reports, or of nothing when one is empty. */
 export const retryQuestion = (comparable: boolean): JudgeQuestion =>
@@ -100,6 +112,9 @@ export interface HealthOptions {
   readonly guard?: Guard | undefined
   /** Runs after the escalation's agent turn only; the human rests stay unguarded. */
   readonly describeGuard?: Guard | undefined
+  /** `false`: `guard` skips the human rests `health.stop` and `health.exhausted`. */
+  readonly guardRests?: boolean | undefined
+  readonly rules?: string | undefined
 }
 
 const runSuite = (options: HealthOptions): Promise<boolean> =>
@@ -123,7 +138,12 @@ export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): 
     fixesSoFar: options.fixesSoFar ?? 0,
     sameFailure,
     escalations: options.escalations ?? { rounds: 0 },
-    escalation: guardedSteps(options.guard, options.describeGuard),
+    escalation: guardedSteps(
+      options.guard,
+      options.describeGuard,
+      options.guardRests,
+      options.rules,
+    ),
   })
 
 /**

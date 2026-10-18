@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import type { StepRequest } from "../../flows/index.js"
-import { captureStep } from "../shared/text.fixture.js"
+import { installContext, type ScopeOptions, type StepRequest } from "../../flows/index.js"
+import { captureStep, fixtureContext } from "../shared/text.fixture.js"
 import * as steps from "./steps.js"
 
 const capture = (
@@ -45,6 +46,30 @@ describe("the feature workflow's own steps declare skills — a step's rendered 
     expect(prompt).toContain("code-review-and-quality")
   })
 
+  it("collecting's prompt is the pinned feature fixture", async () => {
+    const prompt = agentPrompt(await capture(() => steps.collecting("capture-text"), "build"))
+    expect(prompt).toContain(
+      readFileSync(
+        new URL("../shared/__fixtures__/feature-collecting-prompt.txt", import.meta.url),
+        "utf8",
+      ),
+    )
+  })
+
+  it("refactorCollecting renders the open variant for the reply round, the closed one otherwise, whatever .gtd/REVIEW.md holds", async () => {
+    const at = (round: "reply" | "edits", present: boolean): Promise<StepRequest> =>
+      captureStep(() => steps.refactorCollecting("capture", round, ["src/a.ts"]), {
+        scope: "refactor.build",
+        read: (path) => (present && path === ".gtd/REVIEW.md" ? "# Review" : undefined),
+      })
+    const open = agentPrompt(await at("reply", false))
+    const closed = agentPrompt(await at("edits", true))
+    expect(open).toContain("exactly one `- A:` reply")
+    expect(open).not.toContain("already closed")
+    expect(closed).toContain("already closed")
+    expect(closed).not.toContain("exactly one `- A:` reply")
+  })
+
   it("answerReviewQuestions answers inline in .gtd/REVIEW.md as the reviewer, with its bundled skills", async () => {
     const request = await capture(
       () =>
@@ -78,6 +103,33 @@ describe("the feature workflow's own steps declare skills — a step's rendered 
     expect(request.prompt).toContain("typo")
     expect(request.prompt).toContain("semicolon")
     expect(request.prompt).toContain("Leave `.gtd/REVIEW.md` untouched")
+  })
+
+  it("fixNits with access runs in a review.fix.nits scope, the step named fixing inside it", async () => {
+    const scopes: ScopeOptions[] = []
+    const steps_: StepRequest[] = []
+    const access = { write: ["src/a.ts", ".gtd/**"] }
+    installContext(
+      fixtureContext(
+        { scope: "refactor.build" },
+        {
+          step: (request) => {
+            steps_.push(request)
+            return Promise.resolve()
+          },
+          pushScope: (s) => void scopes.push(s),
+          popScope: () => undefined,
+          changesSince: () => [],
+        },
+      ),
+    )
+    try {
+      await steps.fixNits([], access)
+    } finally {
+      installContext(undefined)
+    }
+    expect(scopes).toEqual([{ name: "review.fix.nits", access }])
+    expect(steps_.map((r) => ("name" in r ? r.name : ""))).toEqual(["fixing"])
   })
 
   it("deferNotes rests at build.review.defer as a script writing .gtd/TODO.md", async () => {

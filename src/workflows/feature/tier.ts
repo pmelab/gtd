@@ -1,4 +1,5 @@
 import { mark, read, vars } from "../../flows/index.js"
+import { markFenced } from "../shared/fences.js"
 import { REQUIREMENTS } from "../shared/steps.js"
 
 export type RiskTier = "low" | "high"
@@ -6,32 +7,13 @@ export type RiskTier = "low" | "high"
 /** GTD_FLAG_NAIVE_PASS, GTD_FLAG_RISK_TIER: both pinned at process start, so a mid-process flip never moves a process. */
 export const riskTierOn = (): boolean => vars.flag_naive_pass === "1" && vars.flag_risk_tier === "1"
 
-// An unclosed fence runs to end of file, so the tier reads `high` (fail-closed). A backtick
-// opener with a backtick in its info string still counts as a fence: deviates from CommonMark,
-// worst case is `high`.
-const markFenced = (text: string): readonly { line: string; fenced: boolean }[] => {
-  let fence: string | undefined // the opener run, e.g. "````"
-  return text.split(/\r?\n/).map((line) => {
-    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
-    const fenced = fence !== undefined || run !== undefined
-    if (fence === undefined) fence = run
-    else if (
-      run !== undefined &&
-      run[0] === fence[0] &&
-      run.length >= fence.length &&
-      /^ {0,3}(`+|~+)[ \t]*$/.test(line)
-    )
-      fence = undefined
-    return { line, fenced }
-  })
-}
-
 const sectionLines = (
   text: string | undefined,
   title: string,
 ): readonly { line: string; fenced: boolean }[] => {
   if (text === undefined) return []
   const heading = new RegExp(`^##[ \\t]+${title}[ \\t]*$`, "i")
+  // An unclosed fence hides the rest, so the tier reads `high` (fail-closed).
   const lines = markFenced(text)
   const start = lines.findIndex((l) => !l.fenced && heading.test(l.line))
   if (start < 0) return []

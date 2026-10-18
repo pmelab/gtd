@@ -56,6 +56,24 @@ describe("the shipped workflow factories", () => {
     })
   })
 
+  it("build seamAllow's default from the test-file globs, byte-equal to the shipped string", () => {
+    expect(defaults.seamAllow).toBe(
+      "**/*.test.*, **/*.spec.*, **/*.feature, **/tests/**, **/test/**, **/__tests__/**, .gtd/**",
+    )
+  })
+
+  it("default refactorQualityReviews to the three refactor lenses and let a factory option win", () => {
+    expect(defaults.refactorQualityReviews).toBe("correctness, ponytail-review, conventions")
+    expect(configure(feature({ refactorQualityReviews: "correctness" }))).toMatchObject({
+      ok: true,
+      build: { defaults: { refactorQualityReviews: "correctness" } },
+    })
+    expect(configure(workflows.rollout({ refactorQualityReviews: "" }))).toMatchObject({
+      ok: true,
+      build: { defaults: { refactorQualityReviews: "" } },
+    })
+  })
+
   it("build the shipped settings unchanged with no options", () => {
     for (const factory of [feature, fix, review]) {
       expect(configure(factory)).toMatchObject({ ok: true, build: { defaults, envDefaults } })

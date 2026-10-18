@@ -20,21 +20,22 @@ which no inspection can tell apart from a gate you have not read yet — so the
 driver treats its OPENING beat as yours regardless and lands it: you re-ran it
 while resting there, and that invocation IS the decision. Every later beat halts
 as usual, because a gate the driver produced mid-run is one you have not seen.
-An approval gate (`approve: true`, the one `seamGate` rests at after a
-`refactor-first` judgment) is the strictest case: its `message` is a seam report
-listing the strays the judge saw, and it asks you to land a clean tree with
-`gtd land` to approve, or `gtd abandon` to stop. Any edit makes the landing
-refuse with exit `1`, so the gate stays. An edit made after `gtd land` printed
-its script but before the script ran makes the script itself fail with nothing
-committed: revert the edit and land again. Re-running a driver that lands its
-opening beat approves the gate — read the report first; the commit records who
-approved it in a JSON `Gtd-Approved:` trailer. Git hooks do not run on the
-approval commit; `commit.gpgSign` still applies, so a failing signer refuses the
-approval. `gtd next --json`'s `approvals` lists them for the current process
-(`[]` when none): `{ step, name, email, commit }`, oldest first. Landing an
-opening beat at a gate without `acceptClean` is harmless — a benign no-op (see
-`gtd land`'s exit codes below) — and the gate then prints on the next beat. A
-mid-process restart simply resumes driving from whatever beat is actually next.
+An approval gate (`approve: true`; the shipped flow rests at none, and a
+refactor's review sign-off is not one) is the strictest case: a workflow's
+`seamGate` rests at it with a `message` that is a seam report listing the strays
+the judge saw, and it asks you to land a clean tree with `gtd land` to approve,
+or `gtd abandon` to stop. Any edit makes the landing refuse with exit `1`, so
+the gate stays. An edit made after `gtd land` printed its script but before the
+script ran makes the script itself fail with nothing committed: revert the edit
+and land again. Re-running a driver that lands its opening beat approves the
+gate — read the report first; the commit records who approved it in a JSON
+`Gtd-Approved:` trailer. Git hooks do not run on the approval commit;
+`commit.gpgSign` still applies, so a failing signer refuses the approval.
+`gtd next --json`'s `approvals` lists them for the current process (`[]` when
+none): `{ step, name, email, commit }`, oldest first. Landing an opening beat at
+a gate without `acceptClean` is harmless — a benign no-op (see `gtd land`'s exit
+codes below) — and the gate then prints on the next beat. A mid-process restart
+simply resumes driving from whatever beat is actually next.
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around the driver,

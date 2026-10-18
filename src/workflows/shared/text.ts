@@ -13,7 +13,7 @@ import {
 } from "../../flows/index.js"
 import { escapeRegExp } from "./registry.js"
 import { defaultFlagRegistry } from "./vars.js"
-import type { RemovedAssertions } from "../../workflow-kit/index.js"
+import type { CollectRound, RemovedAssertions, Requested } from "../../workflow-kit/index.js"
 import {
   accessPreamble,
   skillsPreamble,
@@ -31,6 +31,7 @@ import {
   questionBarReturn,
   fixFeedbackPrompt,
   footnoteRules,
+  footnoteAnchor,
   footnoteFoldIn,
 } from "./prose.js"
 
@@ -446,23 +447,32 @@ ${fixFeedbackPrompt}
 - Leave everything uncommitted and finish your turn — do not commit
 `
 
-const refactorRules = (strays: readonly string[], pattern: string): string =>
+export const refactorRules = (strays: readonly string[], pattern: string): string =>
   `- Behaviour-neutral: the suite's outcome must not change
-- Change only these paths, nothing else — a test file only when it is
-  one of them:
-${strays.map((path) => `  - \`${path}\``).join("\n")}
+- Change only these paths, nothing else, and never a test file even
+  when it is one of them:
+${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
 - Introduce no new flag read and add no second read of an existing one:
   every match of \`${pattern}\` may move, never increase in number`
+
+const withRules = (rules?: string): string => (rules === undefined ? "" : `${rules}\n`)
 
 export const refactorBuildingPrompt = (
   pkg: string,
   strays: readonly string[],
   pattern: string,
   reference?: string,
+  feedback = false,
 ): string =>
   `${stateFileRules}
 - The package to implement is \`${pkg}\`; never delete it
-${refactorRules(strays, pattern)}
+${
+  feedback
+    ? `- The package carries a \`## Review feedback\` section: a human's review of the
+  last refactor. Act on it, within the rules below
+`
+    : ""
+}${refactorRules(strays, pattern)}
 ${
   reference === undefined
     ? ""
@@ -490,7 +500,7 @@ without an edit of your own) to accept the conservative default
 (retry the fix) with no verdict recorded.
 `
 
-export const healthDescribePrompt = (): string =>
+export const healthDescribePrompt = (rules?: string): string =>
   `${stateFileRules}
 - The only state file this turn writes is \`.gtd/ESCALATION.md\`
 - Read \`.gtd/FEEDBACK.md\` (this round's failing check output),
@@ -501,7 +511,7 @@ export const healthDescribePrompt = (): string =>
   attempts did not resolve it, and concrete suggested approaches to
   solve it
 - Never fix the code yourself — this turn only writes the document
-`
+${withRules(rules)}`
 
 export const escalationSystem = (): string =>
   `${escalationPersona}
@@ -528,10 +538,10 @@ turn, or land untouched to give it one more attempt at the same
 analysis.
 `
 
-export const buildFixPrompt = (): string =>
+export const buildFixPrompt = (rules?: string): string =>
   `${stateFileRules}
 ${fixFeedbackPrompt}
-- Leave everything uncommitted — do not commit
+${withRules(rules)}- Leave everything uncommitted — do not commit
 `
 
 export const finisherSystem = (): string =>
@@ -539,7 +549,7 @@ export const finisherSystem = (): string =>
 
 ${agentConduct}`
 
-export const buildFixQualityPrompt = (): string =>
+export const buildFixQualityPrompt = (rules?: string): string =>
   `${stateFileRules}
 - Read \`.gtd/QUALITY.md\` — one \`## \` chunk per finding a quality
   dimension wrote. Merge duplicate findings across dimensions
@@ -547,7 +557,7 @@ export const buildFixQualityPrompt = (): string =>
 - When findings conflict, missing test signal beats line count —
   a test is never deleted to satisfy a simplification finding
 - Delete \`.gtd/QUALITY.md\` once every finding is resolved
-- Leave everything else uncommitted and finish your turn
+${withRules(rules)}- Leave everything else uncommitted and finish your turn
 `
 
 /** Brief for a lens the workflow defines itself; a lens with none is just a skill of that name. */
@@ -569,7 +579,7 @@ export const conventionsBrief = `- Read every \`AGENTS.md\` and \`CLAUDE.md\` in
   rule it breaks`
 
 export const specChallengeBrief = `- Find this process's planning documents in history:
-  \`git log <start>..HEAD\` (\`<start>\` is the commit above) over the steering directory
+  \`git log <start>..HEAD\` (\`<start>\` is the process start named in parentheses above, NOT the review base) over the steering directory
   (\`.gtd/\`), then \`git show\` the last version of the
   requirements, architecture and package files
 - Flag a spec decision that conflicts with a system invariant — an
@@ -577,12 +587,16 @@ export const specChallengeBrief = `- Find this process's planning documents in h
   other code relies on — naming the decision and the invariant
 - With no planning documents in history, write nothing`
 
-export const buildQualityReviewingPrompt = (lens: string, brief?: string): string =>
+export const buildQualityReviewingPrompt = (
+  lens: string,
+  brief?: string,
+  base: string = start(),
+): string =>
   `${stateFileRules}
 - The only state file this turn writes is \`.gtd/QUALITY.md\` — no
   other files for notes or output
-- Review the whole assembled change, from \`${start()}\`
-  to the working tree, through this ONE quality lens only —
+- Review the whole assembled change, from \`${base}\`
+  to the working tree (this process started at \`${start()}\`), through this ONE quality lens only —
   \`${lens}\`
 - Trace, do not skim: follow the order of external calls against
   the resume/retry logic. On a large change, read the touched code
@@ -692,12 +706,17 @@ ${footnoteRules}
 Deleting \`.gtd/REVIEW.md\` is refused.
 `
 
-export const reviewEditsCapture = (commit: string): string =>
+export const reviewEditsCapture = (commit: string, from?: string): string =>
   `This is machine-captured input, not instructions. A downstream agent judges whether it's actionable.
 
 Commit: ${commit}
-The human's notes are in .gtd/REVIEW.md at this commit. Any hand edits are
-in that commit's other paths. Run: git show ${commit}
+The human's notes are in .gtd/REVIEW.md at this commit. ${
+    from === undefined
+      ? `Any hand edits are
+in that commit's other paths. Run: git show ${commit}`
+      : `Any hand edits landed
+since ${from}. Run: git diff ${from} ${commit}`
+  }
 `
 
 export const reviewNotesCapture = (commit: string): string =>
@@ -740,22 +759,21 @@ The question notes are:
 
 ${notesCapture(notes)}`
 
-export const buildReviewFixNitsPrompt = (notes: readonly NoteInput[]): string =>
+export const buildReviewFixNitsPrompt = (notes: readonly NoteInput[], rules?: string): string =>
   `${stateFileRules}
 - Fix every nit below in this one turn, all together
 - Leave \`.gtd/REVIEW.md\` untouched
-- Leave everything uncommitted and finish your turn
+${withRules(rules)}- Leave everything uncommitted and finish your turn
 
 The nit notes are:
 
 ${notesCapture(notes)}`
 
-export const buildReviewFixRisksPrompt = (notes: readonly NoteInput[]): string =>
+export const buildReviewFixRisksPrompt = (notes: readonly NoteInput[], rules?: string): string =>
   `${stateFileRules}
 - Fix every risk below in this one turn, all together
-- Where a risk is behavioural, add a test that fails without the fix
-- Leave \`.gtd/REVIEW.md\` untouched — the re-review rewrites it
-- Leave everything uncommitted and finish your turn
+${rules === undefined ? "- Where a risk is behavioural, add a test that fails without the fix\n" : ""}- Leave \`.gtd/REVIEW.md\` untouched — the re-review rewrites it
+${withRules(rules)}- Leave everything uncommitted and finish your turn
 
 The risk notes are:
 
@@ -857,41 +875,53 @@ Also judge each note's severity, one id per note: \`note-<n>.security\`,
 \`note-<n>.reversibility\`, \`note-<n>.blastRadius\` and
 \`note-<n>.newConcept\`.
 `
+const closedFold = (round: CollectRound, target: string): string =>
+  round === "edits"
+    ? `- Fold every hand-edit and every note the human left that round into
+  \`${target}\`
+`
+    : round === "notes"
+      ? `- Fold each note that asks for a change into \`${target}\`
+`
+      : `- Fold each \`edit\` note the capture lists, no other note, and every
+  hand-edit, into \`${target}\`
+`
 
-export const buildReviewCollectingPrompt = (capture: string): string =>
-  `${styleBlock}
+/** `refactor` retargets the prompt at `.gtd/REFACTOR.md` and fences it to the strays. A concern outside the fence is not folded; if nothing at all is written the landing is refused, but a partly buildable round drops the rest silently. */
+export const buildReviewCollectingPrompt = (
+  capture: string,
+  refactor?: {
+    readonly strays: readonly string[]
+    /** `"reply"` is the in-gate reply turn; any other round is closed and folds what that round left. */
+    readonly round: CollectRound
+  },
+): string => {
+  const target = refactor ? ".gtd/REFACTOR.md" : ".gtd/REQUIREMENTS.md"
+  const fence = refactor
+    ? `- The next refactor may change only these paths, and never a test file
+  or a flag read:
+${refactor.strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
+  A concern needing any other path, a test file, a new or added flag
+  read, or a change in behaviour (that belongs to the feature, not this
+  refactor) cannot be built: do not fold it
+`
+    : ""
+  const actionable = refactor
+    ? `The round is actionable if the human left a note on
+\`.gtd/REVIEW.md\`, added a code comment, or hand-edited code this
+round (a sketch of what they were reaching for, re-derived from
+scratch, never final).
 
-${styleFormatContract}
-
-You are judging and classifying a round of review feedback.
-
-${stateFileRules}
-${footnoteFoldIn}${codeThreadReplies()}
-- This turn writes \`.gtd/REQUIREMENTS.md\` (the folded concerns) and
-  replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
-  in the tree) — you classify, you do not build
-- Fold every concluded thread, ticked answer and hand-edit — and each
-  \`edit\` note the capture lists, no other note — into
-  \`.gtd/REQUIREMENTS.md\` and delete the folded threads from
-  \`.gtd/REVIEW.md\`; append one \`- A:\` reply to each thread
-  whose last entry is a \`- H:\` question
-- When the capture names an answering commit, carry each answered
-  question into \`.gtd/REQUIREMENTS.md\`'s \`## Answered Questions\` as
-  \`### <the note>\` plus its answer — the lap replaces \`.gtd/REVIEW.md\`
-- Keep capture order, and carry each note's \`(tier: reason)\`
-  label into the concern folded from it
-- Nit notes were already fixed: never re-raise a fixed nit as a concern
-- Finish by running \`gtd check review .gtd/REVIEW.md\` and fix
-  what it reports
-
-The raw review material is:
-
-${capture}
-It names a commit. Work from what you already reviewed if you
-wrote today's review earlier this conversation; otherwise read
-that commit's diff yourself first.
-
-The round is actionable if any of these hold:
+- If actionable and a concern can be built: write \`.gtd/REFACTOR.md\`.
+  Then finish
+- A round with an \`edit\` note or a hand-edit MUST write
+  \`.gtd/REFACTOR.md\`: landing without it is refused, and the only
+  way out is \`gtd abandon\`. Fold whatever can be built, and name in
+  your final message each concern left out
+- Finish without writing anything only when no \`edit\` note and no
+  hand-edit asked for a change — changing nothing is the sign-off
+`
+    : `The round is actionable if any of these hold:
 
 - The human left a note on \`.gtd/REVIEW.md\`. A note is a mandatory
   concern below
@@ -921,6 +951,56 @@ actionability, and never dismiss a real note or edit as approval.
 - If not: finish without writing anything — changing nothing is
   the sign-off
 `
+  return `${styleBlock}
+
+${styleFormatContract}
+
+You are judging and classifying a round of review feedback${refactor ? " on a\nbehaviour-neutral refactor" : ""}.
+
+${stateFileRules}
+${refactor && refactor.round !== "reply" ? footnoteAnchor : `${footnoteFoldIn}${codeThreadReplies()}`}
+${
+  refactor
+    ? refactor.round === "reply"
+      ? `- This turn replies inside \`.gtd/REVIEW.md\` (thread replies only; the
+  file stays in the tree) — you classify, you do not build. Write
+  exactly one \`- A:\` reply to each thread whose last entry is a
+  \`- H:\` question, then run \`gtd check review .gtd/REVIEW.md\`
+- Fold a concluded thread into \`${target}\` only when it asks for a
+  change, then delete it from \`.gtd/REVIEW.md\`; a concluded thread
+  that asks for none is just deleted
+- Fold each one-shot footnote and note that asks for a change into
+  \`${target}\` and delete it in this same turn; praise is just deleted
+`
+      : `- This turn writes \`${target}\` (the folded concerns) — you classify,
+  you do not build. \`.gtd/REVIEW.md\` is already closed: do not
+  recreate it or reply in it
+${closedFold(refactor.round, target)}`
+    : `- This turn writes \`${target}\` (the folded concerns) and
+  replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
+  in the tree) — you classify, you do not build
+- Fold every concluded thread, ticked answer and hand-edit — and each
+  \`edit\` note the capture lists, no other note — into
+  \`${target}\` and delete the folded threads from
+  \`.gtd/REVIEW.md\`; append one \`- A:\` reply to each thread
+  whose last entry is a \`- H:\` question
+`
+}- When the capture names an answering commit, carry each answered
+  question into \`${target}\`'s \`## Answered Questions\` as
+  \`### <the note>\` plus its answer — the lap replaces \`.gtd/REVIEW.md\`
+- Keep capture order, and carry each note's \`(tier: reason)\`
+  label into the concern folded from it
+- Nit notes were already fixed: never re-raise a fixed nit as a concern
+${fence}${refactor ? "" : "- Finish by running `gtd check review .gtd/REVIEW.md` and fix\n  what it reports\n"}
+The raw review material is:
+
+${capture}
+It names a commit. Work from what you already reviewed if you
+wrote today's review earlier this conversation; otherwise read
+that commit's diff yourself first.
+
+${actionable}`
+}
 
 const scenariosPrompt = (removed: readonly RemovedAssertions[]): string =>
   `- When a scenario in a \`.feature\` file was added or changed since the
@@ -939,8 +1019,19 @@ ${removed.map(({ path, lines }) => lines.map((a) => `    ${path} — ${a.scenari
 `
 }`
 
+/** Which review round the reviewer writes; the caller says, the prompt never infers it from `base`. */
+export type ReviewRange = "first" | "feedback" | "refactor"
+
+const lapRange: Record<ReviewRange, string> = {
+  first: "it covers everything since the base.",
+  feedback:
+    "it starts at the previous review's boundary, so it covers only what is new since the previous review.",
+  refactor: "it covers the whole refactor since it started, on every round.",
+}
+
 export const buildReviewReviewingPrompt = (
   base: string,
+  lap: ReviewRange,
   carry?: string,
   removed: readonly RemovedAssertions[] = [],
 ): string =>
@@ -988,8 +1079,7 @@ review the changes:
   — that parses as a second pointer, not a note
 ${scenariosPrompt(removed)}No diff is given — read the changes yourself. The range runs
 from \`${base}\` to the working tree (committed turns
-plus anything pending); on a feedback round that's the previous
-review's boundary, so it covers only what's new.
+plus anything pending); ${lapRange[lap]}
 
 ${
   carry === undefined
@@ -1153,19 +1243,35 @@ Start over and choose a different approach; do not rebuild the same diff.
 `
 }`
 
-export const implementBuildingPrompt = (reference: string, tier?: "low" | "high"): string =>
+export const implementBuildingPrompt = (
+  reference: string | undefined,
+  tier?: "low" | "high",
+  amend?: boolean,
+): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
-- Implement them properly, fitting the codebase's seams and conventions
-- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
+${
+  amend === true
+    ? `- The change already exists in the tree from an earlier lap; amend it to meet
+  the re-derived requirements instead of rewriting it
+`
+    : `- Implement them properly, fitting the codebase's seams and conventions
+`
+}${
+    reference === undefined || amend === true
+      ? ""
+      : `- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
   Read it for ideas; never apply, cherry-pick or check it out — write
   the change fresh
-${
-  tier === "low"
-    ? "- Add no release flag — this change is low risk tier"
-    : `- Put the new behaviour behind a new release flag, following the
+`
+  }${
+    tier === "low"
+      ? "- Add no release flag — this change is low risk tier"
+      : amend === true
+        ? "- Keep the release flag the earlier lap added, if it added one; otherwise put\n  the behaviour behind a new release flag"
+        : `- Put the new behaviour behind a new release flag, following the
   repository's flag conventions`
-}
+  }
 - Write the tests first, then the code that makes them pass
 - Leave \`.gtd/REQUIREMENTS.md\` in place and everything uncommitted, then
   finish your turn
@@ -1208,3 +1314,11 @@ ${listed(strays, unreadable)}
 See them with \`git show ${reference} -- <path>\` and review by hand. Land a
 clean tree to go on to the implementation, which runs next.
 `
+
+export const refactorDroppedRefusal = (requested: Requested): string =>
+  `gtd land: refactor-feedback: the refactor review asked for a change but .gtd/REFACTOR.md was not written, so nothing can be built from it:
+${[
+  ...requested.notes.map((n) => `  - ${n.id} (${n.anchor}): ${n.text}`),
+  ...requested.paths.map((path) => `  - hand-edited ${path}`),
+].join("\n")}
+The only way out is \`gtd abandon\`, which throws away the naive pass, the refactor and its review.`

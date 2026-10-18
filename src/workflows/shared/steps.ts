@@ -1,4 +1,4 @@
-import { changesSince, env, human } from "../../flows/index.js"
+import { changesSince, env, human, scope, type ScopeAccess } from "../../flows/index.js"
 import { removedAssertions } from "../../workflow-kit/index.js"
 import * as t from "./text.js"
 
@@ -12,6 +12,7 @@ export const ESCALATION = ".gtd/ESCALATION.md"
 export const REQUIREMENTS = ".gtd/REQUIREMENTS.md"
 export const ARCHITECTURE = ".gtd/ARCHITECTURE.md"
 export const REVIEW = ".gtd/REVIEW.md"
+export const REFACTOR = ".gtd/REFACTOR.md"
 export const QUALITY = ".gtd/QUALITY.md"
 
 export const planner = (): string => env.plannerModel ?? ""
@@ -19,16 +20,16 @@ export const coder = (): string => env.coderModel ?? ""
 
 // ── Keeping the suite green ─────────────────────────────────────────────────
 
-export const fixCheck = (): Promise<void> =>
-  t.agentWithSkills("fix", t.buildFixPrompt(), {
+export const fixCheck = (rules?: string): Promise<void> =>
+  t.agentWithSkills("fix", t.buildFixPrompt(rules), {
     label: "Fixing the check",
     file: FEEDBACK,
     model: coder(),
     system: t.finisherSystem(),
   })
 
-export const describeEscalation = (): Promise<void> =>
-  t.agentWithSkills("health.describe", t.healthDescribePrompt(), {
+export const describeEscalation = (rules?: string): Promise<void> =>
+  t.agentWithSkills("health.describe", t.healthDescribePrompt(rules), {
     label: "Describing the escalation",
     file: FEEDBACK,
     model: coder(),
@@ -67,10 +68,10 @@ export const builtInLenses: Readonly<Record<string, BuiltInLens>> = {
 }
 
 /** One quality review through `lens`; each lens is its own scope, so its own conversation and skills. */
-export const reviewQuality = (lens: string): Promise<void> =>
+export const reviewQuality = (lens: string, base?: string): Promise<void> =>
   t.agentWithSkills(
     `quality.${lens}.reviewing`,
-    t.buildQualityReviewingPrompt(lens, builtInLenses[lens]?.brief),
+    t.buildQualityReviewingPrompt(lens, builtInLenses[lens]?.brief, base),
     {
       label: "Reviewing (one quality lens)",
       file: QUALITY,
@@ -80,8 +81,8 @@ export const reviewQuality = (lens: string): Promise<void> =>
     },
   )
 
-export const fixQuality = (): Promise<void> =>
-  t.agentWithSkills("fix.quality.fixing", t.buildFixQualityPrompt(), {
+export const fixQuality = (rules?: string): Promise<void> =>
+  t.agentWithSkills("fix.quality.fixing", t.buildFixQualityPrompt(rules), {
     label: "Fixing quality findings",
     file: QUALITY,
     model: coder(),
@@ -90,10 +91,14 @@ export const fixQuality = (): Promise<void> =>
   })
 
 /** Write `.gtd/REVIEW.md` over everything since `base`, carrying the answers of commit `carry` when given. */
-export const reviewing = (base: string, carry?: string): Promise<void> =>
+export const reviewing = (
+  base: string,
+  carry?: string,
+  lap: t.ReviewRange = "first",
+): Promise<void> =>
   t.agentWithSkills(
     "review.reviewing",
-    t.buildReviewReviewingPrompt(base, carry, removedAssertions(changesSince(base))),
+    t.buildReviewReviewingPrompt(base, lap, carry, removedAssertions(changesSince(base))),
     {
       label: "Reviewing",
       file: REVIEW,
@@ -105,14 +110,23 @@ export const reviewing = (base: string, carry?: string): Promise<void> =>
   )
 
 /** Fix the `Risk:`-marked notes the reviewer named; an empty turn means the risk was judged false. */
-export const fixRisks = (notes: readonly t.NoteInput[]): Promise<void> =>
-  t.agentWithSkills("review.fix.risks.fixing", t.buildReviewFixRisksPrompt(notes), {
-    label: "Fixing the reviewer's risks",
-    file: REVIEW,
-    model: planner(),
-    system: t.reviewerSystem(),
-    allowEmpty: true,
-  })
+export const fixRisks = (
+  notes: readonly t.NoteInput[],
+  access?: ScopeAccess,
+  rules?: string,
+): Promise<void> => {
+  const fixing = (name: string): Promise<void> =>
+    t.agentWithSkills(name, t.buildReviewFixRisksPrompt(notes, rules), {
+      label: "Fixing the reviewer's risks",
+      file: REVIEW,
+      model: planner(),
+      system: t.reviewerSystem(),
+      allowEmpty: true,
+    })
+  return access === undefined
+    ? fixing("review.fix.risks.fixing")
+    : scope({ name: "review.fix.risks", access }, () => fixing("fixing"))
+}
 
 export const awaitReview = (
   base: string,
