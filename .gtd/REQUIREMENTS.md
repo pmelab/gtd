@@ -1,25 +1,3 @@
-## Open Questions
-
-### Does a fix turn that edits an `(unchanged)` test get refused too?
-
-The guard reruns after every fix turn, measured from the package's start. Strict
-refusal there can trap a fix turn that needs that test edited to turn the suite
-green — the #373 loop again, in a new place.
-
-- [ ] Refuse in build and fix turns alike
-  - **The marker means "untouched" for the whole package**, no exceptions
-  - **Risk: a wrong marker from decompose can loop the fix lap forever**; only a
-    human edit to the package breaks it
-  - One rule, one check — simplest to build and test
-- [x] Refuse in the build turn only; fix turns may edit a marked test
-  - **No new loop**: a fix turn can repair a test the package's code broke
-  - **The marker stops guarding once the build turn lands** — a fix turn could
-    weaken the test unseen by the guard (review's `Weakened:` check still sees
-    e2e scenarios)
-  - The guard needs to know which turn it checks — a small parameter on the
-    existing check
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. `## Tests` parsing reads whole list items — TECHNICAL
@@ -50,7 +28,13 @@ green — the #373 loop again, in a new place.
   keeps its group
 - Holds with `.gtd/SATISFIED.md` written too — a satisfied package changes
   nothing in the tree anyway
-- Which turns this applies to follows the open question above
+- **Build turn only**: the build turn's check refuses a modified marked test;
+  the recheck after each fix turn does not, so a fix turn may repair a marked
+  test the package's code broke
+- **Risk: after the build turn lands, a fix turn can weaken a marked test unseen
+  by this guard** — review's `Weakened:` check still sees e2e scenarios
+- The existing check takes a small parameter naming the turn it checks; the
+  `restore them` and missing-from-tree groups keep applying to fix turns too
 - `src/workflows/feature/packages.test.ts` and
   `tests/integration/features/declared-tests.feature` (tagged `@inmem`) cover
   the refusal and its message
@@ -67,8 +51,8 @@ green — the #373 loop again, in a new place.
 - **Reword as one rule**: list every test the package writes or changes; also
   list an existing test a criterion relies on, marked `(unchanged)`; list no
   other untouched test
-- **Show both marker forms**: `- unit: \`<path>\` (unchanged)`and`- e2e:
-  \`<path>\` (unchanged)`
+- **Show both marker forms**: ``- unit: `<path>` (unchanged)`` and
+  ``- e2e: `<path>` (unchanged)``
 - Keep "only decompose places the marker"
 - `src/workflows/shared/text.test.ts` pins the new wording
 
@@ -83,3 +67,13 @@ not folded.
 
 No — ` (unchanged)` after the backticked path stays the only form; this work
 fixes how wrapped lines are read, not what is written.
+
+### Does a fix turn that edits an `(unchanged)` test get refused too?
+
+No — only the build turn is refused for modifying a marked test; fix turns may
+edit it, so a wrong marker cannot loop the fix lap (human's pick).
+
+### Does a fix turn that deletes an `(unchanged)` test still get refused?
+
+Yes — the existing `restore them` recheck after every fix stays; it stops a fix
+turn greening the suite by deleting a red declared test.
