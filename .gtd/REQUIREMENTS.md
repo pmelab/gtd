@@ -1,22 +1,3 @@
-## Open Questions
-
-### Does a footnote that only praises still dead-end a refactor-review round?
-
-Line notes reach the triage judge, so a praise note signs off. Footnotes reach
-no judge, so a footnote-only round with no `.gtd/REFACTOR.md` is refused
-whatever it says, and `gtd abandon` is the only exit.
-
-- [ ] Refuse every footnote-only round that writes no `.gtd/REFACTOR.md`, as
-      sketched
-  - no judge call, smallest build
-  - **a "looks good" footnote throws away the naive pass, the refactor and its
-    review**
-- [x] Judge footnotes like line notes; refuse only when one is judged `edit`
-  - praise and question footnotes sign off, matching line notes
-  - one more judge question per footnote; the triage judge must learn footnote
-    anchors
-- [ ] _your answer_
-
 ## Concerns
 
 Source: the sketch in `.gtd/TODO.md`, "PR 390 round 2", items 1–8. Ordered so
@@ -38,18 +19,25 @@ gate therefore refuses the turn.
   `src/workflows/feature/refactor-review.feature`: a thread question at the
   refactor gate gets an answer and rests at the gate again
 
-### 2. Footnote-only refactor round with no `.gtd/REFACTOR.md` refuses — PRODUCT
+### 2. Footnotes are judged like line notes; an `edit` footnote left undone refuses — PRODUCT
 
 **Today a refactor-review round carrying only footnotes reaches the kit's
 no-line-notes path with nothing marked as requested, so a collecting turn that
-writes nothing silently signs off.** The sketch says it must refuse, like an
-`edit` note or a hand-edit does.
+writes nothing silently signs off.** Footnotes must go through the same triage
+judge as line notes.
 
-- Pass the round's footnotes as requested items into the `dropped` check
+- Send each footnote of the round to the triage judge, one question per
+  footnote; the judge learns footnote anchors (the anchored hunk or paragraph)
+- **Praise and question footnotes sign off, exactly as line notes do** — a
+  footnote-only round of praise never dead-ends
+- A footnote judged `edit` joins the requested items of the `dropped` check; a
+  collecting turn that writes no `.gtd/REFACTOR.md` for it refuses
 - The `refactor-feedback` refusal names each dropped footnote by its anchor
-- Scope follows the open question above: every footnote, or only footnotes
-  judged `edit`
 - The feature review is untouched: it has no `dropped` refusal
+- Cover with `@inmem` scenarios in
+  `src/workflows/feature/refactor-review.feature`: a praise-only footnote round
+  signs off; an `edit` footnote with no `.gtd/REFACTOR.md` refuses naming its
+  anchor
 
 ### 3. The `dropped` refusal lists edit notes only — TECHNICAL
 
@@ -60,7 +48,7 @@ and questions included.** It must name only what asked for a change.
   notes untriaged
 - **The hand-edit path runs no triage, so it has no verdicts to filter by** —
   the next phase picks between triaging there or listing hand-edited paths (plus
-  footnotes, per concern 2) only
+  footnotes judged `edit`, per concern 2) only
 - Update `docs/configuration.md`'s "naming every left-out note" to match
 
 ### 4. Refactor review-tail fix prompts name the strays and ban tests — TECHNICAL
@@ -144,3 +132,9 @@ a reviewer's note asks for.
 
 Documented `gtd abandon`, matching `seam.approve` — the flag is off by default
 and COMPATIBILITY.md already treats a step-order change as breaking.
+
+### Does a footnote that only praises still dead-end a refactor-review round?
+
+No — footnotes go through the triage judge like line notes; praise and question
+footnotes sign off, and only a footnote judged `edit` that the collecting turn
+leaves undone refuses the round.
