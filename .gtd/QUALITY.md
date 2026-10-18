@@ -204,3 +204,82 @@ passes \`refactorRules(strays, pattern)\`.
 _/`. AGENTS.md § Comments says: "Keep a comment … only where it explains an important decision or genuinely unclear code … (restatement of the code, history, a 'what' with no 'why') gets deleted". The second clause describes a call site. That is a fact the code already states, and it goes stale when a caller changes. `refactorRules`is also not exported from any entrypoint, yet this option belongs to the public tail options. Cut the clause after the semicolon.`src/workflows/shared/health.ts:117` `/_*
 Appended to the escalation's describe prompt. */` only restates the field. Keep
 it only if the public option needs one line for users. Otherwise delete it.
+
+## spec-challenge: the replay test forges a feedback-lap trail 28.x never wrote, so the documented abandon set is too small
+
+Blocking. This is the decision in package 05 / ARCHITECTURE "How is the
+in-flight replay set determined?": forge the 28.0.0 trail "read off `main`'s
+naive-pass scenarios", and treat whatever it shows as the abandon set. It
+conflicts with what released gtd actually commits. That history is the Stable
+history format, and COMPATIBILITY.md says a step-order change "strands every
+process resting on it".
+
+In `v28.0.0` and `v28.1.0`, `planAndBuild` loops
+`design → recordRisk → seamBuild(tier) → buildTail`. A feature-review feedback
+lap therefore re-runs `seam.naive` → `seam.judge` (and on `refactor-first` it
+runs `seam.approve` and the refactor again) before `implement.building`. On this
+branch `featureFeedback` goes `design → implement(undefined, tier, true)`, with
+no seam steps. The forged `"land, then a feature feedback lap"` trail
+(`src/workflows/feature/feature.test.ts:202-217`) goes
+`design.gate.answer → implement.building`. That is the NEW sequence, not 28.x's.
+The test passes only because it forges what the new code expects. It pins the
+bug as the contract.
+
+The real 28.x trail after feedback is `design.gate.answer#2 → seam.naive`. When
+the current `feature` replays it, the next step it expects is
+`implement.building`, so replay fails with "the workflow changed under this
+process". This holds at every rest from the second lap's `seam.naive` on.
+
+As a result, `docs/configuration.md:698` ("Processes that rest at … or past a
+`land` verdict (including after a feature feedback lap) keep replaying") is
+false. `README.md:578` also lists only the `refactor-first` case. The
+`BREAKING CHANGE:` footer drawn from both would under-state the migration.
+
+Fix: forge the feedback trail as 28.x wrote it, with
+`design.gate.answer → seam.naive → seam.judge → implement.building …` on the
+second lap. Pin that it fails replay from the second-lap `seam.naive` on. Then
+widen the docs, README and footer to cover "any process that has started a
+feature feedback lap's naive pass". Before re-deriving the sequences, check them
+against `git show v28.1.0:src/workflows/feature/feature.ts` and `seam.ts`, not
+against the new code.
+
+## spec-challenge: "in-gate refactor turn leaves one-shot footnotes untouched" contradicts the documented footnote contract
+
+Non-blocking on its own. The hole it opens is the blocking correctness finding
+"refactor in-gate collecting leaves notes for a triage the settled path never
+runs".
+
+The decision is ARCHITECTURE's answered question "Does the in-gate refactor turn
+fold one-shot footnotes…? No… leaves one-shot footnotes for the round's triage",
+rendered at `src/workflows/shared/text.ts:954`. It contradicts the user-facing
+contract at `docs/configuration.md:1088-1092`: "The next agent turn folds the
+comment into its own work and deletes both the marker and the definition — a
+footnote is never carried forward or left for a later turn to re-read". It also
+contradicts the shared `footnoteFoldIn` rule rendered in the same prompt.
+
+The spec's premise is that a later triage picks the footnote up. That holds only
+for footnotes added AFTER the in-gate turn, because `settledAfter` measures from
+`collectedAt`. So the decision breaks the documented contract and does not get
+the judging it was traded for.
+
+Fix: resolve it together with the correctness fix. If the open turn keeps
+leaving footnotes, the docs paragraph needs a carve-out for the refactor gate,
+and the shared fold-in line must not render in that prompt.
+
+## spec-challenge: kit-wide settled rule changes step order on unflagged flows; the replay migration names only the naive pass
+
+Nit. ARCHITECTURE "Does the kit's footnote fix reach the feature review and the
+fix hand-off too? Yes, kit-wide." `notesOf` now counts one-shot footnotes, so a
+round where a one-shot footnote landed after an in-gate collecting turn is no
+longer `settled`. Under 28.x that round went `unfolded()`, which is sign-off, or
+`feedback` when the in-gate turn had folded. Now it runs `triage` and a
+collecting turn.
+
+This applies to the default `feature` flow with no flag set, and through
+`@pmelab/gtd/workflow-kit`'s `review` to every custom workflow. A 28.x process
+that took such a round as feedback and now rests in a later lap fails replay.
+The "Upgrading" note and the replay test cover only `GTD_FLAG_NAIVE_PASS`.
+
+The case is narrow (an in-gate thread, then a footnote, then a folded lap), so
+documenting it is enough. Add one line to the Upgrading note, or a
+`BREAKING CHANGE:` footer clause, saying that such a process must `gtd abandon`.
