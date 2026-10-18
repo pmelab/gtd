@@ -186,3 +186,46 @@ two ways of reading the ref disagree with `<top>~1`.
   - "single-slice stack-mode ship defers the unset until after the retarget":
     now calls `ship(io, false, "commits")`. Rename both, for example "…rebuilds
     from the recorded top" and "single-slice commits-mode ship defers…".
+
+## conventions: the new stack-resume behaviour has no `@inmem` scenario and no port contract
+
+AGENTS.md, Testing: "create cucumber.js scenarios for each new feature, tagged
+`@inmem`" and "reach every external resource (git, … a spawned program) through
+a port with a live and an in-memory implementation, and hold the two together
+with a contract test that runs the same cases against both."
+
+The change adds a user-visible feature: a one-slice `stack`-mode ship on a
+stacked branch now lands on the top branch and keeps the stack, documented in
+`docs/driver.md`. It is covered only by vitest cases in
+`claude/hooks/ship.test.ts`, and no `.feature` scenario covers it. Its new
+external reads (`<top>~n`, `merge-base --is-ancestor <top> HEAD`,
+`gh pr view <branch>`) go through `ShipIo`. The live side of that port is
+`shipIo($)` in `claude/hooks/register.tsx`, and its only test-side counterpart
+is a scripted map that answers any unscripted argv with exit 0. No contract test
+runs the same cases against both. This gap predates the change, but the change
+widens it: the git and gh semantics it newly depends on are never exercised for
+real (see the correctness finding above). Fix: add an `@inmem` scenario for "one
+slice re-shipped onto a recorded stack", or at least a contract case that runs
+the `<top>~n` floor and revive against a real temporary repository.
+
+## conventions: new comments that only restate the code
+
+AGENTS.md, Comments: "Keep a comment … only where it explains an important
+decision or genuinely unclear code … Everything else (restatement of the code,
+history, a 'what' with no 'why') gets deleted, not moved."
+
+`claude/hooks/ship.ts`:
+
+- `stackReads`: "Stack mode's reads: a fresh stack's refusals, or, for one
+  slice, the recorded stack it lands on top of (undefined when there is none to
+  resume)." This restates the three-line body and its return type. Delete it.
+- `mergedSlices`: "How many leading slices are merged (never the top), or the
+  refusal." This restates the signature and the `while` loop. Delete it.
+- `chain`: the first sentence, "The commits of the remaining upper slices
+  (recorded index `from` on), and whether they still chain to `at`.", is a
+  "what". Keep only the "why" sentence about reading off the recorded top.
+- `resumable`: "A stack that /gtd ship built, if its branches still chain to
+  `at`. Pull request states are read first and leading merged slices drop out"
+  is a "what". The decisions worth keeping are "every read happens before any
+  write, so a refusal changes nothing" and "`revive` is left to the caller so a
+  squash can come first". Trim it to those.
