@@ -30,3 +30,30 @@ the fix turn).
   the `...fourth` spread and `base`. To make it cover the mapping it claims,
   record every request name (not just `quality.*`) and compare the legacy and
   options forms with `fixFirst: true` and `green: false`.
+
+## spec-challenge: "docs show only the new form" misses the shipped authoring skill
+
+REQUIREMENTS concern 4 limits the docs update to `docs/configuration.md` and the
+README, and the refactor package froze its scope to the same list. But
+`skills/authoring/SKILL.md` ships in the npm package (`"skills/"` in
+`package.json` `files`; `docs/configuration.md` tells users to copy it) and
+repeats the same hotfix example, still as
+`return afterTail(await buildTail(true, start()))` (line 59). So the one doc
+written for coding agents still teaches the `@deprecated` form, contrary to the
+spec's "docs show only the new form". The same file's `planAndBuild` example
+(line 241, `if ((await buildTail(false)) === "signoff") return`) was already
+wrong before this change (no `base`, and the outcome is an object with
+`verdict`, not a string). It is the same call shape, so fix it here too: switch
+both to `buildTail(base, { … })`.
+
+## spec-challenge: `fixFirst`/`green` move into a type the public entry does not export
+
+Concern 1 makes `BuildTailOptions` the documented way to call the public
+`buildTail` (`fixFirst` and `green` now live there). But
+`src/workflows/index.ts` re-exports only `buildTail, type ReviewOutcome` from
+`review.ts`, so config authors cannot name `BuildTailOptions`.
+`ImplementOptions` is exported, because `seam.ts` is re-exported with
+`export *`. COMPATIBILITY.md puts entrypoint exports' types under package
+SemVer, so the options shape is now public API with no name for it. Either add
+`type BuildTailOptions` to the `index.ts` re-export (additive, minor) or record
+why it stays unnamed. Non-blocking.
