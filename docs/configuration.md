@@ -1565,8 +1565,9 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 - **`refactorQualityReviews`** (`correctness, ponytail-review, conventions`) —
   the quality lap the refactor review runs, one turn per comma-separated lens,
   as `qualityReviews` does for the feature review. `qualityReviews` does not
-  reach it; blank runs no refactor quality lap. Each lens is its own scope,
-  keyed `refactor.build.quality.<lens>`.
+  reach it, and a lens left out never sees the refactor (the feature lap reviews
+  from the refactor's sign-off); blank runs no refactor quality lap. Each lens
+  is its own scope, keyed `refactor.build.quality.<lens>`.
 - **`reviewBase`** (empty) — the commitish `--workflow review` reviews from
   (`gtd door review` sets it).
 

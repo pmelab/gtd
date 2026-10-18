@@ -576,7 +576,7 @@ export const conventionsBrief = `- Read every \`AGENTS.md\` and \`CLAUDE.md\` in
   rule it breaks`
 
 export const specChallengeBrief = `- Find this process's planning documents in history:
-  \`git log <start>..HEAD\` (\`<start>\` is the commit above) over the steering directory
+  \`git log <start>..HEAD\` (\`<start>\` is the process start named in parentheses above, NOT the review base) over the steering directory
   (\`.gtd/\`), then \`git show\` the last version of the
   requirements, architecture and package files
 - Flag a spec decision that conflicts with a system invariant — an
@@ -584,7 +584,6 @@ export const specChallengeBrief = `- Find this process's planning documents in h
   other code relies on — naming the decision and the invariant
 - With no planning documents in history, write nothing`
 
-/** Reviews from `base` (default `start()`) to the working tree. */
 export const buildQualityReviewingPrompt = (
   lens: string,
   brief?: string,
@@ -869,7 +868,7 @@ Also judge each note's severity, one id per note: \`note-<n>.security\`,
 \`note-<n>.reversibility\`, \`note-<n>.blastRadius\` and
 \`note-<n>.newConcept\`.
 `
-/** `refactor` retargets the prompt at `.gtd/REFACTOR.md` and fences it to the strays; a concern outside the fence is refused at landing, so the prompt only says not to fold it. */
+/** `refactor` retargets the prompt at `.gtd/REFACTOR.md` and fences it to the strays. A concern outside the fence is not folded; if nothing at all is written the landing is refused, but a partly buildable round drops the rest silently. */
 export const buildReviewCollectingPrompt = (
   capture: string,
   refactor?: { readonly strays: readonly string[] },
@@ -892,8 +891,12 @@ scratch, never final).
 
 - If actionable and a concern can be built: write \`.gtd/REFACTOR.md\`.
   Then finish
-- If not: finish without writing anything — changing nothing is
-  the sign-off
+- A round with an \`edit\` note or a hand-edit MUST write
+  \`.gtd/REFACTOR.md\`: landing without it is refused, and the only
+  way out is \`gtd abandon\`. Fold whatever can be built, and name in
+  your final message each concern left out
+- Finish without writing anything only when no \`edit\` note and no
+  hand-edit asked for a change — changing nothing is the sign-off
 `
     : `The round is actionable if any of these hold:
 
@@ -933,7 +936,15 @@ You are judging and classifying a round of review feedback${refactor ? " on a\nb
 
 ${stateFileRules}
 ${footnoteFoldIn}${codeThreadReplies()}
-- This turn writes \`${target}\` (the folded concerns) and
+${
+  refactor
+    ? `- This turn writes \`${target}\` (the folded concerns) — you classify,
+  you do not build. \`.gtd/REVIEW.md\` is already closed: do not
+  recreate it or reply in it
+- Fold each \`edit\` note the capture lists, no other note, and every
+  hand-edit, into \`${target}\`
+`
+    : `- This turn writes \`${target}\` (the folded concerns) and
   replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
   in the tree) — you classify, you do not build
 - Fold every concluded thread, ticked answer and hand-edit — and each
@@ -941,15 +952,14 @@ ${footnoteFoldIn}${codeThreadReplies()}
   \`${target}\` and delete the folded threads from
   \`.gtd/REVIEW.md\`; append one \`- A:\` reply to each thread
   whose last entry is a \`- H:\` question
-- When the capture names an answering commit, carry each answered
+`
+}- When the capture names an answering commit, carry each answered
   question into \`${target}\`'s \`## Answered Questions\` as
   \`### <the note>\` plus its answer — the lap replaces \`.gtd/REVIEW.md\`
 - Keep capture order, and carry each note's \`(tier: reason)\`
   label into the concern folded from it
 - Nit notes were already fixed: never re-raise a fixed nit as a concern
-${fence}- Finish by running \`gtd check review .gtd/REVIEW.md\` and fix
-  what it reports
-
+${fence}${refactor ? "" : "- Finish by running `gtd check review .gtd/REVIEW.md` and fix\n  what it reports\n"}
 The raw review material is:
 
 ${capture}
@@ -1240,7 +1250,6 @@ See them with \`git show ${reference} -- <path>\` and review by hand. Land a
 clean tree to go on to the implementation, which runs next.
 `
 
-/** Refuses the collecting landing of a refactor-review round that asked for a change but left nothing the refactor can build. */
 export const refactorDroppedRefusal = (requested: Requested): string =>
   `gtd land: refactor-feedback: the refactor review asked for a change but .gtd/REFACTOR.md was not written, so nothing can be built from it:
 ${[

@@ -139,14 +139,17 @@ const packageLines = (
 
 // Nested under `## Review feedback`, so every heading of the collected text drops a level.
 const demoteHeadings = (text: string): string[] => {
-  let fenced = false
-  return text
-    .trimEnd()
-    .split("\n")
-    .map((line) => {
-      if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
-      return !fenced && /^#{1,5} /.test(line) ? `#${line}` : line
-    })
+  const lines = text.trimEnd().split("\n")
+  let marker: string | undefined
+  const headings = lines.map((line) => {
+    const fence = /^\s*(```|~~~)/.exec(line)?.[1]
+    if (fence) marker = marker === undefined ? fence : marker === fence ? undefined : marker
+    return marker === undefined && !fence ? /^(#{1,6}) /.exec(line)?.[1]?.length : undefined
+  })
+  const shallowest = Math.min(...headings.filter((n): n is number => n !== undefined))
+  // Collected headings nest under `## Review feedback`, so the shallowest lands at `###`.
+  const shift = Math.max(1, 3 - shallowest)
+  return lines.map((line, i) => (headings[i] === undefined ? line : "#".repeat(shift) + line))
 }
 
 const deriveScript = (lines: readonly string[]): string =>
@@ -220,13 +223,15 @@ const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<vo
   await run("closing", removeScript([REFACTOR_PACKAGE]), { label: "Closing out the refactor" })
 }
 
+const strayAccess = (strays: readonly string[]) => ({ write: [...strays, ".gtd/**"] })
+
 export const refactorFirst = async (
   shape: DiffShapeResult,
   options: RefactorOptions = {},
 ): Promise<boolean> => {
   const p = plan(shape, options)
   if (p === undefined) return false
-  return scope({ name: "refactor", access: { write: [...p.strays, ".gtd/**"] } }, async () => {
+  return scope({ name: "refactor", access: strayAccess(p.strays) }, async () => {
     await refactorLap(p, guardOf(p, head()))
     return true
   })
@@ -244,7 +249,7 @@ export const reviewedRefactor = async (
 ): Promise<boolean> => {
   const p = plan(shape, options)
   if (p === undefined) return false
-  return scope({ name: "refactor", access: { write: [...p.strays, ".gtd/**"] } }, async () => {
+  return scope({ name: "refactor", access: strayAccess(p.strays) }, async () => {
     const entry = head()
     const guard = guardOf(p, entry)
     const feedback: FeedbackTarget = {
@@ -263,7 +268,7 @@ export const reviewedRefactor = async (
         guardRests: false,
         lenses: lensesOf(vars.refactorQualityReviews ?? ""),
         feedback,
-        fixAccess: { write: [...p.strays, ".gtd/**"] },
+        fixAccess: strayAccess(p.strays),
         lensBase: entry,
       })
       if (outcome.verdict === "signoff") return true

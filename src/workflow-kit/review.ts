@@ -24,7 +24,7 @@ export type ReviewOutcome =
       readonly edited: readonly Change[]
     }
 
-/** What a round asked to change: the `edit` notes it carried and the code paths the human hand-edited. */
+/** What a round asked to change: the round's notes (triage and all) and the code paths the human hand-edited. */
 export interface Requested {
   readonly notes: readonly ReviewNote[]
   readonly paths: readonly string[]

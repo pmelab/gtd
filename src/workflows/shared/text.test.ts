@@ -284,7 +284,7 @@ describe("buildQualityReviewingPrompt", () => {
       },
     )
     expect(text).toContain("started at `START-SHA`")
-    expect(text).toContain("git log <start>..HEAD")
+    expect(text).toContain("NOT the review base")
   })
 })
 
@@ -973,9 +973,15 @@ describe("the refactor prompts", () => {
       expect(prompt).toContain("`.gtd/REFACTOR.md`'s `## Answered Questions`")
     })
 
-    it("keeps the review check and thread rules", () => {
-      expect(prompt).toContain("gtd check review .gtd/REVIEW.md")
+    it("keeps the thread rules but not the closed review file's check or replies", () => {
       expect(prompt).toContain("- A: <reply>")
+      expect(prompt).not.toContain("gtd check review .gtd/REVIEW.md")
+      expect(prompt).toContain("is already closed")
+    })
+
+    it("says an edit note or hand-edit must write the package", () => {
+      expect(prompt).toContain("MUST write")
+      expect(prompt).toContain("gtd abandon")
     })
   })
 })

@@ -252,7 +252,6 @@ export interface FeedbackTarget {
   readonly collecting: (capture: string) => Promise<void>
   /** Refusal when the collecting turn changed something but not `file`. */
   readonly unmatched: string
-  /** Refusal when the round asked for changes and the collecting turn wrote nothing; absent: it signs off. */
   readonly dropped?: (requested: kit.Requested) => string
 }
 
