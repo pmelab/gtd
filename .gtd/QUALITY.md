@@ -172,3 +172,39 @@ AGENTS.md, Comments: "Everything else (restatement of the code, history, a
 above `shapeRefusal` (`claude/hooks/ship.ts`) only says what the function does.
 The reason (a rebase that drops an already-upstream commit exits 0) already sits
 on `brokenShape`. Delete the comment.
+
+## spec-challenge: a stored lease breaks pushBranch's "origin has the lease sha" invariant
+
+Spec decision (ARCHITECTURE concern 5, `pushBranch` contract): the effective
+lease is `lease ?? branch.<b>.gtdLease`. The key outlives the record, is never
+cleared by `forgetStack`, and goes away only when a push of that branch
+succeeds.
+
+The invariant it breaks is in `pushBranch` (`claude/hooks/ship.ts`). The comment
+on the leased path says "lease on origin's sha (it exists, whatever the tracking
+ref says)". That holds for a lease `originLeases` just read with `ls-remote`. It
+does not hold for a stored sha that may be days old. The leased path also runs
+before the `origin/<b>` existence check. So a kept key skips the
+`--set-upstream` branch that pushes a branch origin does not have.
+
+What goes wrong: a restack push is rejected, and then origin's copy of that
+branch is deleted. For example, the slice PR merges and GitHub auto-deletes its
+head branch, or the collaborator deletes the branch. Every later push of that
+branch name then runs `--force-with-lease=<b>:<old sha>` against a ref that does
+not exist. Git rejects it as stale, every time. The failure says "origin/<b>
+moved. Pull or reconcile", and there is nothing to pull. The hint says "To
+overwrite origin's copy on purpose", but origin has no copy.
+
+Concern 7 makes this easier to reach. A later stack may now reuse a merged
+slice's name, and its branch still carries the key the old stack left behind
+(`forgetStack` never clears it, by design).
+
+Fix: when the lease came from the key and not from the caller, check with
+`ls-remote` first. If origin has no such ref, unset the key and fall through to
+the `--set-upstream` path. Add a test where the key is set, `ls-remote` returns
+nothing, and the push is expected to be `--set-upstream` with the key unset.
+
+Already raised under other lenses and not repeated here: concern 7's merged-name
+reuse conflicts with `prStateRefusal` and its pinned MERGED-refusal test
+(correctness), and the stored lease turns "pull or reconcile" into a dead end
+(correctness).
