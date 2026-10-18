@@ -122,3 +122,20 @@ capture, never that the output carries the `<task>: ` lines `failureSignature`
 needs. This is the convention behind the mock/live drift chunk under
 correctness. The fix suggested there (one real-turbo case asserting a non-empty,
 stable signature) also satisfies this rule, so no separate work is needed.
+
+## spec-challenge: "passing tasks' logs are hidden always" silences `.oxlintrc.json`'s warn-level rule (scripts/test-states.ts `turboArgv`)
+
+REQUIREMENTS concern 2 decided that passing tasks' logs are "hidden always" in a
+terminal and in CI alike. ARCHITECTURE implements that with turbo's
+`--output-logs=errors-only`. That conflicts with `.oxlintrc.json`, which sets
+`"react-hooks/exhaustive-deps": "warn"`. `lint` is `oxlint .`, and oxlint exits
+0 on warnings, so a warning only ever appears in a passing `lint` task's log. I
+checked turbo 2.10.9 against a scratch project: under `errors-only`, a task that
+exits 0 prints nothing. So `npm test` no longer shows that warning to anyone, in
+a terminal, in the gtd check step, or in CI's `Run all tests` step. The warn
+level becomes dead config. The tree has no such warning today (`npx oxlint .` is
+clean), so nothing is hidden yet. Non-blocking. Pick one and say so in the
+spec/doc:
+
+- make the rule `"error"` (or run `oxlint --deny-warnings`) so it can fail
+- accept that warn-level lint findings are local-only (`npx oxlint .`)
