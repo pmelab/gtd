@@ -13,7 +13,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
     And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And an environment variable "GTD_FLAG_RISK_TIER" set to "0"
 
-  Scenario: with a narrowed seamAllow a test-named stray changed by the refactor is refused
+  Scenario: with a narrowed seamAllow a test-named file written by the refactor is refused
     Given an environment variable "GTD_REFACTORQUALITYREVIEWS" set to ""
     And an environment variable "GTD_SEAMALLOW" set to "docs/**"
     And a file "src/calc.ts" with:
@@ -90,7 +90,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       import { expect, it } from "vitest"
       it("adds", () => expect(3 + 3).toBe(6))
       """
-    Then driving the process is refused with "refactor-tests"
+    Then driving the process is refused with "outside its write access"
 
 
   Scenario: refactorQualityReviews picks the refactor's lenses and qualityReviews does not reach them
@@ -1139,3 +1139,157 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And the process is driven
       Then the process rests at "build.quality.correctness.reviewing"
       And the resting step's content contains the hash of the commit "gtd(check): refactor.build.review.closing → implement.building"
+
+  Rule: a refactor package never carries a test file, and demoted headings stop at ######
+
+    Background:
+      Given an environment variable "GTD_REFACTORQUALITYREVIEWS" set to ""
+      And an environment variable "GTD_SEAMALLOW" set to "docs/**"
+      And a file "src/calc.ts" with:
+        """
+        export const add = (a: number, b: number) => a + b
+        """
+      And a file "src/calc.test.ts" with:
+        """
+        import { expect, it } from "vitest"
+        it("adds", () => expect(1 + 1).toBe(2))
+        """
+      And the working tree is committed as "feat: add calculator"
+      And a file "TODO.md" with:
+        """
+        # Add subtract
+
+        subtract(a, b) returns the difference.
+        """
+      And step "unwind" changes nothing
+      And step "start-gate.check" changes nothing
+      And step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
+        """
+        # Requirements
+
+        ## Concerns
+
+        ### Subtract
+
+        - `subtract(a, b)` returns `a - b`.
+        """
+      And step "design.gate.answer" changes nothing
+      And judge step "seam.judge" answers:
+        """
+        [{"id":"shape","answer":"refactor-first","p":0.9}]
+        """
+
+    Scenario: a test-file stray is dropped from the derived refactor package
+      Given step "seam.naive" writes "src/calc.ts" with:
+        """
+        export const add = (a: number, b: number) => a + b
+        export const subtract = (a: number, b: number) => a - b
+        """
+      And step "seam.naive" writes "src/calc.test.ts" with:
+        """
+        import { expect, it } from "vitest"
+        it("subtracts", () => expect(3 - 1).toBe(2))
+        """
+      And step "refactor.deriving" runs its script
+      When the process is driven
+      Then the process rests at "refactor.building"
+      And ".gtd/REFACTOR.md" contains "src/calc.ts"
+      And ".gtd/REFACTOR.md" does not contain "src/calc.test.ts"
+
+    Scenario: a refactor-first whose strays are all test files goes straight to implement
+      Given step "seam.naive" writes "src/calc.test.ts" with:
+        """
+        import { expect, it } from "vitest"
+        it("subtracts", () => expect(3 - 1).toBe(2))
+        """
+      When the process is driven
+      Then the process rests at "implement.building"
+      And ".gtd/REFACTOR.md" does not exist
+
+    Scenario: collected review headings re-derive at ### with the deepest capped at ######
+      Given step "seam.naive" writes "src/calc.ts" with:
+        """
+        export const add = (a: number, b: number) => a + b
+        export const subtract = (a: number, b: number) => a - b
+        """
+      And step "refactor.deriving" runs its script
+      And step "refactor.building" writes "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        """
+      And step "refactor.health.check" changes nothing
+      And step "refactor.closing" runs its script
+      And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op
+        """
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op[^why]
+
+        [^why]:
+            - H: name the helper `combine`
+        """
+      And step "refactor.build.review.collecting" writes ".gtd/REFACTOR.md" with:
+        """
+        # Rename
+
+        ##### Detail
+
+        Name the shared helper `combine`.
+        """
+      And step "refactor.build.review.collecting" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op[^why]
+
+        [^why]:
+            - H: name the helper `combine`
+            - A: noted in the refactor package.
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2
+          add built on the shared op
+        """
+      And step "refactor.build.review.closing" runs its script
+      And step "refactor.re-unwind" runs its script
+      And step "refactor.building" is no longer scripted
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.building"
+      And ".gtd/REFACTOR.md" contains "## Review feedback"
+      And ".gtd/REFACTOR.md" contains "### Rename"
+      And ".gtd/REFACTOR.md" contains "###### Detail"

@@ -186,6 +186,14 @@ describe("seamBuild", () => {
     expect(h.names.some((n) => n.startsWith("implement"))).toBe(false)
   })
 
+  it("refactor-first with only test-file strays resolves the caller's base with no slice and no by-hand", async () => {
+    const h = await driveSeam("refactor-first", change("src/a.test.ts", "modified"))
+    expect(h.outcome).toEqual({ reference: "abc", base: "c-base" })
+    expect(h.slices).toEqual([])
+    expect(h.names).not.toContain("seam.by-hand")
+    expect(h.names.some((n) => n.startsWith("refactor"))).toBe(false)
+  })
+
   it("rests unreadable strays at seam.by-hand and enters no refactor slice", async () => {
     const h = await driveSeam("refactor-first", {
       path: "src/a.ts",

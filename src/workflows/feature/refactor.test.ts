@@ -10,6 +10,8 @@ import { fixtureContext, type TextContext } from "../shared/text.fixture.js"
 import { globMatches } from "../../wire/index.js"
 import {
   refactorFirst,
+  isTestFile,
+  refactorStrays,
   requireNoNewFlags,
   requireNoTestFiles,
   requireWithin,
@@ -127,6 +129,27 @@ describe("requireNoTestFiles", () => {
   it("does not refuse other naming such as _test.go or test_*.py", () => {
     const list = [change("pkg/a_test.go", "a", "b"), change("pkg/test_a.py", "a", "b")]
     expect(withChanges(list, () => requireNoTestFiles())).toBeUndefined()
+  })
+})
+
+describe("isTestFile / refactorStrays", () => {
+  it("isTestFile is true for a test glob match only", () => {
+    installContext(fixtureContext({}, { matches: globMatches }))
+    expect(isTestFile("src/a.test.ts")).toBe(true)
+    expect(isTestFile("tests/unit/b.ts")).toBe(true)
+    expect(isTestFile("src/a.ts")).toBe(false)
+  })
+
+  it("refactorStrays drops test files, keeps the rest and ignores a narrowed seamAllow", () => {
+    installContext(fixtureContext({ vars: { seamAllow: "docs/**" } }, { matches: globMatches }))
+    expect(
+      refactorStrays({
+        choice: "refactor-first",
+        strays: ["src/a.ts", "src/a.test.ts"],
+        unreadable: [],
+        judgment: undefined,
+      }),
+    ).toEqual(["src/a.ts"])
   })
 })
 
@@ -331,6 +354,22 @@ describe("refactorFirst", () => {
     expect(h.steps).toEqual([])
   })
 
+  it("resolves false with no step and no scope when every stray is a test file", async () => {
+    const h = await drive(shape({ strays: ["src/a.test.ts"] }))
+    expect(h.result).toBe(false)
+    expect(h.steps).toEqual([])
+    expect(h.scopes).toEqual([])
+  })
+
+  it("lists only the non-test strays in the package scope and write access", async () => {
+    const h = await drive(shape({ strays: ["src/a.ts", "src/a.test.ts"] }))
+    const derive = h.steps.find((s) => s.kind === "run" && s.name === "deriving")
+    const body = derive?.kind === "run" ? derive.body : ""
+    expect(body).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+    expect(body).not.toContain("a.test.ts")
+    expect(h.scopes[0]?.access).toEqual({ write: ["src/a.ts", ".gtd/**"] })
+  })
+
   it("throws before any step when a stray holds a flag read the pattern matches zero-length", async () => {
     const h = await drive(shape(), {
       text: {
@@ -409,7 +448,7 @@ describe("refactorFirst", () => {
   })
 
   it("refuses a build turn changing a test file even when it is a stray", async () => {
-    const h = await drive(shape({ strays: ["src/a.test.ts"] }), {
+    const h = await drive(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
       build: [change("src/a.test.ts", "a", "b")],
     })
     expect((h.result as Error).message).toContain("refactor-tests")
@@ -695,6 +734,28 @@ describe("reviewedRefactor", () => {
     expect(h.steps).toEqual([])
   })
 
+  it("drops test-file strays from scope, access and the collecting fence", async () => {
+    const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
+      notes: ["add — rename it", undefined],
+    })
+    const derive = h.steps.find((s) => s.kind === "run" && s.name === "deriving")
+    const body = derive?.kind === "run" ? derive.body : ""
+    expect(body).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+    expect(body).not.toContain("a.test.ts")
+    expect(h.scopes[0]?.access).toEqual({ write: ["src/a.ts", ".gtd/**"] })
+    const collecting = h.steps.find((s) => s.kind === "agent" && s.name === "review.collecting")
+    const prompt = collecting?.kind === "agent" ? collecting.prompt : ""
+    expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+    expect(prompt).not.toContain("a.test.ts")
+  })
+
+  it("resolves false with no step and no refactor scope when every stray is a test file", async () => {
+    const h = await driveReviewed(shape({ strays: ["src/a.test.ts"] }))
+    expect(h.result).toBe(false)
+    expect(h.steps).toEqual([])
+    expect(h.scopes).toEqual([])
+  })
+
   it("closes the package, then runs the tail as refactor.build.* and signs off with true", async () => {
     const h = await driveReviewed(shape())
     expect(h.result).toBe(true)
@@ -814,6 +875,20 @@ describe("reviewedRefactor", () => {
       expect(body).toContain("#### Sub")
     })
 
+    it("caps demoted headings at ###### and shifts the shallowest to ###", async () => {
+      const h = await driveReviewed(shape(), {
+        notes: ["add — rename it", undefined],
+        collected: "# Top\n\n##### Deep\n\n```\n# code\n```\n\nprose # not a heading",
+      })
+      const derivings = h.steps.filter((s) => s.kind === "run" && s.name === "deriving")
+      const body = derivings[1]?.kind === "run" ? derivings[1].body : ""
+      expect(body).toContain("'### Top'")
+      expect(body).toContain("'###### Deep'")
+      expect(body).not.toContain("#######")
+      expect(body).toContain("'# code'")
+      expect(body).toContain("'prose # not a heading'")
+    })
+
     it("keeps a heading fenced inside a four-backtick fence after an inner three-backtick line", async () => {
       const h = await driveReviewed(shape(), {
         notes: ["add — rename it", undefined],
@@ -875,7 +950,7 @@ describe("reviewedRefactor", () => {
     })
 
     it("runs after a nit-fix turn", async () => {
-      const h = await driveReviewed(shape({ strays: ["src/a.test.ts"] }), {
+      const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
         notes: ["add — typo"],
         answers: { "note-1": { answer: "nit", p: 0.9 } },
         turns: { "refactor.build.review.fix.nits.fixing": [change("src/a.test.ts", "a", "b")] },
@@ -885,8 +960,8 @@ describe("reviewedRefactor", () => {
     })
 
     it("runs the nit-fix turn under the strays plus .gtd/** as its write access", async () => {
-      const write = ["src/a.test.ts", ".gtd/**"]
-      const h = await driveReviewed(shape({ strays: ["src/a.test.ts"] }), {
+      const write = ["src/a.ts", ".gtd/**"]
+      const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
         notes: ["add — typo"],
         answers: { "note-1": { answer: "nit", p: 0.9 } },
       })
@@ -895,7 +970,7 @@ describe("reviewedRefactor", () => {
     })
 
     it("runs after a fix-check turn", async () => {
-      const h = await driveReviewed(shape({ strays: ["src/a.test.ts"] }), {
+      const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
         notes: ["add — typo"],
         answers: { "note-1": { answer: "nit", p: 0.9 } },
         reds: 2,

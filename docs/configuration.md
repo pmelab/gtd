@@ -581,13 +581,15 @@ the same name as occurrence `#2`.
 ### `refactorFirst`
 
 `refactorFirst(shape, { reference? })` turns a `judgeDiffShape` result into a
-behaviour-neutral refactor of exactly its `strays`, and resolves `true` once the
-refactor has closed. It resolves `false`, running no step, unless `shape.choice`
-is `refactor-first` and `shape.unreadable` is empty — a stray whose content
-cannot be read goes to a human instead. `reference` is the naive pass's kept tip
-(`kept(name)?.hash`; blank counts as none): the building prompt names
-`git show <reference> -- <strays>` as reading material only and forbids applying
-it; omitted, it carries no reference line.
+behaviour-neutral refactor of its `strays`, minus any test file, and resolves
+`true` once the refactor has closed. It resolves `false`, running no step,
+unless `shape.choice` is `refactor-first`, `shape.unreadable` is empty and a
+non-test stray remains — a stray whose content cannot be read goes to a human
+instead, and a `refactor-first` whose strays are all test files goes straight to
+`implement.*`, since a refactor never changes a test file. `reference` is the
+naive pass's kept tip (`kept(name)?.hash`; blank counts as none): the building
+prompt names `git show <reference> -- <strays>` as reading material only and
+forbids applying it; omitted, it carries no reference line.
 
 `refactorFirst` is the refactor alone. The shipped flow runs `reviewedRefactor`,
 which is `refactorFirst` plus the refactor's quality lap and review inside the
