@@ -65,26 +65,11 @@ describe("declaredTests", () => {
     ])
   })
 
-  it("parses CRLF and lone CR like LF, including a wrapped marker", () => {
-    const lf = "## Tests\n- unit: `a/long.test.ts`\n  (unchanged)\n- e2e: `b.feature`\n"
-    expect(declaredTests(lf.replace(/\n/g, "\r\n"))).toEqual(declaredTests(lf))
-    expect(declaredTests(lf.replace(/\n/g, "\r"))).toEqual(declaredTests(lf))
-    expect(declaredTests(lf).map((t) => t.unchanged)).toEqual([true, false])
-  })
-
   it("never joins a marker across an empty or whitespace-only line", () => {
     for (const gap of ["\n\n", "\n  \n", "\n\t\n"]) {
       const text = `## Tests\n- unit: \`a.test.ts\`${gap}  (unchanged)\n`
       expect(declaredTests(text).map((t) => t.unchanged)).toEqual([false])
     }
-  })
-
-  it("reads a marker oxfmt wrapped onto a continuation line", () => {
-    const text = "## Tests\n- unit: `some/long/dir/a.test.ts`\n  (unchanged)\n- e2e: `b.feature`\n"
-    expect(declaredTests(text).map((t) => [t.path, t.unchanged])).toEqual([
-      ["some/long/dir/a.test.ts", true],
-      ["b.feature", false],
-    ])
   })
 
   it("reads an entry whose path or marker is wrapped, in any line-end style", () => {
@@ -117,7 +102,7 @@ describe("declaredTests", () => {
       "- unit: `a.test.ts`",
       "  - unit: `b.test.ts` (unchanged)",
       "- unit: `c.test.ts`",
-      "## Notes",
+      "## Tests",
       "  (unchanged)",
     ].join("\n")
     expect(declaredTests(text).map((t) => [t.path, t.unchanged])).toEqual([
@@ -294,6 +279,11 @@ describe("requireDeclaredTests", () => {
     expect(gone).toContain("restore them:\n  - a.test.ts\n  - b.test.ts")
     const clean = "## Tests\n- unit: `a.test.ts` (unchanged)"
     expect(run(clean, ["a.test.ts"], [modified("a.test.ts")], false, "fix").message).toBe("")
+  })
+
+  it("lets an unmarked entry for the same file win over a marked one", () => {
+    const text = "## Tests\n- e2e: `x.feature`\n- e2e: `x.feature` (unchanged)"
+    expect(run(text, ["x.feature"], [modified("x.feature")]).message).toBe("")
   })
 
   it("does not call a marked test the build added modified", () => {

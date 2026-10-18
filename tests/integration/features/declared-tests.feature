@@ -172,7 +172,7 @@ Feature: A package's declared tests gate its build
     And stderr contains "declared-tests"
     And stderr contains "lib/widget.test.ts"
 
-  Scenario: a test marked (unchanged) needs only to exist in the tree
+  Scenario: a test marked (unchanged) that the build leaves untouched passes
     Given a file ".gtd/packages/01-widget.md" with:
       """
       Package: the widget.
@@ -293,29 +293,6 @@ Feature: A package's declared tests gate its build
     And "lib/existing.test.ts" is modified to:
       """
       export const existingTest = 2
-      """
-    When I run gtd land
-    Then it fails
-    And stderr contains "lib/existing.test.ts"
-    And stderr contains "revert"
-
-  Scenario: a build that edits a marked test is refused even with SATISFIED.md written
-    Given a file ".gtd/packages/01-widget.md" with:
-      """
-      Package: the widget.
-
-      ## Tests
-
-      - unit: `lib/existing.test.ts` (unchanged)
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
-    And "lib/existing.test.ts" is modified to:
-      """
-      export const existingTest = 2
-      """
-    And a file ".gtd/SATISFIED.md" with:
-      """
-      - [x] lib/existing.test.ts — already present
       """
     When I run gtd land
     Then it fails

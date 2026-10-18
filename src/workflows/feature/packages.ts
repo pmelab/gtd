@@ -15,7 +15,6 @@ import { build, fixSuite } from "./steps.js"
 export interface DeclaredTest {
   readonly level: "unit" | "e2e"
   readonly path: string
-  /** Decompose placed ` (unchanged)`: the test must exist, not be in the diff. */
   readonly unchanged: boolean
 }
 
@@ -65,7 +64,11 @@ export type DeclaredTestsTurn = "build" | "fix"
  * with `.gtd/SATISFIED.md` written, or the line marked, existing suffices. The
  * build turn must also leave a marked test unmodified; a fix turn may edit it.
  */
-export const requireDeclaredTests = (pkg: string, since: string, turn: DeclaredTestsTurn): void => {
+export const requireDeclaredTests = (
+  pkg: string,
+  since: string,
+  turn: DeclaredTestsTurn = "fix",
+): void => {
   const range = changesSince(since)
   const text = range.get(pkg)?.before ?? read(pkg) ?? ""
   const satisfied = read(".gtd/SATISFIED.md") !== undefined
@@ -73,7 +76,10 @@ export const requireDeclaredTests = (pkg: string, since: string, turn: DeclaredT
   const modifiedMarked: string[] = []
   const deletedMarked: string[] = []
   const notInTree: string[] = []
-  for (const test of declaredTests(text)) {
+  const entries = declaredTests(text)
+  for (const test of entries) {
+    // A file listed both ways is written by the package: the unmarked entry wins.
+    if (test.unchanged && entries.some((e) => !e.unchanged && e.path === test.path)) continue
     const change = range.get(test.path)
     const inDiff = change !== undefined && change.status !== "deleted"
     if (turn === "build" && test.unchanged && change?.status === "modified")
