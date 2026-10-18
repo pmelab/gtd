@@ -46,3 +46,22 @@ positional values silently win: `{ ...fourth, fixFirst: first, green: third }`.
 Type the legacy overload's options as
 `Omit<BuildTailOptions, "fixFirst" | "green">` so the conflict cannot be
 written.
+
+## ponytail-review: confirms the correctness findings; one lean nit
+
+Traced every caller of `buildTail`, `implement` and `refactorBuildingPrompt`
+(src, tests, docs). Runtime dispatch is right for each shape: a string first
+argument selects the new `buildTail` form, `implement()` and
+`implement(undefined, …)` both reach `{ reference: undefined }`, and `start()`
+is a sync `string`, so the docs hotfix example selects the new form. No new bug
+beyond the three correctness chunks above, which stand: they are the work left
+(drop the `refactorBuildingPrompt` compat path, migrate the listed test and
+`.feature` call sites, keep one pin per deprecated form, narrow the legacy
+`buildTail` options type).
+
+Lean (nit): `implementWith` (`src/workflows/feature/seam.ts`) and
+`refactorBuildingPromptOf` (`src/workflows/shared/text.ts`) exist only so the
+overload body can forward to them. Once the `refactorBuildingPrompt` overload is
+deleted, `refactorBuildingPromptOf` collapses back into the one exported
+function; `implement`'s implementation signature can normalise `first` into a
+local and run `scope(...)` itself. About -6 lines, no behaviour change.
