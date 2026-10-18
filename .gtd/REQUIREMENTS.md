@@ -13,7 +13,7 @@ The runner now always adds `--log-prefix=task`, and turbo 2.10.9 refuses
 `--log-prefix` given twice. So `npm test -- --log-prefix=none` needs a defined
 outcome.
 
-- [ ] User value replaces the default; collapsing turns off unless it is `task`
+- [x] User value replaces the default; collapsing turns off unless it is `task`
   - mirrors how `--output-logs` already works
   - `--log-prefix=none` prints every failing state's full log, no "same failure
     as" lines
