@@ -92,3 +92,62 @@ plus a contract test. Add a live-git case, or a contract-tested in-memory git
 twin, covering: a three-branch squash-merged restack (middle ref moves, record
 shrinks), a conflicting rebase (`REBASE_HEAD` set, then `--abort` restores every
 ref), and ls-remote output for a branch missing on origin.
+
+## ponytail-review: lean and test gaps in the restack code
+
+What this change does: re-running `/gtd ship` after a lower stacked pull request
+was squash- or rebase-merged now fetches the default branch, rebases the
+remaining slice branches onto `origin/<default>` in one
+`git rebase --update-refs`, pushes each with a lease on origin's sha, retargets
+the lowest pull request and shrinks the recorded stack. It also spots a rebase
+the user did by hand after a conflict. Load assumed: one person running a CLI on
+their own branch, so no scale findings. The correctness chunks above already
+cover the hand-restack lease gap, the config write order, the retry lease, the
+undo hint and the scripted-git drift; they are not repeated here.
+
+**Should fix**
+
+1. **Two fields of `Restack` are never read** (`claude/hooks/ship.ts`,
+   `type Restack`, `restackOf`, `handRestack`)
+   - **What this is:** `Restack` carries `onto`, `from`, `preview` and `run`.
+   - **Problem:** Nothing reads `restack.onto` or `restack.from`; only `preview`
+     and `run()` are used (grep shows no `.onto`/`.from` access). Both builders
+     fill them anyway.
+   - **Fix:** Drop `onto` and `from` from the type and from both object
+     literals.
+   - **If we skip it:** A reader assumes some caller depends on them and keeps
+     them in sync for nothing.
+
+2. **`handRestack` redoes reads `resumable` just made** (`claude/hooks/ship.ts`,
+   `handRestack`)
+   - **What this is:** `resumable` calls `handRestack` right after it ran
+     `chain(git, ok, branch, recorded, done, "", at)` and `topGuard` (which read
+     `TOP_KEY`), and it already has `last` and `branchOf`.
+   - **Problem:** `handRestack` recomputes `last` and `branchOf`, reads
+     `TOP_KEY` again, and calls `chain` again with the very same arguments (top
+     is `""` whenever the guard says `rebased`). That is a second copy of the
+     `branchOf` rule that must change together with the first, plus a repeat of
+     every ancestry check.
+   - **Fix:** Pass `branchOf` and the `commits` from the first `chain` call into
+     `handRestack`; delete its own `last`/`branchOf`/`chain` lines. The
+     `defaultBranch(git)` read can also come in as a parameter, since
+     `preflight` already resolved it.
+   - **If we skip it:** The slice-branch naming rule lives in three places
+     instead of two.
+
+3. **The old-git rebase failure path has no test** (`claude/hooks/ship.ts`,
+   `restackOf` → `run`, the `if (!stopped)` branch)
+   - **What this is:** When `git rebase --update-refs` fails without starting
+     (git older than 2.38, which the docs now require), `REBASE_HEAD` is unset
+     and the ship returns "git rebase failed; refs are unchanged" without
+     running `git rebase --abort`.
+   - **Problem:** Only the conflict case is tested (REBASE_HEAD set). Removing
+     the `!stopped` branch leaves every test green, and the user on old git
+     would then get "tree and refs are as before" plus a hand command that fails
+     the same way.
+   - **Fix:** One test: script the rebase to fail and
+     `rev-parse --verify --quiet REBASE_HEAD` to exit 1; assert the "refs are
+     unchanged" text and that no `git rebase --abort` ran.
+   - **If we skip it:** The one path users on older git hit is unguarded.
+
+Verdict: fix 3 first; 1 and 2 are cheap cleanups. Lean: -12 lines possible.
