@@ -130,3 +130,42 @@ decision and its reason, not a restatement; the change has no new external
 resource outside the `ShipIo` port; and the squash subject
 `fix(ship): harden stacked-ship resume, retry and unstacking` fits
 `docs/commits.md`.
+
+## spec-challenge: "merged slices drop out" now holds for a one-slice re-ship but the docs and the multi-slice precheck still refuse a merged lower PR
+
+Decision: requirement 3 (cycle 1, `.gtd/REQUIREMENTS.md` at `c314e30f`) plus
+requirement 2. Resume reads PR states first and drops leading MERGED slices. A
+one-slice re-ship goes through the same `resumable`, so a merged lower slice
+drops out there too (`stackReads` → `resumable` → `mergedSlices`).
+
+Invariant it conflicts with:
+
+- `docs/driver.md` (~lines 400–403), not touched by the doc chore: "A pull
+  request that is merged or closed … refuses before anything changes: for a
+  lower slice's pull request, use `GTD_SHIP_MODE=commits`". For a one-slice
+  re-ship onto a stack whose bottom PR merged, nothing refuses now. The ship
+  goes ahead with the merged slice dropped.
+- `stackPrecheck`, pinned by "a merged lower slice of a fresh stack refuses and
+  names the way out". A multi-slice process on the same stacked branch, with the
+  recorded slice names, still refuses a MERGED lower PR and points at commits
+  mode, which unstacks. So the same branch and the same merged PR resume or
+  refuse depending only on how many slices the new process landed. The
+  architecture never decides whether the precheck should follow "merged first".
+
+Fix (non-blocking): pick one rule. Either narrow the docs sentence to a fresh
+multi-slice stack and say a one-slice re-ship skips a merged lower slice like a
+resume does, or have the precheck drop leading merged recorded slices too. Then
+update the pinning test.
+
+## spec-challenge: the `gtdStackTop` key comment still states the old rebuild rule
+
+Decision (architecture gate, `5b011d7c`): `gtdStackTop` is never moved after
+`recordStack`. A missing branch can be rebuilt while the recorded top is an
+ancestor of HEAD, not only while it equals HEAD.
+
+The comment on `TOP_KEY` in `claude/hooks/ship.ts` still says "HEAD when the
+stack was built: only then may a missing slice branch be rebuilt". That is the
+old equality rule. AGENTS.md makes code comments the place where such an
+invariant lives, and this comment now contradicts `topGuard` and its own
+comment. Fix: "The commit the stack was built at, never moved; missing slice
+branches are rebuilt off it while HEAD still contains it."
