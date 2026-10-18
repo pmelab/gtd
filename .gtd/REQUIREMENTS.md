@@ -11,7 +11,7 @@ green — the #373 loop again, in a new place.
   - **Risk: a wrong marker from decompose can loop the fix lap forever**; only a
     human edit to the package breaks it
   - One rule, one check — simplest to build and test
-- [ ] Refuse in the build turn only; fix turns may edit a marked test
+- [x] Refuse in the build turn only; fix turns may edit a marked test
   - **No new loop**: a fix turn can repair a test the package's code broke
   - **The marker stops guarding once the build turn lands** — a fix turn could
     weaken the test unseen by the guard (review's `Weakened:` check still sees
