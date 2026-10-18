@@ -199,3 +199,41 @@ The golden `__fixtures__/feature-collecting-prompt.txt` is a legitimate pin.
 Rendering `buildReviewCollectingPrompt` at `28cddd15` gives exactly this text,
 so the merged prompt kept the feature bytes. It was not generated from the
 subject under test.
+
+## conventions: README not updated for the refactor-review refusal
+
+Rule broken (`~/.claude/CLAUDE.md`): "always make sure every significant change
+is also reflected in the readme". The change makes a refactor-review round that
+carries an `edit` note or a code hand-edit, and whose collecting turn writes
+nothing, impossible to sign off. `gtd land` refuses it (`refactor-feedback`),
+and the only way out is `gtd abandon`. That is a user-visible behaviour change
+with a costly recovery, and it is only in `docs/configuration.md`. The README's
+naive-pass paragraph still says just "feedback at the refactor review re-runs
+the refactor, never design". Also missing there: each slice's quality lap now
+reviews only its own slice. Fix: add one sentence to that README paragraph
+saying a refactor-review change the refactor cannot build is refused and means
+`gtd abandon`, and that each slice's quality lap covers only that slice.
+
+## conventions (nit): new comments that only restate the code
+
+Rule broken (`AGENTS.md` § Comments): "Keep a comment … only where it explains
+an important decision or genuinely unclear code … Everything else (restatement
+of the code …) gets deleted, not moved."
+
+- `src/workflows/shared/text.ts` `buildQualityReviewingPrompt`:
+  ``/** Reviews from `base` (default `start()`) to the working tree. */``
+  repeats the signature's default and the prompt text.
+- `src/workflows/shared/text.ts` `refactorDroppedRefusal`: its JSDoc repeats the
+  name and the string it returns.
+- `src/workflows/feature/review.ts` `FeedbackTarget.dropped`: its JSDoc copies
+  `ReviewPolicy.refusals.dropped`'s comment in `src/workflow-kit/review.ts`.
+  Keep one of the two.
+- Test-side restatements: `/** The collecting turn writes no package. */` and
+  `/** Every scope opened, in order. */` (added in the feature `*.test.ts`
+  files).
+
+Delete them. The comment on `buildReviewCollectingPrompt` is worse: it states an
+invariant that does not hold, so it is a wrong comment rather than a redundant
+one (see the correctness finding on partly unbuildable rounds). The comment on
+`afterTail` ("Opens no slice: slices cannot nest") and the one on
+`demoteHeadings` explain decisions and are fine.
