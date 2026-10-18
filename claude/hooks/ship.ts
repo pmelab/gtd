@@ -341,6 +341,26 @@ async function plan(
   return { groups, base, tip, count }
 }
 
+function dryRun(
+  groups: Group[],
+  fulls: string[],
+  history: string | undefined,
+  warning: string | undefined,
+  stack: Link[] | undefined,
+) {
+  return {
+    ok: true as const,
+    text:
+      groups.length > 1
+        ? fulls.map((f, i) => `[${groups[i]!.name}]\n${f}`).join("\n\n---\n\n")
+        : fulls[0]!,
+    history,
+    warning,
+    stack,
+    messages: fulls,
+  }
+}
+
 async function squash(
   io: ShipIo,
   git: Git,
@@ -377,18 +397,7 @@ async function squash(
       branch: i < groups.length - 1 ? `${branch}-${g.name}` : branch,
       commit: commits[i] ?? "",
     }))
-  if (isDry) {
-    return {
-      ok: true,
-      text: many
-        ? fulls.map((f, i) => `[${groups[i]!.name}]\n${f}`).join("\n\n---\n\n")
-        : fulls[0]!,
-      history,
-      warning: await warn(),
-      stack: stacked ? links([]) : undefined,
-      messages: fulls,
-    }
-  }
+  if (isDry) return dryRun(groups, fulls, history, await warn(), stacked ? links([]) : undefined)
 
   const pushed = await pushHistory(io, history)
   if (pushed) return fail(pushed)
@@ -516,6 +525,34 @@ async function chain(git: Git, ok: Ok, branch: string, uppers: string[]) {
   return { commits, missing, valid }
 }
 
+// Rebuilding a branch from HEAD~n is only safe while HEAD is the stack's top.
+async function topGuard(git: Git, ok: Ok, branch: string, uppers: string[]) {
+  for (const name of uppers) {
+    const b = `${branch}-${name}`
+    if (await ok("rev-parse", "--verify", "--quiet", `refs/heads/${b}`)) continue
+    const top = await git("config", "--local", "--get", TOP_KEY(branch))
+    if (!top || top !== (await git("rev-parse", "HEAD")))
+      return `Slice branch ${b} is missing and HEAD is not the recorded top of the stack; nothing changed. Delete the record with \`git config --local --unset ${STACK_KEY(branch)}\` to ship the branch alone.`
+    return undefined
+  }
+  return undefined
+}
+
+async function reviveMissing(
+  ok: Ok,
+  branch: string,
+  recorded: string[],
+  commits: string[],
+  missing: number[],
+) {
+  for (const i of missing) {
+    const b = `${branch}-${recorded[i]}`
+    if (!(await ok("branch", "-f", b, commits[i]!)))
+      return `git branch -f ${b} failed; /gtd ship resumes.`
+  }
+  return undefined
+}
+
 // A stack that /gtd ship built and a part-way failure cut short, if its branches
 // still chain. A string is a refusal; `forget` asks ship to drop a stale record
 // once its PR step succeeded.
@@ -529,15 +566,8 @@ async function resumable(
   const recorded = names(await git("config", "--local", "--get", STACK_KEY(branch)))
   if (!recorded.length) return {}
   const uppers = recorded.slice(0, -1)
-  // Rebuilding a branch from HEAD~n is only safe while HEAD is the stack's top.
-  for (const name of uppers) {
-    const b = `${branch}-${name}`
-    if (await ok("rev-parse", "--verify", "--quiet", `refs/heads/${b}`)) continue
-    const top = await git("config", "--local", "--get", TOP_KEY(branch))
-    if (!top || top !== (await git("rev-parse", "HEAD")))
-      return `Slice branch ${b} is missing and HEAD is not the recorded top of the stack; nothing changed. Delete the record with \`git config --local --unset ${STACK_KEY(branch)}\` to ship the branch alone.`
-    break
-  }
+  const unsafe = await topGuard(git, ok, branch, uppers)
+  if (unsafe) return unsafe
   const { commits, missing, valid } = await chain(git, ok, branch, uppers)
   if (!valid) {
     io.log(
@@ -545,12 +575,10 @@ async function resumable(
     )
     return { forget: true }
   }
-  if (!isDry)
-    for (const i of missing) {
-      const b = `${branch}-${recorded[i]}`
-      if (!(await ok("branch", "-f", b, commits[i]!)))
-        return `git branch -f ${b} failed; /gtd ship resumes.`
-    }
+  if (!isDry) {
+    const failed = await reviveMissing(ok, branch, recorded, commits, missing)
+    if (failed) return failed
+  }
   const top = await git("rev-parse", "HEAD")
   return {
     links: recorded.map((name, i) => ({
@@ -855,6 +883,37 @@ async function preview(
   }
 }
 
+// Aims a PR off a slice branch and drops its stale stack line. Returns a
+// failure, or whether it changed anything and the body to keep.
+async function unstack(
+  io: ShipIo,
+  existing: View,
+  baseBranch: string,
+  onSlice: boolean,
+  edit: boolean,
+) {
+  if (onSlice) {
+    const moved = await io.run(["gh", "pr", "edit", String(existing.number), "--base", baseBranch])
+    if (moved.code !== 0)
+      return fail(
+        `gh pr edit --base ${baseBranch} failed; ${existing.url} is unchanged.\n${moved.err}`.trimEnd(),
+      )
+  }
+  const was = existing.body ?? ""
+  const body = onSlice ? stackLine(was) : was
+  if (edit && body !== was) {
+    const edited = await io.run(
+      ["gh", "pr", "edit", String(existing.number), "--body-file", "-"],
+      body,
+    )
+    if (edited.code !== 0)
+      return fail(
+        `gh pr edit failed; the stale stack line of ${existing.url} is unchanged.\n${edited.err}`.trimEnd(),
+      )
+  }
+  return { unstacked: onSlice || (edit && body !== was), body: edit ? body : was }
+}
+
 async function pullRequest(
   io: ShipIo,
   git: Git,
@@ -886,34 +945,21 @@ async function pullRequest(
     return fail(`The pull request for ${branch} is ${existing.state}, not open.`)
   // A branch once shipped as a stack keeps the PR aimed at a slice branch; any
   // other base is the author's own and stays.
-  let unstacked = false
   const onSlice = recorded.some((n) => existing.baseRefName === `${branch}-${n}`)
-  if (onSlice) {
-    const moved = await io.run(["gh", "pr", "edit", String(existing.number), "--base", baseBranch])
-    if (moved.code !== 0)
-      return fail(
-        `gh pr edit --base ${baseBranch} failed; ${existing.url} is unchanged.\n${moved.err}`.trimEnd(),
-      )
-    unstacked = true
-  }
   const ctx: Ctx = { from: mergeBase, to: "HEAD" }
   // A thrown draft only ever described a hand-off: ship writes it properly.
-  if (existing.body?.includes(THROWN)) {
-    return createPr(io, git, branch, baseBranch, baseRef, ctx, existing)
-  }
-  const body = onSlice ? stackLine(existing.body ?? "") : (existing.body ?? "")
-  if (body !== (existing.body ?? "")) {
-    const edited = await io.run(
-      ["gh", "pr", "edit", String(existing.number), "--body-file", "-"],
-      body,
-    )
-    if (edited.code !== 0)
-      return fail(
-        `gh pr edit failed; the stale stack line of ${existing.url} is unchanged.\n${edited.err}`.trimEnd(),
-      )
-    unstacked = true
-  }
-  return updatePr(io, git, ok, branch, { ...ctx, unstacked }, { ...existing, body })
+  const thrown = existing.body?.includes(THROWN)
+  const fixed = await unstack(io, existing, baseBranch, onSlice, !thrown)
+  if ("ok" in fixed) return fixed
+  if (thrown) return createPr(io, git, branch, baseBranch, baseRef, ctx, existing)
+  return updatePr(
+    io,
+    git,
+    ok,
+    branch,
+    { ...ctx, unstacked: fixed.unstacked },
+    { ...existing, body: fixed.body },
+  )
 }
 
 // A pull request describes what the remote branch holds. A squash rewrote the
