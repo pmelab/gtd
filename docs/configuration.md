@@ -698,12 +698,12 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
 **Upgrading:** two migrations.
 
 - `seam.approve` is gone; the refactor's review sign-off is the approval. A
-  `GTD_FLAG_NAIVE_PASS` process from 28.0.0 whose judge ruled `refactor-first`
-  no longer replays at any rest from that verdict on — `seam.approve`, every
-  `refactor.*` step, and every `implement.*` and `build.*` step after the
-  refactor — and must `gtd abandon`. Processes that rest at `design.*`,
-  `seam.naive`, `seam.judge`, `seam.steer`, or past a `land` verdict (including
-  after a feature feedback lap) keep replaying.
+  `GTD_FLAG_NAIVE_PASS` process from any 28.x release whose judge ruled
+  `refactor-first` no longer replays at any rest from that verdict on —
+  `seam.approve`, every `refactor.*` step, and every `implement.*` and `build.*`
+  step after the refactor — and must `gtd abandon`. Processes that rest at
+  `design.*`, `seam.naive`, `seam.judge`, `seam.steer`, or past a `land` verdict
+  (including after a feature feedback lap) keep replaying.
 - `seamBuild(tier)` became `seamBuild(base)` and resolves `{ reference, base }`.
   It no longer runs `implement`; a custom workflow calls `implement` itself.
 
