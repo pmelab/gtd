@@ -925,6 +925,19 @@ describe("reviewedRefactor", () => {
     })
   })
 
+  describe("the collecting prompt variant", () => {
+    it("is decided by the round, never by .gtd/REVIEW.md's presence", async () => {
+      // The review file is in the tree at the closed round (it is closed only
+      // after the collecting capture), yet the closed variant renders.
+      const h = await driveReviewed(shape(), { notes: ["add — rename it"], collected: "x" })
+      const collecting = h.steps.find((s) => s.kind === "agent" && s.name === "review.collecting")
+      const prompt = collecting?.kind === "agent" ? collecting.prompt : ""
+      expect(prompt).toContain("already closed")
+      expect(prompt).not.toContain("exactly one `- A:` reply")
+      expect(prompt).not.toContain("A one-shot footnote needs no reply")
+    })
+  })
+
   describe("a note the collecting turn leaves out", () => {
     it("refuses the landing naming the note and gtd abandon, never signing off", async () => {
       const h = await driveReviewed(shape(), { notes: ["add — rename it"], silentCollect: true })

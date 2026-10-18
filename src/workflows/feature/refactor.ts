@@ -267,7 +267,7 @@ export const reviewedRefactor = async (
     const guard = guardOf(p, entry)
     const feedback: FeedbackTarget = {
       file: REFACTOR_PACKAGE,
-      collecting: (capture: string) => refactorCollecting(capture, p.strays),
+      collecting: (capture, round) => refactorCollecting(capture, round, p.strays),
       unmatched:
         "gtd land: refactor-feedback: the review feedback changed files but wrote no .gtd/REFACTOR.md — a refactor cannot act on it; revert the change, or `gtd abandon` and restart",
       dropped: t.refactorDroppedRefusal,

@@ -438,6 +438,33 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then driving the process is refused with "refactor-feedback"
       And driving the process is refused with "src/calc.ts"
 
+    Scenario: a hand-edit round with a line note rests at a closed collecting turn that folds both and holds no reply rules
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      Given a file "src/calc.ts" with:
+        """
+        export const op = (a: number, b: number, sign: number) => a + sign * b
+        export const add = (a: number, b: number) => op(a, b, 1)
+        // TODO: rename op to adjust
+        """
+      And a file ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2 rename the helper
+          add built on the shared op
+        """
+      When gtd lands
+      And the process is driven
+      Then the process rests at "refactor.build.review.collecting"
+      And the resting step's content contains "Fold every hand-edit and every note the human left that round"
+      And the resting step's content does not contain "A one-shot footnote needs no reply"
+      And the resting step's content does not contain "Code threads waiting on you"
+
     Scenario: a praise line note on a hand-edit round is never named by the refusal
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"

@@ -249,7 +249,7 @@ export const review = (
 
 export interface FeedbackTarget {
   readonly file: string
-  readonly collecting: (capture: string) => Promise<void>
+  readonly collecting: (capture: string, round: kit.CollectRound) => Promise<void>
   /** Refusal when the collecting turn changed something but not `file`. */
   readonly unmatched: string
   readonly dropped?: (requested: kit.Requested) => string

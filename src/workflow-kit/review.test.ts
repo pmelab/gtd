@@ -179,6 +179,7 @@ const driveRound = async (
   const triaged: string[][] = []
   const captured: string[] = []
   const dropped: Requested[] = []
+  const rounds: string[] = []
   let awaits = 0
   const p = {
     file: "r.md",
@@ -201,7 +202,8 @@ const driveRound = async (
         state.since.push({ path: "a.ts", status: "modified", before: "a", after: "b" })
     },
     reviewMissing: async () => {},
-    collecting: async () => {
+    collecting: async (_capture: string, round: string) => {
+      rounds.push(round)
       if (opts.inGate !== undefined && state.agentThread) {
         state.agentThread = false
         state.humanThread = true
@@ -239,7 +241,7 @@ const driveRound = async (
     },
   } as unknown as ReviewPolicy
   const result = await review("base", p).catch((e: Error) => e)
-  return { result, triaged, dropped, captured }
+  return { result, triaged, dropped, captured, rounds }
 }
 
 describe("a one-shot footnote is a note, a thread footnote is not", () => {
@@ -277,6 +279,17 @@ describe("the dropped refusal lists edit notes only", () => {
     const r = await driveRound(before, after, { handEdit: true, silent: true })
     expect(r.result).toBeInstanceOf(Error)
     expect(r.dropped).toEqual([{ notes: [], paths: ["a.ts"] }])
+  })
+
+  it('a round with unparsed notes collects as "notes", a triaged one as "triaged"', async () => {
+    const unparsed = await driveRound(before, `${before}\n\nstray prose`, { silent: true })
+    expect(unparsed.rounds).toEqual(["notes"])
+    const praise = doc(`${POINTER}[^n1]`, "- [ ] ./a.ts#2-2 other", "", oneShot("n1", "rename it"))
+    const triaged = await driveRound(before, praise, {
+      verdicts: { "note-1": "edit" },
+      silent: true,
+    })
+    expect(triaged.rounds).toEqual(["triaged"])
   })
 
   it("a notes-only round names the notes judged edit, footnotes included", async () => {
@@ -317,6 +330,7 @@ describe("a settled round with an unfolded change", () => {
     expect(r.result).toBeInstanceOf(Error)
     expect(r.triaged).toHaveLength(1)
     expect(r.captured).toEqual(["edits", "editNotes"])
+    expect(r.rounds).toEqual(["reply", "triaged"])
     expect(r.dropped).toHaveLength(1)
     expect(r.dropped[0]!.notes).toHaveLength(1)
     expect(r.dropped[0]!.paths).toEqual([])
@@ -332,6 +346,7 @@ describe("a settled round with an unfolded change", () => {
     expect(r.result).toBeInstanceOf(Error)
     expect(r.triaged).toEqual([])
     expect(r.captured).toEqual(["edits", "edits"])
+    expect(r.rounds).toEqual(["reply", "edits"])
     expect(r.dropped).toEqual([{ notes: [], paths: ["a.ts"] }])
   })
 

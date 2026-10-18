@@ -30,6 +30,9 @@ export type ReviewOutcome =
       readonly edited: readonly Change[]
     }
 
+/** Which collecting turn runs: in-gate thread replies, or a closed round of each kind. */
+export type CollectRound = "reply" | "edits" | "notes" | "triaged"
+
 /** What a round asked to change: the notes judged `edit` and the code paths the human hand-edited. */
 export interface Requested {
   /** Empty on a hand-edit round: that path runs no triage. */
@@ -57,7 +60,7 @@ export interface ReviewPolicy {
   /** The round at commit `round` left no `file`. */
   readonly reviewMissing: (round: string) => Promise<void>
   /** Turn the round `capture` describes into `feedback`, or change nothing. */
-  readonly collecting: (capture: string) => Promise<void>
+  readonly collecting: (capture: string, round: CollectRound) => Promise<void>
   /** One verdict per note, keyed by note id; a note without one is an edit. */
   readonly triage: (notes: readonly ReviewNote[]) => Promise<ReadonlyMap<string, Verdict>>
   readonly answerQuestions: (notes: readonly ReviewNote[]) => Promise<void>
@@ -92,9 +95,10 @@ export interface ReviewPolicy {
 const collect = async (
   p: ReviewPolicy,
   capture: string,
+  round: CollectRound,
   requested?: Requested,
 ): Promise<"signoff" | "feedback"> => {
-  await p.collecting(capture)
+  await p.collecting(capture, round)
   if (read(p.feedback) !== undefined) return "feedback"
   if (changes().length === 0) {
     if (
@@ -152,7 +156,7 @@ const converse = async (
     }
     requireThreadsClosed(p.file)
     if (!hasThreadFor("agent", p.file)) return collectedAt
-    await p.collecting(p.captures.edits(head()))
+    await p.collecting(p.captures.edits(head()), "reply")
     collectedAt = head()
     requireReplies(p.file)
     if (!hasThreadFor("human", p.file)) return collectedAt
@@ -197,7 +201,7 @@ export const routeNotes = async (
   if (edits.length > 0) {
     await r.close()
     return r.outcome(
-      await collect(p, p.captures.editNotes(r.round, edits, answeredAt), {
+      await collect(p, p.captures.editNotes(r.round, edits, answeredAt), "triaged", {
         notes: edits,
         paths: [],
       }),
@@ -258,8 +262,14 @@ const settledRequest = async (
   return { notes, paths: edited.map((c) => c.path) }
 }
 
-const captureFor = (p: ReviewPolicy, round: string, req: Requested): string =>
-  req.paths.length > 0 ? p.captures.edits(round) : p.captures.editNotes(round, req.notes, undefined)
+const captureFor = (
+  p: ReviewPolicy,
+  round: string,
+  req: Requested,
+): { capture: string; kind: CollectRound } =>
+  req.paths.length > 0
+    ? { capture: p.captures.edits(round), kind: "edits" }
+    : { capture: p.captures.editNotes(round, req.notes, undefined), kind: "triaged" }
 
 const finish = async (
   p: ReviewPolicy,
@@ -283,16 +293,21 @@ const finish = async (
     return outcome(folded ? "feedback" : "signoff")
   }
 
-  const collectWith = async (capture: string, requested?: Requested): Promise<Finish> => {
+  const collectWith = async (
+    capture: string,
+    kind: CollectRound,
+    requested?: Requested,
+  ): Promise<Finish> => {
     await close()
-    return outcome(await collect(p, capture, requested))
+    return outcome(await collect(p, capture, kind, requested))
   }
   if (settled && !folded && p.refusals.dropped !== undefined) {
     // Thread-only edits settled the round, but a change note or hand-edit
     // since `reviewed` must still reach a collecting turn.
     const req = await settledRequest(p, since, edited)
     if (req.notes.length + req.paths.length === 0) return unfolded()
-    return collectWith(captureFor(p, round, req), req)
+    const { capture, kind } = captureFor(p, round, req)
+    return collectWith(capture, kind, req)
   }
   if (settled || (edited.length === 0 && !noted)) return unfolded()
   return openRound(p, since, edited, round, collectWith, (notes) =>
@@ -305,13 +320,16 @@ const openRound = (
   since: ReturnType<typeof changesSince>,
   edited: readonly Change[],
   round: string,
-  collectWith: (capture: string, requested?: Requested) => Promise<Finish>,
+  collectWith: (capture: string, kind: CollectRound, requested?: Requested) => Promise<Finish>,
   route: (notes: readonly ReviewNote[]) => Promise<Finish>,
 ): Promise<Finish> => {
   const notes = reviewNotes(since.get(p.file)?.before ?? "", read(p.file) ?? "")
   if (edited.length > 0)
-    return collectWith(p.captures.edits(round), { notes: [], paths: edited.map((c) => c.path) })
-  if (notes.length === 0) return collectWith(p.captures.notes(round))
+    return collectWith(p.captures.edits(round), "edits", {
+      notes: [],
+      paths: edited.map((c) => c.path),
+    })
+  if (notes.length === 0) return collectWith(p.captures.notes(round), "notes")
   return route(notes)
 }
 

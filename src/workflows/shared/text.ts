@@ -13,7 +13,7 @@ import {
 } from "../../flows/index.js"
 import { escapeRegExp } from "./registry.js"
 import { defaultFlagRegistry } from "./vars.js"
-import type { RemovedAssertions, Requested } from "../../workflow-kit/index.js"
+import type { CollectRound, RemovedAssertions, Requested } from "../../workflow-kit/index.js"
 import {
   accessPreamble,
   skillsPreamble,
@@ -869,13 +869,25 @@ Also judge each note's severity, one id per note: \`note-<n>.security\`,
 \`note-<n>.reversibility\`, \`note-<n>.blastRadius\` and
 \`note-<n>.newConcept\`.
 `
+const closedFold = (round: CollectRound, target: string): string =>
+  round === "edits"
+    ? `- Fold every hand-edit and every note the human left that round into
+  \`${target}\`
+`
+    : round === "notes"
+      ? `- Fold each note that asks for a change into \`${target}\`
+`
+      : `- Fold each \`edit\` note the capture lists, no other note, and every
+  hand-edit, into \`${target}\`
+`
+
 /** `refactor` retargets the prompt at `.gtd/REFACTOR.md` and fences it to the strays. A concern outside the fence is not folded; if nothing at all is written the landing is refused, but a partly buildable round drops the rest silently. */
 export const buildReviewCollectingPrompt = (
   capture: string,
   refactor?: {
     readonly strays: readonly string[]
-    /** `.gtd/REVIEW.md` is still in the tree: an in-gate reply turn, not the end of the round. */
-    readonly open: boolean
+    /** `"reply"` is the in-gate reply turn; any other round is closed and folds what that round left. */
+    readonly round: CollectRound
   },
 ): string => {
   const target = refactor ? ".gtd/REFACTOR.md" : ".gtd/REQUIREMENTS.md"
@@ -940,10 +952,10 @@ ${styleFormatContract}
 You are judging and classifying a round of review feedback${refactor ? " on a\nbehaviour-neutral refactor" : ""}.
 
 ${stateFileRules}
-${footnoteFoldIn}${codeThreadReplies()}
+${refactor && refactor.round !== "reply" ? "" : `${footnoteFoldIn}${codeThreadReplies()}`}
 ${
   refactor
-    ? refactor.open
+    ? refactor.round === "reply"
       ? `- This turn replies inside \`.gtd/REVIEW.md\` (thread replies only; the
   file stays in the tree) — you classify, you do not build. Write
   exactly one \`- A:\` reply to each thread whose last entry is a
@@ -957,9 +969,7 @@ ${
       : `- This turn writes \`${target}\` (the folded concerns) — you classify,
   you do not build. \`.gtd/REVIEW.md\` is already closed: do not
   recreate it or reply in it
-- Fold each \`edit\` note the capture lists, no other note, and every
-  hand-edit, into \`${target}\`
-`
+${closedFold(refactor.round, target)}`
     : `- This turn writes \`${target}\` (the folded concerns) and
   replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
   in the tree) — you classify, you do not build

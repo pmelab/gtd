@@ -599,6 +599,12 @@ same `refactor` scope, so the tail's steps are `refactor.build.*`; it resolves
 nit-fix and describe turns (`refactor.build.*`) are guarded and prompted with
 the same rules as the refactor's own turns below.
 
+The refactor review's closed collecting turn (after the review file is closed)
+folds into `.gtd/REFACTOR.md` what that round left: every hand-edit and every
+note after a hand-edit round, each note that asks for a change after a notes
+round, each `edit`-judged note after a triaged round. It carries no
+reply-in-place rules; those belong to the in-gate reply turn.
+
 It runs inside the scope `refactor`, whose write access is the strays plus
 `.gtd/**`, in these steps: `refactor.deriving` (writes `.gtd/REFACTOR.md`, a
 file a person can read and edit), `refactor.building`, the shared health loop

@@ -56,14 +56,14 @@ describe("the feature workflow's own steps declare skills — a step's rendered 
     )
   })
 
-  it("refactorCollecting renders the open variant while .gtd/REVIEW.md is present, the closed one when absent", async () => {
-    const at = (present: boolean): Promise<StepRequest> =>
-      captureStep(() => steps.refactorCollecting("capture", ["src/a.ts"]), {
+  it("refactorCollecting renders the open variant for the reply round, the closed one otherwise, whatever .gtd/REVIEW.md holds", async () => {
+    const at = (round: "reply" | "edits", present: boolean): Promise<StepRequest> =>
+      captureStep(() => steps.refactorCollecting("capture", round, ["src/a.ts"]), {
         scope: "refactor.build",
         read: (path) => (present && path === ".gtd/REVIEW.md" ? "# Review" : undefined),
       })
-    const open = agentPrompt(await at(true))
-    const closed = agentPrompt(await at(false))
+    const open = agentPrompt(await at("reply", false))
+    const closed = agentPrompt(await at("edits", true))
     expect(open).toContain("exactly one `- A:` reply")
     expect(open).not.toContain("already closed")
     expect(closed).toContain("already closed")
