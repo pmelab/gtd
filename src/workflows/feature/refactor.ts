@@ -216,7 +216,13 @@ const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<vo
   )
   await t.agentWithSkills(
     "building",
-    t.refactorBuildingPrompt(REFACTOR_PACKAGE, strays, pattern, reference, feedback !== undefined),
+    t.refactorBuildingPrompt({
+      pkg: REFACTOR_PACKAGE,
+      strays,
+      pattern,
+      reference,
+      feedback: feedback !== undefined,
+    }),
     { label: "Refactoring", model: coder(), system: t.builderSystem() },
   )
   guard()
@@ -275,7 +281,8 @@ export const reviewedRefactor = async (
     for (;;) {
       await refactorLap(p, guard, collected)
       // A person's edit at an escalation rest is never refused, as in the lap.
-      const outcome = await buildTail(false, entry, true, {
+      const outcome = await buildTail(entry, {
+        green: true,
         guard,
         guardRests: false,
         lenses: lensesOf(vars.refactorQualityReviews ?? ""),
