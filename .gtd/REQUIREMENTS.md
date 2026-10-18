@@ -1,8 +1,9 @@
 # Requirements: PR 391 review 3 fixes
 
 Source: the entry commit `5eb0a983` replaced `.gtd/TODO.md` with a three-point
-note ("Fix PR 391 review 3") and deleted the three `## Deferred review notes`
-sections. All three fixes live in `claude/hooks/ship.ts` and its tests in
+note ("Fix PR 391 review 3"); its deletion of the three
+`## Deferred review notes` sections was incidental (see concern 4). All three
+fixes live in `claude/hooks/ship.ts` and its tests in
 `claude/hooks/ship.test.ts`.
 
 ## 1. A failing `gh pr view` refuses instead of reading as "no PR" — PRODUCT
@@ -81,11 +82,23 @@ Acceptance:
 - synced head between `from` and `to` → range is `synced..to` (unchanged).
 - synced head missing or not an ancestor of `to` → `from..to` (unchanged).
 
-## 4. Drop the deferred review notes — PRODUCT (settled) [^keep-notes]
+## 4. Keep the deferred review notes — PRODUCT (settled)
 
-**The entry commit deleted all three `## Deferred review notes` sections**
-(note-1 `runSummaryCommand` doc comment, note-2 `gtd history list` scenario,
-note-3 garbled-flag stdout assertion). They are dropped, not built.
+**The three `## Deferred review notes` sections stay in `.gtd/TODO.md`
+verbatim.** The entry commit's deletion was scratch from replacing TODO.md, not
+intent; the notes came from main.
+
+- **Keep all three exactly as they stand after `unwind`:** note-3 (836985b,
+  garbled-flag stdout assertion), note-2 (daed27f, `gtd history list` scenario),
+  note-1 (eda53bb, `runSummaryCommand` doc comment) — headings, text and
+  `[^...]` markers unchanged.
+- **Parked, not built:** no package implements, edits, reorders or deletes them.
+- The "Fix PR 391 review 3" sketch line is the only TODO.md input folded here.
+
+Acceptance:
+
+- After the process, `.gtd/TODO.md`'s three deferred-note sections match their
+  current text byte for byte.
 
 ## Answered Questions
 
@@ -108,9 +121,5 @@ No. The sketch asks for a refusal; ship's other gh failures refuse and leave
 
 ### Are the three deleted deferred review notes still to be built?
 
-No. The human deleted them in the entry commit; removal is the answer.
-
-[^keep-notes]:
-    - H: Wrong: the deletion was scratch from replacing TODO.md, not intent.
-      Those three notes came from main and must stay in `.gtd/TODO.md` verbatim.
-      Turn this concern into "keep them".
+No, and they are not dropped either: the deletion was scratch, so the notes stay
+parked in `.gtd/TODO.md` verbatim.
