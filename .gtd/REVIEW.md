@@ -1,4 +1,4 @@
-# Review: 4b26e81
+# Review: 9aa2f63
 
 <!-- base: 53f0c6742f2e34646972bea75a17c3e20ddcb9cc -->
 
@@ -73,59 +73,68 @@ characters, and blocks `--no-*`, `--ex*` and `--te*` flags.** That stops
 `--output` smuggled in quoted, escaped or globbed, plus `--no-index`,
 `--ext-diff` and `--textconv`.
 
-- [ ] ./claude/hooks/ship.ts#1076-1081 — Risk: `git diff <path> <path>` with a
-      path outside the repository still passes and reads arbitrary files. Git
-      switches to no-index mode on its own when either path is outside the work
-      tree. Verified: `READ_ONLY_GIT.test("git diff /etc/hosts /dev/null")` and
-      `"git diff -- /etc/passwd /dev/null"` are both `true`, and
-      `git diff --stat /etc/hosts /dev/null` runs in this repo. Blocking
-      `--no-index` only closes the explicit spelling. Fix: reject absolute
-      paths, `..` and `~` path arguments for `diff`. Add both strings to the
-      rejected list in the test. The blanket `--no-` block also rejects harmless
-      flags such as `--no-ext-diff`, `--no-textconv` and `--no-merges`. The
-      writer just gets refused, so nothing is unsafe.
+- [ ] ./claude/hooks/ship.ts#1076-1083 — Risk: **quoted or escaped `..` still
+      reads files outside the repository.** The fix adds a `diff`-only lookahead
+      that refuses absolute, `~` and `..` path arguments, so
+      `git diff /etc/hosts /dev/null` and `git diff ../x y` now fail. But the
+      `..` check, unlike the flag check, is not quote-transparent:
+      `git diff '.'./x README.md`, `git diff .\./x README.md`,
+      `git diff ."."/x y` and `git diff x/.\./.\./y z` all pass. Verified in
+      bash:
+      `git diff --stat '.'./feat-381-naive-pass-slices/package.json package.json`
+      diffs a sibling worktree's file, so git fell back to no-index. Fix: refuse
+      any `"`, `'` or `\` in a `diff` command outright, or strip them before
+      testing. Add those four strings to the rejected list. The blanket `--no-`
+      block also rejects harmless flags such as `--no-ext-diff`, `--no-textconv`
+      and `--no-merges`. The writer just gets refused, so nothing is unsafe.
+- [ ] ./claude/hooks/ship.test.ts#526-527 — accepted: a `--` pathspec and a
+      trailing-slash directory, so the new path check does not refuse ordinary
+      relative paths
+- [ ] ./claude/hooks/ship.test.ts#564-570 — rejected: absolute paths plain,
+      after `--` and quoted, plus `~`, leading `..`, embedded `/../` and a
+      double-quoted `..`. None covers a single-quoted or backslash-escaped dot
 
 ## Tests
 
-- [ ] ./claude/hooks/ship.test.ts#1547-1555 — `lowerGone` fixture: HEAD past the
+- [ ] ./claude/hooks/ship.test.ts#1556-1564 — `lowerGone` fixture: HEAD past the
       top with the lower branch deleted, and `HEAD~1` scripted to a wrong commit
       so a `HEAD~n` rebuild would show up
-- [ ] ./claude/hooks/ship.test.ts#1557-1655 — one-slice resume: stack kept, no
+- [ ] ./claude/hooks/ship.test.ts#1566-1664 — one-slice resume: stack kept, no
       top write, lower branch revived only after the reset, a broken chain
       retires then forgets after the retarget, `commits` mode forgets, dry run
       puts the message only under the top, a closed lower PR refuses before any
       push
-- [ ] ./claude/hooks/ship.test.ts#1657-1733 — PR states read first: merged
+- [ ] ./claude/hooks/ship.test.ts#1666-1742 — PR states read first: merged
       bottom with branch gone needs no revive, all lower merged retargets to
       main without unsetting, floor read off the top and never the local ref, a
       dropped top ships alone, an unreadable floor refuses with nothing mutated,
       rebuild uses `<top>~1` and never `HEAD~`
-- [ ] ./claude/hooks/ship.test.ts#1735-1755 — non-JSON `gh pr view`: the real
+- [ ] ./claude/hooks/ship.test.ts#1744-1764 — non-JSON `gh pr view`: the real
       ship names the branch, pushes and edits no PR; the dry run pushes nothing
-- [ ] ./claude/hooks/ship.test.ts#1495-1516 — refusal case renamed: "HEAD no
+- [ ] ./claude/hooks/ship.test.ts#1504-1525 — refusal case renamed: "HEAD no
       longer contains the top" is now an ancestry failure instead of HEAD
       inequality
-- [ ] ./claude/hooks/ship.test.ts#1379-1390 — the deferred-unset test now runs
+- [ ] ./claude/hooks/ship.test.ts#1388-1399 — the deferred-unset test now runs
       in `commits` mode, because one-slice `stack` mode no longer retargets
-- [ ] ./claude/hooks/ship.test.ts#1459-1459 — the retired-record retry test also
+- [ ] ./claude/hooks/ship.test.ts#1468-1468 — the retired-record retry test also
       switched to `commits` mode for the same reason
-- [ ] ./claude/hooks/ship.test.ts#1191-1210 — the revive retry now rebuilds from
+- [ ] ./claude/hooks/ship.test.ts#1200-1219 — the revive retry now rebuilds from
       `${C2}~1` (the recorded top) instead of `HEAD~1`
-- [ ] ./claude/hooks/ship.test.ts#1232-1240 — the merged-lower test now scripts
+- [ ] ./claude/hooks/ship.test.ts#1241-1249 — the merged-lower test now scripts
       the recorded top, which the floor read needs
-- [ ] ./claude/hooks/ship.test.ts#531-532 — allowlist accepts quoted `--format`
+- [ ] ./claude/hooks/ship.test.ts#533-534 — allowlist accepts quoted `--format`
       values
-- [ ] ./claude/hooks/ship.test.ts#551-563 — allowlist rejects quoted, escaped,
+- [ ] ./claude/hooks/ship.test.ts#553-574 — allowlist rejects quoted, escaped,
       braced and globbed `--output`, plus `--no-index`, `--ext-diff` and
-      `--textconv`. It does not yet cover implicit no-index
+      `--textconv`; the new no-index cases are listed under the allowlist chunk
 - [ ] ./claude/hooks/ship.test.ts#67-67 — `gh pr view` fixtures now carry the
       branch argument
 - [ ] ./claude/hooks/ship.test.ts#403-405 — same fixture rename
 - [ ] ./claude/hooks/ship.test.ts#450-452 — same fixture rename
 - [ ] ./claude/hooks/ship.test.ts#471-473 — same fixture rename
-- [ ] ./claude/hooks/ship.test.ts#1291-1291 — same fixture rename
-- [ ] ./claude/hooks/ship.test.ts#1332-1332 — same fixture rename
-- [ ] ./claude/hooks/ship.test.ts#1348-1348 — same fixture rename
+- [ ] ./claude/hooks/ship.test.ts#1300-1300 — same fixture rename
+- [ ] ./claude/hooks/ship.test.ts#1341-1341 — same fixture rename
+- [ ] ./claude/hooks/ship.test.ts#1357-1357 — same fixture rename
 - [ ] ./claude/hooks/handoff.test.ts#218-220 — same fixture rename in the
       handoff test
 
