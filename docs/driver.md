@@ -402,24 +402,26 @@ falls back to the `gtd` on your `PATH`.
   fresh multi-slice stack, use `GTD_SHIP_MODE=commits` (a resume or a
   single-slice re-ship skips a merged lower slice instead); a merged or closed
   top pull request, or a branch the stack did not build, needs a renamed branch.
-  A fresh multi-slice stack ship on a branch that still has a recorded stack
+  A fresh multi-slice stack ship on a branch whose recorded stack is still live
   refuses too, naming `GTD_SHIP_MODE=commits` or unsetting
-  `branch.<branch>.gtdStack` and `gtdStackTop`. A `gh pr view` failure other
-  than "no pull request" refuses before that step's writes. Slice commits keep
-  `commit.gpgSign` but run no `commit-msg` hook. A failure part-way keeps what
-  landed and names the slice and step; run `/gtd ship` again to resume, and once
-  a lower slice's pull request has merged, a resume skips it and targets the
-  default branch. Squash-merging a lower stacked pull request rewrites its
-  commit, and a rebase merge does the same, so the pull request above shows that
-  slice's changes again until its branch is rebased onto the default branch (a
-  rebase ends the stack: ship then ships the branch alone); only a merge commit
-  keeps the stack clean. A commits-mode re-ship of a stacked branch retargets
-  its pull request to the default branch and leaves the lower slices' pull
-  requests open; close them by hand. A pull request on a base that is not a
-  slice branch keeps its base, a thrown draft in a stack is retargeted like any
-  other, and a missing slice branch is rebuilt from the commits the stack was
-  built at while the branch still contains them, otherwise the ship refuses and
-  names `GTD_SHIP_MODE=commits` to ship the branch alone.
+  `branch.<branch>.gtdStack` and `gtdStackTop` and deleting or renaming the old
+  slice branches (a record that no longer chains to HEAD is dropped, not
+  refused). A `gh pr view` failure other than "no pull request" refuses before
+  that step's writes. Slice commits keep `commit.gpgSign` but run no
+  `commit-msg` hook. A failure part-way keeps what landed and names the slice
+  and step; run `/gtd ship` again to resume, and once a lower slice's pull
+  request has merged, a resume skips it and targets the default branch.
+  Squash-merging a lower stacked pull request rewrites its commit, and a rebase
+  merge does the same, so the pull request above shows that slice's changes
+  again until its branch is rebased onto the default branch (a rebase ends the
+  stack: ship then ships the branch alone); only a merge commit keeps the stack
+  clean. A commits-mode re-ship of a stacked branch retargets its pull request
+  to the default branch and leaves the lower slices' pull requests open; close
+  them by hand. A pull request on a base that is not a slice branch keeps its
+  base, a thrown draft in a stack is retargeted like any other, and a missing
+  slice branch is rebuilt from the commits the stack was built at while the
+  branch still contains them, otherwise the ship refuses and names
+  `GTD_SHIP_MODE=commits` to ship the branch alone.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A

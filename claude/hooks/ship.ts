@@ -525,7 +525,10 @@ type View = {
   baseRefName?: string
 }
 
-// `gh pr view <branch>`: only gh's "no pull requests found" reads as none; any
+// gh's stderr for a branch with no PR (cli/cli pr view); tests script it by this.
+export const NO_PR_FOUND = "no pull requests found"
+
+// `gh pr view <branch>`: only NO_PR_FOUND reads as none; any
 // other failure (auth, network) must refuse, or ship would open a duplicate PR.
 async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | string> {
   const v = await io.run([
@@ -537,7 +540,7 @@ async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | st
     "number,title,body,url,state,baseRefName",
   ])
   if (v.code !== 0) {
-    if (v.err.includes("no pull requests found")) return undefined
+    if (v.err.includes(NO_PR_FOUND)) return undefined
     return `gh pr view ${branch} failed: ${v.err.trim()}`
   }
   try {
@@ -547,8 +550,10 @@ async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | st
   }
 }
 
-async function takenSlice(git: Git, ok: Ok, branch: string, groups: Group[]) {
+// `dead` names belong to a retired record gtd built itself: not a collision.
+async function takenSlice(git: Git, ok: Ok, branch: string, groups: Group[], dead: string[]) {
   for (const g of groups.slice(0, -1)) {
+    if (dead.includes(g.name)) continue
     const b = `${branch}-${g.name}`
     if (
       (await ok("rev-parse", "--verify", "--quiet", `refs/heads/${b}`)) ||
@@ -567,10 +572,16 @@ async function stackPrecheck(
   branch: string,
   groups: Group[],
 ): Promise<string | undefined> {
-  const live = names(await git("config", "--local", "--get", STACK_KEY(branch)))
-  if (live.length)
-    return `${branch} already has a recorded stack (${live.join(", ")}); nothing changed. Ship with GTD_SHIP_MODE=commits, or run git config --local --unset branch.${branch}.gtdStack and git config --local --unset branch.${branch}.gtdStackTop, then ship again.`
-  const taken = await takenSlice(git, ok, branch, groups)
+  const recorded = names(await git("config", "--local", "--get", STACK_KEY(branch)))
+  if (recorded.length) {
+    // The staleness test a resume uses: a dead record is not a live stack.
+    const quiet = { ...io, log: () => {} }
+    const found = await resumable(quiet, git, ok, branch, true, "HEAD")
+    if (typeof found === "string") return found
+    if (!found.forget)
+      return `${branch} already has a recorded stack (${recorded.join(", ")}); nothing changed. Ship with GTD_SHIP_MODE=commits, or run git config --local --unset branch.${branch}.gtdStack and git config --local --unset branch.${branch}.gtdStackTop, delete or rename the ${branch}-<slice> branches, then ship again.`
+  }
+  const taken = await takenSlice(git, ok, branch, groups, recorded)
   if (taken) return taken
   for (const [i, g] of groups.entries()) {
     const top = i === groups.length - 1
@@ -802,7 +813,8 @@ async function shipLink(
   const lower = i ? links[i - 1]! : undefined
   const base = baseOf(links, i, baseBranch)
   const view = await viewPr(io, l.branch)
-  if (typeof view === "string") return { step: "pull request", why: `${view} Nothing was pushed.` }
+  if (typeof view === "string")
+    return { step: "pull request", why: `${view} ${l.branch} was not pushed; /gtd ship retries.` }
   const pushed = await pushLink(io, git, l, i < links.length - 1)
   if (pushed) return { step: "push", why: pushed }
   const lowerRef = lower?.branch ?? baseRef
@@ -1046,13 +1058,16 @@ async function pullRequest(
     return fail(`HEAD is an ancestor of ${baseRef}: nothing to describe.`)
 
   const existing = await viewPr(io, branch)
-  if (typeof existing === "string") return fail(`${existing} Nothing was pushed.`)
+  if (typeof existing === "string")
+    return fail(
+      `${existing} ${branch} was not pushed; the squash and history ref stay, /gtd ship retries.`,
+    )
+  if (existing && existing.state !== "OPEN")
+    return fail(`The pull request for ${branch} is ${existing.state}, not open.`)
   const pushed = await pushBranch(io, branch)
   if (pushed) return fail(pushed)
   if (!existing)
     return createPr(io, git, branch, baseBranch, baseRef, { from: mergeBase, to: "HEAD" })
-  if (existing.state !== "OPEN")
-    return fail(`The pull request for ${branch} is ${existing.state}, not open.`)
   // A branch once shipped as a stack keeps the PR aimed at a slice branch; any
   // other base is the author's own and stays.
   const onSlice = recorded.some((n) => existing.baseRefName === `${branch}-${n}`)
@@ -1226,8 +1241,7 @@ async function sinceHead(git: Git, ok: Ok, branch: string, mergeBase: string, to
   const isSynced =
     synced &&
     (await ok("rev-parse", "--verify", "--quiet", `${synced}^{commit}`)) &&
-    (await ok("merge-base", "--is-ancestor", synced, to)) &&
-    (await ok("merge-base", "--is-ancestor", mergeBase, synced))
+    (await ok("merge-base", "--is-ancestor", synced, to))
   return isSynced ? synced : mergeBase
 }
 
@@ -1259,7 +1273,9 @@ async function updatePr(
   // Only what landed since the last run. A stored head a squash left behind
   // falls back to the whole branch, the only honest range left.
   const since = await sinceHead(git, ok, branch, mergeBase, to)
-  const count = Number(await git("rev-list", "--count", `${since}..${to}`))
+  // ^mergeBase keeps a synced head from before a main merge from re-weighing
+  // the commits that merge brought in.
+  const count = Number(await git("rev-list", "--count", `${since}..${to}`, `^${mergeBase}`))
   if (!count && (stacked || unstacked))
     return restacked(existing, `Nothing new since the last ship: ${existing.url}`)
   if (!count) return fail(`No commits since the last ship: ${existing.url}`)
@@ -1293,7 +1309,7 @@ for you), no preamble, no code fence around the whole reply.
 ${existing.body ?? ""}
 
 --- COMMITS ADDED SINCE IT WAS LAST CONSIDERED, oldest first ---
-${await git("log", "--no-merges", "--reverse", "--format=%H%n%B%n---", `${since}..${to}`)}
+${await git("log", "--no-merges", "--reverse", "--format=%H%n%B%n---", `${since}..${to}`, `^${mergeBase}`)}
 
 --- DIFF STAT (whole branch) ---
 ${await git("diff", "--stat", `${mergeBase}..${to}`)}`
