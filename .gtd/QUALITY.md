@@ -82,3 +82,46 @@ Also agree with the correctness chunk above: a silent second failing task
 vanishing from the signature is the one must-fix in this change.
 
 Verdict: fix the correctness must-fix and 1 first. Lean: -8 lines possible.
+
+## test-audit: tests that would not fail with the behaviour removed
+
+Checked each new test by asking whether it fails when the code it guards is
+removed. Most hold up: the `it.each` over the three cache phrases fails if any
+regex branch is dropped; "keeps a task-printed `> ` line after the two echo
+lines" fails if the count is 3 or if all `> ` lines are dropped; the
+boilerplate-only case fails if the count is 1. Both real-turbo tests pass and
+are the strongest owners. The suite passes (63 tests).
+
+Should fix:
+
+1. **No test for the case the correctness chunk found** (two failing tasks, one
+   of them silent). Removing a task's block from the signature completely fails
+   no test. The fix for that must-fix needs its own test: state B = state A plus
+   a second, boilerplate-only failing task, and assert B is not
+   `same failure as` A.
+
+2. **The ERROR filter is covered only by made-up logs**
+   (`tests/tooling/test-states.test.ts` `tail`, and the `runStates` `boiler`
+   stdout). Removing the ERROR branch fails those tests, but only because their
+   stdout contains a line real turbo writes to stderr (see the ponytail chunk).
+   That is a fixture that invents a log shape, not proof. Same fix as ponytail
+   item 1: drop the branch and the ERROR lines; the real-turbo
+   `is empty when the task prints nothing…` test then owns the contract.
+
+Nits:
+
+3. **`echoes.set(task, 0)` has no test** (`scripts/test-states.ts:86`). It only
+   matters when a real line comes before both echo lines are used up. Removing
+   it fails no test. Either add a case (cache line, one `> a`, a real line, then
+   `> quoted`, and assert `> quoted` is kept) or delete the line if that order
+   cannot happen.
+
+4. **"never collapses a boilerplate-only failure" (`runStates`) repeats two
+   other tests.** "prints both failures when signatures are empty" already pins
+   that an empty signature prints in full, and the failureSignature `it.each`
+   pins that boilerplate gives an empty signature. This test adds only the two
+   put together, and uses the fake ERROR line. Delete it, or keep it without the
+   ERROR line if the combined check is wanted.
+
+5. Agree with ponytail item 2: "is empty for two boilerplate-only stdouts with
+   differing hashes" repeats the `it.each` case.
