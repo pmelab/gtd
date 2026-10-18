@@ -65,3 +65,29 @@ overload body can forward to them. Once the `refactorBuildingPrompt` overload is
 deleted, `refactorBuildingPromptOf` collapses back into the one exported
 function; `implement`'s implementation signature can normalise `first` into a
 local and run `scope(...)` itself. About -6 lines, no behaviour change.
+
+## conventions: the new public `buildTail(base, options)` form has no `@inmem` scenario
+
+AGENTS.md, Testing: "create cucumber.js scenarios for each new feature, tagged
+`@inmem`". `buildTail` is public API — exported from `@pmelab/gtd/workflows`
+(`src/workflows/index.ts:27`) and called from a user's `gtd.config.ts`. This
+change adds the object form `buildTail(base, { fixFirst, green, … })` and
+documents it as the way to write a config (`docs/configuration.md` hotfix
+example), but no `.feature` file anywhere calls it. Every config in
+`tests/integration/features/*.feature` still uses the deprecated positional form
+(`scope-access`, `conversational-review`, `workflow-module-reuse`,
+`review-closing-signoff`, `judge-truncated-sections`,
+`conversational-code-threads`, `review-triage-signoff`, …).
+
+The sharpest case is `workflow-module-reuse.feature:22`. It is the scenario that
+mirrors the documented hotfix example
+(`afterTail(await buildTail(true, start()))`), and the doc now shows a different
+call (`buildTail(start(), { fixFirst: true })`). So the documented config is the
+one form no scenario runs, and dropping `fixFirst` in the new form's dispatch
+would leave every scenario green.
+
+Fix: switch `workflow-module-reuse.feature`'s hotfix config, and the other
+`.feature` configs, to the object form so the documented call is exercised
+through a real `gtd.config.ts`. Keep at most one `@inmem` scenario on the
+deprecated positional form while it still ships. This is the `.feature` half of
+the migration the correctness chunk asks for.
