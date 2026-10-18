@@ -28,7 +28,7 @@ caller a type error. Runtime is unchanged: a missing `turn` still behaves like
       `DeclaredTestsTurn`
   - removes a public symbol — still breaking, still needs `!` plus footer
   - shrinks the public surface so later guard changes stop being breaking
-- [ ] Keep the `= "fix"` default
+- [x] Keep the `= "fix"` default
   - no release impact; overrides the review note
 - [ ] _your answer_
 
