@@ -415,17 +415,18 @@ export const packagesItemBuildingPrompt = (pkg: string): string =>
   never delete the package file (the declared-tests guard reads it
   after you)
 - The package to implement is \`${pkg}\`
-- First check its acceptance criteria against the current tree —
-  an earlier fix turn may already satisfy them. If **every**
-  criterion was already met in the tree, or — for a package with no
-  \`## Tests\` — was met by work outside the tree (issues filed,
-  commands run), implement nothing more: write \`.gtd/SATISFIED.md\`
-  with evidence per criterion — commit, file, symbol, issue URL, or
-  command output. For out-of-tree work, first check it was not
-  already done by an earlier attempt (e.g. search for an existing
-  issue with the same title via \`gh\`) and reuse that as evidence;
-  otherwise do the work, then write the file, and change nothing
-  else in the tree. Otherwise implement normally and skip that file
+- First check the acceptance criteria against the current tree —
+  an earlier fix turn may already meet them
+- **Every criterion already met in the tree**: write
+  \`.gtd/SATISFIED.md\` with evidence per criterion — commit, file,
+  symbol, issue URL, or command output — and change nothing else
+- **No \`## Tests\` and work outside the tree**: first check it was
+  not already done by an earlier attempt (e.g. an existing issue
+  with the same title via \`gh\`) and reuse that as evidence, or do
+  the work; then write \`.gtd/SATISFIED.md\` with that evidence and
+  change nothing else in the tree
+- **Any other package**: implement normally, write no
+  \`.gtd/SATISFIED.md\`
 - Write the tests the package declares under \`## Tests\` first,
   then the code that makes them pass; the turn is refused unless
   every declared test is in your diff — except a line marked

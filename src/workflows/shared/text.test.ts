@@ -1284,13 +1284,21 @@ describe("packagesItemBuildingPrompt", () => {
     /\s+/g,
     " ",
   )
-  it("lets SATISFIED.md cover out-of-tree work, with evidence per criterion", () => {
-    expect(prompt).toContain("met by work outside the tree")
-    expect(prompt).toContain("evidence per criterion")
-    expect(prompt).toContain("issue URL")
-    expect(prompt).toContain("command output")
-    expect(prompt).toContain("do the work, then write the file")
-    expect(prompt).toContain("it was not already done")
+  it("carries the evidence kinds and the already-done check", () => {
+    for (const w of [
+      "evidence per criterion",
+      "commit, file, symbol, issue URL, or command output — and change nothing else",
+      "it was not already done",
+      "via `gh`",
+    ])
+      expect(prompt).toContain(w)
+  })
+  it("states the already-met, no-tests out-of-tree and implement-normally rules flat", () => {
+    expect(prompt).toContain("Every criterion already met in the tree")
+    expect(prompt).toContain("No `## Tests` and work outside the tree")
+    expect(prompt).toContain(
+      "Any other package**: implement normally, write no `.gtd/SATISFIED.md`",
+    )
   })
   it("says an (unchanged) line needs only to exist", () => {
     expect(prompt).toContain("(unchanged)")
