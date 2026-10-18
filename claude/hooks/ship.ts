@@ -63,6 +63,20 @@ export type Slice = { name: string; base: string; tip: string; closed: boolean }
 
 const HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 
+// The slice's problem as text, or the slice itself.
+function checkSlice(raw: Record<string, unknown> | undefined, done: Slice[]): Slice | string {
+  const { name, base, tip, closed } = raw ?? {}
+  if (typeof name !== "string" || !/^[a-z][a-z0-9-]*$/.test(name))
+    return `slice name ${JSON.stringify(name)}`
+  if (done.some((s) => s.name === name)) return `slice ${name} repeats`
+  if (typeof base !== "string" || !HASH.test(base) || typeof tip !== "string" || !HASH.test(tip))
+    return `slice ${name} has a malformed commit`
+  if (typeof closed !== "boolean") return `slice ${name} has no closed flag`
+  const prev = done.at(-1)
+  if (prev && prev.tip !== base) return `slice ${name} does not start at ${prev.name}'s tip`
+  return { name, base, tip, closed }
+}
+
 // `gtd slices --json` is the only place gtd names the process's slice ranges.
 export function readSlices(stdout: string): Slice[] | { refusal: string } {
   const bad = (why: string) => ({ refusal: `gtd slices --json is unusable: ${why}.` })
@@ -76,16 +90,9 @@ export function readSlices(stdout: string): Slice[] | { refusal: string } {
   if (!Array.isArray(doc.slices) || !doc.slices.length) return bad("no slices")
   const slices: Slice[] = []
   for (const raw of doc.slices as Record<string, unknown>[]) {
-    const { name, base, tip, closed } = raw ?? {}
-    if (typeof name !== "string" || !/^[a-z][a-z0-9-]*$/.test(name))
-      return bad(`slice name ${JSON.stringify(name)}`)
-    if (slices.some((s) => s.name === name)) return bad(`slice ${name} repeats`)
-    if (typeof base !== "string" || !HASH.test(base) || typeof tip !== "string" || !HASH.test(tip))
-      return bad(`slice ${name} has a malformed commit`)
-    if (typeof closed !== "boolean") return bad(`slice ${name} has no closed flag`)
-    const prev = slices.at(-1)
-    if (prev && prev.tip !== base) return bad(`slice ${name} does not start at ${prev.name}'s tip`)
-    slices.push({ name, base, tip, closed })
+    const checked = checkSlice(raw, slices)
+    if (typeof checked === "string") return bad(checked)
+    slices.push(checked)
   }
   return slices
 }
@@ -219,52 +226,21 @@ async function rebaseWarning(io: ShipIo) {
   return "Warning: commits mode keeps one commit per slice only through a rebase merge, and this repository does not confirm rebase merges are allowed; any other merge method squashes them."
 }
 
-async function squash(
-  io: ShipIo,
-  git: Git,
-  ok: Ok,
-  branch: string,
-  isDry: boolean,
-  mode: ShipMode,
-): Promise<Shipped & { history?: string; warning?: string }> {
-  const probe = await io.run(["gtd", "summary"])
-  if (probe.code !== 0) {
-    io.log(`No gtd process at HEAD, so nothing is squashed; ${branch} is described as it stands.`)
-    return { ok: true, text: "" }
-  }
-  const listed = await io.run(["gtd", "slices", "--json"])
-  if (listed.code !== 0) return fail(`gtd slices failed; nothing changed.\n${listed.err}`.trimEnd())
-  const slices = readSlices(listed.out)
-  if ("refusal" in slices) return fail(`${slices.refusal} Nothing changed.`)
-
+// A failure text while the process is not a finished, shippable one.
+async function unfinished(io: ShipIo, slices: Slice[]) {
+  const state = async () => (await io.run(["gtd", "next", "--json=state"])).out.trim()
   // `gtd summary` also describes a process still underway; shipping that
   // would publish half of it.
   const open = slices.find((s) => !s.closed)
-  if (open) {
-    const state = (await io.run(["gtd", "next", "--json=state"])).out.trim()
-    return fail(
-      `The gtd process is still underway (slice ${open.name} is open, at ${state}). Finish it, then ship.`,
-    )
-  }
+  if (open)
+    return `The gtd process is still underway (slice ${open.name} is open, at ${await state()}). Finish it, then ship.`
   const initial = (await io.run(["gtd", "next", "--json=initial"])).out.trim()
-  if (initial !== "true") {
-    const state = (await io.run(["gtd", "next", "--json=state"])).out.trim()
-    return fail(`The gtd process is still underway (at ${state}). Finish it, then ship.`)
-  }
-  const base = slices[0]!.base
-  const tip = slices.at(-1)!.tip
-  if (tip !== (await git("rev-parse", "HEAD")))
-    return fail(`The process tip (${short(tip)}) is not HEAD: something landed since.`)
-  const count = Number(await git("rev-list", "--count", `${base}..HEAD`))
-  if (!count) return fail(`Nothing to squash: ${short(base)}..HEAD is empty.`)
+  if (initial !== "true")
+    return `The gtd process is still underway (at ${await state()}). Finish it, then ship.`
+  return undefined
+}
 
-  const groups = await landed(ok, slices)
-  if (!groups.length) return dropProcess(io, ok, base, count, isDry)
-  // Replaced by the stack-mode ship; refusing keeps a half-built stack impossible.
-  if (mode === "stack" && groups.length > 1)
-    return fail("Stack mode for a multi-slice process is not available yet; nothing changed.")
-
-  io.log(`Squashing ${count} commit(s) since ${short(base)} into ${groups.length} commit(s)…`)
+async function commitMessages(io: ShipIo, git: Git, groups: Group[], tip: string) {
   const parts: { message: string; trailers: string[] }[] = []
   for (const g of groups) {
     const trailers = costTrailers(await git("log", "--format=%B%n", `${g.base}..${g.tip}`))
@@ -279,13 +255,70 @@ async function squash(
     const all = history ? [...trailers, `Gtd-History: ${history}`] : trailers
     return all.length ? `${message}\n\n${all.join("\n")}` : message
   })
+  return { ok: true as const, fulls, history }
+}
+
+type Plan = { groups: Group[]; base: string; tip: string; count: number }
+
+// Either the finished process's landed groups, or the result that ends the ship early.
+async function plan(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  isDry: boolean,
+  mode: ShipMode,
+): Promise<Plan | Shipped> {
+  const probe = await io.run(["gtd", "summary"])
+  if (probe.code !== 0) {
+    io.log(`No gtd process at HEAD, so nothing is squashed; ${branch} is described as it stands.`)
+    return { ok: true, text: "" }
+  }
+  const listed = await io.run(["gtd", "slices", "--json"])
+  if (listed.code !== 0) return fail(`gtd slices failed; nothing changed.\n${listed.err}`.trimEnd())
+  const slices = readSlices(listed.out)
+  if ("refusal" in slices) return fail(`${slices.refusal} Nothing changed.`)
+
+  const underway = await unfinished(io, slices)
+  if (underway) return fail(underway)
+  const base = slices[0]!.base
+  const tip = slices.at(-1)!.tip
+  if (tip !== (await git("rev-parse", "HEAD")))
+    return fail(`The process tip (${short(tip)}) is not HEAD: something landed since.`)
+  const count = Number(await git("rev-list", "--count", `${base}..HEAD`))
+  if (!count) return fail(`Nothing to squash: ${short(base)}..HEAD is empty.`)
+
+  const groups = await landed(ok, slices)
+  if (!groups.length) return dropProcess(io, ok, base, count, isDry)
+  // Replaced by the stack-mode ship; refusing keeps a half-built stack impossible.
+  if (mode === "stack" && groups.length > 1)
+    return fail("Stack mode for a multi-slice process is not available yet; nothing changed.")
+  return { groups, base, tip, count }
+}
+
+async function squash(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  isDry: boolean,
+  mode: ShipMode,
+): Promise<Shipped & { history?: string; warning?: string }> {
+  const planned = await plan(io, git, ok, branch, isDry, mode)
+  if ("ok" in planned) return planned
+  const { groups, base, tip, count } = planned
+
+  io.log(`Squashing ${count} commit(s) since ${short(base)} into ${groups.length} commit(s)…`)
+  const msgs = await commitMessages(io, git, groups, tip)
+  if (!msgs.ok) return msgs
+  const { fulls, history } = msgs
   const many = groups.length > 1
-  const check = mode === "commits" && many
+  const warn = () => (mode === "commits" && many ? rebaseWarning(io) : undefined)
   if (isDry) {
     const text = many
       ? fulls.map((f, i) => `[${groups[i]!.name}]\n${f}`).join("\n\n---\n\n")
       : fulls[0]!
-    return { ok: true, text, history, warning: check ? await rebaseWarning(io) : undefined }
+    return { ok: true, text, history, warning: await warn() }
   }
 
   const pushed = await pushHistory(io, history)
@@ -294,7 +327,7 @@ async function squash(
     ? await commitChain(io, git, ok, groups, fulls)
     : await commitSquash(io, git, ok, groups[0]!.base, fulls[0]!)
   if (!built.ok) return built
-  return { ok: true, text: "", warning: check ? await rebaseWarning(io) : undefined }
+  return { ok: true, text: "", warning: await warn() }
 }
 
 async function dropProcess(
