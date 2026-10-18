@@ -107,7 +107,11 @@ describe("requireDeclaredTests", () => {
         {},
         {
           read: (path: string) =>
-            path === pkg ? text : path === "lib/gone.test.ts" ? undefined : "x",
+            path === pkg
+              ? text
+              : path === "lib/gone.test.ts" || path === ".gtd/SATISFIED.md"
+                ? undefined
+                : "x",
           refuse: (message: string): never => {
             throw new Error(message)
           },
