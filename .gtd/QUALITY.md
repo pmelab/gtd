@@ -166,3 +166,43 @@ would close the gap.
   `src/*.ts` module or internal function, the README reflects the change as the
   global CLAUDE.md asks, and the doc-tested "A complete minimal driver" section
   is untouched.
+
+## spec-challenge: concern 7 lets a fresh stack replace a live hand-restacked record
+
+Decision (ARCHITECTURE.md, concern 7, and its Answered Question "With
+hand-restack checks skipped in `recordedRefusal` …"): the dry `resumable` call
+from `recordedRefusal` passes `planRestack=false`, which skips `handRestack`
+entirely. Risk was "accepted".
+
+Invariant it breaks: `docs/driver.md` (~l.405) promises "A fresh multi-slice
+stack ship on a branch whose recorded stack is still live refuses too … (a
+record that no longer chains to HEAD is dropped, not refused)". A hand-restacked
+record is live: the same doc says the next `/gtd ship` adopts it and keeps the
+stack. At `daee504c`, `recordedRefusal` ran `handRestack` and refused. Now
+`resumable` hits `valid && "rebased" in guard`, returns `{ forget: true }`, and
+the fresh ship overwrites `gtdStack`/`gtdStackTop`. The remaining slice PRs stay
+open and orphaned, and the docs were not updated to say so. No test covers this
+path in either direction.
+
+- Blocking. Concern 7 only needed to keep the dry call off the network
+  (`ls-remote`) and away from restack refusals. `handRestack`'s shape test is
+  local: `from` off `lowest`, plus `<lowest>~1` on `origin/<default>`. Run that
+  shape test under `planRestack=false` and skip only `originLeases`, so a
+  hand-restacked record still refuses a fresh stack. Add a test: hand restack,
+  then a fresh multi-slice ship, which refuses with the "already has a recorded
+  stack" text and runs no `ls-remote`.
+- If the human holds to "skip entirely", the driver.md sentence must say that a
+  hand-restacked record is replaced, not refused.
+
+## spec-challenge: concern 3 contradicts the "skips a merged lower slice" doc line
+
+Decision (concern 3): a `MERGED` slice counts as done only when `baseRefName`
+equals the default branch. Any other base refuses in `mergedSlices`, and
+`mergedSlices` runs on every resume and every single-slice re-ship.
+
+Invariant: `docs/driver.md` (~l.402) still says "a resume or a single-slice
+re-ship skips a merged lower slice instead". That holds now only for a slice
+merged into the default branch. The new restack sentence (~l.433) covers the
+restack, but not the single-slice re-ship or a resume with no restack. Both now
+refuse too. Non-blocking. Qualify the l.402 clause ("… merged into the default
+branch …").
