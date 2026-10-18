@@ -91,3 +91,68 @@ the old strip test and the new ones all use base `feat/x-refactor` or
 one test: base `main`, body `Stacked on #7 — merge that first\n\nstanding`,
 commits mode, expect a `--body-file` edit with stdin `standing` and no `--base`
 edit.
+
+## test-audit: three new tests pin behaviour the earlier chunks call bugs
+
+Fixing those chunks has to rewrite these tests. Until then the suite argues
+against the fixes, so each test should change together with its fix.
+
+- "an unrecorded non-default base is left alone" in `claude/hooks/ship.test.ts`,
+  case `["feat/x-refactor", ""]`, asserts that a PR on a slice base with no
+  record is neither retargeted nor stripped. That is the result of following the
+  refusal's `--unset` advice (correctness chunk 2). With that fix the case
+  either goes, or it states the intended outcome. The case loop also runs inside
+  one `test` body, so a failure does not say which pair broke. Use `test.each`.
+- "a missing slice branch on resume › %s: refuses naming the branch and the
+  unset" asserts `out.text` contains `git config --local --unset ${KEY}`. That
+  is the advice that ships nothing (correctness chunk 2) and that interpolates
+  the branch into a shell command (owasp chunk). Assert the replacement
+  (`GTD_SHIP_MODE=commits`) instead. "a closed lower slice refuses a resume …
+  names the unset" has the same problem.
+- "a fresh stack records the top, then the names, then branches" fixes the order
+  as top first, names second. Correctness chunk 3 asks for names first and top
+  last. Both orders are call-shape details. The contract is "the two keys only
+  exist as a matched pair", and no test checks it: "a failed git config puts the
+  process back …" (names write fails) never asserts that `gtdStackTop` was unset
+  or never written. Replace the order test with that failure case, and assert
+  that no `git config --local ${TOP}` write survives without its `--unset`.
+
+## test-audit: the fake git config has no state, so no test covers the retry that correctness chunk 1 found
+
+`repo()` answers each argv from a fixed script. `git config --local --unset`
+succeeds but changes nothing, and `--get` keeps returning the scripted record.
+So every "kept" or "forgotten" assertion only checks whether a call was made,
+and a two-run retry has to be re-scripted by hand (as in "a failed git branch -f
+leaves a record that a second run rebuilds from HEAD"). The case that breaks is:
+stack mode, single-slice `commitSquash`, the PR step fails, retry with every
+slice branch present, the old chain still valid, and HEAD ≠ the recorded top. No
+test covers it. "every branch present and HEAD moved: the chain check decides"
+only scripts the _invalid_-chain variant, so it shows that `topGuard` ignores a
+moved top when no branch is missing, and does not show that this is safe. Add
+the valid-chain variant: first run fails at `gh pr edit 8 --body-file -` after
+the retarget, second run with `gtd summary` failing, every branch present, `TOP`
+≠ HEAD. Expect no `gh pr edit 8 --base feat/x-refactor` and no `Stacked on`
+body. It fails on the current code, which is the point.
+
+## test-audit: nits — a name that does not match what is exercised, and a weak order check
+
+- "single-slice ship retargets off the record read before the unset" cannot
+  observe _when_ `recorded` is read: the fake's `--get` returns the record
+  before and after any `--unset`. Moving the `recorded` read below `squash()` in
+  `ship()` passes every test, so the comment "Read before any squash" is the
+  only guard. The test really checks "single-slice stack-mode ship defers the
+  unset until after the retarget". Rename it to that, or drop it. It overlaps
+  with "a single-slice ship unsets the stack record" plus "the record is unset
+  only after the retarget, both keys".
+- "the record is unset only after the retarget, both keys" compares
+  `at(unset) > at("gh pr edit 8 --base main")` without checking that the edit
+  index is `> -1`. With the retarget removed it passes on `x > -1`. A sibling
+  test happens to cover that ("taking a PR off a stack with nothing new still
+  succeeds"), but this assertion is vacuous alone. Add the `> -1` guard that the
+  single-slice test already has. It also checks the `TOP` unset only by
+  `toContain`, not by order.
+- "a recorded stack that no longer chains is unset and the branch ships alone"
+  still passes, but the unset now waits for the PR step. No test covers an
+  invalid chain whose PR step then fails: the record must survive that, and the
+  `io.log` line "dropped it" is then false. One case with
+  `create("feat/x","main")` failing would cover both the record and the wording.
