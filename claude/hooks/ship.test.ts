@@ -523,6 +523,8 @@ describe("ship", () => {
     for (const ok of [
       "git log --format=%B a..b",
       "git diff --stat a..b",
+      "git diff HEAD~1 -- src/x.ts",
+      "git diff a...b -- docs/",
       "git show HEAD",
       "git branch",
       "git branch --list -a",
@@ -559,6 +561,13 @@ describe("ship", () => {
       "git log -*utput=x",
       "git log --out?ut=x",
       "git diff --no-index /etc/hosts /dev/null",
+      "git diff /etc/hosts /dev/null",
+      "git diff -- /etc/passwd /dev/null",
+      "git diff --stat '/etc/hosts' /dev/null",
+      "git diff ~/x y",
+      "git diff ../x y",
+      "git diff a/../../x y",
+      'git diff ".."/x y',
       "git diff --ext-diff",
       "git show --textconv x",
     ]) {
