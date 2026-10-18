@@ -94,3 +94,56 @@ Load assumed: one developer running `/gtd ship` on their own clone, so there are
 no scale findings. Other issues this lens saw (merged-name reuse refused by
 `prStateRefusal`, the lease dead end after a reconcile, the unset hint on
 unrelated push errors, stale retired names) are already in the chunks above.
+
+## test-audit: the healthy-shape check passes only because "" equals ""
+
+`brokenShape` compares `git rev-parse <lower>~1` against
+`git rev-parse <below>`. The `repo()` mock answers every unscripted call with
+empty output, and the `two`/`three` fixtures script neither
+`git rev-parse feat/x-middle~1` nor `git rev-parse origin/main`. So on every
+successful restack test the lower-slice check compares `""` with `""`. Only
+`midBroken` scripts real shas, and only for the refusal case.
+
+Result: if the comparison picks the wrong pair (for example `l.branch` against
+itself, or the wrong `below`), every success-path test would still pass, as long
+as `midBroken` still differs. The same `"" === ""` would also let a real
+`rev-parse` failure on both sides count as a healthy stack.
+
+Fix: in `three`, script `git rev-parse feat/x-middle~1` and
+`git rev-parse origin/main` to the same real sha (for example `BASE`). Then the
+happy path actually compares something. Optionally, treat an empty `rev-parse`
+as broken in `brokenShape`.
+
+## test-audit: two isRecordedTop guards are not pinned by any test
+
+The hand-restack tests (`a hand restack of a multi-commit top-only remainder`)
+pin the identity match, an identity mismatch, and a first commit whose parent is
+off origin. Removing either of these guards would still leave every test green:
+
+- `slices.length === 1` in `handRestack`. No test has a remainder of two or more
+  slices whose `lowest~1` is off origin while the identity matches. Dropping it
+  widens this force-push guard to multi-slice remainders without any test
+  failing.
+- `mine !== ""` in `isRecordedTop`. Every test that reaches the identity
+  comparison scripts both `git log -1` reads. No test has both reads come back
+  empty, which is the mock's default and also what a failed read returns.
+  Without the guard, two failed reads count as a match, which leads to a leased
+  force push.
+
+Fix: add one case to that describe for each guard. One case uses a two-slice
+remainder with matching identity and expects no `--force-with-lease`. The other
+leaves the `IDENT` reads unscripted and expects the record to be dropped.
+
+## test-audit: Nit: call-count assertion on origin/HEAD reads
+
+`a ship asks origin/HEAD for the default branch once` asserts how many times
+`git symbolic-ref` runs. A user can't observe this, so it is call-shape: a
+behaviour-preserving refactor that reads it twice would fail the test, while a
+wrong default branch is already caught by the PR base assertions elsewhere. Drop
+it, or swap it for a behavioural case: a non-`main` origin/HEAD restacks onto
+`origin/<that>` and retargets to it.
+
+Already raised under other lenses and not repeated here: the merged-name reuse
+test's `noPr` mock/live drift (correctness), the missing reconcile-then-ship
+test (correctness), and the missing unrelated-error test for the unset hint
+(owasp-security).
