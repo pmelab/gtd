@@ -59,18 +59,18 @@ export function implement(
   tier?: RiskTier,
   amend?: boolean,
 ): Promise<void> {
-  return implementWith(
-    typeof first === "object" && first !== null ? first : { reference: first, tier, amend },
-  )
-}
-
-const implementWith = ({ reference, tier, amend }: ImplementOptions): Promise<void> =>
-  scope("implement", async () => {
-    await t.agentWithSkills("building", t.implementBuildingPrompt(reference, tier, amend), {
-      label: "Implementing",
-      model: coder(),
-      system: t.builderSystem(),
-    })
+  const options: ImplementOptions =
+    typeof first === "object" && first !== null ? first : { reference: first, tier, amend }
+  return scope("implement", async () => {
+    await t.agentWithSkills(
+      "building",
+      t.implementBuildingPrompt(options.reference, options.tier, options.amend),
+      {
+        label: "Implementing",
+        model: coder(),
+        system: t.builderSystem(),
+      },
+    )
     await healthy(() =>
       t.agentWithSkills("fix.suite.fixing", t.implementFixPrompt(), {
         label: "Fixing the check",
@@ -81,6 +81,7 @@ const implementWith = ({ reference, tier, amend }: ImplementOptions): Promise<vo
     )
     await run("closing", removeScript([REQUIREMENTS]), { label: "Closing out the implementation" })
   })
+}
 
 interface Decision {
   readonly reference: string
