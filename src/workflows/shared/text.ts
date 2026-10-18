@@ -376,9 +376,12 @@ ${stateFileRules}
 - Every package with tests has a \`## Tests\` section, one line per
   declared test, copied from the architecture entries:
   \`- unit: \\\`<path>\\\`\` or \`- e2e: \\\`<path>\\\`\`. Chore packages have
-  none. List only tests the package writes or changes, never one it
-  leaves untouched; an existing unchanged test a criterion must name
-  is written \`- unit: \\\`<path>\\\` (unchanged)\` — only decompose places the marker
+  none. List every test the package writes or changes; also list an
+  existing test a criterion relies on, marked \`(unchanged)\` —
+  \`- unit: \\\`<path>\\\` (unchanged)\` or
+  \`- e2e: \\\`<path>\\\` (unchanged)\`; list no other untouched test;
+  never mark a file the package also writes or changes — list it once,
+  unmarked; only decompose places the marker
 - Leave everything uncommitted and finish
 `
 
@@ -430,7 +433,9 @@ export const packagesItemBuildingPrompt = (pkg: string): string =>
 - Write the tests the package declares under \`## Tests\` first,
   then the code that makes them pass; the turn is refused unless
   every declared test is in your diff — except a line marked
-  \`(unchanged)\`, which needs only to exist: leave that file alone
+  \`(unchanged)\`, which must exist and stay untouched: editing
+  that file refuses the turn; if the marker is wrong because the package
+  must change that test, stop and leave it to a person
 - A declared e2e test is a scenario in the repository's own e2e
   framework for the behaviour its \`## E2E Scenarios\` entry names.
   Word it to fit the existing steps — reuse and generalise them

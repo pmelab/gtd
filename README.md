@@ -421,17 +421,17 @@ noted in steps 3 and 4 below.
 3. **You wait.** The work is split into vertical slices and built one at a time,
    each one starting from the unit and e2e tests it declares (a build turn
    missing one is refused; a test the package only relies on is marked
-   `(unchanged)` and need only exist, and a package whose work lies outside the
-   repository, such as filing issues, closes on recorded evidence), checked
-   against the full suite (`testCommand`) and fixed until it passes before
-   moving on — so keep that suite fast; gtd has no lighter one. Scenario wording
-   is not frozen: you sign the scenarios off once, in the review's
-   `## Scenarios` chunk, where any assertion an existing scenario lost is marked
-   `Weakened:`. After the last package the quality lap runs. Two points along
-   the process are judged rather than always asking you outright — each stops
-   and hands you a verdict to make (`gtd judge answer`, or land with a clean
-   tree to accept the conservative default, which never skips work;
-   `gtd judge run --provider fixed --answers <path>` — or the
+   `(unchanged)`; it must exist and the build turn must leave it untouched, and
+   a package whose work lies outside the repository, such as filing issues,
+   closes on recorded evidence), checked against the full suite (`testCommand`)
+   and fixed until it passes before moving on — so keep that suite fast; gtd has
+   no lighter one. Scenario wording is not frozen: you sign the scenarios off
+   once, in the review's `## Scenarios` chunk, where any assertion an existing
+   scenario lost is marked `Weakened:`. After the last package the quality lap
+   runs. Two points along the process are judged rather than always asking you
+   outright — each stops and hands you a verdict to make (`gtd judge answer`, or
+   land with a clean tree to accept the conservative default, which never skips
+   work; `gtd judge run --provider fixed --answers <path>` — or the
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
    between `gtd judge --json` and `gtd judge answer`;
    `gtd judge run --provider jev` asks TypeSafe's Jev instead, with the key in
