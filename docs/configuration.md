@@ -589,6 +589,12 @@ cannot be read goes to a human instead. `reference` is the naive pass's kept tip
 `git show <reference> -- <strays>` as reading material only and forbids applying
 it; omitted, it carries no reference line.
 
+`refactorFirst` is the refactor alone. The shipped flow runs `reviewedRefactor`,
+which is `refactorFirst` plus the refactor's quality lap and review inside the
+same `refactor` scope, so the tail's steps are `refactor.build.*`; it resolves
+`true` on sign-off and `false`, running no step, on exactly the shapes
+`refactorFirst` rejects.
+
 It runs inside the scope `refactor`, whose write access is the strays plus
 `.gtd/**`, in these steps: `refactor.deriving` (writes `.gtd/REFACTOR.md`, a
 file a person can read and edit), `refactor.building`, the shared health loop
@@ -603,19 +609,26 @@ narrows nothing. After the building turn, after every fix turn and after the
 escalation describe turn (`refactor.health.describe`), `gtd land` refuses the
 turn when:
 
-- it changed a path outside `.gtd/` that is not exactly one of the strays (a fix
-  turn is judged on its own changes, so a person's edit at an escalation stop
-  does not block it; no globs: a stray `src/*.ts` does not admit `src/a.ts`), or
+- it changed a test file (`refactor-tests`): any changed path matching
+  `**/*.test.*`, `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**` or
+  `**/__tests__/**`, strays included. The list is fixed — `seamAllow` does not
+  narrow it — and `*_test.go`, `test_*.py` and other namings are not refused, or
+- it changed a path outside `.gtd/` that is not exactly one of the strays
+  (`refactor-scope`; a fix turn is judged on its own changes, so a person's edit
+  at an escalation stop does not block it; no globs: a stray `src/*.ts` does not
+  admit `src/a.ts`), or
 - it raised the number of reads of any one flag, or added a flag, across the
   changed files outside `.gtd/`. A flag is a match of the `refactorFlagPattern`
   setting; moving a read passes, and so does a swap that leaves every per-name
   count flat. A changed file whose before or after cannot be read refuses.
 
-The human rests `refactor.health.stop` and `refactor.health.exhausted` are never
-guarded: a person's edit there is not refused. The flag count, though, spans
-every turn since the build: a flag read a person adds there refuses the next fix
-turn until it is removed, and that turn may not touch the file to remove it. Put
-no flag read in a person's edit at these rests.
+The human rests `refactor.health.stop` and `refactor.health.exhausted`, and
+their counterparts in the refactor's review tail (`refactor.build.health.*`,
+`refactor.build.review.health.*`), are never guarded: a person's edit there is
+not refused. The flag count, though, spans every turn since the build: a flag
+read a person adds there refuses the next fix turn until it is removed, and that
+turn may not touch the file to remove it. Put no flag read in a person's edit at
+these rests.
 
 A blank or invalid `refactorFlagPattern` throws before the first step, naming
 the setting. A pattern that produces a zero-length match (a lookahead-only
@@ -636,15 +649,35 @@ in order:
    is a [kept tip](#kept-tips), not landed on the branch.
 2. `seam.judge` — a judge rules on the shape of that diff (see
    [Judges](#judges)): `land`, `refactor-first` or `reject`.
-3. `land` goes straight to `implement.*`. `refactor-first` rests at
-   `seam.approve`, an approval gate, then runs `refactor.*` (see
-   [`refactorFirst`](#refactorfirst)). Strays whose content cannot be read rest
-   at `seam.by-hand`; a clean `gtd land` continues. `reject` discards the pass
-   and runs `seam.naive` again, twice at most.
+3. `land` goes straight to `implement.*`. `refactor-first` runs the refactor and
+   its review as the `refactor` slice: `refactor.*`, then the refactor's quality
+   lap (`refactor.build.quality.<lens>`, one per
+   [`refactorQualityReviews`](#the-bundled-workflows-settings) lens) and a human
+   review (`refactor.build.review.*`). The review's sign-off is the approval; no
+   `Gtd-Approved:` trailer is recorded. Strays whose content cannot be read rest
+   at `seam.by-hand`, with no refactor slice; a clean `gtd land` continues.
+   `reject` discards the pass and runs `seam.naive` again, twice at most.
 4. `implement.*` — one build turn that reads the kept pass as material only,
    then the health loop (`implement.health.*`, `implement.fix.suite.fixing`) and
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
-   for a new release flag.
+   for a new release flag. The feature review (`build.quality.<lens>`,
+   `build.review.*`) follows.
+
+Every verdict wraps steps 4 and the feature review in the `feature` slice
+(`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
+The feature review covers the feature slice only: on `refactor-first`,
+everything since the refactor's sign-off. Feedback at a review, whatever the
+verdict, re-runs design and `implement.*` — `seam.naive` and `seam.judge` never
+run again once judged, so a seam a re-plan turns up is built unjudged and
+unrefactored; a wrong or missing refactor means `gtd abandon` and a restart.
+
+A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
+`refactor.deriving` runs again with the notes under `## Review feedback` — never
+`design.triage`. A concern that needs a path outside the strays, a test file or
+a new flag read cannot be built: abandon and restart.
+
+**Upgrading:** a process resting at `seam.approve` must `gtd abandon`; the step
+is gone.
 
 With `GTD_FLAG_RISK_TIER` also on, `design.triage` proposes a risk tier (`low`
 or `high`, with a one-line reason) under `## Risk Tier` and the signals to watch
@@ -659,8 +692,8 @@ A third `reject` rests at `seam.steer`. Two ways forward, then `gtd land`:
 - **Steer** — edit `.gtd/REQUIREMENTS.md`; `seam.naive` runs again with a fresh
   retry budget. An edit together with an approval counts as steer.
 - **Overrule** — land a clean tree. The implementation is built against the last
-  attempt with no seam gate and no refactor. **Overrule ships the seam the judge
-  objected to**, unaddressed; the choice is recorded in history.
+  attempt with no refactor. **Overrule ships the seam the judge objected to**,
+  unaddressed; the choice is recorded in history.
 
 The [`seamAllow`](#the-bundled-workflows-settings) setting is the judge's
 allowlist. The flag is recorded as `flag_naive_pass` when a process starts, so a
@@ -1190,8 +1223,11 @@ The bundled workflow's addressable scope full names:
 
 `design`, `architecture`, `architecture.decompose`, `packages.item`,
 `packages.item.fix.suite`, `packages.item.health`, `refactor`,
-`refactor.fix.suite`, `refactor.health`, `build`, `build.health`,
-`build.fix.quality`, `build.review`, `build.review.fix.nits`,
+`refactor.fix.suite`, `refactor.health`, `refactor.build`,
+`refactor.build.health`, `refactor.build.fix.quality`, `refactor.build.review`,
+`refactor.build.review.fix.nits`, `refactor.build.review.fix.risks`, one
+`refactor.build.quality.<lens>` per `refactorQualityReviews` entry, `build`,
+`build.health`, `build.fix.quality`, `build.review`, `build.review.fix.nits`,
 `build.review.fix.risks`, and one `build.quality.<lens>` per `qualityReviews`
 entry. `seam`, `implement`, `implement.fix.suite` and `implement.health` run
 only under the `naive_pass` release flag; they are addressable either way, so a
@@ -1201,8 +1237,8 @@ A nested scope with no entry of its own inherits its parent's list, so a key on
 a parent reaches every scope beneath it that sets none. The group scopes
 `packages.item.fix`, `build.fix`, `build.review.fix`, `build.quality` and
 `refactor.fix` and `implement.fix` run no turn and carry no key, nor do
-`seam.judge`, `seam.approve`, `seam.steer` and `seam.by-hand`. A custom
-workflow's own scopes are addressable through its own `skills` export (see
+`seam.judge`, `seam.steer` and `seam.by-hand`. A custom workflow's own scopes
+are addressable through its own `skills` export (see
 [Reusing the shipped workflows](#reusing-the-shipped-workflows)); the export may
 be a function of the resolved vars, and must list every scope holding an agent
 step. The type can check an entry's VALUE (an array of strings) but never its
@@ -1223,7 +1259,8 @@ exits 1.
 lens is its own scope, keyed `build.quality.<lens>`. By default that scope's
 skills ARE the lens; a `build.quality.<lens>` entry REPLACES them with the
 configured list, leaving the prompt body's own mention of the lens untouched.
-Such a key is valid only while the lens is listed in `qualityReviews`, judged
+Such a key is valid only while the lens is listed in `qualityReviews` (for a
+`refactor.build.quality.<lens>` key, in `refactorQualityReviews`), judged
 against the running process's recorded settings, or against the workflow's
 settings, `GTD_<NAME>` and `--var` when no process is underway. A key added for
 a lens mid-process errors until that process finishes.
@@ -1286,7 +1323,8 @@ Precedence: `config.access` entry, then a `scope()` option, then the workflow's
 Only planning and review scopes are restricted, and only on writes; no bundled
 scope restricts reads. Build and fix scopes carry no entry, except `refactor`:
 `refactorFirst` restricts its writes to the strays and `.gtd/**` itself, and a
-`config.access.refactor` entry replaces that wholesale.
+`config.access.refactor` entry replaces that wholesale. Every `refactor.build.*`
+scope inherits that restriction, except the lens scopes below.
 
 | Scope                                             | `write`                                    |
 | ------------------------------------------------- | ------------------------------------------ |
@@ -1297,6 +1335,7 @@ scope restricts reads. Build and fix scopes carry no entry, except `refactor`:
 | `build.review.defer`                              | `.gtd/TODO.md`                             |
 | `build.review.fix.nits`, `build.review.fix.risks` | `{}` (reopened: fixes edit code)           |
 | `build.quality.<lens>`                            | `[]`                                       |
+| `refactor.build.quality.<lens>`                   | `[]`                                       |
 
 ### Validation and errors
 
@@ -1506,6 +1545,11 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   `conventions` and `spec-challenge` are built-in lenses whose brief rides in
   the prompt; every finding any lens writes, blocking or not, is fixed by the
   one fix turn. See [Setup](./setup.md#extending-the-quality-review-lap).
+- **`refactorQualityReviews`** (`correctness, ponytail-review, conventions`) —
+  the quality lap the refactor review runs, one turn per comma-separated lens,
+  as `qualityReviews` does for the feature review. `qualityReviews` does not
+  reach it; blank runs no refactor quality lap. Each lens is its own scope,
+  keyed `refactor.build.quality.<lens>`.
 - **`reviewBase`** (empty) — the commitish `--workflow review` reviews from
   (`gtd door review` sets it).
 

@@ -19,6 +19,7 @@ export const ShippedOptions = Schema.Struct({
   refactorFlagPattern: setting,
   seamAllow: setting,
   qualityReviews: setting,
+  refactorQualityReviews: setting,
   testCommand: setting,
   plannerModel: setting,
   coderModel: setting,

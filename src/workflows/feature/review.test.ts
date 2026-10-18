@@ -5,7 +5,13 @@ import {
   type JudgeAnswer,
   type StepRequest,
 } from "../../flows/index.js"
-import { review, severityOf, type ReviewOutcome } from "./review.js"
+import {
+  review,
+  reUnwind,
+  severityOf,
+  type BuildTailOptions,
+  type ReviewOutcome,
+} from "./review.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as bundled from "../index.js"
 import { fixtureContext } from "../shared/text.fixture.js"
@@ -41,6 +47,14 @@ interface Drive {
   readonly reviewDocs?: readonly (string | undefined)[]
   /** Let the run pass the second gate, stopping at the first range read after it. */
   readonly passSecondGate?: boolean
+  /** Options as `buildTail` passes them; `guard` is logged as `guard` when it runs. */
+  readonly options?: Omit<BuildTailOptions, "guard">
+  /** Install a guard that logs `guard` into the step log. */
+  readonly guarded?: boolean
+  /** The pending changes `changes()` reports at the collecting turn. */
+  readonly pending?: readonly Change[]
+  /** Files the harness holds from the start. */
+  readonly files?: Readonly<Record<string, string>>
 }
 
 interface Run {
@@ -63,7 +77,10 @@ const drive = async (d: Drive): Promise<Run> => {
   const gates: boolean[] = []
   const gateMessages: string[] = []
   const since: string[] = []
-  const files = new Map<string, string>([[REVIEW, d.after ?? doc(d.notes)]])
+  const files = new Map<string, string>([
+    [REVIEW, d.after ?? doc(d.notes)],
+    ...Object.entries(d.files ?? {}),
+  ])
   let steps = 0
   let nitsFixed = false
   let awaits = 0
@@ -110,6 +127,7 @@ const drive = async (d: Drive): Promise<Run> => {
       pushScope: () => undefined,
       popScope: () => undefined,
       read: (path) => files.get(path),
+      changes: (): readonly Change[] => d.pending ?? [],
       changesSince: (from: string): readonly Change[] => {
         since.push(from)
         if (d.passSecondGate && awaits === 2) throw new Stop()
@@ -127,7 +145,10 @@ const drive = async (d: Drive): Promise<Run> => {
   installContext(context)
   let result: ReviewOutcome | "stopped"
   try {
-    result = await review("base")
+    result = await review("base", undefined, {
+      ...d.options,
+      ...(d.guarded ? { guard: () => void log.push("guard") } : {}),
+    })
   } catch (error) {
     if (!(error instanceof Stop)) throw error
     result = "stopped"
@@ -193,6 +214,129 @@ describe("the risk-fix pass", () => {
       "review.reviewing",
       "review.await-review",
     ])
+  })
+})
+
+describe("the guard", () => {
+  const risky = doc(["Risk: drops the carry", "sub"])
+  const clean = doc(["add — fine", "sub"])
+
+  it("runs right after the risk-fix turn", async () => {
+    const run = await drive({ notes: [], reviewDocs: [risky, clean], guarded: true })
+    expect(run.log.slice(0, 4)).toEqual([
+      "review.reviewing",
+      "review.fix.risks.fixing",
+      "guard",
+      "health.check",
+    ])
+  })
+
+  it("runs right after the nit-fix turn", async () => {
+    const run = await drive({
+      notes: ["add — typo", "sub", "mul"],
+      answers: { "note-1": verdict("nit") },
+      guarded: true,
+    })
+    expect(run.log.slice(2, 6)).toEqual([
+      "review.triage",
+      "review.fix.nits.fixing",
+      "guard",
+      "health.check",
+    ])
+  })
+})
+
+describe("the feedback target", () => {
+  const edit = ["add — rename it", "sub", "mul"]
+  const REFACTOR = ".gtd/REFACTOR.md"
+
+  it("defaults to .gtd/REQUIREMENTS.md via the review.collecting step", async () => {
+    const run = await drive({ notes: edit })
+    expect(run.log.at(-1)).toBe("review.collecting")
+    expect(run.result).toMatchObject({ verdict: "feedback" })
+  })
+
+  it("file replaces .gtd/REQUIREMENTS.md as the feedback test", async () => {
+    let collected = ""
+    const run = await drive({
+      notes: edit,
+      options: {
+        feedback: {
+          file: REFACTOR,
+          collecting: (capture) => {
+            collected = capture
+            return Promise.resolve()
+          },
+          unmatched: "unmatched: refactor",
+        },
+      },
+      files: { [REFACTOR]: "## Concern" },
+    })
+    expect(collected).toContain("rename it")
+    expect(run.log).not.toContain("review.collecting")
+    expect(run.result).toMatchObject({ verdict: "feedback" })
+  })
+
+  it("a collecting turn that wrote REQUIREMENTS but not file signs off unrefused with nothing changed", async () => {
+    const run = await drive({
+      notes: edit,
+      options: {
+        feedback: {
+          file: REFACTOR,
+          collecting: () => Promise.resolve(),
+          unmatched: "unmatched: refactor",
+        },
+      },
+    })
+    expect(run.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("refuses with unmatched when the collecting turn changed something but not file", async () => {
+    await expect(
+      drive({
+        notes: edit,
+        options: {
+          feedback: {
+            file: REFACTOR,
+            collecting: () => Promise.resolve(),
+            unmatched: "unmatched: refactor",
+          },
+        },
+        pending: [{ path: "src/x.ts", status: "modified", before: "a", after: "b" }],
+      }),
+    ).rejects.toThrow("unmatched: refactor")
+  })
+})
+
+describe("reUnwind", () => {
+  it("restores edited paths from restoreFrom and removes added ones, in the caller's scope", async () => {
+    const steps: StepRequest[] = []
+    installContext(
+      fixtureContext(
+        {},
+        {
+          step: (request) => {
+            steps.push(request)
+            return Promise.resolve()
+          },
+          read: (path) => (path === "src/a.ts" ? "old" : undefined),
+        },
+      ),
+    )
+    await reUnwind({
+      verdict: "feedback",
+      base: "b1",
+      restoreFrom: "r1",
+      edited: [
+        { path: "src/a.ts", status: "modified", before: "old", after: "new" },
+        { path: "src/new.ts", status: "added", before: undefined, after: "x" },
+      ],
+    })
+    const [step] = steps
+    expect(step).toMatchObject({ kind: "run", name: "re-unwind" })
+    const body = step?.kind === "run" ? step.body : ""
+    expect(body).toContain("git restore --source='r1' --worktree -- 'src/a.ts'")
+    expect(body).toContain("rm -f -- 'src/new.ts'")
   })
 })
 

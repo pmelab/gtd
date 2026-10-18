@@ -1,23 +1,13 @@
-import {
-  changes,
-  head,
-  human,
-  requireRevert,
-  restoreScript,
-  revertScript,
-  run,
-  start,
-  vars,
-} from "../../flows/index.js"
+import { changes, head, human, revertScript, run, slice, start, vars } from "../../flows/index.js"
 import { gate } from "../shared/health.js"
 import { shipped } from "../shared/options.js"
-import { FEEDBACK, REVIEW } from "../shared/steps.js"
+import { FEEDBACK } from "../shared/steps.js"
 import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import { packages } from "./packages.js"
 import { architecture, design } from "./planning.js"
-import { buildTail, type ReviewOutcome } from "./review.js"
-import { seamBuild } from "./seam.js"
+import { buildTail, reUnwind, type ReviewOutcome } from "./review.js"
+import { implement, seamBuild } from "./seam.js"
 import { recordRisk, riskTierOn } from "./tier.js"
 
 // The ordinary start. Any change to the tree starts a process: `idle` →
@@ -34,42 +24,41 @@ export const unwind = (): Promise<void> => {
   })
 }
 
-/**
- * Undo the human's review-round code edits. A path changed since the human
- * left it is not overwritten; requireRevert names it instead.
- */
-export const reUnwind = async (
-  feedback: Extract<ReviewOutcome, { verdict: "feedback" }>,
-): Promise<void> => {
-  const { base, restoreFrom, edited } = feedback
-  const restore = edited.filter((c) => c.status !== "added").map((c) => c.path)
-  const remove = edited.filter((c) => c.status === "added").map((c) => c.path)
-  await run("re-unwind", restoreScript(base, { restore, remove }, restoreFrom), {
-    label: "Re-unwinding your review edit",
-    file: REVIEW,
-    base,
-  })
-  requireRevert(edited, base)
-}
+export { reUnwind }
 
 /** Plan, build and review until a review round signs off; feedback re-plans from scratch. */
 export const planAndBuild = async (firstBase: string): Promise<void> => {
+  // GTD_FLAG_NAIVE_PASS: the record is pinned at the process start, so a mid-process flip never moves a process.
+  if (vars.flag_naive_pass === "1") return naivePlanAndBuild(firstBase)
   let base = firstBase
   for (;;) {
     await design(base)
-    const tier = riskTierOn() ? recordRisk() : undefined
-    // GTD_FLAG_NAIVE_PASS: the record is pinned at the process start, so a mid-process flip never moves a process.
-    if (vars.flag_naive_pass === "1") {
-      await seamBuild(tier)
-    } else {
-      await architecture()
-      await packages()
-    }
+    await architecture()
+    await packages()
     const outcome = await buildTail(false, base, true)
     if (outcome.verdict === "signoff") return
     await reUnwind(outcome)
     base = outcome.base
   }
+}
+
+// seam.naive / seam.judge run once: a feedback lap is design → implement on every verdict, so a
+// seam a re-plan turns up is built unjudged and unrefactored.
+const naivePlanAndBuild = async (firstBase: string): Promise<void> => {
+  await design(firstBase)
+  let tier = riskTierOn() ? recordRisk() : undefined
+  const seam = await seamBuild(firstBase)
+  await slice("feature", async () => {
+    await implement(seam.reference, tier)
+    let outcome = await buildTail(false, seam.base, true)
+    while (outcome.verdict === "feedback") {
+      await reUnwind(outcome)
+      await design(outcome.base)
+      tier = riskTierOn() ? recordRisk() : undefined
+      await implement(undefined, tier)
+      outcome = await buildTail(false, outcome.base, true)
+    }
+  })
 }
 
 /** After a tail that skipped planning: stop on sign-off, re-plan on feedback. */

@@ -92,7 +92,9 @@ Both routes share the same safety rules:
 is a skill set too, but a different shape from a scope's `skills` entry above:
 each entry is its own full turn and its own scope, not a list handed to one
 scope. Extend it for a project-specific concern — a company security checklist,
-a house style skill — the same way as any other setting, as a factory option:
+a house style skill — the same way as any other setting, as a factory option. A
+lens added here does not reach the refactor review; that takes
+`refactorQualityReviews` too:
 
 ```ts
 // gtd.config.ts — keep the bundled six, add a company checklist
@@ -127,8 +129,10 @@ lens, in order), and each lens is its own scope, so its own skills. By default a
 lens scope's skills ARE the lens; a `build.quality.<lens>` entry REPLACES them
 with the configured list — the prompt body still names which lens the turn is
 for, but that lens no longer loads as a skill once overridden. The key is valid
-only while the lens is listed in `qualityReviews`. See
-[Configuration](configuration.md) for the cost of extending it.
+only while the lens is listed in `qualityReviews`. The refactor review's lenses
+are the same pair under `refactorQualityReviews` and
+`refactor.build.quality.<lens>`; a lens added to `qualityReviews` does not reach
+it. See [Configuration](configuration.md) for the cost of extending it.
 
 ## Repository requirements
 

@@ -3,13 +3,16 @@ import {
   head,
   judge,
   numeric,
+  requireRevert,
+  restoreScript,
+  run,
   vars,
   type JudgeQuestion,
   type Judgment,
 } from "../../flows/index.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
-import { healthy, type EscalationCount } from "../shared/health.js"
+import { guarded, healthy, type EscalationCount, type Guard } from "../shared/health.js"
 import {
   awaitReview,
   fixCheck,
@@ -165,21 +168,29 @@ const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".
 export const review = (
   base: string,
   escalations: EscalationCount = { rounds: 0 },
+  options: BuildTailOptions = {},
 ): Promise<kit.ReviewOutcome> => {
+  const { guard, guardRests } = options
+  const feedback: FeedbackTarget = options.feedback ?? {
+    file: REQUIREMENTS,
+    collecting,
+    unmatched:
+      "gtd land: no declared pattern matches the pending changes — write .gtd/REQUIREMENTS.md from the feedback, or change nothing when it asks for nothing",
+  }
   const severities = new Map<string, Severity>()
   // Armed by a defer-only round to pick the next gate's message; a fresh
   // review (`reviewing`) disarms it.
   let deferred: readonly t.NoteInput[] = []
   return kit.review(base, {
     file: REVIEW,
-    feedback: REQUIREMENTS,
+    feedback: feedback.file,
     isCode,
     reviewing: (b, carry) => {
       deferred = []
       return reviewing(b, carry)
     },
-    fixRisks,
-    keepGreen: () => healthy(fixCheck, { escalations }),
+    fixRisks: guarded(fixRisks, guard),
+    keepGreen: () => healthy(fixCheck, { escalations, guard, guardRests }),
     awaitReview: (b) => {
       const notes = deferred
       deferred = []
@@ -188,7 +199,7 @@ export const review = (
         : awaitReview(b)
     },
     reviewMissing,
-    collecting,
+    collecting: feedback.collecting,
     triage: triage(severities),
     defer: (notes) => {
       deferred = notes.map((n) => ({
@@ -200,7 +211,7 @@ export const review = (
       return deferNotes(deferred, head())
     },
     answerQuestions: answerReviewQuestions,
-    fixNits,
+    fixNits: guarded(fixNits, guard),
     close: closeReview,
     captures: {
       edits: t.reviewEditsCapture,
@@ -229,10 +240,26 @@ export const review = (
     refusals: {
       deleted:
         "gtd land: review-doc: .gtd/REVIEW.md was deleted — restore it, or leave a note (or edit code) to request changes.",
-      unmatched:
-        "gtd land: no declared pattern matches the pending changes — write .gtd/REQUIREMENTS.md from the feedback, or change nothing when it asks for nothing",
+      unmatched: feedback.unmatched,
     },
   })
+}
+
+export interface FeedbackTarget {
+  readonly file: string
+  readonly collecting: (capture: string) => Promise<void>
+  /** Refusal when the collecting turn changed something but not `file`. */
+  readonly unmatched: string
+}
+
+export interface BuildTailOptions {
+  /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
+  readonly guard?: Guard
+  /** `false`: `guard` skips the escalation's human rests. */
+  readonly guardRests?: boolean
+  /** Quality-lap lenses; default `lensesOf(vars.qualityReviews)`. */
+  readonly lenses?: readonly string[]
+  readonly feedback?: FeedbackTarget
 }
 
 /** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */
@@ -240,4 +267,31 @@ export const buildTail = (
   fixFirst: boolean,
   base: string,
   green = false,
-): Promise<kit.ReviewOutcome> => tail(fixFirst, (escalations) => review(base, escalations), green)
+  options: BuildTailOptions = {},
+): Promise<kit.ReviewOutcome> =>
+  tail(
+    fixFirst,
+    (escalations) => review(base, escalations, options),
+    green,
+    options.guard,
+    options.lenses,
+    options.guardRests,
+  )
+
+/**
+ * Undo the human's review-round code edits. A path changed since the human
+ * left it is not overwritten; requireRevert names it instead.
+ */
+export const reUnwind = async (
+  feedback: Extract<kit.ReviewOutcome, { verdict: "feedback" }>,
+): Promise<void> => {
+  const { base, restoreFrom, edited } = feedback
+  const restore = edited.filter((c) => c.status !== "added").map((c) => c.path)
+  const remove = edited.filter((c) => c.status === "added").map((c) => c.path)
+  await run("re-unwind", restoreScript(base, { restore, remove }, restoreFrom), {
+    label: "Re-unwinding your review edit",
+    file: REVIEW,
+    base,
+  })
+  requireRevert(edited, base)
+}

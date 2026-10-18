@@ -373,3 +373,40 @@ Feature: refactorFirst derives a behaviour-neutral refactor package from a stray
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): refactor.health.stop → refactor.fix.suite.fixing"
+
+  Scenario: a build turn changing a test file is refused even when the test file is a stray
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+      import { refactorFirst } from "@pmelab/gtd/workflows"
+
+      export { defaults, envDefaults } from "@pmelab/gtd/workflows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await refactorFirst({
+          choice: "refactor-first",
+          strays: ["src/a.ts", "src/a.test.ts"],
+          unreadable: [],
+          judgment: undefined,
+        })
+        await agent("next", "refactor closed")
+      }
+      """
+    And the working tree is committed as "chore: test stray config"
+    And a file "NOTE.md" with:
+      """
+      Build another thing.
+      """
+    And gtd lands "gtd(human): idle → refactor.deriving"
+    And I run the emitted script and land
+    And ".gtd/REFACTOR.md" contains "never a test file"
+    And a file "src/a.test.ts" with:
+      """
+      export const covered = true
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains "refactor-tests"
+    And stderr contains "src/a.test.ts"
+    And the last commit subject is "gtd(check): refactor.deriving → refactor.building"

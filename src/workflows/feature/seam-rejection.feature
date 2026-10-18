@@ -143,4 +143,8 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
     And the commit "gtd(judge): seam.judge → seam.steer" has a body containing "\"answer\":\"reject\""
     And the commit "gtd(judge): seam.judge → implement.building" has a body containing "\"answer\":\"land\""
     And no commit body contains "Gtd-Approved:"
+    And the output lines of gtd "slices" start with:
+      """
+      feature 
+      """
     And no commit body contains "Gtd-Workflow:"

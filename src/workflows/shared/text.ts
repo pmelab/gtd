@@ -448,9 +448,9 @@ ${fixFeedbackPrompt}
 
 const refactorRules = (strays: readonly string[], pattern: string): string =>
   `- Behaviour-neutral: the suite's outcome must not change
-- Change only these paths, nothing else — a test file only when it is
-  one of them:
-${strays.map((path) => `  - \`${path}\``).join("\n")}
+- Change only these paths, nothing else, and never a test file even
+  when it is one of them:
+${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
 - Introduce no new flag read and add no second read of an existing one:
   every match of \`${pattern}\` may move, never increase in number`
 
@@ -459,10 +459,17 @@ export const refactorBuildingPrompt = (
   strays: readonly string[],
   pattern: string,
   reference?: string,
+  feedback = false,
 ): string =>
   `${stateFileRules}
 - The package to implement is \`${pkg}\`; never delete it
-${refactorRules(strays, pattern)}
+${
+  feedback
+    ? `- The package carries a \`## Review feedback\` section: a human's review of the
+  last refactor. Act on it, within the rules below
+`
+    : ""
+}${refactorRules(strays, pattern)}
 ${
   reference === undefined
     ? ""
@@ -858,6 +865,59 @@ Also judge each note's severity, one id per note: \`note-<n>.security\`,
 \`note-<n>.newConcept\`.
 `
 
+/** `buildReviewCollectingPrompt`'s twin for the refactor review: concerns fold into `.gtd/REFACTOR.md`, and one the refactor cannot build is left out. */
+export const refactorReviewCollectingPrompt = (
+  capture: string,
+  strays: readonly string[],
+): string =>
+  `${styleBlock}
+
+${styleFormatContract}
+
+You are judging and classifying a round of review feedback on a
+behaviour-neutral refactor.
+
+${stateFileRules}
+${footnoteFoldIn}${codeThreadReplies()}
+- This turn writes \`.gtd/REFACTOR.md\` (the folded concerns) and
+  replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
+  in the tree) — you classify, you do not build
+- Fold every concluded thread, ticked answer and hand-edit — and each
+  \`edit\` note the capture lists, no other note — into
+  \`.gtd/REFACTOR.md\` as an ordered list of concerns, and delete the
+  folded threads from \`.gtd/REVIEW.md\`; append one \`- A:\` reply to
+  each thread whose last entry is a \`- H:\` question
+- Keep capture order, and carry each note's \`(tier: reason)\`
+  label into the concern folded from it
+- Nit notes were already fixed: never re-raise a fixed nit as a concern
+- The next refactor may change only these paths, and never a test file
+  or a flag read:
+${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
+  A concern needing any other path, a test file, a new or added flag
+  read, or a change in behaviour (that belongs to the feature, not this
+  refactor) cannot be built: do not fold it. Say in the reply that the way
+  out is \`gtd abandon\` and a restart
+- Finish by running \`gtd check review .gtd/REVIEW.md\` and fix
+  what it reports
+
+The raw review material is:
+
+${capture}
+It names a commit. Work from what you already reviewed if you
+wrote today's review earlier this conversation; otherwise read
+that commit's diff yourself first.
+
+The round is actionable if the human left a note on
+\`.gtd/REVIEW.md\`, added a code comment, or hand-edited code this
+round (a sketch of what they were reaching for, re-derived from
+scratch, never final).
+
+- If actionable and a concern can be built: write \`.gtd/REFACTOR.md\`.
+  Then finish
+- If not: finish without writing anything — changing nothing is
+  the sign-off
+`
+
 export const buildReviewCollectingPrompt = (capture: string): string =>
   `${styleBlock}
 
@@ -1139,19 +1199,26 @@ Start over and choose a different approach; do not rebuild the same diff.
 `
 }`
 
-export const implementBuildingPrompt = (reference: string, tier?: "low" | "high"): string =>
+export const implementBuildingPrompt = (
+  reference: string | undefined,
+  tier?: "low" | "high",
+): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 - Implement them properly, fitting the codebase's seams and conventions
-- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
+${
+  reference === undefined
+    ? ""
+    : `- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
   Read it for ideas; never apply, cherry-pick or check it out — write
   the change fresh
-${
-  tier === "low"
-    ? "- Add no release flag — this change is low risk tier"
-    : `- Put the new behaviour behind a new release flag, following the
+`
+}${
+    tier === "low"
+      ? "- Add no release flag — this change is low risk tier"
+      : `- Put the new behaviour behind a new release flag, following the
   repository's flag conventions`
-}
+  }
 - Write the tests first, then the code that makes them pass
 - Leave \`.gtd/REQUIREMENTS.md\` in place and everything uncommitted, then
   finish your turn

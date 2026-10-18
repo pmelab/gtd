@@ -20,6 +20,9 @@ import {
   implementBuildingPrompt,
   implementFixPrompt,
   naivePassPrompt,
+  refactorBuildingPrompt,
+  refactorFixPrompt,
+  refactorReviewCollectingPrompt,
   seamByHandMessage,
   seamSteerMessage,
   summaryPrompt,
@@ -851,6 +854,14 @@ describe("the seam phase's texts", () => {
     expect(low).toContain("git show abc123")
   })
 
+  it("drops the git show line when there is no reference", () => {
+    const prompt = renderText(() => implementBuildingPrompt(undefined, "low"))
+    expect(prompt).not.toContain("git show")
+    expect(prompt).not.toContain("Reference only")
+    expect(prompt).toContain("Add no release flag")
+    expect(prompt).toContain("Implement them properly")
+  })
+
   it("keeps a fix turn to the feedback file's rules", () => {
     expect(renderText(() => implementFixPrompt())).toContain(".gtd/FEEDBACK.md")
   })
@@ -877,5 +888,53 @@ describe("the seam phase's texts", () => {
     const message = renderText(() => seamSteerMessage({ strays: ["a\nb.ts"], p: 0.9 }))
     expect(message).toContain('`"a\\nb.ts"`')
     expect(message).not.toContain("a\nb.ts")
+  })
+})
+
+describe("the refactor prompts", () => {
+  const strays = ["src/a.ts", "src/b.ts"]
+  const pattern = "\\bGTD_FLAG_\\w+"
+
+  it("building and fix rules forbid every test file, with no stray exception", () => {
+    for (const prompt of renderText(() => [
+      refactorBuildingPrompt(".gtd/REFACTOR.md", strays, pattern),
+      refactorFixPrompt(strays, pattern),
+    ])) {
+      expect(prompt).toContain("never a test file")
+      expect(prompt).not.toContain("only when it is")
+    }
+  })
+
+  it("building adds the act-on-review-feedback line only when asked", () => {
+    const [plain, feedback] = renderText(() => [
+      refactorBuildingPrompt(".gtd/REFACTOR.md", strays, pattern),
+      refactorBuildingPrompt(".gtd/REFACTOR.md", strays, pattern, undefined, true),
+    ])
+    expect(plain).not.toContain("## Review feedback")
+    expect(feedback).toContain("## Review feedback")
+  })
+
+  describe("the review collecting prompt", () => {
+    const prompt = renderText(() => refactorReviewCollectingPrompt("capture-text", strays))
+
+    it("folds into .gtd/REFACTOR.md and never names .gtd/REQUIREMENTS.md", () => {
+      expect(prompt).toContain(".gtd/REFACTOR.md")
+      expect(prompt).not.toContain(".gtd/REQUIREMENTS.md")
+      expect(prompt).toContain("capture-text")
+    })
+
+    it("lists the strays and says a non-stray, test-file or flag concern cannot be built", () => {
+      expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
+      expect(prompt).toContain("`src/b.ts`") // gtd-path-exempt: fixture paths
+      expect(prompt).toMatch(/cannot be built/)
+      expect(prompt).toMatch(/test file/)
+      expect(prompt).toMatch(/flag/)
+      expect(prompt).toContain("gtd abandon")
+    })
+
+    it("keeps the review check and thread rules", () => {
+      expect(prompt).toContain("gtd check review .gtd/REVIEW.md")
+      expect(prompt).toContain("- A: <reply>")
+    })
   })
 })
