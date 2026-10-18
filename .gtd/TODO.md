@@ -1,10 +1,5 @@
-## Deferred review notes (836985b)
-
-- note-3 — flaky.[^stdout] (could): Restore `expect(captured().stdout).toBe("")`
-  in the garbled-flag CLI test; dropping it weakens the test with no reason.
-
-## Deferred review notes (daed27f)
-
-- note-2 — output.[^weak] (could): Please strengthen this scenario: finish a
-  process that kept a tip, then assert `gtd history list` shows only the
-  finished process and never the kept ref.
+PR 390 round 3, correctness only: 1) settled refactor round with unfolded change
+notes refuses. 2) closed refactor collecting folds hand-edit and unparsed notes
+too. 3) closed variant drops footnoteFoldIn and code thread reply rules. 4) plan
+drops test-file strays, none left means land. 5) reviewing prompt base wording
+per lap. 6) demoteHeadings caps at h6. 7) upgrade note covers 27.x
