@@ -72,3 +72,27 @@ line and shorter: get-or-create the array once and `push(norm)` into it. Assumed
 load: one developer or one CI job running `npm test`; nothing else in the change
 crosses it. Verdict from this lens: ship once the earlier correctness chunks are
 settled; nothing here blocks.
+
+## test-audit: "logs one pass line per state, never stdout" pins the `--output-logs=full` gap (tests/tooling/test-states.test.ts)
+
+This test asserts that a passing state's stdout is never printed in the
+multi-state path. `docs/development.md` promises that
+`npm test -- --output-logs=full` restores full logs, and that is exactly the
+case where pass logs should print. So the test pins the bug from the first
+correctness chunk instead of guarding the documented contract. `runStates` never
+sees the forwarded args, so no test can tell a full-logs run apart. When the fix
+lands, give `runStates` the flag (or a "show all" switch) and add the missing
+case: with full logs, pass stdout prints and a repeated failure is not
+collapsed. Keep this test for the default path only.
+
+## test-audit: repo-config test asserts the same data twice (tests/tooling/package-exports.test.ts)
+
+Nit.
+`for (const name of declared) expect(config.workflowNamed(name)?.def.initial).toBeDefined()`
+runs right after `workflowNames` was found equal to `declared`. Both read the
+same loaded map, and every built workflow has an `initial`, so the loop cannot
+fail unless `workflowNames` and `workflowNamed` disagree, and nothing in the
+change touches either. Drop the loop, or replace it with an assertion that would
+catch a credible regression (e.g. `workflowNamed(name)?.name === name`). The
+regex derivation is fine for #372 (a). It is coupled to the
+`export const x = f(` shape, and the comment says so.
