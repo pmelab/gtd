@@ -237,6 +237,22 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
     ],
   }
 
+  const writeEdgeFiles = (
+    repo: { write: (path: string, content: string) => void },
+    from: string,
+    to: string,
+  ) => {
+    if (from === "seam.steer") repo.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- steered\n")
+    if (from === "build.review.reviewing") repo.write(".gtd/REVIEW.md", review())
+    if (to === "build.review.collecting")
+      repo.write(".gtd/REVIEW.md", review("also export multiply"))
+    if (from === "build.review.collecting") {
+      repo.write(".gtd/REVIEW.md", `${review("also export multiply")}    - A: noted.\n`)
+      repo.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply\n")
+    }
+    if (to === "build.review.closing") repo.write(".gtd/REVIEW.md", review())
+  }
+
   /** The repo at the judge's rest, then `trail` forged edge by edge as `Gtd-Step:` commits. */
   const forged = async (trail: readonly Edge[], upTo: number) => {
     const repo = naivePlanned("1")
@@ -256,15 +272,7 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
     }
     for (const [actor, from, to, trailer] of trail.slice(0, upTo)) {
       seen[from] = (seen[from] ?? 0) + 1
-      if (from === "seam.steer") repo.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- steered\n")
-      if (from === "build.review.reviewing") repo.write(".gtd/REVIEW.md", review())
-      if (to === "build.review.collecting")
-        repo.write(".gtd/REVIEW.md", review("also export multiply"))
-      if (from === "build.review.collecting") {
-        repo.write(".gtd/REVIEW.md", `${review("also export multiply")}    - A: noted.\n`)
-        repo.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply\n")
-      }
-      if (to === "build.review.closing") repo.write(".gtd/REVIEW.md", review())
+      writeEdgeFiles(repo, from, to)
       repo.commit(
         [
           `gtd(${actor}): ${from} → ${to}`,
