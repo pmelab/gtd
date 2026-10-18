@@ -414,10 +414,7 @@ async function squash(
   if (!built.ok) return built
   // a record of an earlier stack must not outlive this ship
   if (!stacked) return { ok: true, text: "", warning: await warn(), forget: true }
-  return recordedStack(io, ok, branch, links(built.commits))
-}
-
-async function recordedStack(io: ShipIo, ok: Ok, branch: string, stack: Link[]) {
+  const stack = links(built.commits)
   const recorded = await recordStack(io, ok, branch, stack)
   return recorded ? fail(recorded) : { ok: true as const, text: "", stack }
 }
@@ -429,8 +426,6 @@ const sliceLinks = (branch: string, groups: Group[], commits: string[]): Link[] 
     commit: commits[i] ?? "",
   }))
 
-// Stack mode's reads: a fresh stack's refusals, or, for one slice, the recorded
-// stack it lands on top of (undefined when there is none to resume).
 async function stackReads(
   io: ShipIo,
   git: Git,
@@ -563,9 +558,8 @@ async function stackPrecheck(
   return undefined
 }
 
-// The commits of the remaining upper slices (recorded index `from` on), and whether
-// they still chain to `at`. A missing branch is read off the recorded top, not HEAD:
-// the top slice may span several commits after a re-ship.
+// A missing branch is read off the recorded top, not HEAD: the top slice may span
+// several commits after a re-ship.
 async function chain(
   git: Git,
   ok: Ok,
@@ -597,20 +591,21 @@ async function chain(
 // Rebuilding a branch from <top>~n is only safe while HEAD still contains the
 // recorded top, which is never moved after the stack was built.
 async function topGuard(git: Git, ok: Ok, branch: string, recorded: string[], from: number) {
-  let what = from ? "A merged slice's commit cannot be found" : ""
+  let missing = ""
   for (const name of recorded.slice(from, -1)) {
     const b = `${branch}-${name}`
     if (await ok("rev-parse", "--verify", "--quiet", `refs/heads/${b}`)) continue
-    what = `Slice branch ${b} is missing`
+    missing = b
     break
   }
-  if (!what) return { top: "" }
+  if (!missing && !from) return { top: "" }
   const top = await git("config", "--local", "--get", TOP_KEY(branch))
-  if (!top || !(await ok("merge-base", "--is-ancestor", top, "HEAD")))
-    return {
-      refusal: `${what} and HEAD no longer contains the recorded top of the stack; nothing changed. Ship the branch alone with GTD_SHIP_MODE=commits.`,
-    }
-  return { top }
+  if (top && (await ok("merge-base", "--is-ancestor", top, "HEAD"))) return { top }
+  // only the merged floor needs the top: a rebase dropped it, so the stack ends
+  if (!missing) return { rebased: true as const }
+  return {
+    refusal: `Slice branch ${missing} is missing and HEAD no longer contains the recorded top of the stack; nothing changed. Ship the branch alone with GTD_SHIP_MODE=commits.`,
+  }
 }
 
 type Resumed = {
@@ -620,7 +615,6 @@ type Resumed = {
   revive?: () => Promise<string | undefined>
 }
 
-// How many leading slices are merged (never the top), or the refusal.
 async function mergedSlices(
   io: ShipIo,
   recorded: string[],
@@ -636,15 +630,13 @@ async function mergedSlices(
   while (done < recorded.length - 1 && states[done]?.state === "MERGED") done++
   for (const [i, view] of states.entries()) {
     if (i >= done && view && view.state !== "OPEN")
-      return `The pull request for slice ${recorded[i]} (#${view.number}, ${branchOf(i)}) is ${view.state}, not open; nothing changed. Merged slices drop out of a resumed stack on their own; a closed one needs GTD_SHIP_MODE=commits to ship the branch alone.`
+      return `The pull request for slice ${recorded[i]} (#${view.number}, ${branchOf(i)}) is ${view.state}, not open; nothing changed. ${i === recorded.length - 1 ? "Rename the branch" : "Merged slices drop out of a resumed stack on their own; a closed one needs GTD_SHIP_MODE=commits to ship the branch alone"}.`
   }
   return done
 }
 
-// A stack that /gtd ship built, if its branches still chain to `at`. Pull request
-// states are read first and leading merged slices drop out; every read happens
-// before any write, so a refusal (a string) changes nothing. `revive` rebuilds the
-// missing branches and is left to the caller so a squash can come first.
+// Every read happens before any write, so a refusal (a string) changes nothing.
+// `revive` is left to the caller so a squash can come first.
 async function resumable(
   io: ShipIo,
   git: Git,
@@ -661,9 +653,9 @@ async function resumable(
   if (typeof done === "string") return done
   const guard = await topGuard(git, ok, branch, recorded, done)
   if ("refusal" in guard) return guard.refusal
-  const { top } = guard
+  const top = "top" in guard ? guard.top : ""
   const { commits, missing, valid } = await chain(git, ok, branch, recorded, done, top, at)
-  if (!valid) {
+  if (!valid || "rebased" in guard) {
     io.log(
       `The recorded stack for ${branch} no longer chains to HEAD: ${isDry ? "" : "dropped it, "}shipping the branch alone.`,
     )
@@ -1072,7 +1064,7 @@ export async function pushBranch(io: ShipIo, branch: string, head = "HEAD") {
 // `--output` writes a file and `branch` with arguments moves refs, so neither is allowed.
 // Quotes and backslashes are transparent to the flag check: the shell strips them.
 export const READ_ONLY_GIT =
-  /^git (?:(?:log|show|diff|status|rev-parse|rev-list|merge-base)\b(?![^;&|<>`$()\n]*\s["'\\]*-["'\\]*(?:o|-["'\\]*o["'\\]*u))[^;&|<>`$()\n]*|branch(?:\s+(?:--list|-a|-r|--show-current))*(?:\s+--contains\s+[\w./^~-]+)?)$/
+  /^git (?:(?:log|show|diff|status|rev-parse|rev-list|merge-base)\b(?![^;&|<>`$()\n{}*?[\]]*\s["'\\]*-["'\\]*(?:o|-["'\\]*(?:o["'\\]*u|n["'\\]*o-|e["'\\]*x|t["'\\]*e)))[^;&|<>`$()\n{}*?[\]]*|branch(?:\s+(?:--list|-a|-r|--show-current))*(?:\s+--contains\s+[\w./^~-]+)?)$/
 
 const TITLE = /^(feat|fix|refactor|perf|docs|test|build|ci|chore)(\([\w./-]+\))?!?: \S.{0,70}$/
 

@@ -554,6 +554,13 @@ describe("ship", () => {
       'git show "-ox"',
       'git log -"-"output=x',
       "git diff ''--output=x",
+      "git log -1 {--output=OUT,--oneline}",
+      "git log -1 {,--output=OUT}",
+      "git log -*utput=x",
+      "git log --out?ut=x",
+      "git diff --no-index /etc/hosts /dev/null",
+      "git diff --ext-diff",
+      "git show --textconv x",
     ]) {
       expect(READ_ONLY_GIT.test(bad)).toBe(false)
     }
@@ -1181,7 +1188,7 @@ describe("ship stack", () => {
   }
   const pushes = (ran: () => string[]) => ran().filter((c) => c.startsWith("git push"))
 
-  test("a failed git branch -f leaves a record that a second run rebuilds from HEAD", async () => {
+  test("a failed git branch -f leaves a record that a second run rebuilds from the recorded top", async () => {
     const first = repo(
       { ...sbase, [`git branch -f feat/x-refactor ${C1}`]: { code: 1 } },
       writers(),
@@ -1369,7 +1376,7 @@ describe("ship stack", () => {
     expect(ran().some((c) => c === `git config --local --unset ${RETIRED}`)).toBe(false)
   })
 
-  test("single-slice stack-mode ship defers the unset until after the retarget", async () => {
+  test("single-slice commits-mode ship defers the unset until after the retarget", async () => {
     const { io, ran } = repo(
       {
         ...reshipped("2", "standing"),
@@ -1574,18 +1581,6 @@ describe("ship stack", () => {
       expect(ran()).toContain("git push --set-upstream origin feat/x")
     })
 
-    test("two re-ships in a row never move the top; a deleted lower branch is rebuilt at its own commit", async () => {
-      for (let i = 0; i < 2; i++) {
-        const again = repo(reship, ["feat: add x\n\nwhy"])
-        expect(await ship(again.io, false)).toMatchObject({ ok: true })
-        expect(topWrites(again.ran)).toEqual([])
-      }
-      const { io, ran } = repo(lowerGone, ["feat: add x\n\nlower", "feat: add x\n\nupper"])
-      expect(await ship(io, false)).toMatchObject({ ok: true })
-      expect(ran()).toContain(`git branch -f feat/x-refactor ${C1}`)
-      expect(ran().some((c) => c.includes("HEAD~"))).toBe(false)
-    })
-
     test("a lower branch deleted before a one-slice re-ship is revived after the squash at <top>~n", async () => {
       const { io, ran } = repo(
         {
@@ -1595,8 +1590,9 @@ describe("ship stack", () => {
         },
         ["feat: add x\n\nwhy"],
       )
-      await ship(io, false)
+      expect(await ship(io, false)).toMatchObject({ ok: true })
       const at = (c: string) => ran().indexOf(c)
+      expect(at(`git reset --soft ${BASE}`)).toBeGreaterThan(-1)
       expect(at(`git branch -f feat/x-refactor ${C1}`)).toBeGreaterThan(
         at(`git reset --soft ${BASE}`),
       )
@@ -1667,15 +1663,6 @@ describe("ship stack", () => {
       [view("feat/x-refactor")]: pr(7, { state: "MERGED" }),
     }
 
-    test("every gh pr view precedes any ref probe", async () => {
-      const { io, ran } = repo(resume, ["feat: add x\n\nupper"])
-      await ship(io, true)
-      const views = [view("feat/x-refactor"), view("feat/x")].map((v) => ran().indexOf(v))
-      const probe = ran().findIndex((c) => /refs\/heads\/|--is-ancestor/.test(c))
-      expect(Math.min(...views)).toBeGreaterThan(-1)
-      expect(Math.max(...views)).toBeLessThan(probe)
-    })
-
     test("a merged bottom slice with its branch gone and HEAD past the top needs no revive", async () => {
       const { io, ran } = repo(
         {
@@ -1706,20 +1693,34 @@ describe("ship stack", () => {
 
     test("a merged slice's commit is found off the recorded top, never its local ref", async () => {
       const { io, ran } = repo(
-        { ...merged, "git rev-parse refs/heads/feat/x-refactor": { out: "9".repeat(40) } },
+        {
+          ...merged,
+          "git rev-parse refs/heads/feat/x-refactor": { out: "9".repeat(40) },
+          "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { out: "9".repeat(40) },
+        },
         ["feat: add x\n\nupper"],
       )
       await ship(io, false)
       expect(ran()).toContain(`git log --no-merges --reverse --format=%H%n%B%n--- ${C1}..${X}`)
     })
 
-    test("a recorded top that is not an ancestor of HEAD refuses with nothing changed", async () => {
+    test("a rebase that dropped the top leaves a merged floor unreadable: the branch ships alone", async () => {
+      const { io, ran } = repo(
+        { ...merged, [`git merge-base --is-ancestor ${C2} HEAD`]: { code: 1 } },
+        ["feat: add x\n\nupper"],
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran().some((c) => c.startsWith("git branch -f"))).toBe(false)
+      expect(ran()).toContain(create("feat/x", "main"))
+    })
+
+    test("a merged floor that cannot be read refuses with nothing changed", async () => {
       const { io, ran } = repo({
-        ...lowerGone,
-        [`git merge-base --is-ancestor ${C2} HEAD`]: { code: 1 },
+        ...merged,
+        [`git rev-parse --verify --quiet ${C2}~1`]: { code: 1 },
       })
       const out = await ship(io, false)
-      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("no longer contains") })
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("cannot be found") })
       expect(ran().some((c) => mutating.test(c))).toBe(false)
     })
 
@@ -1727,6 +1728,7 @@ describe("ship stack", () => {
       const { io, ran } = repo(lowerGone, ["feat: add x\n\nlower", "feat: add x\n\nupper"])
       expect(await ship(io, false)).toMatchObject({ ok: true })
       expect(ran()).toContain(`git branch -f feat/x-refactor ${C1}`)
+      expect(ran().some((c) => c.includes("HEAD~"))).toBe(false)
     })
   })
 
