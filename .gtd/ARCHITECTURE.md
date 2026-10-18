@@ -3,36 +3,6 @@
 Concerns 1–4 merge into **A** (all in `claude/hooks/ship.ts` +
 `claude/hooks/ship.test.ts`); concern 5 stays **B** (`.gtd/TODO.md` only).
 
-## Open Questions
-
-### Where does a one-slice re-ship keep the recorded stack top?
-
-**Moving `gtdStackTop` to the new HEAD, as concern 2 states, makes a later
-missing-branch rebuild land on the wrong commit.** The rebuild reads a lower
-slice at `HEAD~n`, which assumes the top slice is one commit; after a one-slice
-re-ship the top slice is two, so `HEAD~1` is the old top commit, the ancestry
-check still passes, and `git branch -f` silently points the lower branch there.
-The same hits a retry after a `git branch -f` failure inside the re-ship itself.
-
-- [x] Keep `gtdStackTop` at the commit the stack was built at; guard becomes
-      "recorded top is an ancestor of HEAD", rebuild reads `<top>~n`
-  - drops concern 2's literal "recorded top moves to the new HEAD"; the goal (a
-    later resume's top check passes) still holds
-  - no new key, no data change; correct for any number of re-ships
-  - matches `docs/driver.md`'s "rebuilt only at the commit the stack was built
-    at" verbatim
-- [ ] Move `gtdStackTop` to the new HEAD as written, plus a new
-      `branch.<b>.gtdStackDepth` key (commits on the top slice beyond one);
-      rebuild reads `HEAD~(n + depth)`
-  - keeps the requirement literally
-  - a third record key that must stay paired with the other two on every record,
-    retire and forget path
-- [ ] Move `gtdStackTop` to the new HEAD as written, rebuild unchanged
-  - smallest diff
-  - a lower branch deleted after a one-slice re-ship is rebuilt at the wrong
-    commit and its pull request shows the top slice's changes
-- [ ] _your answer_
-
 ## Interfaces
 
 ```ts
@@ -57,6 +27,26 @@ export async function ship(
 ```ts
 // Module-internal seam (private, tested only through ship()).
 
+// branch.<b>.gtdStackTop is written once, by recordStack, at the commit the stack
+// was built at, and never moved — a one-slice re-ship leaves it alone. Every
+// HEAD-relative offset reads from it instead of HEAD, so it stays right after any
+// number of re-ships (the top slice may span several commits).
+
+// topGuard: a missing remaining upper is rebuildable only while the recorded top
+// is an ancestor of HEAD (`merge-base --is-ancestor <top> HEAD`), not equal to it.
+// Absent top or failed ancestor check -> the existing "HEAD is not the recorded top"
+// refusal, wording adjusted to "HEAD no longer contains the recorded top".
+async function topGuard(
+  git: Git,
+  ok: Ok,
+  branch: string,
+  uppers: string[],
+): Promise<string | undefined>
+
+// chain fallback for a missing branch at recorded index i:
+//   `<top>~(recorded.length - 1 - i)`   — replaces `HEAD~(uppers.length - i)`.
+// The last link's ancestor check still runs against `at`.
+
 // Replaces resumable + resolveStack + settle. Order is fixed:
 //   1. read gtdStack; empty -> {}
 //   2. viewPr every recorded branch; unreadable -> refusal "… Nothing changed."
@@ -77,8 +67,9 @@ async function resumable(
   isDry: boolean,
   at: string,
 ): Promise<{ links?: Link[]; floor?: string; forget?: boolean } | string>
-// floor: commit of the highest merged slice, resolved like a missing branch
-// (never its local ref), so it resolves after the merged branch is deleted.
+// floor: commit of the highest merged slice, resolved by the same `<top>~n`
+// fallback at its original index (never its local ref), so it resolves after the
+// merged branch is deleted.
 
 // squash()'s result gains `floor`; `resumed` and resolveStack go away —
 // ship() passes squashed.stack + squashed.floor straight to stackPreview /
@@ -88,8 +79,8 @@ async function resumable(
 //   resumable(at = groups[0].base)            — before pushHistory: refusal changes nothing
 //   forget -> today's single-commit path (retire, unstack, forget)
 //   dry   -> dryRun with links; messages aligned so only the top index holds fulls[0]
-//   else  -> pushHistory, commitSquash, revive missing branches, top record per the
-//            open question, links with top.commit = new HEAD; forget NOT set
+//   else  -> pushHistory, commitSquash, revive missing branches (from <top>~n),
+//            no git config write, links with top.commit = new HEAD; forget NOT set
 // GTD_SHIP_MODE=commits never enters this path.
 
 // pullRequest() and preview() call viewPr(io, branch). viewPr is unchanged:
@@ -101,8 +92,8 @@ async function resumable(
 ## Call Stacks
 
 - `/gtd ship` → `ship()` → `squash()` → `plan()` → no process →
-  `resumable(at=HEAD)` → states → guard/chain over remaining →
-  `stackPullRequests(floor)` / `stackPreview`
+  `resumable(at=HEAD)` → states → guard (top ancestor of HEAD) / chain over
+  remaining (fallback `<top>~n`) → `stackPullRequests(floor)` / `stackPreview`
 - `/gtd ship` → `ship()` → `squash()` → `plan()` → one landed slice, stack mode,
   live record → `resumable(at=process base)` → `pushHistory` → `commitSquash` →
   revive → `stackPullRequests(floor)`
@@ -134,10 +125,13 @@ drives it.
 - unit: claude/hooks/ship.test.ts — stack mode, one landed slice, live record
   chaining to the process base: squash commit lands on the top branch, no
   `git branch -f`/`gh pr edit --base main` for any slice, top PR refreshed with
-  its slice base, no `--unset` of gtdStack (covers A/2)
+  its slice base, no `--unset` of gtdStack, no `git config … gtdStackTop` write
+  (covers A/2)
 - unit: claude/hooks/ship.test.ts — same, then a second no-process run with a
-  lower branch deleted: rebuilds it at the lower slice's commit, not the old top
-  commit (covers A/2)
+  lower branch deleted: rebuilds it at `<recorded top>~n` (the lower slice's
+  commit), not `HEAD~n` (the old top commit) (covers A/2)
+- unit: claude/hooks/ship.test.ts — two one-slice re-ships in a row, then a
+  lower branch deleted: still rebuilt at the lower slice's commit (covers A/2)
 - unit: claude/hooks/ship.test.ts — stack mode, one landed slice, record that no
   longer chains: retires, ships one PR to the default branch, forgets after the
   PR step (covers A/2)
@@ -163,9 +157,10 @@ drives it.
   order) (covers A/3)
 - unit: claude/hooks/ship.test.ts — closed (not merged) lower slice still
   refuses a resume naming commits mode, nothing pushed (covers A/3)
-- unit: claude/hooks/ship.test.ts — "HEAD moved" missing-branch refusal still
-  refuses under the new guard (script the ancestor check to fail if the open
-  question picks the ancestor guard) (covers A/2, A/3)
+- unit: claude/hooks/ship.test.ts — missing-branch refusal: recorded top not an
+  ancestor of HEAD (ancestor check scripted to fail) refuses, nothing changed;
+  recorded top an ancestor but not equal to HEAD rebuilds instead of refusing
+  (covers A/2, A/3)
 
 ### viewPr (via pullRequest / preview)
 
@@ -187,8 +182,10 @@ drives it.
   commit and one pull request in either mode" becomes: a single slice on a
   branch without a recorded stack ships as one commit and one PR; in `stack`
   mode a single slice on a stacked branch lands on the top branch and keeps the
-  stack; `GTD_SHIP_MODE=commits` ships it alone. Rebuild sentence adjusted to
-  whatever the open question settles (covers A/2)
+  stack; `GTD_SHIP_MODE=commits` ships it alone. Rebuild sentence becomes: a
+  missing slice branch is rebuilt from the commits the stack was built at while
+  the branch still contains them, otherwise the ship refuses and names
+  `GTD_SHIP_MODE=commits` (covers A/2)
 - chore: README.md — line ~340 states no one-slice case; leave unchanged (covers
   A/2)
 - chore: .gtd/TODO.md — delete the `## Deferred review notes (15386cd)` section;
@@ -232,6 +229,11 @@ always returns `forget: true`.
   slice base and is refreshed
 - The recorded top moves to the new HEAD, so a later resume's top check still
   passes
+  - **Resolved (architecture gate): `gtdStackTop` stays at the commit the stack
+    was built at; the top guard becomes "recorded top is an ancestor of HEAD"
+    and every missing-branch fallback reads `<top>~n`.** The goal — a later
+    resume's top check passes — holds; the literal "moves to the new HEAD" is
+    dropped, because moving it rebuilds lower branches on the wrong commit
 - A recorded stack that no longer chains to HEAD still drops and ships alone, as
   resume does today
 - `GTD_SHIP_MODE=commits` keeps today's behaviour: one commit, unstack, forget
@@ -333,8 +335,9 @@ branch, as `settle` does today — not a "no longer chains" drop.
 
 ### Where does the floor commit come from once the merged branch is gone?
 
-From the same fallback the rebuild uses at the merged slice's original index,
-never its local ref, which the user may have moved or deleted after the merge.
+From the same `<top>~n` fallback the rebuild uses at the merged slice's original
+index, never its local ref, which the user may have moved or deleted after the
+merge.
 
 ### Does `viewPr` treat a zero-exit empty reply as "no pull request"?
 
@@ -347,3 +350,18 @@ get it scripted.
 No: the push already happened and a force-push back would be a new risk; the
 refusal says the branch is pushed and nothing else changed, and a rerun
 refreshes.
+
+### Where does a one-slice re-ship keep the recorded stack top?
+
+At the commit the stack was built at: `gtdStackTop` is never moved after
+`recordStack` writes it, the top guard checks that the recorded top is an
+ancestor of HEAD instead of equal to it, and every missing-branch and floor
+fallback reads `<top>~n` instead of `HEAD~n`. This drops concern 2's literal
+"recorded top moves to the new HEAD" but keeps its goal, needs no new key, and
+stays correct for any number of re-ships.
+
+### Does a record without `gtdStackTop` need a fallback to `HEAD~n`?
+
+No: `recordStack` writes both keys as a matched pair and `forgetStack` removes
+both, so a live `gtdStack` without a top only comes from a hand edit; the guard
+then refuses as it does today.
