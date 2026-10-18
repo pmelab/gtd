@@ -16,38 +16,6 @@ Three packages, built in order:
 - **C — docs** (concern 9): `docs/driver.md`, `README.md`, the finished-process
   prompt wording in `claude/hooks/assist.ts`
 
-## Open Questions
-
-### What does ship do with commits a `restart()` episode boundary leaves below the first slice?
-
-**gtd already treats a `restart()` as a new process**: the first slice's `base`
-is the process's start parent, the same base plain `gtd summary` names and
-today's ship squashes from — so today's ship already leaves an earlier episode's
-commits below the squash, untouched. The requirement asks for fold or refuse;
-ship cannot see where the earlier episode starts without guessing from commit
-subjects.
-
-- [x] Leave them as their own commits below the first slice, as today
-  - no detection code, no new refusal; a single-slice ship stays exactly as
-    today (concern 3), including two unshipped processes on one branch
-  - drops the requirement's "fold or refuse" — those `gtd(...)` step commits
-    stay in the first PR's diff, outside its description
-- [ ] Refuse when the commit directly under the first slice is a gtd step commit
-      (subject `gtd(human|agent|check|judge): …`)
-  - one `git log -1 --format=%s <base>` read, nothing changed on refusal
-  - also refuses an ordinary second unshipped process on the branch, which ships
-    today — a regression of concern 3, with no way out but a manual squash
-- [ ] Fold the contiguous run of gtd step commits directly under the first slice
-      into the first slice
-  - walks first-parent from `base` down to the merge base while subjects match
-    `gtd(...)`; the first slice's commit and cost trailers widen to cover them
-  - the commit message still comes from `gtd summary --slice` and describes only
-    the current episode; the folded episode's own history ref is not pushed, so
-    its `Gtd-History:` pointer is lost
-  - also folds a second unshipped bundled-workflow process into the first slice
-    — changes concern 3's "exactly as today"
-- [ ] _your answer_
-
 ## Interfaces
 
 ```ts
@@ -214,6 +182,9 @@ scripted-io tests in `claude/hooks/ship.test.ts` are ship's acceptance tests.
 - unit: claude/hooks/ship.test.ts — unreadable slices JSON, `schema: 2`, and a
   non-zero `gtd slices` after a successful `gtd summary` each refuse with no
   `git reset|commit|push` or `gh` call (covers 1)
+- unit: claude/hooks/ship.test.ts — commits below the first slice's `base` (an
+  earlier `restart()` episode) are untouched: `reset --soft` and the first
+  `commit-tree` parent are that `base`, not the merge base (covers 1)
 - unit: claude/hooks/ship.test.ts — last slice tip ≠ HEAD refuses "something
   landed since" (covers 1)
 - unit: claude/hooks/ship.test.ts — a slice with `closed: false` refuses naming
@@ -350,6 +321,8 @@ Merged because 1, 2, 3, 5, 6, 7 and 8 all rewrite the same squash phase of
   every slice** — `gtd slices` lists only the current episode. Fold commits
   between the process start and the first slice's base into the first slice, or
   refuse; pick one in architecture, never squash them away silently
+  - **Resolved: neither — they stay as their own commits below the first slice,
+    as today**; no detection, no refusal
 - Check `schema === 1`; an unreadable or other-schema document refuses the ship,
   nothing changed
 - Cost trailers are summed per slice range, not per process
@@ -528,3 +501,11 @@ Warns in the ship report when the repo disallows rebase merge, and ships anyway.
 ### Are the deleted `## Deferred review notes` in scope?
 
 No — the human's sketch deleted all three; they are dropped.
+
+### What does ship do with commits a `restart()` episode boundary leaves below the first slice?
+
+Leaves them as their own commits below the first slice, as today: no detection
+code, no new refusal, and a single-slice ship stays exactly as today, including
+two unshipped processes on one branch. The requirement's "fold or refuse" is
+dropped; those `gtd(...)` step commits stay in the first PR's diff, outside its
+description.
