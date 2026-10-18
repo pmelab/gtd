@@ -14,7 +14,7 @@ gtd takes that break now or carries the old form.
   - Smallest, cleanest code; no dual-shape detection
   - Every documented example and ~20 `.feature` files rewritten in the same
     change
-- [ ] Accept both: options object is the new form, positional form still works
+- [x] Accept both: options object is the new form, positional form still works
       and is marked `@deprecated`
   - Minor release, no user config breaks
   - Runtime shape detection (first arg boolean vs object) stays until a later
@@ -34,7 +34,7 @@ boolean params". The fork is the call shape config authors write.
 - [ ] Everything in one object: `buildTail({ base, fixFirst, green, ...rest })`
   - One shape for all three functions; `base` becomes a required field
   - `fixFirst` gets a default (`false`), so most calls name only `base`
-- [ ] Keep `base` positional: `buildTail(base, { fixFirst, green, ...rest })`
+- [x] Keep `base` positional: `buildTail(base, { fixFirst, green, ...rest })`
   - Required input stays positional; only the flags move
   - Mirrors `review(base, …)` and other `base`-first helpers
 - [ ] _your answer_
