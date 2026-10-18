@@ -57,3 +57,45 @@ running one gtd process per worktree, so no scale concerns apply.
      that reuse the export.
 
 Verdict: fix 1 first.
+
+## test-audit: the new wrapped-entry table makes two older parser tests redundant
+
+`reads an entry whose path or marker is wrapped, in any line-end style`
+(`src/workflows/feature/packages.test.ts`) checks the form
+`- unit: \`a/long.test.ts\`\n
+(unchanged)`under LF, CRLF and CR, with the exact expected output. That covers everything in`parses
+CRLF and lone CR like LF, including a wrapped marker`and`reads a marker oxfmt
+wrapped onto a continuation
+line`, so the same parser behaviour now has three owners. Delete those two tests. If the longer `some/long/dir/`path matters, add it to the`forms`
+table. Not blocking.
+
+## test-audit: the e2e "refused even with SATISFIED.md written" scenario repeats the unit contract
+
+`refuses a marked test the build modified, even with SATISFIED.md` already loops
+`satisfied` over `[false, true]` at the unit level, where that rule lives. The
+e2e scenario
+`a build that edits a marked test is refused even with SATISFIED.md written`
+adds no new transport or lifecycle risk. The plain
+`a build that edits a test marked (unchanged) is refused` scenario already
+proves the `"build"` argument reaches the build turn, and the fix-turn scenario
+proves the `"fix"` argument reaches the fix turn (swapping the two arguments
+fails both). Drop the SATISFIED variant. Not blocking.
+
+## test-audit (nit): an e2e scenario name no longer matches its contract
+
+`Scenario: a test marked (unchanged) needs only to exist in the tree`
+(`tests/integration/features/declared-tests.feature:175`) uses the old rule's
+wording, which this change removed from the prompt and the README ("needs only
+to exist"). The scenario still passes, because the build never touches the file.
+Rename it to something like "a test marked (unchanged) that the build leaves
+untouched passes", so the name says what it exercises.
+
+## test-audit (nit): negative prompt assertions guard text nobody would re-add
+
+In `src/workflows/shared/text.test.ts`, the checks
+`not.toContain("never one it leaves untouched")`,
+`not.toContain("needs only to exist")` and
+`not.toContain("leave that file alone")` only look for removed wording. The
+positive `toContain` checks beside them already pin the new contract, so these
+lines are change-history assertions that no plausible regression would trip.
+Delete them.
