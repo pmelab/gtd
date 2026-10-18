@@ -151,6 +151,28 @@ describe("spawnTurbo against a shim turbo", () => {
     ])
   })
 
+  for (const [live, tty, color] of [
+    [true, true, true],
+    [true, false, false],
+    [false, true, false],
+  ] as const) {
+    it(`passes --color=${color} for live=${live} on a ${tty ? "TTY" : "pipe"}`, async () => {
+      const dir = shimTurbo(`printf '%s\\n' "$@" > "$OUT"`)
+      const out = join(dir, "argv")
+      const original = Object.getOwnPropertyDescriptor(process.stdout, "isTTY")
+      Object.defineProperty(process.stdout, "isTTY", { value: tty, configurable: true })
+      const so = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+      try {
+        await spawnTurbo(["a"], { PATH: `${dir}:/bin:/usr/bin`, OUT: out }, [], live)
+      } finally {
+        so.mockRestore()
+        if (original) Object.defineProperty(process.stdout, "isTTY", original)
+        else delete (process.stdout as { isTTY?: boolean }).isTTY
+      }
+      expect(readFileSync(out, "utf8").split("\n").includes("--color")).toBe(color)
+    })
+  }
+
   it("captures both streams, and streams them only when live", async () => {
     const dir = shimTurbo(`echo out-line\necho err-line >&2`)
     const sinks = { out: "", err: "" }
@@ -206,6 +228,16 @@ describe("spawnTurbo against a shim turbo", () => {
 describe("turboArgv", () => {
   it("runs failing tasks to completion and puts forwarded args last", () => {
     expect(turboArgv(["a", "b"], ["--force"])).toEqual(["run", "a", "b", "--continue", "--force"])
+  })
+
+  it("forces colour only when asked", () => {
+    expect(turboArgv(["a"], ["--force"], true)).toEqual([
+      "run",
+      "a",
+      "--continue",
+      "--color",
+      "--force",
+    ])
   })
 })
 

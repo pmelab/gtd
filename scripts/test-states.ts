@@ -154,13 +154,13 @@ export async function runStates(
 }
 
 // --continue: without it turbo kills the other tasks at the first failure, and
-// `Failed:` would list just that one.
-export const turboArgv = (tasks: readonly string[], args: readonly string[]): string[] => [
-  "run",
-  ...tasks,
-  "--continue",
-  ...args,
-]
+// `Failed:` would list just that one. --color: stdout is a pipe, so turbo would
+// otherwise drop colour from a streamed run; failuresOf strips it anyway.
+export const turboArgv = (
+  tasks: readonly string[],
+  args: readonly string[],
+  color = false,
+): string[] => ["run", ...tasks, "--continue", ...(color ? ["--color"] : []), ...args]
 
 // args must be turbo options: a bare word would run as an extra task, and
 // --dry-run/--graph exit 0 without running anything.
@@ -171,7 +171,7 @@ export const spawnTurbo = (
   live = true,
 ): Promise<RunResult> =>
   new Promise((resolve) => {
-    const child = spawn("turbo", turboArgv(tasks, args), {
+    const child = spawn("turbo", turboArgv(tasks, args, live && process.stdout.isTTY === true), {
       stdio: ["inherit", "pipe", "pipe"],
       env: env as NodeJS.ProcessEnv,
     })
