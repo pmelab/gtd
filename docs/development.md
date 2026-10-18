@@ -22,6 +22,16 @@ parallel with the others. Caveat from the `test:e2e:live` task's `build`
 dependency: a bare `npm run test:e2e:live` skips the build, so use
 `npx turbo run test:e2e:live` to test against a fresh bundle.
 
+Only failing tasks' logs print. When a flag state fails the same way as an
+earlier one, it prints one `same failure as <state>` line instead of repeating
+the log. A failing state that prints nothing beyond turbo's and npm's own
+preamble is always shown in full, never collapsed. `--log-prefix=task` is always
+passed; a `--log-prefix` of your own replaces it and turns collapsing off unless
+it is `task`. `npm test -- --output-logs=full` prints every state's full log,
+passes included, and never collapses; `--output-logs=hash-only` and `none` print
+no failure log, so they also turn collapsing off; `new-only` replaces the
+default and still collapses.
+
 A pre-commit hook is installed automatically via the `prepare` script when you
 run `npm install` on a fresh clone — it runs
 [lint-staged](https://github.com/lint-staged/lint-staged) with
