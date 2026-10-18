@@ -73,10 +73,10 @@ characters, and blocks `--no-*`, `--ex*` and `--te*` flags.** That stops
 `--output` smuggled in quoted, escaped or globbed, plus `--no-index`,
 `--ext-diff` and `--textconv`.
 
-- [ ] ./claude/hooks/ship.ts#1076-1083 — Risk: **quoted or escaped `..` still
-      reads files outside the repository.** The fix adds a `diff`-only lookahead
-      that refuses absolute, `~` and `..` path arguments, so
-      `git diff /etc/hosts /dev/null` and `git diff ../x y` now fail. But the
+- [ ] ./claude/hooks/ship.ts#1076-1083 [^diff-quotes] — Risk: **quoted or
+      escaped `..` still reads files outside the repository.** The fix adds a
+      `diff`-only lookahead that refuses absolute, `~` and `..` path arguments,
+      so `git diff /etc/hosts /dev/null` and `git diff ../x y` now fail. But the
       `..` check, unlike the flag check, is not quote-transparent:
       `git diff '.'./x README.md`, `git diff .\./x README.md`,
       `git diff ."."/x y` and `git diff x/.\./.\./y z` all pass. Verified in
@@ -145,3 +145,9 @@ characters, and blocks `--no-*`, `--ex*` and `--te*` flags.** That stops
       HEAD equals the top
 - [ ] ./.gtd/TODO.md#15-17 — the deferred driver.md note (15386cd) is removed;
       the doc text it asked for is already there
+
+[^diff-quotes]:
+    Must fix, not optional: this is a read-outside-the-repo hole for a writer
+    that reads untrusted commit messages. Refuse any `"`, `'` or `\` in a
+    `git diff` command outright, and add the four bypass strings listed here to
+    the rejected cases in the test.
