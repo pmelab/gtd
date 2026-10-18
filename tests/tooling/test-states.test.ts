@@ -2,12 +2,14 @@ import { spawnSync } from "node:child_process"
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { resolveFlags, type FlagDeclaration } from "../../src/flags/index.ts"
 import {
   TASKS,
   VITEST_TASKS,
   failureSignature,
+  flagValue,
   planStates,
   runStates,
   spawnTurbo,
@@ -140,6 +142,7 @@ describe("spawnTurbo against a shim turbo", () => {
       "b",
       "--force",
       "--output-logs=errors-only",
+      "--log-prefix=task",
     ])
   })
 
@@ -163,28 +166,85 @@ describe("spawnTurbo against a shim turbo", () => {
   })
 })
 
+describe("flagValue", () => {
+  it("reads --flag=x", () =>
+    expect(flagValue(["--output-logs=full"], "--output-logs")).toBe("full"))
+  it("reads --flag x", () =>
+    expect(flagValue(["--output-logs", "full"], "--output-logs")).toBe("full"))
+  it("reads =new-only", () =>
+    expect(flagValue(["--output-logs=new-only"], "--output-logs")).toBe("new-only"))
+  it("reads separate new-only", () =>
+    expect(flagValue(["--output-logs", "new-only"], "--output-logs")).toBe("new-only"))
+  it("is undefined when absent", () =>
+    expect(flagValue(["--force"], "--output-logs")).toBeUndefined())
+  it("is empty when the flag ends args", () =>
+    expect(flagValue(["--output-logs"], "--output-logs")).toBe(""))
+  it("reads --log-prefix in both spellings", () => {
+    expect(flagValue(["--log-prefix=none"], "--log-prefix")).toBe("none")
+    expect(flagValue(["--log-prefix", "none"], "--log-prefix")).toBe("none")
+  })
+})
+
+describe("entry point option expressions", () => {
+  const opts = (args: string[]) => ({
+    full: flagValue(args, "--output-logs") === "full",
+    collapse: (flagValue(args, "--log-prefix") ?? "task") === "task",
+  })
+  it("--log-prefix=task keeps collapse on", () =>
+    expect(opts(["--log-prefix=task"]).collapse).toBe(true))
+  it("--log-prefix=none turns collapse off", () =>
+    expect(opts(["--log-prefix=none"]).collapse).toBe(false))
+  it("--output-logs=new-only leaves full off and collapse on", () =>
+    expect(opts(["--output-logs=new-only"])).toEqual({ full: false, collapse: true }))
+  it("--output-logs full turns full on", () =>
+    expect(opts(["--output-logs", "full"]).full).toBe(true))
+})
+
 describe("turboArgv", () => {
-  it("puts forwarded args after the task names", () => {
+  it("appends both defaults after forwarded args", () => {
     expect(turboArgv(["a", "b"], ["--force"])).toEqual([
       "run",
       "a",
       "b",
       "--force",
       "--output-logs=errors-only",
+      "--log-prefix=task",
     ])
   })
 
-  it("keeps a user --output-logs=full and appends no default", () => {
-    expect(turboArgv(["a"], ["--output-logs=full"])).toEqual(["run", "a", "--output-logs=full"])
+  it("keeps a user --output-logs=full and appends only the prefix default", () => {
+    expect(turboArgv(["a"], ["--output-logs=full"])).toEqual([
+      "run",
+      "a",
+      "--output-logs=full",
+      "--log-prefix=task",
+    ])
   })
 
-  it("keeps a user --output-logs full (separate value) and appends no default", () => {
+  it("keeps a user --output-logs full (separate value)", () => {
     expect(turboArgv(["a"], ["--output-logs", "full"])).toEqual([
       "run",
       "a",
       "--output-logs",
       "full",
+      "--log-prefix=task",
     ])
+  })
+
+  it("replaces the output default with user new-only, either spelling", () => {
+    for (const args of [["--output-logs=new-only"], ["--output-logs", "new-only"]]) {
+      const argv = turboArgv(["a"], args)
+      expect(argv).not.toContain("--output-logs=errors-only")
+      expect(argv).toContain("--log-prefix=task")
+    }
+  })
+
+  it("replaces the prefix default with a user --log-prefix, either spelling", () => {
+    for (const args of [["--log-prefix=none"], ["--log-prefix", "none"]]) {
+      const argv = turboArgv(["a"], args)
+      expect(argv).not.toContain("--log-prefix=task")
+      expect(argv).toContain("--output-logs=errors-only")
+    }
   })
 })
 
@@ -208,12 +268,12 @@ describe("failureSignature against real turbo", () => {
       }),
     )
     writeFileSync(join(dir, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }))
-    const bin = join(process.cwd(), "node_modules", ".bin")
+    const turbo = fileURLToPath(new URL("../../node_modules/.bin/turbo", import.meta.url))
     const run = () =>
-      spawnSync(join(bin, "turbo"), ["run", "boom", "--output-logs=errors-only"], {
+      spawnSync(turbo, turboArgv(["boom"], []), {
         cwd: dir,
         encoding: "utf8",
-        env: { ...process.env, TURBO_TELEMETRY_DISABLED: "1" },
+        env: { ...process.env, TURBO_TELEMETRY_DISABLED: "1", GITHUB_ACTIONS: "true" },
       }).stdout
     const a = failureSignature(run(), ["boom"])
     expect(a).toContain("boom-line")
@@ -231,6 +291,24 @@ describe("failureSignature", () => {
       "test:unit: FAIL foo took 3.4 s at 11:59:59 on 2026-10-19T01:00:00Z hash fedcba9876543210\n"
     expect(failureSignature(a, tasks)).toBe(failureSignature(b, tasks))
     expect(failureSignature(a, tasks)).not.toBe("")
+  })
+
+  it("is equal for outputs differing only in a 16-char hash", () => {
+    expect(failureSignature("lint: id 0123456789ABCDEF\n", tasks)).toBe(
+      failureSignature("lint: id fedcba9876543210\n", tasks),
+    )
+  })
+
+  it("differs for 40-char shas", () => {
+    expect(failureSignature(`lint: at ${"a".repeat(40)}\n`, tasks)).not.toBe(
+      failureSignature(`lint: at ${"b".repeat(40)}\n`, tasks),
+    )
+  })
+
+  it("differs for 12-char abbreviated shas", () => {
+    expect(failureSignature("lint: at aaaaaaaaaaaa\n", tasks)).not.toBe(
+      failureSignature("lint: at bbbbbbbbbbbb\n", tasks),
+    )
   })
 
   it("differs when assertion text differs", () => {
@@ -311,10 +389,28 @@ describe("runStates", () => {
       ...stateOf(l),
       tasks: ["test:unit"],
     }))
-    runStates(states, stub(runs).run, (l) => lines.push(l), true)
+    runStates(states, stub(runs).run, (l) => lines.push(l), { full: true })
     expect(text(lines)).toContain("noisy pass")
     expect(text(lines).match(/same boom/g)).toHaveLength(2)
     expect(text(lines)).not.toContain("same failure")
+  })
+
+  it("with collapse off, prints identical failures in full and passes only a label", () => {
+    const lines: string[] = []
+    const runs = [
+      { code: 0, stdout: "test:unit: noisy pass\n" },
+      fail("same boom"),
+      fail("same boom"),
+    ]
+    const states = ["defaults", "alpha on", "beta on"].map((l) => ({
+      ...stateOf(l),
+      tasks: ["test:unit"],
+    }))
+    runStates(states, stub(runs).run, (l) => lines.push(l), { collapse: false })
+    expect(text(lines).match(/same boom/g)).toHaveLength(2)
+    expect(text(lines)).not.toContain("same failure")
+    expect(text(lines)).not.toContain("noisy pass")
+    expect(lines[0]).toBe("test-states: defaults — pass")
   })
 
   it("prints the first failure in full, then its FAIL line", () => {
