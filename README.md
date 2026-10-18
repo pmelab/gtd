@@ -338,8 +338,9 @@ the process on only when you say so; a review you leave untouched signs off.
 While a step runs you can keep asking; requests for changes wait for the next
 rest. When the process finishes, Claude offers to squash it and open its pull
 request(s) (or run `/gtd ship`; `GTD_SHIP_MODE` picks one stacked pull request
-per slice or one commit per slice, see the [driver doc](docs/driver.md)). A
-process can change hands at any gate: ask Claude to hand it off (or run
+per slice or one commit per slice, see the [driver doc](docs/driver.md));
+re-running `/gtd ship` after a lower stacked pull request merged restacks the
+rest. A process can change hands at any gate: ask Claude to hand it off (or run
 `/gtd throw @dev`) and it opens a draft pull request assigned to them, and
 `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
 requirements can hand the architecture to someone else. Ship, hand-off and throw

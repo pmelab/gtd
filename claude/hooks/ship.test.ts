@@ -198,6 +198,36 @@ describe("pushBranch", () => {
   })
 })
 
+describe("pushBranch with a lease", () => {
+  const tracked = { "git rev-parse --verify --quiet origin/feat/x": { code: 0 } }
+  test("pushes with the lease sha and no ancestor shortcut", async () => {
+    const { io, ran } = repo({
+      ...tracked,
+      "git merge-base --is-ancestor abc origin/feat/x": { code: 0 },
+    })
+    expect(await pushBranch(io, "feat/x", "abc", "f".repeat(40))).toBeUndefined()
+    expect(ran()).toContain(`git push --force-with-lease=feat/x:${"f".repeat(40)} origin feat/x`)
+  })
+  test("a rejected push says origin moved, pull or reconcile", async () => {
+    const { io } = repo({
+      ...tracked,
+      [`git push --force-with-lease=feat/x:${"f".repeat(40)} origin feat/x`]: {
+        code: 1,
+        err: "stale info",
+      },
+    })
+    expect(await pushBranch(io, "feat/x", "abc", "f".repeat(40))).toBe(
+      "git push failed: origin/feat/x moved. Pull or reconcile feat/x, then ship.\nstale info",
+    )
+  })
+  test("no origin copy takes today's first push", async () => {
+    const { io, ran } = repo({ "git rev-parse --verify --quiet origin/feat/x": { code: 1 } })
+    await pushBranch(io, "feat/x", "abc", "f".repeat(40))
+    expect(ran()).toContain("git push --set-upstream origin feat/x")
+    expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+  })
+})
+
 describe("ship history", () => {
   test("pushes this process's ref before the squash and writes the trailer", async () => {
     const { io, calls, ran } = repo(withHistory, ["feat: add x\n\nwhy", "feat: add x\n\nbody"])
@@ -2137,5 +2167,323 @@ describe("ship stack", () => {
     expect(out).toMatchObject({ ok: false })
     expect(out.text).toContain("config changed")
     expect(ran().some((c) => /^git (reset|push|commit)|^gh pr (create|edit)/.test(c))).toBe(false)
+  })
+
+  describe("a lower slice merged by squash: re-ship restacks", () => {
+    const S1 = "1".repeat(40)
+    const S2 = "2".repeat(40)
+    const S3 = "3".repeat(40)
+    const N1 = "4".repeat(40)
+    const O = "9".repeat(40)
+    const O2 = "8".repeat(40)
+    const REBASE = `git rebase --update-refs --onto origin/main ${C1} feat/x`
+    const REBASE3 = `git rebase --update-refs --onto origin/main ${S1} feat/x`
+    const lsTop = `git ls-remote origin refs/heads/feat/x`
+    const ls3 = `git ls-remote origin refs/heads/feat/x-middle refs/heads/feat/x`
+    const writes =
+      /^git (push|rebase|reset|commit|branch)|^git config --local (?!--get)|^gh pr (create|edit)/
+    const two: Record<string, Scripted> = {
+      ...resume,
+      [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
+      [`git rev-parse --verify --quiet ${C2}~1`]: { out: C1 },
+      [view("feat/x-refactor")]: pr(7, { state: "MERGED" }),
+      [view("feat/x")]: pr(8, { baseRefName: "feat/x-refactor" }),
+      [`git merge-base --is-ancestor ${C1} origin/main`]: { code: 1 },
+      [lsTop]: { out: `${O}\trefs/heads/feat/x\n` },
+      "git merge-base origin/main feat/x": { out: M },
+      "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+    }
+    const three: Record<string, Scripted> = {
+      ...resume,
+      "git rev-parse HEAD": { out: S3 },
+      [`git config --local --get ${KEY}`]: { out: "refactor middle feature\n" },
+      [`git config --local --get ${TOP}`]: { out: S3 + "\n" },
+      "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { out: S1 },
+      "git rev-parse --verify --quiet refs/heads/feat/x-middle": { out: S2 },
+      "git rev-parse refs/heads/feat/x-middle": { out: S2 },
+      [`git rev-parse --verify --quiet ${S3}~2`]: { out: S1 },
+      [view("feat/x-refactor")]: pr(7, { state: "MERGED" }),
+      [view("feat/x-middle")]: pr(8, { baseRefName: "feat/x-refactor" }),
+      [view("feat/x")]: pr(9, { baseRefName: "feat/x-middle" }),
+      [`git merge-base --is-ancestor ${S1} origin/main`]: { code: 1 },
+      [ls3]: { out: `${O2}\trefs/heads/feat/x-middle\n${O}\trefs/heads/feat/x\n` },
+      [`git rev-list --reverse feat/x-middle..feat/x`]: { out: `${N1}\n` },
+      "git merge-base origin/main feat/x-middle": { out: M },
+      "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+      "git rev-parse --verify --quiet origin/feat/x-middle": { code: 0 },
+    }
+    const at = (ran: () => string[], c: string) => ran().indexOf(c)
+
+    test("fetches, reads, rebases once, pushes with the lease, retargets, ends the stack", async () => {
+      const { io, ran } = repo(two)
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      const order = [
+        "git fetch origin main",
+        `git merge-base --is-ancestor ${C1} origin/main`,
+        lsTop,
+        `git cat-file -e ${O}`,
+        REBASE,
+        `git push --force-with-lease=feat/x:${O} origin feat/x`,
+        "gh pr edit 8 --base main",
+      ].map((c) => at(ran, c))
+      expect(order.every((i) => i >= 0)).toBe(true)
+      expect([...order].sort((a, b) => a - b)).toEqual(order)
+      expect(ran().filter((c) => c.startsWith("git rebase"))).toEqual([REBASE])
+      expect(ran().lastIndexOf(`git config --local --unset ${KEY}`)).toBeGreaterThan(
+        at(ran, "gh pr edit 8 --base main"),
+      )
+    })
+
+    test("never moves, pushes or deletes the merged slice's branch, nor the local default branch", async () => {
+      const { io, ran } = repo(two)
+      await ship(io, false)
+      expect(ran().some((c) => /^git branch|--delete|-D /.test(c))).toBe(false)
+      expect(ran().some((c) => c.startsWith("git push") && c.includes("feat/x-refactor"))).toBe(
+        false,
+      )
+      expect(ran().some((c) => /^git (checkout|switch|merge|reset|update-ref) /.test(c))).toBe(
+        false,
+      )
+    })
+
+    test("a stack of three: one rebase moves the middle branch; the record shrinks; only the lowest PR is retargeted", async () => {
+      const { io, ran } = repo(three)
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran().filter((c) => c.startsWith("git rebase"))).toEqual([REBASE3])
+      expect(ran()).toContain(
+        `git push --force-with-lease=feat/x-middle:${O2} origin feat/x-middle`,
+      )
+      expect(ran()).toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
+      expect(
+        at(ran, `git push --force-with-lease=feat/x-middle:${O2} origin feat/x-middle`),
+      ).toBeLessThan(at(ran, `git push --force-with-lease=feat/x:${O} origin feat/x`))
+      expect(ran()).toContain(`git config --local ${TOP} ${N1}`)
+      expect(ran()).toContain(`git config --local ${KEY} middle feature`)
+      expect(at(ran, `git config --local ${KEY} middle feature`)).toBeLessThan(
+        at(ran, `git push --force-with-lease=feat/x-middle:${O2} origin feat/x-middle`),
+      )
+      expect(ran()).toContain("gh pr edit 8 --base main")
+      expect(ran().some((c) => c.startsWith("gh pr edit 9 --base"))).toBe(false)
+      expect(ran().some((c) => c.includes("--unset"))).toBe(false)
+    })
+
+    test("a merge commit keeps the slice's commit: no rebase, no force push, retarget only, record kept", async () => {
+      const { io, ran } = repo({
+        ...two,
+        [`git merge-base --is-ancestor ${C1} origin/main`]: { code: 0 },
+      })
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran().some((c) => /^git rebase|force-with-lease|ls-remote/.test(c))).toBe(false)
+      expect(ran()).toContain("gh pr edit 8 --base main")
+      expect(ran().some((c) => c.startsWith("git config --local") && !c.includes("--get"))).toBe(
+        false,
+      )
+    })
+
+    test("a failed fetch refuses with nothing changed", async () => {
+      const { io, ran } = repo({ ...two, "git fetch origin main": { code: 1, err: "offline" } })
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("offline") })
+      expect(ran().some((c) => writes.test(c))).toBe(false)
+    })
+
+    test.each([
+      ["unknown locally", `git cat-file -e ${O}`],
+      ["not an ancestor of the local tip", `git merge-base --is-ancestor ${O} ${C2}`],
+    ])("origin's copy %s refuses before any write", async (_, key) => {
+      const { io, ran } = repo({ ...two, [key]: { code: 1 } })
+      const out = await ship(io, false)
+      expect(out).toEqual({
+        ok: false,
+        text: "origin/feat/x holds commits feat/x lacks; nothing changed. Pull or reconcile feat/x, then ship.",
+      })
+      expect(ran().some((c) => writes.test(c))).toBe(false)
+    })
+
+    test("the lease is origin's ls-remote sha even when origin/<b> differs", async () => {
+      const { io, ran } = repo({
+        ...two,
+        "git rev-parse --verify --quiet origin/feat/x": { out: "7".repeat(40) },
+      })
+      await ship(io, false)
+      expect(ran()).toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
+      expect(ran().some((c) => c.includes("7".repeat(40)))).toBe(false)
+    })
+
+    describe("with a process at HEAD", () => {
+      const proc: Record<string, Scripted> = {
+        ...two,
+        ...feature,
+        [`git config --local --get ${KEY}`]: { out: "refactor feature\n" },
+        [`git config --local --get ${TOP}`]: { out: C2 + "\n" },
+        "git rev-parse --verify --quiet refs/heads/feat/x-refactor": { out: C1 },
+        "git rev-parse refs/heads/feat/x-refactor": { out: C1 },
+        [`git rev-parse --verify --quiet ${C2}~1`]: { out: C1 },
+        [view("feat/x-refactor")]: pr(7, { state: "MERGED" }),
+        [view("feat/x")]: pr(8, { baseRefName: "feat/x-refactor" }),
+        "gtd history list --json": { out: JSON.stringify([entry(ENTRY, TIP)]) },
+        [lsTop]: { out: `${O}\trefs/heads/feat/x\n` },
+        "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+        [`git merge-base --is-ancestor ${C1} origin/main`]: { code: 1 },
+      }
+      const reply = ["feat: add x\n\nwhy", "NO-UPDATE"]
+
+      test("squashes first, then restacks, in one run", async () => {
+        const { io, ran } = repo(proc, reply)
+        expect(await ship(io, false)).toMatchObject({ ok: true })
+        const order = [
+          lsTop,
+          `git push origin +${REF}:${REF}`,
+          `git reset --soft ${BASE}`,
+          `git rebase --update-refs --onto origin/main ${C1} feat/x`,
+          `git push --force-with-lease=feat/x:${O} origin feat/x`,
+        ].map((c) => at(ran, c))
+        expect(order.every((i) => i >= 0)).toBe(true)
+        expect([...order].sort((a, b) => a - b)).toEqual(order)
+      })
+
+      test("a lease refusal comes before the squash and the history push", async () => {
+        const { io, ran } = repo({ ...proc, [`git cat-file -e ${O}`]: { code: 1 } }, reply)
+        expect(await ship(io, false)).toMatchObject({
+          ok: false,
+          text: expect.stringContaining("Pull or reconcile feat/x"),
+        })
+        expect(ran().some((c) => writes.test(c))).toBe(false)
+      })
+
+      test("a conflict keeps the squash, names the pre-ship HEAD and still aborts the rebase", async () => {
+        const { io, ran } = repo(
+          {
+            ...proc,
+            [`git rebase --update-refs --onto origin/main ${C1} feat/x`]: { code: 1 },
+            "git rev-parse --verify --quiet REBASE_HEAD": { out: TIP },
+          },
+          reply,
+        )
+        const out = await ship(io, false)
+        expect(out.ok).toBe(false)
+        expect(out.text).toContain(`the squash was kept; undo it with git reset --soft ${TIP}`)
+        expect(ran()).toContain(`git reset --soft ${BASE}`)
+        expect(ran()).toContain(`git push origin +${REF}:${REF}`)
+        expect(ran()).toContain("git rebase --abort")
+        expect(ran().some((c) => /^git push --force|^gh pr (create|edit)/.test(c))).toBe(false)
+      })
+    })
+
+    describe("a conflict", () => {
+      const conflict = {
+        ...three,
+        [REBASE3]: { code: 1, err: "CONFLICT" },
+        "git rev-parse --verify --quiet REBASE_HEAD": { out: S2 },
+      }
+
+      test("aborts the rebase, names the slice and the step, prints the hand command, writes nothing", async () => {
+        const { io, ran } = repo(conflict)
+        const out = await ship(io, false)
+        expect(out.ok).toBe(false)
+        expect(out.text).toContain(
+          "Slice middle failed at restack: git rebase conflicted; tree and refs are as before.",
+        )
+        expect(out.text).toContain(REBASE3)
+        expect(out.text).toContain("then /gtd ship")
+        expect(out.text).not.toContain("squash was kept")
+        expect(at(ran, "git rebase --abort")).toBeGreaterThan(at(ran, REBASE3))
+        expect(
+          ran().some((c) => /^git push|^git config --local (?!--get)|^gh pr (create|edit)/.test(c)),
+        ).toBe(false)
+      })
+
+      test("a conflict on the top slice names the top slice", async () => {
+        const { io } = repo({
+          ...conflict,
+          "git rev-parse --verify --quiet REBASE_HEAD": { out: S3 },
+        })
+        expect((await ship(io, false)).text).toContain("Slice feature failed at restack")
+      })
+
+      test("a rebase failing with none in progress (old git) reports stderr and aborts nothing", async () => {
+        const { io, ran } = repo({
+          ...three,
+          [REBASE3]: { code: 129, err: "unknown option update-refs" },
+        })
+        const out = await ship(io, false)
+        expect(out.ok).toBe(false)
+        expect(out.text).toContain("git rebase failed")
+        expect(out.text).toContain("unknown option update-refs")
+        expect(ran()).not.toContain("git rebase --abort")
+        expect(ran().some((c) => /^git push|^gh pr (create|edit)/.test(c))).toBe(false)
+      })
+    })
+
+    describe("after a hand restack", () => {
+      const hand: Record<string, Scripted> = {
+        ...three,
+        [`git merge-base --is-ancestor ${S3} HEAD`]: { code: 1 },
+        [`git merge-base --is-ancestor ${S1} feat/x-middle`]: { code: 1 },
+        [`git merge-base --is-ancestor ${S2} origin/feat/x-middle`]: { code: 1 },
+        [`git merge-base --is-ancestor ${S3} origin/feat/x`]: { code: 1 },
+      }
+
+      test("pushes each branch with a lease, retargets the lowest PR and keeps the stack", async () => {
+        const { io, ran } = repo(hand)
+        expect(await ship(io, false)).toMatchObject({ ok: true })
+        expect(ran().some((c) => /^git (rebase|fetch)/.test(c))).toBe(false)
+        expect(ran()).toContain("git push --force-with-lease origin feat/x-middle")
+        expect(ran()).toContain("git push --force-with-lease origin feat/x")
+        expect(ran()).toContain("gh pr edit 8 --base main")
+        expect(ran()).toContain(`git config --local ${KEY} middle feature`)
+        expect(ran()).toContain(`git config --local ${TOP} ${N1}`)
+        expect(at(ran, `git config --local ${KEY} middle feature`)).toBeLessThan(
+          at(ran, "git push --force-with-lease origin feat/x-middle"),
+        )
+        expect(ran().some((c) => c.includes("--unset"))).toBe(false)
+      })
+
+      test("with the lowest branch still on the merged slice it is not a hand restack: the branch ships alone", async () => {
+        const { io, ran } = repo({
+          ...hand,
+          [`git merge-base --is-ancestor ${S1} feat/x-middle`]: { code: 0 },
+        })
+        await ship(io, false)
+        expect(ran().some((c) => c.includes("force-with-lease"))).toBe(false)
+        expect(ran().some((c) => c.startsWith(`git config --local ${KEY} `))).toBe(false)
+      })
+
+      test("a rebased stack with no merged slice still drops the record and ships alone", async () => {
+        const { io, ran } = repo(
+          {
+            ...resume,
+            [`git merge-base --is-ancestor ${C1} HEAD`]: { code: 1 },
+            [view("feat/x-refactor")]: pr(7),
+            [view("feat/x")]: pr(8, { baseRefName: "feat/x-refactor" }),
+          },
+          ["NO-UPDATE"],
+        )
+        expect(await ship(io, false)).toMatchObject({ ok: true })
+        expect(ran()).toContain(`git config --local --unset ${KEY}`)
+        expect(ran().some((c) => /^git rebase|ls-remote/.test(c))).toBe(false)
+      })
+    })
+
+    describe("-n", () => {
+      test("prints the rebase, each leased push and the retarget; fetches and writes nothing", async () => {
+        const { io, ran } = repo(three)
+        const out = await ship(io, true)
+        expect(out.ok).toBe(true)
+        expect(out.text).toContain(REBASE3)
+        expect(out.text).toContain(
+          `git push --force-with-lease=feat/x-middle:${O2} origin feat/x-middle`,
+        )
+        expect(out.text).toContain(`git push --force-with-lease=feat/x:${O} origin feat/x`)
+        expect(out.text).toContain("gh pr edit 8 --base main")
+        expect(out.text.indexOf(REBASE3)).toBeLessThan(out.text.indexOf("[middle]"))
+        expect(ran().some((c) => /^git fetch|^git rebase|^git push|^gh pr edit/.test(c))).toBe(
+          false,
+        )
+        expect(ran().some((c) => c.startsWith("git config --local") && !c.includes("--get"))).toBe(
+          false,
+        )
+      })
+    })
   })
 })
