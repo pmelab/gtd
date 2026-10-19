@@ -136,28 +136,14 @@ describe("the bundled workflow's model hints", () => {
     expect(await modelOf(() => steps.reviewQuality("conventions"), { env })).toBe("sonnet")
   })
 
-  it("a qualityReviews hint wins over the lens's default", async () => {
-    const vars = { qualityReviews: "correctness=base, conventions=opus" }
-    expect(await modelOf(() => steps.reviewQuality("correctness"), { vars })).toBe("base")
-    expect(await modelOf(() => steps.reviewQuality("conventions"), { vars })).toBe("opus")
+  it("a model passed in wins over the lens's default; a blank one is none", async () => {
+    expect(await modelOf(() => steps.reviewQuality("correctness", undefined, "base"))).toBe("base")
+    expect(await modelOf(() => steps.reviewQuality("conventions", undefined, "opus"))).toBe("opus")
+    expect(await modelOf(() => steps.reviewQuality("conventions", undefined, ""))).toBe("base")
   })
 
-  it("a model passed in wins over the qualityReviews hint", async () => {
-    const vars = { qualityReviews: "correctness=base" }
-    expect(
-      await modelOf(() => steps.reviewQuality("correctness", undefined, "haiku"), { vars }),
-    ).toBe("haiku")
-  })
-
-  it("a hinted lens keeps its plain scope name", async () => {
-    const vars = { qualityReviews: "correctness=base" }
-    const request = await captureStep(() => steps.reviewQuality("correctness"), {
-      scope: "build",
-      vars,
-    })
-    if (request.kind !== "agent") throw new Error("unreachable")
-    expect(request.name).toBe("quality.correctness.reviewing")
-    expect(request.prompt).toContain("code-review-and-quality")
+  it("a lens named like an Object member still gets its default", async () => {
+    expect(await modelOf(() => steps.reviewQuality("constructor"))).toBe("smart")
   })
 
   it("the fix loop runs on the coder model, base by default", async () => {

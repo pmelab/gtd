@@ -284,21 +284,28 @@ describe("the quality lap's lenses", () => {
     expect(prompts[0]).not.toContain("from `R`")
   })
 
-  it("each lens runs on its qualityReviews hint, else its default", async () => {
-    await lap(() => qualityLap(), { qualityReviews: "correctness=base, conventions, my-lens" })
+  it("each lens runs on its qualityReviews hint, else its default, under its plain name", async () => {
+    const log = await lap(() => qualityLap(), {
+      qualityReviews: "correctness=base, conventions, my-lens",
+    })
+    expect(log).toEqual([
+      "quality.correctness.reviewing",
+      "quality.conventions.reviewing",
+      "quality.my-lens.reviewing",
+    ])
     expect(models).toEqual(["base", "base", "smart"])
   })
 
-  it("tail's lensModels replace the qualityReviews hints", async () => {
-    await lap(
+  it("lenses passed in carry their own hints, never qualityReviews'", async () => {
+    const log = await lap(
       () =>
         tail(() => Promise.resolve(), {
           green: true,
-          lenses: ["correctness", "conventions"],
-          lensModels: { conventions: "opus" },
+          lenses: ["correctness", "conventions=opus"],
         }),
       { qualityReviews: "correctness=base" },
     )
+    expect(log).toEqual(["quality.correctness.reviewing", "quality.conventions.reviewing"])
     expect(models).toEqual(["smart", "opus"])
   })
 

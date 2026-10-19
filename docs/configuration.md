@@ -452,10 +452,10 @@ as `FeedbackTarget` and `ReviewRange`.
 
 `tail(finish, options?)` is the build tail without the review: `finish` gets the
 escalation count and runs last; `options` (`TailOptions`) takes `fixFirst`,
-`green`, `guard`, `lenses`, `lensModels`, `guardRests`, `lensBase` and `rules`.
-`lensModels` maps a lens to its model hint and replaces the `qualityReviews`
-hints (`lensModelsOf(vars.qualityReviews)`, the default) wholesale; a lens it
-leaves out runs on its default.
+`green`, `guard`, `lenses`, `guardRests`, `lensBase` and `rules`. `lenses`
+entries take the `qualityReviews` form, `<lens>` or `<lens>=<model>`
+(`lensEntriesOf` splits a list into them, `lensOf` splits one, `lensesOf` keeps
+only the names); passed in, they replace `qualityReviews` hints and all.
 `tail(fixFirst, finish, green?, guard?, lenses?, guardRests?, lensBase?, rules?)`
 is deprecated; a function second argument selects it. A call fitting neither
 form is rejected before any step runs.

@@ -13,7 +13,7 @@ import {
   type Change,
   type DiffShapeResult,
 } from "../../flows/index.js"
-import { lensesOf, lensModelsOf } from "../../workflow-kit/index.js"
+import { lensEntriesOf } from "../../workflow-kit/index.js"
 import { markFenced } from "../shared/fences.js"
 import { healthy, type Guard } from "../shared/health.js"
 import { coder, FEEDBACK, REFACTOR } from "../shared/steps.js"
@@ -343,8 +343,7 @@ export const reviewedRefactor = async (
         green: true,
         guard,
         guardRests: false,
-        lenses: lensesOf(vars.refactorQualityReviews ?? ""),
-        lensModels: lensModelsOf(vars.refactorQualityReviews ?? ""),
+        lenses: lensEntriesOf(vars.refactorQualityReviews ?? ""),
         feedback,
         fixAccess: strayAccess(p.strays),
         lensBase: entry,

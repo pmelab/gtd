@@ -1,25 +1,29 @@
 import { read } from "../flows/index.js"
 
-// An entry is `<lens>` or `<lens>=<model hint>`, split at the first `=`: skill
-// names may hold `:` (`plugin:skill`), never `=`.
-const lensEntries = (value: string): readonly (readonly [string, string])[] =>
+export interface LensEntry {
+  readonly lens: string
+  /** Blank when the entry carries none. */
+  readonly model: string
+}
+
+// Split at the first `=`: skill names may hold `:` (`plugin:skill`), never `=`.
+export const lensOf = (entry: string): LensEntry => {
+  const at = entry.indexOf("=")
+  return at < 0
+    ? { lens: entry.trim(), model: "" }
+    : { lens: entry.slice(0, at).trim(), model: entry.slice(at + 1).trim() }
+}
+
+/** Split a comma-separated lens list into whole entries, `<lens>` or `<lens>=<model>`: trimmed, blanks dropped. */
+export const lensEntriesOf = (value: string): readonly string[] =>
   value
     .split(",")
-    .map((entry) => {
-      const at = entry.indexOf("=")
-      return at < 0
-        ? ([entry.trim(), ""] as const)
-        : ([entry.slice(0, at).trim(), entry.slice(at + 1).trim()] as const)
-    })
-    .filter(([lens]) => lens.length > 0)
+    .map((entry) => entry.trim())
+    .filter((entry) => lensOf(entry).lens.length > 0)
 
-/** Split a comma-separated lens list: trimmed, blanks dropped, each entry's `=<model>` hint cut off. */
+/** The same list's lens names, model hints cut off. */
 export const lensesOf = (value: string): readonly string[] =>
-  lensEntries(value).map(([lens]) => lens)
-
-/** The `<lens>=<model>` hints of the same list, by lens; a lens without one, or with a blank one, has no key. */
-export const lensModelsOf = (value: string): Readonly<Record<string, string>> =>
-  Object.fromEntries(lensEntries(value).filter(([, model]) => model.length > 0))
+  lensEntriesOf(value).map((entry) => lensOf(entry).lens)
 
 /** One `<scope>.<lens>` entry per lens — the per-lens part of a skills or access export. */
 export const lensScopes = <T>(
