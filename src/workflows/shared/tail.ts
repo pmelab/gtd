@@ -75,6 +75,7 @@ export interface TailOptions {
   readonly fixFirst?: boolean | undefined
   /** The caller just left the full suite green (the package loop), so no run opens it; default `false`. */
   readonly green?: boolean | undefined
+  /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
   readonly guard?: Guard | undefined
   /** Quality-lap lenses; default `lensesOf(vars.qualityReviews)`. */
   readonly lenses?: readonly string[] | undefined
@@ -122,7 +123,7 @@ export function tail<T>(first: unknown, second?: unknown, ...rest: unknown[]): P
 type Finish<T> = (escalations: EscalationCount) => Promise<T>
 
 // null reads as absent; an un-awaited Promise is a mistake, not options.
-const isOptionalObject = (value: unknown): value is TailOptions | null | undefined =>
+export const isOptionalObject = (value: unknown): value is object | null | undefined =>
   value == null ||
   (typeof value === "object" &&
     !Array.isArray(value) &&
@@ -147,7 +148,13 @@ const LEGACY_SLOTS: readonly [keyof TailOptions, (value: unknown) => boolean][] 
 const legacyOptions = (args: readonly unknown[]): TailOptions | undefined => {
   if (args.slice(LEGACY_SLOTS.length).some((value) => value != null)) return undefined
   if (!LEGACY_SLOTS.every(([, fits], i) => fits(args[i]))) return undefined
-  return Object.fromEntries(LEGACY_SLOTS.map(([key], i) => [key, args[i] ?? undefined]))
+  // A positional null guardRests used to reach the escalation as falsy, not as the default.
+  return Object.fromEntries(
+    LEGACY_SLOTS.map(([key], i) => [
+      key,
+      key === "guardRests" && args[i] === null ? false : (args[i] ?? undefined),
+    ]),
+  )
 }
 
 // gtd.config.ts is untyped at runtime, so every argument is checked against the form chosen.
@@ -161,11 +168,10 @@ const tailForm = <T>(
     return options === undefined ? undefined : [second as Finish<T>, options]
   }
   if (typeof first === "function" && isOptionalObject(second) && rest.every((v) => v == null))
-    return [first as Finish<T>, second ?? {}]
+    return [first as Finish<T>, (second as TailOptions | null | undefined) ?? {}]
   return undefined
 }
 
-// Reads each option off `options` itself, so a class instance's getters still apply.
 const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
   scope("build", async () => {
     const { guard, lenses, lensBase, rules } = options
@@ -177,8 +183,9 @@ const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
       await healthy(fix, { fixesSoFar: 1, escalations, guard, guardRests, rules })
     }
     // fixFirst's own fix + healthy below already is the full run.
-    if (options.fixFirst === true) await repair()
-    else if (options.green !== true) await healthy(fix, { escalations, guard, guardRests, rules })
+    // Truthy, not `true`: an untyped config's flags read as they always did.
+    if (options.fixFirst) await repair()
+    else if (!options.green) await healthy(fix, { escalations, guard, guardRests, rules })
     // The lap runs once a tail: after its findings are fixed, review follows.
     if ((await qualityLap(guard, lenses, lensBase)) === "findings") {
       if (await fixQualityFindings(escalations, guard, guardRests, rules)) {
@@ -221,4 +228,4 @@ export const handOffReview = (
 
 /** The tail the review and fix workflows run: ends at the hand-off review since `base`. */
 export const handOffTail = (fixFirst: boolean, base: string, guard?: Guard): Promise<void> =>
-  tail(fixFirst, (escalations) => handOffReview(base, escalations, guard), false, guard)
+  tail((escalations) => handOffReview(base, escalations, guard), { fixFirst, guard })

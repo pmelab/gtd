@@ -11,7 +11,6 @@ export {
   type FeedbackTarget,
   type ReviewOutcome,
 } from "./review.js"
-export type { TailOptions } from "../shared/tail.js"
 export type { ReviewRange } from "../shared/text.js"
 export * from "./feature.js"
 export * from "../shared/reserved.js"

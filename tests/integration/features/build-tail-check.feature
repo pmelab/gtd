@@ -1,9 +1,10 @@
 @inmem
 Feature: a bad buildTail or tail call fails naming both forms
 
-  A gtd.config.ts calling buildTail with arguments that fit neither
-  buildTail(base, options?) nor buildTail(fixFirst, base, green?, options?)
-  fails naming both call forms.
+  A gtd.config.ts calling buildTail or tail with arguments that fit neither of
+  its call forms — buildTail(base, options?) or buildTail(fixFirst, base,
+  green?, options?); tail(finish, options?) or the positional tail(fixFirst,
+  finish, …) — fails naming both.
 
   Scenario: a numeric first argument is rejected
     Given a test project

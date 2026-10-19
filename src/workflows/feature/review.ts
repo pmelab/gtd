@@ -13,7 +13,7 @@ import {
 } from "../../flows/index.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
-import { guarded, healthy, type EscalationCount, type Guard } from "../shared/health.js"
+import { guarded, healthy, type EscalationCount } from "../shared/health.js"
 import {
   awaitReview,
   fixCheck,
@@ -23,7 +23,7 @@ import {
   reviewing,
   reviewMissing,
 } from "../shared/steps.js"
-import { closeReview, tail, type TailOptions } from "../shared/tail.js"
+import { closeReview, isOptionalObject, tail, type TailOptions } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import { answerReviewQuestions, collecting, deferNotes, fixNits } from "./steps.js"
 
@@ -256,10 +256,6 @@ export interface FeedbackTarget {
 }
 
 export interface BuildTailOptions extends TailOptions {
-  /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
-  readonly guard?: Guard | undefined
-  /** `false`: `guard` skips the escalation's human rests. */
-  readonly guardRests?: boolean | undefined
   readonly feedback?: FeedbackTarget | undefined
   /** Write access for the nit and risk fix turns; absent: the bundled `access` export decides. */
   readonly fixAccess?: ScopeAccess | undefined
@@ -291,16 +287,8 @@ export function buildTail(
     )
   }
   const [base, form] = options
-  const { fixFirst: _fixFirst, green: _green, ...reviewOptions } = form
-  return tail((escalations) => review(base, escalations, reviewOptions), form)
+  return tail((escalations) => review(base, escalations, form), form)
 }
-
-// null reads as absent; an un-awaited Promise is a mistake, not options.
-const isOptionalObject = (value: unknown): value is BuildTailOptions | null | undefined =>
-  value == null ||
-  (typeof value === "object" &&
-    !Array.isArray(value) &&
-    typeof (value as { then?: unknown }).then !== "function")
 
 const isOptionalBoolean = (value: unknown): value is boolean | null | undefined =>
   value == null || typeof value === "boolean"

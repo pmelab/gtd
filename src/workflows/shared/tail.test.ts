@@ -270,6 +270,15 @@ describe("the quality lap's lenses", () => {
     for (const prompt of prompts) expect(prompt).toContain("from `BASE-SHA`")
   })
 
+  it("the deprecated form threads lensBase from its seventh slot", async () => {
+    await lap(() =>
+      tail(false, () => Promise.resolve(), true, undefined, ["conventions"], true, "BASE-SHA", "R"),
+    )
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain("from `BASE-SHA`")
+    expect(prompts[0]).not.toContain("from `R`")
+  })
+
   it("tail passes lenses to its lap and a guard after each lens turn", async () => {
     let guards = 0
     const log = await lap(() =>
@@ -297,6 +306,7 @@ describe("tail's call forms", () => {
           step: (request: StepRequest) => {
             if (request.kind === "restart") return Promise.resolve()
             names.push(`${request.kind}:${request.name}`)
+            if (request.kind === "agent") prompts.push(request.prompt)
             if (names.length >= 4) throw new Stop()
             return Promise.resolve()
           },
@@ -339,6 +349,15 @@ describe("tail's call forms", () => {
     )
     expect(legacy).toEqual(modern)
     expect(guards).toBe(modernGuards)
+  })
+
+  it("the deprecated form threads rules from its eighth slot", async () => {
+    prompts.length = 0
+    await requestNames(() =>
+      tail(true, finish, false, undefined, [], true, "BASE-SHA", "RULES-TEXT"),
+    )
+    expect(prompts.some((p) => p.includes("RULES-TEXT"))).toBe(true)
+    expect(prompts.some((p) => p.includes("BASE-SHA"))).toBe(false)
   })
 
   it("reads an explicit undefined in every option as absent", async () => {

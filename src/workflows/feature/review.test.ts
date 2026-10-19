@@ -1026,7 +1026,6 @@ export type _PublicBuildTailOptions = [
   featureEntry.BuildTailOptions,
   featureEntry.FeedbackTarget,
   featureEntry.ReviewRange,
-  featureEntry.TailOptions,
   bundled.BuildTailOptions,
   bundled.FeedbackTarget,
   bundled.ReviewRange,
