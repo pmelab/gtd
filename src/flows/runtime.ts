@@ -16,9 +16,18 @@ export interface SteeringOptions {
   readonly base?: string | undefined
 }
 
+/** Shares of the model's context window at which a driver stops the turn — `gtd next --json`'s `context`. */
+export interface ContextLimitOptions {
+  /** Ask the agent to wrap up with a handoff note. Driver default 0.6. */
+  readonly soft?: number | undefined
+  /** Stop the turn outright. Driver default 0.7. */
+  readonly hard?: number | undefined
+}
+
 export interface AgentOptions extends SteeringOptions {
   readonly model?: string | undefined
   readonly system?: string | undefined
+  readonly context?: ContextLimitOptions | undefined
   /**
    * A turn that changes nothing completes the step. Without this an empty turn
    * is an attempt: recorded, but the process stays at the step (a stall).
@@ -115,6 +124,8 @@ export interface ScopeOptions {
   readonly model?: string | undefined
   /** The system prompt every agent step inside runs with, unless it sets its own. */
   readonly system?: string | undefined
+  /** The context limit every agent step inside runs with; a nested scope's or a step's own replaces it key by key. */
+  readonly context?: ContextLimitOptions | undefined
   /** The skill names every agent step inside declares — `gtd next --json`'s `skills`. A nested scope inherits it unless it sets its own. */
   readonly skills?: readonly string[] | undefined
   /** The file access every agent step inside runs with — `gtd next --json`'s `access`. A nested scope inherits it; its own replaces it wholesale. */

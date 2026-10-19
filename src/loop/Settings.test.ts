@@ -68,6 +68,25 @@ describe("resolveSettings / resolveModel", () => {
     expect(model({ GTD_LOOP_AGENT: "", GTD_LOOP_MODEL_SMART: "" }, undefined, "smart")).toBe("opus")
   })
 
+  it("reads the context window from the environment over the file", () => {
+    const window = (env: Record<string, string>, json: unknown) =>
+      Either.map(
+        resolveSettings(env, json === undefined ? undefined : file(json)),
+        (s) => s.contextWindow,
+      )
+    expect(window({}, undefined)).toEqual(Either.right(undefined))
+    expect(window({}, { contextWindow: 1000000 })).toEqual(Either.right(1000000))
+    expect(window({ GTD_LOOP_CONTEXT_WINDOW: "500000" }, { contextWindow: 1000000 })).toEqual(
+      Either.right(500000),
+    )
+    expect(Either.getLeft(resolveSettings({ GTD_LOOP_CONTEXT_WINDOW: "lots" }, undefined))).toEqual(
+      expect.objectContaining({
+        value: 'GTD_LOOP_CONTEXT_WINDOW must be a positive integer — got "lots"',
+      }),
+    )
+    expect(Either.isLeft(resolveSettings({}, file({ contextWindow: 0 })))).toBe(true)
+  })
+
   it("refuses an unknown agent, an unknown key and a non-string model", () => {
     expect(Either.getLeft(resolveSettings({ GTD_LOOP_AGENT: "codex" }, undefined))).toEqual(
       expect.objectContaining({ value: 'GTD_LOOP_AGENT must be "claude" or "pi" — got "codex"' }),

@@ -1106,6 +1106,7 @@ describe("standaloneKinds / needsOf", () => {
       "uncheck",
       "install",
       "loop",
+      "contextHook",
       "judgeRun",
       "strays",
     ])
@@ -1117,6 +1118,7 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("uncheck")).toBe("fs")
     expect(needsOf("install")).toBe("none")
     expect(needsOf("loop")).toBe("none")
+    expect(needsOf("contextHook")).toBe("none")
     expect(needsOf("judgeRun")).toBe("none")
     expect(needsOf("strays")).toBe("none")
     for (const kind of [
@@ -1202,19 +1204,24 @@ describe("renderHelp", () => {
 
   it("README.md and COMPATIBILITY.md list exactly the commands", () => {
     const commands = new Set(
-      [...renderHelp().matchAll(/^ {2}([a-z]+(?: [a-z]+)?)(?= )/gm)].map(([, name]) => name),
+      [...renderHelp().matchAll(/^ {2}([a-z]+(?:-[a-z]+)?(?: [a-z]+)?)(?= )/gm)].map(
+        ([, name]) => name,
+      ),
     )
     expect(commands).toContain("judge answer")
+    expect(commands).toContain("context-hook")
     const listed = (file: string, list: RegExp): Set<string> => {
       const doc = readFileSync(resolve(import.meta.dirname, file), "utf8")
       const match = doc.match(list)
       expect(match, file).not.toBeNull()
-      return new Set([...match![1]!.matchAll(/`([a-z]+(?: [a-z]+)?)`/g)].map(([, name]) => name!))
+      return new Set(
+        [...match![1]!.matchAll(/`([a-z]+(?:-[a-z]+)?(?: [a-z]+)?)`/g)].map(([, name]) => name!),
+      )
     }
     expect(
       listed("../../README.md", /The `gtd` bin's commands — ([\s\S]*?) — are\s+listed/),
     ).toEqual(commands)
-    expect(listed("../../COMPATIBILITY.md", /every command \(([\s\S]*?)\), option/)).toEqual(
+    expect(listed("../../COMPATIBILITY.md", /every command \(([\s\S]*?)\),\s+option/)).toEqual(
       commands,
     )
   })

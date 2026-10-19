@@ -13,6 +13,12 @@ const Beat = Schema.Struct({
   session: Schema.optional(Schema.Struct({ id: Schema.String, resume: Schema.Boolean })),
   model: Schema.optional(Schema.String),
   system: Schema.optional(Schema.String),
+  context: Schema.optional(
+    Schema.Struct({
+      soft: Schema.optionalWith(Schema.Number, { exact: true }),
+      hard: Schema.optionalWith(Schema.Number, { exact: true }),
+    }),
+  ),
   validate: Schema.optional(Schema.String),
   label: Schema.optional(Schema.String),
   judge: Schema.optional(Schema.String),

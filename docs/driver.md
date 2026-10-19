@@ -134,6 +134,14 @@ from, never another one on `$PATH`.
 - **The log** is the file `gtd next --json=log` names: truncated when the run
   starts, then every turn's output, script output and gate message. The terminal
   carries only beat headers, landed subjects and the final line.
+- **A `claude` turn runs under its step's [context limit](#context-limits)**:
+  `gtd context-hook` is passed in through `--settings` as its PostToolUse and
+  PreCompact hook, and the loop reads `--output-format stream-json --verbose` to
+  kill the turn itself should no hook stop it — halfway from the hard limit to a
+  full window (85% at the default), so the hook's clean stop after a tool always
+  comes first. A turn stopped at its hard limit is neither retried nor landed:
+  the loop exits 1 with a line starting `gtd: context limit`. A turn some other
+  hook stopped is an ordinary failed turn. A `pi` turn runs without a limit.
 
 - **At a judge gate** it pipes the beat's `judge` document through
   `gtd judge run` — whose own settings pick the provider, see
@@ -151,12 +159,13 @@ workflow hint means are your machine's business, never the repository's. Each
 setting is read from an environment variable first, then from an optional JSON
 file, then from the default:
 
-| Setting            | Environment variable    | File key        | Default                                |
-| ------------------ | ----------------------- | --------------- | -------------------------------------- |
-| Agent CLI          | `GTD_LOOP_AGENT`        | `agent`         | `claude`                               |
-| Model for `<hint>` | `GTD_LOOP_MODEL_<HINT>` | `models.<hint>` | none                                   |
-| Model for `smart`  | `GTD_LOOP_MODEL_SMART`  | `models.smart`  | `opus` with `claude`, none with `pi`   |
-| Model for `base`   | `GTD_LOOP_MODEL_BASE`   | `models.base`   | `sonnet` with `claude`, none with `pi` |
+| Setting            | Environment variable      | File key        | Default                                 |
+| ------------------ | ------------------------- | --------------- | --------------------------------------- |
+| Agent CLI          | `GTD_LOOP_AGENT`          | `agent`         | `claude`                                |
+| Model for `<hint>` | `GTD_LOOP_MODEL_<HINT>`   | `models.<hint>` | none                                    |
+| Model for `smart`  | `GTD_LOOP_MODEL_SMART`    | `models.smart`  | `opus` with `claude`, none with `pi`    |
+| Model for `base`   | `GTD_LOOP_MODEL_BASE`     | `models.base`   | `sonnet` with `claude`, none with `pi`  |
+| Context window     | `GTD_LOOP_CONTEXT_WINDOW` | `contextWindow` | 1000000 for a `[1m]` model, else 200000 |
 
 `<HINT>` is the hint in upper case, with every character other than a letter or
 digit replaced by `_`. An unmapped `smart` or `base` is dropped, so the agent
@@ -171,6 +180,71 @@ one, or an unknown key, stops the loop before its first beat:
 ```json
 { "agent": "claude", "models": { "smart": "opus", "base": "sonnet" } }
 ```
+
+### Context limits
+
+An agent step may carry `context` — `{ "soft": <share>, "hard": <share> }`,
+shares of the model's context window (set with the step's or a scope's `context`
+option, or the bundled workflows' `contextLimit` option; see
+[Step options](./configuration.md#step-options)). A key left out means the
+driver's default: 0.6 and 0.7. A driver that can measure a turn's context SHOULD
+stop the turn at these limits; one that ignores `context` still drives
+correctly, only without the stop.
+
+`gtd context-hook` is that stop for Claude Code, one settings hook for both
+events:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "gtd context-hook --soft 0.6 --hard 0.7 --window 200000"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "gtd context-hook --soft 0.6 --hard 0.7 --window 200000"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+It reads the context the transcript's latest assistant message used — its input,
+cache-read and cache-creation tokens — and compares it with the shares of
+`--window`:
+
+- **Past `soft`**, it answers `{"decision":"block","reason":…}`: the agent is
+  told to stop and end its turn with a short handoff note — what it touched and
+  what was next. The turn ends normally and lands like any other.
+- **Past `hard`**, it answers `{"continue":false,"stopReason":…}` with a
+  `stopReason` starting `gtd: context limit` — the context-limit marker. Claude
+  Code ends the turn; its `result` envelope reads
+  `"terminal_reason":"hook_stopped"`, and the `stopReason` itself appears only
+  in the transcript. With `GTD_LOOP_CONTEXT_STOP_FILE` set in its environment,
+  the hook also appends the `stopReason` to that file — how a driver tells its
+  own stop from any other hook's `hook_stopped`.
+- **At PreCompact**, it stops the turn the same way, whatever the count:
+  compaction about to happen means the limit was missed.
+- **Otherwise, and for a subagent's tool call** (an input carrying `agent_id`,
+  whose context is its own), it prints nothing.
+
+A turn stopped at its hard limit is too big for one turn. The bundled loop and
+the Claude Code mod land nothing and stop with the marker. The limit counts the
+whole conversation, so a memory scope resumed across steps that has grown past
+its hard limit stops again on every run; start the process over with
+`gtd abandon`, or raise the limit.
 
 ### Terminal-multiplexer status: a herdr wrapper
 
@@ -502,6 +576,11 @@ falls back to the `gtd` on your `PATH`.
   so.
 - A step's `system` becomes the subagent's whole system prompt, and its `model`
   the subagent's model. Each subagent sees only its scope's `skills`.
+- **Each subagent runs under its step's [context limit](#context-limits)**,
+  measured on its own transcript, with the window `GTD_LOOP_CONTEXT_WINDOW`
+  names when set. Past its hard limit, or when it is about to compact, the mod
+  stops the subagent's task and ends the run with an error whose text starts
+  `gtd: context limit`; nothing lands.
 - **The mod's subagents run with `bypassPermissions`**, the equivalent of the
   minimal driver's `--dangerously-skip-permissions`. Shell commands they run are
   kept in the foreground, with a 10-minute timeout.
@@ -599,6 +678,8 @@ script, whatever its exit code.
   itself neither creates nor truncates this file — a driver appends subprocess
   output to it and truncates once at the start of a run, exactly like the driver
   above does.
+- **`context`** — the step's context limit, absent when it sets none; see
+  [Context limits](#context-limits).
 - **`skills`** — the skill names of the turn's memory scope, only ever carried
   at `kind: "prompt"` (absent means none). A driver that can restrict a turn's
   skills SHOULD pass exactly this list — restricting the agent to it is the
@@ -712,14 +793,14 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 25 keys (21 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 26 keys (22 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`/`skills`/`access`); a real
-driver reads 9 of the 25. The minimal driver below is the reference for exactly
+driver reads 9 of the 26. The minimal driver below is the reference for exactly
 which: `kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, `validate`, and `judge` —
-every `--json=<path>` selector its `case` arms touch. The remaining 16
+every `--json=<path>` selector its `case` arms touch. The remaining 17
 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`, `memory`, `file`,
-`mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`,
+`mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`, `context`,
 `approvals`) are read only by a human looking at plain output, or by a driver
 author deciding what to log or preload — no `case` arm in THIS reference driver
 branches on them. This is a property of what a driver NEEDS, not a smaller wire:

@@ -54,6 +54,7 @@ import {
   type ModelCost,
   type SliceEntry,
   type StepAccess,
+  type StepContextLimit,
 } from "../wire/index.js"
 
 import { GTD_VERSION } from "../install/index.js"
@@ -722,6 +723,13 @@ type RequestOf<K extends ReachedStep["request"]["kind"]> = Extract<
   { kind: K }
 >
 
+const stepContext = (
+  context: { readonly soft?: number | undefined; readonly hard?: number | undefined } | undefined,
+): StepContextLimit | undefined =>
+  context === undefined
+    ? undefined
+    : { ...optional("soft", context.soft), ...optional("hard", context.hard) }
+
 const promptDef = (
   common: StepCommon,
   request: RequestOf<"agent">,
@@ -735,6 +743,7 @@ const promptDef = (
   ...optional("system", request.options.system),
   ...optional("allowEmpty", request.options.allowEmpty),
   ...optional("keep", request.options.keep),
+  ...optional("context", stepContext(request.options.context)),
   ...optional("skills", skills),
   ...optional("access", access),
 })
@@ -850,6 +859,7 @@ export interface RestHints {
   readonly mode?: string
   readonly skills?: readonly string[]
   readonly access?: StepAccess
+  readonly context?: StepContextLimit
 }
 
 const hintsOf = (def: StepDef): RestHints => ({
@@ -861,6 +871,7 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("mode", def.mode),
   ...optional("skills", def.skills),
   ...optional("access", def.access),
+  ...optional("context", def.context),
 })
 
 const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw === "D" ? "D" : "M")

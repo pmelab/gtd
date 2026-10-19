@@ -162,6 +162,12 @@ export type Command =
   | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "install" }
   | { readonly kind: "loop" }
+  | {
+      readonly kind: "contextHook"
+      readonly soft?: number
+      readonly hard?: number
+      readonly window?: number
+    }
   | { readonly kind: "summary"; readonly slice?: string }
   | { readonly kind: "base" }
   | { readonly kind: "judge" }
@@ -432,6 +438,24 @@ const readStdin = (): Effect.Effect<string, Error> =>
       return Buffer.concat(chunks).toString("utf8")
     },
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/** Stdout is written once: a hook reads one JSON document, or none. */
+const runContextHookCommand = (
+  command: Extract<Command, { kind: "contextHook" }>,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, ToolCommands> =>
+  Effect.gen(function* () {
+    const tools = yield* ToolCommands
+    const input = yield* readStdin()
+    out.write(
+      yield* tools.contextHook({
+        input,
+        ...(command.soft !== undefined ? { soft: command.soft } : {}),
+        ...(command.hard !== undefined ? { hard: command.hard } : {}),
+        ...(command.window !== undefined ? { window: command.window } : {}),
+      }),
+    )
   })
 
 /** Stdout is written once, after the answerer resolves — a rejection leaves it empty. */
@@ -1189,6 +1213,7 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "lsp":
     case "install":
     case "loop":
+    case "contextHook":
     case "judgeRun":
     case "strays":
       return "none"
@@ -1207,6 +1232,7 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "uncheck",
   "install",
   "loop",
+  "contextHook",
   "judgeRun",
   "strays",
 ]
@@ -1278,6 +1304,8 @@ const dispatchVoidCommand = (
       return runInstallCommand(out)
     case "loop":
       return runLoopCommand()
+    case "contextHook":
+      return runContextHookCommand(command, out)
     case "summary":
       return runSummaryCommand(out, command.slice)
     case "base":

@@ -169,6 +169,7 @@ Every step takes an options object; all keys are optional.
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `context`     | `agent`              | Shares of the model's context window, `{ soft, hard }`, each in (0, 1] with `soft` below `hard` — `gtd next --json`'s `context`. Past `soft` the driver asks the agent to end its turn with a handoff note; past `hard`, or when the context is about to be compacted, it stops the turn and lands nothing. A key left out takes the driver's default: 0.6 and 0.7.                                                                                                                                           |
 | `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).                                                                                                                                                                                                                                                                                                                                                                       |
 | `keep`        | `agent`              | Cannot be combined with `allowEmpty`. Set the turn aside: it lands off the branch under `refs/gtd/kept/<entry>/<step>/<hash>` and the branch gets an empty marker commit (subject, `Gtd-Step:`, `Gtd-Kept: <hash>`) instead. See [Kept tips](#kept-tips).                                                                                                                                                                                                                                                     |
 | `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit.                                                                                                                                                                                                                                                                                                                                                            |
@@ -309,7 +310,9 @@ while (true) {
   an error. `scope({ name, access }, fn)` declares the file access every agent
   turn inside `fn` runs with; see [File access](#file-access). `agent()` takes
   no `access` option either: narrower access for one step needs its own
-  `scope()`.
+  `scope()`. `scope({ context }, fn)` gives every agent step inside `fn` a
+  context limit (see [Step options](#step-options)); a nested scope's or the
+  step's own replaces it key by key. It is no part of the scope's identity.
 - `slice(name, fn)` — marks the span `fn` covers as one named **slice** of the
   episode. For now it only names the span: it changes nothing about how the
   episode lands, and `gtd slices` lists the spans (`--json` is the contract a
@@ -474,7 +477,10 @@ that workflow configured. Their options are the
 [bundled workflow's settings](#the-bundled-workflows-settings), each a string
 (`flagMode` a boolean, stored as `true`/`false`), and each becomes that
 workflow's own default of its kind — beneath `--var` and `GTD_<NAME>`, which
-still layer on top:
+still layer on top. One option is no setting: `contextLimit`, `{ soft, hard }`,
+the [context limit](#step-options) every agent step of the workflow runs under
+(`feature({ contextLimit: { hard: 0.8 } })`); without it the driver's defaults
+apply, and no variable overrides it:
 
 ```ts
 import { feature, review } from "@pmelab/gtd/workflows"

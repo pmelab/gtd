@@ -307,6 +307,13 @@ Or skip writing one: **`gtd loop`** is that loop, shipped with gtd. It drives
 to real model names through per-machine settings — see
 [`gtd loop`](https://github.com/pmelab/gtd/blob/main/docs/driver.md#the-bundled-driver-gtd-loop).
 
+Both it and the Claude Code mod stop an agent turn that outgrows its context:
+past 60% of the model's window the agent is asked to wrap up with a handoff
+note, past 70% (or when the context is about to be compacted) the turn stops and
+nothing lands. A step's `context` option, or the bundled workflows'
+`contextLimit` option, moves the two limits — see
+[Context limits](https://github.com/pmelab/gtd/blob/main/docs/driver.md#context-limits).
+
 ### Or drive it from inside Claude Code
 
 The gtd mod runs the same loop inside an interactive Claude Code session
@@ -760,8 +767,8 @@ install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
 The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
 `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `slices`,
 `version`, `help`, `history list`, `history show`, `history fetch`, `strays`,
-and the tools `ui`, `lsp`, `loop`, `judge` (`judge answer`, `judge run`) — are
-listed in the
+and the tools `ui`, `lsp`, `loop`, `context-hook`, `judge` (`judge answer`,
+`judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
 `gtd slices` lists the spans a flow's `slice()` calls mark. It refuses (exit 1)
 when HEAD neither closes nor sits inside a process, or when today's config

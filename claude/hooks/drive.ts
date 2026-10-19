@@ -20,6 +20,7 @@ export type Beat = {
   skills?: string[]
   validate?: string
   access?: AccessDef
+  context?: { soft?: number; hard?: number }
   judge?: unknown
   changes?: { status: string; path: string }[]
   session?: { id?: string; resume?: boolean | string }
@@ -42,6 +43,7 @@ export type Turn = {
   skills: readonly string[]
   scope: string
   access?: AccessDef
+  context?: { soft?: number; hard?: number }
 }
 
 // `isLost`: the scope's subagent no longer takes messages.
@@ -183,6 +185,7 @@ function turnOf(b: Beat): Turn {
     skills: b.skills ?? [],
     scope: memory.split("#")[0]!,
     access: b.access,
+    context: b.context,
   }
 }
 

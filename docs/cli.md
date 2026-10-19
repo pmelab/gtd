@@ -116,6 +116,15 @@ Commands:
                    landing. The agent CLI and the model each workflow hint
                    maps to are per-machine settings (GTD_LOOP_* variables, or
                    ~/.config/gtd/loop.json); see docs/driver.md
+  context-hook     A Claude Code PostToolUse and PreCompact hook that stops an
+                   agent turn at a share of its context window. Reads the
+                   hook's input on stdin and the context the transcript's
+                   latest assistant message used. Past --soft it blocks with a
+                   request to end the turn with a handoff note; past --hard,
+                   or at PreCompact, it stops the turn with a stopReason
+                   starting "gtd: context limit". Prints nothing otherwise,
+                   and for a subagent's tool call. Always exits 0 on valid
+                   input; see docs/driver.md
   summary          Print the prompt for an agent to write the process HEAD
                    closes or sits inside its own closing message — the entry
                    commit, each human-authored commit (a review round, an
@@ -256,6 +265,11 @@ Options:
   --model=<name>   (gtd land, with --cost) tag that cost's model
                    (gtd judge run, llm answerer) the claude model; omitted:
                    GTD_JUDGE_MODEL, then judge.json, then sonnet
+  --soft=<share>   (gtd context-hook only) the soft limit; default 0.6
+  --hard=<share>   (gtd context-hook only) the hard limit; default 0.7
+  --window=<tokens>
+                   (gtd context-hook only) the model's context window in
+                   tokens; default 200000
   --slice=<name>   (gtd summary only) the closing-message prompt for one
                    slice, named as `gtd slices` lists it: its own range, human
                    commits and cost. An unknown name is refused (exit 1) with

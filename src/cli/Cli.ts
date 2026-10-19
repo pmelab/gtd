@@ -35,7 +35,7 @@ import {
   type JsonMode,
 } from "./Program.js"
 import type { ToolCommands } from "./ToolCommands.js"
-import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
+import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR, parseContextWindow } from "../wire/index.js"
 
 export type { Command, CommandRequirements } from "./Program.js"
 export { needsOf, standaloneKinds } from "./Program.js"
@@ -88,6 +88,13 @@ const nonNegativeNumber = (raw: string, flag: string): Either.Either<number, str
     return Either.left(`gtd: ${flag} must be a non-negative number — got "${raw}"`)
   }
   return Either.right(n)
+}
+
+const share = (raw: string, flag: string): Either.Either<number, string> => {
+  const n = Number(raw)
+  return raw.trim() !== "" && n > 0 && n <= 1
+    ? Either.right(n)
+    : Either.left(`gtd: ${flag} must be a share of the context window in (0, 1] — got "${raw}"`)
 }
 
 const FLAGS: readonly FlagRow[] = [
@@ -244,6 +251,41 @@ const FLAGS: readonly FlagRow[] = [
       "(gtd judge run, llm answerer) the claude model; omitted:",
       "GTD_JUDGE_MODEL, then judge.json, then sonnet",
     ],
+  },
+  {
+    name: "--soft",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "contextHook",
+    decode: ([raw]) => share(raw ?? "", "--soft"),
+    scopeError: "gtd: --soft is only valid for `gtd context-hook`",
+    valueHint: "<share>",
+    help: ["(gtd context-hook only) the soft limit; default 0.6"],
+  },
+  {
+    name: "--hard",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "contextHook",
+    decode: ([raw]) => share(raw ?? "", "--hard"),
+    scopeError: "gtd: --hard is only valid for `gtd context-hook`",
+    valueHint: "<share>",
+    help: ["(gtd context-hook only) the hard limit; default 0.7"],
+  },
+  {
+    name: "--window",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "contextHook",
+    decode: ([raw]) => {
+      const window = parseContextWindow(raw)
+      return window !== undefined
+        ? Either.right(window)
+        : Either.left(`gtd: --window must be a positive integer — got "${raw ?? ""}"`)
+    },
+    scopeError: "gtd: --window is only valid for `gtd context-hook`",
+    valueHint: "<tokens>",
+    help: ["(gtd context-hook only) the model's context window in", "tokens; default 200000"],
   },
   {
     name: "--slice",
@@ -591,6 +633,22 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "landing. The agent CLI and the model each workflow hint",
       "maps to are per-machine settings (GTD_LOOP_* variables, or",
       "~/.config/gtd/loop.json); see docs/driver.md",
+    ],
+  },
+  {
+    token: "context-hook",
+    kind: "contextHook",
+    arity: "none",
+    details: [
+      "A Claude Code PostToolUse and PreCompact hook that stops an",
+      "agent turn at a share of its context window. Reads the",
+      "hook's input on stdin and the context the transcript's",
+      "latest assistant message used. Past --soft it blocks with a",
+      "request to end the turn with a handoff note; past --hard,",
+      "or at PreCompact, it stops the turn with a stopReason",
+      'starting "gtd: context limit". Prints nothing otherwise,',
+      "and for a subagent's tool call. Always exits 0 on valid",
+      "input; see docs/driver.md",
     ],
   },
   {
@@ -1182,6 +1240,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
     readonly "--slice"?: string
+    readonly "--soft"?: number
+    readonly "--hard"?: number
+    readonly "--window"?: number
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1279,6 +1340,20 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         ...(provider !== undefined ? { provider } : {}),
         ...(bag["--answers"] !== undefined ? { answers: bag["--answers"] } : {}),
         ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "contextHook") {
+    return {
+      kind: "command",
+      command: {
+        kind: "contextHook",
+        ...(bag["--soft"] !== undefined ? { soft: bag["--soft"] } : {}),
+        ...(bag["--hard"] !== undefined ? { hard: bag["--hard"] } : {}),
+        ...(bag["--window"] !== undefined ? { window: bag["--window"] } : {}),
       },
       json,
       verbose,

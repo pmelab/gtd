@@ -1,4 +1,5 @@
 import { Either, Schema } from "effect"
+import { parseContextWindow } from "../wire/index.js"
 
 const Agent = Schema.Literal("claude", "pi")
 export type AgentName = typeof Agent.Type
@@ -10,6 +11,8 @@ export interface LoopSettings {
   readonly models: Readonly<Record<string, string>>
   /** Non-empty `GTD_LOOP_MODEL_*` variables, by name; each overrides the hint `modelEnvName` maps onto it. */
   readonly envModels: Readonly<Record<string, string>>
+  /** The agent's context window in tokens; absent, it follows from the model. */
+  readonly contextWindow: number | undefined
 }
 
 // The bundled workflow's hints as Claude Code's own aliases. Only claude gets
@@ -20,6 +23,7 @@ const BUNDLED_HINTS: ReadonlySet<string> = new Set(Object.keys(CLAUDE_MODELS))
 const SettingsFile = Schema.Struct({
   agent: Schema.optional(Agent),
   models: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  contextWindow: Schema.optional(Schema.Int.pipe(Schema.positive())),
 })
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -60,6 +64,14 @@ const decodeAgent = (value: string | undefined): Either.Either<AgentName | undef
         Either.mapLeft(() => `GTD_LOOP_AGENT must be "claude" or "pi" — got "${value}"`),
       )
 
+const decodeWindow = (value: string | undefined): Either.Either<number | undefined, string> => {
+  if (value === undefined || value === "") return Either.right(undefined)
+  const window = parseContextWindow(value)
+  return window !== undefined
+    ? Either.right(window)
+    : Either.left(`GTD_LOOP_CONTEXT_WINDOW must be a positive integer — got "${value}"`)
+}
+
 /** Environment over file over built-in defaults, per key and per hint. */
 export const resolveSettings = (
   env: Env,
@@ -68,6 +80,7 @@ export const resolveSettings = (
   Either.gen(function* () {
     const fromFile = file === undefined ? {} : yield* decodeFile(file.path, file.text)
     const envAgent = yield* decodeAgent(env["GTD_LOOP_AGENT"])
+    const envWindow = yield* decodeWindow(env["GTD_LOOP_CONTEXT_WINDOW"])
     const envModels = Object.fromEntries(
       Object.entries(env).filter(
         (entry): entry is [string, string] =>
@@ -76,7 +89,12 @@ export const resolveSettings = (
     )
     const agent = envAgent ?? fromFile.agent ?? "claude"
     const defaults = agent === "claude" ? CLAUDE_MODELS : {}
-    return { agent, models: { ...defaults, ...fromFile.models }, envModels }
+    return {
+      agent,
+      models: { ...defaults, ...fromFile.models },
+      envModels,
+      contextWindow: envWindow ?? fromFile.contextWindow,
+    }
   })
 
 /**

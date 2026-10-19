@@ -14,6 +14,9 @@ import { personaSpec, resumable } from "./persona"
 import { JUDGE_SYSTEM, judgePrompt, judgeQuestions, judgeRunEnv, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
+import { classicResult, decide, guardOf } from "./context"
+import { contextHook } from "../../src/wire/ContextLimit.js"
+import type { Guard, HookEvent } from "./context"
 import { jobs } from "./jobs"
 import { documents, readDocument } from "./schema"
 import { READ_ONLY_GIT, ship } from "./ship"
@@ -70,6 +73,23 @@ const ours = new Set<string>()
 const accesses = new Map<string, AccessDef>()
 const setAccess = (id: string, a: AccessDef | undefined) =>
   void (a ? accesses.set(id, a) : accesses.delete(id))
+// Each turn agent's context limit, reset with its access; and why a worker
+// was stopped at it, for the turn's end to report.
+const guards = new Map<string, Guard>()
+const contextStops = new Map<string, string>()
+async function workerModel($: $, hint: string | undefined) {
+  return subagentModel(hint, {
+    smart: await $.env.get("GTD_PLANNERMODEL"),
+    base: await $.env.get("GTD_CODERMODEL"),
+  })
+}
+async function setGuard($: $, id: string, t: Pick<Turn, "context" | "model">) {
+  const model = await workerModel($, t.model)
+  const session = model === undefined ? (await $.session.usage()).context.window : undefined
+  const guard = guardOf(t.context, model, await $.env.get("GTD_LOOP_CONTEXT_WINDOW"), session)
+  if (guard) guards.set(id, guard)
+  else guards.delete(id)
+}
 const waiting = new Map<string, (end: TurnEnd) => void>()
 const ended = new Map<string, TurnEnd>()
 const personas = new Set<string>()
@@ -122,6 +142,8 @@ async function send($: $, agentId: string, text: string) {
 async function forget($: $, memory: string, agentId: string) {
   $.ui.log(lostLine(memory.split("#")[0]!))
   accesses.delete(agentId)
+  guards.delete(agentId)
+  contextStops.delete(agentId)
   await update($, scopes, (s) => {
     const rest = { ...s }
     if (rest[memory]?.agentId === agentId) delete rest[memory]
@@ -193,6 +215,7 @@ function io($: $): Io {
       if (t.resume && entry && !known) $.ui.log(restartLine(t.scope))
       if (t.resume && known) {
         setAccess(known, t.access)
+        await setGuard($, known, t)
         const end = send($, known, t.prompt)
         await update($, run, (r) => ({ ...r, inflight: { agentId: known, memory: t.memory } }))
         const ended = await end
@@ -205,16 +228,14 @@ function io($: $): Io {
         subagentType: await persona($, t),
         prompt: t.prompt,
         description: t.label || "gtd",
-        model: subagentModel(t.model, {
-          smart: await $.env.get("GTD_PLANNERMODEL"),
-          base: await $.env.get("GTD_CODERMODEL"),
-        }),
+        model: await workerModel($, t.model),
         cwd: root,
       })
       const id = spawned.agentId
       if (!id) return settle($, { ok: false, why: spawned.deny ?? "subagent spawn refused" })
       ours.add(id)
       setAccess(id, t.access)
+      await setGuard($, id, t)
       await update($, agents, (list) => [...list, id].slice(-200))
       await update($, scopes, (s) => ({ ...s, [t.memory]: { agentId: id, persona: name } }))
       await update($, run, (r) => ({ ...r, inflight: { agentId: id, memory: t.memory } }))
@@ -912,6 +933,40 @@ async function isOurs($: $, id: string) {
   return isWorker
 }
 
+// `gtd context-hook`'s decision for a worker: past its soft limit it is asked
+// for a handoff note; past its hard limit, or about to compact, its task is
+// stopped and its turn ends as a failure carrying the stop reason. Stopped off
+// the hook, which runs inside the worker's own tool call.
+async function stopWorker($: $, id: string, stopReason: string) {
+  if (contextStops.has(id)) return
+  contextStops.set(id, stopReason)
+  $.clock.after(0, () => {
+    void $.tool.call({ tool: "TaskStop", task_id: id }).catch((err: unknown) => {
+      $.ui.log(`gtd could not stop a subagent at its context limit: ${String(err)}`)
+    })
+  })
+}
+
+async function contextGuard($: $, e: HookEvent) {
+  const id = e.agent_id
+  if (!id || !ours.has(id)) return undefined
+  const decision = await decide(e, guards.get(id), async (path) =>
+    (await $.fs.exists(path)) ? $.fs.read(path) : undefined,
+  )
+  if (decision?.kind === "hard") await stopWorker($, id, decision.stopReason)
+  return decision && classicResult(decision)
+}
+
+// A worker's own compaction carries its id here (`classic.PreCompact` is not
+// documented to): compaction about to happen means its limit was missed.
+async function compactGuard($: $, agentId: string | undefined) {
+  if (!agentId || !ours.has(agentId) || !guards.has(agentId)) return undefined
+  const decision = contextHook({ event: "PreCompact", tokens: undefined, ...guards.get(agentId)! })
+  if (decision?.kind !== "hard") return undefined
+  await stopWorker($, agentId, decision.stopReason)
+  return { skip: decision.stopReason }
+}
+
 // What a subagent this mod spawned may not do: write outside its step's
 // access, or, answering into a file, anything but that.
 function subagentDenial(agentId: string, e: Record<string, unknown>) {
@@ -982,8 +1037,13 @@ export const register: Register = (on) => {
       void launchPending($)
     }
     if (e.agentId && ours.has(e.agentId)) {
-      const end: TurnEnd =
-        e.reason === "answer" ? { ok: true } : { ok: false, why: `agent turn ended: ${e.reason}` }
+      const stopped = contextStops.get(e.agentId)
+      contextStops.delete(e.agentId)
+      const end: TurnEnd = stopped
+        ? { ok: false, why: stopped }
+        : e.reason === "answer"
+          ? { ok: true }
+          : { ok: false, why: `agent turn ended: ${e.reason}` }
       delegates.delete(e.agentId)
       const resolve = waiting.get(e.agentId)
       waiting.delete(e.agentId)
@@ -1013,6 +1073,9 @@ export const register: Register = (on) => {
     if (e.tool === "Agent") return next({ ...e, run_in_background: false })
     return next(e)
   })
+
+  on("classic.PostToolUse", async ($, e, next) => (await contextGuard($, e)) ?? next(e))
+  on("session.compact", async ($, e, next) => (await compactGuard($, e.agentId)) ?? next(e))
 
   // A subagent's hand-back arrives as a prompt to the main session, whose model
   // would then act on it. gtd reads the turn's result from git instead.

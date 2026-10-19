@@ -64,6 +64,11 @@ export const liveToolCommands = Layer.effect(
           const { runLoop, liveLoopHost } = await import("./loop/index.js")
           return () => runLoop({ gtd }).pipe(Effect.provide(liveLoopHost))
         }),
+      contextHook: (request) =>
+        lazy("loop", async () => {
+          const { runContextHook, liveLoopHost } = await import("./loop/index.js")
+          return () => runContextHook(request).pipe(Effect.provide(liveLoopHost))
+        }),
       judge: async (request) => {
         const { runJudge } = await import("./judges/index.js").catch((error: unknown) => {
           throw loadFailure("judge")(error)

@@ -1,5 +1,12 @@
 import type { WorkflowBase, Flow, ScopeAccess, Summary } from "../flows/index.js"
-import type { Actor, ContentKind, StateMode, StateName, StepAccess } from "../wire/index.js"
+import type {
+  Actor,
+  ContentKind,
+  StateMode,
+  StateName,
+  StepAccess,
+  StepContextLimit,
+} from "../wire/index.js"
 
 export type { Actor, ContentKind, StateMode, StateName }
 
@@ -44,6 +51,7 @@ export interface StepDef {
   readonly approve?: boolean
   readonly skills?: readonly string[]
   readonly access?: StepAccess
+  readonly context?: StepContextLimit
 }
 
 /**

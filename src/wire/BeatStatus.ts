@@ -5,6 +5,7 @@ import type {
   RenderedDemandSource,
   StateMode,
   StateName,
+  StepContextLimit,
 } from "./types.js"
 
 /** One pending change — `gtd next --json`'s `changes` entries. */
@@ -32,6 +33,7 @@ export interface BeatStatus {
   readonly initial: boolean
   readonly model: string | undefined
   readonly system: string | undefined
+  readonly context: StepContextLimit | undefined
   readonly log: string
   readonly state: StateName
   readonly actor: Actor
@@ -74,6 +76,7 @@ export const statusOf = (input: {
     initial,
     model: rendered.model,
     system: rendered.system !== undefined && rendered.system !== "" ? rendered.system : undefined,
+    context: rendered.context,
     log,
     state: rendered.state,
     actor: rendered.actor,

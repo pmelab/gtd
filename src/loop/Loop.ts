@@ -1,5 +1,12 @@
 import { resolve } from "node:path"
 import { Effect, Either } from "effect"
+import {
+  CONTEXT_LIMIT_MARKER,
+  CONTEXT_STOP_FILE_ENV,
+  DEFAULT_CONTEXT_LIMIT,
+  contextWindowFor,
+  type ContextLimit,
+} from "../wire/index.js"
 import { agentCli, type SessionFlag, type TurnResult } from "./Agent.js"
 import { decodeBeat, decodeLand, type Beat } from "./Documents.js"
 import { LoopHost, type Exit } from "./Host.js"
@@ -112,14 +119,60 @@ const agentFailed = (ctx: Ctx, exit: Exit, result: TurnResult): Effect.Effect<vo
     ].join("\n") + "\n",
   )
 
+const quote = (arg: string): string => `'${arg.replaceAll("'", "'\\''")}'`
+
+// The hook stops the turn from inside; reading the stream is the loop's own
+// stop, for when no hook fired (hooks disabled, one long reply with no tool call).
+const contextGuard = (ctx: Ctx, doc: Beat, model: string | undefined) => {
+  const limit: ContextLimit = { ...DEFAULT_CONTEXT_LIMIT, ...doc.context }
+  const window = ctx.settings.contextWindow ?? contextWindowFor(model)
+  const hook = [...ctx.gtd, "context-hook"]
+    .concat([
+      "--soft",
+      String(limit.soft),
+      "--hard",
+      String(limit.hard),
+      "--window",
+      String(window),
+    ])
+    .map(quote)
+    .join(" ")
+  // Halfway from the hard limit to a full window: the stream shows a message's
+  // usage before its tool runs, and the hook stops cleanly once it has, so a
+  // kill at the hard limit itself would cut that tool off mid-write.
+  const kill = (limit.hard + 1) / 2
+  return { limit, window, hook, kill }
+}
+
+// Why the turn was stopped at its context limit, if it was: the hook's own
+// recorded reason, or the loop's kill. Another hook's `hook_stopped` is not one.
+const contextStop = (
+  ctx: Ctx,
+  exit: Exit,
+  guard: ReturnType<typeof contextGuard>,
+  stopFile: string,
+): Effect.Effect<string | undefined, Error> =>
+  Effect.map(ctx.host.readFile(stopFile), (recorded) => {
+    const reason = recorded?.trim().split("\n")[0]
+    if (reason !== undefined && reason !== "") return reason
+    if (exit.stopped !== true) return undefined
+    return `${CONTEXT_LIMIT_MARKER}: the stream passed ${Math.round(guard.kill * 100)}% of ${guard.window} tokens with no hook stopping it`
+  })
+
 // The prompt goes over stdin, never argv: it embeds a full diff, and argv is
 // capped (~1 MB on macOS, 4 KB guaranteed). A turn that backgrounds a shell
-// command would land while that command is still writing the tree.
+// command would land while that command is still writing the tree. A turn
+// stopped at its context limit fails the beat outright: retrying it, or
+// fixing its validation, would only run into the same limit.
 const agentTurn =
   (ctx: Ctx, doc: Beat, model: string | undefined) =>
   (prompt: string, sessionFlag: SessionFlag): Effect.Effect<TurnResult, Error> =>
     Effect.gen(function* () {
       const cli = agentCli(ctx.settings.agent)
+      const guard = contextGuard(ctx, doc, model)
+      const tokensOf = cli.contextTokens
+      const stopFile = `${ctx.log}.context-stop`
+      yield* ctx.host.resetLog(stopFile)
       const exit = yield* ctx.host.spawn({
         command: cli.command,
         args: cli.args({
@@ -127,14 +180,26 @@ const agentTurn =
           sessionId: doc.session?.id ?? "",
           model,
           system: doc.system,
+          hook: guard.hook,
         }),
         cwd: ctx.root,
         stdin: prompt,
-        env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" },
+        env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", [CONTEXT_STOP_FILE_ENV]: stopFile },
         output: "capture",
+        ...(tokensOf === undefined
+          ? {}
+          : { stopAt: (line) => (tokensOf(line) ?? 0) >= guard.kill * guard.window }),
       })
       const result = cli.read(exit)
       yield* ctx.host.appendLog(ctx.log, `${exit.stderr}${result.text}\n`)
+      const why = yield* contextStop(ctx, exit, guard, stopFile)
+      if (why !== undefined) {
+        return yield* Effect.fail(
+          new Error(
+            `${why} — the turn at "${doc.state}" was stopped and nothing landed; see ${ctx.log}`,
+          ),
+        )
+      }
       if (!result.ok) yield* agentFailed(ctx, exit, result)
       return result
     })

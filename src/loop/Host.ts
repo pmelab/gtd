@@ -20,6 +20,8 @@ interface Spawn {
   readonly env?: Readonly<Record<string, string>>
   /** `log` appends stdout and stderr to that file as they arrive, so `tail -f` follows a long check live. */
   readonly output: "capture" | { readonly log: string }
+  /** Called with each captured stdout line; `true` stops the child's whole process group. */
+  readonly stopAt?: (line: string) => boolean
 }
 
 export interface Exit {
@@ -27,6 +29,8 @@ export interface Exit {
   readonly code: number
   readonly stdout: string
   readonly stderr: string
+  /** Set when `stopAt` stopped the child. */
+  readonly stopped?: true
 }
 
 /** Everything the loop does to the outside world: subprocesses, its log file, and stderr. */
@@ -59,9 +63,37 @@ const spawnLive = (request: Spawn): Effect.Effect<Exit, Error> =>
       stdio: [request.stdin === undefined ? "ignore" : "pipe", logFd ?? "pipe", logFd ?? "pipe"],
       detached: true,
     })
+    const killGroup = (signal: NodeJS.Signals): void => {
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, signal)
+      } catch {
+        // The group is already gone.
+      }
+    }
     let stdout = ""
     let stderr = ""
-    child.stdout?.setEncoding("utf-8").on("data", (chunk: string) => (stdout += chunk))
+    let stopped = false
+    let stopForce: ReturnType<typeof setTimeout> | undefined
+    let scanned = 0
+    child.stdout?.setEncoding("utf-8").on("data", (chunk: string) => {
+      stdout += chunk
+      if (request.stopAt === undefined || stopped) return
+      for (
+        let end = stdout.indexOf("\n", scanned);
+        end !== -1;
+        end = stdout.indexOf("\n", scanned)
+      ) {
+        const line = stdout.slice(scanned, end)
+        scanned = end + 1
+        if (request.stopAt(line)) {
+          stopped = true
+          killGroup("SIGTERM")
+          // A tool that ignores SIGTERM or holds the pipe open must not hang the loop.
+          stopForce = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS)
+          return
+        }
+      }
+    })
     child.stderr?.setEncoding("utf-8").on("data", (chunk: string) => (stderr += chunk))
     // A child that exits before reading all of stdin is not an error of ours.
     child.stdin?.on("error", () => {})
@@ -78,16 +110,10 @@ const spawnLive = (request: Spawn): Effect.Effect<Exit, Error> =>
       settle(Effect.fail(new Error(`could not run ${request.command}: ${error.message}`))),
     )
     child.on("close", (code, signal) => {
+      clearTimeout(stopForce)
       const exit = code ?? 128 + (signal === null ? 0 : (constants.signals[signal] ?? 0))
-      settle(Effect.succeed({ code: exit, stdout, stderr }))
+      settle(Effect.succeed({ code: exit, stdout, stderr, ...(stopped ? { stopped: true } : {}) }))
     })
-    const killGroup = (signal: NodeJS.Signals): void => {
-      try {
-        if (child.pid !== undefined) process.kill(-child.pid, signal)
-      } catch {
-        // The group is already gone.
-      }
-    }
     return Effect.async<void>((done) => {
       if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) {
         killGroup("SIGTERM")

@@ -11,11 +11,13 @@ interface Request {
   readonly stdin?: string
   readonly env?: Readonly<Record<string, string | undefined>>
   readonly output: "capture" | { readonly log: string }
+  readonly stopAt?: (line: string) => boolean
 }
 interface Result {
   readonly code: number
   readonly stdout: string
   readonly stderr: string
+  readonly stopped?: true
 }
 
 const LOG = "/repo/.git/gtd-loop.log"
@@ -45,6 +47,13 @@ const landing = (fields: Record<string, unknown> = {}): string =>
 const envelope = (fields: Record<string, unknown>): string =>
   JSON.stringify({ result: "done", is_error: false, total_cost_usd: 0.1, ...fields })
 
+// The context-limit hook every claude turn runs under, at the default limits.
+const hookSettings = (window = 200000, soft = 0.6, hard = 0.7): string => {
+  const command = `'node' '/gtd.mjs' 'context-hook' '--soft' '${soft}' '--hard' '${hard}' '--window' '${window}'`
+  const hook = [{ hooks: [{ type: "command", command }] }]
+  return JSON.stringify({ hooks: { PostToolUse: hook, PreCompact: hook } })
+}
+
 const prompt = (fields: Record<string, unknown> = {}): string =>
   beat({
     kind: "prompt",
@@ -70,6 +79,7 @@ interface Script {
 
 const fakeHost = (script: Script) => {
   const requests: Request[] = []
+  const files: Record<string, string | undefined> = { ...script.files }
   let log = ""
   let said = ""
   let beats = 0
@@ -104,7 +114,14 @@ const fakeHost = (script: Script) => {
     if (request.command === "git") return ok("/repo\n")
     if (request.command === "node") return gtd(request)
     if (request.command === "sh") return sh(request)
-    return script.agent?.(request) ?? ok(envelope({}))
+    return stopping(request, script.agent?.(request) ?? ok(envelope({})))
+  }
+  // As the live host does: the first stdout line `stopAt` accepts ends the run there.
+  const stopping = (request: Request, result: Result): Result => {
+    const lines = result.stdout.split("\n")
+    const at = request.stopAt === undefined ? -1 : lines.findIndex(request.stopAt)
+    if (at === -1) return result
+    return { code: 143, stdout: lines.slice(0, at + 1).join("\n"), stderr: "", stopped: true }
   }
   const layer = Layer.succeed(LoopHost, {
     env: script.env ?? { HOME: "/home/me" },
@@ -114,10 +131,12 @@ const fakeHost = (script: Script) => {
         requests.push(request)
         return respond(request)
       }),
-    readFile: (path) => Effect.succeed(script.files?.[path]),
+    readFile: (path) => Effect.succeed(files[path]),
+    // Any other file the loop resets lives beside the log, readable through `files`.
     resetLog: (path) =>
       Effect.sync(() => {
-        log = `<reset ${path}>`
+        if (path.endsWith(".context-stop")) files[path] = ""
+        else log = `<reset ${path}>`
       }),
     appendLog: (_path, text) =>
       Effect.sync(() => {
@@ -133,6 +152,7 @@ const fakeHost = (script: Script) => {
   return {
     run,
     requests,
+    files,
     log: () => log,
     said: () => said,
     agentCalls: () => requests.filter((r) => r.command === "claude" || r.command === "pi"),
@@ -169,13 +189,19 @@ describe("runLoop", () => {
       "sid",
       "--model",
       "opus",
+      "--settings",
+      hookSettings(),
       "--output-format",
-      "json",
+      "stream-json",
+      "--verbose",
       "--dangerously-skip-permissions",
     ])
     expect(turn?.stdin).toBe("PLAIN NEXT\n")
     expect(turn?.cwd).toBe("/repo")
-    expect(turn?.env).toEqual({ CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" })
+    expect(turn?.env).toEqual({
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+      GTD_LOOP_CONTEXT_STOP_FILE: `${LOG}.context-stop`,
+    })
     expect(h.landScripts()[0]?.stdin).toBe("echo landed")
     expect(h.landScripts()[0]?.output).toEqual({ log: LOG })
     expect(h.said()).toContain("↳ gtd(agent): s → t")
@@ -373,8 +399,11 @@ describe("runLoop — agent turns", () => {
       "sid",
       "--system-prompt",
       "persona",
+      "--settings",
+      hookSettings(),
       "--output-format",
-      "json",
+      "stream-json",
+      "--verbose",
       "--dangerously-skip-permissions",
     ])
   })
@@ -446,6 +475,124 @@ describe("runLoop — agent turns", () => {
       agent: () => ok(JSON.stringify({ type: "error", message: "boom" })),
     })
     expect(failure(await h.run())).toBe("agent turn failed on both session flags")
+  })
+})
+
+describe("runLoop — context limit", () => {
+  const assistant = (tokens: number, fields: Record<string, unknown> = {}): string =>
+    JSON.stringify({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "m", usage: { input_tokens: 1, cache_read_input_tokens: tokens - 1 } },
+      ...fields,
+    })
+  const settingsOf = (h: ReturnType<typeof fakeHost>): string | undefined => {
+    const args = h.agentCalls()[0]?.args ?? []
+    return args[args.indexOf("--settings") + 1]
+  }
+
+  it("runs the turn under the beat's limits and a window that follows the model", async () => {
+    const h = fakeHost({
+      beats: [prompt({ model: "opus[1m]", context: { soft: 0.4, hard: 0.5 } }), gate()],
+    })
+    await h.run()
+    expect(settingsOf(h)).toBe(hookSettings(1000000, 0.4, 0.5))
+  })
+
+  it("takes the window from GTD_LOOP_CONTEXT_WINDOW over the model", async () => {
+    const h = fakeHost({
+      beats: [prompt({ model: "opus[1m]" }), gate()],
+      env: { HOME: "/home/me", GTD_LOOP_CONTEXT_WINDOW: "500000" },
+    })
+    await h.run()
+    expect(settingsOf(h)).toBe(hookSettings(500000))
+  })
+
+  const hookStop = ok(
+    `${assistant(10)}\n${envelope({ result: "", terminal_reason: "hook_stopped" })}`,
+  )
+
+  it("fails a turn the context hook stopped, without a retry or a landing", async () => {
+    const h: ReturnType<typeof fakeHost> = fakeHost({
+      beats: [prompt()],
+      agent: (request) => {
+        const stopFile = request.env?.["GTD_LOOP_CONTEXT_STOP_FILE"]
+        expect(stopFile).toBe(`${LOG}.context-stop`)
+        h.files[stopFile!] =
+          "gtd: context limit: 140000 of 200000 tokens, past the 70% hard limit\n"
+        return hookStop
+      },
+    })
+    expect(failure(await h.run())).toBe(
+      `gtd: context limit: 140000 of 200000 tokens, past the 70% hard limit — the turn at "working" was stopped and nothing landed; see ${LOG}`,
+    )
+    expect(h.agentCalls()).toHaveLength(1)
+    expect(h.landCalls()).toHaveLength(0)
+  })
+
+  it("treats a turn another hook stopped as an ordinary failed turn", async () => {
+    const h = fakeHost({ beats: [prompt()], agent: () => hookStop })
+    expect(failure(await h.run())).toBe("agent turn failed on both session flags")
+  })
+
+  it("finds an error envelope that carries no result", async () => {
+    const h = fakeHost({
+      beats: [prompt()],
+      agent: () =>
+        ok(JSON.stringify({ type: "result", subtype: "error_max_turns", is_error: true })),
+    })
+    expect(failure(await h.run())).toBe("agent turn failed on both session flags")
+  })
+
+  it("stops a turn itself once the stream passes halfway from the hard limit to a full window", async () => {
+    const h = fakeHost({
+      beats: [prompt()],
+      agent: () => ok([assistant(169_999), assistant(170_000), envelope({})].join("\n")),
+    })
+    expect(failure(await h.run())).toBe(
+      `gtd: context limit: the stream passed 85% of 200000 tokens with no hook stopping it — the turn at "working" was stopped and nothing landed; see ${LOG}`,
+    )
+    expect(h.landCalls()).toHaveLength(0)
+  })
+
+  it("leaves a turn past the hard limit to the hook, which stops it after its tool", async () => {
+    const h = fakeHost({
+      beats: [prompt(), gate()],
+      agent: () => ok([assistant(150_000), envelope({})].join("\n")),
+    })
+    expect(EffectExit.isSuccess(await h.run())).toBe(true)
+  })
+
+  it("fails a turn whose hook recorded a stop, whatever the envelope says", async () => {
+    const h: ReturnType<typeof fakeHost> = fakeHost({
+      beats: [prompt()],
+      agent: (request) => {
+        h.files[request.env!["GTD_LOOP_CONTEXT_STOP_FILE"]!] = "gtd: context limit: x\n"
+        return ok(envelope({}))
+      },
+    })
+    expect(failure(await h.run())).toMatch(/^gtd: context limit: x — the turn at "working"/)
+    expect(h.landCalls()).toHaveLength(0)
+  })
+
+  it("lets a subagent's message past the limit go: its context is its own", async () => {
+    const h = fakeHost({
+      beats: [prompt(), gate()],
+      agent: () =>
+        ok([assistant(190_000, { parent_tool_use_id: "toolu_1" }), envelope({})].join("\n")),
+    })
+    expect(EffectExit.isSuccess(await h.run())).toBe(true)
+    expect(h.landCalls()).toHaveLength(1)
+  })
+
+  it("gives pi no hook: it has none to run", async () => {
+    const h = fakeHost({
+      beats: [prompt(), gate()],
+      env: { GTD_LOOP_AGENT: "pi" },
+      agent: () => ok(""),
+    })
+    await h.run()
+    expect(h.agentCalls()[0]?.args).not.toContain("--settings")
   })
 })
 
