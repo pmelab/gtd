@@ -184,7 +184,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => ({})
       """
     # A naive pass that only adds files is exempt from the judge: it lands.
-    And gtd lands "gtd(agent): seam.naive → implement.building"
+    And a file "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And gtd lands "gtd(agent): seam.naive → seam.check"
+    And gtd lands "gtd(check): seam.check → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"implement.building\""
@@ -841,7 +846,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => ({})
       """
     # A naive pass that only adds files is exempt from the judge: it lands.
-    And gtd lands "gtd(agent): seam.naive → implement.building"
+    And a file "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And gtd lands "gtd(agent): seam.naive → seam.check"
+    And gtd lands "gtd(check): seam.check → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"implement.building\""
@@ -882,7 +892,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => ({})
       """
     # A naive pass that only adds files is exempt from the judge: it lands.
-    And gtd lands "gtd(agent): seam.naive → implement.building"
+    And a file "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And gtd lands "gtd(agent): seam.naive → seam.check"
+    And gtd lands "gtd(check): seam.check → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"implement.building\""

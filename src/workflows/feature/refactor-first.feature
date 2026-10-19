@@ -42,7 +42,12 @@ Feature: a refactor-first judgment walks one fixed path to idle
     And step "design.gate.answer" changes nothing
 
   Scenario: a refactor-first judgment runs refactor, its review, implement and review to idle
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
@@ -141,7 +146,8 @@ Feature: a refactor-first judgment walks one fixed path to idle
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.answer
       gtd(human): design.gate.answer → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → refactor.deriving
       gtd(check): refactor.deriving → refactor.building
       gtd(agent): refactor.building → refactor.health.check
@@ -158,7 +164,7 @@ Feature: a refactor-first judgment walks one fixed path to idle
       gtd(check): build.review.closing → idle
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
-    And the commit "gtd(agent): seam.naive → seam.judge" has a body containing "Gtd-Kept:"
+    And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
     And the commit "gtd(judge): seam.judge → refactor.deriving" has a body containing "\"answer\":\"refactor-first\""
     And no commit body contains "Gtd-Approved:"
     And the output lines of gtd "slices" start with:

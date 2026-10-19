@@ -51,7 +51,12 @@ Feature: the naive pass and seam judge decide how a feature is built
     And step "design.gate.answer" changes nothing
 
   Scenario: a land judgment goes straight to the implementation with no seam gate or refactor
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
@@ -72,12 +77,18 @@ Feature: the naive pass and seam judge decide how a feature is built
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.answer
       gtd(human): design.gate.answer → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → implement.building
       """
 
   Scenario: config skills for the implement scope reach the implement step
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
@@ -91,19 +102,33 @@ Feature: the naive pass and seam judge decide how a feature is built
     And the resting step's content contains "my-tdd, my-runbook"
 
   Scenario: the naive pass lands as a marker commit and its turn stays off the branch
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
       """
     When the process is driven
     Then the process rests at "seam.judge"
-    And the last commit subject is "gtd(agent): seam.naive → seam.judge"
-    And the last commit body contains "Gtd-Kept:"
+    And the commit subjects end with:
+      """
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
+      """
+    And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
     And "src/calc.ts" does not contain "subtract"
 
   Scenario: the implementation is one build turn, a green check, then the requirements are closed out
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
@@ -132,7 +157,12 @@ Feature: the naive pass and seam judge decide how a feature is built
     And ".gtd/REQUIREMENTS.md" does not exist
 
   Scenario: a naive pass modifying a test file and adding a new one skips the judge
-    Given step "seam.naive" writes "src/subtract.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/subtract.ts" with:
       """
       export const subtract = (a: number, b: number) => a - b
       """
@@ -146,11 +176,17 @@ Feature: the naive pass and seam judge decide how a feature is built
     And the commit subjects end with:
       """
       gtd(human): design.gate.answer → seam.naive
-      gtd(agent): seam.naive → implement.building
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → implement.building
       """
 
   Scenario: a naive pass adding a glob-named file does not hide a modified sibling
-    Given step "seam.naive" writes "src/calc*.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc*.ts" with:
       """
       export const subtract = (a: number, b: number) => a - b
       """
@@ -169,7 +205,12 @@ Feature: the naive pass and seam judge decide how a feature is built
     And the resting step's content does not contain "src/calc*.ts"
 
   Scenario: an edit at the steer gate runs the naive pass again with a fresh retry budget
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => b + a
       """
@@ -201,16 +242,24 @@ Feature: the naive pass and seam judge decide how a feature is built
     And the commit subjects end with:
       """
       gtd(human): seam.steer → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → seam.steer
       """
 
   Scenario: a clean landing at the steer gate overrules, with no seam gate and no refactor
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => b + a
       """
@@ -229,7 +278,12 @@ Feature: the naive pass and seam judge decide how a feature is built
       """
 
   Scenario: review feedback after land re-runs design and implement, never the seam phase
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => b + a
       """

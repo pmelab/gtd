@@ -86,6 +86,14 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         - AC-1: `greeting` reads "Hello, world".
         """
       And step "design.gate.answer" changes nothing
+      And step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        it("[AC-2] holds", () => {})
+        it("[AC-3] holds", () => {})
+        it("[AC-7] holds", () => {})
+        """
       And step "seam.naive" writes "src/greeting.ts" with:
         """
         export const greeting = "Hello, world"

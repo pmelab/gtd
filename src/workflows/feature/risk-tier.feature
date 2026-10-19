@@ -146,6 +146,11 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
 
         - AC-1: the change behaves as described.
         """
+      And step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
       And step "seam.naive" writes "src/calc.ts" with:
         """
         export const add = (a: number, b: number) => a + b
@@ -254,6 +259,11 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
+      And step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
       And step "seam.naive" writes "src/calc.ts" with:
         """
         export const add = (a: number, b: number) => a + b

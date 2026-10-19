@@ -42,7 +42,8 @@ export const requireWithin = (allowed: readonly string[]): void => {
 }
 
 // A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
-const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
+export const isTestFile = (path: string): boolean =>
+  testFileGlobs.some((glob) => matches(path, glob))
 
 // The bundled refactor uses `requireTestCallSitesOnly`; this stays a public export.
 export const requireNoTestFiles = (): void => {

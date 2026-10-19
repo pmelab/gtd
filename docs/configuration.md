@@ -730,19 +730,34 @@ The `feature` workflow's path while
 [`flagMode`](#the-bundled-workflows-settings) is on (the default); off, design
 goes straight to `implement.*`. After design it runs, in order:
 
-1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly; the turn
-   is a [kept tip](#kept-tips), not landed on the branch.
-2. `seam.judge` — a judge rules on the shape of that diff (see
+1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly,
+   breadth-first, with behaviour-level acceptance tests; the turn is a
+   [kept tip](#kept-tips), not landed on the branch. `gtd land` refuses a pass
+   whose added or changed test files (the fixed list `**/*.test.*`,
+   `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**`,
+   `**/__tests__/**`) leave an `AC-<n>` of `.gtd/REQUIREMENTS.md` unnamed
+   (`acceptance-tests`; any mention counts, `[AC-3] …` in the test name is the
+   convention), or that import a non-test file the pass added
+   (`acceptance-internals`: a quoted relative specifier resolved from the test's
+   directory, or an aliased or root-relative one matching the path's end; a
+   computed import goes unseen, and `.feature` and `.snap` files are not read
+   for imports).
+2. `seam.check` — runs [`testCommand`](#the-bundled-workflows-settings) with the
+   kept pass applied to the tree, then takes it out again. Red writes
+   `.gtd/FEEDBACK.md` and runs `seam.naive` again, told to pick the last attempt
+   up and fix it; green goes on.
+3. `seam.judge` — a judge rules on the shape of that diff (see
    [Judges](#judges)): `land`, `refactor-first` or `reject`.
-3. `land` goes straight to `implement.*`. `refactor-first` runs the refactor and
+4. `land` goes straight to `implement.*`. `refactor-first` runs the refactor and
    its review as the `refactor` slice: `refactor.*`, then the refactor's quality
    lap (`refactor.build.quality.<lens>`, one per
    [`refactorQualityReviews`](#the-bundled-workflows-settings) lens) and a human
    review (`refactor.build.review.*`). The review's sign-off is the approval; no
    `Gtd-Approved:` trailer is recorded. Strays whose content cannot be read rest
    at `seam.by-hand`, with no refactor slice; a clean `gtd land` continues.
-   `reject` discards the pass and runs `seam.naive` again, twice at most.
-4. `implement.*` — one build turn that reads the kept pass as material only,
+   `reject` discards the pass and runs `seam.naive` again. Rejects and red
+   checks share one budget: two retries, then `seam.steer`.
+5. `implement.*` — one build turn that reads the kept pass as material only,
    then the health loop (`implement.health.*`, `implement.fix.suite.fixing`) and
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
    for a new release flag. The feature review (`build.quality.<lens>`,
@@ -752,13 +767,13 @@ goes straight to `implement.*`. After design it runs, in order:
    has its feature review cover the whole change from the process start,
    refactor included.
 
-Every verdict wraps steps 4 and the feature review in the `feature` slice
+Every verdict wraps step 5 and the feature review in the `feature` slice
 (`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
 The feature review covers the feature slice only: on `refactor-first`,
 everything since the refactor's sign-off. Each slice's quality lap reviews from
 that slice's own base too: the refactor's from its entry commit, the feature's
 from the refactor's sign-off, on every lap including after a feedback lap. The
-one exception is a feature slice that changed no code (step 4): its first review
+one exception is a feature slice that changed no code (step 5): its first review
 and every quality lap cover the whole change from the process start. Feedback at
 a review, whatever the verdict, re-runs design and `implement.*` — including the
 feedback lap of a custom workflow ending in `afterTail`, which is design →
@@ -827,13 +842,22 @@ missing or unreadable tier means `high`. The design gate's landing records
 `Gtd-Mark: risk-tier=<low|high>` and one `Gtd-Mark: production-signal=…` per
 signal; no step is added.
 
-A third `reject` rests at `seam.steer`. Two ways forward, then `gtd land`:
+A third failed attempt — a `reject` or a red `seam.check` — rests at
+`seam.steer`. Two ways forward, then `gtd land`:
 
 - **Steer** — edit `.gtd/REQUIREMENTS.md`; `seam.naive` runs again with a fresh
   retry budget. An edit together with an approval counts as steer.
-- **Overrule** — land a clean tree. The implementation is built against the last
-  attempt with no refactor. **Overrule ships the seam the judge objected to**,
-  unaddressed; the choice is recorded in history.
+- **Overrule** — land a clean tree. After a `reject` the implementation is built
+  against the last attempt with no refactor: **overrule ships the seam the judge
+  objected to**, unaddressed. After a red check the last attempt goes on to
+  `seam.judge` as it is: **its acceptance tests never passed**, and only the
+  implementation's health loop makes the suite green. The choice is recorded in
+  history.
+
+**Upgrading:** finish or `gtd abandon` any process that has landed a
+`seam.naive` turn: replay now expects `seam.check` after it, and re-checks the
+turn's acceptance tests. One resting at `seam.naive` or earlier keeps replaying;
+its next naive turn needs ID-tagged tests.
 
 The [`seamAllow`](#the-bundled-workflows-settings) setting is the judge's
 allowlist. `GTD_FLAG_RISK_TIER` is recorded as `flag_risk_tier` when a process
@@ -1639,9 +1663,9 @@ that reflows the steering file changes which branch the flow takes next.
 Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 **Environment settings:**
 
-- **`testCommand`** (`npm test`) — the suite every health check and baseline
-  gate runs. It is interpolated into a POSIX `sh` script, so keep it
-  sh-compatible.
+- **`testCommand`** (`npm test`) — the suite every health check, `seam.check`
+  and baseline gate runs. It is interpolated into a POSIX `sh` script, so keep
+  it sh-compatible.
 - **`plannerModel`** (`smart`) / **`coderModel`** (`base`) — the `model` hints
   of the planning/reviewing steps (design triage, the review, the `correctness`,
   `owasp-security` and `spec-challenge` lenses) and of the building/fixing steps

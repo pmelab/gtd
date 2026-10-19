@@ -8,7 +8,14 @@ import {
 } from "../../flows/index.js"
 import { globMatches } from "../../wire/index.js"
 import { fixtureContext } from "../shared/text.fixture.js"
-import { implement, judgeSeam, naivePass, seamBuild, type SeamOutcome } from "./seam.js"
+import {
+  implement,
+  judgeSeam,
+  naivePass,
+  requireAcceptanceTests,
+  seamBuild,
+  type SeamOutcome,
+} from "./seam.js"
 import { captureStep } from "../shared/text.fixture.js"
 
 afterEach(() => installContext(undefined))
@@ -98,6 +105,91 @@ describe("naivePass", () => {
   })
 })
 
+describe("requireAcceptanceTests", () => {
+  const requirements = "# R\n\n## Acceptance Criteria\n\n- AC-1: adds.\n- AC-2: subtracts.\n"
+  const file = (path: string, status: Change["status"], after: string): Change => ({
+    path,
+    status,
+    before: status === "added" ? undefined : "",
+    after,
+  })
+  const refusal = (...changes: Change[]): string | undefined => {
+    installContext({
+      ...fixtureContext({}),
+      matches: globMatches,
+      read: (path: string) => (path === ".gtd/REQUIREMENTS.md" ? requirements : undefined),
+      refuse: (message: string) => {
+        throw new Error(message)
+      },
+    } as unknown as FlowContext)
+    try {
+      requireAcceptanceTests(".gtd/REQUIREMENTS.md", tip(...changes))
+      return undefined
+    } catch (error) {
+      return (error as Error).message
+    }
+  }
+  const tagged = 'import { add } from "../src/calc.js"\nit("[AC-1] adds")\nit("[AC-2] subtracts")'
+
+  it("passes when every ID is named in a test the pass wrote", () => {
+    expect(
+      refusal(file("src/calc.ts", "modified", "x"), file("tests/calc.test.ts", "added", tagged)),
+    ).toBe(undefined)
+  })
+
+  it("names every ID no test of the pass mentions", () => {
+    const message = refusal(file("tests/calc.test.ts", "added", 'it("[AC-12] x")'))
+    expect(message).toMatch(/^gtd land: acceptance-tests: /)
+    expect(message).toContain("AC-1, AC-2")
+  })
+
+  it("does not count an ID in a non-test file", () => {
+    expect(refusal(file("src/calc.ts", "modified", "AC-1 AC-2"))).toContain("AC-1, AC-2")
+  })
+
+  it("refuses a test importing a file the pass added, resolved from the test's directory", () => {
+    const message = refusal(
+      file("src/naive/helper.ts", "added", "export const h = 1"),
+      file("src/naive/helper.test.ts", "added", `import { h } from "./helper.js"\n${tagged}`),
+    )
+    expect(message).toMatch(/^gtd land: acceptance-internals: /)
+    expect(message).toContain("src/naive/helper.test.ts → src/naive/helper.ts")
+  })
+
+  it("refuses an aliased or directory import of an added module", () => {
+    const added = file("src/naive/index.ts", "added", "")
+    expect(
+      refusal(added, file("tests/a.test.ts", "added", `import "@/naive"\n${tagged}`)),
+    ).toContain("acceptance-internals")
+    expect(
+      refusal(added, file("tests/a.test.ts", "added", `import "../src/naive/index.js"\n${tagged}`)),
+    ).toContain("acceptance-internals")
+  })
+
+  it("reads no import out of a .feature file", () => {
+    expect(
+      refusal(
+        file("src/subtract.ts", "added", ""),
+        file("features/calc.feature", "added", `Given a file "src/subtract.ts"\n${tagged}`),
+      ),
+    ).toBe(undefined)
+  })
+
+  it("lets a test reach an existing module, a same-named file elsewhere, or a URL", () => {
+    expect(
+      refusal(
+        file("src/naive/api.ts", "added", ""),
+        file("src/calc.ts", "modified", ""),
+        file(
+          "tests/a.test.ts",
+          "added",
+          `import "../src/calc.js"\nimport "./api.js"\nfetch("https://x/api")\n${tagged}`,
+        ),
+      ),
+    ).toBe(undefined)
+  })
+})
+
 const REVIEW = ".gtd/REVIEW.md"
 const REFACTOR = ".gtd/REFACTOR.md"
 const reviewDoc = [
@@ -124,7 +216,10 @@ const driveSeam = async (
   answer: string,
   stray: Change = change("src/a.ts", "modified"),
   vars: Record<string, string> = {},
+  reds = 0,
 ): Promise<Seamed> => {
+  let red = false
+  let redsLeft = reds
   const names: string[] = []
   const slices: string[] = []
   const inside: Record<string, string[]> = {}
@@ -158,11 +253,12 @@ const driveSeam = async (
     read: (path: string) => files.get(path),
     head: () => current,
     kept: () => tip(stray),
-    changes: () => [],
+    changes: () => (red ? [change(".gtd/FEEDBACK.md", "added")] : []),
     changesSince: () => [],
     step: (request: StepRequest) => {
       if (request.kind === "restart") return Promise.resolve()
       const full = [...stack, request.name].join(".")
+      red = full === "seam.check" && redsLeft-- > 0
       names.push(full)
       for (const name of open) inside[name]!.push(full)
       effects[request.name]?.()
@@ -185,7 +281,27 @@ describe("seamBuild", () => {
     const h = await driveSeam("land")
     expect(h.outcome).toEqual({ reference: "abc", base: "c-base" })
     expect(h.slices).toEqual([])
-    expect(h.names).toEqual(["seam.naive", "seam.judge"])
+    expect(h.names).toEqual(["seam.naive", "seam.check", "seam.judge"])
+  })
+
+  it("a red check retries the pass, and the judge sees it only once green", async () => {
+    const h = await driveSeam("land", undefined, {}, 1)
+    expect(h.names).toEqual(["seam.naive", "seam.check", "seam.naive", "seam.check", "seam.judge"])
+  })
+
+  it("a third red rests at seam.steer, and a clean landing there takes the red pass to the judge", async () => {
+    const h = await driveSeam("land", undefined, {}, 3)
+    expect(h.names).toEqual([
+      "seam.naive",
+      "seam.check",
+      "seam.naive",
+      "seam.check",
+      "seam.naive",
+      "seam.check",
+      "seam.steer",
+      "seam.judge",
+    ])
+    expect(h.outcome).toEqual({ reference: "abc", base: "c-base" })
   })
 
   it("refactor-first runs the reviewed refactor in slice refactor and resolves HEAD after it", async () => {

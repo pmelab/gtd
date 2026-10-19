@@ -57,7 +57,12 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
     Then the process rests at "seam.naive"
     And the last commit subject is "gtd(human): design.gate.answer → seam.naive"
 
-    Given step "seam.naive" writes "src/greeting.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/greeting.ts" with:
       """
       export const greeting = "Hello, world"
       """
@@ -99,7 +104,8 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.answer
       gtd(human): design.gate.answer → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing

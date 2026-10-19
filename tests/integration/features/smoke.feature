@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   dedicated feature files — see refusals.feature, default-workflow.feature,
   retry.feature.
 
-  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.answer -> seam.naive -> seam.judge -> implement.building -> implement.health.check
+  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.answer -> seam.naive -> seam.check -> seam.judge -> implement.building -> implement.health.check
     Given a test project
     And the workflow gtd install scaffolds
     And a file "src/feature.ts" with:
@@ -51,9 +51,17 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       """
       # test project, with a feature
       """
+    And a file "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): seam.naive → seam.judge"
+    And the last commit subject is "gtd(agent): seam.naive → seam.check"
+    # seam.check: the suite runs with the kept pass applied; clean is green.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): seam.check → seam.judge"
     Given a file "answers.json" with:
       """
       [{"id":"shape","answer":"land","p":0.9}]
