@@ -17,6 +17,7 @@ import { catchFrom, throwTo } from "./handoff"
 import { jobs } from "./jobs"
 import { documents, readDocument } from "./schema"
 import { READ_ONLY_GIT, ship } from "./ship"
+import { withRequirements } from "./sketch"
 import type { Shipped, ShipIo } from "./ship"
 import { collectAnswer } from "./delegate"
 import { decideCommand, decideContinue, decideJob, restId, TOOLS } from "./tools"
@@ -331,7 +332,8 @@ async function begin($: $, requirements: string) {
   const file = b.file ?? ".gtd/TODO.md"
   const path = `${root}/${file}`
   await $.process.run(["mkdir", "-p", path.slice(0, path.lastIndexOf("/"))])
-  await $.fs.write(path, requirements + "\n")
+  const existing = (await $.fs.exists(path)) ? await $.fs.read(path) : ""
+  await $.fs.write(path, withRequirements(existing, requirements))
   await start($)
   return `Started a new gtd process from ${file}.`
 }

@@ -285,8 +285,9 @@ To try a checkout instead, build it (`npm run build`) and load the repository
 for one session: `claude --plugin-dir /path/to/gtd`. A checkout without a build
 falls back to the `gtd` on your `PATH`.
 
-- `/gtd <requirements>` starts a new process: the requirements become the
-  steering file the idle rest names (`.gtd/TODO.md`), and the opening beat
+- `/gtd <requirements>` starts a new process: the requirements are written to
+  the top of the steering file the idle rest names (`.gtd/TODO.md`), above
+  whatever it already holds — deferred review notes stay — and the opening beat
   captures them. It refuses while another process is underway. A long,
   multi-line paste works too; if Claude Code did not expand it, the mod says it
   could not read it: write the requirements to `.gtd/TODO.md` and run `/gtd`.
