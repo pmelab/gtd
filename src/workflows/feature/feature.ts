@@ -43,7 +43,11 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
     ? await seamBuild(firstBase)
     : { base: firstBase }
   await slice("feature", async () => {
-    await implement({ reference: seam.reference, tier, afterRefactor: seam.refactored })
+    await implement({
+      reference: seam.reference,
+      tier,
+      afterRefactor: seam.refactored,
+    })
     // An empty feature slice: the refactor carried the feature, so the lap covers the whole change.
     const base =
       seam.refactored === true && !changesSince(seam.base).some((c) => isCode(c.path))

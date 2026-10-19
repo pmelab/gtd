@@ -18,10 +18,10 @@ import {
   type DiffShapeResult,
   type KeptTip,
 } from "../../flows/index.js"
-import { healthy } from "../shared/health.js"
 import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
+import { green, requireCoverage } from "./coverage.js"
 import { criteriaOf, requireCriteria, requireCriteriaFrozen } from "./criteria.js"
 import {
   COMMENT,
@@ -203,16 +203,8 @@ export function implement(
       },
     )
     requireCriteriaFrozen(REQUIREMENTS)
-    await healthy(
-      () =>
-        t.agentWithSkills("fix.suite.fixing", t.implementFixPrompt(), {
-          label: "Fixing the check",
-          file: FEEDBACK,
-          model: coder(),
-          system: t.builderSystem(),
-        }),
-      { guard: () => requireCriteriaFrozen(REQUIREMENTS), guardRests: false },
-    )
+    await green()
+    await requireCoverage()
     await run("closing", removeScript([REQUIREMENTS]), { label: "Closing out the implementation" })
   })
 }

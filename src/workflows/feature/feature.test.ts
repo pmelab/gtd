@@ -154,6 +154,7 @@ describe("afterTail feedback lap", () => {
         state === "build.review.await-review" || state === "idle"
           ? undefined
           : (beat, r) => {
+              if (state === "implement.coverage") return '[{"id":"AC-1","answer":"yes","p":0.9}]'
               if (state === "build.review.reviewing") {
                 prompts.push(beat.content)
                 r.write(".gtd/REVIEW.md", review())

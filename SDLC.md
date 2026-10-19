@@ -33,6 +33,17 @@ gate. See [The naive-pass path](docs/configuration.md#the-naive-pass-path).
 The third reject, test fault or red check rests at `seam.steer`, where a human
 steers or overrules.
 
+## Acceptance-criteria coverage
+
+**A feature is done only when every `AC-<n>` has a passing test.** Once the
+implementation's suite is green, `implement.coverage` judges, per criterion ID,
+whether a test file the change touched covers it; an uncovered ID sends the
+process back to a covering turn, never on to idle. The judge's landing records
+`Gtd-Mark: covers=<id>` per ID. After two covering turns `implement.uncovered`
+rests for a human, who adds tests or overrules; an overrule records
+`Gtd-Mark: uncovered=<id>`. See
+[Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
+
 ## Human gates
 
 Each gate is a point where a person must act before work continues.
@@ -105,6 +116,8 @@ Each path has a `.feature` file:
 - [`src/workflows/feature/naive-acceptance.feature`](src/workflows/feature/naive-acceptance.feature):
   the naive pass's acceptance tests, sent back until they name every criterion
   and pass
+- [`src/workflows/feature/coverage.feature`](src/workflows/feature/coverage.feature):
+  the coverage judge, its covering turns and the human overrule
 - [`src/workflows/feature/fast-path.feature`](src/workflows/feature/fast-path.feature):
   a trivial fix takes the same few beats at either risk tier
 
@@ -122,6 +135,11 @@ Paths and text are checked, **never behaviour**.
   (`acceptance-internals`). See
   [The naive-pass path](docs/configuration.md#the-naive-pass-path). `seam.check`
   is the one place the naive pass's behaviour is run.
+- `implement.coverage` sends uncovered criteria back, not refused. **Its judge
+  reads test text and runs nothing**: a `covers` mark means a judge found a
+  matching test in a green suite, not that the test checks the criterion well.
+  An overrule at `implement.uncovered` ends the feature with the IDs it leaves
+  uncovered recorded as `uncovered` marks.
 - `seam.judge` judges the shape of the naive pass. The implementation turn that
   lands is not re-judged or scoped, and **in `feature` no human looks at the
   full diff** — only the quality lap does, unless someone opens the `review`

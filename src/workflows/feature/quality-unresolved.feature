@@ -44,6 +44,10 @@ Feature: quality findings left unresolved hold a feature process short of idle
       """
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
+    And judge step "implement.coverage" answers:
+      """
+      [{"id":"AC-1","answer":"yes","p":0.9}]
+      """
 
   Scenario: findings the fix cap left unresolved rest at build.quality-unresolved
     Given step "build.quality.correctness.reviewing" writes ".gtd/QUALITY.md" with:
