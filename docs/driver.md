@@ -379,13 +379,17 @@ falls back to the `gtd` on your `PATH`.
   commit message (from `gtd summary --slice=<name>`) and the pull-request text;
   nothing reviews them before they are published. Ship refuses while the process
   is still underway. The commit message keeps a `BREAKING CHANGE:` footer when
-  the change is breaking, and the writer may run only read-only `git` commands
-  and write only its own answer, since it reads commit messages anyone on the
-  branch wrote. `/gtd ship -n` prints each slice's commit message and what would
-  happen to its pull request, and writes nothing. It needs `gh`, a clean tree,
-  and a branch other than the default. When a process finishes on such a branch,
-  Claude offers to open the pull request. On a thrown draft, ship writes the
-  title and description properly and marks the pull request ready for review.
+  the change is breaking, and the last slice's a `Closes #N` footer when the
+  process was started for an issue (its capture or `.gtd/REQUIREMENTS.md` names
+  it); a new pull request's description repeats every `Closes`, `Fixes` or
+  `Resolves #N` line its commits carry, so the top pull request links the issue.
+  The writer may run only read-only `git` commands and write only its own
+  answer, since it reads commit messages anyone on the branch wrote.
+  `/gtd ship -n` prints each slice's commit message and what would happen to its
+  pull request, and writes nothing. It needs `gh`, a clean tree, and a branch
+  other than the default. When a process finishes on such a branch, Claude
+  offers to open the pull request. On a thrown draft, ship writes the title and
+  description properly and marks the pull request ready for review.
   `GTD_SHIP_MODE` picks how a multi-slice process ships: `stack` (the default)
   puts each slice's commit on its own branch, `<branch>-<slice>` (the last slice
   keeps `<branch>`), and opens one pull request per slice, each on the one below

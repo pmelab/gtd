@@ -12,6 +12,7 @@ import {
   shipMode,
   stackLine,
   THROWN,
+  withCloses,
 } from "./ship"
 import type { Ran, ShipIo, Shipped } from "./ship"
 
@@ -513,6 +514,31 @@ describe("ship", () => {
     expect(calls.find((c) => c.argv.startsWith("gh pr create"))?.stdin).toBe(
       "## Motivation\n\ntext\n",
     )
+  })
+
+  test("carries the issue a commit closes into the pull-request body", async () => {
+    const { io, calls } = repo(
+      {
+        ...feature,
+        [`git log --no-merges --reverse --format=%H%n%B%n--- ${"m".repeat(40)}..HEAD`]: {
+          out: `${TIP}\nfeat: add x\n\nwhy\n\nCloses #384\n---\n`,
+        },
+      },
+      ["feat: add x\n\nwhy\n\nCloses #384", "feat: add x\n\n## Motivation\n\ntext"],
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(calls.find((c) => c.argv.startsWith("gh pr create"))?.stdin).toBe(
+      "## Motivation\n\ntext\n\nCloses #384\n",
+    )
+  })
+
+  test("adds each closed issue once, and none the body already closes", () => {
+    const log = "a\n\nFixes #1\nresolves o/r#2\n---\nb\n\nCloses #1\nCloses #3\nsee #4\n---\n"
+    expect(withCloses("text\n\ncloses #3\n", log)).toBe(
+      "text\n\ncloses #3\n\nCloses #1\nCloses o/r#2",
+    )
+    expect(withCloses("text", "a\n\nmentions #9 in prose\n")).toBe("text")
+    expect(withCloses("", "Closes #5")).toBe("Closes #5")
   })
 
   test("a dirty tree is refused before anything is paid for", async () => {

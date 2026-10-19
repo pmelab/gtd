@@ -205,6 +205,56 @@ Feature: gtd summary --slice — the closing-message prompt for one slice
     And stdout contains "Production signals"
     And stdout contains "- `error rate`"
 
+  Scenario: only the last slice and the whole process are asked to close the issue
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, slice } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await slice("build", async () => {
+          await agent("building", "build it")
+        })
+        await human("gate", { message: "confirm before verifying" })
+        await slice("verify", async () => {
+          await agent("checking", "check it")
+        })
+      }
+
+      export { summary } from "@pmelab/gtd/workflows"
+      """
+    And the working tree is committed as "chore: gtd config"
+    And a file "NOTE.md" with:
+      """
+      Implement #384.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And a file "a.txt" with:
+      """
+      a
+      """
+    And gtd lands "gtd(agent): building → gate"
+    And a file "b.txt" with:
+      """
+      b
+      """
+    And gtd lands "gtd(human): gate → checking"
+    And a file "c.txt" with:
+      """
+      c
+      """
+    And gtd lands "gtd(agent): checking → idle"
+    When I run gtd with args "summary --slice build"
+    Then it succeeds
+    And stdout does not contain "Closes #N"
+    When I run gtd with args "summary --slice verify"
+    Then it succeeds
+    And stdout contains "end the message with a literal `Closes #N` footer per issue"
+    When I run gtd with args "summary"
+    Then it succeeds
+    And stdout contains "end the message with a literal `Closes #N` footer per issue"
+
   Scenario: a custom summary export receives slice under --slice and none on plain, entryCommit and marks whole-process
     Given a test project
     And a gtd config file at "gtd.config.ts" with:

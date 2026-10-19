@@ -116,10 +116,12 @@ in a terminal. Plain prose is the right answer too when there is no shape to
 draw; then keep it to a paragraph, wrapped at 72 columns.
 
 No markdown headings, no code fences, no bullet list of changed files, no
-sign-off, and no footer trailers except one: when the instructions above
+sign-off, and no footer trailers except two: when the instructions above
 say the change is breaking, end with a literal 'BREAKING CHANGE: <what
 breaks>' footer after a blank line. The release tooling reads only that
-footer, so a breaking change without it is never released as one.
+footer, so a breaking change without it is never released as one. And when
+the instructions above ask for a 'Closes #N' footer, end with it too — the
+pull request is linked to its issue only through that line.
 
 NOTHING REVIEWS THIS BEFORE IT IS COMMITTED — no editor opens on it. What you
 print is the commit message verbatim.
@@ -1863,6 +1865,20 @@ export const THROWN = "<!-- gtd:thrown -->"
 // unstacked: this run took the PR off a stack, so nothing new is still a success.
 type Ctx = { from: string; to: string; stacked?: boolean; below?: number; unstacked?: boolean }
 
+const CLOSING =
+  /^\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+((?:[\w.-]+\/[\w.-]+)?#\d+)\s*$/gim
+
+// The description prompt forbids footers, so the issues the commits close are
+// carried over here: a PR body without the keyword never links its issue.
+export function withCloses(body: string, log: string) {
+  const has = new Set([...body.matchAll(CLOSING)].map((m) => m[1]!.toLowerCase()))
+  const add = [...new Set([...log.matchAll(CLOSING)].map((m) => m[1]!))].filter(
+    (ref) => !has.has(ref.toLowerCase()),
+  )
+  if (!add.length) return body
+  return [body.trimEnd(), add.map((ref) => `Closes ${ref}`).join("\n")].filter(Boolean).join("\n\n")
+}
+
 async function createPr(
   io: ShipIo,
   git: Git,
@@ -1877,6 +1893,13 @@ async function createPr(
     thrown
       ? `#${thrown.number} was thrown as a draft: describing ${count} commit(s) properly…`
       : `No pull request for ${branch} yet: describing ${count} commit(s)…`,
+  )
+  const log = await git(
+    "log",
+    "--no-merges",
+    "--reverse",
+    "--format=%H%n%B%n---",
+    `${mergeBase}..${to}`,
   )
   const prompt = `Write the title and description for a pull request, from the commits below.
 
@@ -1903,7 +1926,7 @@ Print the title and description and nothing else — no preamble, and no code
 fence wrapped around the whole reply.
 
 --- COMMITS ON ${branch} (against ${baseRef}), oldest first ---
-${await git("log", "--no-merges", "--reverse", "--format=%H%n%B%n---", `${mergeBase}..${to}`)}
+${log}
 
 --- DIFF STAT ---
 ${await git("diff", "--stat", `${mergeBase}..${to}`)}`
@@ -1915,7 +1938,7 @@ ${await git("diff", "--stat", `${mergeBase}..${to}`)}`
   // a reply shaped like the title it was asked for.
   if (!TITLE.test(title))
     return fail(`The pull-request turn returned no usable title: ${title.slice(0, 120)}`)
-  const written = rest.join("\n").replace(/^\s*\n/, "")
+  const written = withCloses(rest.join("\n").replace(/^\s*\n/, ""), log)
   const body = stacked ? stackLine(written, below) : written
   const head = await git("rev-parse", to)
   if (thrown) {
