@@ -532,6 +532,97 @@ describe("ship", () => {
     )
   })
 
+  describe("a closed pull request of an earlier ship", () => {
+    const LS = "git ls-remote origin refs/heads/feat/x"
+    const KEY = "branch.feat/x.gtdAbandonedPr"
+    const closed = (ls: string): Record<string, Scripted> => ({
+      ...feature,
+      "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
+        out: JSON.stringify({
+          number: 4,
+          body: "old",
+          url: "https://github.com/o/r/pull/4",
+          state: "CLOSED",
+        }),
+      },
+      [LS]: { out: ls },
+    })
+    const held = `${TIP}\trefs/heads/feat/x\n`
+    const writers = () => ["feat: add x", "feat: add x\n\nbody"]
+    const opened = (ran: () => string[]) => ran().some((c) => c.startsWith("gh pr create"))
+
+    test("is ignored when origin lost the branch: recorded, then pushed past a stale tracking ref", async () => {
+      const { io, ran } = repo(
+        { ...closed(""), "git rev-parse --verify --quiet origin/feat/x": { code: 0 } },
+        writers(),
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      const at = (c: string) => ran().indexOf(c)
+      expect(at(`git config --local ${KEY} 4`)).toBeGreaterThan(-1)
+      expect(at("git push --set-upstream origin feat/x")).toBeGreaterThan(
+        at(`git config --local ${KEY} 4`),
+      )
+      expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+      expect(opened(ran)).toBe(true)
+    })
+
+    test("stays ignored on a retry once ship pushed the branch again", async () => {
+      const { io, ran } = repo(
+        { ...closed(held), [`git config --local --get ${KEY}`]: { out: "4\n" } },
+        writers(),
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(opened(ran)).toBe(true)
+      expect(ran().some((c) => c.startsWith("gh pr edit"))).toBe(false)
+    })
+
+    test("a retry after a failed push still pushes past the stale tracking ref", async () => {
+      const { io, ran } = repo(
+        {
+          ...closed(""),
+          [`git config --local --get ${KEY}`]: { out: "4\n" },
+          "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+        },
+        writers(),
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran()).toContain("git push --set-upstream origin feat/x")
+      expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+    })
+
+    test("the record is dropped once the new pull request opens", async () => {
+      const { io, ran } = repo(closed(""), writers())
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      const create = ran().findIndex((c) => c.startsWith("gh pr create"))
+      expect(ran().indexOf(`git config --local --unset ${KEY}`)).toBeGreaterThan(create)
+    })
+
+    test("refuses while origin still has the branch", async () => {
+      const { io, ran } = repo(closed(held), writers())
+      const out = await ship(io, false)
+      expect(out).toMatchObject({ ok: false, text: expect.stringContaining("CLOSED, not open") })
+      expect(opened(ran)).toBe(false)
+    })
+
+    test("refuses when ls-remote fails", async () => {
+      const { io, ran } = repo({ ...closed(""), [LS]: { code: 128, err: "offline" } }, writers())
+      expect(await ship(io, false)).toMatchObject({ ok: false })
+      expect(opened(ran)).toBe(false)
+    })
+
+    test("refuses, unpushed, when the record cannot be written", async () => {
+      const { io, ran } = repo(
+        { ...closed(""), [`git config --local ${KEY} 4`]: { code: 1, err: "locked" } },
+        writers(),
+      )
+      expect(await ship(io, false)).toMatchObject({
+        ok: false,
+        text: expect.stringContaining("locked"),
+      })
+      expect(ran().some((c) => c.startsWith("git push --set-upstream origin feat/x"))).toBe(false)
+    })
+  })
+
   test("an open pull request gains the issue new commits close, even with NO-UPDATE", async () => {
     const pr = { number: 7, body: "standing", url: "https://github.com/o/r/pull/7", state: "OPEN" }
     const M = "m".repeat(40)
@@ -1171,6 +1262,14 @@ describe("ship stack", () => {
       ...over,
     }),
   })
+  const onOrigin = (b: string) => ({
+    [`git ls-remote origin refs/heads/${b}`]: { out: `${C1}\trefs/heads/${b}\n` },
+  })
+  // a closed PR whose branch origin still has: not abandoned
+  const kept = (b: string, n: number) => ({
+    ...onOrigin(b),
+    [view(b)]: pr(n, { state: "CLOSED" }),
+  })
   const sbase: Record<string, Scripted> = {
     ...feature,
     "git rev-parse HEAD": { out: C },
@@ -1283,6 +1382,7 @@ describe("ship stack", () => {
       const { io, ran } = repo(
         {
           ...sbase,
+          ...onOrigin("feat/x-refactor"),
           [view("feat/x-refactor")]: pr(5, { state }),
           "gtd history list --json": { out: JSON.stringify([entry(ENTRY, C)]) },
         },
@@ -1295,6 +1395,40 @@ describe("ship stack", () => {
       expect(ran().some((c) => mutating.test(c))).toBe(false)
     },
   )
+
+  test("a closed slice PR whose branch origin no longer has is ignored: a new PR opens", async () => {
+    const { io, ran } = repo(
+      {
+        ...sbase,
+        [view("feat/x-refactor")]: pr(5, { state: "CLOSED" }),
+        [view("feat/x")]: pr(6, { state: "CLOSED", baseRefName: "feat/x-refactor" }),
+        "git ls-remote origin refs/heads/feat/x-refactor": { out: "" },
+        "git ls-remote origin refs/heads/feat/x": { out: "" },
+        "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+      },
+      writers(),
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(ran()).toContain("git push --set-upstream origin feat/x")
+    expect(ran()).toContain("git config --local branch.feat/x-refactor.gtdAbandonedPr 5")
+    expect(ran()).toContain(create("feat/x-refactor", "main"))
+    expect(ran()).toContain(create("feat/x", "feat/x-refactor"))
+    expect(ran().some((c) => /^gh pr edit [56] /.test(c))).toBe(false)
+  })
+
+  test("a closed slice PR refuses when ls-remote cannot tell whether its branch is gone", async () => {
+    const { io, ran } = repo(
+      {
+        ...sbase,
+        [view("feat/x-refactor")]: pr(5, { state: "CLOSED" }),
+        "git ls-remote origin refs/heads/feat/x-refactor": { code: 128, err: "offline" },
+      },
+      writers(),
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false, text: expect.stringContaining("#5") })
+    expect(ran().some((c) => mutating.test(c))).toBe(false)
+  })
 
   test.each([
     ["local", "git rev-parse --verify --quiet refs/heads/feat/x-refactor"],
@@ -1402,10 +1536,7 @@ describe("ship stack", () => {
     })
 
     test("a live record with a closed slice PR still refuses", async () => {
-      const { io, ran } = repo(
-        { ...withEntry, [view("feat/x-refactor")]: pr(5, { state: "CLOSED" }) },
-        writers(),
-      )
+      const { io, ran } = repo({ ...withEntry, ...kept("feat/x-refactor", 5) }, writers())
       const out = await ship(io, false)
       expect(out).toMatchObject({ ok: false, text: expect.stringContaining("#5") })
       expect(ran().some((c) => mutating.test(c))).toBe(false)
@@ -1802,7 +1933,7 @@ describe("ship stack", () => {
   })
 
   test("a closed lower slice refuses a resume before any push and names commits mode", async () => {
-    const { io, ran } = repo({ ...resume, [view("feat/x-refactor")]: pr(7, { state: "CLOSED" }) })
+    const { io, ran } = repo({ ...resume, ...kept("feat/x-refactor", 7) })
     const out = await ship(io, false)
     expect(out).toMatchObject({ ok: false })
     expect(out.text).toContain("GTD_SHIP_MODE=commits")
@@ -1832,7 +1963,10 @@ describe("ship stack", () => {
   test.each(["MERGED", "CLOSED"])(
     "a %s top PR refuses without pointing at commits mode, which ships to it too",
     async (state) => {
-      const { io, ran } = repo({ ...sbase, [view("feat/x")]: pr(8, { state }) }, writers())
+      const { io, ran } = repo(
+        { ...sbase, ...onOrigin("feat/x"), [view("feat/x")]: pr(8, { state }) },
+        writers(),
+      )
       const out = await ship(io, false)
       expect(out).toMatchObject({ ok: false, text: expect.stringContaining("#8") })
       expect(out.text).toContain("Rename the branch")
@@ -2200,7 +2334,7 @@ describe("ship stack", () => {
       const { io, ran } = repo({
         ...reship,
         ...withHistory,
-        [view("feat/x-refactor")]: pr(7, { state: "CLOSED" }),
+        ...kept("feat/x-refactor", 7),
         [`git config --local --get ${KEY}`]: { out: "refactor feature\n" },
       })
       const out = await ship(io, false)

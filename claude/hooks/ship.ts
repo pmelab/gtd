@@ -633,7 +633,13 @@ export const NO_PR_FOUND = "no pull requests found"
 
 // `gh pr view <branch>`: only NO_PR_FOUND reads as none; any
 // other failure (auth, network) must refuse, or ship would open a duplicate PR.
-async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | string> {
+// A closed PR whose branch origin lost is an abandoned earlier ship and reads as
+// none; `abandoned` is recorded before the push so a retry, with origin holding
+// the branch again, still reads it as none. `gone`: a tracking ref is stale.
+async function readPr(
+  io: ShipIo,
+  branch: string,
+): Promise<{ view?: View; gone?: boolean; abandoned?: number } | string> {
   const v = await io.run([
     "gh",
     "pr",
@@ -643,14 +649,41 @@ async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | st
     "number,title,body,url,state,baseRefName,mergedAt",
   ])
   if (v.code !== 0) {
-    if (v.err.includes(NO_PR_FOUND)) return undefined
+    if (v.err.includes(NO_PR_FOUND)) return {}
     return `gh pr view ${branch} failed: ${v.err.trim()}`
   }
+  let view: View
   try {
-    return JSON.parse(v.out) as View
+    view = JSON.parse(v.out) as View
   } catch {
     return `gh pr view ${branch} returned something unreadable.`
   }
+  if (view.state !== "CLOSED") return { view }
+  const key = await io.run(["git", "config", "--local", "--get", ABANDONED_KEY(branch)])
+  const recorded = key.out.trim() === String(view.number)
+  const ls = await io.run(["git", "ls-remote", "origin", `refs/heads/${branch}`])
+  const gone = ls.code === 0 && !ls.out.trim()
+  if (recorded) return { gone }
+  return gone ? { gone, abandoned: view.number } : { view }
+}
+
+const ABANDONED_KEY = (branch: string) => `branch.${branch}.gtdAbandonedPr`
+
+// Once the new PR opens, gh pr view finds it: the record has served its purpose.
+async function settled<T extends Shipped>(io: ShipIo, branch: string, done: T) {
+  if (done.ok) await io.run(["git", "config", "--local", "--unset", ABANDONED_KEY(branch)])
+  return done
+}
+
+async function abandon(io: ShipIo, branch: string, pr: number | undefined) {
+  if (pr === undefined) return undefined
+  const set = await io.run(["git", "config", "--local", ABANDONED_KEY(branch), String(pr)])
+  return set.code === 0 ? undefined : `git config failed.\n${set.err}`.trimEnd()
+}
+
+async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | string> {
+  const read = await readPr(io, branch)
+  return typeof read === "string" ? read : read.view
 }
 
 // `dead` names belong to a retired record gtd built itself: not a collision.
@@ -1512,10 +1545,13 @@ async function shipLink(
   const l = links[i]!
   const lower = i ? links[i - 1]! : undefined
   const base = baseOf(links, i, baseBranch)
-  const view = await viewPr(io, l.branch)
-  if (typeof view === "string")
-    return { step: "pull request", why: `${view} ${l.branch} was not pushed; /gtd ship retries.` }
-  const pushed = await pushLink(io, git, l, i < links.length - 1)
+  const read = await readPr(io, l.branch)
+  if (typeof read === "string")
+    return { step: "pull request", why: `${read} ${l.branch} was not pushed; /gtd ship retries.` }
+  const { view, gone } = read
+  const marked = await abandon(io, l.branch, read.abandoned)
+  if (marked) return { step: "push", why: marked }
+  const pushed = await pushLink(io, git, { ...l, fresh: l.fresh || gone }, i < links.length - 1)
   if (pushed) return { step: "push", why: pushed }
   const lowerRef = lower?.branch ?? baseRef
   const ctx: Ctx = {
@@ -1528,6 +1564,7 @@ async function shipLink(
   }
   const done = await sliceStep(io, git, ok, l, view, base, lowerRef, ctx)
   if ("step" in done) return done
+  if (!view) await settled(io, l.branch, done)
   if (done.number === undefined && i < links.length - 1)
     return { step: "pull request", why: "its number could not be read from gh's reply." }
   return done
@@ -1764,17 +1801,24 @@ async function pullRequest(
   if (mergeBase === (await git("rev-parse", "HEAD")))
     return fail(`HEAD is an ancestor of ${baseRef}: nothing to describe.`)
 
-  const existing = await viewPr(io, branch)
-  if (typeof existing === "string")
+  const read = await readPr(io, branch)
+  if (typeof read === "string")
     return fail(
-      `${existing} ${branch} was not pushed; the squash and history ref stay, /gtd ship retries.`,
+      `${read} ${branch} was not pushed; the squash and history ref stay, /gtd ship retries.`,
     )
+  const { view: existing, gone } = read
   if (existing && existing.state !== "OPEN")
     return fail(`The pull request for ${branch} is ${existing.state}, not open.`)
-  const pushed = await pushBranch(io, branch)
+  const marked = await abandon(io, branch, read.abandoned)
+  if (marked) return fail(`${marked} ${branch} was not pushed; /gtd ship retries.`)
+  const pushed = await pushBranch(io, branch, "HEAD", undefined, gone)
   if (pushed) return fail(pushed)
   if (!existing)
-    return createPr(io, git, branch, baseBranch, baseRef, { from: mergeBase, to: "HEAD" })
+    return settled(
+      io,
+      branch,
+      await createPr(io, git, branch, baseBranch, baseRef, { from: mergeBase, to: "HEAD" }),
+    )
   // A branch once shipped as a stack keeps the PR aimed at a slice branch; any
   // other base is the author's own and stays.
   const onSlice = recorded.some((n) => existing.baseRefName === `${branch}-${n}`)
