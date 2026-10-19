@@ -4,6 +4,9 @@ import { ACCESS_REFUSAL } from "../../src/wire/constants.js"
 import { afterReload, drive } from "./drive"
 import type { Beat, Io, Landing, Turn } from "./drive"
 
+const LOST =
+  "An earlier subagent working on this step was lost; what it did is in the working tree. Continue from there with this:"
+
 const fake = (beats: Beat[], landings: Landing[] = [], over: Partial<Io> = {}) => {
   const calls: string[] = []
   const io: Io = {
@@ -87,7 +90,7 @@ describe("drive", () => {
     expect(calls).toEqual([
       "turn:build.review#abc:false:review it",
       "resume:build.review#abc:fix line 3",
-      "turn:build.review#abc:false:review it\n\nfix line 3",
+      `turn:build.review#abc:false:review it\n\n${LOST}\n\nfix line 3`,
       "land",
       "sh:commit",
     ])
@@ -261,7 +264,11 @@ describe("access refusal", () => {
       resume: async () => ({ ok: false, isLost: true, why: "no live subagent for m" }),
     })
     expect(await drive(io)).toMatchObject({ kind: "done" })
-    expect(calls).toEqual([`turn:m:false:do it`, `turn:m:false:do it\n\n${refusal}`, "sh:commit"])
+    expect(calls).toEqual([
+      `turn:m:false:do it`,
+      `turn:m:false:do it\n\n${LOST}\n\n${refusal}`,
+      "sh:commit",
+    ])
   })
 
   test("a failed recovery turn stops with its reason", async () => {

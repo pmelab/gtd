@@ -163,8 +163,11 @@ async function followUp(io: Io, b: Beat, text: string): Promise<TurnEnd> {
   const turn = turnOf(b)
   const r = await io.resume(turn.memory, text)
   if (r.ok || !r.isLost) return r
-  return io.turn({ ...turn, resume: false, prompt: `${turn.prompt}\n\n${text}` })
+  return io.turn({ ...turn, resume: false, prompt: `${turn.prompt}\n\n${LOST}\n\n${text}` })
 }
+
+const LOST =
+  "An earlier subagent working on this step was lost; what it did is in the working tree. Continue from there with this:"
 
 const memoryOf = (b: Beat) => b.memory ?? b.session?.id ?? b.state ?? "root"
 

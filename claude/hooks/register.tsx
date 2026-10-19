@@ -27,6 +27,7 @@ import {
   jobHeadline,
   jobPushText,
   pushText,
+  lostLine,
   restartLine,
   RELOAD_CUT_SCRIPT,
   runningLine,
@@ -117,6 +118,8 @@ async function send($: $, agentId: string, text: string) {
 // A subagent that no longer takes messages can leave its task listed with a
 // frozen timer: stop it, and forget it as the scope's conversation.
 async function forget($: $, memory: string, agentId: string) {
+  $.ui.log(lostLine(memory.split("#")[0]!))
+  accesses.delete(agentId)
   await update($, scopes, (s) => {
     const rest = { ...s }
     if (rest[memory]?.agentId === agentId) delete rest[memory]
@@ -205,7 +208,7 @@ function io($: $): Io {
         cwd: root,
       })
       const id = spawned.agentId
-      if (!id) return { ok: false, why: spawned.deny ?? "subagent spawn refused" }
+      if (!id) return settle($, { ok: false, why: spawned.deny ?? "subagent spawn refused" })
       ours.add(id)
       setAccess(id, t.access)
       await update($, agents, (list) => [...list, id].slice(-200))

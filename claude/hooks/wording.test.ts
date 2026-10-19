@@ -1,6 +1,14 @@
 import { describe, expect, test } from "vitest"
 
-import { headline, jobHeadline, jobPushText, pushText, restartLine, runningLine } from "./wording"
+import {
+  headline,
+  jobHeadline,
+  jobPushText,
+  lostLine,
+  pushText,
+  restartLine,
+  runningLine,
+} from "./wording"
 
 const gate = {
   kind: "gate" as const,
@@ -31,6 +39,10 @@ describe("wording", () => {
     }
     expect(runningLine("Building", 2, 65_000)).toBe("✳ gtd ▸ Building… (1m · step 2)")
   })
+})
+
+test("lostLine names the scope", () => {
+  expect(lostLine("build.review")).toBe("build.review: subagent lost — starting a fresh one")
 })
 
 test("restartLine names the scope and the cause", () => {
