@@ -1524,6 +1524,7 @@ async function shipLink(
     below,
     stacked: true,
     lower: i < links.length - 1,
+    floor: mergeBase,
   }
   const done = await sliceStep(io, git, ok, l, view, base, lowerRef, ctx)
   if ("step" in done) return done
@@ -1893,6 +1894,8 @@ type Ctx = {
   below?: number
   unstacked?: boolean
   lower?: boolean
+  // The stack's floor: the top PR closes what every slice's commits close.
+  floor?: string
 }
 
 // [ \t], never \s: a reference on the next line is not what the keyword closes.
@@ -1933,7 +1936,7 @@ async function createPr(
   branch: string,
   baseBranch: string,
   baseRef: string,
-  { from: mergeBase, to, stacked, below, lower }: Ctx,
+  { from: mergeBase, to, stacked, below, lower, floor }: Ctx,
   thrown?: { number: number; url: string },
 ): Promise<Shipped & { number?: number }> {
   const count = await git("rev-list", "--count", `${mergeBase}..${to}`)
@@ -1987,7 +1990,7 @@ ${await git("diff", "--stat", `${mergeBase}..${to}`)}`
   if (!TITLE.test(title))
     return fail(`The pull-request turn returned no usable title: ${title.slice(0, 120)}`)
   const text = rest.join("\n").replace(/^\s*\n/, "")
-  const written = lower ? text : withCloses(text, log)
+  const written = lower ? text : withCloses(text, floor ? await closingLog(git, floor, to) : log)
   const body = stacked ? stackLine(written, below) : written
   const head = await git("rev-parse", to)
   if (thrown) {
@@ -2046,6 +2049,9 @@ async function sinceHead(git: Git, ok: Ok, branch: string, mergeBase: string, to
   return isSynced ? synced : mergeBase
 }
 
+const closingLog = (git: Git, from: string, to: string) =>
+  git("log", "--no-merges", "--format=%B%n---", `${from}..${to}`)
+
 type Existing = { number: number; body?: string; url: string }
 
 // The standing description re-derived: the stack line, and the issues the
@@ -2053,12 +2059,12 @@ type Existing = { number: number; body?: string; url: string }
 async function refresher(
   io: ShipIo,
   git: Git,
-  { from: mergeBase, to, stacked, below, lower }: Ctx,
+  { from: mergeBase, to, stacked, below, lower, floor }: Ctx,
   existing: Existing,
 ) {
   // The whole branch, not just what is new: a PR shipped before its commits
   // closed anything, or whose edit failed after the sync head moved, still gains them.
-  const log = lower ? "" : await git("log", "--format=%B%n---", `${mergeBase}..${to}`)
+  const log = lower ? "" : await closingLog(git, floor ?? mergeBase, to)
   const restack = (raw: string) => {
     const body = withCloses(raw, log)
     return stacked ? stackLine(body, below) : body

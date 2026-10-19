@@ -384,43 +384,44 @@ falls back to the `gtd` on your `PATH`.
   `.gtd/REQUIREMENTS.md` names it). Ship copies every `Closes`, `Fixes` or
   `Resolves #N` line of a pull request's commits into its description, new or
   open, so the top pull request links the issue (GitHub links a stacked one once
-  it targets the default branch); a lower stacked pull request never gets one,
-  since it merges first. The writer may run only read-only `git` commands and
-  write only its own answer, since it reads commit messages anyone on the branch
-  wrote. `/gtd ship -n` prints each slice's commit message and what would happen
-  to its pull request, and writes nothing. It needs `gh`, a clean tree, and a
-  branch other than the default. When a process finishes on such a branch,
-  Claude offers to open the pull request. On a thrown draft, ship writes the
-  title and description properly and marks the pull request ready for review.
-  `GTD_SHIP_MODE` picks how a multi-slice process ships: `stack` (the default)
-  puts each slice's commit on its own branch, `<branch>-<slice>` (the last slice
-  keeps `<branch>`), and opens one pull request per slice, each on the one below
-  it and opening with `Stacked on #N — merge that first` (the lowest targets the
-  default branch); `commits` keeps every slice commit on `<branch>` under one
-  pull request, which needs a rebase merge to stay one commit per slice (ship
-  warns when it cannot confirm that; a squash merge still collapses it). Any
-  other value is refused. A single slice on a branch without a recorded stack
-  ships as one commit and one pull request; in `stack` mode a single slice on a
-  stacked branch lands on the top branch and keeps the stack, and
-  `GTD_SHIP_MODE=commits` ships it alone. A slice that changed only `.gtd/`
-  lands nothing, and a slice still open refuses the ship. A pull request that is
-  merged or closed, or an existing `<branch>-<slice>` branch the stack did not
-  build, refuses before anything changes: for a lower slice's pull request of a
-  fresh multi-slice stack, use `GTD_SHIP_MODE=commits` (a resume or a
-  single-slice re-ship skips a lower slice merged into the default branch
-  instead); a merged or closed top pull request, or a branch the stack did not
-  build, needs a renamed branch. A fresh multi-slice stack ship on a branch
-  whose recorded stack is still live refuses too, naming `GTD_SHIP_MODE=commits`
-  or unsetting `branch.<branch>.gtdStack` and `gtdStackTop` and deleting or
-  renaming the old slice branches (a record that no longer chains to HEAD is
-  dropped, not refused; a hand-restacked record is live). A `gh pr view` failure
-  other than "no pull request" refuses before that step's writes. Slice commits
-  keep `commit.gpgSign` but run no `commit-msg` hook. A failure part-way keeps
-  what landed and names the slice and step; run `/gtd ship` again to resume, and
-  once a lower slice's pull request has merged, a resume skips it and targets
-  the default branch. Squash-merging or rebase-merging a lower stacked pull
-  request rewrites its commit, so run `/gtd ship` again: it fetches the default
-  branch and rebases the remaining slice branches onto `origin/<default>` in one
+  it targets the default branch); in a stack the top pull request takes every
+  slice's lines and a lower one none, since it merges first. The writer may run
+  only read-only `git` commands and write only its own answer, since it reads
+  commit messages anyone on the branch wrote. `/gtd ship -n` prints each slice's
+  commit message and what would happen to its pull request, and writes nothing.
+  It needs `gh`, a clean tree, and a branch other than the default. When a
+  process finishes on such a branch, Claude offers to open the pull request. On
+  a thrown draft, ship writes the title and description properly and marks the
+  pull request ready for review. `GTD_SHIP_MODE` picks how a multi-slice process
+  ships: `stack` (the default) puts each slice's commit on its own branch,
+  `<branch>-<slice>` (the last slice keeps `<branch>`), and opens one pull
+  request per slice, each on the one below it and opening with
+  `Stacked on #N — merge that first` (the lowest targets the default branch);
+  `commits` keeps every slice commit on `<branch>` under one pull request, which
+  needs a rebase merge to stay one commit per slice (ship warns when it cannot
+  confirm that; a squash merge still collapses it). Any other value is refused.
+  A single slice on a branch without a recorded stack ships as one commit and
+  one pull request; in `stack` mode a single slice on a stacked branch lands on
+  the top branch and keeps the stack, and `GTD_SHIP_MODE=commits` ships it
+  alone. A slice that changed only `.gtd/` lands nothing, and a slice still open
+  refuses the ship. A pull request that is merged or closed, or an existing
+  `<branch>-<slice>` branch the stack did not build, refuses before anything
+  changes: for a lower slice's pull request of a fresh multi-slice stack, use
+  `GTD_SHIP_MODE=commits` (a resume or a single-slice re-ship skips a lower
+  slice merged into the default branch instead); a merged or closed top pull
+  request, or a branch the stack did not build, needs a renamed branch. A fresh
+  multi-slice stack ship on a branch whose recorded stack is still live refuses
+  too, naming `GTD_SHIP_MODE=commits` or unsetting `branch.<branch>.gtdStack`
+  and `gtdStackTop` and deleting or renaming the old slice branches (a record
+  that no longer chains to HEAD is dropped, not refused; a hand-restacked record
+  is live). A `gh pr view` failure other than "no pull request" refuses before
+  that step's writes. Slice commits keep `commit.gpgSign` but run no
+  `commit-msg` hook. A failure part-way keeps what landed and names the slice
+  and step; run `/gtd ship` again to resume, and once a lower slice's pull
+  request has merged, a resume skips it and targets the default branch.
+  Squash-merging or rebase-merging a lower stacked pull request rewrites its
+  commit, so run `/gtd ship` again: it fetches the default branch and rebases
+  the remaining slice branches onto `origin/<default>` in one
   `git rebase --update-refs` (git 2.38 or newer; the local default branch is not
   touched), pushes each moved branch with a lease on origin's own commit,
   retargets the lowest remaining pull request to the default branch and shrinks

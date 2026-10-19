@@ -543,7 +543,9 @@ describe("ship", () => {
           out: JSON.stringify(pr),
         },
         [`git rev-list --count ${M}..HEAD`]: { out: "2" },
-        [`git log --format=%B%n--- ${M}..HEAD`]: { out: "fix: x\n\nCloses #384\n---\n" },
+        [`git log --no-merges --format=%B%n--- ${M}..HEAD`]: {
+          out: "fix: x\n\nCloses #384\n---\n",
+        },
       },
       ["NO-UPDATE"],
     )
@@ -563,7 +565,7 @@ describe("ship", () => {
         out: JSON.stringify(pr),
       },
       [`git rev-list --count ${M}..HEAD`]: { out: "0" },
-      [`git log --format=%B%n--- ${M}..HEAD`]: { out: "fix: x\n\nCloses #384\n---\n" },
+      [`git log --no-merges --format=%B%n--- ${M}..HEAD`]: { out: "fix: x\n\nCloses #384\n---\n" },
     })
     expect(await ship(io, false)).toMatchObject({ ok: true })
     expect(calls.find((c) => c.argv.startsWith("gh pr edit 7"))?.stdin).toBe(
@@ -1234,10 +1236,13 @@ describe("ship stack", () => {
     expect(upper?.stdin).toBe("Stacked on #7 — merge that first\n\nupper\n")
   })
 
-  test("only the top pull request carries the issues its commits close", async () => {
+  test("only the top pull request carries the issues the stack's commits close", async () => {
     const { io, calls } = repo(
       {
         ...sbase,
+        [`git log --no-merges --format=%B%n--- ${M}..${C2}`]: {
+          out: "refactor: x\n\nCloses #9\n---\nfeat: y\n\nCloses #384\n---\n",
+        },
         [`git log --no-merges --reverse --format=%H%n%B%n--- ${M}..${C1}`]: {
           out: "refactor: x\n\nCloses #9\n---\n",
         },
@@ -1251,7 +1256,9 @@ describe("ship stack", () => {
     const lower = calls.find((c) => c.argv === create("feat/x-refactor", "main"))
     const upper = calls.find((c) => c.argv === create("feat/x", "feat/x-refactor"))
     expect(lower?.stdin).toBe("lower\n")
-    expect(upper?.stdin).toBe("Stacked on #7 — merge that first\n\nupper\n\nCloses #384\n")
+    expect(upper?.stdin).toBe(
+      "Stacked on #7 — merge that first\n\nupper\n\nCloses #9\nCloses #384\n",
+    )
   })
 
   test("an open PR with the wrong base is retargeted", async () => {
