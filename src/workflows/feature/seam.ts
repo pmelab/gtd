@@ -17,6 +17,7 @@ import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { refactorStrays, reviewedRefactor } from "./refactor.js"
+import { flagModeOn } from "../shared/options.js"
 import type { RiskTier } from "./tier.js"
 
 /** Naive-pass retries after a `reject`; the next `reject` rests at `seam.steer`. */
@@ -71,6 +72,7 @@ export function implement(
         options.tier,
         options.amend,
         options.afterRefactor,
+        flagModeOn(),
       ),
       {
         label: "Implementing",

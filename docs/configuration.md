@@ -464,9 +464,10 @@ A config's doors are those its workflows bring plus its `doors` export: export
 
 `feature`, `review` and `fix` are factories: calling one with options returns
 that workflow configured. Their options are the
-[bundled workflow's settings](#the-bundled-workflows-settings), each a string,
-and each becomes that workflow's own default of its kind — beneath `--var` and
-`GTD_<NAME>`, which still layer on top:
+[bundled workflow's settings](#the-bundled-workflows-settings), each a string
+(`flagMode` a boolean, stored as `true`/`false`), and each becomes that
+workflow's own default of its kind — beneath `--var` and `GTD_<NAME>`, which
+still layer on top:
 
 ```ts
 import { feature, review } from "@pmelab/gtd/workflows"
@@ -685,7 +686,9 @@ repair a failure outside them.
 
 ### The naive-pass path
 
-The `feature` workflow's only path. After design it runs, in order:
+The `feature` workflow's path while
+[`flagMode`](#the-bundled-workflows-settings) is on (the default); off, design
+goes straight to `implement.*`. After design it runs, in order:
 
 1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly; the turn
    is a [kept tip](#kept-tips), not landed on the branch.
@@ -1633,6 +1636,18 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   no brace alternation (`{a,b}` splits at the comma). A file the pass newly adds
   is allowed by its exact path, never as a glob: a new `src/a*.ts` does not
   cover a modified `src/a.ts`.
+- **`flagMode`** (`true`) — whether the project ships changes behind release
+  flags. Set it explicitly, as the factory option `feature({ flagMode: false })`
+  (or `--var flagMode=false`, `GTD_FLAGMODE=false`); gtd never detects it. Any
+  value but `true` or `false` refuses the landing that would start the process.
+  Off, for a project that is not publicly released: no `seam.naive`,
+  `seam.judge` or `refactor.*` step runs; after design the `implement.*` turn
+  builds the naive version with no release flag, then the health loop,
+  `implement.closing` and the quality lap, as on. A feedback lap asks for no
+  flag either. With `GTD_FLAG_RISK_TIER` on, the tier is still asked for and
+  recorded, but no longer decides the flag. Pinned at process start; a process
+  started before gtd knew `flagMode` reads it live, so leave it on until such a
+  process is finished.
 - **`flag_risk_tier`** (`0`) — `1` when `GTD_FLAG_RISK_TIER` is on, recorded at
   process start. Not a factory option; `--var flag_risk_tier=1` is the only
   override. Off, no tier is asked for and no commit carries a `Gtd-Mark:`. See

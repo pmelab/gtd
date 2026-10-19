@@ -25,6 +25,7 @@ export const defaults: Readonly<Record<string, string>> = {
   reviewSeverityMinP: "0.7",
   refactorFlagPattern: "\\bGTD_FLAG_\\w+",
   seamAllow: [...testFileGlobs, ".gtd/**"].join(", "),
+  flagMode: "true",
   // GTD_FLAG_RISK_TIER, recorded at process start; only "1" is on.
   flag_risk_tier: "0",
   // Decides the turn count: one `build.quality.<lens>` scope per entry, each

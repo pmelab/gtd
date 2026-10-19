@@ -5,6 +5,8 @@ import {
   type WorkflowBase,
   type WorkflowDoors,
   type WorkflowFactory,
+  refuse,
+  vars,
 } from "../../flows/index.js"
 import { defaultFlagRegistry, defaults, envDefaults } from "./vars.js"
 
@@ -23,17 +25,30 @@ export const ShippedOptions = Schema.Struct({
   testCommand: setting,
   plannerModel: setting,
   coderModel: setting,
+  flagMode: Schema.optionalWith(Schema.Boolean, { exact: true }),
 })
 
 export type ShippedOptions = Schema.Schema.Encoded<typeof ShippedOptions>
 
 const over = (
   base: Readonly<Record<string, string>>,
-  options: Readonly<Record<string, string>>,
+  options: Readonly<Record<string, string | boolean>>,
 ): Record<string, string> => ({
   ...base,
-  ...Object.fromEntries(Object.entries(options).filter(([name]) => Object.hasOwn(base, name))),
+  ...Object.fromEntries(
+    Object.entries(options)
+      .filter(([name]) => Object.hasOwn(base, name))
+      .map(([name, value]) => [name, String(value)]),
+  ),
 })
+
+/** The `flagMode` setting, pinned at process start. Anything but true/false fails rather than guess a side. */
+export const flagModeOn = (): boolean => {
+  const value = vars.flagMode ?? defaults.flagMode!
+  if (value !== "true" && value !== "false")
+    refuse(`gtd: flagMode must be "true" or "false", got ${JSON.stringify(value)}`)
+  return value === "true"
+}
 
 /** A shipped flow as a factory: its options override the settings it declares, each in its own kind. */
 export const shipped = (

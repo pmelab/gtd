@@ -990,6 +990,22 @@ describe("the seam phase's texts", () => {
     expect(prompt).toContain("Implement them properly")
   })
 
+  it("flag mode off asks for the naive version and no release flag, whatever the tier or lap", () => {
+    for (const [tier, amend] of [
+      ["high", false],
+      ["low", false],
+      ["high", true],
+    ] as const) {
+      const prompt = renderText(() => implementBuildingPrompt(undefined, tier, amend, false, false))
+      expect(prompt).toContain("Add no release flag — this project ships without release flags")
+      expect(prompt).not.toContain("new release flag")
+      expect(prompt).not.toContain("low risk tier")
+    }
+    expect(
+      renderText(() => implementBuildingPrompt(undefined, "high", false, false, false)),
+    ).toContain("the quickest way that works")
+  })
+
   it("keeps a fix turn to the feedback file's rules", () => {
     expect(renderText(() => implementFixPrompt())).toContain(".gtd/FEEDBACK.md")
   })

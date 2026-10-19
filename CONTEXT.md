@@ -252,6 +252,11 @@ the strays show it.
 **Seam judge**: The `seam.judge` step: rules `land`, `refactor-first` or
 `reject` on a naive pass's strays.
 
+**Flag mode**: The shipped workflows' `flagMode` process setting: whether a
+project ships changes behind release flags. On by default; off, there is no
+naive pass, seam judge or refactor. Set explicitly, never detected. Not a
+[feature flag](#feature-flag).
+
 **Process setting**: A flat string value flow code reads as `vars` and may
 branch on — the workflow's `defaults` (a factory option, for the shipped
 workflows), then the `--var` on `--workflow`, then `GTD_<NAME>`. Resolved once

@@ -1091,6 +1091,7 @@ export const implementBuildingPrompt = (
   tier?: "low" | "high",
   amend?: boolean,
   afterRefactor?: boolean,
+  flagMode = true,
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
@@ -1106,7 +1107,11 @@ ${
       ? `- The change already exists in the tree from an earlier lap; amend it to meet
   the re-derived requirements instead of rewriting it
 `
-      : `- Implement them properly, fitting the codebase's seams and conventions
+      : flagMode
+        ? `- Implement them properly, fitting the codebase's seams and conventions
+`
+        : `- Implement them the quickest way that works — the naive version. Do not
+  restructure, abstract or refactor around the change
 `
   }${
     reference === undefined || amend === true
@@ -1116,11 +1121,13 @@ ${
   the change fresh
 `
   }${
-    tier === "low"
-      ? "- Add no release flag — this change is low risk tier"
-      : amend === true
-        ? "- Keep the release flag the earlier lap added, if it added one; otherwise put\n  the behaviour behind a new release flag"
-        : `- Put the new behaviour behind a new release flag, following the
+    !flagMode
+      ? "- Add no release flag — this project ships without release flags"
+      : tier === "low"
+        ? "- Add no release flag — this change is low risk tier"
+        : amend === true
+          ? "- Keep the release flag the earlier lap added, if it added one; otherwise put\n  the behaviour behind a new release flag"
+          : `- Put the new behaviour behind a new release flag, following the
   repository's flag conventions`
   }
 - Write the tests first, then the code that makes them pass
