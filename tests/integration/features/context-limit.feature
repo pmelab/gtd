@@ -80,18 +80,34 @@ Feature: a step's context limit rides on the wire
     Then it fails
     And stderr contains "step \"doing\": context must be an object { soft, hard }, got 0.6"
 
-  Scenario: a scope's bad limit is named as the scope's
+  Scenario: a scope's malformed limit is named as the scope's
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, scope } from "@pmelab/gtd/flows"
 
       export default async () => {
-        await scope({ name: "work", context: { soft: 0.9 } }, () =>
+        await scope({ name: "work", context: { soft: 2 } }, () =>
           agent("doing", "do the work", { allowEmpty: true }),
         )
       }
       """
     When I run gtd next
     Then it fails
-    And stderr contains "step \"work.doing\": the context of scope \"work\": context.soft (0.9) must be below context.hard (0.7)"
+    And stderr contains "step \"work.doing\": the context of scope \"work\": context.soft must be a share of the context window in (0, 1], got 2"
+
+  Scenario: layers that only work together merge into a valid limit
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, scope } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await scope({ name: "work", context: { soft: 0.75, hard: 0.9 } }, () =>
+          agent("doing", "do the work", { allowEmpty: true, context: { soft: 0.85 } }),
+        )
+      }
+      """
+    When I run gtd next with "--json=context"
+    Then it succeeds
+    And stdout contains "{\"soft\":0.85,\"hard\":0.9}"

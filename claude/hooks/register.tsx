@@ -143,6 +143,7 @@ async function forget($: $, memory: string, agentId: string) {
   $.ui.log(lostLine(memory.split("#")[0]!))
   accesses.delete(agentId)
   guards.delete(agentId)
+  contextStops.delete(agentId)
   await update($, scopes, (s) => {
     const rest = { ...s }
     if (rest[memory]?.agentId === agentId) delete rest[memory]
@@ -937,6 +938,7 @@ async function isOurs($: $, id: string) {
 // stopped and its turn ends as a failure carrying the stop reason. Stopped off
 // the hook, which runs inside the worker's own tool call.
 async function stopWorker($: $, id: string, stopReason: string) {
+  if (contextStops.has(id)) return
   contextStops.set(id, stopReason)
   $.clock.after(0, () => {
     void $.tool.call({ tool: "TaskStop", task_id: id }).catch((err: unknown) => {

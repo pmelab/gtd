@@ -38,8 +38,12 @@ export interface ContextHookRequest {
  */
 export const CONTEXT_STOP_FILE_ENV = "GTD_LOOP_CONTEXT_STOP_FILE"
 
-/** Why a limit is unusable, or `undefined` when it is fine. Config is evaluated untyped, so anything may arrive. */
-export const contextLimitFault = (limit: unknown): string | undefined => {
+/**
+ * Why one layer of a limit (a scope's, a step's) is malformed, ignoring how its
+ * two shares relate: layers merge key by key, so only the merged limit has to
+ * keep `soft` below `hard`. Config is evaluated untyped, so anything may arrive.
+ */
+export const contextShapeFault = (limit: unknown): string | undefined => {
   if (typeof limit !== "object" || limit === null || Array.isArray(limit)) {
     return `context must be an object { soft, hard }, got ${JSON.stringify(limit)}`
   }
@@ -53,6 +57,14 @@ export const contextLimitFault = (limit: unknown): string | undefined => {
       return `context.${key} must be a share of the context window in (0, 1], got ${JSON.stringify(value)}`
     }
   }
+  return undefined
+}
+
+/** Why a whole limit is unusable, or `undefined` when it is fine. */
+export const contextLimitFault = (limit: unknown): string | undefined => {
+  const shape = contextShapeFault(limit)
+  if (shape !== undefined) return shape
+  const shares = limit as { readonly soft?: unknown; readonly hard?: unknown }
   const soft = (shares.soft as number | undefined) ?? DEFAULT_CONTEXT_LIMIT.soft
   const hard = (shares.hard as number | undefined) ?? DEFAULT_CONTEXT_LIMIT.hard
   return soft < hard ? undefined : `context.soft (${soft}) must be below context.hard (${hard})`

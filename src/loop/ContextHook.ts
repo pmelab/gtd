@@ -56,7 +56,10 @@ const tokensOf = (input: HookInput): Effect.Effect<number | undefined, Error, Lo
 const recordStop = (stopReason: string): Effect.Effect<void, never, LoopHost> =>
   Effect.flatMap(LoopHost, (host) => {
     const file = host.env[CONTEXT_STOP_FILE_ENV]
-    return file === undefined || file === "" ? Effect.void : host.appendLog(file, `${stopReason}\n`)
+    // A record that cannot be written must not cost the stop itself.
+    return file === undefined || file === ""
+      ? Effect.void
+      : host.appendLog(file, `${stopReason}\n`).pipe(Effect.catchAllDefect(() => Effect.void))
   })
 
 /** `gtd context-hook`: one settings hook for PostToolUse and PreCompact. */

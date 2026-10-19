@@ -22,7 +22,7 @@ import {
   unansweredQuestions,
 } from "../steering/index.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
-import { contextLimitFault, globMatches } from "../wire/index.js"
+import { contextLimitFault, contextShapeFault, globMatches } from "../wire/index.js"
 import { refNameFault } from "./RefName.js"
 import { IMPLICIT_SLICE, SLICE_NAME, type SliceSpan } from "./Slices.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
@@ -604,7 +604,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   // such rather than blamed on the step it reached; then the merged limit.
   const scopeContextFault = (): string | undefined => {
     for (const [i, s] of scopes.entries()) {
-      const fault = s.context === undefined ? undefined : contextLimitFault(s.context)
+      const fault = s.context === undefined ? undefined : contextShapeFault(s.context)
       if (fault !== undefined)
         return `the context of ${scopeLabel(scopes.slice(0, i + 1))}: ${fault}`
     }
@@ -615,7 +615,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     request: Extract<StepRequest, { kind: "agent" }>,
   ): string | undefined => {
     const own = request.options.context
-    const layered = scopeContextFault() ?? (own === undefined ? undefined : contextLimitFault(own))
+    const layered = scopeContextFault() ?? (own === undefined ? undefined : contextShapeFault(own))
     if (layered !== undefined) return layered
     const resolved = resolve(request)
     const context = resolved.kind === "agent" ? resolved.options.context : undefined

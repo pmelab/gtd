@@ -3,7 +3,7 @@ import { expect, it } from "vitest"
 import { runContextHook } from "./ContextHook.js"
 import { LoopHost } from "./index.js"
 
-const run = (env: Record<string, string>) => {
+const run = (env: Record<string, string>, failAppend = false) => {
   const appended: [string, string][] = []
   const host = Layer.succeed(LoopHost, {
     env,
@@ -11,7 +11,11 @@ const run = (env: Record<string, string>) => {
     spawn: () => Effect.fail(new Error("no spawn")),
     readFile: () => Effect.succeed(undefined),
     resetLog: () => Effect.void,
-    appendLog: (path, text) => Effect.sync(() => void appended.push([path, text])),
+    appendLog: (path, text) =>
+      Effect.sync(() => {
+        if (failAppend) throw new Error("EACCES")
+        appended.push([path, text])
+      }),
     say: () => Effect.void,
   })
   const input = JSON.stringify({ hook_event_name: "PreCompact", transcript_path: "/t.jsonl" })
@@ -34,4 +38,9 @@ it("records a hard stop's reason where the driver asked, so it can tell it from 
 
 it("records nothing when no driver asked", async () => {
   expect((await run({})).appended).toEqual([])
+})
+
+it("still stops the turn when the record cannot be written", async () => {
+  const { out } = await run({ GTD_LOOP_CONTEXT_STOP_FILE: "/gone/log.context-stop" }, true)
+  expect(out).toContain('"continue":false')
 })

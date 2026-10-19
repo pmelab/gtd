@@ -73,6 +73,7 @@ const spawnLive = (request: Spawn): Effect.Effect<Exit, Error> =>
     let stdout = ""
     let stderr = ""
     let stopped = false
+    let stopForce: ReturnType<typeof setTimeout> | undefined
     let scanned = 0
     child.stdout?.setEncoding("utf-8").on("data", (chunk: string) => {
       stdout += chunk
@@ -87,6 +88,8 @@ const spawnLive = (request: Spawn): Effect.Effect<Exit, Error> =>
         if (request.stopAt(line)) {
           stopped = true
           killGroup("SIGTERM")
+          // A tool that ignores SIGTERM or holds the pipe open must not hang the loop.
+          stopForce = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS)
           return
         }
       }
@@ -107,6 +110,7 @@ const spawnLive = (request: Spawn): Effect.Effect<Exit, Error> =>
       settle(Effect.fail(new Error(`could not run ${request.command}: ${error.message}`))),
     )
     child.on("close", (code, signal) => {
+      clearTimeout(stopForce)
       const exit = code ?? 128 + (signal === null ? 0 : (constants.signals[signal] ?? 0))
       settle(Effect.succeed({ code: exit, stdout, stderr, ...(stopped ? { stopped: true } : {}) }))
     })

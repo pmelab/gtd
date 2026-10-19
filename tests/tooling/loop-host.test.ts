@@ -95,3 +95,18 @@ describe.each([
     expect(exit.stdout).toBe("one\nstop\nafter\n")
   }, 10_000)
 })
+
+// Live only: in memory no process ignores a signal.
+it("kills a stopped child that ignores SIGTERM after the grace period", async () => {
+  const exit = await Effect.runPromise(
+    Effect.flatMap(LoopHost, (host) =>
+      host.spawn({
+        command: "sh",
+        args: ["-c", "trap '' TERM; echo stop; sleep 30"],
+        output: "capture",
+        stopAt: (line) => line === "stop",
+      }),
+    ).pipe(Effect.provide(liveLoopHost)),
+  )
+  expect(exit.stopped).toBe(true)
+}, 15_000)
