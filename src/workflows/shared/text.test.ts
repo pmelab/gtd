@@ -731,7 +731,7 @@ Print the closing message and stop — this writes nothing itself.
           slice: { ...at(index, count).slice, name: "refactor" },
         })
         expect(prompt.replace(/\s+/g, " ")).toContain("never from the slice's name `refactor`")
-        expect(prompt).toContain("`feat`, `fix` or `perf`")
+        expect(prompt.replace(/\s+/g, " ")).toContain("`feat`, `fix` or `perf`")
       }
       expect(summaryPrompt(base)).not.toContain("slice's name")
     })

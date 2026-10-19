@@ -94,10 +94,11 @@ export function readSlices(stdout: string): Slice[] | { refusal: string } {
 
 // Also given in `gtd summary --slice`, but a workflow's own summary template may not say it.
 const TYPE_RULE = `- Pick the type from what the change does, never from a slice's or branch's
-  name: adding or changing a public surface — the published package's
-  exports, a documented config key, CLI flag or workflow step — is feat, fix
-  or perf, the types that cut a release; refactor only when no user can tell
-  the difference.`
+  name: adding or changing a public surface — anything a user, a config or a
+  driver reaches: the published package's exports, a command, flag, config
+  key, environment variable, workflow step or machine-read output — is feat,
+  fix or perf, the types that cut a release. Docs or tests alone change no
+  surface; refactor only when no user can tell the difference.`
 
 const COMMIT_FORMAT = `
 --- MESSAGE FORMAT (overrides any formatting the instructions above imply) ---
@@ -2013,7 +2014,8 @@ Format, exactly:
   perf, docs, test, build, ci, chore. Lowercase summary, imperative mood, no
   trailing period, 72 characters or fewer.
 ${TYPE_RULE} A squash merges every commit under this title, so take the
-  type of the commit that releases the most.
+  type of the commit that releases the most, and its '!' when any commit
+  carries a BREAKING CHANGE footer.
 - Then a blank line.
 - Then the description.
 

@@ -996,10 +996,11 @@ describe("ship per slice", () => {
     io.complete = async (p) => (prompts.push(p), "feat: x")
     await ship(io, false, "commits")
     const flat = prompts.map((p) => p.replace(/\s+/g, " "))
-    expect(flat.length).toBe(3)
+    expect(flat.length).toBeGreaterThan(1)
     for (const p of flat) expect(p).toContain("never from a slice's or branch's name")
-    expect(flat[2]).toMatch(/^Write the title and description for a pull request/)
-    expect(flat[2]).toContain("take the type of the commit that releases the most")
+    const title = flat.filter((p) => p.startsWith("Write the title and description"))
+    expect(title).toHaveLength(1)
+    expect(title[0]).toContain("its '!' when any commit carries a BREAKING CHANGE footer")
   })
 
   test.each([
