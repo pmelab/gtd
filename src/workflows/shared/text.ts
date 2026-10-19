@@ -468,9 +468,10 @@ export const refactorRules = (strays: readonly string[], pattern: string): strin
 - Change only these paths, nothing else:
 ${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
 - An existing test file only where a changed call shape reaches it:
-  update its call sites; never add or delete a test file, and
-  never add, remove or alter a test or an assertion, an expected
-  value or a snapshot
+  update its call sites, inside an assertion too;
+  never add or delete a test file,
+  never add, remove or alter a test or an assertion, and never
+  change what an assertion checks, an expected value or a snapshot
 - Introduce no new flag read and add no second read of an existing one:
   every match of \`${pattern}\` may move, never increase in number`
 

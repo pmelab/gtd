@@ -200,6 +200,16 @@ describe("requireTestCallSitesOnly", () => {
       'it("a", () => expect(a()).toBe(1))',
       '/* it("a", () => expect(a()).toBe(1)) */',
     ],
+    [
+      "a .skip swapped for an .only",
+      'it.skip("a", () => expect(a()).toBe(1))\nit("b", () => expect(b()).toBe(1))',
+      'it.only("a", () => expect(a()).toBe(1))\nit("b", () => expect(b()).toBe(1))',
+    ],
+    [
+      "an assertion dropped after a URL in a test name",
+      'it("GET http://x", () => expect(get()).toBe(1))',
+      'it("GET http://x", () => {})',
+    ],
     ["fixture data with no test", '{"sum": 2}', '{"sum": 3}'],
   ])("refuses %s", (_label, before, after) => {
     const message = withChanges([change("tests/a.test.ts", before, after)], () =>

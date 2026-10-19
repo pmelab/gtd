@@ -44,7 +44,7 @@ export const requireWithin = (allowed: readonly string[]): void => {
 // A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
 const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
 
-// Unused by the bundled refactor since #395; kept as a public export of `@pmelab/gtd/workflows`.
+// The bundled refactor uses `requireTestCallSitesOnly`; this stays a public export.
 export const requireNoTestFiles = (): void => {
   const tests = changes()
     .map((c) => c.path)
@@ -59,25 +59,39 @@ export const requireNoTestFiles = (): void => {
 const holdsCallSites = (path: string): boolean =>
   !path.endsWith(".feature") && !path.endsWith(".snap")
 
-const COMMENT = /\/\*[\s\S]*?\*\/|\/\/.*$/gm
+// `//` after a `:` (a URL) and `/*` after `*` or `/` (a glob) sit in strings, not comments.
+const COMMENT = /(?<![*/])\/\*[\s\S]*?\*\/|(?<!:)\/\/.*$/gm
 const ASSERTION = /\b(?:expect|assert\w*)\s*[.(]/g
 const TEST_CASE = /(?<![.\w])x?(?:it|test|describe)\s*[.(]/g
 const MODIFIER =
-  /(?<![.\w])x?(?:it|test|describe)\.(?:skip|only|todo|fails|skipIf|runIf)\b|(?<![.\w])x(?:it|test|describe)\b/g
-const count = (text: string, expression: RegExp): number =>
-  [...text.replace(COMMENT, "").matchAll(expression)].length
+  /(?<![.\w])(?:it|test|describe)\.(skip|only|todo|fails|skipIf|runIf)\b|(?<![.\w])(x)(?:it|test|describe)\b/g
 
-// A call-shape update keeps every live test and assertion, so the counts hold; comments are
-// stripped first so commenting one out shows. A changed expected value keeps every count —
-// that is left to the refactor review.
+// Modifiers count per kind, so swapping a `.skip` for an `.only` shows.
+const counts = (text: string): string => {
+  const live = text.replace(COMMENT, "")
+  const modifiers = [...live.matchAll(MODIFIER)].map((m) => m[1] ?? m[2]).sort()
+  return JSON.stringify([
+    [...live.matchAll(ASSERTION)].length,
+    [...live.matchAll(TEST_CASE)].length,
+    modifiers,
+  ])
+}
+
+const tested = (text: string): boolean => {
+  const live = text.replace(COMMENT, "")
+  return live.search(ASSERTION) >= 0 || live.search(TEST_CASE) >= 0
+}
+
+// A call-shape update keeps every live test and assertion, so the counts hold. A changed
+// expected value keeps every count — that is left to the refactor review.
 const callSitesOnly = ({ path, status, before, after }: Change): boolean =>
   status === "modified" &&
   holdsCallSites(path) &&
   before !== undefined &&
   after !== undefined &&
   // A file with no test or assertion is fixture or helper data, never a call site to follow.
-  count(before, ASSERTION) + count(before, TEST_CASE) > 0 &&
-  [ASSERTION, TEST_CASE, MODIFIER].every((e) => count(before, e) === count(after, e))
+  tested(before) &&
+  counts(before) === counts(after)
 
 /**
  * The test-file half of the refactor guard: an existing test may follow a changed call shape,
