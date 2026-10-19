@@ -25,6 +25,7 @@ import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { criteriaOf, requireCriteria, requireCriteriaFrozen } from "./criteria.js"
 import { isTestFile, refactorStrays, reviewedRefactor } from "./refactor.js"
+import { isCode } from "./review.js"
 import { flagModeOn } from "../shared/options.js"
 import type { RiskTier } from "./tier.js"
 
@@ -50,9 +51,8 @@ export const naivePass = (retry?: t.NaiveRetry): Promise<void> =>
     system: t.builderSystem(),
   })
 
-const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
-
-const QUOTED = /(["'`])([^"'`\n]+)\1/g
+// Only a string an import, `require` or `mock` call takes: a URL route or path-like data is not one.
+const IMPORTED = /(?:\bfrom|\bimport|\brequire\s*\(|\bmock\s*\()\s*\(?\s*(["'`])([^"'`\n]+)\1/g
 const EXTENSION = /\.[\w-]+$/
 
 /** The specifiers an added `path` answers to: itself, without its extension, and its directory for an `index`. */
@@ -63,17 +63,17 @@ const namesOf = (path: string): string[] => {
 
 /**
  * Whether `test` imports `added` — by a relative specifier resolved from its
- * own directory, or an aliased or root-relative one matching the path's end.
- * Text only: a dynamic or computed import goes unseen.
+ * own directory, or an aliased one matching the path's end. Text only: a
+ * computed import goes unseen.
  */
 const reaches = (test: Change, added: string): boolean => {
   const names = namesOf(added)
-  return [...(test.after ?? "").matchAll(QUOTED)].some(([, , spec]) => {
-    const relative = spec!.startsWith("./") || spec!.startsWith("../")
+  return [...(test.after ?? "").matchAll(IMPORTED)].some(([, , spec]) => {
+    const relative = /^\.\.?(\/|$)/.test(spec!)
     if (!relative && !spec!.includes("/")) return false
     const path = relative
       ? posix.join(posix.dirname(test.path), spec!)
-      : spec!.replace(/^[@~]\//, "").replace(/^\//, "")
+      : spec!.replace(/^[@~]\//, "")
     return [path, path.replace(EXTENSION, "")].some((candidate) =>
       names.some((name) =>
         relative ? name === candidate : name === candidate || name.endsWith(`/${candidate}`),
@@ -85,6 +85,15 @@ const reaches = (test: Change, added: string): boolean => {
 const named = (id: string, text: string): boolean =>
   new RegExp(`(?<![\\w-])${id}(?!\\d)`).test(text)
 
+/** The lines `change` added: an ID an earlier change left in the file does not count. */
+const addedLines = (change: Change): string => {
+  const before = new Set((change.before ?? "").split("\n"))
+  return change
+    .after!.split("\n")
+    .filter((line) => !before.has(line))
+    .join("\n")
+}
+
 /**
  * Refuse a naive pass whose tests leave a criterion ID of `file` unnamed, or
  * import a file the pass added: that is naive structure a reset and refactor
@@ -95,7 +104,7 @@ export const requireAcceptanceTests = (file: string, tip: KeptTip): void => {
   const tests = tip.changes.filter(
     (c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path),
   )
-  const untested = ids.filter((id) => !tests.some((c) => named(id, c.after!)))
+  const untested = ids.filter((id) => !tests.some((c) => named(id, addedLines(c))))
   if (untested.length > 0)
     refuse(
       `gtd land: acceptance-tests: no test of the naive pass names ${untested.join(", ")} — write a behaviour-level test for each criterion with its ID in the test or scenario name, e.g. "[${untested[0]}] …"`,
@@ -115,16 +124,29 @@ export const requireAcceptanceTests = (file: string, tip: KeptTip): void => {
     )
 }
 
-/** Run the suite with `tip`'s diff applied, then take it out again; resolves `true` when green. */
+/**
+ * Run the suite with `tip`'s diff applied, then take it out again; resolves
+ * `true` when green. Every path the diff touches is put back to HEAD rather
+ * than reverse-applied, before and after: the run may rewrite a file the pass
+ * kept (a coverage report), and an interrupted run leaves the pass applied.
+ */
 const naiveGreen = (tip: KeptTip): Promise<boolean> => {
   const range = `${quote(`${tip.hash}^`)} ${quote(tip.hash)}`
+  const restore = [
+    `git diff --name-only ${range} -- | while IFS= read -r path; do`,
+    '  if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else rm -f -- "$path"; fi',
+    "done",
+  ]
   return check(
     "check",
     [
+      ...restore,
       `git diff --binary ${range} -- | git apply || exit $?`,
-      `(${env.testCommand ?? ""})`,
+      "(",
+      env.testCommand ?? "",
+      ")",
       "code=$?",
-      `git diff --binary ${range} -- | git apply -R`,
+      ...restore,
       'exit "$code"',
     ].join("\n"),
     { report: FEEDBACK, label: "Running the naive pass's tests" },
@@ -215,10 +237,13 @@ const decide = (): Promise<Decision> =>
         retries++
         return "again"
       }
-      if (!(await steer(next))) return "overrule"
+      const steered = await steer(next)
       retry = undefined
       retries = 0
-      return "again"
+      // A steered or overruled red pass leaves its report behind: nothing reads it any more.
+      if (read(FEEDBACK) !== undefined)
+        await run("clear", removeScript([FEEDBACK]), { label: "Clearing the red check" })
+      return steered ? "again" : "overrule"
     }
     for (;;) {
       await naivePass(retry)

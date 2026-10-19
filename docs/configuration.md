@@ -736,14 +736,15 @@ goes straight to `implement.*`. After design it runs, in order:
    whose added or changed test files (the fixed list `**/*.test.*`,
    `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**`,
    `**/__tests__/**`) leave an `AC-<n>` of `.gtd/REQUIREMENTS.md` unnamed
-   (`acceptance-tests`; any mention counts, `[AC-3] …` in the test name is the
-   convention), or that import a non-test file the pass added
-   (`acceptance-internals`: a quoted relative specifier resolved from the test's
-   directory, or an aliased or root-relative one matching the path's end; a
-   computed import goes unseen, and `.feature` and `.snap` files are not read
-   for imports).
+   (`acceptance-tests`; any mention on a line the pass added counts, `[AC-3] …`
+   in the test name is the convention), or that import a non-test file the pass
+   added (`acceptance-internals`: the string a `from`, `import`, `require(` or
+   `mock(` takes, relative ones resolved from the test's directory, `@/`- or
+   `~/`-aliased ones matching the path's end; a computed import goes unseen, and
+   `.feature` and `.snap` files are not read for imports).
 2. `seam.check` — runs [`testCommand`](#the-bundled-workflows-settings) with the
-   kept pass applied to the tree, then takes it out again. Red writes
+   kept pass applied to the tree, then puts every path it touches back as `HEAD`
+   has it (so an interrupted run is cleaned up on the next). Red writes
    `.gtd/FEEDBACK.md` and runs `seam.naive` again, told to pick the last attempt
    up and fix it; green goes on.
 3. `seam.judge` — a judge rules on the shape of that diff (see
@@ -850,9 +851,11 @@ A third failed attempt — a `reject` or a red `seam.check` — rests at
 - **Overrule** — land a clean tree. After a `reject` the implementation is built
   against the last attempt with no refactor: **overrule ships the seam the judge
   objected to**, unaddressed. After a red check the last attempt goes on to
-  `seam.judge` as it is: **its acceptance tests never passed**, and only the
-  implementation's health loop makes the suite green. The choice is recorded in
-  history.
+  `seam.judge` as it is, with a fresh retry budget: **its acceptance tests never
+  passed**, and only the implementation's health loop makes the suite green. The
+  choice is recorded in history.
+
+After either, `seam.clear` removes a red check's `.gtd/FEEDBACK.md`.
 
 **Upgrading:** finish or `gtd abandon` any process that has landed a
 `seam.naive` turn: replay now expects `seam.check` after it, and re-checks the

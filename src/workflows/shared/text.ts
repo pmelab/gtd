@@ -1243,8 +1243,8 @@ ${fixFeedbackPrompt}
 
 export const seamSteerMessage = (retry: NaiveRetry): string =>
   isRed(retry)
-    ? `The naive pass left the suite red three times and the retries are spent.
-\`.gtd/FEEDBACK.md\` holds the last run's output; \`git show ${retry.red}\` shows
+    ? `The naive pass failed three times and the retries are spent. The last
+attempt left the suite red: \`.gtd/FEEDBACK.md\` holds the last run's output; \`git show ${retry.red}\` shows
 the last attempt.
 
 Two ways forward (then run \`gtd land\`):
@@ -1262,8 +1262,8 @@ branch unjudged.
     : seamRejectedMessage(retry)
 
 const seamRejectedMessage = (rejection: SeamRejection): string =>
-  `The naive pass was rejected three times and the retries are spent.
-The last attempt changed these files outside the expected set:
+  `The naive pass failed three times and the retries are spent. The judge
+rejected the last attempt: it changed these files outside the expected set:
 ${listed(rejection.strays)}
 
 Two ways forward (then run \`gtd land\`):

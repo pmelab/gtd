@@ -70,7 +70,7 @@ Feature: a naive pass ends only when a test names every criterion and the suite 
       """
     When the process is driven
     Then the process rests at "seam.check"
-    And the resting step's content contains "git apply -R"
+    And the resting step's content contains "git checkout -q HEAD --"
     And the resting step's content does not contain "'^'"
     And the resting step's content contains "npm test"
 

@@ -1037,7 +1037,7 @@ describe("the seam phase's texts", () => {
 
   it("names the red suite, its report and what overruling it means", () => {
     const message = renderText(() => seamSteerMessage({ red: "abc123" }))
-    expect(message).toContain("left the suite red")
+    expect(message).toContain("The last\nattempt left the suite red")
     expect(message).toContain(".gtd/FEEDBACK.md")
     expect(message).toContain("edit `.gtd/REQUIREMENTS.md`")
     expect(message).toContain("Overrule")

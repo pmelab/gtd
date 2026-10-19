@@ -166,6 +166,39 @@ describe("requireAcceptanceTests", () => {
     ).toContain("acceptance-internals")
   })
 
+  it("counts only the lines the pass added: an ID an earlier feature left does not", () => {
+    const old = 'it("[AC-1] old")\nit("[AC-2] old")'
+    const message = refusal({
+      path: "tests/calc.test.ts",
+      status: "modified",
+      before: old,
+      after: `${old}\nit("[AC-2] new")`,
+    })
+    expect(message).toContain("names AC-1 —")
+  })
+
+  it("refuses a bare . or .. import of an added index", () => {
+    expect(
+      refusal(
+        file("src/naive/index.ts", "added", ""),
+        file("src/naive/__tests__/a.test.ts", "added", `import { x } from ".."\n${tagged}`),
+      ),
+    ).toContain("acceptance-internals")
+  })
+
+  it("reads a URL route or path-like data as no import", () => {
+    expect(
+      refusal(
+        file("src/routes/users.ts", "added", ""),
+        file(
+          "tests/a.test.ts",
+          "added",
+          `request(app).get("/users")\nrun("src/routes/users.ts")\n${tagged}`,
+        ),
+      ),
+    ).toBe(undefined)
+  })
+
   it("reads no import out of a .feature file", () => {
     expect(
       refusal(
@@ -287,6 +320,15 @@ describe("seamBuild", () => {
   it("a red check retries the pass, and the judge sees it only once green", async () => {
     const h = await driveSeam("land", undefined, {}, 1)
     expect(h.names).toEqual(["seam.naive", "seam.check", "seam.naive", "seam.check", "seam.judge"])
+  })
+
+  it("an overruled red pass gets a fresh budget for the judge's rejects", async () => {
+    const h = await driveSeam("reject", undefined, {}, 3)
+    const steers = h.names.flatMap((name, i) => (name === "seam.steer" ? [i] : []))
+    expect(steers).toHaveLength(2)
+    expect(h.names.slice(steers[0]! + 1, steers[1]).filter((n) => n === "seam.judge")).toHaveLength(
+      3,
+    )
   })
 
   it("a third red rests at seam.steer, and a clean landing there takes the red pass to the judge", async () => {
