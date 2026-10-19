@@ -17,7 +17,7 @@ const questions: Question[] = [
     id: "kind",
     primitive: "choice",
     instructions: "What changed?",
-    criteria: "identical: nothing. progress: some tests pass. new-failure: a test broke.",
+    criteria: "identical: nothing. progress: some tests pass.\r\n  new-failure: a test broke.",
   },
   {
     id: "size",
@@ -95,7 +95,11 @@ describe("a person answering a judge gate", () => {
       {
         id: "kind",
         instructions: "What changed?",
-        criteria: ["identical: nothing", "progress: some tests pass", "new-failure: a test broke."],
+        criteria: [
+          "identical: nothing",
+          "progress: some tests pass.",
+          "new-failure: a test broke.",
+        ],
         options: ["identical", "progress", "new-failure"],
       },
       {

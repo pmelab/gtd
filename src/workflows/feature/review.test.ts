@@ -81,7 +81,6 @@ interface Run {
 const drive = async (d: Drive): Promise<Run> => {
   const log: string[] = []
   const prompts = new Map<string, string>()
-  const judged: string[] = []
   const asked: JudgeQuestion[] = []
   const gates: boolean[] = []
   const gateMessages: string[] = []
@@ -117,10 +116,7 @@ const drive = async (d: Drive): Promise<Run> => {
       gateMessages.push(request.options.message ?? "")
     }
     if (request.kind === "agent") prompts.set(request.name, request.prompt)
-    if (request.kind === "judge") {
-      judged.push(...request.questions.map((q) => q.id))
-      asked.push(...request.questions)
-    }
+    if (request.kind === "judge") asked.push(...request.questions)
   }
   const context = fixtureContext(
     { vars: d.vars ?? {} },
@@ -166,7 +162,17 @@ const drive = async (d: Drive): Promise<Run> => {
     if (!(error instanceof Stop)) throw error
     result = "stopped"
   }
-  return { log, prompts, result, judged, asked, gates, gateMessages, since, scopes }
+  return {
+    log,
+    prompts,
+    result,
+    judged: asked.map((q) => q.id),
+    asked,
+    gates,
+    gateMessages,
+    since,
+    scopes,
+  }
 }
 
 const verdict = (answer: string, p = 0.9): JudgeAnswer => ({ answer, p })
