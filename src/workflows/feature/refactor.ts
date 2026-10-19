@@ -42,7 +42,8 @@ export const requireWithin = (allowed: readonly string[]): void => {
 }
 
 // A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
-const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
+export const isTestFile = (path: string): boolean =>
+  testFileGlobs.some((glob) => matches(path, glob))
 
 // The bundled refactor uses `requireTestCallSitesOnly`; this stays a public export.
 export const requireNoTestFiles = (): void => {
@@ -56,11 +57,11 @@ export const requireNoTestFiles = (): void => {
 }
 
 // Call sites live in code: a `.feature` file or a snapshot holds only expectations.
-const holdsCallSites = (path: string): boolean =>
+export const holdsCallSites = (path: string): boolean =>
   !path.endsWith(".feature") && !path.endsWith(".snap")
 
 // `//` after a `:` (a URL) and `/*` after `*` or `/` (a glob) sit in strings, not comments.
-const COMMENT = /(?<![*/])\/\*[\s\S]*?\*\/|(?<!:)\/\/.*$/gm
+export const COMMENT = /(?<![*/])\/\*[\s\S]*?\*\/|(?<!:)\/\/.*$/gm
 const ASSERTION = /\b(?:expect|assert\w*)\s*[.(]/g
 const TEST_CASE = /(?<![.\w])x?(?:it|test|describe)\s*[.(]/g
 const MODIFIER =

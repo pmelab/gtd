@@ -52,6 +52,11 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
+    And step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
     And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -136,6 +141,11 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
+    And step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
     And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -219,6 +229,11 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
+      And step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
       And step "seam.naive" writes "src/calc.ts" with:
         """
         export const add = (a: number, b: number) => a + b
@@ -1426,6 +1441,11 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
+      And step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
       And step "seam.naive" writes "src/calc.ts" with:
         """
         export const add = (a: number, b: number) => a + b
@@ -1614,7 +1634,12 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
 
     Scenario: a test-file stray is dropped from the derived refactor package
-      Given step "seam.naive" writes "src/calc.ts" with:
+      Given step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
+      And step "seam.naive" writes "src/calc.ts" with:
         """
         export const add = (a: number, b: number) => a + b
         export const subtract = (a: number, b: number) => a - b
@@ -1631,7 +1656,12 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And ".gtd/REFACTOR.md" does not contain "src/calc.test.ts"
 
     Scenario: the refactor updates an existing test's call sites to the seam's new shape
-      Given step "seam.naive" writes "src/calc.ts" with:
+      Given step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
+      And step "seam.naive" writes "src/calc.ts" with:
         """
         export const add = ({ a, b }: { a: number; b: number }) => a + b
         export const subtract = ({ a, b }: { a: number; b: number }) => a - b
@@ -1651,7 +1681,12 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then the process rests at "refactor.health.check"
 
     Scenario: the refactor may not drop an assertion from an existing test
-      Given step "seam.naive" writes "src/calc.ts" with:
+      Given step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
+      And step "seam.naive" writes "src/calc.ts" with:
         """
         export const add = (a: number, b: number) => a + b
         export const subtract = (a: number, b: number) => a - b
@@ -1665,7 +1700,12 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then driving the process is refused with "refactor-tests"
 
     Scenario: a refactor-first whose strays are all test files goes straight to implement
-      Given step "seam.naive" writes "src/calc.test.ts" with:
+      Given step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
+      And step "seam.naive" writes "src/calc.test.ts" with:
         """
         import { expect, it } from "vitest"
         it("subtracts", () => expect(3 - 1).toBe(2))
@@ -1675,7 +1715,12 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And ".gtd/REFACTOR.md" does not exist
 
     Scenario: collected review headings re-derive at ### with the deepest capped at ######
-      Given step "seam.naive" writes "src/calc.ts" with:
+      Given step "seam.check" changes nothing
+      And step "seam.naive" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
+      And step "seam.naive" writes "src/calc.ts" with:
         """
         export const add = (a: number, b: number) => a + b
         export const subtract = (a: number, b: number) => a - b

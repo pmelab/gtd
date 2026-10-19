@@ -40,6 +40,11 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
+    And step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
     And step "seam.naive" writes "src/greeting.ts" with:
       """
       export const greeting = "Hello, world"
@@ -93,7 +98,8 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.answer
       gtd(human): design.gate.answer → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
@@ -104,7 +110,7 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       gtd(check): build.review.closing → idle
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
-    And the commit "gtd(agent): seam.naive → seam.judge" has a body containing "Gtd-Kept:"
+    And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
     And the commit "gtd(judge): seam.judge → implement.building" has a body containing "\"answer\":\"land\""
     And no commit body contains "Gtd-Approved:"
     And the output lines of gtd "slices" start with:

@@ -43,7 +43,12 @@ Feature: a refactor that carried the whole feature still gets a feature review
     And step "design.gate.answer" changes nothing
 
   Scenario: an empty implement turn after a refactor that did it all reaches review and idle
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b

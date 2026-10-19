@@ -47,6 +47,8 @@ const review = (text?: string): string =>
 
 const CALC = "export const add = (a: number, b: number) => a + b\n"
 
+const ACCEPTANCE = 'it("[AC-1] done", () => {})\n'
+
 const naivePlanned = () => {
   const repo = testRepo({
     workflow: CONFIG_SCAFFOLD,
@@ -77,7 +79,11 @@ describe("planAndBuild", () => {
               "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
             ),
           "design.gate.answer": () => undefined,
-          "seam.naive": (_, r) => r.write("src/calc.ts", SUBTRACT),
+          "seam.naive": (_, r) => {
+            r.write("src/calc.ts", SUBTRACT)
+            r.write("src/calc.test.ts", ACCEPTANCE)
+          },
+          "seam.check": () => undefined,
           "seam.judge": () => '[{"id":"shape","answer":"refactor-first","p":0.9}]',
           "refactor.deriving": runsItsScript,
           "refactor.building": (_, r) => r.write("src/calc.ts", SUBTRACT),
@@ -112,7 +118,11 @@ describe("planAndBuild", () => {
       "start-gate.check": () => undefined,
       "design.triage": requirements,
       "design.gate.answer": () => undefined,
-      "seam.naive": (_: unknown, r: typeof repo) => r.write("src/calc.ts", `${CALC}// naive\n`),
+      "seam.naive": (_: unknown, r: typeof repo) => {
+        r.write("src/calc.ts", `${CALC}// naive\n`)
+        r.write("src/calc.test.ts", ACCEPTANCE)
+      },
+      "seam.check": () => undefined,
       "seam.judge": () => '[{"id":"shape","answer":"land","p":0.9}]',
       "implement.building": (_: unknown, r: typeof repo) =>
         r.write("src/calc.ts", `${CALC}// built\n`),
@@ -341,7 +351,10 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
           "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
         ),
       "design.gate.answer": () => undefined,
-      "seam.naive": (_, r) => r.write("src/calc.ts", `${CALC}// naive\n`),
+      "seam.naive": (_, r) => {
+        r.write("src/calc.ts", `${CALC}// naive\n`)
+        r.write("src/calc.test.ts", ACCEPTANCE)
+      },
     })
     const kept = /Gtd-Kept: (\w+)/.exec(repo.messages().at(-1)!)![1]!
     const seen: Record<string, number> = {
@@ -366,16 +379,13 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
     return repo
   }
 
+  // seam.check now follows every naive pass, so no rest past the first naive pass replays.
   for (const [name, trail] of Object.entries(trails)) {
-    const replays = name !== "refactor-first"
-    it(`${name}: ${replays ? "every rest replays to itself" : "every rest from the verdict on fails replay"}`, async () => {
+    it(`${name}: every rest past the naive pass fails replay`, async () => {
       for (let upTo = 1; upTo <= trail.length; upTo++) {
         const rest = trail[upTo - 1]![2]
         const repo = await forged(trail, upTo)
-        if (replays) expect((await repo.next()).state, rest).toBe(rest)
-        else {
-          await expect(repo.next(), rest).rejects.toThrow("the workflow changed under this process")
-        }
+        await expect(repo.next(), rest).rejects.toThrow("the workflow changed under this process")
       }
     })
   }

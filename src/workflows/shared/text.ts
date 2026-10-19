@@ -1134,31 +1134,72 @@ export interface SeamRejection {
   readonly p: number
 }
 
+/** A naive pass whose suite `seam.check` found red; `red` is its kept tip. */
+export interface NaiveRed {
+  readonly red: string
+}
+
+/** A naive pass whose tests break the acceptance-test rules; `hash` is its kept tip. */
+export interface NaiveFault {
+  readonly fault: string
+  readonly hash: string
+}
+
+export type NaiveRetry = SeamRejection | NaiveRed | NaiveFault
+
+const isRed = (retry: NaiveRetry): retry is NaiveRed => "red" in retry
+const isFault = (retry: NaiveRetry): retry is NaiveFault => "fault" in retry
+
+const pickUp = (hash: string): string =>
+  `Pick it up — \`git diff --binary ${hash}^ ${hash} | git apply\``
+
 const criteriaBinding = (refused: boolean): string =>
   `- Its \`## Acceptance Criteria\` (\`AC-<n>\`) bind this turn: re-read them from
   the file, never from memory, and stop only when each one holds. They are
   settled — ${refused ? "a turn that changes them is refused" : "leave them as they are"}`
 
-export const naivePassPrompt = (rejection?: SeamRejection): string =>
+const naiveRetry = (retry: NaiveRetry): string =>
+  isFault(retry)
+    ? `
+Your previous attempt's (\`${retry.hash}\`) tests fall short:
+${retry.fault}
+${pickUp(retry.hash)} — and fix its tests; do not start over.
+`
+    : isRed(retry)
+      ? `
+Your previous attempt (\`${retry.red}\`) left the suite red; \`.gtd/FEEDBACK.md\`
+holds the output. ${pickUp(retry.red)}
+— and fix it until the suite is green; do not start over.
+`
+      : `
+Your previous attempt was rejected: the judge answered \`reject\` (p=${retry.p}),
+meaning the naive pass solved the task the wrong way — discard it and
+re-implement. It changed these files outside the expected set:
+${listed(retry.strays)}
+Start over and choose a different approach; do not rebuild the same diff.
+`
+
+export const naivePassPrompt = (retry?: NaiveRetry): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 ${criteriaBinding(false)}
 - Implement them the quickest way that works — the naive version. Do not
   restructure, abstract or refactor around the change; a later step judges
   the shape of your diff and a reviewer makes it fit
-- Add tests as you go, and leave \`.gtd/\` untouched
+- Work breadth-first: rough out every part of the change before finishing any
+  one, so a run cut off midway still shows the whole shape
+- Write behaviour-level acceptance tests, at least one per criterion, each
+  naming its ID in the test or scenario name (\`[AC-3] …\`). Test through code
+  that existed before this pass — a public entry point, the CLI, an existing
+  module's exports — never a file this pass adds: that is naive structure a
+  later reset and refactor replaces. A pass that leaves a criterion's ID out
+  of its tests, or whose test imports a file it added, is sent back
+- Run \`${env.testCommand}\` and finish only once it is green with every
+  criterion's test passing: the next step runs it on your diff and sends a red
+  pass back
+- Leave \`.gtd/\` untouched
 - Leave everything uncommitted and finish your turn — do not commit
-${
-  rejection === undefined
-    ? ""
-    : `
-Your previous attempt was rejected: the judge answered \`reject\` (p=${rejection.p}),
-meaning the naive pass solved the task the wrong way — discard it and
-re-implement. It changed these files outside the expected set:
-${listed(rejection.strays)}
-Start over and choose a different approach; do not rebuild the same diff.
-`
-}`
+${retry === undefined ? "" : naiveRetry(retry)}`
 
 export const implementBuildingPrompt = (
   reference: string | undefined,
@@ -1216,9 +1257,49 @@ ${fixFeedbackPrompt}
 - Leave everything uncommitted and finish your turn — do not commit
 `
 
-export const seamSteerMessage = (rejection: SeamRejection): string =>
-  `The naive pass was rejected three times and the retries are spent.
-The last attempt changed these files outside the expected set:
+const steerChoices = (overrule: string): string => `Two ways forward (then run \`gtd land\`):
+- **Steer** — edit \`.gtd/REQUIREMENTS.md\` to redirect the change; the naive
+  pass runs again with a fresh retry budget
+- **Overrule** — ${overrule}
+
+An edit together with an approval counts as steer. Only
+\`.gtd/REQUIREMENTS.md\` is meant to change here: any other edit lands on the
+branch unjudged.
+`
+
+export const seamSteerMessage = (retry: NaiveRetry): string =>
+  isFault(retry)
+    ? `The naive pass failed three times and the retries are spent. The last
+attempt's tests (\`git show ${retry.hash}\`) fall short:
+${retry.fault}
+
+${steerChoices(`land a clean tree to go on with the last attempt as it is:
+  \`seam.check\` runs its suite and the seam judge rules on its shape. Use it
+  when the rule cannot fit this change (tests the globs do not see, or no
+  entry point that existed before). Risk: a criterion may have no test that
+  survives a later refactor — the choice is recorded in history.`)}`
+    : isRed(retry)
+      ? `The naive pass failed three times and the retries are spent. The last
+attempt left the suite red: \`.gtd/FEEDBACK.md\` holds the last run's output; \`git show ${retry.red}\` shows
+the last attempt.
+
+Two ways forward (then run \`gtd land\`):
+- **Steer** — edit \`.gtd/REQUIREMENTS.md\` to redirect the change; the naive
+  pass runs again with a fresh retry budget
+- **Overrule** — land a clean tree to go on with the last attempt as it is:
+  the seam judge rules on its shape, and the implementation's health loop
+  must turn the suite green. Risk: the criteria's tests never passed on the
+  naive pass — the choice is recorded in history.
+
+An edit together with an approval counts as steer. Only
+\`.gtd/REQUIREMENTS.md\` is meant to change here: any other edit lands on the
+branch unjudged.
+`
+      : seamRejectedMessage(retry)
+
+const seamRejectedMessage = (rejection: SeamRejection): string =>
+  `The naive pass failed three times and the retries are spent. The judge
+rejected the last attempt: it changed these files outside the expected set:
 ${listed(rejection.strays)}
 
 Two ways forward (then run \`gtd land\`):

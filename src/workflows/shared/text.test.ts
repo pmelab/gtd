@@ -965,6 +965,22 @@ describe("the seam phase's texts", () => {
     expect(prompt).toContain("solved the task the wrong way")
   })
 
+  it("asks for a breadth-first pass with ID-tagged behaviour tests, green before it ends", () => {
+    const prompt = renderText(() => naivePassPrompt())
+    expect(prompt).toContain("breadth-first")
+    expect(prompt).toContain("`[AC-3] …`")
+    expect(prompt).toContain("never a file this pass adds")
+    expect(prompt).toContain("green")
+  })
+
+  it("has a red retry pick up the kept attempt instead of starting over", () => {
+    const prompt = renderText(() => naivePassPrompt({ red: "abc123" }))
+    expect(prompt).toContain("left the suite red")
+    expect(prompt).toContain("git diff --binary abc123^ abc123 | git apply")
+    expect(prompt).toContain(".gtd/FEEDBACK.md")
+    expect(prompt).not.toContain("rejected")
+  })
+
   it("cites the reference as reading material only and asks for a new release flag", () => {
     const prompt = renderText(() => implementBuildingPrompt("abc123"))
     expect(prompt).toContain("git show abc123")
@@ -1017,6 +1033,30 @@ describe("the seam phase's texts", () => {
     expect(message).toContain("Overrule")
     expect(message).toContain("unaddressed")
     expect(message).toContain("src/flows/helpers.ts")
+  })
+
+  it("hands a faulty pass back with the fault and the kept attempt to pick up", () => {
+    const fault = {
+      fault: "acceptance-tests: no test of the naive pass names AC-2",
+      hash: "abc123",
+    }
+    const prompt = renderText(() => naivePassPrompt(fault))
+    expect(prompt).toContain("names AC-2")
+    expect(prompt).toContain("git diff --binary abc123^ abc123 | git apply")
+    const message = renderText(() => seamSteerMessage(fault))
+    expect(message).toContain("names AC-2")
+    expect(message).toContain("`seam.check` runs its suite")
+    expect(message).toContain("Overrule")
+  })
+
+  it("names the red suite, its report and what overruling it means", () => {
+    const message = renderText(() => seamSteerMessage({ red: "abc123" }))
+    expect(message).toContain("The last\nattempt left the suite red")
+    expect(message).toContain(".gtd/FEEDBACK.md")
+    expect(message).toContain("edit `.gtd/REQUIREMENTS.md`")
+    expect(message).toContain("Overrule")
+    expect(message).toContain("seam judge")
+    expect(message).not.toContain("outside the expected set")
   })
 
   it("names every unreadable path for a by-hand landing", () => {

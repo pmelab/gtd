@@ -41,7 +41,12 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
     And step "design.gate.answer" changes nothing
 
   Scenario: three rejects rest at the steer gate, a steered rerun lands and runs to idle
-    Given step "seam.naive" writes "src/calc.ts" with:
+    Given step "seam.check" changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => b + a
       """
@@ -87,6 +92,10 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       - AC-1: the change behaves as described.
       """
     And step "seam.naive" from now on changes nothing
+    And step "seam.naive" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
     And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -127,14 +136,18 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.answer
       gtd(human): design.gate.answer → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → seam.steer
       gtd(human): seam.steer → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
@@ -144,7 +157,7 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       gtd(check): build.review.closing → idle
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
-    And the commit "gtd(agent): seam.naive → seam.judge" has a body containing "Gtd-Kept:"
+    And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
     And the commit "gtd(judge): seam.judge → seam.naive" has a body containing "\"answer\":\"reject\""
     And the commit "gtd(judge): seam.judge → seam.steer" has a body containing "\"answer\":\"reject\""
     And the commit "gtd(judge): seam.judge → implement.building" has a body containing "\"answer\":\"land\""

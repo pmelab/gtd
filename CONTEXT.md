@@ -247,6 +247,12 @@ deleted by a landing. _Avoid_: beat tip, discarded tip.
 
 **Naive pass**: The `seam.naive` turn: the requirements implemented directly,
 kept as a [kept tip](#kept-tip) and used as reading material, never applied.
+Done only when its [acceptance tests](#acceptance-test) are green.
+
+**Acceptance test**: A behaviour-level test a naive pass writes for one
+[acceptance criterion](#acceptance-criterion), naming its ID in the test or
+scenario name (`[AC-3] …`). It reaches only code that existed before the pass,
+so it survives a reset and refactor. _Avoid_: AC test, criterion test
 
 **Stray**: A path a naive pass changed that `seamAllow` does not match (a newly
 added file never counts).

@@ -98,9 +98,17 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const greet = () => "hello"
       """
+    And a file "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): seam.naive → seam.judge"
+    And the last commit subject is "gtd(agent): seam.naive → seam.check"
+    # seam.check: the suite runs with the kept pass applied; clean is green.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): seam.check → seam.judge"
 
     Given gtd lands "gtd(judge): seam.judge → implement.building" judging:
       """
@@ -239,7 +247,8 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.answer
       gtd(human): design.gate.answer → seam.naive
-      gtd(agent): seam.naive → seam.judge
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.fix.suite.fixing
@@ -1386,7 +1395,12 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const widget = () => "w"
       """
-    And gtd lands "gtd(agent): seam.naive → implement.building"
+    And a file "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And gtd lands "gtd(agent): seam.naive → seam.check"
+    And gtd lands "gtd(check): seam.check → implement.building"
     And a file "src/widget.ts" with:
       """
       export const widget = (): string => "w"
@@ -2230,7 +2244,12 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       export const thing = 1
       """
-    And gtd lands "gtd(agent): seam.naive → implement.building"
+    And a file "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
+    And gtd lands "gtd(agent): seam.naive → seam.check"
+    And gtd lands "gtd(check): seam.check → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"implement.building\""
