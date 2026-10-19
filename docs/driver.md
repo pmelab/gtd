@@ -481,6 +481,12 @@ falls back to the `gtd` on your `PATH`.
   retargeted like any other, and a missing slice branch is rebuilt from the
   commits the stack was built at while the branch still contains them, otherwise
   the ship refuses and names `GTD_SHIP_MODE=commits` to ship the branch alone.
+  To tear a shipped stack down from a worktree, `gh pr close --delete-branch`
+  fails on the pull request whose branch that worktree has checked out (the top
+  one, named after the worktree's branch): gh closes it, then tries to switch
+  the checkout to the default branch, which another worktree holds, and deletes
+  nothing. Close it with `gh pr close <n>` and delete its branch with
+  `git push origin --delete <branch>`.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A

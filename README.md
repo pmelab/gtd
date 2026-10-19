@@ -348,9 +348,11 @@ nothing changed, when that pull request merged anywhere but the default branch
 (unless into a lower slice branch before that one merged into it), a slice
 branch is checked out in another worktree, an unrelated local branch sits inside
 the rebased commits, or a slice's change is already upstream; a failed rebase is
-rolled back). A process can change hands at any gate: ask Claude to hand it off
-(or run `/gtd throw @dev`) and it opens a draft pull request assigned to them,
-and `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
+rolled back; to tear a stack down from its worktree, delete the top branch with
+`git push origin --delete`, since `gh pr close --delete-branch` cannot). A
+process can change hands at any gate: ask Claude to hand it off (or run
+`/gtd throw @dev`) and it opens a draft pull request assigned to them, and
+`/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
 requirements can hand the architecture to someone else. Ship, hand-off and throw
 answer at once and run in the background, with progress on the status line; they
 report by waking Claude, a toast, a transcript line and a push notification, and
