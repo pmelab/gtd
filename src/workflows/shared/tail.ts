@@ -129,43 +129,17 @@ export const isOptionalObject = (value: unknown): value is object | null | undef
     !Array.isArray(value) &&
     typeof (value as { then?: unknown }).then !== "function")
 
-const isOptionalType =
-  (type: "boolean" | "string" | "function") =>
-  (value: unknown): boolean =>
-    value == null || typeof value === type
-
-// The deprecated form's positionals after `finish`, in order, with fixFirst first.
-const LEGACY_SLOTS: readonly [keyof TailOptions, (value: unknown) => boolean][] = [
-  ["fixFirst", isOptionalType("boolean")],
-  ["green", isOptionalType("boolean")],
-  ["guard", isOptionalType("function")],
-  ["lenses", (value) => value == null || Array.isArray(value)],
-  ["guardRests", isOptionalType("boolean")],
-  ["lensBase", isOptionalType("string")],
-  ["rules", isOptionalType("string")],
-]
-
-const legacyOptions = (args: readonly unknown[]): TailOptions | undefined => {
-  if (args.slice(LEGACY_SLOTS.length).some((value) => value != null)) return undefined
-  if (!LEGACY_SLOTS.every(([, fits], i) => fits(args[i]))) return undefined
-  // A positional null guardRests used to reach the escalation as falsy, not as the default.
-  return Object.fromEntries(
-    LEGACY_SLOTS.map(([key], i) => [
-      key,
-      key === "guardRests" && args[i] === null ? false : (args[i] ?? undefined),
-    ]),
-  )
-}
-
-// gtd.config.ts is untyped at runtime, so every argument is checked against the form chosen.
+// Picks the form by shape only: the deprecated form never validated its
+// positionals, and still runs whatever it ran before.
 const tailForm = <T>(
   first: unknown,
   second: unknown,
   rest: readonly unknown[],
 ): [Finish<T>, TailOptions] | undefined => {
   if (typeof second === "function") {
-    const options = legacyOptions([first, ...rest])
-    return options === undefined ? undefined : [second as Finish<T>, options]
+    const [green, guard, lenses, guardRests, lensBase, rules] = rest
+    const options = { fixFirst: first, green, guard, lenses, guardRests, lensBase, rules }
+    return [second as Finish<T>, options as TailOptions]
   }
   if (typeof first === "function" && isOptionalObject(second) && rest.every((v) => v == null))
     return [first as Finish<T>, (second as TailOptions | null | undefined) ?? {}]
@@ -175,7 +149,8 @@ const tailForm = <T>(
 const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
   scope("build", async () => {
     const { guard, lenses, lensBase, rules } = options
-    const guardRests = options.guardRests ?? true
+    // Only undefined defaults: a null reaches every escalation as falsy, as it reaches review's.
+    const guardRests = options.guardRests === undefined ? true : options.guardRests
     const escalations: EscalationCount = { rounds: 0 }
     const fix = () => fixCheck(rules)
     const repair = async () => {

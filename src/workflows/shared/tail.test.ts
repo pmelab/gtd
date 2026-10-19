@@ -360,6 +360,12 @@ describe("tail's call forms", () => {
     expect(prompts.some((p) => p.includes("BASE-SHA"))).toBe(false)
   })
 
+  it("the deprecated form still runs untyped flags as truthy or falsy", async () => {
+    expect(await requestNames(() => tail(1 as never, finish, 0 as never))).toEqual(
+      await requestNames(() => tail(finish, { fixFirst: true })),
+    )
+  })
+
   it("reads an explicit undefined in every option as absent", async () => {
     const absent = await requestNames(() => tail(finish))
     const explicit = await requestNames(() =>
@@ -378,14 +384,12 @@ describe("tail's call forms", () => {
 
   const fitsNeither: [string, () => Promise<unknown>][] = [
     ["no finish", () => (tail as (...args: unknown[]) => Promise<unknown>)(false)],
-    ["a non-boolean fixFirst", () => tail(1 as never, finish)],
     ["a finish followed by a boolean", () => tail(finish, true as never)],
     ["a finish followed by a Promise", () => tail(finish, Promise.resolve({}) as never)],
     [
       "a finish with a third argument",
       () => (tail as (...args: unknown[]) => Promise<unknown>)(finish, {}, true),
     ],
-    ["a legacy call with a non-boolean green", () => tail(false, finish, 1 as never)],
   ]
   for (const [label, call] of fitsNeither) {
     it(`rejects ${label} before any step runs`, async () => {
