@@ -49,7 +49,7 @@ Feature: a feature is done only when every acceptance criterion has a passing te
   Scenario: the judge reads the requirements and the change's tests
     When the process is driven
     Then the process rests at "implement.coverage"
-    And the output of gtd "judge" contains "AC-2: add is unchanged."
+    And the output of gtd "judge" contains "- AC-2: add is unchanged."
     And the output of gtd "judge" contains "[AC-1] subtracts"
 
   Scenario: every ID covered ends the feature and marks the IDs it covers

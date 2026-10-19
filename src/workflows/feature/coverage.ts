@@ -1,4 +1,13 @@
-import { answered, changes, changesSince, human, judge, mark, read } from "../../flows/index.js"
+import {
+  answered,
+  changes,
+  changesSince,
+  human,
+  judge,
+  mark,
+  read,
+  start,
+} from "../../flows/index.js"
 import { healthy } from "../shared/health.js"
 import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
@@ -14,7 +23,6 @@ const COVERING_RETRIES = 2
 
 const frozen = (): void => requireCriteriaFrozen(REQUIREMENTS)
 
-/** The implementation's health loop: fix turns until the suite is green, criteria untouched. */
 export const green = (): Promise<void> =>
   healthy(
     () =>
@@ -27,11 +35,15 @@ export const green = (): Promise<void> =>
     { guard: frozen, guardRests: false },
   )
 
-/** The test files changed since `base`, as the judge reads them. */
+// Only the lines the change added: a whole large test file would overrun the budget, and cut evidence covers nothing.
 const testsSince = (base: string): string =>
   changesSince(base)
     .filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
-    .map((c) => `=== ${c.path} (${c.status})\n${c.after}`)
+    .map((c) => {
+      const before = new Set((c.before ?? "").split("\n"))
+      const added = c.after!.split("\n").filter((line) => !before.has(line))
+      return `=== ${c.path} (${c.status})\n${added.join("\n")}`
+    })
     .join("\n")
 
 /**
@@ -44,9 +56,10 @@ const uncoveredSince = async (
 ): Promise<{ readonly covered: string[]; readonly uncovered: string[] }> => {
   const requirements = read(REQUIREMENTS) ?? ""
   const criteria = (criteriaOf(requirements) ?? []).filter((c) => c.id !== "")
+  if (criteria.length === 0) return { covered: [], uncovered: [] }
   const { answers, truncated } = await judge("coverage", {
     questions: criteria.map(t.coverageQuestion),
-    evidence: { requirements, tests: testsSince(base) },
+    evidence: { criteria: criteria.map(t.criterionLine).join("\n"), tests: testsSince(base) },
     message: t.coverageMessage(),
     label: "Judging acceptance-criteria coverage",
   })
@@ -66,7 +79,7 @@ const record = (covered: readonly string[], uncovered: readonly string[] = []): 
  * sending uncovered IDs back to a covering turn; marks the IDs covered on the
  * landing that ends it. A human may overrule once the retries are spent.
  */
-export const requireCoverage = async (base: string): Promise<void> => {
+export const requireCoverage = async (base = start()): Promise<void> => {
   let retries = 0
   for (;;) {
     const { covered, uncovered } = await uncoveredSince(base)
@@ -83,6 +96,7 @@ export const requireCoverage = async (base: string): Promise<void> => {
       await human("uncovered", {
         message: t.uncoveredMessage(uncovered),
         label: "Acceptance criteria without a test",
+        file: REQUIREMENTS,
         acceptClean: true,
       })
       if (changes().length === 0) return record(covered, uncovered)

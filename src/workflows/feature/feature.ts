@@ -47,7 +47,6 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
       reference: seam.reference,
       tier,
       afterRefactor: seam.refactored,
-      base: firstBase,
     })
     // An empty feature slice: the refactor carried the feature, so the lap covers the whole change.
     const base =
@@ -89,7 +88,7 @@ export const afterTail = async (first: ReviewOutcome): Promise<void> => {
     await reUnwind(outcome)
     await design(outcome.base)
     const tier = riskTierOn() ? recordRisk() : undefined
-    await implement({ tier, amend: true, base: outcome.base })
+    await implement({ tier, amend: true })
     outcome = await buildTail(outcome.base, { green: true, lap: "feedback" })
   }
 }

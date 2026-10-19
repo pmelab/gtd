@@ -13,7 +13,6 @@ import {
   run,
   scope,
   slice,
-  start,
   vars,
   type Change,
   type DiffShapeResult,
@@ -170,8 +169,6 @@ export interface ImplementOptions {
   readonly amend?: boolean | undefined
   /** After a refactor slice, which may already carry the feature: an empty turn completes the step. */
   readonly afterRefactor?: boolean | undefined
-  /** Coverage reads the tests changed since here; the process's start when absent. */
-  readonly base?: string | undefined
 }
 
 export function implement(options?: ImplementOptions): Promise<void>
@@ -207,7 +204,7 @@ export function implement(
     )
     requireCriteriaFrozen(REQUIREMENTS)
     await green()
-    await requireCoverage(options.base ?? start())
+    await requireCoverage()
     await run("closing", removeScript([REQUIREMENTS]), { label: "Closing out the implementation" })
   })
 }
