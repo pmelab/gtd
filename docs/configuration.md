@@ -394,11 +394,11 @@ default export is the `feature` factory, and every part of it is a named export
 another workflow can import — its `defaults`, `envDefaults`, `summary` and
 `skills`, the three startable workflows as [factories](#workflow-factories)
 (`feature`, `review`, `fix`) and as plain flows (`ordinaryStart`, `reviewFlow`,
-`fixFlow`), the phases (`unwind`, `planAndBuild`, `design`, `seamBuild`,
-`implement`, `refactorFirst`, `buildTail`, `handOffTail`, `handOffReview`,
-`fixReviewNotes`, `qualityLap`, `healthy`, `gate`, …) and every single step
-(`triage`, `naivePass`, `fixCheck`, `reviewing`, `collecting`, …). A step's name
-is relative to the `scope()` it runs in — the bundled workflow's
+`fixFlow`), the phases (`unwind`, `planAndBuild`, `design`, `buildFeature`,
+`seamBuild`, `implement`, `refactorFirst`, `buildTail`, `handOffTail`,
+`handOffReview`, `fixReviewNotes`, `qualityLap`, `healthy`, `gate`, …) and every
+single step (`triage`, `naivePass`, `fixCheck`, `reviewing`, `collecting`, …). A
+step's name is relative to the `scope()` it runs in — the bundled workflow's
 `scope("build", …)` around `healthy` is what makes `build.health.check` — and
 the full names are part of gtd's versioned API: they never change outside a
 major release, because a rename strands every process resting on the old name.
@@ -752,15 +752,20 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
   started on the old path (with the flag off — the default) no longer replays at
   any rest from `architecture.*` on — `architecture.*`, `packages.*`, and every
   `build.*` step after them — and must be finished or `gtd abandon`ed before
-  upgrading; one resting at `idle`, `unwind`, `start-gate.*` or `design.*` keeps
-  replaying, onto the naive pass. The `architecture`, `packages`, `packageItem`,
-  `nextPackage`, `declaredTests`, `requireDeclaredTests`, `author`, `decompose`,
-  `answerTechnicalQuestions`, `build` and `fixSuite` exports, the `ARCHITECTURE`
-  constant and the `.gtd/ARCHITECTURE.md` steering entry are removed;
-  `planAndBuild` takes only its base. `GTD_FLAG_RISK_TIER` no longer needs the
-  removed flag: an old-path process that started with it on and replays onto the
-  naive pass records the tier from then on, and with no `## Risk Tier` section
-  that tier is `high`.
+  upgrading; one resting at `idle`, `unwind`, `start-gate.*` or `design.*` on
+  its first lap keeps replaying, onto the naive pass; one on a review loop-back
+  lap has `architecture.*` in its history and must be abandoned too.
+  `--var flag_naive_pass=…` is refused as undeclared, and a `config.skills` or
+  `config.access` key on `architecture`, `architecture.decompose` or
+  `packages.item*` fails every command: move it to the `implement*` scope. The
+  `architecture`, `packages`, `packageItem`, `nextPackage`, `declaredTests`,
+  `requireDeclaredTests`, `author`, `decompose`, `answerTechnicalQuestions`,
+  `build` and `fixSuite` exports, the `ARCHITECTURE` constant and the
+  `.gtd/ARCHITECTURE.md` steering entry are removed; `planAndBuild` takes only
+  its base; `buildFeature` is everything after design. `GTD_FLAG_RISK_TIER` no
+  longer needs the removed flag: an old-path process that started with it on and
+  replays onto the naive pass records the tier from then on, and with no
+  `## Risk Tier` section that tier is `high`.
 - `seam.approve` is gone; the refactor's review sign-off is the approval. A
   naive-pass process from 27.5.0 or later whose judge ruled `refactor-first` no
   longer replays at any rest from that verdict on — `seam.approve`, every

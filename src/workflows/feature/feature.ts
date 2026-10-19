@@ -36,9 +36,8 @@ export { reUnwind }
 
 // seam.naive / seam.judge run once: a feedback lap is design → implement on every verdict, so a
 // seam a re-plan turns up is built unjudged and unrefactored.
-/** Design, a judged naive pass, then implement and review until a review round signs off. */
-export const planAndBuild = async (firstBase: string): Promise<void> => {
-  await design(firstBase)
+/** A judged naive pass, then implement and review until a review round signs off; design must have run since `firstBase`. */
+export const buildFeature = async (firstBase: string): Promise<void> => {
   const tier = riskTierOn() ? recordRisk() : undefined
   const seam = await seamBuild(firstBase)
   await slice("feature", async () => {
@@ -50,6 +49,12 @@ export const planAndBuild = async (firstBase: string): Promise<void> => {
         : seam.base
     await featureFeedback(await buildTail(base, { green: true, lensBase: base }), base)
   })
+}
+
+/** Design, then `buildFeature`. */
+export const planAndBuild = async (firstBase: string): Promise<void> => {
+  await design(firstBase)
+  await buildFeature(firstBase)
 }
 
 const featureFeedback = async (first: ReviewOutcome, lensBase?: string): Promise<void> => {

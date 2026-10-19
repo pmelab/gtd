@@ -479,8 +479,8 @@ When you've been through the whole diff, run \`gtd land\`:
 - **Leave notes** — a note on a \`.gtd/REVIEW.md\` line, a footnote
   anchored to a hunk, or prose under a chunk. Each note is judged on its
   own (**review.triage** gives one verdict per note):
-  - \`edit\` — a change request: goes to **review.collecting** and a
-    FULL development lap, re-planned from scratch
+  - \`edit\` — a change request: goes to **review.collecting**, then
+    a development lap: requirements re-derived, the change amended
   - \`question\` — answered inline under the note in
     \`.gtd/REVIEW.md\` (**review.answer-review-questions**); the process
     rests at this gate again, no lap

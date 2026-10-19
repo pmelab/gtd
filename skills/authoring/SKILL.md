@@ -222,9 +222,9 @@ workflow.
 
 ## Worked example: add an approval gate before building
 
-In the bundled default, `planAndBuild` runs the design phase, then the naive
-pass and its seam judge, then the implementation. Add a human sign-off between
-design and the naive pass:
+In the bundled default, `planAndBuild` runs the design phase, then
+`buildFeature`: the naive pass and its seam judge, then the implementation and
+review. Add a human sign-off between the two:
 
 ```ts
 const planAndBuild = async (firstBase: string): Promise<void> => {
@@ -235,20 +235,7 @@ const planAndBuild = async (firstBase: string): Promise<void> => {
     label: "Approve the plan",
     acceptClean: true,
   })
-  const seam = await seamBuild(firstBase)
-  await slice("feature", async () => {
-    await implement({
-      reference: seam.reference,
-      afterRefactor: seam.refactored,
-    })
-    // A refactor that carried the whole feature leaves nothing new: review it all.
-    const base =
-      seam.refactored === true &&
-      !changesSince(seam.base).some((c) => !c.path.startsWith(".gtd/"))
-        ? firstBase
-        : seam.base
-    await afterTail(await buildTail(base, { green: true, lensBase: base }))
-  })
+  await buildFeature(firstBase)
 }
 ```
 

@@ -489,15 +489,14 @@ noted in steps 3 and 4 below.
    you unfixed; risk: a fix lands with no check that the risk was real. Tick the
    boxes to approve, or write what is wrong. Approving ends the process;
    feedback is judged note by note, each as `edit`, `question`, `nit` or
-   `praise`. An `edit` sends the process back to step 2 for fresh requirements
-   and a new implementation — it never patches over a design you rejected. A
-   `question` is answered inline under your note and the process stops at the
-   review again — no new plan. A `nit` is fixed in one batch, the suite must go
-   green (a red one gets fix turns first), then a fresh review of the change
-   stops at the review again. `praise` is dropped; a round of only praise signs
-   off. When a round mixes them, questions are answered and nits fixed first,
-   then the edits are planned — risk: the planning lap may redo nit fixes it
-   touches.
+   `praise`. An `edit` sends the process back to step 2 for re-derived
+   requirements, and the implementation is amended to meet them. A `question` is
+   answered inline under your note and the process stops at the review again —
+   no new plan. A `nit` is fixed in one batch, the suite must go green (a red
+   one gets fix turns first), then a fresh review of the change stops at the
+   review again. `praise` is dropped; a round of only praise signs off. When a
+   round mixes them, questions are answered and nits fixed first, then the edits
+   are planned — risk: the planning lap may redo nit fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). `critical` and `should`

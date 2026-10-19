@@ -134,15 +134,15 @@ shaped like `evals/cases/build-fix.mjs` — a `state` to enter, two-sided
 `expect[variant].otherFiles` (`"none"` for a planner case that must never touch
 repo code, `"required"` for a coder case that must). `gtdFiles` is the exact
 array of `.gtd/` paths that variant's turn may change, graded by
-`evals/expect.mjs`'s `matchGtdFiles`. An optional `artifact` (the repo-relative
-path read back as `feedback` for the tier-3 rubric, absent for a case with no
-contracted state file — that case's `tests:` entries then carry no `llm-rubric`
-either, since there is nothing to judge), a `plantedIdentifier` the `violation`
-variant's `feedback` must name (choose text the fix must INTRODUCE, never text
-already sitting in `base` — a bug's exception class declared but not yet thrown
-greps true on an untouched file), and an optional `expect[variant].outOfBounds`
-(the repo-relative path THAT variant's fixture plants as a coder case's obvious
-wrong move; both `isStructurallyOk` here and `checkOutOfBounds` in
+`evals/expect.mjs`. An optional `artifact` (the repo-relative path read back as
+`feedback` for the tier-3 rubric, absent for a case with no contracted state
+file — that case's `tests:` entries then carry no `llm-rubric` either, since
+there is nothing to judge), a `plantedIdentifier` the `violation` variant's
+`feedback` must name (choose text the fix must INTRODUCE, never text already
+sitting in `base` — a bug's exception class declared but not yet thrown greps
+true on an untouched file), and an optional `expect[variant].outOfBounds` (the
+repo-relative path THAT variant's fixture plants as a coder case's obvious wrong
+move; both `isStructurallyOk` here and `checkOutOfBounds` in
 `evals/asserts/shared.mjs` fail a turn that touches it). Scoped per variant,
 never a case-level field: the trap file exists only on the variant whose fixture
 plants it, so a `clean` turn writing that same path itself (e.g. a fresh

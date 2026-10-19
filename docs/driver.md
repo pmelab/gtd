@@ -80,9 +80,9 @@ does start a fresh one. The bundled workflow's review tail is a worked example:
 it sits inside `build` (as `build.review.*`) so that a `gtd --workflow fix` run
 — `build.fix` → `build.health.check` → `build.review.*` — stays inside one
 subtree. (An actionable review round breaks the run on purpose instead: it
-leaves `build` through the root-level `re-unwind` step and a full re-plan, since
-a hand-edit made during review is a sketch to reconsider, not a fix to build
-on.) The same steps placed under two different prefixes (`build.health` and
+leaves `build` through the root-level `re-unwind` step and a design lap, since a
+hand-edit made during review is a sketch to reconsider, not a fix to build on.)
+The same steps placed under two different prefixes (`build.health` and
 `implement.health`) gets two different scopes, so a reviewer's turn never
 resumes an implementer's session as long as the two live in different scopes.
 
