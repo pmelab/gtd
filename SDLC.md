@@ -154,8 +154,8 @@ Paths and text are checked, **never behaviour**.
 - `seam.note` is refused when it changes anything but the note
   (`refactor-note`); the rebuild's `implement.building` when its tests leave out
   a naive acceptance-test ID (`rebuild-acceptance`). **Both read text only**:
-  the rebuild's carried tests run in the health loop, and a carried test may be
-  edited to reach the flag.
+  the rebuild's carried tests run in the health loop, a carried test may be
+  edited to reach the flag, and **a skipped test naming the ID passes**.
 - `gtd land` refusals in `rollout` and `cleanup`: see
   [Rolling out and cleaning up a release flag](docs/configuration.md#rolling-out-and-cleaning-up-a-release-flag).
   `cleanup` checks shipped `src/` sources only.

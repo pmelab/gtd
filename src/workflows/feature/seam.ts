@@ -104,18 +104,21 @@ const addedLines = (change: Change): string => {
     .join("\n")
 }
 
+const acceptanceTests = (changes: readonly Change[]): readonly Change[] =>
+  changes.filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
+
+const idsOf = (file: string): string[] =>
+  (criteriaOf(read(file) ?? "") ?? []).map((c) => c.id).filter((id) => id !== "")
+
 /**
  * Why `tip`'s tests fall short, or `undefined`: a criterion ID of `file` no
  * test line of the pass names, or a test importing a file the pass added —
  * naive structure a reset and refactor replaces, which the tests must survive.
  */
 export const acceptanceFault = (file: string, tip: KeptTip): string | undefined => {
-  const ids = (criteriaOf(read(file) ?? "") ?? []).map((c) => c.id).filter((id) => id !== "")
-  const tests = tip.changes.filter(
-    (c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path),
-  )
+  const tests = acceptanceTests(tip.changes)
   const lines = tests.map(addedLines)
-  const untested = ids.filter((id) => !lines.some((text) => named(id, text)))
+  const untested = idsOf(file).filter((id) => !lines.some((text) => named(id, text)))
   if (untested.length > 0)
     return `acceptance-tests: no test of the naive pass names ${untested.join(", ")} — write a behaviour-level test for each criterion with its ID in the test or scenario name, e.g. "[${untested[0]}] …"`
   const added = tip.changes
@@ -134,36 +137,31 @@ export const acceptanceFault = (file: string, tip: KeptTip): string | undefined 
   return undefined
 }
 
-const acceptanceTests = (changes: readonly Change[]): readonly Change[] =>
-  changes.filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
-
-/** The criterion IDs of `file` that `changes`' test files name on an added line. */
-const namedIds = (file: string, changes: readonly Change[]): string[] => {
-  const lines = acceptanceTests(changes).map(addedLines)
-  return (criteriaOf(read(file) ?? "") ?? [])
-    .map((c) => c.id)
-    .filter((id) => id !== "" && lines.some((text) => named(id, text)))
-}
-
 /** What a rebuild carries over from the naive pass `tip`: the IDs its tests name, and those test files. */
-export const naiveAcceptance = (tip: KeptTip): NonNullable<t.Rebuild["acceptance"]> => {
-  const ids = namedIds(REQUIREMENTS, tip.changes)
-  const tests = acceptanceTests(tip.changes)
-    .filter((c) => ids.some((id) => named(id, addedLines(c))))
-    .map((c) => c.path)
-  return { hash: tip.hash, tests, ids }
+export const naiveAcceptance = (tip: KeptTip): t.Acceptance => {
+  const ids = idsOf(REQUIREMENTS)
+  const perTest = acceptanceTests(tip.changes).map((c) => ({
+    path: c.path,
+    ids: ids.filter((id) => named(id, addedLines(c))),
+  }))
+  return {
+    hash: tip.hash,
+    tests: perTest.filter((c) => c.ids.length > 0).map((c) => c.path),
+    ids: ids.filter((id) => perTest.some((c) => c.ids.includes(id))),
+  }
 }
 
-/** Refuse a rebuild whose test changes since `since` leave out an ID the naive pass's tests named. */
-export const requireAcceptance = (
-  acceptance: NonNullable<t.Rebuild["acceptance"]>,
-  since: string,
-): void => {
-  const carried = new Set(namedIds(REQUIREMENTS, changesSince(since)))
-  const missing = acceptance.ids.filter((id) => !carried.has(id))
+/**
+ * Refuse a rebuild whose test changes since `since` leave out an ID the naive
+ * pass's tests named. A comment naming the ID does not count; a skipped test
+ * still does — the gate reads text, never runs it.
+ */
+export const requireAcceptance = (acceptance: t.Acceptance, since: string): void => {
+  const lines = acceptanceTests(changesSince(since)).map((c) => addedLines(c).replace(COMMENT, ""))
+  const missing = acceptance.ids.filter((id) => !lines.some((text) => named(id, text)))
   if (missing.length === 0) return
   refuse(
-    `gtd land: rebuild-acceptance: the rebuild's tests leave out ${missing.join(", ")} — carry over the naive pass's acceptance tests (\`git show ${acceptance.hash} -- ${acceptance.tests.map(quote).join(" ")}\`), each with its ID in the test or scenario name`,
+    `gtd land: rebuild-acceptance: the rebuild's tests leave out ${missing.join(", ")} — carry over the naive pass's acceptance tests (\`git checkout ${acceptance.hash} -- ${acceptance.tests.map(quote).join(" ")}\`), each with its ID in the test or scenario name`,
   )
 }
 
@@ -202,6 +200,8 @@ const naiveGreen = (tip: KeptTip): Promise<boolean> => {
   )
 }
 
+export type { Acceptance, Rebuild } from "../shared/text.js"
+
 export interface ImplementOptions {
   readonly reference?: string | undefined
   readonly tier?: RiskTier | undefined
@@ -239,7 +239,8 @@ export function implement(
   return scope("implement", async () => {
     const since = head()
     const acceptance = options.rebuild?.acceptance
-    if (options.naive === undefined || !(await applied(options.naive))) {
+    const built = options.naive === undefined || !(await applied(options.naive))
+    if (built)
       await t.agentWithSkills(
         "building",
         t.implementBuildingPrompt(
@@ -257,9 +258,8 @@ export function implement(
           ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
         },
       )
-      if (acceptance !== undefined) requireAcceptance(acceptance, since)
-    }
     requireCriteriaFrozen(REQUIREMENTS)
+    if (built && acceptance !== undefined) requireAcceptance(acceptance, since)
     await green()
     await requireCoverage()
     const notes = read(REFACTOR_NOTE) === undefined ? [] : [REFACTOR_NOTE]
@@ -409,6 +409,7 @@ export const seamBuild = async (base: string): Promise<SeamOutcome> => {
     reference,
     base: head(),
     refactored,
-    rebuild: { note, acceptance: naiveAcceptance(tip) },
+    // The refactor's turns may write `.gtd/**`: quote the note the rebuild will find.
+    rebuild: { note: read(REFACTOR_NOTE) ?? note, acceptance: naiveAcceptance(tip) },
   }
 }

@@ -1225,15 +1225,20 @@ ${criteriaBinding(false)}
 - Leave everything uncommitted and finish your turn — do not commit
 ${retry === undefined ? "" : naiveRetry(retry)}`
 
+/** The naive pass's kept tip, its acceptance test files and the criterion IDs they name. */
+export interface Acceptance {
+  readonly hash: string
+  readonly tests: readonly string[]
+  readonly ids: readonly string[]
+}
+
 /** What a rebuild after a refactor-first judgment carries over from the naive pass. */
 export interface Rebuild {
-  /** The refactor note's text. */
   readonly note?: string | undefined
-  /** The naive pass's kept tip, its acceptance test files and the criterion IDs they name. */
-  readonly acceptance?:
-    | { readonly hash: string; readonly tests: readonly string[]; readonly ids: readonly string[] }
-    | undefined
+  readonly acceptance?: Acceptance | undefined
 }
+
+const carries = (rebuild: Rebuild): boolean => (rebuild.acceptance?.ids.length ?? 0) > 0
 
 const rebuildLines = ({ note, acceptance }: Rebuild): string =>
   `${
@@ -1250,13 +1255,13 @@ ${note
 
 `
   }${
-    acceptance === undefined || acceptance.ids.length === 0
+    acceptance === undefined || !carries({ acceptance })
       ? ""
-      : `- Carry over the naive pass's acceptance tests for ${acceptance.ids.join(", ")}:
-  \`git show ${acceptance.hash} -- ${acceptance.tests.map(quote).join(" ")}\`. Keep
-  each test and its \`[AC-<n>]\` name, changing only what reaches the release
-  flag: a rebuild whose changed tests leave an ID out is refused, and the
-  suite must be green with them
+      : `- Carry over the naive pass's acceptance tests for ${acceptance.ids.join(", ")}, the
+  one part of it you take as it is: \`git checkout ${acceptance.hash} -- ${acceptance.tests.map(quote).join(" ")}\`.
+  Keep each test and its \`[AC-<n>]\` name, changing only what reaches the
+  release flag: a rebuild whose changed tests leave an ID out is refused, and
+  the suite must be green with them
 `
   }`
 
@@ -1270,10 +1275,17 @@ export const refactorNotePrompt = (reference: string, strays: readonly string[])
 ${listed(strays)}
 - Write \`.gtd/REFACTOR-NOTE.md\`: which seams the refactor opens (the existing
   code to restructure, by path and symbol) and the shape each takes — the
-  signatures and where the new behaviour will plug in. Never the feature's own
+  signatures and where the new behaviour will plug in. Name only the files
+  listed above: the refactor may change no other path. Never the feature's own
   behaviour, and no flag read: the refactor adds neither
 - Change nothing else — a turn that does is refused
 - Leave everything uncommitted and finish your turn — do not commit
+`
+
+const afterRefactorLine = (rebuild: Rebuild): string =>
+  `- A reviewed refactor has just landed and may already carry part of the change,
+  though never a release flag. Build only what is still missing, held to every
+  rule below; if nothing is, ${carries(rebuild) ? "carry over the acceptance tests below and change nothing else" : "change nothing and finish your turn"}
 `
 
 export const implementBuildingPrompt = (
@@ -1287,14 +1299,7 @@ export const implementBuildingPrompt = (
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 ${criteriaBinding(true)}
-${
-  afterRefactor === true
-    ? `- A reviewed refactor has just landed and may already carry part of the change,
-  though never a release flag. Build only what is still missing, held to every
-  rule below; if nothing is, change nothing and finish your turn
-`
-    : ""
-}${
+${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
     amend === true
       ? `- The change already exists in the tree from an earlier lap; amend it to meet
   the re-derived requirements instead of rewriting it
@@ -1310,7 +1315,7 @@ ${
       ? ""
       : `- Reference only: \`git show ${reference}\` shows an earlier naive attempt.
   Read it for ideas; never apply, cherry-pick or check it out — write
-  the change fresh
+  the change fresh${carries(rebuild) ? ", its acceptance tests excepted (below)" : ""}
 `
   }${rebuildLines(rebuild)}${
     !flagMode
