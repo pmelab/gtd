@@ -543,9 +543,7 @@ describe("ship", () => {
           out: JSON.stringify(pr),
         },
         [`git rev-list --count ${M}..HEAD`]: { out: "2" },
-        [`git log --no-merges --reverse --format=%H%n%B%n--- ${M}..HEAD`]: {
-          out: `${TIP}\nfix: x\n\nCloses #384\n---\n`,
-        },
+        [`git log --format=%B%n--- ${M}..HEAD`]: { out: "fix: x\n\nCloses #384\n---\n" },
       },
       ["NO-UPDATE"],
     )
@@ -553,6 +551,30 @@ describe("ship", () => {
     expect(calls.find((c) => c.argv.startsWith("gh pr edit 7"))?.stdin).toBe(
       "standing\n\nCloses #384",
     )
+  })
+
+  test("an open pull request with nothing new still gains the issue its branch closes", async () => {
+    const pr = { number: 7, body: "standing", url: "https://github.com/o/r/pull/7", state: "OPEN" }
+    const M = "m".repeat(40)
+    const { io, calls } = repo({
+      ...feature,
+      "gtd summary": { code: 1 },
+      "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
+        out: JSON.stringify(pr),
+      },
+      [`git rev-list --count ${M}..HEAD`]: { out: "0" },
+      [`git log --format=%B%n--- ${M}..HEAD`]: { out: "fix: x\n\nCloses #384\n---\n" },
+    })
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(calls.find((c) => c.argv.startsWith("gh pr edit 7"))?.stdin).toBe(
+      "standing\n\nCloses #384",
+    )
+  })
+
+  test("reads bullets, a trailing period, 'and' and issue URLs, never across lines", () => {
+    const log =
+      "- Fixes #1.\nResolves #2 and fixes https://github.com/o/r/issues/3\nFixes\n#4 is unrelated\nCloses #5 later\n"
+    expect(withCloses("b", log)).toBe("b\n\nCloses #1\nCloses #2\nCloses o/r#3")
   })
 
   test("reads comma-separated closing lists, deduped regardless of case", () => {

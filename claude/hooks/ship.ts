@@ -1895,19 +1895,26 @@ type Ctx = {
   lower?: boolean
 }
 
-const KEYWORD = String.raw`(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+`
-const REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+`
-// A whole line of closing references: `Closes #1`, `Closes #1, #2`, `Fixes #1, fixes o/r#2`.
+// [ \t], never \s: a reference on the next line is not what the keyword closes.
+const KEYWORD = String.raw`(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?[ \t]+`
+const URL = String.raw`https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)`
+const REF = String.raw`(?:(?:[\w.-]+\/[\w.-]+)?#\d+|${URL})`
+const NEXT = String.raw`(?:[ \t]*,[ \t]*|[ \t]+and[ \t]+)(?:${KEYWORD})?`
+// A whole line of closing references, bulleted or not: `Closes #1.`,
+// `- Fixes #1, #2`, `Resolves o/r#3 and fixes <issue URL>`.
 const CLOSING = new RegExp(
-  String.raw`^\s*${KEYWORD}${REF}(?:\s*,\s*(?:${KEYWORD})?${REF})*\s*$`,
+  String.raw`^[ \t]*(?:[-*][ \t]+)?${KEYWORD}${REF}(?:${NEXT}${REF})*[ \t]*\.?[ \t]*$`,
   "gim",
 )
+const REFS = new RegExp(REF, "g")
 
 const closed = (text: string) => {
   const refs = new Map<string, string>()
   for (const [line] of text.matchAll(CLOSING))
-    for (const [ref] of line.matchAll(new RegExp(REF, "g")))
+    for (const [whole, repo, n] of line.matchAll(REFS)) {
+      const ref = repo ? `${repo}#${n}` : whole
       if (!refs.has(ref.toLowerCase())) refs.set(ref.toLowerCase(), ref)
+    }
   return refs
 }
 
@@ -2039,53 +2046,62 @@ async function sinceHead(git: Git, ok: Ok, branch: string, mergeBase: string, to
   return isSynced ? synced : mergeBase
 }
 
-async function updatePr(
+type Existing = { number: number; body?: string; url: string }
+
+// The standing description re-derived: the stack line, and the issues the
+// branch closes, re-applied on every refresh but only written when changed.
+async function refresher(
   io: ShipIo,
   git: Git,
-  ok: Ok,
-  branch: string,
-  { from: mergeBase, to, stacked, below, unstacked, lower }: Ctx,
-  existing: { number: number; body?: string; url: string },
-): Promise<Shipped & { number?: number }> {
-  let log = ""
+  { from: mergeBase, to, stacked, below, lower }: Ctx,
+  existing: Existing,
+) {
+  // The whole branch, not just what is new: a PR shipped before its commits
+  // closed anything, or whose edit failed after the sync head moved, still gains them.
+  const log = lower ? "" : await git("log", "--format=%B%n---", `${mergeBase}..${to}`)
   const restack = (raw: string) => {
-    const body = lower ? raw : withCloses(raw, log)
+    const body = withCloses(raw, log)
     return stacked ? stackLine(body, below) : body
   }
   const edit = async (body: string) =>
     io.run(["gh", "pr", "edit", String(existing.number), "--body-file", "-"], body)
-  // The stack line is re-applied on every refresh, but only written when it changed.
-  const restacked = async (pr: { body?: string }, text: string) => {
-    const fixed = restack(pr.body ?? "")
-    if (fixed === (pr.body ?? "")) return { ok: true, text, number: existing.number }
+  const was = existing.body ?? ""
+  const restacked = async (text: string) => {
+    const fixed = restack(was)
+    if (fixed === was) return { ok: true, text, number: existing.number }
     const edited = await edit(fixed)
     if (edited.code !== 0)
       return {
         ...fail(
-          `gh pr edit failed; the stack line of ${existing.url} is unchanged.\n${edited.err}`,
+          `gh pr edit failed; the description of ${existing.url} is unchanged.\n${edited.err}`,
         ),
         number: existing.number,
       }
     return { ok: true, text, number: existing.number }
   }
+  return { restack, edit, restacked, stale: restack(was) !== was }
+}
+
+async function updatePr(
+  io: ShipIo,
+  git: Git,
+  ok: Ok,
+  branch: string,
+  ctx: Ctx,
+  existing: Existing,
+): Promise<Shipped & { number?: number }> {
+  const { from: mergeBase, to, stacked, unstacked } = ctx
+  const { restack, edit, restacked, stale } = await refresher(io, git, ctx, existing)
   // Only what landed since the last run. A stored head a squash left behind
   // falls back to the whole branch, the only honest range left.
   const since = await sinceHead(git, ok, branch, mergeBase, to)
   // ^mergeBase keeps a synced head from before a main merge from re-weighing
   // the commits that merge brought in.
   const count = Number(await git("rev-list", "--count", `${since}..${to}`, `^${mergeBase}`))
-  if (!count && (stacked || unstacked))
-    return restacked(existing, `Nothing new since the last ship: ${existing.url}`)
+  if (!count && (stacked || unstacked || stale))
+    return restacked(`Nothing new since the last ship: ${existing.url}`)
   if (!count) return fail(`No commits since the last ship: ${existing.url}`)
   io.log(`#${existing.number}: weighing ${count} commit(s) against the standing description…`)
-  log = await git(
-    "log",
-    "--no-merges",
-    "--reverse",
-    "--format=%H%n%B%n---",
-    `${since}..${to}`,
-    `^${mergeBase}`,
-  )
 
   const prompt = `An open pull request already states the motivation, the high-level solution and
 the decisions behind this branch. Its description is below, followed by the
@@ -2115,7 +2131,7 @@ for you), no preamble, no code fence around the whole reply.
 ${existing.body ?? ""}
 
 --- COMMITS ADDED SINCE IT WAS LAST CONSIDERED, oldest first ---
-${log}
+${await git("log", "--no-merges", "--reverse", "--format=%H%n%B%n---", `${since}..${to}`, `^${mergeBase}`)}
 
 --- DIFF STAT (whole branch) ---
 ${await git("diff", "--stat", `${mergeBase}..${to}`)}`
@@ -2128,7 +2144,6 @@ ${await git("diff", "--stat", `${mergeBase}..${to}`)}`
   if (/^\s*NO-UPDATE\s*$/.test(out)) {
     await io.run(["git", "config", "--local", `branch.${branch}.prSyncHead`, sha])
     return restacked(
-      existing,
       `Nothing at that level changed; the description of ${existing.url} is left alone.`,
     )
   }
