@@ -54,6 +54,13 @@ describe("judge", () => {
     expect(toVerdicts({ questions }, { safe: { answer: "yes", p: 1 } })).toMatch(/"kind" has no p/)
   })
 
+  test("labels on their own lines are options, as gtd judge run reads them", () => {
+    const lines = [
+      { id: "x", primitive: "choice", instructions: "?", criteria: "a: one.\nb: two." },
+    ]
+    expect(() => judgePrompt({ questions: lines })).not.toThrow()
+  })
+
   test("criteria a model cannot be asked about are refused before asking", () => {
     const bad = [{ id: "x", primitive: "choice", instructions: "?", criteria: "only: one." }]
     expect(() => judgePrompt({ questions: bad })).toThrow(/at least 2 labelled options/)

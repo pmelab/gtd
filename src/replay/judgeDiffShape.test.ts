@@ -7,6 +7,7 @@ import {
   type JudgeAnswer,
   type StepRequest,
 } from "../flows/index.js"
+import { toRequest } from "../judges/index.js"
 import { globMatches } from "../wire/index.js"
 
 // Lives in replay, which wires `matches: globMatches` (flows tests may not import wire).
@@ -121,6 +122,19 @@ describe("judgeDiffShape", () => {
     expect(q).toMatchObject({ id: "shape", primitive: "choice" })
     for (const label of ["land", "refactor-first", "reject"]) expect(q?.criteria).toContain(label)
     expect(q?.criteria).toContain("strays a refactor could absorb never count as reject")
+  })
+
+  it("is sendable to jev with exactly its three labels", async () => {
+    const requests = install({ shape: { answer: "land", p: 0.9 } })
+    await judgeDiffShape("shape", { changes: naive, allow: ["src/**"] })
+    const request = requests[0]
+    if (request?.kind !== "judge") throw new Error("expected a judge step")
+    const { questions } = toRequest(request.questions, {})
+    expect(Object.keys((questions["shape"] as { criteria: object }).criteria)).toEqual([
+      "land",
+      "refactor-first",
+      "reject",
+    ])
   })
 
   it("carries exactly four evidence keys, with stray content before/after and in-allowlist paths only", async () => {

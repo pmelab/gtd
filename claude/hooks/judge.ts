@@ -32,7 +32,7 @@ export const JUDGE_SYSTEM =
   "You are a strict, impartial judge. Answer each question from the supplied evidence alone.\n" +
   "Reply only with the structured answer; never use tools or ask questions."
 
-const LABEL = /(?:^|\. )([A-Za-z][A-Za-z0-9_-]*): /g
+const LABEL = /(?:^|\. |\n)([A-Za-z][A-Za-z0-9_-]*): /g
 
 const splitLabels = (criteria: string): [string, string][] => {
   const hits = [...criteria.matchAll(LABEL)]

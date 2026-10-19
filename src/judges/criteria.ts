@@ -1,4 +1,4 @@
-const LABEL = /(?:^|\. )([A-Za-z][A-Za-z0-9_-]*): /g
+const LABEL = /(?:^|\. |\n)([A-Za-z][A-Za-z0-9_-]*): /g
 
 /** Same splitter as gtd-build's `judge_request`: text before the first label is dropped. */
 export const splitLabels = (criteria: string): [string, string][] => {
