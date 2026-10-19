@@ -538,7 +538,11 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => 1
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.closing"
+    And gtd lands "gtd(check): implement.health.check → implement.coverage"
+    And gtd lands "gtd(judge): implement.coverage → implement.closing" judging:
+      """
+      [{"id":"AC-1","answer":"yes","p":0.9}]
+      """
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     When I run gtd next with "--json"
@@ -658,7 +662,11 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => 1
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.closing"
+    And gtd lands "gtd(check): implement.health.check → implement.coverage"
+    And gtd lands "gtd(judge): implement.coverage → implement.closing" judging:
+      """
+      [{"id":"AC-1","answer":"yes","p":0.9}]
+      """
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     When I run gtd next with "--json"
@@ -909,7 +917,11 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => Object.freeze({})
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.closing"
+    And gtd lands "gtd(check): implement.health.check → implement.coverage"
+    And gtd lands "gtd(judge): implement.coverage → implement.closing" judging:
+      """
+      [{"id":"AC-1","answer":"yes","p":0.9}]
+      """
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And gtd lands "gtd(check): implement.closing → build.quality.correctness.reviewing"
     When I run gtd next with "--json"

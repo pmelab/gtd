@@ -611,9 +611,14 @@ feature is implemented; a wrong approach is retried twice, then rests for you to
 steer or overrule it. `gtd slices` lists the `refactor` and `feature` slices. A
 refactor that already carried the whole feature leaves the implementation
 nothing to do: its empty turn passes, and the feature's quality lap covers the
-whole change. Feedback at the refactor review re-runs the refactor, never
-design; a refactor-review change the refactor cannot build is refused, and the
-only way out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
+whole change. Once the implementation is green, a judge checks every criterion
+ID has a covering test: an uncovered one goes back to the agent (twice, then to
+you) instead of ending the feature, and each covered ID is recorded as a
+`Gtd-Mark: covers=<id>` trailer. See
+[Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
+Feedback at the refactor review re-runs the refactor, never design; a
+refactor-review change the refactor cannot build is refused, and the only way
+out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
 `refactor-first` must `gtd abandon` too. Each slice's quality lap reviews only
 that slice. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).

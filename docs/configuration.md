@@ -724,6 +724,34 @@ process past `start-gate.check` whose sketch held an `Acceptance criteria` list
 in a `TODO.md`. A process resting at `design.triage` keeps replaying; its next
 turn needs ID'd criteria.
 
+### Acceptance-criteria coverage
+
+Every `feature` implementation — with
+[`flagMode`](#the-bundled-workflows-settings) on or off, and on a feedback lap —
+ends at `implement.coverage` once its health loop is green: a judge asks, per
+`AC-<n>` of `.gtd/REQUIREMENTS.md` (read afresh each time), whether a test file
+changed since the process began covers it. Each is a `noul` question named by
+the ID; `yes` at `p` ≥ 0.7, on evidence the budget did not cut, covers it.
+Landing without a verdict covers nothing.
+
+- **Every ID covered**: the judge's landing carries one `Gtd-Mark: covers=<id>`
+  trailer per ID, and `implement.closing` follows.
+- **An ID uncovered**: the process goes back to `implement.covering`, an agent
+  turn told which IDs lack a test, then the health loop and the judge again.
+  After two covering turns it rests at `implement.uncovered`, a human step: an
+  edit (new or fixed tests) runs the health loop and the judge again with a
+  fresh budget; a clean `gtd land` overrules — that landing carries
+  `covers=<id>` for the covered IDs and `Gtd-Mark: uncovered=<id>` for the rest.
+  **The judge reads test text, it runs nothing**: the green suite is the only
+  proof the tests pass.
+- A `covering` turn, like the build turn, may not change the criteria
+  (`criteria-frozen`).
+
+**Upgrading:** finish or `gtd abandon` any process past `implement.health.check`
+(resting at `implement.closing` or later in a `feature` slice): replay now
+expects `implement.coverage` there. A process resting earlier keeps replaying.
+Custom fixtures driving the `feature` workflow must answer `implement.coverage`.
+
 ### The naive-pass path
 
 The `feature` workflow's path while
@@ -764,12 +792,13 @@ goes straight to `implement.*`. After design it runs, in order:
    `reject` discards the pass and runs `seam.naive` again. Rejects, test faults
    and red checks share one budget: two retries, then `seam.steer`.
 5. `implement.*` — one build turn that reads the kept pass as material only,
-   then the health loop (`implement.health.*`, `implement.fix.suite.fixing`) and
-   `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
-   for a new release flag. The feature's quality lap (`build.quality.<lens>`)
-   follows, and the process ends at `idle`: there is no feature review, and no
-   human signs the finished change off unless someone opens the
-   [`review` door](#doors). Findings the quality fix cap leaves in
+   then the health loop (`implement.health.*`, `implement.fix.suite.fixing`),
+   the [coverage judge](#acceptance-criteria-coverage) (`implement.coverage`)
+   and `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is
+   asked for a new release flag. The feature's quality lap
+   (`build.quality.<lens>`) follows, and the process ends at `idle`: there is no
+   feature review, and no human signs the finished change off unless someone
+   opens the [`review` door](#doors). Findings the quality fix cap leaves in
    `.gtd/QUALITY.md` rest at `build.quality-unresolved`, a human step, until the
    file is deleted or emptied; the health loop then checks any hand edits. After
    a `refactor` slice the build turn may change nothing — the refactor already
@@ -1734,11 +1763,11 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   Off, for a project that is not publicly released: no `seam.naive`,
   `seam.judge` or `refactor.*` step runs; after design the `implement.*` turn
   builds the naive version with no release flag, then the health loop,
-  `implement.closing` and the quality lap, as on. A feedback lap asks for no
-  flag either. With `GTD_FLAG_RISK_TIER` on, the tier is still asked for and
-  recorded, but no longer decides the flag. Pinned at process start; a process
-  started before gtd knew `flagMode` reads it live, so leave it on until such a
-  process is finished.
+  `implement.coverage`, `implement.closing` and the quality lap, as on. A
+  feedback lap asks for no flag either. With `GTD_FLAG_RISK_TIER` on, the tier
+  is still asked for and recorded, but no longer decides the flag. Pinned at
+  process start; a process started before gtd knew `flagMode` reads it live, so
+  leave it on until such a process is finished.
 - **`flag_risk_tier`** (`0`) — `1` when `GTD_FLAG_RISK_TIER` is on, recorded at
   process start. Not a factory option; `--var flag_risk_tier=1` is the only
   override. Off, no tier is asked for and no commit carries a `Gtd-Mark:`. See

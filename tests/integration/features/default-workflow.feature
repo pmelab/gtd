@@ -9,7 +9,8 @@ Feature: The bundled unified workflow — one flow, end to end
   raises PRODUCT open questions in `.gtd/REQUIREMENTS.md`; the
   `design.gate.answer` human gate refuses to pass while any remain
   unanswered. Then `seam.naive` writes a naive pass, `seam.judge` rules on
-  its shape, and `implement.*` builds the change for real before the shared
+  its shape, `implement.*` builds the change for real and `implement.coverage`
+  holds it until every acceptance criterion has a passing test, before the shared
   build tail (`build.*`): one quality-lens review turn per lens, the last of
   which lands straight into `idle` — no human review, which is the `review`
   door's — retaining every prior per-turn commit on the branch; `gtd summary`
@@ -143,7 +144,13 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): implement.health.check → implement.closing"
+    And the last commit subject is "gtd(check): implement.health.check → implement.coverage"
+
+    # implement.coverage: every acceptance-criterion ID needs a passing test.
+    Given gtd lands "gtd(judge): implement.coverage → implement.closing" judging:
+      """
+      [{"id":"AC-1","answer":"yes","p":0.9}]
+      """
 
     # implement.closing removes REQUIREMENTS.md -> the quality lap, which
     # every ordinary round pays for once, before any human sees the change.
@@ -211,7 +218,8 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.fix.suite.fixing
       gtd(agent): implement.fix.suite.fixing → implement.health.check
-      gtd(check): implement.health.check → implement.closing
+      gtd(check): implement.health.check → implement.coverage
+      gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.owasp-security.reviewing
       gtd(agent): build.quality.owasp-security.reviewing → build.quality.ponytail-review.reviewing
@@ -1277,7 +1285,11 @@ Feature: The bundled unified workflow — one flow, end to end
       export const B = 2
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.closing"
+    And gtd lands "gtd(check): implement.health.check → implement.coverage"
+    And gtd lands "gtd(judge): implement.coverage → implement.closing" judging:
+      """
+      [{"id":"AC-1","answer":"yes","p":0.9}]
+      """
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     When I run gtd next

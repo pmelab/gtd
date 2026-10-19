@@ -13,15 +13,16 @@ import {
   run,
   scope,
   slice,
+  start,
   vars,
   type Change,
   type DiffShapeResult,
   type KeptTip,
 } from "../../flows/index.js"
-import { healthy } from "../shared/health.js"
 import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
+import { green, requireCoverage } from "./coverage.js"
 import { criteriaOf, requireCriteria, requireCriteriaFrozen } from "./criteria.js"
 import {
   COMMENT,
@@ -169,6 +170,8 @@ export interface ImplementOptions {
   readonly amend?: boolean | undefined
   /** After a refactor slice, which may already carry the feature: an empty turn completes the step. */
   readonly afterRefactor?: boolean | undefined
+  /** Coverage reads the tests changed since here; the process's start when absent. */
+  readonly base?: string | undefined
 }
 
 export function implement(options?: ImplementOptions): Promise<void>
@@ -203,16 +206,8 @@ export function implement(
       },
     )
     requireCriteriaFrozen(REQUIREMENTS)
-    await healthy(
-      () =>
-        t.agentWithSkills("fix.suite.fixing", t.implementFixPrompt(), {
-          label: "Fixing the check",
-          file: FEEDBACK,
-          model: coder(),
-          system: t.builderSystem(),
-        }),
-      { guard: () => requireCriteriaFrozen(REQUIREMENTS), guardRests: false },
-    )
+    await green()
+    await requireCoverage(options.base ?? start())
     await run("closing", removeScript([REQUIREMENTS]), { label: "Closing out the implementation" })
   })
 }

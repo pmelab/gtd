@@ -254,6 +254,12 @@ Done only when its [acceptance tests](#acceptance-test) are green.
 scenario name (`[AC-3] …`). It reaches only code that existed before the pass,
 so it survives a reset and refactor. _Avoid_: AC test, criterion test
 
+**Coverage judge**: The `implement.coverage` judge: per
+[acceptance criterion](#acceptance-criterion), whether a test the change touched
+covers it. A feature is done only when every ID is covered; each covered ID is
+marked `covers=<id>` on the judge's landing. _Avoid_: coverage (line coverage),
+AC check
+
 **Stray**: A path a naive pass changed that `seamAllow` does not match (a newly
 added file never counts).
 

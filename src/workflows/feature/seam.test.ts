@@ -417,7 +417,9 @@ describe("implement", () => {
         {
           step: (request: StepRequest) => {
             requests.push(request)
-            return Promise.resolve()
+            return Promise.resolve(
+              request.kind === "judge" ? { answers: {}, truncated: [] } : undefined,
+            )
           },
           pushScope: () => undefined,
           popScope: () => undefined,
