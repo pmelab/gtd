@@ -327,8 +327,8 @@ Then, in any repository:
 That starts a process from your requirements and drives it until it needs you.
 The requirements go to the top of `.gtd/TODO.md`; deferred review notes already
 there stay. A long, multi-line requirements paste still starts a process; if
-Claude Code never expanded the paste, gtd says it could not read it, and you
-write the requirements to `.gtd/TODO.md` and run `/gtd`. `/gtd fix`,
+Claude Code never expanded the paste, gtd says it could not read it, and you add
+the requirements to the top of `.gtd/TODO.md` and run `/gtd`. `/gtd fix`,
 `/gtd review [base]`, `/gtd rollout <flag>` and `/gtd cleanup <flag>` (where the
 config exports them) take the doors described below; text whose word count does
 not fit a door's args (bare `/gtd rollout` included) starts a process from that

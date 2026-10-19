@@ -290,7 +290,8 @@ falls back to the `gtd` on your `PATH`.
   whatever it already holds — deferred review notes stay — and the opening beat
   captures them. It refuses while another process is underway. A long,
   multi-line paste works too; if Claude Code did not expand it, the mod says it
-  could not read it: write the requirements to `.gtd/TODO.md` and run `/gtd`.
+  could not read it: add the requirements to the top of `.gtd/TODO.md` and run
+  `/gtd`.
 - `/gtd` drives beats until the process rests on you, exactly as the minimal
   driver below does: the opening beat lands, a later gate stops. At idle with
   nothing pending it only tells you how to start.

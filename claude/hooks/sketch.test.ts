@@ -12,4 +12,13 @@ describe("withRequirements", () => {
     const notes = "## Deferred review notes (abcdef1)\n\n- note-1 — a.ts:3 (could: tiny): plain\n"
     expect(withRequirements(notes, "add a greeting")).toBe(`add a greeting\n\n${notes}`)
   })
+
+  test("the requirements are trimmed", () => {
+    expect(withRequirements("notes\n", "x\n\n")).toBe("x\n\nnotes\n")
+  })
+
+  test("existing content is kept byte for byte", () => {
+    expect(withRequirements("  indented\n\n\n", "x")).toBe("x\n\n  indented\n\n\n")
+    expect(withRequirements("no newline", "x")).toBe("x\n\nno newline\n")
+  })
 })
