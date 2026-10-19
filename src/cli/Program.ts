@@ -326,7 +326,9 @@ const planLanding = (
  * closes or sits inside its own closing message. Writes nothing — no git, no
  * state transition, no file. Refuses (throws, mapped to the runtime-error
  * exit code) when the workflow declares no `summary` prompt, or the resolved
- * run has no commits to name. The edge never narrates: the CLI prints the
+ * run has no commits to name. `--slice` also refuses an unknown slice name
+ * (listing the valid slices), a config edited since the process closed, and a
+ * replay that diverged. The edge never narrates: the CLI prints the
  * version warning, before the unknown-slice refusal; a replay refusal carries
  * it in its message.
  */
