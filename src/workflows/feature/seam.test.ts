@@ -221,6 +221,7 @@ describe("seamBuild", () => {
 })
 
 describe("implement", () => {
+  let lastOptions: Extract<StepRequest, { kind: "agent" }>["options"] | undefined
   const building = async (
     reference: string | undefined,
     tier?: "low" | "high",
@@ -228,6 +229,7 @@ describe("implement", () => {
     call: () => Promise<void> = () => implement({ reference, tier, amend }),
   ) => {
     const requests: StepRequest[] = []
+    lastOptions = undefined
     installContext(
       fixtureContext(
         {},
@@ -248,14 +250,13 @@ describe("implement", () => {
     lastOptions = request.options
     return request.prompt
   }
-  let lastOptions: Extract<StepRequest, { kind: "agent" }>["options"] | undefined
 
   it("after a refactor, lets an empty turn complete the step and says so", async () => {
     const prompt = await building("abc", undefined, undefined, () =>
       implement({ reference: "abc", afterRefactor: true }),
     )
     expect(lastOptions?.allowEmpty).toBe(true)
-    expect(prompt).toContain("already meets every\n  requirement, change nothing")
+    expect(prompt).toMatch(/change\s+nothing and finish your turn/)
   })
 
   it("without a refactor, an empty turn stays an attempt", async () => {

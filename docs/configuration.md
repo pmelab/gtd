@@ -693,21 +693,23 @@ in order:
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
    for a new release flag. The feature review (`build.quality.<lens>`,
    `build.review.*`) follows. After a `refactor` slice the build turn may change
-   nothing — the refactor already met every requirement — and that empty turn
-   completes the step; if the feature slice then changed nothing outside
-   `.gtd/`, the feature review is skipped and the process ends at `idle`.
+   nothing — the refactor already carried the whole feature — and that empty
+   turn completes the step. A feature slice that changed nothing outside `.gtd/`
+   has its feature review cover the whole change from the process start,
+   refactor included.
 
 Every verdict wraps steps 4 and the feature review in the `feature` slice
 (`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
 The feature review covers the feature slice only: on `refactor-first`,
-everything since the refactor's sign-off. Each slice's quality lap reviews from
-that slice's own base too: the refactor's from its entry commit, the feature's
-from the refactor's sign-off, on every lap including after a feedback lap.
-Feedback at a review, whatever the verdict, re-runs design and `implement.*` —
-including the feedback lap of a custom workflow ending in `afterTail`, which is
-design → implement and never the seam. `seam.naive` and `seam.judge` never run
-again once judged, so a seam a re-plan turns up is built unjudged and
-unrefactored; a wrong or missing refactor means `gtd abandon` and a restart.
+everything since the refactor's sign-off, unless that slice changed no code (see
+step 4). Each slice's quality lap reviews from that slice's own base too: the
+refactor's from its entry commit, the feature's from the refactor's sign-off, on
+every lap including after a feedback lap. Feedback at a review, whatever the
+verdict, re-runs design and `implement.*` — including the feedback lap of a
+custom workflow ending in `afterTail`, which is design → implement and never the
+seam. `seam.naive` and `seam.judge` never run again once judged, so a seam a
+re-plan turns up is built unjudged and unrefactored; a wrong or missing refactor
+means `gtd abandon` and a restart.
 
 A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `refactor.deriving` runs again with the notes under `## Review feedback` — never

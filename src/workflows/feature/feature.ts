@@ -16,7 +16,7 @@ import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import { packages } from "./packages.js"
 import { architecture, design } from "./planning.js"
-import { buildTail, reUnwind, type ReviewOutcome } from "./review.js"
+import { buildTail, isCode, reUnwind, type ReviewOutcome } from "./review.js"
 import { implement, seamBuild } from "./seam.js"
 import { recordRisk, riskTierOn } from "./tier.js"
 
@@ -65,16 +65,14 @@ const naivePlanAndBuild = async (firstBase: string): Promise<void> => {
   const seam = await seamBuild(firstBase)
   await slice("feature", async () => {
     await implement({ reference: seam.reference, tier, afterRefactor: seam.refactored })
-    // The refactor review already signed off code that met every requirement.
-    if (seam.refactored === true && !changesSince(seam.base).some((c) => isCode(c.path))) return
-    await featureFeedback(
-      await buildTail(seam.base, { green: true, lensBase: seam.base }),
-      seam.base,
-    )
+    // An empty feature slice: the refactor carried the feature, so review the whole change.
+    const base =
+      seam.refactored === true && !changesSince(seam.base).some((c) => isCode(c.path))
+        ? firstBase
+        : seam.base
+    await featureFeedback(await buildTail(base, { green: true, lensBase: base }), base)
   })
 }
-
-const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
 const featureFeedback = async (first: ReviewOutcome, lensBase?: string): Promise<void> => {
   let outcome = first

@@ -158,7 +158,7 @@ const triage =
     )
   }
 
-const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
+export const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
 /**
  * A reviewer writes `.gtd/REVIEW.md` over everything since `base`, a human

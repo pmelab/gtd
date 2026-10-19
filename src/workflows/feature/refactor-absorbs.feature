@@ -1,12 +1,12 @@
 # One SDLC path per file, so a changed path reds exactly one fixture — do not merge.
 @inmem
-Feature: a refactor that already meets the requirements ends the process
+Feature: a refactor that carried the whole feature still gets a feature review
 
   With GTD_FLAG_NAIVE_PASS on and GTD_FLAG_RISK_TIER off, a refactor-first
   refactor can land everything the requirements ask for. The feature slice's
   implement turn then has nothing to author: its empty turn completes the
-  step, and with no code changed since the refactor the feature review is
-  skipped — the refactor review already signed that code off.
+  step, and with no code changed since the refactor the feature review covers
+  the whole change, refactor included.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -39,7 +39,7 @@ Feature: a refactor that already meets the requirements ends the process
       """
     And step "design.gate.answer" changes nothing
 
-  Scenario: an empty implement turn after a refactor that did it all rests at idle
+  Scenario: an empty implement turn after a refactor that did it all reaches review and idle
     Given step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -86,10 +86,26 @@ Feature: a refactor that already meets the requirements ends the process
     And step "implement.building" changes nothing
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      - [ ] ./src/calc.ts#1-2
+        subtract next to add
+      """
+    When gtd lands
+    And the process is driven
+    Then the process rests at "build.review.await-review"
+    And ".gtd/REQUIREMENTS.md" does not exist
+
+    Given step "build.review.closing" runs its script
     When gtd lands
     And the process is driven
     Then the process rests at "idle"
-    And ".gtd/REQUIREMENTS.md" does not exist
     And "src/calc.ts" contains "subtract"
     And the commit subjects end with:
       """
@@ -97,7 +113,10 @@ Feature: a refactor that already meets the requirements ends the process
       gtd(check): refactor.build.review.closing → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
-      gtd(check): implement.closing → idle
+      gtd(check): implement.closing → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.await-review
+      gtd(human): build.review.await-review → build.review.closing
+      gtd(check): build.review.closing → idle
       """
     And the output lines of gtd "slices" start with:
       """

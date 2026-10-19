@@ -45,7 +45,7 @@ export interface ImplementOptions {
   readonly reference?: string | undefined
   readonly tier?: RiskTier | undefined
   readonly amend?: boolean | undefined
-  /** After a refactor slice, which may already have met every requirement: an empty turn completes the step. */
+  /** After a refactor slice, which may already carry the feature: an empty turn completes the step. */
   readonly afterRefactor?: boolean | undefined
 }
 
@@ -132,7 +132,7 @@ export interface SeamOutcome {
   readonly reference: string
   /** The feature review's base: HEAD after the refactor on refactor-first, else the caller's base. */
   readonly base: string
-  /** A refactor slice landed before the implementation. */
+  /** A reviewed refactor ran before the implementation. */
   readonly refactored?: boolean
 }
 
@@ -150,6 +150,6 @@ export const seamBuild = async (base: string): Promise<SeamOutcome> => {
     return { reference, base }
   }
   if (refactorStrays(shape).length === 0) return { reference, base }
-  await slice("refactor", () => reviewedRefactor(shape, { reference }))
-  return { reference, base: head(), refactored: true }
+  const refactored = await slice("refactor", () => reviewedRefactor(shape, { reference }))
+  return { reference, base: head(), refactored }
 }
