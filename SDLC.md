@@ -35,15 +35,16 @@ steers or overrules.
 
 ## Human gates
 
-Each gate is a point where a person must act before work continues. Counts are
-per design round: a review-feedback round re-runs design.
+Each gate is a point where a person must act before work continues.
 
-- `feature`: design and review sign-off; a refactor review sign-off only on
-  judge `refactor-first`. **2 gates, or 3 on `refactor-first`** (design,
-  refactor review, feature review). Overrule at `seam.steer` passes no seam
-  gate. **A sketch whose own acceptance criteria `design.clear` judges clear and
-  checkable passes no design gate** on its first lap: one gate fewer, and the
-  criteria's author is whoever wrote the sketch.
+- `feature`: design only; a refactor review sign-off only on judge
+  `refactor-first`. **1 gate, or 2 on `refactor-first`** (design, refactor
+  review). **No human review of the finished change**: the process ends when its
+  last slice lands, after the quality lap. Review it through the `review` door
+  (`gtd door review <commitish>`), started by hand. Overrule at `seam.steer`
+  passes no seam gate. **A sketch whose own acceptance criteria `design.clear`
+  judges clear and checkable passes no design gate**: one gate fewer — none at
+  all on `land` — and the criteria's author is whoever wrote the sketch.
 - `cleanup`, `fix`, `review`: review sign-off only.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
   are its only control.
@@ -54,7 +55,7 @@ record carries the commit author only, no approver trailer, unless stated.
 | Gate                                                | Who approved                         | What was tested                                 | Where the record lives               |
 | --------------------------------------------------- | ------------------------------------ | ----------------------------------------------- | ------------------------------------ |
 | `design.gate.answer`                                | the person who answers the questions | the design questions and the `AC-<n>` criteria  | step commit and `.gtd/` file history |
-| review gate sign-off                                | the reviewer who signs off           | the diff, against the review checklist          | the sign-off commit                  |
+| review gate sign-off (not in `feature`)             | the reviewer who signs off           | the diff, against the review checklist          | the sign-off commit                  |
 | refactor review sign-off (only on `refactor-first`) | the reviewer who signs off           | the refactor diff, against the review checklist | the sign-off commit                  |
 
 For non-repudiation use signed commits or branch protection outside gtd.
@@ -67,6 +68,8 @@ approval:
 - `seam.by-hand` — strays whose content cannot be read; a person reviews those
   files by hand
 - `*.health.stop` and `*.health.exhausted` — escalation stops
+- `build.quality-unresolved` — quality findings the fix cap left; a person fixes
+  what matters, then deletes or empties `.gtd/QUALITY.md`
 - `*.blocked`, `review.review-missing`, `unwind-failed` — a person must clear
   the cause by hand; a red suite after the `rollout` flip rests at
   `rollout.suite.blocked`
@@ -87,6 +90,9 @@ Each path has a `.feature` file:
   naive pass, judge `land`
 - [`src/workflows/feature/refactor-first.feature`](src/workflows/feature/refactor-first.feature):
   judge `refactor-first`, then the refactor review, then the implementation
+- [`src/workflows/review/review-door.feature`](src/workflows/review/review-door.feature):
+  a feature process ending with no review rest, then the `review` door reviewing
+  it
 - [`src/workflows/feature/refactor-review.feature`](src/workflows/feature/refactor-review.feature):
   the refactor review's feedback loop, refusals and lenses
 - [`src/workflows/feature/seam-rejection.feature`](src/workflows/feature/seam-rejection.feature):
@@ -117,9 +123,12 @@ Paths and text are checked, **never behaviour**.
   [The naive-pass path](docs/configuration.md#the-naive-pass-path). `seam.check`
   is the one place the naive pass's behaviour is run.
 - `seam.judge` judges the shape of the naive pass. The implementation turn that
-  lands is not re-judged or scoped, and review sign-off is the only human look
-  at the full diff. New files are exempt. `gtd strays` works in any repository.
-- Two reviews split the diff on `refactor-first`: the refactor review covers
-  only the refactor slice, and the feature review only what follows its
-  sign-off. A refactor turn that changes a test file is refused (`gtd land`:
-  `refactor-tests`), whatever `seamAllow` says.
+  lands is not re-judged or scoped, and **in `feature` no human looks at the
+  full diff** — only the quality lap does, unless someone opens the `review`
+  door. **Risk: no reviewer `Risk:` fix pass and no weakened-scenario flag run
+  in `feature`, and a `high` risk tier's "needs a human reviewer" is advisory
+  only.** New files are exempt. `gtd strays` works in any repository.
+- The refactor review on `refactor-first` covers only the refactor slice;
+  nothing in `feature` reviews what follows its sign-off. A refactor turn that
+  changes a test file is refused (`gtd land`: `refactor-tests`), whatever
+  `seamAllow` says.

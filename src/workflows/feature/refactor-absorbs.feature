@@ -1,16 +1,16 @@
 # One SDLC path per file, so a changed path reds exactly one fixture — do not merge.
 @inmem
-Feature: a refactor that carried the whole feature still gets a feature review
+Feature: a refactor that carried the whole feature still gets a quality lap over all of it
 
   With GTD_FLAG_RISK_TIER off, a refactor-first
   refactor can land everything the requirements ask for. The feature slice's
   implement turn then has nothing to author: its empty turn completes the
-  step, and with no code changed since the refactor the feature review covers
-  the whole change, refactor included.
+  step, and with no code changed since the refactor the feature slice's
+  quality lap covers the whole change, refactor included.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
     And an environment variable "GTD_REFACTORQUALITYREVIEWS" set to ""
     And an environment variable "GTD_FLAG_RISK_TIER" set to "0"
     And a file "src/calc.ts" with:
@@ -42,7 +42,7 @@ Feature: a refactor that carried the whole feature still gets a feature review
       """
     And step "design.gate.answer" changes nothing
 
-  Scenario: an empty implement turn after a refactor that did it all reaches review and idle
+  Scenario: an empty implement turn after a refactor that did it all reaches the quality lap and idle
     Given step "seam.check" changes nothing
     And step "seam.naive" writes "src/acceptance.test.ts" with:
       """
@@ -94,25 +94,14 @@ Feature: a refactor that carried the whole feature still gets a feature review
     And step "implement.building" changes nothing
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1-2
-        subtract next to add
-      """
     When gtd lands
     And the process is driven
-    Then the process rests at "build.review.await-review"
+    Then the process rests at "build.quality.correctness.reviewing"
+    And the resting step's content contains the hash of the commit "feat: add calculator"
     And ".gtd/REQUIREMENTS.md" does not exist
 
-    Given step "build.review.closing" runs its script
-    When gtd lands
-    And the process is driven
+    Given step "build.quality.correctness.reviewing" changes nothing
+    When the process is driven
     Then the process rests at "idle"
     And "src/calc.ts" contains "subtract"
     And the commit subjects end with:
@@ -121,10 +110,8 @@ Feature: a refactor that carried the whole feature still gets a feature review
       gtd(check): refactor.build.review.closing → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
-      gtd(check): implement.closing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
-      gtd(human): build.review.await-review → build.review.closing
-      gtd(check): build.review.closing → idle
+      gtd(check): implement.closing → build.quality.correctness.reviewing
+      gtd(agent): build.quality.correctness.reviewing → idle
       """
     And the output lines of gtd "slices" start with:
       """

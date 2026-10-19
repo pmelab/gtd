@@ -4,8 +4,8 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
 
   With GTD_FLAG_RISK_TIER off, a naive pass that
   edits an existing source file is judged land: the process skips the approval
-  gate and any refactor, and runs implement, quality and
-  review back to idle. The flag is pinned here so the per-flag test runs never
+  gate and any refactor, and runs implement and quality
+  back to idle, with no review. The flag is pinned here so the per-flag test runs never
   move it off this path.
 
   Background:
@@ -60,35 +60,9 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     And step "build.quality.correctness.reviewing" changes nothing
-    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## greeting
-
-      - [ ] ./src/greeting.ts#1-1
-        typo fixed
-      """
-    And step "build.review.closing" runs its script
 
   Scenario: a land judgment runs idle to idle with no seam gate or refactor
     When the process is driven
-    Then the process rests at "build.review.await-review"
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## greeting
-
-      - [x] ./src/greeting.ts#1-1
-        typo fixed
-      """
-    When gtd lands
-    And the process is driven
     Then the process rests at "idle"
     And "src/greeting.ts" contains "Hello, world!"
     And the commit subjects end with:
@@ -104,10 +78,7 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
-      gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
-      gtd(human): build.review.await-review → build.review.closing
-      gtd(check): build.review.closing → idle
+      gtd(agent): build.quality.correctness.reviewing → idle
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"

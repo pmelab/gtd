@@ -87,6 +87,19 @@ What each change does next (then run \`gtd land\`):
 - **Continue** — having undone the sketch by hand, check the test baseline is green and start triage (**start-gate.check**).
 `
 
+export const qualityUnresolvedMessage = (): string =>
+  `The quality lap's fix turns hit their cap and \`.gtd/QUALITY.md\` still
+holds findings. Nothing reviews the change after this, so the process
+will not end with them open.
+
+Fix what matters by hand, then delete or empty \`.gtd/QUALITY.md\` —
+dropping a finding is your call to make.
+
+What each change does next (then run \`gtd land\`):
+- **Delete or empty \`.gtd/QUALITY.md\`** — the suite runs on your edits, then the process ends (**idle**).
+- **Anything else** — rests here again.
+`
+
 export const startGateBlockedMessage = (): string =>
   `The test baseline is red — gtd will not start new work on a broken suite.
 \`.gtd/FEEDBACK.md\` holds the failing output.

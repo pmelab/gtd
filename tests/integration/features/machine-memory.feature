@@ -860,12 +860,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout matches "\"memory\":\"implement#[0-9a-f]{7}\""
 
   Scenario: implement closes into a fresh reviewer session at the shared tail, distinct from the builder's own session
-    # implement.* closes out into the shared tail (build.review.*) — that
-    # tail opens a fresh `build.review#...` session there, never resuming
+    # implement.* closes out into the shared tail (build.quality.*) — that
+    # tail opens a fresh `build.quality.<lens>#...` session there, never resuming
     # implement's own `implement#...` session.
     Given a test project
     And the workflow gtd install scaffolds
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+    And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -911,10 +911,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(agent): implement.building → implement.health.check"
     And gtd lands "gtd(check): implement.health.check → implement.closing"
     And the file ".gtd/REQUIREMENTS.md" is deleted
-    And gtd lands "gtd(check): implement.closing → build.review.reviewing"
+    And gtd lands "gtd(check): implement.closing → build.quality.correctness.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"build.review.reviewing\""
+    And stdout contains "\"state\":\"build.quality.correctness.reviewing\""
     And the json field "memory" differs from the one recorded as "the implement builder's turn"
 
   Scenario: two agent steps in one memory scope with different models refuse to land — one scope is one conversation, with one model

@@ -711,11 +711,11 @@ test or a command. Every later step re-reads them from the file.
   `design.triage`. A sketch with no such list skips the judge. With
   `GTD_FLAG_RISK_TIER` on there is no skip path: the tier is proposed at triage
   and set at the design gate.
-- **Frozen.** After design only another design lap (review feedback) changes
-  them: `gtd land` refuses an `implement.building` or
-  `implement.fix.suite.fixing` turn that edits them (`criteria-frozen`).
-  `seam.steer` is a human gate and may, but its edit must leave ID'd criteria,
-  as at triage.
+- **Frozen.** After design only another design lap (review feedback in a custom
+  workflow ending in `afterTail`) changes them: `gtd land` refuses an
+  `implement.building` or `implement.fix.suite.fixing` turn that edits them
+  (`criteria-frozen`). `seam.steer` is a human gate and may, but its edit must
+  leave ID'd criteria, as at triage.
 
 **Upgrading:** finish or `gtd abandon` before upgrading any process that has
 landed a `design.triage` turn whose `.gtd/REQUIREMENTS.md` has no ID'd
@@ -766,26 +766,27 @@ goes straight to `implement.*`. After design it runs, in order:
 5. `implement.*` — one build turn that reads the kept pass as material only,
    then the health loop (`implement.health.*`, `implement.fix.suite.fixing`) and
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
-   for a new release flag. The feature review (`build.quality.<lens>`,
-   `build.review.*`) follows. After a `refactor` slice the build turn may change
-   nothing — the refactor already carried the whole feature — and that empty
-   turn completes the step. A feature slice that changed nothing outside `.gtd/`
-   has its feature review cover the whole change from the process start,
-   refactor included.
+   for a new release flag. The feature's quality lap (`build.quality.<lens>`)
+   follows, and the process ends at `idle`: there is no feature review, and no
+   human signs the finished change off unless someone opens the
+   [`review` door](#doors). Findings the quality fix cap leaves in
+   `.gtd/QUALITY.md` rest at `build.quality-unresolved`, a human step, until the
+   file is deleted or emptied; the health loop then checks any hand edits. After
+   a `refactor` slice the build turn may change nothing — the refactor already
+   carried the whole feature — and that empty turn completes the step. A feature
+   slice that changed nothing outside `.gtd/` has its quality lap cover the
+   whole change from the process start, refactor included.
 
-Every verdict wraps step 5 and the feature review in the `feature` slice
+Every verdict wraps step 5 and its quality lap in the `feature` slice
 (`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
-The feature review covers the feature slice only: on `refactor-first`,
-everything since the refactor's sign-off. Each slice's quality lap reviews from
-that slice's own base too: the refactor's from its entry commit, the feature's
-from the refactor's sign-off, on every lap including after a feedback lap. The
-one exception is a feature slice that changed no code (step 5): its first review
-and every quality lap cover the whole change from the process start. Feedback at
-a review, whatever the verdict, re-runs design and `implement.*` — including the
-feedback lap of a custom workflow ending in `afterTail`, which is design →
-implement and never the seam. `seam.naive` and `seam.judge` never run again once
-judged, so a seam a re-plan turns up is built unjudged and unrefactored; a wrong
-or missing refactor means `gtd abandon` and a restart.
+Each slice's quality lap reviews from that slice's own base: the refactor's from
+its entry commit, the feature's from the refactor's sign-off. The one exception
+is a feature slice that changed no code (step 5): its quality lap covers the
+whole change from the process start. A custom workflow ending in `afterTail`
+keeps a feature review; feedback there re-runs design and `implement.*`, never
+the seam. `seam.naive` and `seam.judge` never run again once judged, so a seam a
+re-plan turns up is built unjudged and unrefactored; a wrong or missing refactor
+means `gtd abandon` and a restart.
 
 A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `refactor.deriving` runs again with the notes under `## Review feedback` — never
@@ -799,17 +800,23 @@ off: `gtd land` refuses the collecting landing (`refactor-feedback`). A
 hand-edit round's refusal names the edited paths. A notes-only round's refusal
 names the notes judged `edit`, footnotes included, never praise or questions.
 The only way out is `gtd abandon`, which throws away the naive pass, the
-refactor and its review. A praise-only round still signs off; the feature review
-signs off on a round that changes nothing. A settled round, one where the human
-only added thread replies after the in-gate reply turn, refuses the same way
-when anything since the review asked for a change: a note judged `edit`, `nit`
-or `defer`, or a hand-edited path. The refusal names them.
+refactor and its review. A praise-only round still signs off. A settled round,
+one where the human only added thread replies after the in-gate reply turn,
+refuses the same way when anything since the review asked for a change: a note
+judged `edit`, `nit` or `defer`, or a hand-edited path. The refusal names them.
 
 Footnotes are judged like line notes. A `- H:` thread left in `.gtd/REVIEW.md`
 at the refactor review gets one `- A:` reply and the gate rests again; a thread
 folds into `.gtd/REFACTOR.md` only when it asks for a change.
 
-**Upgrading:** three migrations.
+**Upgrading:** four migrations.
+
+- The feature review is gone: `feature` ends after the feature slice's quality
+  lap. A process resting at, or past, any `build.review.*` step of the feature
+  slice (including a feature feedback lap) no longer replays: finish it with the
+  gtd that started it, or `gtd abandon` it, before upgrading. `buildTail` and
+  `afterTail` still run a human review in a custom workflow; for the shipped
+  one, open `gtd door review <commitish>` once the process is idle.
 
 - `GTD_FLAG_NAIVE_PASS`, its `flag_naive_pass` setting and the architecture and
   package path are gone: every process takes the naive-pass path. A process
@@ -835,8 +842,8 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
   longer replays at any rest from that verdict on — `seam.approve`, every
   `refactor.*` step, and every `implement.*` and `build.*` step after the
   refactor — and must `gtd abandon`. Processes that rest at `design.*`,
-  `seam.naive`, `seam.judge`, `seam.steer`, or past a `land` verdict (including
-  after a feature feedback lap) keep replaying.
+  `seam.naive`, `seam.judge`, `seam.steer`, or past a `land` verdict short of
+  the feature review keep replaying.
 - `seamBuild(tier)` became `seamBuild(base)` and resolves `{ reference, base }`.
   It no longer runs `implement`; a custom workflow calls `implement` itself.
 
@@ -938,8 +945,9 @@ commit and stays in force for the whole process (see [Settings](#settings)).
 
 The shipped module offers three workflows:
 
-- **`feature`** — the ordinary start, and its `default`: plan, build, then a
-  human review whose notes are triaged and, for an edit, re-planned.
+- **`feature`** — the ordinary start, and its `default`: plan, build, and the
+  quality lap, ending at `idle` with no human review of the finished change. The
+  only human review it asks for is the refactor slice's, on `refactor-first`.
 - **`review`** — a pure review of everything since
   `--var reviewBase=<commitish>`: a green gate, the quality lap, then the human
   review. A sign-off closes `.gtd/REVIEW.md`. A note ends the process with
@@ -1692,11 +1700,13 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   verdict at `health.judge` needs before a red streak escalates early. Blank,
   non-numeric or non-finite means it can never be cleared, so the early
   escalation is off.
-- **`reviewNoteActionable`** (`0.7`) — `feature`'s `build.review.triage` floor a
-  non-`edit` verdict (`question`, `nit`, `praise`) on a review note must clear.
-  Below it, the note counts as `edit` and goes to `build.review.collecting` and
-  a replan. A note whose evidence was cut, or that got no verdict, also counts
-  as `edit`. Blank makes every note `edit`. Triage answers are keyed `note-<n>`.
+- **`reviewNoteActionable`** (`0.7`) — the floor a non-`edit` verdict
+  (`question`, `nit`, `praise`) on a review note must clear at
+  `refactor.build.review.triage` (and `build.review.triage` in a custom workflow
+  built on `buildTail`). Below it, the note counts as `edit` and goes to the
+  collecting turn and a replan. A note whose evidence was cut, or that got no
+  verdict, also counts as `edit`. Blank makes every note `edit`. Triage answers
+  are keyed `note-<n>`.
 - **`reviewSeverityMinP`** (`0.7`) — the confidence each severity judge answer
   on a review note must clear. Every tiered note gets a `critical`, `should` or
   `could` tier from four yes/no questions, keyed `note-<n>.<question>`:
@@ -1738,26 +1748,28 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   or fractional values fail the step rather than disabling the bound.
 - **`qualityReviews`**
   (`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
-  — sets the quality lap `build.quality` runs ahead of the human review: one
-  turn per comma-separated lens, in order. It is the one skill control that is a
-  process setting rather than a `skills` entry — it decides the turn COUNT. Each
-  lens is its own scope, keyed `build.quality.<lens>`; by default that scope's
-  skills ARE the lens, and a `build.quality.<lens>` entry (see
-  [Skills](#skills)) replaces them, valid only while the lens is listed here.
-  Every round pays for it, so extend the list only as far as that is worth
-  paying for — each lens adds about 1–1.5 min and about $0.5 per run; blanking
-  it disables the lap. `correctness` (loads `code-review-and-quality`),
-  `conventions` and `spec-challenge` are built-in lenses whose brief rides in
-  the prompt; every finding any lens writes, blocking or not, is fixed by the
-  one fix turn. An entry may carry a model hint, `<lens>=<model>` (split at the
-  first `=`, both sides trimmed; a blank hint is none): `test-audit=smart` runs
-  that lens on `smart`. A lens without one runs on `coderModel` when it is
-  `conventions`, `ponytail-review` or `test-audit`, else on `plannerModel`. The
-  hint is no part of the lens's name: its scope stays `build.quality.<lens>`.
-  See [Setup](./setup.md#extending-the-quality-review-lap).
+  — sets the quality lap `build.quality` runs, the last look `feature` takes
+  before `idle` (and ahead of the human review in `review`, `fix` and a
+  `buildTail` workflow): one turn per comma-separated lens, in order. It is the
+  one skill control that is a process setting rather than a `skills` entry — it
+  decides the turn COUNT. Each lens is its own scope, keyed
+  `build.quality.<lens>`; by default that scope's skills ARE the lens, and a
+  `build.quality.<lens>` entry (see [Skills](#skills)) replaces them, valid only
+  while the lens is listed here. Every round pays for it, so extend the list
+  only as far as that is worth paying for — each lens adds about 1–1.5 min and
+  about $0.5 per run; blanking it disables the lap. `correctness` (loads
+  `code-review-and-quality`), `conventions` and `spec-challenge` are built-in
+  lenses whose brief rides in the prompt; every finding any lens writes,
+  blocking or not, is fixed by the one fix turn. An entry may carry a model
+  hint, `<lens>=<model>` (split at the first `=`, both sides trimmed; a blank
+  hint is none): `test-audit=smart` runs that lens on `smart`. A lens without
+  one runs on `coderModel` when it is `conventions`, `ponytail-review` or
+  `test-audit`, else on `plannerModel`. The hint is no part of the lens's name:
+  its scope stays `build.quality.<lens>`. See
+  [Setup](./setup.md#extending-the-quality-review-lap).
 - **`refactorQualityReviews`** (`correctness, ponytail-review, conventions`) —
   the quality lap the refactor review runs, one turn per comma-separated lens,
-  as `qualityReviews` does for the feature review. `qualityReviews` does not
+  as `qualityReviews` does for the feature slice. `qualityReviews` does not
   reach it, and a lens left out never sees the refactor (the feature lap reviews
   from the refactor's sign-off); blank runs no refactor quality lap. Each lens
   is its own scope, keyed `refactor.build.quality.<lens>`. Entries take the same

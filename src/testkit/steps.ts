@@ -108,6 +108,10 @@ Given("a file {string} with:", (world: TestkitWorld, path: string, content: stri
   world.repo().write(path, withNewline(content))
 })
 
+Given("the file {string} is deleted", (world: TestkitWorld, path: string) => {
+  world.repo().remove(path)
+})
+
 Given("the working tree is committed as {string}", (world: TestkitWorld, message: string) => {
   world.repo().commit(message)
 })

@@ -52,18 +52,6 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       """
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1-2
-        subtract added
-      """
-    And step "build.review.closing" runs its script
     When the process is driven
     Then the process rests at "seam.judge"
 
@@ -113,21 +101,6 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       """
     When gtd lands
     And the process is driven
-    Then the process rests at "build.review.await-review"
-
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [x] ./src/calc.ts#1-2
-        subtract added
-      """
-    When gtd lands
-    And the process is driven
     Then the process rests at "idle"
     And the commit subjects end with:
       """
@@ -151,10 +124,7 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       gtd(judge): seam.judge → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
-      gtd(check): implement.closing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
-      gtd(human): build.review.await-review → build.review.closing
-      gtd(check): build.review.closing → idle
+      gtd(check): implement.closing → idle
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"

@@ -302,7 +302,7 @@ const decide = (): Promise<Decision> =>
 export interface SeamOutcome {
   /** The naive pass's kept tip: the first implement turn's reading material. */
   readonly reference: string
-  /** The feature review's base: HEAD after the refactor on refactor-first, else the caller's base. */
+  /** The feature slice's base: HEAD after the refactor on refactor-first, else the caller's base. */
   readonly base: string
   readonly refactored?: boolean
 }
