@@ -133,7 +133,7 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         | low  |
         | high |
 
-    Scenario: the tier comes from the requirements the final design gate lap accepted
+    Scenario: the tier a rebuilt pass is told comes from the requirements the final design gate lap accepted
       Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
         """
         # Requirements
@@ -146,7 +146,11 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
 
         - AC-1: the change behaves as described.
         """
-      And step "seam.check" changes nothing
+      And step "seam.check" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds elsewhere", () => {})
+        """
+      And step "implement.applying" runs its script
       And step "seam.naive" writes "src/acceptance.test.ts" with:
         """
         it("[AC-1] holds", () => {})
@@ -245,7 +249,7 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
       And the resting step's content does not contain "## Production Signals"
 
 
-    Scenario: the flag-off twin keeps today's flag demand
+    Scenario: the flag-off twin keeps today's flag demand on a rebuilt pass
       Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
         """
         # Requirements
@@ -259,7 +263,11 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
-      And step "seam.check" changes nothing
+      And step "seam.check" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds elsewhere", () => {})
+        """
+      And step "implement.applying" runs its script
       And step "seam.naive" writes "src/acceptance.test.ts" with:
         """
         it("[AC-1] holds", () => {})

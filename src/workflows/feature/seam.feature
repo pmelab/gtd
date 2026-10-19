@@ -2,8 +2,8 @@
 Feature: the naive pass and seam judge decide how a feature is built
 
   After design a naive pass is set aside under a kept ref, the judge reads its
-  diff, and the process either implements straight away, refactors the seam
-  first behind a human approval, or retries the naive pass.
+  diff, and the process either applies the pass as the implementation,
+  refactors the seam first behind a human approval, or retries the naive pass.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -50,7 +50,7 @@ Feature: the naive pass and seam judge decide how a feature is built
       """
     And step "design.gate.answer" changes nothing
 
-  Scenario: a land judgment goes straight to the implementation with no seam gate or refactor
+  Scenario: a land judgment applies the naive pass with no seam gate, refactor or build turn
     Given step "seam.check" changes nothing
     And step "seam.naive" writes "src/acceptance.test.ts" with:
       """
@@ -66,7 +66,7 @@ Feature: the naive pass and seam judge decide how a feature is built
       [{"id":"shape","answer":"land","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "implement.building"
+    Then the process rests at "implement.applying"
     And the last commit body contains "Gtd-Judge:"
     And the commit subjects end with:
       """
@@ -79,27 +79,34 @@ Feature: the naive pass and seam judge decide how a feature is built
       gtd(human): design.gate.answer → seam.naive
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → seam.judge
-      gtd(judge): seam.judge → implement.building
+      gtd(judge): seam.judge → implement.applying
       """
 
-  Scenario: config skills for the implement scope reach the implement step
-    Given step "seam.check" changes nothing
-    And step "seam.naive" writes "src/acceptance.test.ts" with:
+  Scenario: a naive pass that no longer applies is built fresh, with the implement scope's skills
+    Given step "seam.naive" writes "src/acceptance.test.ts" with:
       """
       it("[AC-1] holds", () => {})
       """
-    And step "seam.naive" writes "src/calc.ts" with:
+    And step "seam.naive" writes "src/subtract.ts" with:
       """
-      export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
       """
-    And judge step "seam.judge" answers:
+    And step "seam.check" writes "src/subtract.ts" with:
       """
-      [{"id":"shape","answer":"land","p":0.9}]
+      export const subtract = (a: number, b: number) => b - a
       """
+    And step "implement.applying" runs its script
     When the process is driven
     Then the process rests at "implement.building"
     And the resting step's content contains "my-tdd, my-runbook"
+    And the resting step's content contains "git show"
+    And ".gtd/FEEDBACK.md" contains "could not apply the naive pass"
+    And "src/subtract.ts" contains "b - a"
+    And the commit subjects end with:
+      """
+      gtd(check): seam.check → implement.applying
+      gtd(check): implement.applying → implement.building
+      """
 
   Scenario: the naive pass lands as a marker commit and its turn stays off the branch
     Given step "seam.check" changes nothing
@@ -122,7 +129,7 @@ Feature: the naive pass and seam judge decide how a feature is built
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
     And "src/calc.ts" does not contain "subtract"
 
-  Scenario: the implementation is one build turn, a green check, then the requirements are closed out
+  Scenario: the implementation is the applied naive pass, a green check, then the requirements are closed out
     Given step "seam.check" changes nothing
     And step "seam.naive" writes "src/acceptance.test.ts" with:
       """
@@ -137,12 +144,7 @@ Feature: the naive pass and seam judge decide how a feature is built
       """
       [{"id":"shape","answer":"land","p":0.9}]
       """
-    And step "implement.building" writes "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      export const subtract = (a: number, b: number) => a - b
-      export const SUBTRACT_ENABLED = process.env.GTD_FLAG_SUBTRACT === "1"
-      """
+    And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     And judge step "implement.coverage" answers:
@@ -151,10 +153,11 @@ Feature: the naive pass and seam judge decide how a feature is built
       """
     When the process is driven
     Then the process rests at "idle"
+    And "src/calc.ts" contains "subtract"
     And the commit subjects end with:
       """
-      gtd(judge): seam.judge → implement.building
-      gtd(agent): implement.building → implement.health.check
+      gtd(judge): seam.judge → implement.applying
+      gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → idle
@@ -177,12 +180,12 @@ Feature: the naive pass and seam judge decide how a feature is built
       it("adds", () => expect(2 + 2).toBe(4))
       """
     When the process is driven
-    Then the process rests at "implement.building"
+    Then the process rests at "implement.applying"
     And the commit subjects end with:
       """
       gtd(human): design.gate.answer → seam.naive
       gtd(agent): seam.naive → seam.check
-      gtd(check): seam.check → implement.building
+      gtd(check): seam.check → implement.applying
       """
 
   Scenario: a naive pass adding a glob-named file does not hide a modified sibling
@@ -258,7 +261,7 @@ Feature: the naive pass and seam judge decide how a feature is built
       gtd(judge): seam.judge → seam.steer
       """
 
-  Scenario: a clean landing at the steer gate overrules, with no seam gate and no refactor
+  Scenario: a clean landing at the steer gate overrules and applies the pass, with no seam gate and no refactor
     Given step "seam.check" changes nothing
     And step "seam.naive" writes "src/acceptance.test.ts" with:
       """
@@ -275,9 +278,9 @@ Feature: the naive pass and seam judge decide how a feature is built
     When the process is driven
     Then the process rests at "seam.steer"
     When gtd lands
-    Then the process rests at "implement.building"
+    Then the process rests at "implement.applying"
     And the commit subjects end with:
       """
       gtd(judge): seam.judge → seam.steer
-      gtd(human): seam.steer → implement.building
+      gtd(human): seam.steer → implement.applying
       """

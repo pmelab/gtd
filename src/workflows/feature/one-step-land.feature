@@ -1,11 +1,11 @@
 # One SDLC path per file, so a changed path reds exactly one fixture — do not merge.
 @inmem
-Feature: a naive pass the judge rules land goes straight to implement with no seam gate
+Feature: a naive pass the judge rules land is itself the implementation
 
   With GTD_FLAG_RISK_TIER off, a naive pass that
   edits an existing source file is judged land: the process skips the approval
-  gate and any refactor, and runs implement and quality
-  back to idle, with no review. The flag is pinned here so the per-flag test runs never
+  gate and any refactor, applies the kept pass as it is — no build turn — and
+  runs the health loop and quality back to idle, with no review. The flag is pinned here so the per-flag test runs never
   move it off this path.
 
   Background:
@@ -53,10 +53,7 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       """
       [{"id":"shape","answer":"land","p":0.9}]
       """
-    And step "implement.building" writes "src/greeting.ts" with:
-      """
-      export const greeting = "Hello, world!"
-      """
+    And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     And judge step "implement.coverage" answers:
@@ -65,10 +62,11 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       """
     And step "build.quality.correctness.reviewing" changes nothing
 
-  Scenario: a land judgment runs idle to idle with no seam gate or refactor
+  Scenario: a land judgment applies the naive pass and runs idle to idle with no rebuild
     When the process is driven
     Then the process rests at "idle"
-    And "src/greeting.ts" contains "Hello, world!"
+    And "src/greeting.ts" contains "Hello, world"
+    And "src/acceptance.test.ts" contains "[AC-1] holds"
     And the commit subjects end with:
       """
       gtd(human): idle → unwind
@@ -78,8 +76,8 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       gtd(human): design.gate.answer → seam.naive
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → seam.judge
-      gtd(judge): seam.judge → implement.building
-      gtd(agent): implement.building → implement.health.check
+      gtd(judge): seam.judge → implement.applying
+      gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
@@ -87,7 +85,7 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
-    And the commit "gtd(judge): seam.judge → implement.building" has a body containing "\"answer\":\"land\""
+    And the commit "gtd(judge): seam.judge → implement.applying" has a body containing "\"answer\":\"land\""
     And no commit body contains "Gtd-Approved:"
     And the output lines of gtd "slices" start with:
       """

@@ -1,10 +1,10 @@
 @inmem
-Feature: a trivial change takes the same few beats at either risk tier, flag-free at low
+Feature: a trivial change takes the same few beats at either risk tier
 
   With GTD_FLAG_RISK_TIER on, a one-line copy fix goes
-  from idle through the naive pass, the seam judge's land, implement and the
-  quality lap back to idle. Low tier walks exactly the steps high does; only the
-  implementation prompt and the summary differ.
+  from idle through the naive pass, the seam judge's land, the applied pass and
+  the quality lap back to idle. Low tier walks exactly the steps high does; only
+  the summary differs.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -62,18 +62,10 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
       """
       [{"id":"shape","answer":"land","p":0.9}]
       """
-    When the process is driven
-    Then the process rests at "implement.building"
-    And the resting step's content contains "<demand>"
-    And the resting step's content does not contain "<absent>"
-
-    Given step "implement.building" writes "src/greeting.ts" with:
-      """
-      export const greeting = "Hello, world!"
-      """
+    And step "implement.applying" runs its script
     When the process is driven
     Then the process rests at "idle"
-    And "src/greeting.ts" contains "Hello, world!"
+    And "src/greeting.ts" contains "Hello, world"
     And the commit subjects end with:
       """
       gtd(human): idle → unwind
@@ -83,8 +75,8 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
       gtd(human): design.gate.answer → seam.naive
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → seam.judge
-      gtd(judge): seam.judge → implement.building
-      gtd(agent): implement.building → implement.health.check
+      gtd(judge): seam.judge → implement.applying
+      gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
@@ -93,6 +85,6 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
     And the output of gtd "summary" <summary> "needs a human reviewer"
 
     Examples:
-      | tier | demand                                             | absent              | summary          |
-      | low  | Add no release flag                                | new release flag    | does not contain |
-      | high | Put the new behaviour behind a new release flag    | Add no release flag | contains         |
+      | tier | summary          |
+      | low  | does not contain |
+      | high | contains         |

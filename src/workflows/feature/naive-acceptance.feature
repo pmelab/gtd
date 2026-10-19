@@ -129,12 +129,12 @@ Feature: a naive pass ends only when a test names every criterion and the suite 
       """
     And step "seam.check" from now on changes nothing
     When the process is driven
-    Then the process rests at "implement.building"
+    Then the process rests at "implement.applying"
     And the commit subjects end with:
       """
       gtd(human): design.gate.answer → seam.naive
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → seam.naive
       gtd(agent): seam.naive → seam.check
-      gtd(check): seam.check → implement.building
+      gtd(check): seam.check → implement.applying
       """

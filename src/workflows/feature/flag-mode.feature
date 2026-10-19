@@ -1,9 +1,9 @@
 @inmem
-Feature: flag mode off builds a feature with no release flag, seam judge or refactor
+Feature: flag mode off lands the naive pass with no release flag, seam judge or refactor
 
   `flagMode` is a factory option of the shipped workflows, on by default. Off,
   the project ships without feature flags: no seam judge and no refactor run,
-  and the naive implementation goes straight through the health loop and the
+  and the naive pass itself lands, straight through the health loop and the
   quality lap.
 
   Background:
@@ -43,17 +43,22 @@ Feature: flag mode off builds a feature with no release flag, seam judge or refa
       """
     And step "design.gate.answer" changes nothing
 
-  Scenario: flag mode off skips the seam judge and the refactor, and asks for no flag
+  Scenario: flag mode off lands the naive pass unjudged, and asks for no flag
     When the process is driven
-    Then the process rests at "implement.building"
+    Then the process rests at "seam.naive"
     And the resting step's content contains "the quickest way that works"
-    And the resting step's content contains "Add no release flag — this project ships without release flags"
-    And the resting step's content does not contain "new release flag"
-    Given step "implement.building" writes "src/calc.ts" with:
+    And the resting step's content does not contain "release flag"
+    Given step "seam.naive" writes "src/calc.test.ts" with:
+      """
+      it("[AC-1] subtracts", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
       """
+    And step "seam.check" changes nothing
+    And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     And judge step "implement.coverage" answers:
@@ -64,6 +69,7 @@ Feature: flag mode off builds a feature with no release flag, seam judge or refa
     When the process is driven
     Then the process rests at "idle"
     And "src/calc.ts" contains "subtract"
+    And "src/calc.test.ts" contains "[AC-1] subtracts"
     And the commit subjects end with:
       """
       chore: initial commit
@@ -72,8 +78,10 @@ Feature: flag mode off builds a feature with no release flag, seam judge or refa
       gtd(check): unwind → start-gate.check
       gtd(check): start-gate.check → design.triage
       gtd(agent): design.triage → design.gate.answer
-      gtd(human): design.gate.answer → implement.building
-      gtd(agent): implement.building → implement.health.check
+      gtd(human): design.gate.answer → seam.naive
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → implement.applying
+      gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing

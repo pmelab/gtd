@@ -365,10 +365,30 @@ describe("flagMode", () => {
     expect((await designed(config("feature({ flagMode: true })"))).state).toBe("seam.naive")
   })
 
-  it("off through GTD_FLAGMODE=false, skips the naive pass and the seam judge", async () => {
-    const rest = await designed(CONFIG_SCAFFOLD, { GTD_FLAGMODE: "false" })
-    expect(rest.state).toBe("implement.building")
-    expect(rest.content).toContain("this project ships without release flags")
+  it("off through GTD_FLAGMODE=false, lands the naive pass with no seam judge", async () => {
+    const repo = testRepo({ workflow: CONFIG_SCAFFOLD, env: { GTD_FLAGMODE: "false" } })
+    repo.write("src/calc.ts", CALC)
+    repo.commit("feat: add calculator")
+    repo.write("TODO.md", "# Add subtract\n")
+    const rest = await repo.drive({
+      unwind: () => undefined,
+      "start-gate.check": () => undefined,
+      "design.triage": (_, r) =>
+        r.write(
+          ".gtd/REQUIREMENTS.md",
+          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+        ),
+      "design.gate.answer": () => undefined,
+      "seam.naive": (_, r) => {
+        r.write("src/calc.ts", `${CALC}// naive\n`)
+        r.write("src/calc.test.ts", ACCEPTANCE)
+      },
+      "seam.check": () => undefined,
+      "implement.applying": runsItsScript,
+    })
+    expect(rest.state).toBe("implement.health.check")
+    expect(repo.read("src/calc.ts")).toBe(`${CALC}// naive\n`)
+    expect(repo.subjects().some((subject) => subject.includes("seam.judge"))).toBe(false)
   })
 
   it("refuses a value other than true or false before the process starts", async () => {

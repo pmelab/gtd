@@ -37,11 +37,17 @@ Feature: quality findings left unresolved hold a feature process short of idle
       - AC-1: subtract(a, b) returns a - b.
       """
     And step "design.gate.answer" changes nothing
-    And step "implement.building" writes "src/calc.ts" with:
+    And step "seam.naive" writes "src/calc.test.ts" with:
+      """
+      it("[AC-1] subtracts", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
       """
+    And step "seam.check" changes nothing
+    And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     And judge step "implement.coverage" answers:

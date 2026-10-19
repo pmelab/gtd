@@ -321,11 +321,17 @@ const driveSeam = async (
 }
 
 describe("seamBuild", () => {
-  it("land resolves the kept tip with the caller's base and enters no slice", async () => {
+  it("land resolves the kept tip to land, with the caller's base, and enters no slice", async () => {
     const h = await driveSeam("land")
-    expect(h.outcome).toEqual({ reference: "abc", base: "c-base" })
+    expect(h.outcome).toEqual({ reference: "abc", base: "c-base", land: true })
     expect(h.slices).toEqual([])
     expect(h.names).toEqual(["seam.naive", "seam.check", "seam.judge"])
+  })
+
+  it("with flagMode off resolves a vetted pass to land with no judge", async () => {
+    const h = await driveSeam("reject", undefined, { flagMode: "false" })
+    expect(h.outcome).toEqual({ reference: "abc", base: "c-base", land: true })
+    expect(h.names).toEqual(["seam.naive", "seam.check"])
   })
 
   it("a red check retries the pass, and the judge sees it only once green", async () => {
@@ -355,7 +361,7 @@ describe("seamBuild", () => {
       "seam.clear",
       "seam.judge",
     ])
-    expect(h.outcome).toEqual({ reference: "abc", base: "c-base" })
+    expect(h.outcome).toEqual({ reference: "abc", base: "c-base", land: true })
   })
 
   it("refactor-first runs the reviewed refactor in slice refactor and resolves HEAD after it", async () => {

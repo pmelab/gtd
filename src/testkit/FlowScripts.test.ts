@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
+  applyScript,
   checkScript,
   moveScript,
   removeScript,
@@ -175,6 +176,63 @@ for (const makeTier of gitTiers) {
         expect(run(revertScript(commit, REPORT, "could not revert")).ok).toBe(true)
         expect(read(REPORT)).toMatch(/^could not revert\n\n\S/)
         expect(read("a.txt")).toBe("a1")
+      })
+    })
+
+    describe("applyScript", () => {
+      it("replays a commit's modifications, additions and deletions onto the working tree", () => {
+        t.seed.commit("feat: base", { "mod.txt": "before", "gone.txt": "g" })
+        t.seed.writeFile("mod.txt", "after")
+        t.seed.writeFile("added.txt", "new")
+        t.seed.deleteFile("gone.txt")
+        t.seed.stageAll()
+        t.seed.commit("feat: change", {})
+        const commit = t.observe.resolveRef("HEAD")
+        t.seed.writeFile("gone.txt", "g")
+        t.seed.deleteFile("added.txt")
+        t.seed.stageAll()
+        t.seed.commit("revert: change", { "mod.txt": "before" })
+        const head = t.observe.resolveRef("HEAD")
+        expect(run(applyScript(commit, REPORT, "could not apply")).ok).toBe(true)
+        expect(read("mod.txt")).toBe("after")
+        expect(read("added.txt")).toBe("new")
+        expect(read("gone.txt")).toBeUndefined()
+        expect(read(REPORT)).toBeUndefined()
+        expect(t.observe.resolveRef("HEAD")).toBe(head)
+      })
+
+      it("leaves excluded paths as they are", () => {
+        t.seed.commit("feat: base", { "a.txt": "a0", ".gtd/R.md": "r0" })
+        t.seed.commit("feat: change", { "a.txt": "a1", ".gtd/R.md": "r1", ".gtd/new.md": "n" })
+        const commit = t.observe.resolveRef("HEAD")
+        t.seed.commit("revert: change", { "a.txt": "a0", ".gtd/R.md": "r2" })
+        t.seed.commitDeletion(".gtd/new.md", "revert: change")
+        expect(run(applyScript(commit, REPORT, "could not apply", [".gtd"])).ok).toBe(true)
+        expect(read(REPORT)).toBeUndefined()
+        expect(read("a.txt")).toBe("a1")
+        expect(read(".gtd/R.md")).toBe("r2")
+        expect(read(".gtd/new.md")).toBeUndefined()
+      })
+
+      it("does nothing for a commit with nothing to apply", () => {
+        t.seed.commit("feat: empty", {})
+        const commit = t.observe.resolveRef("HEAD")
+        expect(run(applyScript(commit, REPORT, "could not apply")).ok).toBe(true)
+        expect(read(REPORT)).toBeUndefined()
+        expect(t.observe.statusPorcelain()).toBe("")
+      })
+
+      it("reports a commit that cannot apply, leaving the tree untouched", () => {
+        t.seed.commit("feat: base", { "a.txt": "a0" })
+        t.seed.commit("feat: change", { "a.txt": "a1", "b.txt": "b1" })
+        const commit = t.observe.resolveRef("HEAD")
+        t.seed.commitDeletion("b.txt", "revert: change")
+        t.seed.commit("revert: change", { "a.txt": "a0" })
+        t.seed.writeFile("b.txt", "other")
+        expect(run(applyScript(commit, REPORT, "could not apply")).ok).toBe(true)
+        expect(read(REPORT)).toMatch(/^could not apply\n\n\S/)
+        expect(read("a.txt")).toBe("a0")
+        expect(read("b.txt")).toBe("other")
       })
     })
 

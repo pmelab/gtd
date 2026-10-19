@@ -1059,6 +1059,14 @@ describe("the seam phase's texts", () => {
     expect(message).not.toContain("outside the expected set")
   })
 
+  it("promises no judge on an overrule with flagMode off", () => {
+    for (const retry of [{ red: "abc123" }, { fault: "acceptance-tests: x", hash: "abc123" }]) {
+      const message = renderText(() => seamSteerMessage(retry, false))
+      expect(message).not.toContain("seam judge")
+      expect(message).toContain("it lands as the implementation")
+    }
+  })
+
   it("names every unreadable path for a by-hand landing", () => {
     const message = renderText(() =>
       seamByHandMessage(["vendor/a.bin", "src/flows/helpers.ts"], ["vendor/a.bin"], "abc123"),

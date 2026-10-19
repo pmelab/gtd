@@ -58,6 +58,9 @@ export const agentWithSkills = (
 export const unwindFailure = (commit: string): string =>
   `gtd could not unwind ${commit} out of your working tree.`
 
+export const naiveApplyFailure = (commit: string): string =>
+  `gtd could not apply the naive pass ${commit} to the working tree; it is built fresh instead.`
+
 export const idleMessage = (): string =>
   `No active gtd process.
 
@@ -1197,8 +1200,8 @@ export const naivePassPrompt = (retry?: NaiveRetry): string =>
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 ${criteriaBinding(false)}
 - Implement them the quickest way that works — the naive version. Do not
-  restructure, abstract or refactor around the change; a later step judges
-  the shape of your diff and a reviewer makes it fit
+  restructure, abstract or refactor around the change; it may land exactly as
+  you leave it, and a reviewer makes it fit
 - Work breadth-first: rough out every part of the change before finishing any
   one, so a run cut off midway still shows the whole shape
 - Write behaviour-level acceptance tests, at least one per criterion, each
@@ -1282,14 +1285,15 @@ An edit together with an approval counts as steer. Only
 branch unjudged.
 `
 
-export const seamSteerMessage = (retry: NaiveRetry): string =>
+/** `judged`: whether an overruled pass still meets the seam judge (`flagMode` on). */
+export const seamSteerMessage = (retry: NaiveRetry, judged = true): string =>
   isFault(retry)
     ? `The naive pass failed three times and the retries are spent. The last
 attempt's tests (\`git show ${retry.hash}\`) fall short:
 ${retry.fault}
 
 ${steerChoices(`land a clean tree to go on with the last attempt as it is:
-  \`seam.check\` runs its suite and the seam judge rules on its shape. Use it
+  \`seam.check\` runs its suite and ${judged ? "the seam judge rules on its shape" : "it lands as the implementation"}. Use it
   when the rule cannot fit this change (tests the globs do not see, or no
   entry point that existed before). Risk: a criterion may have no test that
   survives a later refactor — the choice is recorded in history.`)}`
@@ -1302,7 +1306,7 @@ Two ways forward (then run \`gtd land\`):
 - **Steer** — edit \`.gtd/REQUIREMENTS.md\` to redirect the change; the naive
   pass runs again with a fresh retry budget
 - **Overrule** — land a clean tree to go on with the last attempt as it is:
-  the seam judge rules on its shape, and the implementation's health loop
+  ${judged ? "the seam judge rules on its shape" : "it lands as the implementation"}, and the implementation's health loop
   must turn the suite green. Risk: the criteria's tests never passed on the
   naive pass — the choice is recorded in history.
 
@@ -1321,9 +1325,8 @@ Two ways forward (then run \`gtd land\`):
 - **Steer** — edit \`.gtd/REQUIREMENTS.md\` to redirect the change; the naive
   pass runs again with a fresh retry budget (the risk tier stays as the
   design gate settled it; a tier edit here is not applied)
-- **Overrule** — land a clean tree to accept the last attempt's approach:
-  the implementation is built against it as reference, with no seam gate
-  and no refactor. Risk: this ships the seam the judge objected to,
+- **Overrule** — land a clean tree to accept the last attempt as it is: it
+  lands as the implementation, with no seam gate and no refactor. Risk: this ships the seam the judge objected to,
   unaddressed — the choice is recorded in history.
 
 An edit together with an approval counts as steer. Only

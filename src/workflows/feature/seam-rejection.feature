@@ -97,12 +97,7 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       """
       [{"id":"shape","answer":"land","p":0.9}]
       """
-    And step "implement.building" writes "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      export const subtract = (a: number, b: number) => a - b
-      export const SUBTRACT = true
-      """
+    And step "implement.applying" runs its script
     When gtd lands
     And the process is driven
     Then the process rests at "idle"
@@ -125,8 +120,8 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       gtd(human): seam.steer → seam.naive
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → seam.judge
-      gtd(judge): seam.judge → implement.building
-      gtd(agent): implement.building → implement.health.check
+      gtd(judge): seam.judge → implement.applying
+      gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → idle
@@ -135,7 +130,7 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
     And the commit "gtd(judge): seam.judge → seam.naive" has a body containing "\"answer\":\"reject\""
     And the commit "gtd(judge): seam.judge → seam.steer" has a body containing "\"answer\":\"reject\""
-    And the commit "gtd(judge): seam.judge → implement.building" has a body containing "\"answer\":\"land\""
+    And the commit "gtd(judge): seam.judge → implement.applying" has a body containing "\"answer\":\"land\""
     And no commit body contains "Gtd-Approved:"
     And the output lines of gtd "slices" start with:
       """

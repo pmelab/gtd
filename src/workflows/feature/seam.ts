@@ -1,7 +1,9 @@
 import { posix } from "node:path"
 import {
+  applyScript,
   changes,
   check,
+  codeChanges,
   env,
   head,
   human,
@@ -14,6 +16,7 @@ import {
   scope,
   slice,
   vars,
+  wrote,
   type Change,
   type DiffShapeResult,
   type KeptTip,
@@ -144,7 +147,7 @@ const naiveGreen = (tip: KeptTip): Promise<boolean> => {
     [
       ...paths,
       "dirty=$(git -c core.quotePath=false ls-files -m -d -o --exclude-standard)",
-      `if ! git diff --binary ${quote(`${tip.hash}^`)} ${quote(tip.hash)} -- | git apply; then`,
+      `if ! git diff --binary --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ ${quote(`${tip.hash}^`)} ${quote(tip.hash)} -- | git apply --whitespace=nowarn; then`,
       "  echo 'gtd: the kept naive pass no longer applies to HEAD; no test ran'",
       "  exit 1",
       "fi",
@@ -169,6 +172,16 @@ export interface ImplementOptions {
   readonly amend?: boolean | undefined
   /** After a refactor slice, which may already carry the feature: an empty turn completes the step. */
   readonly afterRefactor?: boolean | undefined
+  /** A kept naive tip to apply as the implementation; built fresh only when it no longer applies. */
+  readonly naive?: string | undefined
+}
+
+/** Resolves `false` when the tip no longer applies (the failure is in `.gtd/FEEDBACK.md`) or has nothing outside `.gtd/` to apply. */
+const applied = async (tip: string): Promise<boolean> => {
+  await run("applying", applyScript(tip, FEEDBACK, t.naiveApplyFailure(tip), [".gtd"]), {
+    label: "Applying the naive pass",
+  })
+  return !wrote(FEEDBACK) && codeChanges().length > 0
 }
 
 export function implement(options?: ImplementOptions): Promise<void>
@@ -186,22 +199,23 @@ export function implement(
   const options: ImplementOptions =
     typeof first === "object" && first !== null ? first : { reference: first, tier, amend }
   return scope("implement", async () => {
-    await t.agentWithSkills(
-      "building",
-      t.implementBuildingPrompt(
-        options.reference,
-        options.tier,
-        options.amend,
-        options.afterRefactor,
-        flagModeOn(),
-      ),
-      {
-        label: "Implementing",
-        model: coder(),
-        system: t.builderSystem(),
-        ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
-      },
-    )
+    if (options.naive === undefined || !(await applied(options.naive)))
+      await t.agentWithSkills(
+        "building",
+        t.implementBuildingPrompt(
+          options.reference,
+          options.tier,
+          options.amend,
+          options.afterRefactor,
+          flagModeOn(),
+        ),
+        {
+          label: "Implementing",
+          model: coder(),
+          system: t.builderSystem(),
+          ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
+        },
+      )
     requireCriteriaFrozen(REQUIREMENTS)
     await green()
     await requireCoverage()
@@ -211,14 +225,14 @@ export function implement(
 
 interface Decision {
   readonly reference: string
-  /** Present only on `refactor-first`: the refactor runs before the implementation. */
+  /** Absent on `land` (or with `flagMode` off, unjudged): the pass itself is the implementation. */
   readonly shape?: DiffShapeResult
 }
 
 /** Resolves `true` when the human steered (edited), `false` on a clean overrule. */
 const steer = async (retry: t.NaiveRetry): Promise<boolean> => {
   await human("steer", {
-    message: t.seamSteerMessage(retry),
+    message: t.seamSteerMessage(retry, flagModeOn()),
     label: "Steer or overrule the naive pass",
     file: REQUIREMENTS,
     acceptClean: true,
@@ -285,15 +299,19 @@ const decide = (): Promise<Decision> =>
     for (;;) {
       await naivePass(retry)
       const tip = kept("naive")!
-      const outcome = (await vetted(tip, vetting)) ?? (await ruled(tip, vetting.again))
+      const outcome =
+        (await vetted(tip, vetting)) ??
+        (flagModeOn() ? await ruled(tip, vetting.again) : { reference: tip.hash })
       if (!("kind" in outcome)) return outcome
       retry = outcome.kind === "retry" ? outcome.retry : undefined
     }
   })
 
 export interface SeamOutcome {
-  /** The naive pass's kept tip: the first implement turn's reading material. */
+  /** The naive pass's kept tip: applied as the implementation when `land`, else the first implement turn's reading material. */
   readonly reference: string
+  /** The naive pass lands as it is: no build turn. */
+  readonly land?: boolean
   /** The feature slice's base: HEAD after the refactor on refactor-first, else the caller's base. */
   readonly base: string
   readonly refactored?: boolean
@@ -301,7 +319,7 @@ export interface SeamOutcome {
 
 export const seamBuild = async (base: string): Promise<SeamOutcome> => {
   const { reference, shape } = await decide()
-  if (shape === undefined) return { reference, base }
+  if (shape === undefined) return { reference, base, land: true }
   if (shape.unreadable.length > 0) {
     await scope("seam", () =>
       human("by-hand", {

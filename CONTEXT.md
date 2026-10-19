@@ -246,7 +246,9 @@ carrying `Gtd-Kept: <hash>` instead. Never listed by `gtd history`, never
 deleted by a landing. _Avoid_: beat tip, discarded tip.
 
 **Naive pass**: The `seam.naive` turn: the requirements implemented directly,
-kept as a [kept tip](#kept-tip) and used as reading material, never applied.
+kept as a [kept tip](#kept-tip). Applied as the implementation when the
+[seam judge](#seam-judge) rules `land`, a human overrules its `reject`, or
+[flag mode](#flag-mode) is off; otherwise only reading material for a rebuild.
 Done only when its [acceptance tests](#acceptance-test) are green.
 
 **Acceptance test**: A behaviour-level test a naive pass writes for one
@@ -270,9 +272,9 @@ the strays show it.
 `reject` on a naive pass's strays.
 
 **Flag mode**: The shipped workflows' `flagMode` process setting: whether a
-project ships changes behind release flags. On by default; off, there is no
-naive pass, seam judge or refactor. Set explicitly, never detected. Not a
-[feature flag](#feature-flag).
+project ships changes behind release flags. On by default; off, there is no seam
+judge or refactor, and the naive pass lands as it is. Set explicitly, never
+detected. Not a [feature flag](#feature-flag).
 
 **Process setting**: A flat string value flow code reads as `vars` and may
 branch on — the workflow's `defaults` (a factory option, for the shipped

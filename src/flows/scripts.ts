@@ -55,25 +55,31 @@ export const checkScript = (command: string, options: CheckScriptOptions): strin
   ].join("\n")
 }
 
-/**
- * Reverse-apply `commit`'s changes to the working tree. A failure — the
- * patch no longer applies — writes `failure` and git's error to `report`,
- * since a failed revert and one with nothing to undo both leave the tree clean.
- */
-export const revertScript = (commit: string, report: string, failure: string): string => {
+const patchScript = (
+  commit: string,
+  report: string,
+  failure: string,
+  reverse: boolean,
+  exclude: readonly string[] = [],
+): string => {
+  const paths =
+    exclude.length === 0
+      ? ""
+      : ` . ${exclude.map((p) => quote(`:(exclude,literal)${p}`)).join(" ")}`
   const range = `${quote(`${commit}^`)} ${quote(commit)}`
   const error = quote(`${report}.output`)
   return [
     "#!/usr/bin/env sh",
     "set +e",
-    `if ! git diff --quiet ${range} --; then`,
+    `if ! git diff --quiet ${range} --${paths}; then`,
     `  mkdir -p "$(dirname ${quote(report)})"`,
-    `  git diff --binary ${range} -- | git apply -R 2> ${error}`,
+    // Pinned flags: a user's diff.noprefix, color.ui, diff.external, textconv or apply.whitespace would change the patch.
+    `  git diff --binary --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ ${range} --${paths} | git apply --whitespace=nowarn${reverse ? " -R" : ""} 2> ${error}`,
     "  code=$?",
     '  if [ "$code" -ne 0 ]; then',
     "    {",
     `      printf '%s\\n\\n' ${quote(failure)}`,
-    `      if [ -s ${error} ]; then cat ${error}; else printf 'Reverting it exited %s and produced no output.\\n' "$code"; fi`,
+    `      if [ -s ${error} ]; then cat ${error}; else printf '${reverse ? "Reverting" : "Applying"} it exited %s and produced no output.\\n' "$code"; fi`,
     `    } > ${quote(report)}`,
     "  fi",
     `  rm -f ${error}`,
@@ -81,6 +87,22 @@ export const revertScript = (commit: string, report: string, failure: string): s
     "",
   ].join("\n")
 }
+
+/**
+ * Reverse-apply `commit`'s changes to the working tree. A failure — the
+ * patch no longer applies — writes `failure` and git's error to `report`,
+ * since a failed revert and one with nothing to undo both leave the tree clean.
+ */
+export const revertScript = (commit: string, report: string, failure: string): string =>
+  patchScript(commit, report, failure, true)
+
+/** Apply `commit`'s changes outside `exclude` to the working tree; a failure is reported as `revertScript`'s is. */
+export const applyScript = (
+  commit: string,
+  report: string,
+  failure: string,
+  exclude: readonly string[] = [],
+): string => patchScript(commit, report, failure, false, exclude)
 
 /**
  * Undo the edits one commit made to `paths`: each goes back to its content
