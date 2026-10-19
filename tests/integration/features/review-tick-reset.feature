@@ -254,6 +254,10 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] SQLite — zero-config, file-based
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:

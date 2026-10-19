@@ -36,6 +36,10 @@ Feature: flag mode off builds a feature with no release flag, seam judge or refa
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
 
@@ -116,6 +120,10 @@ Feature: flag mode off builds a feature with no release flag, seam judge or refa
       ### Multiply
 
       - Export `multiply()`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And step "build.review.collecting" writes ".gtd/REVIEW.md" with:
       """

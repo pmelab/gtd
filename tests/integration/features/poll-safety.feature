@@ -67,6 +67,10 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
 
       - [ ] Search
       - [ ] Export
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And the git index has settled

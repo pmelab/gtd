@@ -161,6 +161,10 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       a sketch
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(check): start-gate.check → design.triage"
     When I run gtd next with "--json"
@@ -185,6 +189,10 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       a sketch
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → seam.naive"
@@ -209,6 +217,10 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       a sketch
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(check): start-gate.check → design.triage"
     And an environment variable "GTD_PLANNERMODEL" set to "opus"

@@ -684,6 +684,43 @@ on text a turn introduces refuses the landing, naming the setting. The shipped
 that is already green: the fix turns may touch only the strays, so they cannot
 repair a failure outside them.
 
+### Acceptance criteria
+
+`.gtd/REQUIREMENTS.md` lists the change's acceptance criteria under a level-2
+`## Acceptance Criteria`, one `- AC-<n>: <criterion>` line each, up to the next
+heading. They are the build's stop condition, so each must be checkable by a
+test or a command. Every later step re-reads them from the file.
+
+- **Full path.** `design.triage` writes them; `gtd land` refuses a triage turn
+  whose file has no criteria, a criterion without an ID, or two criteria sharing
+  one (`acceptance-criteria`). While the file holds them, a later lap is asked
+  to keep their IDs: reword in place, append with the next unused number, never
+  renumber. The design gate settles them.
+- **Skip path.** When the sketch adds or changes a list under an
+  `Acceptance criteria` heading (any level, trailing `:` allowed) in exactly one
+  `TODO.md` (any directory) and changes nothing else, `design.clear` asks a
+  judge whether every criterion is clear and checkable. `yes` at `p` ≥ 0.8, with
+  no evidence truncated, runs `design.normalise`: a script writes the list to
+  `.gtd/REQUIREMENTS.md` as `AC-1`, `AC-2`, … (or keeps the sketch's own
+  `AC-<n>` IDs when every item has a distinct one), with a `git show` pointer to
+  the sketch, and the process goes straight to `seam.naive` — no triage, no
+  design gate. Anything else, including one vague criterion, falls back to
+  `design.triage`. A sketch with no such list skips the judge. With
+  `GTD_FLAG_RISK_TIER` on there is no skip path: the tier is proposed at triage
+  and set at the design gate.
+- **Frozen.** After design only another design lap (review feedback) changes
+  them: `gtd land` refuses an `implement.building` or
+  `implement.fix.suite.fixing` turn that edits them (`criteria-frozen`).
+  `seam.steer` is a human gate and may, but its edit must leave ID'd criteria,
+  as at triage.
+
+**Upgrading:** finish or `gtd abandon` before upgrading any process that has
+landed a `design.triage` turn whose `.gtd/REQUIREMENTS.md` has no ID'd
+acceptance criteria — replay re-checks that turn and refuses it — and any
+process past `start-gate.check` whose sketch held an `Acceptance criteria` list
+in a `TODO.md`. A process resting at `design.triage` keeps replaying; its next
+turn needs ID'd criteria.
+
 ### The naive-pass path
 
 The `feature` workflow's path while

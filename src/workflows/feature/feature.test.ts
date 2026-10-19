@@ -72,7 +72,10 @@ describe("planAndBuild", () => {
           unwind: () => undefined,
           "start-gate.check": () => undefined,
           "design.triage": (_, r) =>
-            r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n"),
+            r.write(
+              ".gtd/REQUIREMENTS.md",
+              "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+            ),
           "design.gate.answer": () => undefined,
           "seam.naive": (_, r) => r.write("src/calc.ts", SUBTRACT),
           "seam.judge": () => '[{"id":"shape","answer":"refactor-first","p":0.9}]',
@@ -102,7 +105,7 @@ describe("planAndBuild", () => {
     const requirements = (_: unknown, r: typeof repo) =>
       r.write(
         ".gtd/REQUIREMENTS.md",
-        "# Requirements\n\n## Concerns\n\n### Subtract\n\n- `subtract`\n",
+        "# Requirements\n\n## Concerns\n\n### Subtract\n\n- `subtract`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
       )
     const lap = {
       unwind: () => undefined,
@@ -134,7 +137,11 @@ describe("planAndBuild", () => {
     const rest = await repo.drive({
       "build.review.closing": runsItsScript,
       "re-unwind": runsItsScript,
-      "design.triage": (_, r) => r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply\n"),
+      "design.triage": (_, r) =>
+        r.write(
+          ".gtd/REQUIREMENTS.md",
+          "# Requirements\n\n- multiply\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+        ),
       "design.gate.answer": () => undefined,
     })
     expect(rest.state).toBe("implement.building")
@@ -186,7 +193,10 @@ describe("afterTail feedback lap", () => {
     await repo.land()
     await repo.drive({
       "build.review.collecting": (_, r) => {
-        r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply\n")
+        r.write(
+          ".gtd/REQUIREMENTS.md",
+          "# Requirements\n\n- multiply\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+        )
         r.write(".gtd/REVIEW.md", `${review("also export multiply")}    - A: noted.\n`)
       },
     })
@@ -199,7 +209,10 @@ describe("afterTail feedback lap", () => {
     "build.review.closing": runsItsScript,
     "re-unwind": runsItsScript,
     "design.triage": (_: unknown, r: ReturnType<typeof testRepo>) =>
-      r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply, designed\n"),
+      r.write(
+        ".gtd/REQUIREMENTS.md",
+        "# Requirements\n\n- multiply, designed\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+      ),
     "design.gate.answer": () => undefined,
   }
 
@@ -221,7 +234,10 @@ describe("afterTail feedback lap", () => {
     expect(prompts[0]).toContain("it covers everything since the base")
     expect(prompts[0]).not.toContain("only what is new since the previous review")
     const writes: Record<string, () => [string, string]> = {
-      "design.triage": () => [".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply, designed\n"],
+      "design.triage": () => [
+        ".gtd/REQUIREMENTS.md",
+        "# Requirements\n\n- multiply, designed\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+      ],
       "implement.building": () => ["src/calc.ts", `${CALC}// again\n`],
     }
     const actors = new Proxy({} as Record<string, Actor>, {
@@ -295,13 +311,20 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
     from: string,
     to: string,
   ) => {
-    if (from === "seam.steer") repo.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- steered\n")
+    if (from === "seam.steer")
+      repo.write(
+        ".gtd/REQUIREMENTS.md",
+        "# Requirements\n\n- steered\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+      )
     if (from === "build.review.reviewing") repo.write(".gtd/REVIEW.md", review())
     if (to === "build.review.collecting")
       repo.write(".gtd/REVIEW.md", review("also export multiply"))
     if (from === "build.review.collecting") {
       repo.write(".gtd/REVIEW.md", `${review("also export multiply")}    - A: noted.\n`)
-      repo.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply\n")
+      repo.write(
+        ".gtd/REQUIREMENTS.md",
+        "# Requirements\n\n- multiply\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+      )
     }
     if (to === "build.review.closing") repo.write(".gtd/REVIEW.md", review())
   }
@@ -313,7 +336,10 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
       unwind: () => undefined,
       "start-gate.check": () => undefined,
       "design.triage": (_, r) =>
-        r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n"),
+        r.write(
+          ".gtd/REQUIREMENTS.md",
+          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+        ),
       "design.gate.answer": () => undefined,
       "seam.naive": (_, r) => r.write("src/calc.ts", `${CALC}// naive\n`),
     })
@@ -356,7 +382,8 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
 })
 
 describe("an in-flight process from before the architecture path was removed", () => {
-  const REQUIREMENTS = "# Requirements\n\n## Concerns\n\n### Subtract\n\n- `subtract`\n"
+  const REQUIREMENTS =
+    "# Requirements\n\n## Concerns\n\n### Subtract\n\n- `subtract`\n\n## Acceptance Criteria\n\n- AC-1: done\n"
 
   /** Its history up to the design gate, forged with the old opening commit's `flag_naive_pass=0`. */
   const atDesignGate = async () => {
@@ -416,7 +443,10 @@ describe("flagMode", () => {
       unwind: () => undefined,
       "start-gate.check": () => undefined,
       "design.triage": (_, r) =>
-        r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n"),
+        r.write(
+          ".gtd/REQUIREMENTS.md",
+          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+        ),
       "design.gate.answer": () => undefined,
     })
   }

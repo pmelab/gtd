@@ -1,6 +1,7 @@
 import { feature } from "./feature.js"
 
 export * from "./steps.js"
+export * from "./criteria.js"
 export * from "./planning.js"
 export * from "./refactor.js"
 export * from "./seam.js"

@@ -91,7 +91,7 @@ Feature: the packed package — gtd installed from its own tarball
     And a stub agent script that responds to prompts with:
       """
       mkdir -p .gtd
-      echo "Add a calculator. No open questions." > .gtd/REQUIREMENTS.md
+      printf '## Acceptance Criteria\n\n- AC-1: a calculator exists.\n' > .gtd/REQUIREMENTS.md
       """
     When I run gtd loop
     Then it succeeds

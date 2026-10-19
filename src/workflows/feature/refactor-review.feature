@@ -46,6 +46,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
     And step "seam.naive" writes "src/calc.ts" with:
@@ -126,6 +130,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
     And step "seam.naive" writes "src/calc.ts" with:
@@ -205,6 +213,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         ### Subtract
 
         - `subtract(a, b)` returns `a - b`.
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       And step "seam.naive" writes "src/calc.ts" with:
@@ -449,6 +461,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         # Requirements
 
         - multiply, designed
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "implement.building" writes "src/calc.ts" with:
         """
@@ -1404,6 +1420,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         ### Subtract
 
         - `subtract(a, b)` returns `a - b`.
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       And step "seam.naive" writes "src/calc.ts" with:
@@ -1582,6 +1602,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         ### Subtract
 
         - `subtract(a, b)` returns `a - b`.
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       And judge step "seam.judge" answers:

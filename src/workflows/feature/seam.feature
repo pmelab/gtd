@@ -43,6 +43,10 @@ Feature: the naive pass and seam judge decide how a feature is built
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
 
@@ -184,6 +188,10 @@ Feature: the naive pass and seam judge decide how a feature is built
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`, in a new module.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When gtd lands
     Then the process rests at "seam.naive"

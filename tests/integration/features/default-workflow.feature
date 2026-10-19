@@ -66,6 +66,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Friendlier greeting
 
       `greet()` returns "hello" instead of "hi".
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     # design.triage's prompt names its bundled skill pair — grounds
     # `skills.ts`'s "design.triage" key against the real scoped name design.triage
@@ -335,6 +339,10 @@ Feature: The bundled unified workflow — one flow, end to end
       TECHNICAL — the review hand-edited `src/calc.ts` with a  # gtd-path-exempt: scenario fixture, not a repo file
       `// TODO: also export a sum() alias` comment; add a `sum` export
       alongside `add`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -425,6 +433,10 @@ Feature: The bundled unified workflow — one flow, end to end
       TECHNICAL — the review hand-edited `src/calc.ts` with a  # gtd-path-exempt: scenario fixture, not a repo file
       `// TODO: also export a sum() alias` comment; add a `sum` export
       alongside `add`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -607,6 +619,10 @@ Feature: The bundled unified workflow — one flow, end to end
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Export doubled
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     When I run gtd next with "--json"
@@ -684,6 +700,10 @@ Feature: The bundled unified workflow — one flow, end to end
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Export doubled
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     When I run gtd next with "--json"
@@ -772,6 +792,10 @@ Feature: The bundled unified workflow — one flow, end to end
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Export doubled
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     When I run gtd next with "--json"
@@ -824,6 +848,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] SQLite — zero-config, file-based
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     # answerGate: stepping with no tick is refused, even though something
@@ -840,6 +868,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] SQLite — zero-config, file-based
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it fails
@@ -856,6 +888,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [x] SQLite — zero-config, file-based
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -887,12 +923,20 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] SQLite
       - [ ] Postgres
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     # delete the whole Open Questions section — accept-all, no unanswered question remains
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a widget.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -924,6 +968,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Prisma
       - [ ] raw SQL
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     # free-text slot ticked but still the placeholder -> refused (a real dirty
@@ -939,6 +987,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Prisma
       - [ ] raw SQL
       - [x] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it fails
@@ -954,6 +1006,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Prisma
       - [ ] raw SQL
       - [x] Drizzle — typed, lightweight
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -990,6 +1046,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] SQLite — zero-config, file-based
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -1006,6 +1066,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ### Which storage backend?
 
       SQLite — zero-config, file-based.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -1024,6 +1088,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] LRU
       - [ ] TTL
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -1055,6 +1123,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ### Which storage backend?
 
       SQLite — no concurrent writers, a confident default.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -1107,6 +1179,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Add a `real` export. Also expose a helper that doubles it (folded in
       from the human's scratch note).
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -1209,6 +1285,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Add B
 
       Also export a `B` constant.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     And "fileA.ts" is modified to:
@@ -1221,6 +1301,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Add B
 
       Export a `B` constant from fileB.ts.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → implement.building"
@@ -1291,6 +1375,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Widget factory
 
       Add a widget factory.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → seam.naive"
@@ -2126,6 +2214,10 @@ Feature: The bundled unified workflow — one flow, end to end
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → seam.naive"

@@ -52,6 +52,10 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       - [ ] Plain `number` — matches JS semantics, zero extra code
       - [ ] A `Decimal` wrapper — exact arithmetic, more code to carry
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd with args "validate"
     Then it succeeds
