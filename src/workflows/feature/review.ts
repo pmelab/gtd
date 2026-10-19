@@ -300,26 +300,26 @@ export function buildTail(
       ),
     )
   }
-  const [base, { fixFirst, green, ...reviewOptions }] = options
+  const [base, form] = options
+  const { fixFirst, green, ...reviewOptions } = form
   return tail(
     fixFirst ?? false,
     (escalations) => review(base, escalations, reviewOptions),
     green ?? false,
-    reviewOptions.guard,
-    reviewOptions.lenses,
-    reviewOptions.guardRests,
-    reviewOptions.lensBase,
-    reviewOptions.rules,
+    form.guard,
+    form.lenses,
+    form.guardRests,
+    form.lensBase,
+    form.rules,
   )
 }
 
-// null reads as absent; a Promise or class instance is a mistake, not options.
-const isOptionalObject = (value: unknown): value is BuildTailOptions | null | undefined => {
-  if (value == null) return true
-  if (typeof value !== "object") return false
-  const prototype: unknown = Object.getPrototypeOf(value)
-  return prototype === Object.prototype || prototype === null
-}
+// null reads as absent; an un-awaited Promise is a mistake, not options.
+const isOptionalObject = (value: unknown): value is BuildTailOptions | null | undefined =>
+  value == null ||
+  (typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as { then?: unknown }).then !== "function")
 
 const isOptionalBoolean = (value: unknown): value is boolean | null | undefined =>
   value == null || typeof value === "boolean"
@@ -340,9 +340,7 @@ const currentForm = (
   third: unknown,
   fourth: unknown,
 ): [string, BuildTailOptions] | undefined =>
-  isOptionalObject(options) && third === undefined && fourth === undefined
-    ? [base, options ?? {}]
-    : undefined
+  isOptionalObject(options) && third == null && fourth == null ? [base, options ?? {}] : undefined
 
 // gtd.config.ts is untyped at runtime, so every argument is checked against the form chosen.
 const callForm = (
@@ -350,7 +348,7 @@ const callForm = (
   second: unknown,
   [third, fourth, ...extra]: readonly unknown[],
 ): [string, BuildTailOptions] | undefined => {
-  if (extra.some((value) => value !== undefined)) return undefined
+  if (extra.some((value) => value != null)) return undefined
   if (typeof second === "string") return legacyForm(first, second, third, fourth)
   if (typeof first === "string") return currentForm(first, second, third, fourth)
   return undefined

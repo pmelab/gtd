@@ -966,15 +966,24 @@ describe("BuildTailOptions.lensBase", () => {
           (buildTail as (...args: unknown[]) => Promise<unknown>)(
             "base",
             {},
+            null,
             undefined,
-            undefined,
-            undefined,
+            null,
           ),
         ),
       ).toEqual(omitted)
       expect(await requestNames(() => buildTail("base", null as never))).toEqual(omitted)
       expect(await requestNames(() => buildTail(false, "base", false, null as never))).toEqual(
         omitted,
+      )
+    })
+
+    it("accepts a class instance as options", async () => {
+      class Options {
+        green = true
+      }
+      expect(await requestNames(() => buildTail("base", new Options()))).toEqual(
+        await requestNames(() => buildTail("base", { green: true })),
       )
     })
 
