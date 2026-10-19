@@ -15,6 +15,7 @@ import {
   acceptanceFault,
   naiveAcceptance,
   requireAcceptance,
+  requireAcceptanceKept,
   seamBuild,
   type SeamOutcome,
 } from "./seam.js"
@@ -121,6 +122,7 @@ describe("naiveAcceptance and requireAcceptance", () => {
       matches: globMatches,
       read: (path: string) => (path === ".gtd/REQUIREMENTS.md" ? requirements : undefined),
       changesSince: () => since,
+      changes: () => since,
       refuse: (message: string) => {
         throw new Error(message)
       },
@@ -146,6 +148,14 @@ describe("naiveAcceptance and requireAcceptance", () => {
     ).toThrow(
       /^gtd land: rebuild-acceptance: .*leave out AC-2 — .*git show abc -- 'src\/a\.test\.ts'/,
     )
+  })
+
+  it("refuses a fix turn that itself drops a carried ID, never one that leaves it alone", () => {
+    const acceptance = { hash: "abc", tests: [], ids: ["AC-1"] }
+    install([file("src/calc.test.ts", 'it("[AC-1] adds")', 'it("adds")')])
+    expect(() => requireAcceptanceKept(acceptance)).toThrow(/drops AC-1/)
+    install([file("src/calc.ts", "a", "b")])
+    expect(() => requireAcceptanceKept(acceptance)).not.toThrow()
   })
 
   it("passes a rebuild whose tests name every ID, wherever they live", () => {

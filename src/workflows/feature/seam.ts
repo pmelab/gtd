@@ -168,6 +168,23 @@ export const requireAcceptance = (acceptance: t.Acceptance, since: string): void
   )
 }
 
+/**
+ * Refuse a fix turn that, on its own, drops an ID the naive pass's tests named
+ * from a test file. Turn-local, so a person's edit at an escalation rest never
+ * wedges later fix turns.
+ */
+export const requireAcceptanceKept = (acceptance: t.Acceptance): void => {
+  const dropped = acceptance.ids.filter((id) =>
+    changes()
+      .filter((c) => isCode(c.path) && isTestFile(c.path))
+      .some((c) => named(id, c.before ?? "") && !named(id, c.after ?? "")),
+  )
+  if (dropped.length === 0) return
+  refuse(
+    `gtd land: rebuild-acceptance: this turn drops ${dropped.join(", ")} from the tests — the naive pass's acceptance tests stay; fix the code, not them`,
+  )
+}
+
 const restore = (path: string): string =>
   `if git cat-file -e ${quote(`HEAD:${path}`)} 2>/dev/null; then git checkout -q HEAD -- ${quote(path)}; else rm -f -- ${quote(path)}; fi`
 
@@ -265,7 +282,7 @@ export function implement(
     if (built && acceptance !== undefined) requireAcceptance(acceptance, since)
     // Fix turns are held to the carried tests too: deleting a red one must not buy a green suite.
     await green(
-      built && acceptance !== undefined ? () => requireAcceptance(acceptance, since) : undefined,
+      built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined,
     )
     await requireCoverage()
     await run("closing", removeScript([REQUIREMENTS, REFACTOR_NOTE]), {

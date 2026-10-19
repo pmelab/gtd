@@ -153,8 +153,8 @@ Paths and text are checked, **never behaviour**.
   flag-read count): see [`refactorFirst`](docs/configuration.md#refactorfirst).
 - `seam.note` is refused when it changes anything but the note
   (`refactor-note`); the rebuild's `implement.building` when its tests leave out
-  a naive acceptance-test ID (`rebuild-acceptance`), and so is every fix turn
-  after it. **Both read text only**: the rebuild's carried tests run in the
+  a naive acceptance-test ID (`rebuild-acceptance`), and so is a fix turn that
+  drops one. **Both read text only**: the rebuild's carried tests run in the
   health loop, a carried test may be edited to reach the flag, and **a skipped
   test naming the ID passes**.
 - `gtd land` refusals in `rollout` and `cleanup`: see

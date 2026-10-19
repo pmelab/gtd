@@ -818,10 +818,11 @@ order:
    its prompt quotes the refactor note (after a refactor; the note is fixed when
    `seam.note` lands, so a later edit of the file reaches neither turn) and
    names the naive pass's acceptance tests (`git show <tip> -- <tests>`) to
-   carry over, and `gtd land` refuses it — and every
-   `implement.fix.suite.fixing` turn after it — (`rebuild-acceptance`) while the
-   test files changed since the feature slice began leave out an `AC-<n>` the
-   naive pass's tests named on an added line. The check reads test text — a
+   carry over, and `gtd land` refuses it (`rebuild-acceptance`) while the test
+   files changed since the feature slice began leave out an `AC-<n>` the naive
+   pass's tests named on an added line; an `implement.fix.suite.fixing` turn
+   that itself drops such an ID from a test file is refused the same way (a
+   person's edit at an escalation rest is not). The check reads test text — a
    skipped test passes it; the health loop is what runs them green. Then the
    health loop (`implement.health.*`, `implement.fix.suite.fixing`), the
    [coverage judge](#acceptance-criteria-coverage) (`implement.coverage`) and
