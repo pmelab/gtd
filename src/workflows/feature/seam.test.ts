@@ -79,6 +79,17 @@ describe("naivePass", () => {
     expect(request.options).toMatchObject({ keep: true })
   })
 
+  it("runs on the coder model, base by default, the coderModel setting otherwise", async () => {
+    const plain = await capture()
+    const set = await captureStep(() => naivePass(), {
+      scope: "seam",
+      env: { coderModel: "sonnet" },
+    })
+    if (plain.kind !== "agent" || set.kind !== "agent") throw new Error("unreachable")
+    expect(plain.options.model).toBe("base")
+    expect(set.options.model).toBe("sonnet")
+  })
+
   it("carries the rejection into the retry prompt", async () => {
     const request = await capture({ strays: ["src/core.ts"], p: 0.8 })
     if (request.kind !== "agent") throw new Error("unreachable")
@@ -250,6 +261,11 @@ describe("implement", () => {
     lastOptions = request.options
     return request.prompt
   }
+
+  it("builds on the coder model", async () => {
+    await building("abc")
+    expect(lastOptions?.model).toBe("base")
+  })
 
   it("after a refactor, lets an empty turn complete the step and says so", async () => {
     const prompt = await building("abc", undefined, undefined, () =>

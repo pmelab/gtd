@@ -107,3 +107,48 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
     expect(carried.prompt).toContain("Carry-over: commit `abc1234`")
   })
 })
+
+describe("the bundled workflow's model hints", () => {
+  const modelOf = async (
+    fn: () => Promise<void>,
+    context: Parameters<typeof captureStep>[1] = {},
+  ): Promise<string | undefined> => {
+    const request = await captureStep(fn, { scope: "build", ...context })
+    if (request.kind !== "agent") throw new Error(`expected an agent step, got ${request.kind}`)
+    return request.options.model
+  }
+
+  it.each([
+    ["correctness", "smart"],
+    ["owasp-security", "smart"],
+    ["spec-challenge", "smart"],
+    ["conventions", "base"],
+    ["ponytail-review", "base"],
+    ["test-audit", "base"],
+    ["my-lens", "smart"],
+  ])("lens %s defaults to %s", async (lens, model) => {
+    expect(await modelOf(() => steps.reviewQuality(lens))).toBe(model)
+  })
+
+  it("a lens's default follows the planner or coder setting it stands for", async () => {
+    const env = { plannerModel: "opus", coderModel: "sonnet" }
+    expect(await modelOf(() => steps.reviewQuality("correctness"), { env })).toBe("opus")
+    expect(await modelOf(() => steps.reviewQuality("conventions"), { env })).toBe("sonnet")
+  })
+
+  it("a model passed in wins over the lens's default; a blank one is none", async () => {
+    expect(await modelOf(() => steps.reviewQuality("correctness", undefined, "base"))).toBe("base")
+    expect(await modelOf(() => steps.reviewQuality("conventions", undefined, "opus"))).toBe("opus")
+    expect(await modelOf(() => steps.reviewQuality("conventions", undefined, ""))).toBe("base")
+  })
+
+  it("a lens named like an Object member still gets its default", async () => {
+    expect(await modelOf(() => steps.reviewQuality("constructor"))).toBe("smart")
+  })
+
+  it("the fix loop runs on the coder model, base by default", async () => {
+    expect(await modelOf(() => steps.fixCheck())).toBe("base")
+    expect(await modelOf(() => steps.fixQuality())).toBe("base")
+    expect(await modelOf(() => steps.fixCheck(), { env: { coderModel: "sonnet" } })).toBe("sonnet")
+  })
+})

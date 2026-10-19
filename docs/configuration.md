@@ -452,7 +452,10 @@ as `FeedbackTarget` and `ReviewRange`.
 
 `tail(finish, options?)` is the build tail without the review: `finish` gets the
 escalation count and runs last; `options` (`TailOptions`) takes `fixFirst`,
-`green`, `guard`, `lenses`, `guardRests`, `lensBase` and `rules`.
+`green`, `guard`, `lenses`, `guardRests`, `lensBase` and `rules`. `lenses`
+entries take the `qualityReviews` form, `<lens>` or `<lens>=<model>`
+(`lensEntriesOf` splits a list into them, `lensOf` splits one, `lensesOf` keeps
+only the names); passed in, they replace `qualityReviews` hints and all.
 `tail(fixFirst, finish, green?, guard?, lenses?, guardRests?, lensBase?, rules?)`
 is deprecated; a function second argument selects it. A call fitting neither
 form is rejected before any step runs.
@@ -1640,7 +1643,13 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   gate runs. It is interpolated into a POSIX `sh` script, so keep it
   sh-compatible.
 - **`plannerModel`** (`smart`) / **`coderModel`** (`base`) — the `model` hints
-  of the planning/reviewing steps and of the building/fixing steps.
+  of the planning/reviewing steps (design triage, the review, the `correctness`,
+  `owasp-security` and `spec-challenge` lenses) and of the building/fixing steps
+  (the naive pass, implementation, refactor, every fix loop, the `conventions`,
+  `ponytail-review` and `test-audit` lenses). A lens hint in `qualityReviews` or
+  `refactorQualityReviews` wins over either. Judge steps such as `seam.judge`
+  carry no hint: their model is the judge provider's (see
+  [Judge settings](#judge-settings)).
 
 **Process settings:**
 
@@ -1705,13 +1714,19 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   it disables the lap. `correctness` (loads `code-review-and-quality`),
   `conventions` and `spec-challenge` are built-in lenses whose brief rides in
   the prompt; every finding any lens writes, blocking or not, is fixed by the
-  one fix turn. See [Setup](./setup.md#extending-the-quality-review-lap).
+  one fix turn. An entry may carry a model hint, `<lens>=<model>` (split at the
+  first `=`, both sides trimmed; a blank hint is none): `test-audit=smart` runs
+  that lens on `smart`. A lens without one runs on `coderModel` when it is
+  `conventions`, `ponytail-review` or `test-audit`, else on `plannerModel`. The
+  hint is no part of the lens's name: its scope stays `build.quality.<lens>`.
+  See [Setup](./setup.md#extending-the-quality-review-lap).
 - **`refactorQualityReviews`** (`correctness, ponytail-review, conventions`) —
   the quality lap the refactor review runs, one turn per comma-separated lens,
   as `qualityReviews` does for the feature review. `qualityReviews` does not
   reach it, and a lens left out never sees the refactor (the feature lap reviews
   from the refactor's sign-off); blank runs no refactor quality lap. Each lens
-  is its own scope, keyed `refactor.build.quality.<lens>`.
+  is its own scope, keyed `refactor.build.quality.<lens>`. Entries take the same
+  `<lens>=<model>` hints, read from this list alone.
 - **`reviewBase`** (empty) — the commitish `--workflow review` reviews from
   (`gtd door review` sets it).
 

@@ -66,15 +66,17 @@ export const builtInLenses: Readonly<Record<string, BuiltInLens>> = {
   "spec-challenge": { skills: [], brief: t.specChallengeBrief },
 }
 
+const coderLenses: ReadonlySet<string> = new Set(["conventions", "ponytail-review", "test-audit"])
+
 /** One quality review through `lens`; each lens is its own scope, so its own conversation and skills. */
-export const reviewQuality = (lens: string, base?: string): Promise<void> =>
+export const reviewQuality = (lens: string, base?: string, model?: string): Promise<void> =>
   t.agentWithSkills(
     `quality.${lens}.reviewing`,
     t.buildQualityReviewingPrompt(lens, builtInLenses[lens]?.brief, base),
     {
       label: "Reviewing (one quality lens)",
       file: QUALITY,
-      model: planner(),
+      model: model || (coderLenses.has(lens) ? coder() : planner()),
       system: t.reviewerSystem(),
       allowEmpty: true,
     },

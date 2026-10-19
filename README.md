@@ -471,13 +471,16 @@ noted in steps 3 and 4 below.
    Once the change is built, the whole change goes through a qualitative review
    lap before you see anything: six lenses, one turn each, in order —
    `correctness`, `owasp-security`, `ponytail-review`, `test-audit`,
-   `conventions`, `spec-challenge`. Each traces the change from its own angle
-   and records every finding, blocking or not; one fix turn then fixes ALL of
-   them once, with no re-review after the fix. A clean turn means approval only
-   when that lens found nothing at all. This lap is where code quality is looked
-   at, and every round pays for it. It never replaces step 4 — your review stays
-   the final gate, and nothing here skips it. The `fix` door (below) repairs a
-   red baseline through this same lap.
+   `conventions`, `spec-challenge`. `correctness`, `owasp-security` and
+   `spec-challenge` run on the planner model (`smart`), the other three on the
+   coder model (`base`); a `qualityReviews` entry `<lens>=<model>` picks a
+   lens's own. Each traces the change from its own angle and records every
+   finding, blocking or not; one fix turn then fixes ALL of them once, with no
+   re-review after the fix. A clean turn means approval only when that lens
+   found nothing at all. This lap is where code quality is looked at, and every
+   round pays for it. It never replaces step 4 — your review stays the final
+   gate, and nothing here skips it. The `fix` door (below) repairs a red
+   baseline through this same lap.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes

@@ -35,8 +35,11 @@ export const qualityLap = (
   base?: string,
 ): Promise<"clean" | "findings"> =>
   kit.qualityLap(
-    lenses ?? kit.lensesOf(vars.qualityReviews ?? ""),
-    guarded((lens: string) => reviewQuality(lens, base), guard),
+    lenses ?? kit.lensEntriesOf(vars.qualityReviews ?? ""),
+    guarded((entry: string) => {
+      const { lens, model } = kit.lensOf(entry)
+      return reviewQuality(lens, base, model)
+    }, guard),
     QUALITY,
   )
 
@@ -77,7 +80,7 @@ export interface TailOptions {
   readonly green?: boolean | undefined
   /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
   readonly guard?: Guard | undefined
-  /** Quality-lap lenses; default `lensesOf(vars.qualityReviews)`. */
+  /** Quality-lap lens entries, `<lens>` or `<lens>=<model>`; default `lensEntriesOf(vars.qualityReviews)`. */
   readonly lenses?: readonly string[] | undefined
   /** `false` leaves the escalation's human rests unguarded; default `true`. */
   readonly guardRests?: boolean | undefined
